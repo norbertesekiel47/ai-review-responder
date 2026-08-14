@@ -40,8 +40,18 @@ import {
 import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
 import { getStripe } from '@/lib/payments/stripe-client';
-import type { CheckoutAttemptLeaseColumns } from './checkout-attempt';
-import { stripeTaxEnabled, trialEnabled } from './flags';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { makeAnalyticsEventKey } from '@/lib/analytics/events';
+import { createWorkerLogger } from '@/lib/shared/logger';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
+import {
+  checkoutCouponDecisionLabel,
+  type CheckoutAttemptLeaseColumns,
+  type CheckoutCouponDecisionReason,
+} from './checkout-attempt';
+import { betaCompCouponId, stripeTaxEnabled, trialEnabled } from './flags';
+
+const LOG_PREFIX = '[checkout-attempt]';
 
 // ── applyTierSnapshot ────────────────────────────────────────────────────
 
@@ -68,6 +78,12 @@ interface SelectionAccountRow
   subscription_status: string;
   price_variant: string;
   active_locations: number;
+  /**
+   * `onboarded_by` of the Account's PRIMARY Business — the beta comp's
+   * eligibility marker (non-null = admin/partner invitee). Read as a scalar
+   * subquery, never through the `active_locations` join: see the SELECT.
+   */
+  primary_onboarded_by: string | null;
 }
 
 function isSameAttemptSelection(
@@ -162,6 +178,17 @@ interface CheckoutCreateShape {
   cancelUrl: string;
   trialPeriodDays: 30 | null;
   taxEnabled: boolean;
+  /**
+   * The beta comp Stripe Coupon ID, or `null` for an explicit NO-COUPON
+   * decision. Persisted either way (migration 105).
+   */
+  couponId: string | null;
+  /**
+   * Why `couponId` came out the way it did. Log/telemetry only — deliberately
+   * NOT persisted, because the attempt snapshot exists to reproduce Stripe
+   * PARAMETERS byte-for-byte and the reason is not one.
+   */
+  couponReason: CheckoutCouponDecisionReason;
 }
 
 /**
@@ -169,22 +196,41 @@ interface CheckoutCreateShape {
  * before the durable attempt is written. Retries always use this stored shape
  * rather than re-reading flags, email, or deployment URL under the same Stripe
  * idempotency key.
+ *
+ * The beta comp coupon is resolved HERE, not at session-creation time, for
+ * exactly that reason: `BETA_COMP_COUPON_ID` could be flipped between an
+ * attempt's creation and a retry, and a live read would then produce different
+ * Stripe params under the SAME per-attempt idempotency key (plan step 2 /
+ * review-log round 1 finding 4). Eligibility comes from the caller-supplied
+ * `primaryOnboardedBy` — the Account's PRIMARY Business — never from an
+ * arbitrary location on a multi-location Account (round 3 finding 3).
  */
 function resolveCheckoutCreateShape(
   ownerEmail: string,
   trial: boolean,
+  primaryOnboardedBy: string | null,
 ): CheckoutCreateShape {
   const customerEmail = ownerEmail.trim();
   if (!customerEmail) {
     throw new Error('Checkout owner email is required');
   }
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const configuredCoupon = primaryOnboardedBy !== null ? betaCompCouponId() : null;
+  const couponId = primaryOnboardedBy !== null ? (configuredCoupon ?? null) : null;
+  const couponReason: CheckoutCouponDecisionReason =
+    primaryOnboardedBy === null
+      ? 'not_invited'
+      : couponId === null
+        ? 'env_unset'
+        : 'applied';
   return {
     customerEmail,
     successUrl: `${baseUrl}/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${baseUrl}/onboarding/pay?cancelled=true`,
     trialPeriodDays: trial ? 30 : null,
     taxEnabled: stripeTaxEnabled(),
+    couponId,
+    couponReason,
   };
 }
 
@@ -234,7 +280,11 @@ async function prepareCheckoutAttempt(
     const sameSelection = isSameAttemptSelection(row, input.tier, input.variant);
     if (!sameSelection) {
       assertTierPurchasable(input.tier);
-      checkoutCreateShape = resolveCheckoutCreateShape(input.ownerEmail, input.trial);
+      checkoutCreateShape = resolveCheckoutCreateShape(
+        input.ownerEmail,
+        input.trial,
+        row.primary_onboarded_by,
+      );
       newAttemptPricing = resolveNewAttemptPricing(input.tier, input.variant);
     }
     const priorResolution = await resolvePriorOpenSession(
@@ -267,7 +317,11 @@ async function prepareCheckoutAttempt(
     kind: 'create',
     checkoutCreateShape:
       checkoutCreateShape ??
-      resolveCheckoutCreateShape(input.ownerEmail, input.trial),
+      resolveCheckoutCreateShape(
+        input.ownerEmail,
+        input.trial,
+        row.primary_onboarded_by,
+      ),
     newAttemptPricing:
       newAttemptPricing ?? resolveNewAttemptPricing(input.tier, input.variant),
   };
@@ -329,6 +383,20 @@ export async function applyTierSnapshot(
         a.checkout_attempt_locations_paid,
         a.checkout_attempt_overage_quantity,
         a.checkout_attempt_trial_period_days,
+        -- Beta comp eligibility, scoped to the Account's PRIMARY Business.
+        -- Deliberately a SCALAR SUBQUERY and not an extra predicate on the
+        -- LEFT JOIN below: that join feeds COUNT(b.id) AS active_locations, so
+        -- an AND b.is_primary = TRUE there would silently collapse the location
+        -- count to 1 and mis-price every multi-location attempt. An unscoped
+        -- read of onboarded_by would be just as wrong the other way -- the
+        -- coupon decision would depend on an arbitrary location
+        -- (admin-invite-funnel review-log round 3 finding 3).
+        (SELECT pb.onboarded_by
+           FROM businesses pb
+          WHERE pb.account_id = a.id
+            AND pb.is_primary = TRUE
+            AND pb.archived_at IS NULL
+          LIMIT 1) AS primary_onboarded_by,
         ao.id AS offboarding_id,
         ao.account_id AS offboarding_account_id,
         ao.mode AS offboarding_mode,
@@ -384,7 +452,11 @@ export async function applyTierSnapshot(
       ownerEmail,
       trial,
     });
-    if (preparation.kind === 'reuse') return preparation.result;
+    // A reused attempt took its coupon decision when it was created; there is
+    // nothing new to report, and re-emitting would double-count the funnel.
+    if (preparation.kind === 'reuse') {
+      return { ...preparation.result, couponDecision: null };
+    }
     const { checkoutCreateShape, newAttemptPricing } = preparation;
     const { snapshot, basePriceId, overagePriceId } = newAttemptPricing;
 
@@ -444,16 +516,110 @@ export async function applyTierSnapshot(
           checkout_attempt_customer_email = ${checkoutCreateShape.customerEmail},
           checkout_attempt_success_url = ${checkoutCreateShape.successUrl},
           checkout_attempt_cancel_url = ${checkoutCreateShape.cancelUrl},
+          -- NULL here is an explicit NO-COUPON DECISION, not an absence: it is
+          -- the recorded answer for every self-serve owner and for an invitee
+          -- whose comp is switched off, and migration 105's active branch
+          -- leaves it unconstrained precisely so a full-price attempt is still
+          -- a COMPLETE attempt. Written in the same statement as the rest of
+          -- the snapshot so no attempt can exist without its coupon answer.
+          checkout_attempt_coupon_id = ${checkoutCreateShape.couponId},
           checkout_attempt_updated_at = NOW(),
           updated_at = NOW()
       WHERE id = ${accountId}::uuid
     `;
-    return { kind: 'ok' as const, accountId, variant, attemptId };
+    // The coupon decision rides OUT of the transaction on the result so it can
+    // be reported after COMMIT — see recordCouponDecision.
+    return {
+      kind: 'ok' as const,
+      accountId,
+      variant,
+      attemptId,
+      couponDecision: {
+        couponId: checkoutCreateShape.couponId,
+        reason: checkoutCreateShape.couponReason,
+      },
+    };
   });
-  if (result.kind === 'ok') {
-    await synchronizeBusinessTierMirror(sql, result.accountId);
+  if (result.kind !== 'ok') return result;
+
+  await synchronizeBusinessTierMirror(sql, result.accountId);
+  if (result.couponDecision) {
+    await recordCouponDecision(sql, {
+      accountId: result.accountId,
+      attemptId: result.attemptId,
+      actorUserId,
+      ...result.couponDecision,
+    });
   }
-  return result;
+  return {
+    kind: 'ok',
+    accountId: result.accountId,
+    variant: result.variant,
+    attemptId: result.attemptId,
+  };
+}
+
+/**
+ * Best-effort observability for the beta comp decision, run AFTER the
+ * tier-snapshot transaction commits.
+ *
+ * Post-commit and log-and-swallow, both deliberately:
+ *   - Post-commit because `checkout_coupon_decision` is admitted by the
+ *     `analytics_events.event_name` CHECK only once migration 106 is applied;
+ *     emitting inside `sql.begin` would let an unapplied 106 abort the whole
+ *     tier snapshot (the blast radius migration 102's header describes).
+ *   - Log-and-swallow because a telemetry failure caught by the caller would
+ *     turn an already-committed attempt into a failed plan selection
+ *     (CLAUDE.md: never let observability poison the success path).
+ *
+ * The raw coupon id is NOT logged: an admin diagnosing a miss needs the
+ * DECISION, and the id is already recoverable from the attempt row. It appears
+ * in exactly one place — the invalid-coupon error message in
+ * create-checkout-session.ts, where naming it IS the actionable content.
+ */
+async function recordCouponDecision(
+  sql: Sql,
+  input: {
+    accountId: string;
+    attemptId: string;
+    actorUserId?: string | null;
+    couponId: string | null;
+    reason: CheckoutCouponDecisionReason;
+  },
+): Promise<void> {
+  const decision = checkoutCouponDecisionLabel(input.reason);
+  createWorkerLogger(LOG_PREFIX).log('Beta comp coupon decision', {
+    account_id: input.accountId,
+    attempt_id: input.attemptId,
+    decision,
+    reason: input.reason,
+    coupon_applied: input.couponId !== null,
+  });
+  try {
+    await enqueueAnalyticsEvent(sql, {
+      eventName: 'checkout_coupon_decision',
+      // One decision per attempt by construction — the attempt id is minted in
+      // the same transaction that takes the decision, so a replay of this
+      // emission drops on ON CONFLICT (event_key) DO NOTHING.
+      eventKey: makeAnalyticsEventKey('checkout_coupon_decision', [
+        input.attemptId,
+      ]),
+      distinctId: input.accountId,
+      accountId: input.accountId,
+      userId: input.actorUserId ?? null,
+      properties: {
+        decision,
+        reason: input.reason,
+        coupon_applied: input.couponId !== null,
+      },
+    });
+  } catch (err) {
+    reportCaughtError('checkout-attempt', err, {
+      reason: 'checkout_coupon_decision_analytics_enqueue_failed',
+      accountId: input.accountId,
+      attemptId: input.attemptId,
+    });
+  }
 }
 
 // ── resolveCheckoutContext ───────────────────────────────────────────────

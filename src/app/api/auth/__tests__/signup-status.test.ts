@@ -98,12 +98,32 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('GET /api/auth/signup-status', () => {
-  it('returns 404 when SELF_SERVE_SIGNUP_ENABLED !== "true"', async () => {
+  it('serves an authenticated owner when SELF_SERVE_SIGNUP_ENABLED is off', async () => {
+    // The re-scoped flag gates anonymous account-minting only. This poller
+    // carries an admin-invited owner across the payment transition, so it must
+    // answer while the flag is off; the boundary is the session + the SQL
+    // `u.role = 'owner'` filter.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([rowFor({ subscription_status: 'pending_payment' })]);
+
     const res = await GET(mkReq());
-    expect(res.status).toBe(404);
-    expect(mockGetUser).not.toHaveBeenCalled();
-    expect(mockSql).not.toHaveBeenCalled();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.subscriptionStatus).toBe('pending_payment');
+    expect(json.role).toBe('owner');
+  });
+
+  it('answers in pending_payment AND post-payment states so polling cannot 403 mid-transition', async () => {
+    // No subscription-state gate: the Stripe projection may not have landed yet
+    // when the payment-success poller asks. Narrowing this route to one status
+    // would 403 the owner in exactly that window.
+    for (const status of ['pending_payment', 'active', 'trialing', 'past_due']) {
+      mockSql.mockResolvedValueOnce([rowFor({ subscription_status: status })]);
+      const res = await GET(mkReq());
+      expect(res.status).toBe(200);
+      expect((await res.json()).subscriptionStatus).toBe(status);
+    }
   });
 
   it('returns 401 when no session (getUser returns { user: null })', async () => {

@@ -295,3 +295,14 @@ CSV content.
 - **Required properties:** `decision` (`accepted` or `declined`)
 - **Optional properties:** none
 - **Privacy notes:** IDs and the closed decision enum only — never review text, reviewer names, or handles.
+
+### `checkout_coupon_decision`
+- **Status:** live
+- **Description:** The beta comp coupon decision taken for one **Checkout attempt** (admin-invite-funnel plan step 11). Answers the only operationally interesting question — *was an admin-invited beta tester comped, and if not, why not* — before that tester reaches a card form. "No coupon" is the correct, common outcome for every self-serve owner, so the fact alone is not actionable; the `reason` separates working-as-intended (`not_invited`) from a misconfigured comp (`env_unset`: the Account IS an invitee but `BETA_COMP_COUPON_ID` is unset). Emitted once per attempt, at the moment the decision is taken and frozen into `accounts.checkout_attempt_coupon_id`; a REUSED attempt emits nothing, because no new decision was made. The name is registered in the `analytics_events.event_name` CHECK by **migration 106** — the DB CHECK, not the TS allowlist, is what admits the name. The emission is deliberately POST-COMMIT and wrapped in its own `try`/`catch` (`reportCaughtError`, then swallow), so an unregistered name or any other insert failure costs this metric and a Sentry-reported handled error, never the tier snapshot and never the owner's plan selection.
+- **Owner:** `recordCouponDecision` (`src/lib/payments/plan-activation.ts`), immediately after `applyTierSnapshot`'s transaction commits
+- **Source:** server-side (durable; **not** client-postable — a client-postable variant would let anyone forge the comp funnel)
+- **Distinct ID:** account ID
+- **Event key:** `checkout_coupon_decision:<attempt_id>` — the attempt id is minted inside the same transaction that takes the decision, so it is unique per decision and a replay drops on `ON CONFLICT (event_key) DO NOTHING`.
+- **Required properties:** `decision` (`applied` | `skipped:not_invited` | `skipped:env_unset`), `reason` (`applied` | `not_invited` | `env_unset`), `coupon_applied` (boolean)
+- **Optional properties:** none
+- **Privacy notes:** IDs, the closed decision/reason enums, and one boolean. The raw Stripe Coupon ID is deliberately **absent** — an operator reading this event needs the decision, and the id is already on the attempt row. It appears in exactly one place, the invalid-coupon error message, where naming it is the actionable content.

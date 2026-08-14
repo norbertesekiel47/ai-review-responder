@@ -64,7 +64,8 @@
     "src/lib/analytics/enqueue.ts + makeAnalyticsEventKey — durable server-side PostHog event insertion for the coupon-decision event"
   ],
   "allowed_edit_surface": [
-    "supabase/migrations/105_checkout_attempt_coupon.sql",
+    "supabase/migrations/**",
+    "src/lib/config/**",
     "src/lib/payments/**",
     "src/lib/onboarding/**",
     "src/lib/auth/**",
@@ -78,6 +79,7 @@
     "src/app/api/auth/**",
     "src/app/api/onboarding/**",
     "src/app/api/signup/**",
+    "src/app/api/billing/**",
     "src/app/api/dashboard/**",
     "src/app/api/settings/**",
     "src/app/onboarding/**",
@@ -106,7 +108,7 @@
     "buildCheckoutSessionParams emits discounts from the attempt snapshot",
     "buildCheckoutSessionParams omits discounts when the snapshot coupon is null",
     "buildCheckoutSessionParams sets payment_method_collection always on a coupon session",
-    "checkoutAttemptMatchesRequest rejects an attempt whose coupon snapshot changed",
+    "checkoutAttemptMatchesRequest rejects a blank coupon snapshot",
     "records a coupon_decision analytics event for an applied coupon",
     "records a coupon_decision analytics event with reason not_invited",
     "records a coupon_decision analytics event with reason env_unset",

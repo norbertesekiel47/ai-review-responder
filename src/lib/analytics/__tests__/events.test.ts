@@ -37,6 +37,10 @@ describe('analytics events', () => {
       // migration 102 and emitted by src/lib/reviews/import-consent.ts.
       'import_offer_created',
       'import_decision_recorded',
+      // admin-invite-funnel T3 — the beta comp coupon decision, registered in
+      // the DB CHECK by migration 106 and emitted post-commit by
+      // src/lib/payments/plan-activation.ts.
+      'checkout_coupon_decision',
     ]);
   });
 

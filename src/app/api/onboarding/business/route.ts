@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql } from '@/lib/db/server';
@@ -60,13 +59,19 @@ interface ForUpdateRow {
   google_maps_url: string | null;
 }
 
+/**
+ * POST /api/onboarding/business
+ *
+ * Guard: same origin + authenticated session + `u.role = 'owner'` at the SQL
+ * boundary (step 3) + `subscriptionGrantsFullAccess(status)` (step 4) +
+ * wizard-state guard (step 5). It carries no `SELF_SERVE_SIGNUP_ENABLED`
+ * check — the flag now means only "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * and an admin-invited owner completes this same post-payment wizard while it
+ * is off.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // 1. Feature flag — hide the route entirely when off.
-  if (!selfServeSignupEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
-  }
-
-  // 2. Same-origin check. CSRF here would weaponize the owner's Supabase
+  // 1. Same-origin check. CSRF here would weaponize the owner's Supabase
   //    cookie to fill a placeholder business with attacker-controlled
   //    Place ID / business name / sample responses.
   try {
@@ -78,7 +83,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
-  // 3. Read session via cookie-bound anon client. setAll is a no-op — no
+  // 2. Read session via cookie-bound anon client. setAll is a no-op — no
   //    cookie refresh on this write endpoint.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -102,7 +107,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
   }
 
-  // 4. Look up the business owned by this auth user. Service-role sql
+  // 3. Look up the business owned by this auth user. Service-role sql
   //    enforces the auth_id scope in the WHERE clause (no RLS on businesses).
   //
   //    Defense-in-depth: explicit `u.role = 'owner'` filter. Proxy gates
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 5. Subscription gate — wizard requires `active` or `trialing`. The dashboard
+  // 4. Subscription gate — wizard requires `active` or `trialing`. The dashboard
   //    pending-payment banner steers the owner to /onboarding/pay if they reach
   //    this flow before Stripe confirms.
   if (!subscriptionGrantsFullAccess(bizRow.subscription_status)) {
@@ -150,7 +155,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // route rejected the location it submitted (409 onboarding_not_started).
   const demoFlowEnabled = shouldUseDemoWizard(onboardingDemoEnabled(), bizRow);
 
-  // 6. Onboarding-state guard. Branches by ONBOARDING_DEMO_ENABLED:
+  // 5. Onboarding-state guard. Branches by ONBOARDING_DEMO_ENABLED:
   //
   //    Demo flow ON (post-pay wizard): location was captured at /onboarding/start
   //    BEFORE Stripe. If we reach here without it, the user skipped /start —
@@ -176,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // 7. Strict per-authId rate limit. Owners typically submit once; 10/hour
+  // 6. Strict per-authId rate limit. Owners typically submit once; 10/hour
   //    leaves slack for validation-error retries. Redis-down fails closed
   //    with 503 so the cap can't be bypassed during a cache outage.
   try {
@@ -197,7 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 8. Parse + validate body.
+  // 7. Parse + validate body.
   let body: unknown;
   try {
     body = await req.json();
@@ -221,7 +226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // knows are present.
   const data = parsed.data as BusinessOnboardingInput & Partial<BusinessOnboardingPostPayInput>;
 
-  // 9. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
+  // 8. Resolve place id state. PlaceAutocomplete path supplies googlePlaceId
   //    directly (verified) — review ingestion is now webhook-driven via Zernio,
   //    so no outbox row is needed for the verified path.
   //    Maps URL path supplies googleMapsUrl which the PlaceIdValidationWorker
@@ -258,7 +263,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const avoidFacts = splitCommaOrNewline(data.avoidFacts);
   const sampleResponses = splitParagraphs(data.sampleResponses);
 
-  // 10. Atomic UPDATE + outbox INSERT.
+  // 9. Atomic UPDATE + outbox INSERT.
   //     Advisory lock matches the Stripe webhook key shape (`<bizId>:activation`)
   //     so the wizard cannot race against a concurrent webhook delivery for
   //     the same business — even though the webhook no longer enqueues, future
@@ -350,12 +355,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         WHERE id = ${bizRow.account_id}::uuid
       `;
 
+      // Same widened predicate as /api/onboarding/start, so the sync rule has
+      // ONE spelling across both onboarding writers: an admin-invited account is
+      // born with the real business name (never the placeholder), so a
+      // placeholder-only predicate would never fire and an owner renaming the
+      // business mid-onboarding would leave Account and Business divergent.
+      // Post-activation renames stay out of scope (plan step 5).
+      //
+      // The `pending_payment` branch is defensive here — step 4 already required
+      // `subscriptionGrantsFullAccess`, so this route only ever runs
+      // post-payment. It is kept identical to /start's predicate deliberately:
+      // divergent spellings of one rule are how the rule rots.
       if (data.businessName) {
         await tx`
           UPDATE accounts
           SET display_name = ${data.businessName}, updated_at = NOW()
           WHERE id = ${bizRow.account_id}::uuid
-            AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
+            AND (
+              subscription_status = 'pending_payment'  -- enum: SubscriptionStatus.PENDING_PAYMENT
+              OR display_name = ${PLACEHOLDER_BUSINESS_NAME}
+            )
         `;
       }
 

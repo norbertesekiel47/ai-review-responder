@@ -80,7 +80,16 @@ export interface TenantScopeAllowlistEntry {
 //   401 → 398 (#765), a SHRINK. Four caller-local next-response-version reads
 //     moved behind one reviewed helper after each caller's existing review
 //     ownership proof/lock. The globally unique review id remains the key.
-export const ALLOWLIST_BASELINE = 398;
+//   398 → 399 (admin-invite-funnel T4), a GROWTH of one. `GET
+//     /api/signup/place-prefill` stopped being an unauthenticated,
+//     flag-gated endpoint and gained an owner + pre-activation-state lookup;
+//     that new read is the guard itself, scoped through Supabase `auth_id` to
+//     `users.account_id` exactly like its onboarding siblings. Four existing
+//     onboarding entries had their snippets refreshed in the same change (the
+//     `/onboarding/pay` page query gained `AND u.role = 'owner'`, the
+//     `/onboarding/start` page query gained `b.name` for the invited-owner
+//     name prefill) — same scope key, tighter or equal predicates.
+export const ALLOWLIST_BASELINE = 399;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1463,31 +1472,47 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
+  // The two /onboarding/pay entries: snippet refreshed when the page gained
+  // `AND u.role = 'owner'` — the filter that replaced its
+  // SELF_SERVE_SIGNUP_ENABLED gate. Strictly tighter than the shape it replaces.
   {
     file: "src/app/onboarding/pay/page.tsx",
     table: "accounts",
-    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/onboarding/pay/page.tsx",
     table: "businesses",
-    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
+  // The two /onboarding/start entries: snippet refreshed when the page added
+  // `b.name`, read so an admin-invited owner sees the admin-typed business name
+  // instead of an empty input. Same scope key, one extra projected column.
   {
     file: "src/app/onboarding/start/page.tsx",
     table: "accounts",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/app/onboarding/start/page.tsx",
     table: "businesses",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
+    category: 'supabase-auth-id',
+    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+  },
+  // New: the owner + pre-activation-state lookup that replaced this route's
+  // SELF_SERVE_SIGNUP_ENABLED gate. The read IS the guard — without it a
+  // SerpAPI-billed endpoint would be permanently public.
+  {
+    file: "src/app/api/signup/place-prefill/route.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT u.role, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },

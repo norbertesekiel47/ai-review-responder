@@ -169,17 +169,27 @@ describe('POST /api/auth/reset-password', () => {
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
-  // ── Role-based flag gate ─────────────────────────────────────────
+  // ── Flag scope: password recovery is NOT gated ───────────────────
 
-  it('returns 404 when flag off AND session user role=owner', async () => {
+  it('reset-password API completes for an owner when SELF_SERVE_SIGNUP_ENABLED is off', async () => {
+    // The re-scoped flag means only "strangers may mint accounts". Under the
+    // documented beta posture it is OFF, and an admin-invited owner arrives
+    // here from the invite email — a gate made password recovery impossible
+    // for exactly the cohort the invite flow exists to serve.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
 
     const res = await POST(mkReq({ password: 'a-new-strong-password' }));
-    expect(res.status).toBe(404);
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
-    expect(mockGetAal).not.toHaveBeenCalled();
-    expect(mockUpdateUser).not.toHaveBeenCalled();
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      password: 'a-new-strong-password',
+    });
+    // The deliberate posture around the write is unchanged by the flag removal:
+    // the recovery session is destroyed and the owner is routed through /login.
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    const json = await res.json();
+    expect(json.redirectTo).toBe('/login');
   });
 
   it('returns 200 + calls updateUser when flag off AND session role=admin (admins never gated)', async () => {

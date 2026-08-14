@@ -348,6 +348,38 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 | `STRIPE_PRICE_COPILOT_OVERAGE` | Immutable USD monthly Copilot extra-location Price; exactly 1500 cents |
 | `STRIPE_PRICE_AUTOPILOT_OVERAGE` | Immutable USD monthly Autopilot extra-location Price; exactly 2000 cents |
 | `FOUNDING_DEADLINE` | Exact launch value `2027-01-01T00:00:00Z`. Parsed as strict UTC; founding eligibility is exactly `now() < deadline`. Missing/malformed fails closed to list pricing and emits an operational alert. |
+| `BETA_COMP_COUPON_ID` | **Unset by default.** Server-only (Vercel), **no `NEXT_PUBLIC_*` companion** (inv #13), **not** a worker var — see below. |
+
+### `BETA_COMP_COUPON_ID` — the admin-invite beta comp
+
+The Stripe **Coupon** ID (100% off, `duration=repeating`,
+`duration_in_months=3`) applied to an admin-invited beta tester's Checkout
+Session (admin-invite-funnel plan steps 1–2). Create the coupon in Stripe **test
+mode for staging and live mode for prod** — the two IDs differ, and a test-mode
+ID deployed to live fails every invited tester's checkout. Set it on **Vercel,
+staging first**; it is deliberately absent from the worker lane because no
+worker code path reaches `applyTierSnapshot` (verified: the only importers are
+`/api/onboarding/select-plan` and `/api/billing/checkout`).
+
+Eligibility is `businesses.onboarded_by IS NOT NULL` on the account's **primary**
+Business AND this var being set. The decision is taken ONCE inside
+`applyTierSnapshot`'s transaction, under the activation lock, and snapshotted
+into `accounts.checkout_attempt_coupon_id` (**migration 105**);
+`createCheckoutSession` then emits `discounts: [{ coupon }]` plus an explicit
+`payment_method_collection: 'always'` from that snapshot alone. A live read at
+session-creation time is forbidden: every Session parameter is built under a
+per-attempt Stripe idempotency key, so an env flip between an attempt and its
+retry would produce different params under the same key.
+
+**Unsetting it is the kill switch — for NEW attempts only.** An attempt already
+snapshotted keeps its comp; that is the idempotency contract, not a bug. Empty
+or whitespace-only reads as unset (collapsing `optionalVar`), so a blank value
+switches the comp off cleanly instead of sending Stripe a blank coupon.
+Read through `betaCompCouponId()` (`src/lib/payments/flags.ts`) — never a raw
+`process.env` read. Every decision is logged and emitted as the durable
+`checkout_coupon_decision` analytics event (**migration 106** must be applied
+first); a coupon Stripe rejects raises `CheckoutCouponConfigurationError` and a
+Sentry report rather than a generic checkout failure.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.

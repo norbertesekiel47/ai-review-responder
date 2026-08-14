@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -31,16 +30,6 @@ type SelectPlanRequestGate =
 async function validateSelectPlanRequest(
   req: NextRequest,
 ): Promise<SelectPlanRequestGate> {
-  if (!selfServeSignupEnabled()) {
-    return {
-      kind: 'response',
-      response: NextResponse.json(
-        { error: 'not_found' },
-        { status: 404, headers: NO_STORE },
-      ),
-    };
-  }
-
   try {
     assertSameOrigin(req);
   } catch (err) {
@@ -165,7 +154,13 @@ async function validateSelectPlanRequest(
  * Auth: cookie-bound Supabase session. Caller must be the owner of an
  * account in `pending_payment` status. Active / past_due / cancelled
  * are rejected — those states are the dashboard's billing-recovery
- * surface, not a fresh signup.
+ * surface, not a fresh signup. That trio (session, `u.role = 'owner'` at the
+ * SQL boundary below, and the `pending_payment` check `applyTierSnapshot`
+ * makes while holding the activation lock → 409 `subscription_not_pending`)
+ * IS the boundary: this route carries no `SELF_SERVE_SIGNUP_ENABLED` gate,
+ * because the flag now means only "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`)
+ * and an admin-invited owner buys through this same route while it is off.
  *
  * Same-origin: yes — this UPDATEs account state, so a CSRF-driven call
  * with a victim's cookies could flip them to a different tier.

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db/server';
@@ -18,9 +17,16 @@ interface BusinessDataRow extends WizardGuardRow {
 
 export const metadata: Metadata = { title: 'Set up your business | RepWorth' };
 
+/**
+ * Guard: authenticated session + `u.role = 'owner'` +
+ * `subscriptionGrantsFullAccess(status)` + wizard-incomplete — all four owned
+ * by `resolveWizardDestination` in `./guard.ts`, unchanged. The former
+ * `SELF_SERVE_SIGNUP_ENABLED` check is gone: the flag now means only
+ * "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * and an admin-invited owner finishes this wizard while it is off.
+ */
 export default async function OnboardingBusinessPage() {
-  if (!selfServeSignupEnabled()) notFound();
-
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

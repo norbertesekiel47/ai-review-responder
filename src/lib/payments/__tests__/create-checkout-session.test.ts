@@ -17,12 +17,23 @@ const {
   expireSessionMock,
   retrieveSubscriptionMock,
   cancelSubscriptionMock,
+  reportCaughtErrorMock,
+  loggerMock,
 } = vi.hoisted(() => ({
   createMock: vi.fn(),
   retrieveSessionMock: vi.fn(),
   expireSessionMock: vi.fn(),
   retrieveSubscriptionMock: vi.fn(),
   cancelSubscriptionMock: vi.fn(),
+  reportCaughtErrorMock: vi.fn(),
+  loggerMock: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('@/lib/shared/report-caught-error', () => ({
+  reportCaughtError: reportCaughtErrorMock,
+}));
+vi.mock('@/lib/shared/logger', () => ({
+  createWorkerLogger: () => loggerMock,
 }));
 
 vi.mock('@/lib/payments/stripe-client', () => ({
@@ -41,6 +52,7 @@ vi.mock('@/lib/payments/stripe-client', () => ({
   }),
 }));
 import {
+  CheckoutCouponConfigurationError,
   CheckoutOffboardingBlockedError,
   createCheckoutSession,
 } from '../create-checkout-session';
@@ -86,6 +98,7 @@ function attemptRow(input: {
   customerEmail?: string;
   successUrl?: string;
   cancelUrl?: string;
+  couponId?: string | null;
 } = {}) {
   const tier = input.tier ?? SubscriptionTier.COPILOT;
   const variant = input.variant ?? 'list';
@@ -128,6 +141,7 @@ function attemptRow(input: {
       'https://frozen.example.com/onboarding/payment-success?session_id={CHECKOUT_SESSION_ID}',
     checkout_attempt_cancel_url:
       input.cancelUrl ?? 'https://frozen.example.com/onboarding/pay?cancelled=true',
+    checkout_attempt_coupon_id: input.couponId ?? null,
   };
 }
 
@@ -185,6 +199,10 @@ beforeEach(() => {
   });
   cancelSubscriptionMock.mockReset();
   cancelSubscriptionMock.mockResolvedValue({ id: 'sub_stale', status: 'canceled' });
+  reportCaughtErrorMock.mockReset();
+  loggerMock.log.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
   for (const [key, value] of Object.entries(PRICE_ENV)) vi.stubEnv(key, value);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com');
   resetServerConfigForTests();
@@ -581,5 +599,135 @@ describe('createCheckoutSession trial and tax shape', () => {
     });
     expect(second).not.toHaveProperty('automatic_tax');
     expect(createMock.mock.calls[0]![1]).toEqual(createMock.mock.calls[1]![1]);
+  });
+});
+
+// buildCheckoutSessionParams and checkoutAttemptMatchesRequest stay
+// module-private: this suite already drives them through createCheckoutSession
+// with a mocked Stripe client, which also proves the params actually reach
+// sessions.create rather than merely being constructed.
+describe('createCheckoutSession beta comp coupon', () => {
+  const COUPON_ID = 'beta_comp_3mo';
+
+  it('buildCheckoutSessionParams emits discounts from the attempt snapshot', async () => {
+    // The env is deliberately EMPTY here: the coupon must come from the frozen
+    // snapshot alone, never from a live read at session-creation time.
+    vi.stubEnv('BETA_COMP_COUPON_ID', '');
+    resetServerConfigForTests();
+    queueCreate(attemptRow({ couponId: COUPON_ID }));
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    const params = createMock.mock.calls[0]![0];
+    expect(params.discounts).toEqual([{ coupon: COUPON_ID }]);
+    expect(params.allow_promotion_codes).toBe(false);
+  });
+
+  it('buildCheckoutSessionParams omits discounts when the snapshot coupon is null', async () => {
+    // A live env value must NOT leak into a full-price attempt.
+    vi.stubEnv('BETA_COMP_COUPON_ID', COUPON_ID);
+    resetServerConfigForTests();
+    queueCreate(attemptRow({ couponId: null }));
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    const params = createMock.mock.calls[0]![0];
+    expect(params).not.toHaveProperty('discounts');
+    expect(params).not.toHaveProperty('payment_method_collection');
+  });
+
+  it('buildCheckoutSessionParams sets payment_method_collection always on a coupon session', async () => {
+    queueCreate(attemptRow({ couponId: COUPON_ID }));
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    // $0 due today must still capture a card — the beta's card-up-front promise.
+    expect(createMock.mock.calls[0]![0].payment_method_collection).toBe('always');
+  });
+
+  it('checkoutAttemptMatchesRequest rejects a blank coupon snapshot', async () => {
+    queueLocksAndAttempt(attemptRow({ couponId: '   ' }));
+
+    await expect(
+      createCheckoutSession(
+        mockSql,
+        ACCOUNT_ID,
+        SubscriptionTier.COPILOT,
+        'list',
+        options(),
+      ),
+    ).rejects.toBeInstanceOf(CheckoutAttemptConflictError);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a Stripe invalid-coupon error to an admin-visible checkout message', async () => {
+    queueLocksAndAttempt(attemptRow({ couponId: COUPON_ID }));
+    const stripeError = Object.assign(
+      new Error('No such coupon: beta_comp_3mo'),
+      {
+        type: 'StripeInvalidRequestError',
+        code: 'resource_missing',
+        param: 'discounts[0][coupon]',
+        statusCode: 400,
+      },
+    );
+    createMock.mockRejectedValueOnce(stripeError);
+
+    const failure = await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(CheckoutCouponConfigurationError);
+    expect((failure as Error).message).toContain(COUPON_ID);
+    expect((failure as Error).message).toContain('BETA_COMP_COUPON_ID');
+    expect(reportCaughtErrorMock).toHaveBeenCalledWith(
+      'checkout-session',
+      stripeError,
+      expect.objectContaining({ reason: 'stripe_rejected_beta_comp_coupon' }),
+    );
+  });
+
+  it('leaves a non-coupon Stripe failure to the existing compensation path', async () => {
+    queueLocksAndAttempt(attemptRow({ couponId: COUPON_ID }));
+    const stripeError = Object.assign(new Error('No such price: price_gone'), {
+      type: 'StripeInvalidRequestError',
+      code: 'resource_missing',
+      param: 'line_items[0][price]',
+      statusCode: 400,
+    });
+    createMock.mockRejectedValueOnce(stripeError);
+
+    await expect(
+      createCheckoutSession(
+        mockSql,
+        ACCOUNT_ID,
+        SubscriptionTier.COPILOT,
+        'list',
+        options(),
+      ),
+    ).rejects.toBe(stripeError);
+    expect(reportCaughtErrorMock).not.toHaveBeenCalled();
   });
 });

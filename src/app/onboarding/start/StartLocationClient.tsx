@@ -44,6 +44,16 @@ const initialStartLocationState: StartLocationState = {
   error: '',
 };
 
+interface StartLocationClientProps {
+  /**
+   * Server-rendered seed for the business-name field. The page passes the
+   * Business row's `name` when it is not the creation placeholder, so an
+   * admin-invited owner sees the name the admin typed instead of an empty box.
+   * Empty string for the self-serve path (placeholder name).
+   */
+  initialBusinessName?: string;
+}
+
 type StartLocationAction =
   | { type: 'setBusinessName'; businessName: string }
   | { type: 'setGoogleMapsUrl'; googleMapsUrl: string }
@@ -107,9 +117,14 @@ function startLocationReducer(
   }
 }
 
-export function StartLocationClient() {
+export function StartLocationClient({
+  initialBusinessName = '',
+}: StartLocationClientProps = {}) {
   const router = useRouter();
-  const [state, dispatch] = useReducer(startLocationReducer, initialStartLocationState);
+  const [state, dispatch] = useReducer(startLocationReducer, {
+    ...initialStartLocationState,
+    businessName: initialBusinessName,
+  });
   const {
     inputMode,
     googlePlaceId,

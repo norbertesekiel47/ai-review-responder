@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **105** — next migration is **106**
+Current head: **106** — next migration is **107**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,32 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **106** — `checkout_coupon_analytics_event`: registers ONE new
+  `analytics_events.event_name` value, `checkout_coupon_decision`
+  (admin-invite-funnel plan step 11 / ticket T3,
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`). Same shape as
+  046 → 058 → 069 → 089 → 094 → 097 → 102: DROP + re-ADD of
+  `analytics_events_event_name_check` with a list that is a strict superset of
+  102's, in the same order, under `SET lock_timeout = '5s'` (the swap takes a
+  brief ACCESS EXCLUSIVE lock and re-validates existing rows). **Why a
+  migration:** the DB CHECK, not `ANALYTICS_EVENT_NAMES`, is what admits an
+  event name — registering it only in TypeScript raises 23514 at insert, and
+  `ci:analytics-events` cannot catch that (it compares the TS allowlist against
+  `docs/analytics/events.md`, never the database). **Blast radius of an
+  unapplied 106:** bounded by construction — `recordCouponDecision`
+  (`src/lib/payments/plan-activation.ts`) emits POST-COMMIT inside its own
+  try/catch (`reportCaughtError`, then swallow), so a rejected insert costs the
+  metric plus a Sentry-reported handled error, never the tier snapshot, the
+  Checkout attempt, or the owner's plan selection. Deploy ordering still stands:
+  STAGING first, then PRODUCTION, in both cases BEFORE the emitting code — the
+  event is the only durable signal that an invited beta tester's comp was
+  silently skipped. **Constraint-only** (no new relation, column or index; the
+  constraint name has existed since 046) → **no `SchemaRequirement` export, no
+  `assertSchemaReady` entry, no RLS change, no retention-policy row** — 094, 097
+  and 102 record the same reasoning. Rollback: revert the deploy; the constraint
+  is a superset of the old one and the event simply stops being emitted.
+  **LOCAL-ONLY** — not yet on staging or production.
 
 - **105** — `checkout_attempt_coupon`: the beta comp coupon on the **Checkout
   attempt** snapshot (admin-invite-funnel plan step 2 / ticket T1,

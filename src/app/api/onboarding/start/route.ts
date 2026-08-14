@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
@@ -112,11 +111,21 @@ async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams):
     WHERE id = ${p.bizRow.id}::uuid
   `;
 
+  // Keep the Account's display_name in step with the Business name while the
+  // account is still pre-activation. The placeholder-only predicate was correct
+  // when EVERY account was born with `(pending setup)`; an admin-invited account
+  // is born with the real business name the admin typed, so that predicate would
+  // never fire and an owner renaming the business at /onboarding/start would
+  // leave Account and Business divergent. Post-activation renames stay out of
+  // scope (deliberate — see plan step 5).
   await tx`
     UPDATE accounts
     SET display_name = ${p.data.businessName}, updated_at = NOW()
     WHERE id = ${p.bizRow.account_id}::uuid
-      AND display_name = ${PLACEHOLDER_BUSINESS_NAME}
+      AND (
+        subscription_status = 'pending_payment'  -- enum: SubscriptionStatus.PENDING_PAYMENT
+        OR display_name = ${PLACEHOLDER_BUSINESS_NAME}
+      )
   `;
 
   if (p.validatePayload) {
@@ -165,12 +174,20 @@ async function persistOnboardingStart(tx: TxClient, p: OnboardingStartTxParams):
   return true;
 }
 
+/**
+ * POST /api/onboarding/start
+ *
+ * Guard: `ONBOARDING_DEMO_ENABLED` (the demo lane's own kill switch) + same
+ * origin + authenticated session + `u.role = 'owner'` at the SQL boundary +
+ * `subscription_status = 'pending_payment'`. The former
+ * `SELF_SERVE_SIGNUP_ENABLED` check is gone — the flag now means only
+ * "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * and an admin-invited owner walks this same funnel while it is off. The
+ * double gate becomes a single demo gate.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!onboardingDemoEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
-  }
-
-  if (!selfServeSignupEnabled()) {
     return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
   }
 

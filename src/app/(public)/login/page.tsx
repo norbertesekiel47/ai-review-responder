@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
-import { notFound } from 'next/navigation';
 import { AuthIslandClient } from '@/components/auth/auth-island/AuthIslandClient';
 import { noindexRobots } from '@/lib/seo';
 
 export const metadata: Metadata = { title: 'Log in · RepWorth', robots: noindexRobots };
 
+/**
+ * Always-on. `SELF_SERVE_SIGNUP_ENABLED` now means only "strangers may mint
+ * accounts" (see `docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * so it must not hide the login page: admin-invited beta owners need to sign in
+ * — and to recover a password — while the flag is off.
+ */
 export default function OwnerLoginPage() {
-  if (!selfServeSignupEnabled()) notFound();
   return <AuthIslandClient initialMode="login" />;
 }

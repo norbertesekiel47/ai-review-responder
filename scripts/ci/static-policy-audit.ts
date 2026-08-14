@@ -215,6 +215,14 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   //    each keeps the literal + a trailing `-- enum: SubscriptionStatus.X` comment) ──
   'src/app/api/admin/billing/grant-extension/route.ts:70',
   'src/app/api/admin/billing/grant-extension/route.ts:108',
+  // The two onboarding display_name sync predicates (admin-invite-funnel T4).
+  // `accounts.display_name` must re-sync with the Business name while the
+  // account is pre-activation, not only when it still holds the creation
+  // placeholder — an admin-invited account is born with the real name, so the
+  // placeholder-only predicate never fired for it. Both sites spell the
+  // predicate identically on purpose; divergent spellings of one rule rot.
+  'src/app/api/onboarding/business/route.ts:375',
+  'src/app/api/onboarding/start/route.ts:126',
   // Line moved 142 → 149 by #773 (Promise.all fan-out sequenced); same SQL
   // predicate, same trailing `-- enum:` annotation, unchanged text.
   'src/lib/admin/margin-service.ts:149',

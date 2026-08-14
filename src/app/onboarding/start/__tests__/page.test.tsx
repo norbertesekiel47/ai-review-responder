@@ -36,6 +36,7 @@ vi.mock('../StartLocationClient', () => ({
 }));
 
 const { default: OnboardingStartPage } = await import('../page');
+const { PLACEHOLDER_BUSINESS_NAME } = await import('@/lib/onboarding/create-business');
 
 describe('OnboardingStartPage guard', () => {
   beforeEach(() => {
@@ -76,5 +77,81 @@ describe('OnboardingStartPage guard', () => {
     await expect(OnboardingStartPage()).rejects.toThrow('NEXT_REDIRECT');
 
     expect(mockRedirect).toHaveBeenCalledWith('/login');
+  });
+
+  it('redirects a past_due owner to the dashboard', async () => {
+    // The allowed state for this step is exactly pending_payment. past_due used
+    // to fall through every negative check and render a form whose POST answers
+    // 409 — stating the rule positively closes that.
+    mockSql.mockResolvedValueOnce([
+      {
+        role: 'owner',
+        subscription_status: 'past_due',
+        place_id_verified: false,
+        google_maps_url: null,
+        name: PLACEHOLDER_BUSINESS_NAME,
+      },
+    ]);
+
+    await expect(OnboardingStartPage()).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('onboarding start prefills the business name when it is not the placeholder', async () => {
+    // An admin-invited owner's Business row already carries the real name the
+    // admin typed; a self-serve owner's carries '(pending setup)'. Only the
+    // former is a real answer, so only the former seeds the input — and it is a
+    // server-rendered prop, never a client fetch.
+    mockSql.mockResolvedValueOnce([
+      {
+        role: 'owner',
+        subscription_status: 'pending_payment',
+        place_id_verified: false,
+        google_maps_url: null,
+        name: 'Acme Dental',
+      },
+    ]);
+
+    const element = await OnboardingStartPage();
+
+    expect(mockRedirect).not.toHaveBeenCalled();
+    expect(element.props.initialBusinessName).toBe('Acme Dental');
+  });
+
+  it('does not prefill the business name when it is still the placeholder', async () => {
+    mockSql.mockResolvedValueOnce([
+      {
+        role: 'owner',
+        subscription_status: 'pending_payment',
+        place_id_verified: false,
+        google_maps_url: null,
+        name: PLACEHOLDER_BUSINESS_NAME,
+      },
+    ]);
+
+    const element = await OnboardingStartPage();
+
+    expect(element.props.initialBusinessName).toBe('');
+  });
+
+  it('renders for a pending_payment owner when SELF_SERVE_SIGNUP_ENABLED is off', async () => {
+    // The demo lane's double gate collapsed to a single ONBOARDING_DEMO_ENABLED
+    // gate; the re-scoped signup flag no longer hides the funnel.
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([
+      {
+        role: 'owner',
+        subscription_status: 'pending_payment',
+        place_id_verified: false,
+        google_maps_url: null,
+        name: PLACEHOLDER_BUSINESS_NAME,
+      },
+    ]);
+
+    const element = await OnboardingStartPage();
+
+    expect(element).toBeTruthy();
+    expect(mockRedirect).not.toHaveBeenCalled();
   });
 });

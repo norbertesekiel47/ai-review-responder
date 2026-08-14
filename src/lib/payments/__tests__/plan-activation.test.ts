@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fc from 'fast-check';
 import type { Sql } from 'postgres';
 import {
   createMockSql,
   mkTaggedResult,
   type MockSqlHarness,
+  type RecordedSqlCall,
 } from '../../../../worker/__tests__/helpers/mock-sql';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
+import { resetServerConfigForTests } from '@/lib/config/server';
 
 const {
   mockTrialEnabled,
@@ -13,17 +16,31 @@ const {
   mockAssertTierPurchasable,
   retrieveSessionMock,
   expireSessionMock,
+  reportCaughtErrorMock,
+  loggerMock,
 } = vi.hoisted(() => ({
   mockTrialEnabled: vi.fn(),
   mockStripeTaxEnabled: vi.fn(),
   mockAssertTierPurchasable: vi.fn(),
   retrieveSessionMock: vi.fn(),
   expireSessionMock: vi.fn(),
+  reportCaughtErrorMock: vi.fn(),
+  loggerMock: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../flags', () => ({
+// `betaCompCouponId` is deliberately NOT mocked: the coupon decision's second
+// input is the env var itself, so these tests drive the REAL accessor through
+// getServerConfig() and prove the wiring, not a stub.
+vi.mock('../flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../flags')>()),
   trialEnabled: mockTrialEnabled,
   stripeTaxEnabled: mockStripeTaxEnabled,
+}));
+vi.mock('@/lib/shared/report-caught-error', () => ({
+  reportCaughtError: reportCaughtErrorMock,
+}));
+vi.mock('@/lib/shared/logger', () => ({
+  createWorkerLogger: () => loggerMock,
 }));
 vi.mock('@/lib/payments/tier-purchasability', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/payments/tier-purchasability')>()),
@@ -84,6 +101,7 @@ function accountRow(overrides: Record<string, unknown> = {}) {
     checkout_attempt_locations_included: null,
     checkout_attempt_locations_paid: null,
     checkout_attempt_overage_quantity: null,
+    primary_onboarded_by: null,
     ...overrides,
   };
 }
@@ -158,7 +176,46 @@ beforeEach(() => {
   vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', 'price_autopilot_founding');
   vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', 'price_copilot_overage');
   vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_autopilot_overage');
+  reportCaughtErrorMock.mockReset();
+  loggerMock.log.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
+  // Comp OFF by default: '' collapses to undefined through optionalVar, which
+  // is exactly the kill-switch position.
+  vi.stubEnv('BETA_COMP_COUPON_ID', '');
+  resetServerConfigForTests();
 });
+
+/** Stub the comp env var and force the memoized server config to re-read it. */
+function setBetaCompCoupon(value: string | undefined): void {
+  vi.stubEnv('BETA_COMP_COUPON_ID', value ?? '');
+  resetServerConfigForTests();
+}
+
+/** The single `UPDATE accounts SET checkout_attempt_…` lease write. */
+function leaseWriteCall(): RecordedSqlCall {
+  const call = harness.sqlCalls.find((entry) =>
+    /UPDATE\s+accounts[\s\S]*checkout_attempt_state\s*=\s*'creating'/i.test(entry.text),
+  );
+  if (!call) throw new Error('no Checkout attempt lease write was issued');
+  return call;
+}
+
+/** The bound value of `checkout_attempt_coupon_id` on the lease write. */
+function snapshottedCouponId(): unknown {
+  const call = leaseWriteCall();
+  const placeholderIndex = call.text
+    .slice(0, call.text.indexOf('checkout_attempt_coupon_id'))
+    .split('?').length - 1;
+  return call.values[placeholderIndex];
+}
+
+/** The analytics INSERT emitted after the snapshot transaction commits. */
+function couponAnalyticsCall(): RecordedSqlCall | undefined {
+  return harness.sqlCalls.find((entry) =>
+    /INSERT INTO analytics_events/i.test(entry.text),
+  );
+}
 
 describe('applyTierSnapshot authoritative Checkout attempt', () => {
   it('writes the full founding Autopilot lease and pending billing snapshot in fixed lock order', async () => {
@@ -214,7 +271,8 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       ]),
     );
     expect(harness.sqlReturnQueue).toHaveLength(0);
-    expect(calls).toHaveLength(13);
+    // 13 as before + the post-commit coupon-decision analytics INSERT.
+    expect(calls).toHaveLength(14);
   });
 
   it('reuses the stable identity for the same creating attempt', async () => {
@@ -334,7 +392,8 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
       {},
       { idempotencyKey: `checkout-attempt-expire:v1:${SESSION_ID}` },
     );
-    expect(harness.sqlCalls).toHaveLength(13);
+    // 13 as before + the post-commit coupon-decision analytics INSERT.
+    expect(harness.sqlCalls).toHaveLength(14);
     expect(harness.sqlReturnQueue).toHaveLength(0);
   });
 
@@ -494,6 +553,193 @@ describe('applyTierSnapshot authoritative Checkout attempt', () => {
     expect(harness.sqlCalls).toHaveLength(5);
     expect(harness.sqlReturnQueue).toHaveLength(0);
     expect(retrieveSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyTierSnapshot beta comp coupon snapshot', () => {
+  const COUPON_ID = 'beta_comp_3mo';
+  const ADMIN_ID = '33333333-4444-4555-8666-777777777777';
+
+  async function selectCopilot(row: Record<string, unknown>) {
+    queueNewSelection(accountRow(row));
+    queueBusinessMirrorSync(SubscriptionTier.COPILOT);
+    return applyTierSnapshot(mockSql, {
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.COPILOT,
+    });
+  }
+
+  it('snapshots the coupon id when the primary business is admin-onboarded and BETA_COMP_COUPON_ID is set', async () => {
+    setBetaCompCoupon(COUPON_ID);
+
+    const result = await selectCopilot({ primary_onboarded_by: ADMIN_ID });
+
+    expect(result).toMatchObject({ kind: 'ok' });
+    expect(snapshottedCouponId()).toBe(COUPON_ID);
+  });
+
+  it('snapshots NULL when BETA_COMP_COUPON_ID is unset', async () => {
+    setBetaCompCoupon(undefined);
+
+    await selectCopilot({ primary_onboarded_by: ADMIN_ID });
+
+    // An invitee with the comp switched off is an explicit no-coupon DECISION,
+    // not a missing value — and the reason must say so.
+    expect(snapshottedCouponId()).toBeNull();
+    expect(loggerMock.log).toHaveBeenCalledWith(
+      'Beta comp coupon decision',
+      expect.objectContaining({ decision: 'skipped:env_unset', reason: 'env_unset' }),
+    );
+  });
+
+  it('snapshots NULL when the primary business is self-serve (onboarded_by IS NULL)', async () => {
+    setBetaCompCoupon(COUPON_ID);
+
+    await selectCopilot({ primary_onboarded_by: null });
+
+    expect(snapshottedCouponId()).toBeNull();
+    expect(loggerMock.log).toHaveBeenCalledWith(
+      'Beta comp coupon decision',
+      expect.objectContaining({ decision: 'skipped:not_invited' }),
+    );
+  });
+
+  it('resolves coupon eligibility from the primary business on a multi-location account', async () => {
+    setBetaCompCoupon(COUPON_ID);
+
+    // Three active locations, only the PRIMARY one carries onboarded_by.
+    await selectCopilot({ primary_onboarded_by: ADMIN_ID, active_locations: 3 });
+
+    const selectCall = harness.sqlCalls.find((call) =>
+      /primary_onboarded_by/.test(call.text),
+    )!;
+    // The eligibility read is a scalar subquery over the primary Business …
+    expect(selectCall.text).toMatch(
+      /SELECT pb\.onboarded_by[\s\S]*pb\.is_primary = TRUE[\s\S]*AS primary_onboarded_by/,
+    );
+    // … and the COUNT join stays unfiltered, so the location count survives.
+    expect(selectCall.text).not.toMatch(/LEFT JOIN businesses b[\s\S]*b\.is_primary/);
+    expect(snapshottedCouponId()).toBe(COUPON_ID);
+    // Copilot includes 1 location, so 3 active locations must still bill 2
+    // overage seats — the regression an is_primary join predicate would cause.
+    expect(leaseWriteCall().values).toEqual(expect.arrayContaining([2]));
+  });
+
+  it('records a coupon_decision analytics event for an applied coupon', async () => {
+    setBetaCompCoupon(COUPON_ID);
+
+    const result = await selectCopilot({ primary_onboarded_by: ADMIN_ID });
+
+    const call = couponAnalyticsCall();
+    expect(call).toBeDefined();
+    expect(call!.values).toEqual(
+      expect.arrayContaining([
+        'checkout_coupon_decision',
+        `checkout_coupon_decision:${result.kind === 'ok' ? result.attemptId : ''}`,
+      ]),
+    );
+    expect(call!.values).toContainEqual(
+      expect.objectContaining({
+        decision: 'applied',
+        reason: 'applied',
+        coupon_applied: true,
+      }),
+    );
+    // Post-commit, never inside the tier-snapshot transaction: an unapplied
+    // migration 106 must not be able to abort the snapshot.
+    expect(call!.inTransaction).toBe(false);
+  });
+
+  it('records a coupon_decision analytics event with reason not_invited', async () => {
+    setBetaCompCoupon(COUPON_ID);
+
+    await selectCopilot({ primary_onboarded_by: null });
+
+    expect(couponAnalyticsCall()!.values).toContainEqual(
+      expect.objectContaining({ reason: 'not_invited', coupon_applied: false }),
+    );
+  });
+
+  it('records a coupon_decision analytics event with reason env_unset', async () => {
+    setBetaCompCoupon(undefined);
+
+    await selectCopilot({ primary_onboarded_by: ADMIN_ID });
+
+    expect(couponAnalyticsCall()!.values).toContainEqual(
+      expect.objectContaining({ reason: 'env_unset', coupon_applied: false }),
+    );
+  });
+
+  it('never lets a failed analytics emission fail an already-committed attempt', async () => {
+    setBetaCompCoupon(COUPON_ID);
+    queueNewSelection(accountRow({ primary_onboarded_by: ADMIN_ID }));
+    queueBusinessMirrorSync(SubscriptionTier.COPILOT);
+    harness.sqlReturnQueue.push(
+      Promise.reject(new Error('23514 analytics_events_event_name_check')),
+    );
+
+    await expect(
+      applyTierSnapshot(mockSql, {
+        accountId: ACCOUNT_ID,
+        activationLockId: BUSINESS_ID,
+        tier: SubscriptionTier.COPILOT,
+      }),
+    ).resolves.toMatchObject({ kind: 'ok' });
+    expect(reportCaughtErrorMock).toHaveBeenCalledWith(
+      'checkout-attempt',
+      expect.any(Error),
+      expect.objectContaining({
+        reason: 'checkout_coupon_decision_analytics_enqueue_failed',
+      }),
+    );
+  });
+
+  it('reusing an existing attempt takes no new coupon decision', async () => {
+    setBetaCompCoupon(COUPON_ID);
+    queueLocksAndRow(
+      copilotAttempt({
+        checkout_session_id: null,
+        checkout_attempt_state: 'creating',
+        primary_onboarded_by: ADMIN_ID,
+      }),
+    );
+    queueBusinessMirrorSync(SubscriptionTier.COPILOT);
+
+    await applyTierSnapshot(mockSql, {
+      accountId: ACCOUNT_ID,
+      activationLockId: BUSINESS_ID,
+      tier: SubscriptionTier.COPILOT,
+    });
+
+    expect(couponAnalyticsCall()).toBeUndefined();
+    expect(loggerMock.log).not.toHaveBeenCalled();
+  });
+
+  describe('invariants', () => {
+    it('snapshots a coupon iff the primary business is admin-onboarded AND the env var is set', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.option(fc.constant(ADMIN_ID), { nil: null }),
+          fc.option(fc.string({ minLength: 1, maxLength: 24 }).map((s) => s.trim()), {
+            nil: undefined,
+          }),
+          async (primaryOnboardedBy, configuredCoupon) => {
+            harness.resetMockSql();
+            setBetaCompCoupon(configuredCoupon);
+
+            await selectCopilot({ primary_onboarded_by: primaryOnboardedBy });
+
+            const invited = primaryOnboardedBy !== null;
+            const comped = configuredCoupon !== undefined && configuredCoupon !== '';
+            const snapshot = snapshottedCouponId();
+            expect(snapshot !== null).toBe(invited && comped);
+            if (invited && comped) expect(snapshot).toBe(configuredCoupon);
+          },
+        ),
+        { numRuns: 40 },
+      );
+    });
   });
 });
 

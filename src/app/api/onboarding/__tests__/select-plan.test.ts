@@ -116,14 +116,49 @@ beforeEach(() => {
 });
 
 describe('POST /api/onboarding/select-plan', () => {
-  it('returns a private no-store 404 when self-serve signup is disabled', async () => {
+  it('creates a Session for an owner when self-serve signup is disabled', async () => {
+    // The re-scoped flag gates anonymous account-minting only; an
+    // admin-invited owner buys through this same route while it is off. The
+    // boundary is session + `u.role = 'owner'` + the pending_payment check
+    // applyTierSnapshot makes under the activation lock.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     resetServerConfigForTests();
     const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      paymentUrl: 'https://checkout.stripe.test/session',
+    });
+    expect(mockApplyTierSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('select-plan rejects a non-pending_payment account', async () => {
+    // The state gate that replaced the flag: applyTierSnapshot re-reads the
+    // status while holding the activation lock and refuses anything but
+    // pending_payment, so an already-active owner cannot double-subscribe.
+    mockApplyTierSnapshot.mockResolvedValueOnce({
+      kind: 'wrong_status',
+      status: 'active',
+    });
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(409);
     expectPrivateNoStore(res);
-    expect(mockCreateServerClient).not.toHaveBeenCalled();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({
+      error: 'subscription_not_pending',
+      subscriptionStatus: 'active',
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('scopes the business lookup to an owner role at the SQL boundary', async () => {
+    // Proxy does not gate /api/onboarding/* on role, so the filter here is the
+    // authorization invariant — not a convenience.
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    const callArgs = mockSql.mock.calls[0] as unknown[];
+    const query = (callArgs[0] as TemplateStringsArray).join('?');
+    expect(query).toContain("u.role = 'owner'");
   });
 
   it('returns a private no-store 400 for invalid JSON before auth', async () => {

@@ -69,6 +69,7 @@ beforeEach(() => {
   mockReserveBudget.mockResolvedValue({ release: vi.fn(), date: '2026-05-03' });
   mockCheckBotId.mockResolvedValue({ isBot: false, isHuman: true, isVerifiedBot: false, bypassed: false });
   process.env.ONBOARDING_DEMO_ENABLED = 'true';
+  process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
 });
 
 describe('POST /api/onboarding/start', () => {
@@ -136,6 +137,71 @@ describe('POST /api/onboarding/start', () => {
 
     expect(res.status).toBe(200);
     expect(txCalls.some((text) => text.includes('UPDATE accounts'))).toBe(true);
+  });
+
+  it('onboarding start syncs accounts.display_name while pending_payment', async () => {
+    // An admin-invited account is born holding the real business name the admin
+    // typed, never the '(pending setup)' placeholder — so the old
+    // placeholder-only predicate would never fire and an owner renaming the
+    // business here would leave Account and Business divergent.
+    mockSql.mockResolvedValueOnce([pendingBizRow]);
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [pendingBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+
+    const displayNameUpdate = txCalls.find(
+      (text) => text.includes('UPDATE accounts') && text.includes('display_name'),
+    );
+    expect(displayNameUpdate).toBeDefined();
+    expect(displayNameUpdate).toContain("subscription_status = 'pending_payment'");
+    expect(displayNameUpdate).toContain('OR display_name =');
+  });
+
+  it('onboarding start route rejects a non-owner user', async () => {
+    // The SQL boundary carries the `u.role = 'owner'` filter that replaced the
+    // SELF_SERVE_SIGNUP_ENABLED gate. Proxy does not gate /api/onboarding/* on
+    // role, so an admin or sales_partner session must read as "no row" here
+    // rather than reaching whichever business their account points at.
+    mockSql.mockResolvedValueOnce([]); // owner-filtered lookup finds nothing
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('account_incomplete');
+    expect(mockSql.begin).not.toHaveBeenCalled();
+
+    const callArgs = mockSql.mock.calls[0] as unknown[];
+    const query = (callArgs[0] as TemplateStringsArray).join('?');
+    expect(query).toContain("u.role = 'owner'");
+  });
+
+  it('serves a pending_payment owner when SELF_SERVE_SIGNUP_ENABLED is off', async () => {
+    // The demo lane's double gate collapsed to a single ONBOARDING_DEMO_ENABLED
+    // gate; the re-scoped signup flag no longer hides the funnel.
+    process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([pendingBizRow]);
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) =>
+        strings.join('?').includes('FOR UPDATE') ? [pendingBizRow] : [],
+      );
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).redirectTo).toBe('/onboarding/demo');
   });
 
   it('returns 200 + demoQueued=false reason=cost_ceiling when cost guard trips', async () => {

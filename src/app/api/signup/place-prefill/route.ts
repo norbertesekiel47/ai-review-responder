@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { isPlaceId } from '@/lib/reviews/url-parser';
 import { fetchBusinessDetails } from '@/lib/reviews/serpapi-prefill';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 // ── Documented invariant exception ───────────────────────────────────
 // CLAUDE.md invariant: "Vercel serves UI only. All SLA-critical compute
@@ -15,30 +16,64 @@ import { fetchBusinessDetails } from '@/lib/reviews/serpapi-prefill';
 //      it on selection; no automation).
 //   2. The wizard needs sub-second feedback to fill the form.
 //   3. `fetchBusinessDetails` enforces a 2s timeout (SERPAPI_TIMEOUT_MS).
-//   4. A 10/min per-IP strict rate limit (Redis-down → 503) caps SerpAPI
-//      spend even under malicious traffic.
+//   4. Two strict 10/min rate limits (per IP and per auth id, Redis-down
+//      → 503) cap SerpAPI spend even under malicious traffic.
 //   5. Costs land in `api_costs` (business_id=NULL) on every call,
 //      including timeouts/errors.
 //
 // Structurally mirrors the admin route. Differences:
-//   - Auth: none (the wizard caller is owner-authed via cookie, but the
-//     prefill itself is just a Place ID lookup; we gate on the same flag
-//     that hides the entire signup flow when off).
-//   - Rate-limit key: IP-based (`getIpKey(req, 'signup-prefill')`),
-//     because the request is owner-context but reaching the wizard
-//     already required auth + active subscription elsewhere in the flow.
+//   - Auth: an authenticated OWNER whose Account is still pre-activation
+//     (`pending_payment`). This route used to be deliberately
+//     unauthenticated, gated only by `SELF_SERVE_SIGNUP_ENABLED` + a
+//     per-IP limit. That flag now means only "strangers may mint
+//     accounts" (see
+//     `docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+//     and dropping it without adding auth would have left a
+//     SerpAPI-billed endpoint permanently public. The session IS the
+//     gate now.
+//   - Rate-limit keys: BOTH the pre-existing per-IP key and a per-auth-id
+//     key mirroring the admin route, so one owner cannot rotate IPs to
+//     multiply SerpAPI spend.
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
+interface PrefillGuardRow {
+  role: string;
+  subscription_status: string;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // 1. Feature flag — hide the route entirely when off.
-  if (!selfServeSignupEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+  // 1. Authenticated session via cookie-bound anon client. setAll is a
+  //    no-op — this is a read-only lookup and never rewrites cookies.
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // Read-only.
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: 'unauthorized' },
+      { status: 401, headers: NO_STORE },
+    );
   }
 
-  // 2. Validate query param.
+  // 2. Validate query param before the DB read — a malformed request
+  //    should not cost a round trip.
   const placeId = request.nextUrl.searchParams.get('place_id');
   if (!placeId) {
     return NextResponse.json(
@@ -53,7 +88,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 3. Strict per-IP rate limit. Redis-down fails closed with 503 so a
+  // 3. Owner + pre-activation state. Owner-only filter at the SQL
+  //    boundary (proxy does not gate `/api/signup/*` on role), so an
+  //    admin or sales_partner session reads as "no row" → 404. An
+  //    activated owner has no business calling a signup-funnel prefill:
+  //    403 keeps the SerpAPI spend scoped to accounts actually walking
+  //    the funnel.
+  const [row] = await sql<PrefillGuardRow[]>`
+    SELECT u.role, a.subscription_status
+    FROM users u
+    JOIN accounts a ON a.id = u.account_id
+    WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
+    LIMIT 1
+  `;
+  if (!row) {
+    return NextResponse.json(
+      { error: 'not_found' },
+      { status: 404, headers: NO_STORE },
+    );
+  }
+  if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
+    return NextResponse.json(
+      { error: 'forbidden' },
+      { status: 403, headers: NO_STORE },
+    );
+  }
+
+  // 4. Strict per-IP rate limit. Redis-down fails closed with 503 so a
   //    cache outage cannot bypass the SerpAPI spend cap.
   try {
     const { allowed } = await checkRateLimit(
@@ -75,7 +137,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 4. Fetch prefill — never throws; worst case returns all-null.
+  // 5. Strict per-auth-id rate limit, mirroring the admin prefill route.
+  //    The per-IP cap alone lets one owner behind rotating egress IPs
+  //    (mobile NAT, VPN) spend uncapped; this one is the identity-scoped
+  //    ceiling. Same fail-closed posture.
+  try {
+    const { allowed } = await checkRateLimit(
+      `prefill:minute:${user.id}`,
+      10,
+      60,
+      { strict: true },
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded — try again in a minute' },
+        { status: 429, headers: NO_STORE },
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { error: 'Prefill temporarily unavailable' },
+      { status: 503, headers: NO_STORE },
+    );
+  }
+
+  // 6. Fetch prefill — never throws; worst case returns all-null.
   const prefill = await fetchBusinessDetails(sql, placeId);
 
   return NextResponse.json(prefill, { status: 200, headers: NO_STORE });

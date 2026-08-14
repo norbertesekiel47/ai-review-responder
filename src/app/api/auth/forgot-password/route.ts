@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { sql, supabaseServer } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -12,9 +11,13 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/auth/forgot-password
  *
- * Shared endpoint between the owner-branded `/forgot-password` page (flag-gated)
- * and the admin-branded `/admin/forgot-password` page (never flag-gated —
- * admins need the reset flow regardless of owner self-serve rollout state).
+ * Shared endpoint between the owner-branded `/forgot-password` page and the
+ * admin-branded `/admin/forgot-password` page. Neither is flag-gated:
+ * `SELF_SERVE_SIGNUP_ENABLED` now means only "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * and password recovery is an always-on auth surface for owners and admins
+ * alike. The replacement boundary is unchanged: same-origin, the strict
+ * IP + email rate limits, and the role-match lookup below.
  *
  * Cross-portal protection: an owner email submitted through `/admin/forgot-password`
  * (role='admin') must NOT receive an admin-branded reset link and vice versa.
@@ -70,13 +73,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // against future schema refactors that might drop the preprocess step.
   const email = parsedEmail.trim().toLowerCase();
 
-  // 2. Body-level flag gate: owner requests 404 when self-serve is off; admin
-  //    requests always proceed (admins need reset regardless of rollout state).
-  if (role === 'owner' && !selfServeSignupEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  }
-
-  // 3. Rate limit on BOTH IP (3/hr) and email (5/hr). Strict mode — Redis down
+  // 2. Rate limit on BOTH IP (3/hr) and email (5/hr). Strict mode — Redis down
   //    fails closed with 503 rather than silently allowing unlimited reset
   //    emails (which Supabase would eventually throttle at the API level, but
   //    at the cost of flooding the owner's inbox during an outage). The email
@@ -106,7 +103,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 4. Cross-portal protection. Look up the email's actual role and only
+  // 3. Cross-portal protection. Look up the email's actual role and only
   //    trigger the reset email when the submitted role matches what the
   //    DB says. The admin bucket accepts only supported admin users.
   const [actual] = await sql<{ role: string }[]>`
@@ -153,6 +150,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // 5. Generic success response — identical on match, mismatch, and unknown.
+  // 4. Generic success response — identical on match, mismatch, and unknown.
   return NextResponse.json({ ok: true });
 }
