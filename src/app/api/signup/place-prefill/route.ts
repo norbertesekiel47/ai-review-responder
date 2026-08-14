@@ -46,6 +46,33 @@ interface PrefillGuardRow {
   subscription_status: string;
 }
 
+/**
+ * One strict 10/min window, fail-closed. Returns the rejecting response, or
+ * `null` when the caller may proceed.
+ *
+ * Two callers below — per-IP and per-auth-id — differ ONLY in their key, so
+ * they shared a byte-identical body until this was extracted. Both bounds are
+ * load-bearing and neither may be dropped: the per-IP cap misses one owner
+ * rotating egress IPs (mobile NAT, VPN), and the per-auth-id cap misses a
+ * distributed pool of sessions. `strict: true` means a Redis outage returns 503
+ * rather than silently uncapping a SerpAPI-billed endpoint.
+ */
+async function enforcePrefillRateLimit(key: string): Promise<NextResponse | null> {
+  try {
+    const { allowed } = await checkRateLimit(key, 10, 60, { strict: true });
+    if (allowed) return null;
+    return NextResponse.json(
+      { error: 'Rate limit exceeded — try again in a minute' },
+      { status: 429, headers: NO_STORE },
+    );
+  } catch {
+    return NextResponse.json(
+      { error: 'Prefill temporarily unavailable' },
+      { status: 503, headers: NO_STORE },
+    );
+  }
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // 1. Authenticated session via cookie-bound anon client. setAll is a
   //    no-op — this is a read-only lookup and never rewrites cookies.
@@ -119,49 +146,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // 4. Strict per-IP rate limit. Redis-down fails closed with 503 so a
   //    cache outage cannot bypass the SerpAPI spend cap.
-  try {
-    const { allowed } = await checkRateLimit(
-      getIpKey(request, 'signup-prefill'),
-      10,
-      60,
-      { strict: true },
-    );
-    if (!allowed) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded — try again in a minute' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-  } catch {
-    return NextResponse.json(
-      { error: 'Prefill temporarily unavailable' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
+  const ipLimited = await enforcePrefillRateLimit(getIpKey(request, 'signup-prefill'));
+  if (ipLimited) return ipLimited;
 
   // 5. Strict per-auth-id rate limit, mirroring the admin prefill route.
   //    The per-IP cap alone lets one owner behind rotating egress IPs
   //    (mobile NAT, VPN) spend uncapped; this one is the identity-scoped
   //    ceiling. Same fail-closed posture.
-  try {
-    const { allowed } = await checkRateLimit(
-      `prefill:minute:${user.id}`,
-      10,
-      60,
-      { strict: true },
-    );
-    if (!allowed) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded — try again in a minute' },
-        { status: 429, headers: NO_STORE },
-      );
-    }
-  } catch {
-    return NextResponse.json(
-      { error: 'Prefill temporarily unavailable' },
-      { status: 503, headers: NO_STORE },
-    );
-  }
+  const ownerLimited = await enforcePrefillRateLimit(`prefill:minute:${user.id}`);
+  if (ownerLimited) return ownerLimited;
 
   // 6. Fetch prefill — never throws; worst case returns all-null.
   const prefill = await fetchBusinessDetails(sql, placeId);

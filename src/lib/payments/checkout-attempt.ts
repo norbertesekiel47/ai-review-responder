@@ -37,14 +37,13 @@ export interface CheckoutAttemptLeaseColumns {
  * which is why the decision log and the analytics event are emitted where the
  * decision is taken.
  */
-export const CHECKOUT_COUPON_DECISION_REASONS = [
-  'applied',
-  'not_invited',
-  'env_unset',
-] as const;
-
-export type CheckoutCouponDecisionReason =
-  (typeof CHECKOUT_COUPON_DECISION_REASONS)[number];
+// A plain union, not a `const` array + `typeof […][number]`. Nothing iterates
+// these at runtime — the only consumer is the type — so the array was dead
+// weight: exported it was an unused export (fallow), module-local it was an
+// unused binding (eslint `no-unused-vars`, "only used as a type"). If a runtime
+// consumer ever appears (a Zod enum, an exhaustive log-label map), reintroduce
+// the array THEN, with that consumer.
+export type CheckoutCouponDecisionReason = 'applied' | 'not_invited' | 'env_unset';
 
 /**
  * The single log/telemetry label for a coupon decision. `applied` stands alone;

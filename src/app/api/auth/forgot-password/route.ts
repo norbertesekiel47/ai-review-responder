@@ -4,7 +4,7 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { ForgotPasswordSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
-import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
+import { withSameOrigin } from '@/lib/auth/route-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,25 +35,18 @@ export const dynamic = 'force-dynamic';
  * unknown email, success) so callers can't use response differences to probe
  * which addresses have accounts.
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  // 0. Same-origin check FIRST — before any side effects (rate limit
-  //    counter increment, body parse, DB read, Supabase resend). Without
-  //    this guard, a third-party site could submit a CSRF-style POST that
-  //    triggers a password-reset email to any address — both an
-  //    enumeration channel ("does this email get a real-looking reset?")
-  //    and a denial-of-service primitive (mass-trigger SMTP for the
-  //    rate-limit window of arbitrary victims). Pattern matches
-  //    /api/auth/verify-otp + /api/onboarding/* same-origin gates.
-  try {
-    assertSameOrigin(req);
-  } catch (err) {
-    if (err instanceof SameOriginError) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    throw err;
-  }
-
-  // 1. Parse + validate body.
+// Pre-existing shape, carried across a rename. This handler was already an
+// inherited complexity finding as `POST` (16 cyclomatic / 19 cognitive / 118
+// lines) and this branch REDUCED it to 14 / 16 / 102 by lifting the same-origin
+// try/catch into `withSameOrigin()`. Only the symbol name changed, so fallow's
+// new-only gate would otherwise re-litigate an untouched, now-smaller function
+// as a new finding. Not a licence to grow it: the sequential guard stack
+// (same-origin → parse → rate limit → role match → send) is the complexity, and
+// splitting it further would scatter one security boundary across modules.
+// fallow-ignore-next-line complexity
+async function forgotPassword(req: NextRequest): Promise<NextResponse> {
+  // 1. Parse + validate body. The same-origin check runs BEFORE this — see the
+  //    `withSameOrigin()` wrapper at the bottom of the file.
   let body: unknown;
   try {
     body = await req.json();
@@ -153,3 +146,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 4. Generic success response — identical on match, mismatch, and unknown.
   return NextResponse.json({ ok: true });
 }
+
+/**
+ * Same-origin FIRST, before any side effect (rate-limit counter increment, body
+ * parse, DB read, Supabase send). Without it a third-party site could submit a
+ * CSRF-style POST that triggers a password-reset email to any address — both an
+ * enumeration channel ("does this email get a real-looking reset?") and a
+ * denial-of-service primitive (mass-trigger SMTP for the rate-limit window of
+ * arbitrary victims).
+ *
+ * Uses the shared `withSameOrigin()` wrapper, which is byte-identical to the
+ * try/catch this route used to hand-roll and is what the other 62 same-origin
+ * routes already use. Consolidated when fallow flagged the hand-rolled copy as
+ * a clone of the one still in `/api/auth/login-attempt`.
+ */
+export const POST = withSameOrigin()(forgotPassword);
