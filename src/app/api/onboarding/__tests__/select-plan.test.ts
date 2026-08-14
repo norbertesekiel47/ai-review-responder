@@ -34,7 +34,13 @@ vi.mock('@/lib/payments/plan-activation', () => {
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   class CheckoutOffboardingBlockedError extends Error {}
-  class CheckoutCouponConfigurationError extends Error {}
+  // Mirrors the real 2-arg constructor (couponId, cause) so the message the
+  // route forwards is shaped like production's.
+  class CheckoutCouponConfigurationError extends Error {
+    constructor(couponId: string, cause: string) {
+      super(`Stripe rejected the beta comp coupon "${couponId}" (${cause})`);
+    }
+  }
   return {
     CheckoutCouponConfigurationError,
     CheckoutOffboardingBlockedError,
@@ -410,7 +416,7 @@ describe('POST /api/onboarding/select-plan', () => {
       '@/lib/payments/create-checkout-session'
     );
     mockCreateCheckoutSession.mockRejectedValueOnce(
-      new CheckoutCouponConfigurationError('coupon "beta_comp_3mo" was rejected by Stripe'),
+      new CheckoutCouponConfigurationError('beta_comp_3mo', 'No such coupon'),
     );
 
     const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
