@@ -299,3 +299,22 @@ count from 8 to 11 — i.e. the wedge-safety choice costs Vercel connection budg
 That gap has since been discharged by the Vercel-side drill above: observed
 warm-isolate count ~4–6, total client connections ~41, backend sessions 41 peak,
 all inside the ≤16 / 200 / 57 bounds.
+
+## Addendum — 2026-08-13 (#757 aftermath): the founding tenant is gone; the roster changed twice
+
+`GET /api/dashboard/kpis` — the route whose ≤6-query wave sized this bulkhead —
+was **deleted by #757** (consumer-less KPI stack removed; ADR 0019 addendum).
+The decision above stands on its own terms: the split, the ≤16-warm-isolate
+budget, and the `[8,8]` clamp were validated by the burst drill and remain in
+force. But the tenant roster this document describes is historical:
+
+- **Gone:** `GET /api/dashboard/kpis` (deleted, #757).
+- **Current `sqlRead` tenants:** both draft-status polls
+  (`reviews/[reviewId]/draft-status`, `past-replies/draft-status`) plus the
+  dashboard read paths (`dashboard/service.ts`, `past-replies/load-replies.ts`,
+  `locations/settings-view.ts`) admitted through the **#773 per-isolate
+  admission chokepoint** (`src/lib/db/admission.ts`), which now owns the
+  fan-out-vs-pool-size safety this ADR's per-route reasoning provided.
+
+Re-derive the budget from the #773 campaign evidence, not this document's
+KPI-wave arithmetic, if the clamp is ever revisited.

@@ -26,6 +26,14 @@ _Locked via grill — by Claude + Norbert · revised after Codex round 1_
 ## Goal
 Rebuild the single-location owner dashboard so its primary job is **reassurance + proving subscription value** ("your reputation is improving, and you're getting time back"), with the pending-approval queue as a strong *secondary* action. Apply the 7 dashboard principles: a single dominant hero (composite reputation band, top), honest trend/comparison context on every number (no bare values, no decorative chart junk), an aggressively decluttered ~4-zone above-the-fold view, and one purpose-fit trend chart. Secondary analytics move to a new `/dashboard/insights` drill-down rather than competing on the landing view. Multi-location aggregate is explicitly a fast-follow, but every new piece is built to be reusable there.
 
+> **⚠️ KPI-route references superseded (2026-08-13, #757).** `GET
+> /api/dashboard/kpis` and `getLocationKpiSummary`/`getAccountKpiSummary` were
+> **deleted** by #757 (zero consumers; ADR 0019 addendum). Where this plan says
+> "`/api/dashboard/kpis` stays as-is for non-UI callers" (A.1) or reads
+> `getLocationKpiSummary` (A.5), read instead: the anchored fragments in
+> `src/lib/kpi/fragments.ts` composed by `src/lib/dashboard/*` — which is
+> exactly the fold-into-one-response direction this plan already argues for.
+
 ## Approach
 
 ### A. Backend — one dashboard response, honest deltas

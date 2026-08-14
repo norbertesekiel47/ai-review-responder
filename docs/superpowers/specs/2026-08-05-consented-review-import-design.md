@@ -140,14 +140,22 @@ never leaves the worker writing to dropped columns.
 
 ## 5. The consent gate
 
-Three call sites enqueue `zernio_initial_backfill` today. **All three need the
-gate:**
+**Four** call sites enqueue `zernio_initial_backfill` as shipped (the owner
+decision route did not exist when this section was first written — corrected
+2026-08-13, closing the deviation logged at `progresstracking.md` D8). **All
+four are consent-gated**, and the producer set is pinned by a machine-derived
+source test (`import-consent-lock-order-source.test.ts`, `PRODUCER_FILES`):
 
 | Path | File |
 |---|---|
 | Connect callback | `src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts` |
 | Stripe activation auto-recovery | `worker/ingress/stripe/shared.ts` (`maybeEnqueueBackfillResume`) |
-| Location reactivation | `src/lib/locations/archive-location-tx.ts` |
+| Location reactivation (catch-up, `backfill_reason='reactivation'`) | `src/lib/locations/archive-location-tx.ts` — deliberately a raw INSERT with its own consent conjunct, NOT the shared helper (must re-run after a completed initial run) |
+| Owner decision route (accept) | `src/lib/reviews/import-consent.ts` (`recordImportDecisionAndEnqueue` → `enqueueInitialImport`) |
+
+> `enqueueInitialImport` itself carries no consent conjunct — consent is
+> asserted by each producer, with §5.3's fail-closed worker guard as the
+> backstop for any enqueue that arrives another way.
 
 ### 5.1 Critical: declined vs. failed
 
