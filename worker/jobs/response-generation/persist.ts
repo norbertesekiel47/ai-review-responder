@@ -34,13 +34,13 @@ import {
   recordStep,
 } from '../../../src/lib/agents/run-spine';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
-import { autoApprovalRuntimeEnabled } from '../../../src/lib/auto-approval/flags';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
 import {
   type AutoApprovalDecision,
   type AutoApprovalRuntimeState,
   evaluateAutoApprovalCandidate,
+  isAutoApprovalCandidate,
   loadAutoApprovalRuntimeState,
   structurallyBlockedDecision,
 } from './auto-approval';
@@ -102,11 +102,11 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
   // loadAutoApprovalRuntimeState: (finding 10) they never re-take the business
   // lock, so the FK share→exclusive upgrade hazard doesn't exist for them;
   // (finding 5) a flag-off deploy never reads migration-074 columns.
-  const isAutoApprovalCandidate =
-    autoApprovalRuntimeEnabled()
-    && originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
-    && version === 1
-    && !suppressNotification;
+  const autoApprovalCandidate = isAutoApprovalCandidate({
+    originLane,
+    version,
+    suppressNotification,
+  });
 
   return sql.begin(async (tx): Promise<PersistResponseOutcome> => {
     const { currentReviewContentHash } = await acquirePersistLocks(tx, {
@@ -114,7 +114,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
       businessId,
       responseId,
       accountId,
-      isAutoApprovalCandidate,
+      isAutoApprovalCandidate: autoApprovalCandidate,
       logger,
     });
 
@@ -177,7 +177,7 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     });
 
     const { runtimeState, autoDecision } = await resolveAutoApprovalDecision(tx, {
-      isAutoApprovalCandidate,
+      isAutoApprovalCandidate: autoApprovalCandidate,
       reviewId,
       businessId,
       accountId,

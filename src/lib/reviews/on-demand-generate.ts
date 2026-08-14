@@ -14,7 +14,7 @@
 // exclusion from isAutoApprovalCandidate — `live_ingest_new` is the only
 // candidate lane, so an On-demand generation draft can never auto-post at any
 // version. `suppressNotification: true` is belt-and-braces on top of it: the
-// #669 audit records that worker/jobs/response-generation/persist.ts ALSO
+// #669 audit records that auto-approval.ts#isAutoApprovalCandidate ALSO
 // requires `!suppressNotification`, so this draft is excluded twice over.
 // Neither is redundant — do not delete one on the theory that the other
 // covers it (ticket #678).

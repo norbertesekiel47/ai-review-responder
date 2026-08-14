@@ -52,6 +52,10 @@
     "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
     "worker/jobs/response-generation/__tests__/on-demand-lane.property.test.ts",
     "worker/jobs/response-generation/__tests__/persist.test.ts",
+    "src/lib/shared/worker-types.ts",
+    "src/lib/reviews/on-demand-generate.ts",
+    "src/app/api/dashboard/reviews/\\[reviewId\\]/generate/__tests__/route.test.ts",
+    "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts",
     "docs/superpowers/plans/2026-08-13-763-structural-auto-approval-gates.md"
   ],
   "tests_to_add": [

@@ -1,14 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fc from 'fast-check';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModerationDecision } from '../../../../src/lib/moderation/output-filter';
 import type { EffectiveAutoApprovalPolicy } from '../../../../src/lib/auto-approval/types';
+import * as autoApprovalFlags from '../../../../src/lib/auto-approval/flags';
 import { TRIAGE_SOURCE } from '../../../../src/lib/reviews/triage-schema';
 import type { SubscriptionTierValue } from '../../../../src/lib/accounts/tier-config';
+import {
+  GENERATE_RESPONSE_ORIGIN_LANE,
+  GENERATE_RESPONSE_ORIGIN_LANES,
+} from '../../../../src/lib/shared/worker-types';
 import { createMockSql, mkTaggedResult } from '../../../__tests__/helpers/mock-sql';
 import {
   evaluateAutoApprovalCandidate,
+  isAutoApprovalCandidate,
   loadAutoApprovalRuntimeState,
+  structurallyBlockedDecision,
   type AutoApprovalBlockReason,
   type AutoApprovalCandidateInput,
+  type StructuralBlockInput,
 } from '../auto-approval';
 
 const CLEAN_MODERATION: ModerationDecision = {
@@ -66,22 +75,112 @@ function baseInput(overrides: Partial<AutoApprovalCandidateInput> = {}): AutoApp
   };
 }
 
+function expectedStructuralReasons(
+  input: StructuralBlockInput,
+  runtimeEnabled: boolean,
+): AutoApprovalBlockReason[] {
+  return [
+    ...(!runtimeEnabled ? ['auto_approval_disabled' as const] : []),
+    ...(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
+      ? ['bad_origin_lane' as const]
+      : []),
+    ...(input.version !== 1 ? ['unsupported_version' as const] : []),
+    ...(input.suppressNotification ? ['suppressed_notification' as const] : []),
+  ];
+}
+
 describe('evaluateAutoApprovalCandidate', () => {
   afterEach(() => {
     delete process.env.AUTO_APPROVAL_ENABLED;
     delete process.env.OPENAI_MODERATION_ENABLED;
   });
 
-  it('approves only when every runtime gate is satisfied', () => {
+  it('treats the exact structurally eligible input as a candidate across all three decision shapes', () => {
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     process.env.OPENAI_MODERATION_ENABLED = 'true';
 
-    const decision = evaluateAutoApprovalCandidate(baseInput());
+    const structuralInput: StructuralBlockInput = {
+      originLane: GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW,
+      version: 1,
+      suppressNotification: false,
+    };
+    const decision = evaluateAutoApprovalCandidate(baseInput(structuralInput));
 
+    expect(isAutoApprovalCandidate(structuralInput)).toBe(true);
     expect(decision.approved).toBe(true);
     expect(decision.blockReasons).toEqual([]);
     expect(decision.publisherSubscription).toEqual({ allowed: true });
     expect(decision.reviewContentHashMatched).toBe(true);
+    expect(() => structurallyBlockedDecision(structuralInput))
+      .toThrow('structurally_blocked_decision_called_for_candidate');
+  });
+
+  it('property: structural candidate boolean, blocked decision, and total evaluator agree for every candidate-fields input', () => {
+    fc.assert(fc.property(
+      fc.boolean(),
+      fc.option(fc.constantFrom(...GENERATE_RESPONSE_ORIGIN_LANES), { nil: null }),
+      fc.integer(),
+      fc.boolean(),
+      (runtimeEnabled, originLane, version, suppressNotification) => {
+        process.env.AUTO_APPROVAL_ENABLED = runtimeEnabled ? 'true' : 'false';
+        process.env.OPENAI_MODERATION_ENABLED = 'true';
+
+        const structuralInput: StructuralBlockInput = {
+          originLane,
+          version,
+          suppressNotification,
+        };
+        const expectedReasons = expectedStructuralReasons(structuralInput, runtimeEnabled);
+        const isCandidate = isAutoApprovalCandidate(structuralInput);
+        const totalDecision = evaluateAutoApprovalCandidate(baseInput(structuralInput));
+
+        expect(isCandidate).toBe(expectedReasons.length === 0);
+        if (isCandidate) {
+          expect(totalDecision.approved).toBe(true);
+          expect(totalDecision.blockReasons).toEqual([]);
+          expect(() => structurallyBlockedDecision(structuralInput))
+            .toThrow('structurally_blocked_decision_called_for_candidate');
+          return;
+        }
+
+        const blockedDecision = structurallyBlockedDecision(structuralInput);
+        expect(blockedDecision.blockReasons).toEqual(expectedReasons);
+        expect(totalDecision.approved).toBe(false);
+        expect(totalDecision.blockReasons).toEqual(expectedReasons);
+      },
+    ));
+  });
+
+  it('reads the Auto-approval runtime flag once per structural decision', () => {
+    process.env.OPENAI_MODERATION_ENABLED = 'true';
+    const runtimeEnabledSpy = vi.spyOn(autoApprovalFlags, 'autoApprovalRuntimeEnabled');
+    const structuralInput: StructuralBlockInput = {
+      originLane: GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW,
+      version: 1,
+      suppressNotification: false,
+    };
+
+    try {
+      runtimeEnabledSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+      expect(isAutoApprovalCandidate(structuralInput)).toBe(false);
+      expect(runtimeEnabledSpy).toHaveBeenCalledTimes(1);
+
+      runtimeEnabledSpy.mockReset();
+      runtimeEnabledSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+      const blockedDecision = structurallyBlockedDecision(structuralInput);
+      expect(runtimeEnabledSpy).toHaveBeenCalledTimes(1);
+      expect(blockedDecision.runtimeEnabled).toBe(false);
+      expect(blockedDecision.blockReasons).toEqual(['auto_approval_disabled']);
+
+      runtimeEnabledSpy.mockReset();
+      runtimeEnabledSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+      const totalDecision = evaluateAutoApprovalCandidate(baseInput(structuralInput));
+      expect(runtimeEnabledSpy).toHaveBeenCalledTimes(1);
+      expect(totalDecision.runtimeEnabled).toBe(false);
+      expect(totalDecision.blockReasons).toEqual(['auto_approval_disabled']);
+    } finally {
+      runtimeEnabledSpy.mockRestore();
+    }
   });
 
   it('denies Copilot even when every policy, moderation, and runtime gate otherwise passes', () => {
