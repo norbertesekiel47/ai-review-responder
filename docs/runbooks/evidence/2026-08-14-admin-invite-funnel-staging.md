@@ -45,7 +45,54 @@ Root cause: Stripe rejects `allow_promotion_codes` and `discounts` **by paramete
 
 Fixed in `buildCheckoutSessionParams` (omit the key on the coupon path) plus an invariant test that the two keys never coexist. `CheckoutCouponConfigurationError` is now mapped in `/api/onboarding/select-plan` so a coupon fault no longer hides behind a generic connection message.
 
+## D-13 — resend-invite provider contract: VERIFIED 2026-08-14
+
+Probed directly against the staging Supabase project with the staging service key,
+`@supabase/supabase-js` **2.106.2**, using throwaway addresses
+(`norbertesekiel+d13probe@gmail.com` / `+d13probe2@`). The probe user was deleted
+in both runs — staging left as found.
+
+Run twice on purpose: once over raw HTTP to see the wire body, once through the
+real client to see what the client hands our code. The second run is the one that
+mattered.
+
+| Step | Observed |
+|---|---|
+| Invite a fresh address | HTTP 200. `invited_at` set, `confirmed_at` null, `last_sign_in_at` **null** |
+| **Re-invite while still pending** | **HTTP 200 — succeeds and re-sends.** The legitimate admin resend works; Supabase does not refuse it |
+| Admin `updateUserById({ password, email_confirm: true })` | HTTP 200 — `last_sign_in_at` **stays null** |
+| Real `signInWithPassword` | HTTP 200 — `last_sign_in_at` **now populated** |
+| **Re-invite once accepted** | `AuthApiError { code: 'email_exists', status: 422, message: 'A user with this email address has already been registered' }` |
+
+**Three findings.**
+
+1. **The eligibility premise holds.** `last_sign_in_at` is null until a *real*
+   sign-in and is unaffected by an admin password-set, so it is a sound proof of
+   acceptance. D-13 said "if it did not, the `last_sign_in_at` premise is wrong
+   and THAT is the finding" — it did hold, so there is no finding there.
+2. **`email_exists` → 409 is confirmed end to end**, so that
+   `INVITE_ERROR_CODE_MAP` entry is evidence rather than assumption. The
+   pre-existing unit test already used exactly this shape — it was guessing
+   correctly.
+3. **The narrow escape worth remembering.** The raw wire body carries BOTH a
+   numeric `code: 422` and `error_code: 'email_exists'`.
+   `mapInviteProviderError` keys on `error.code` typed `string`, so the whole
+   table's reachability rests on the client surfacing the STRING — which 2.106.2
+   does. Had it passed the number through, every branch would have been dead code
+   and every invite error would have fallen to the 502 fallback, silently. That
+   dependency is now pinned by a test (`falls back to 502 when the provider
+   reports a NUMERIC code`).
+
+**Deliberately still unverified:** the exact rate-limit code and the four
+`INVITE_REJECTED` codes. Probing them means exhausting a mail budget or breaking
+SMTP, and it would change nothing — the `providerStatus === 429` secondary key
+catches any rate-limit error regardless of code, so those entries are
+redundant-but-harmless rather than load-bearing.
+
 ## Still outstanding
 
-- **Resend invite** — the Supabase provider-error mapping (`INVITE_ERROR_CODE_MAP`) is still unverified against a real re-invite. D-13.
+- **Resend invite, UI half** — the provider contract above is verified, but the
+  admin button itself (AAL2 + the `/admin/businesses/[id]` control, and that the
+  re-sent link actually works from the mailbox) has not been clicked on staging.
+  The mapping is no longer the risk; the wiring is.
 - **Production** — gated on the WS8 cutover. 077/078 are absent in prod and 105 rewrites a constraint over 077's columns, so **105 must not be applied to prod before that cutover**. No live-mode coupon exists; `ONBOARDING_DEMO_ENABLED` is still empty (off) on preview/production.

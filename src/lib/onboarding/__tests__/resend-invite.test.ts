@@ -275,6 +275,31 @@ describe('resendOwnerInvite', () => {
 });
 
 describe('mapInviteProviderError', () => {
+  it('maps the VERIFIED accepted-user error shape observed on staging', () => {
+    // Recorded against the staging Supabase project on 2026-08-14 with
+    // @supabase/supabase-js 2.106.2, by inviting, signing in for real, then
+    // re-inviting. Verbatim:
+    //   AuthApiError { code: 'email_exists', status: 422,
+    //                  message: 'A user with this email address has already been registered' }
+    // This is the shape D-13's header called unverified; it is now evidence.
+    expect(
+      mapInviteProviderError({ code: 'email_exists', status: 422 }),
+    ).toMatchObject({ code: 'INVITE_ALREADY_REGISTERED', status: 409 });
+  });
+
+  it('falls back to 502 when the provider reports a NUMERIC code', () => {
+    // The trap that would silently kill every branch of INVITE_ERROR_CODE_MAP.
+    // The raw GoTrue body carries BOTH `code: 422` (number) and
+    // `error_code: 'email_exists'`. supabase-js 2.106.2 surfaces the STRING on
+    // `error.code`, which is the only reason the table is reachable — but if a
+    // future client version passed the number through instead, every lookup
+    // would miss. Pinning the miss as an explicit, loud 502 (never a retry)
+    // documents that dependency instead of leaving it implicit.
+    expect(
+      mapInviteProviderError({ code: 422 as unknown as string, status: 422 }),
+    ).toMatchObject({ code: 'INVITE_FAILED_UNKNOWN', status: 502 });
+  });
+
   it('keys on the provider error code, never on message text', () => {
     // Same message text, different codes → different outcomes.
     const alreadyRegistered = mapInviteProviderError({

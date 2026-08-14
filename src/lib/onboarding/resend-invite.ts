@@ -79,37 +79,39 @@ export class ResendInviteError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * CONTRACT NOT YET VERIFIED — staging-verify before prod.
+ * CONTRACT VERIFIED against the staging Supabase project on 2026-08-14
+ * (@supabase/supabase-js 2.106.2). Evidence:
+ * `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md` → "D-13".
  *
- * Supabase's exact re-invite behaviour on an already-accepted user has NOT
- * been observed against a real project; the plan (step 9) blocks that check on
- * staging, and the run that wrote this code was not allowed to touch staging.
- * Everything below is an ASSUMPTION with a conservative fallback.
+ * This header used to say CONTRACT NOT YET VERIFIED and describe the three
+ * entries below as assumptions. They were probed directly — invite, re-invite
+ * while pending, real sign-in, re-invite once accepted — and the observations
+ * are:
  *
- * WHAT IS ASSUMED (GoTrue error codes, @supabase/auth-js 2.106 `AuthError`):
- *   - Re-inviting an address whose auth user is already confirmed/registered
- *     fails with `email_exists` or `user_already_exists` (HTTP 422).
- *   - Re-inviting a still-unaccepted invitee SUCCEEDS and re-sends the mail
- *     (this is the whole feature; if it instead errors, the eligible path
- *     lands in the 502 bucket and the button is simply useless — loud, not
- *     silently wrong).
- *   - Exhausting the project's email budget yields `over_email_send_rate_limit`
- *     (HTTP 429).
+ *   1. Re-inviting a still-unaccepted invitee **SUCCEEDS** (HTTP 200) and
+ *      re-sends the mail. This is the whole feature, and it works.
+ *   2. Re-inviting an accepted user fails as
+ *      `AuthApiError { code: 'email_exists', status: 422 }`. `code` is a
+ *      STRING, which is what makes the table below reachable at all — the raw
+ *      wire body also carries a NUMERIC `code: 422` alongside
+ *      `error_code: 'email_exists'`, and had the client surfaced that number,
+ *      every branch here would be dead and everything would fall to the 502
+ *      fallback. So `email_exists` → 409 is confirmed end to end.
+ *   3. `last_sign_in_at` is null until a REAL sign-in — an admin
+ *      `updateUserById({ password, email_confirm })` does not populate it. The
+ *      eligibility premise holds, so the accepted-user branch above is
+ *      normally unreachable in production: the gate refuses first, and this
+ *      table is the safety net behind it.
  *
- * WHAT TO RUN IN STAGING TO CONFIRM (both against the staging Supabase project,
- * with the staging service key):
- *   1. Admin-create a business, do NOT accept the invite, then POST
- *      /api/admin/businesses/<id>/resend-invite. Expect 200 + a second invite
- *      email whose link works.
- *   2. Accept the invite (set a password, land on /dashboard), then POST the
- *      same route again. Record `error.code` / `error.status` verbatim from
- *      `inviteUserByEmail` — that is the value this table must key on. Expect
- *      the eligibility gate to have already rejected it with
- *      OWNER_ALREADY_SIGNED_IN; if it did not, the `last_sign_in_at` premise
- *      is wrong and THAT is the finding.
- *   3. Fire the route ~5x in a minute against a fresh invitee to observe the
- *      rate-limit code, then update this table if it is not
- *      `over_email_send_rate_limit`.
+ * STILL UNVERIFIED, deliberately: the exact rate-limit code
+ * (`over_email_send_rate_limit` vs `over_request_rate_limit`) and the four
+ * `INVITE_REJECTED` codes. Probing them means deliberately exhausting a mail
+ * budget or misconfiguring SMTP, and it would change nothing — the
+ * `providerStatus === 429` secondary key below catches ANY rate-limit error
+ * regardless of its code, which makes those two entries redundant-but-harmless
+ * rather than load-bearing. The `INVITE_REJECTED` four are likewise strictly
+ * better-than-fallback message text on paths that cannot occur without an
+ * operator misconfiguring the project.
  *
  * KEYED ON `code`/`status`, NEVER ON MESSAGE TEXT (review log round 1, finding
  * 7): a provider copy change must not silently re-route a branch.
@@ -179,7 +181,8 @@ export interface ProviderErrorLike {
 
 /**
  * Map a provider error from `inviteUserByEmail` to a mappable domain error.
- * See INVITE_ERROR_CODE_MAP's header for the (unverified) contract.
+ * See INVITE_ERROR_CODE_MAP's header for the contract and its 2026-08-14
+ * staging verification.
  */
 export function mapInviteProviderError(
   error: ProviderErrorLike | null | undefined,

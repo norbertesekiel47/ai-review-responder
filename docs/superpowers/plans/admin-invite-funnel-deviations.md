@@ -20,7 +20,7 @@ Read end to end by the orchestrator. **No entry is RE-PLAN**: none invalidates a
 | D-10 | **ACCEPT, superseded** | The tombstone it had to leave behind was removed in D-11. |
 | D-11 | **ACCEPT — needs owner sign-off** | Surface amendment #3. Trips the stated abort threshold; the reasoning for proceeding is in the entry and is surfaced in the run report. |
 | D-12 | **ACCEPT** | Known dead field left in place deliberately; follow-up ticket, not a late widening. |
-| D-13 | **ACCEPT — the headline caveat** | The Supabase re-invite mapping shipped *before* its staging verification, as this run's scope required. Contained: code-keyed branches, unknown → 502 + logged raw code + never retried, header marked CONTRACT NOT YET VERIFIED. Staging verification is a live pending-ops item, not a closed one. |
+| D-13 | **ACCEPT — now RESOLVED** | The mapping shipped before its staging verification, as this run's scope required. **Probed 2026-08-14 and CONFIRMED**: re-invite-while-pending succeeds, accepted-user returns `email_exists`/422 → the existing 409 entry, and `last_sign_in_at` really does prove acceptance. The probe also caught that the table's reachability depends on the client surfacing a STRING `code` (the wire body also carries a numeric `422`) — now pinned by a test. Only the UI half remains. |
 | D-14 | **ACCEPT** | Three stale docs fixed; its one "not fixed" item (the `place-prefill` comment pointing at the deleted admin route) was closed by the orchestrator before the gate run. |
 
 **D-6 note for the reviewer.** Item 1 widens `/api/onboarding/business`'s `display_name` predicate on a branch its own step-4 full-access gate makes unreachable. Accepted because two sites now spell one rule identically and divergent spellings are how a rule rots — but it is a predicate, not a control-flow branch, so it does not conflict with "assert impossible states, don't branch around them". Item 2 leaves the verbatim title `onboarding pay page 404s for a non-owner user` on a test that asserts a redirect; the *behaviour* follows the instruction ("same treatment a missing row gets") and the journey does end at a 404 while the flag is off, but the title is imprecise and a reviewer should decide whether to keep it.
@@ -350,7 +350,42 @@ Left deliberately: deleting it means touching self-serve signup callers for a co
 
 **Why this is safe to land now.** Nothing in the mapping can *send* extra mail: the eligibility gate (Account `pending_payment` AND provider `last_sign_in_at` null) runs before the invite call, a provider-lookup failure maps to `PROVIDER_UNAVAILABLE` (502) rather than being read as "never signed in", and the route caps attempts at 3/hour per Business. The staging verification remains genuinely outstanding — it belongs to the step-11/12 staging smoke pass, and the header comment is where the next reader will find it.
 
-**Triage verdict:** _(pending step 6)_
+### RESOLVED 2026-08-14 — contract probed, assumptions held
+
+Probed directly against the staging Supabase project (`@supabase/supabase-js`
+2.106.2), twice: raw HTTP to see the wire body, then through the real client to
+see what the client hands our code. Full table in
+`docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md` → "D-13".
+
+- **Re-invite while pending → HTTP 200**, re-sends. The feature works.
+- **Re-invite once accepted →** `AuthApiError { code: 'email_exists', status: 422 }`.
+  `email_exists` is already in the table → 409 `INVITE_ALREADY_REGISTERED`.
+  **Confirmed**, and the pre-existing unit test used exactly this shape.
+- **`last_sign_in_at` is null until a REAL sign-in** — an admin
+  `updateUserById({ password, email_confirm })` does not populate it. The
+  eligibility premise this entry flagged as the thing most likely to be wrong is
+  **sound**, which also means the accepted-user branch is normally unreachable in
+  production: the gate refuses first and the table is the net behind it.
+
+**The one thing the probe caught that no amount of re-reading would have.** The
+raw GoTrue body carries BOTH a numeric `code: 422` and
+`error_code: 'email_exists'`. `mapInviteProviderError` keys on `error.code` typed
+`string`, so the entire table's reachability rests on the client surfacing the
+STRING — which 2.106.2 does. Had it passed the number through, every branch would
+have been dead code and every invite error would have fallen to the 502 fallback
+**silently**. Now pinned by `falls back to 502 when the provider reports a NUMERIC
+code`. This is D-16's lesson paying off directly: the defect was not in the values
+we guessed, it was in the shape we assumed the client would deliver them in — and
+only a real call could show it.
+
+Header rewritten from "CONTRACT NOT YET VERIFIED" to the observed contract, with
+the two genuinely-unprobed groups (rate-limit code, `INVITE_REJECTED` four) named
+as deliberate: the `status === 429` secondary key catches any rate limit
+regardless of code, so those entries are redundant-but-harmless.
+
+**Triage verdict:** ACCEPT — **now RESOLVED.** The mapping is verified, not
+assumed. What remains is the UI half (admin AAL2 + clicking the button + the
+re-sent link opening from a mailbox); that is wiring, not contract risk.
 
 ---
 
