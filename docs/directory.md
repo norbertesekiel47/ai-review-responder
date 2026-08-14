@@ -58,7 +58,7 @@ Next.js App Router pages, grouped by access level.
 
 | Path | What it does |
 |------|--------------|
-| `page.tsx` | Landing page. Resolves three server-authoritative values and delegates everything else to `LandingExperience`: `SELF_SERVE_SIGNUP_ENABLED` (gates the nav's Log in / Sign up pair — both routes `notFound()` without it, so hiding them is correctness), the CTA target (`/signup`, else `/book-a-demo`), and the CTA label (the trial offer only when `TRIAL_ENABLED` **and** self-serve are both on — there is no signup to start a trial from otherwise). No `NEXT_PUBLIC_*` companion for any of them (invariant #13). It does **not** read an `x-coming-soon` header; the `comingSoon` prop still exists on `SiteShell`/`SiteNav` for the other public pages, but the landing page has never consumed it. |
+| `page.tsx` | Landing page. Resolves three server-authoritative values and delegates everything else to `LandingExperience`: `SELF_SERVE_SIGNUP_ENABLED` (gates the nav's Log in / Sign up pair — **as of 2026-08-14 this is a posture choice, not a 404-correctness one**: `/signup` still `notFound()`s without the flag, but `/login` is now always-on, so hiding the pair is about not advertising anonymous signup to strangers, which is precisely what the re-scoped flag means; an invited owner reaches `/login` by its URL from the invite flow, not from this nav), the CTA target (`/signup`, else `/book-a-demo`), and the CTA label (the trial offer only when `TRIAL_ENABLED` **and** self-serve are both on — there is no signup to start a trial from otherwise). No `NEXT_PUBLIC_*` companion for any of them (invariant #13). It does **not** read an `x-coming-soon` header; the `comingSoon` prop still exists on `SiteShell`/`SiteNav` for the other public pages, but the landing page has never consumed it. |
 | `login/page.tsx` | Owner login page. Renders `LoginFormClient`. |
 | `login/error.tsx` | Error boundary for the login flow. |
 | `signup/page.tsx` | Self-serve signup entry. Collects email. |
@@ -175,9 +175,8 @@ is declared once, in the client, and imported by the server page.
 | `businesses/new/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Onboard new business">`; no read (it is a form). |
 | `businesses/new/NewBusinessClient.tsx` | **(Phase 3)** Client island: the `react-hook-form` onboarding form at the `max-w-2xl` form measure. |
 | `businesses/new/schema.ts` | Zod schema for the new-business form. |
-| `businesses/new/_components/{BusinessInfoSection,OwnerInfoSection,SubscriptionTierSection,VoiceContextSection}.tsx` | Form sections: business identity/Place ID, owner email+name, tier picker, tone + product context. |
+| `businesses/new/_components/{BusinessInfoSection,OwnerInfoSection}.tsx` | The two surviving form sections: business name, and owner email + name. **(2026-08-14)** The admin invite form is exactly three fields — the Place capture, `VoiceContextSection` (tone + product context), `SubscriptionTierSection` (tier picker) and `_hooks/useBusinessPrefill.ts` were **deleted**, because the owner now supplies their own location at `/onboarding/start`, their own voice in the wizard, and their own tier at `/onboarding/pay`. |
 | `businesses/new/_components/_shared.tsx` | Shared field primitives for the new-business form. |
-| `businesses/new/_hooks/useBusinessPrefill.ts` | Hook that calls `/api/admin/businesses/prefill` on Place ID change. |
 | `locations/csv-import/page.tsx` | **(Phase 3)** Server component: gate + `<AdminPage group="Businesses" title="Locations import">` (title matches the sidebar label). |
 | `locations/csv-import/CsvImportClient.tsx` | **(Phase 3)** Client island: upload → validate → preview → import, at the `max-w-3xl` upload/report measure. The preview/result tables stay plain `<table>`s — a transient validation preview, not a data page. |
 | `locations/csv-import/csv-validation.ts` | Client-side CSV parse + per-row validation feeding the preview. |
@@ -303,7 +302,7 @@ GET + POST owner settings (tone, products/services, avoid-facts).
 
 #### `signup/place-prefill/route.ts`
 
-POST: hits SerpAPI for a Place ID during the self-serve signup wizard to prefill business name, address, and category. Strict rate-limited (10/min per session, 75/day global) to cap SerpAPI cost. Gated by `SELF_SERVE_SIGNUP_ENABLED`.
+GET: hits SerpAPI for a Place ID during the onboarding location step to prefill business name, address, and category. **(2026-08-14)** No longer gated by `SELF_SERVE_SIGNUP_ENABLED` — the flag now means only "strangers may mint accounts", and this endpoint is reached by admin-invited owners with the flag off. Because removing the gate from an otherwise-**unauthenticated**, SerpAPI-billed endpoint would have made it permanently public, it gained a real boundary in the same change: authenticated session + `role = 'owner'` + a pre-activation account state, plus a new per-auth-id 10/min strict limit alongside the existing strict per-IP one (75/day global unchanged).
 
 #### `zernio/connect/`
 
@@ -326,8 +325,8 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 |-------|--------------|
 | `overview/route.ts` | Admin overview stats; delegates to `getAdminOverview`. |
 | `businesses/route.ts` | GET list (auth → parse/clamp `limit`/`offset` → `getAdminBusinessesList` → JSON) + POST create (calls `AdminOnboardingService`). |
-| `businesses/prefill/route.ts` | Prefill form from Google Place ID (via SerpAPI). |
 | `businesses/[id]/route.ts` | GET / PATCH / DELETE a business; delegates to `business-detail-service`. |
+| `businesses/[id]/resend-invite/route.ts` | **(2026-08-14)** POST: re-sends the Supabase invite email for an admin-created owner who has never signed in. Admin + AAL2 + same-origin, mirroring the create route's guards; delegates to `src/lib/onboarding/resend-invite.ts`. Eligibility is asked of the **provider** (`auth.admin.getUserById` → `last_sign_in_at IS NULL`), never of the local `auth_id`, which is populated at creation time and so cannot distinguish "invited" from "accepted". Capped at **3 per hour per business** — the one admin action that puts mail into a third party's inbox on a button press, so an accidental click-loop can't burn sender reputation; auth runs before the limit so an unauthenticated call spends no budget. |
 | `businesses/[id]/channels/route.ts` | GET (delegates to `getBusinessChannelEnrollments`) + POST channel enrollments. |
 | `businesses/[id]/keywords/route.ts` | GET + POST ranking keywords. |
 | `businesses/[id]/ranking/route.ts` | GET ranking snapshot. |
@@ -791,7 +790,9 @@ Admin-side domain helpers.
 | File | What it does |
 |------|--------------|
 | `create-business.ts` | `createBusinessTx(sql, params)` — atomic transaction that inserts `users` + `businesses` + `channel_enrollments` (email) rows. Used by both admin and self-serve signup. Dual mode (`admin` / `self_serve`). |
-| `admin-onboarding-service.ts` | `onboardBusinessAsAdmin(sql, supabase, input)` — validates admin onboarding input, calls `createBusinessTx` in `admin` mode, handles `DuplicateEmailError`, and invites the owner via Supabase `inviteUserByEmail`. `rollbackProvisionedBusiness(sql, createdResult)` runs the shared FK-ordered 4-DELETE compensating rollback used by both failure paths. Used by `POST /api/admin/businesses`. |
+| `admin-onboarding-service.ts` | `onboardBusinessAsAdmin(sql, supabase, input)` — validates admin onboarding input, calls `createBusinessTx` in `admin` mode, handles `DuplicateEmailError`, and invites the owner via Supabase `inviteUserByEmail`. `rollbackProvisionedBusiness(sql, createdResult)` runs the shared FK-ordered 4-DELETE compensating rollback used by both failure paths. Used by `POST /api/admin/businesses`. **(2026-08-14)** Input is now only owner email, owner name and business name; it resolves no Place ID, writes no voice fields, asserts no tier (the row is created on the `copilot` default and the owner picks their real tier at `/onboarding/pay`), and enqueues no `validate_place_id` — `/api/onboarding/start` does that once the owner captures a place, exactly as it does for self-serve. |
+| `funnel-entry.ts` | **(2026-08-14)** `resolveFunnelEntry(state)` — the single owner of "where in the funnel does this owner belong?", returning one of `/onboarding/{start,demo,pay,business}` or `/dashboard`. **Pure**: no DB handle, no `process.env`, no flag read (the caller passes `onboardingDemoEnabled()` in), so the whole matrix is table-testable and flag state stays server-side (invariant #13). Its output is the `funnelUrl` field on `GET /api/auth/signup-status`, `GET /api/dashboard` and `GET /api/settings`, consumed by `loginDestination` and `PendingPaymentScreen`. Replaced three disagreeing branches — `loginDestination`'s demo-blind `pending_payment → /onboarding/pay`, `verify-otp`'s private start-vs-pay branch, and the dashboard's hardcoded `paymentUrl` (that field is **gone**, not renamed). |
+| `resend-invite.ts` | **(2026-08-14)** The re-invite decision + Supabase provider-error mapping behind `POST /api/admin/businesses/[id]/resend-invite`. Gates on account `pending_payment` AND the provider reporting `last_sign_in_at IS NULL`. ⚠️ **The error mapping is deliberately staging-unverified** — the module header carries a "staging-verify before prod" marker, an unknown provider error answers `502` with the raw provider code logged and is never auto-retried, and verifying the real Supabase re-invite error shapes on staging is an open ops step (`docs/runbooks/beta-onboarding-cofounder-guide.md` → Part 12). |
 
 ### `demos/`
 

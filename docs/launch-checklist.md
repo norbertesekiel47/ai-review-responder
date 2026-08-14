@@ -77,18 +77,33 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   #11). The coupon keeps the account `active` with normal $0 subscription
   invoices — consistent with the subscription-invoices-only constraint above —
   and never touches a Stripe Price (immutable/grandfathered, invariant #9a).
-  **Mechanics note:** checkout deliberately sets `allow_promotion_codes: false`
-  (`src/lib/payments/create-checkout-session.ts`), and admin-onboarded accounts
-  don't self-pay anyway (`pending_payment_admin_handoff` →
-  `PendingAdminHandoffScreen`) — so the coupon is applied **Stripe-side during
-  the team's out-of-band activation step**, not by the owner at a checkout.
+  **Mechanics note — superseded 2026-08-14 (`admin-invite-funnel`).** The old
+  note said the coupon would be applied Stripe-side during an out-of-band
+  activation step, because admin-onboarded accounts couldn't self-pay (they
+  dead-ended on an admin-handoff screen that no longer exists). **The owner now
+  completes a real Stripe Checkout themselves**, and the comp rides that
+  checkout: eligibility (`onboarded_by IS NOT NULL` on the primary Business, plus
+  `BETA_COMP_COUPON_ID` set) is resolved once inside `applyTierSnapshot` and
+  frozen onto the **Checkout attempt**, and `create-checkout-session.ts` emits it
+  as `discounts` plus an explicit `payment_method_collection: 'always'` so the
+  $0-due session still collects a card. `allow_promotion_codes` stays `false` —
+  no conflict, since a server-selected coupon is not a promotion code. There is
+  no out-of-band activation step any more; "activation" is the owner finishing
+  checkout. Plan of record:
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`. Ops steps still
+  outstanding (creating the coupon in both Stripe modes, setting the env var):
+  `docs/runbooks/beta-onboarding-cofounder-guide.md` → Part 12.
 - **Acquisition: landing-page early-access form → manual invites.** Leads come
   in via `LeadIntakeForm` (`/book-a-demo` + the pricing CTA anchor); onboarding
   is hand-run per account via `/admin/businesses/new` (admin + AAL2). The
   non-technical co-founder playbook for these meetings is
   `docs/runbooks/beta-onboarding-cofounder-guide.md`.
   `SELF_SERVE_SIGNUP_ENABLED` stays **`false`** until public-release readiness
-  is decided — do not flip it for the beta.
+  is decided — do not flip it for the beta. **(2026-08-14)** That is now a
+  cost-free posture: since the flag was re-scoped to gate only anonymous
+  account-minting, an invited beta owner logs in, recovers their password and
+  walks the entire funnel with it off. The flag no longer has to be flipped for
+  any beta invitee, and flipping it off never locks one out.
 
 Pre-invite actions from these decisions:
 

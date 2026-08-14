@@ -111,9 +111,40 @@ Assertion source: `worker/config/startup-assert.ts`.
 
 ### `SELF_SERVE_SIGNUP_ENABLED`
 
-Gates owner self-serve signup/login/reset pages + APIs.
+**Re-scoped 2026-08-14 (admin-invite-funnel).** It now means exactly one thing:
+**strangers may mint accounts.** It gates the anonymous account-minting surface
+and nothing else.
+
+**Still gated:** `/signup` + its sub-pages, `POST /api/auth/{signup,finish-signup,resend-confirmation,verify-otp}`,
+the trial-eligibility clause in `POST /api/billing/checkout`, and the marketing
+copy that advertises anonymous signup (the landing CTA and the nav's Log in /
+Sign up pair — a *posture* choice about what we advertise, no longer a
+404-correctness one).
+
+**No longer gated (14 call sites removed):** `/login`, `/forgot-password`,
+`/reset-password` and their APIs are **always on**, and the whole authenticated
+onboarding funnel (`/onboarding/{start,demo,pay,payment-success,business}` +
+their APIs, `GET /api/auth/signup-status`, `GET /api/signup/place-prefill`) now
+enforces its own **authenticated session + `role = 'owner'` + per-route allowed
+state set** instead of the flag. `GET /api/signup/place-prefill` in particular
+was previously unauthenticated-behind-the-flag and gained real auth plus a
+per-auth-id rate limit alongside its existing per-IP one — removing the flag
+without that would have made a SerpAPI-billed endpoint permanently public.
+
 Admin surfaces (`/admin/login`, `/admin/forgot-password`, `/admin/reset-password`)
-are NEVER gated.
+were never gated and still aren't.
+
+**Why it matters operationally:** an admin-invited beta owner reaches login,
+password recovery and the entire funnel with this flag **off**. Turning it off
+(or leaving it off) no longer locks invited owners out of their own accounts —
+it only closes the door to strangers.
+
+**Authoritative per-call-site inventory** — every kept and removed gate with the
+replacement guard for each removal:
+[`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`](../../docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md).
+Read it before adding a new call site. Single reader: `selfServeSignupEnabled()`
+(`src/lib/auth/flags.ts`). Server-authoritative, no `NEXT_PUBLIC_*` companion
+(invariant #13).
 
 **Required when on:**
 - `REDIS_CACHE_URL`
@@ -352,6 +383,17 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 
 ### `BETA_COMP_COUPON_ID` — the admin-invite beta comp
 
+> ⚠️ **PENDING OPS — the coupon does not exist yet.** The code shipped
+> 2026-08-14; creating the Stripe Coupon (test mode AND live mode) and setting
+> this variable in Vercel are **provider actions nobody has performed**. Until
+> then every invited tester's Checkout snapshots `NULL` and renders at **full
+> price** — the one failure a beta tester must never see. The consolidated ops
+> list, with the rest of the feature's outstanding steps, is
+> `docs/runbooks/beta-onboarding-cofounder-guide.md` → **Part 12**; the
+> operator-runnable staging proof is `docs/runbooks/beta-production-standup.md`
+> → **Phase F**. Prod is additionally blocked on the WS8 cutover (see the
+> sequencing note at the end of this section).
+
 The Stripe **Coupon** ID (100% off, `duration=repeating`,
 `duration_in_months=3`) applied to an admin-invited beta tester's Checkout
 Session (admin-invite-funnel plan steps 1–2). Create the coupon in Stripe **test
@@ -380,6 +422,14 @@ Read through `betaCompCouponId()` (`src/lib/payments/flags.ts`) — never a raw
 `checkout_coupon_decision` analytics event (**migration 106** must be applied
 first); a coupon Stripe rejects raises `CheckoutCouponConfigurationError` and a
 Sentry report rather than a generic checkout failure.
+
+**Sequencing (prod).** Setting this variable in production is necessary but not
+sufficient: migration 105 replaces a constraint over columns migration **077**
+added, and 077/078 are deliberately absent in prod until the WS8 tier cutover
+(`docs/runbooks/ws8-tier-cutover.md`; standing exception in `.claude/CLAUDE.md`).
+The whole admin-invite checkout path is therefore **staging-only until that
+cutover runs** — set the staging value now, hold the production value until
+after WS8.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.
@@ -543,7 +593,7 @@ tier mappings and no invented defaults.
 | Flag | Status | Prerequisite |
 |---|---|---|
 | `RANKING_TRACKING_ENABLED` | Off | Enable when ranking worker is ready |
-| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + six Stripe Prices + required deadline/cost configuration |
+| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + six Stripe Prices + required deadline/cost configuration. **Since 2026-08-14 it gates only anonymous account-minting** — beta invitees log in and walk the funnel with it off (see the re-scoped entry under Feature Flags). |
 | `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |

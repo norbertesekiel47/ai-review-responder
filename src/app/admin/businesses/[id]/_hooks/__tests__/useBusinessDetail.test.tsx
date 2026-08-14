@@ -6,9 +6,12 @@
 // admin through an alert() nobody had pinned. The queries themselves are
 // covered via BusinessDetailClient.test.tsx, so this suite seeds both with
 // initialData and asserts only the PATCH behaviour.
+//
+// Also covers resendInvite (plan step 9 / T7), whose outcome is deliberately
+// inline state rather than an alert()/confirm() dialog.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
@@ -155,6 +158,112 @@ describe('useBusinessDetail — clearBounceFlag', () => {
     ]);
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+});
+
+describe('useBusinessDetail — resendInvite', () => {
+  const RESEND_URL = `/api/admin/businesses/${BUSINESS_ID}/resend-invite`;
+
+  it('POSTs to the resend-invite route with no confirm() dialog and no alert()', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, ownerEmailRedacted: 'a***@cafe.com' }),
+    });
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
+    const { result } = mount();
+
+    await act(async () => {
+      await result.current.resendInvite();
+    });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(alerts).toEqual([]);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(RESEND_URL);
+    expect(init.method).toBe('POST');
+    expect(result.current.resendInviteState).toEqual({
+      submitting: false,
+      message: 'Invite re-sent to a***@cafe.com.',
+      error: null,
+    });
+  });
+
+  it('surfaces the server-mapped error message inline instead of alerting', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'This owner has already signed in, so the invite was accepted.',
+        code: 'OWNER_ALREADY_SIGNED_IN',
+      }),
+    });
+    const { result } = mount();
+
+    await act(async () => {
+      await result.current.resendInvite();
+    });
+
+    expect(alerts).toEqual([]);
+    expect(result.current.resendInviteState).toEqual({
+      submitting: false,
+      message: null,
+      error: 'This owner has already signed in, so the invite was accepted.',
+    });
+  });
+
+  it('falls back to the HTTP status when the resend error body is not JSON', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON');
+      },
+    });
+    const { result } = mount();
+
+    await act(async () => {
+      await result.current.resendInvite();
+    });
+
+    expect(result.current.resendInviteState.error).toBe('HTTP 502');
+  });
+
+  it('reports a resend network failure without rethrowing', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const { result } = mount();
+
+    await act(async () => {
+      await expect(result.current.resendInvite()).resolves.toBeUndefined();
+    });
+
+    expect(result.current.resendInviteState.error).toBe(
+      'Failed to resend the invite. Check your network connection and try again.',
+    );
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('clears the previous outcome when a second attempt starts', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({ error: 'slow down' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) });
+    const { result } = mount();
+
+    await act(async () => {
+      await result.current.resendInvite();
+    });
+    expect(result.current.resendInviteState.error).toBe('slow down');
+
+    await act(async () => {
+      await result.current.resendInvite();
+    });
+    expect(result.current.resendInviteState).toEqual({
+      submitting: false,
+      message: 'Invite re-sent.',
+      error: null,
+    });
   });
 });
 

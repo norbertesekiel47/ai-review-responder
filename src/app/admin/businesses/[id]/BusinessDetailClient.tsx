@@ -5,6 +5,7 @@
 // as react-query initialData, so first paint has data (spec §4).
 
 import Link from 'next/link';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
@@ -23,6 +24,7 @@ import type {
   ApprovalAuditLogEntry,
   ChannelEnrollmentRow,
   DetailData,
+  ResendInviteState,
 } from './types';
 
 /** Audit tables were hand-sliced to 10 rows; DataTable now pages at the same size. */
@@ -45,6 +47,64 @@ function HealthBadge({ level, score }: { level: string; score: number }) {
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
       {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
     </span>
+  );
+}
+
+/**
+ * "Resend invite" (plan step 9 / T7). Visible only while the Account is
+ * `pending_payment` — past that, the invite stage is over and the server
+ * rejects the action anyway; showing a button whose only outcome is a 409 is
+ * worse than showing none.
+ *
+ * Visibility is NOT the eligibility check: the authoritative "has this owner
+ * ever signed in" signal lives with Supabase (`last_sign_in_at`), because
+ * `users.auth_id` is patched at creation time and is true for every
+ * never-accepted invite. The server owns that decision; this panel renders its
+ * verdict.
+ *
+ * No confirm()/alert() — the button disables while in flight and the outcome
+ * lands inline.
+ */
+function ResendInvitePanel({
+  subscriptionStatus,
+  state,
+  onResend,
+}: {
+  subscriptionStatus: string;
+  state: ResendInviteState;
+  onResend: () => void;
+}) {
+  if (subscriptionStatus !== SubscriptionStatus.PENDING_PAYMENT) {
+    return null;
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+      <h2 className="text-sm font-semibold text-gray-900">Owner invite</h2>
+      <p className="mt-1 text-sm text-gray-700">
+        This owner has been invited but has not paid yet. Re-send the invite email if
+        they never received it — the link lands them on the same password-setup flow
+        as the original. Requires AAL2; capped at 3 sends per hour for this business.
+      </p>
+      <p className="mt-1 text-sm text-gray-700">
+        If the owner has already signed in, the resend is refused — send them a
+        password reset instead.
+      </p>
+      <button
+        type="button"
+        onClick={onResend}
+        disabled={state.submitting}
+        className="mt-3 rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {state.submitting ? 'Sending…' : 'Resend invite'}
+      </button>
+      {state.message && (
+        <p className="mt-3 text-sm font-medium text-emerald-700">{state.message}</p>
+      )}
+      {state.error && (
+        <p className="mt-3 text-sm font-medium text-red-700">{state.error}</p>
+      )}
+    </section>
   );
 }
 
@@ -114,6 +174,8 @@ export function BusinessDetailClient({
     channelsError,
     invalidate,
     clearBounceFlag,
+    resendInvite,
+    resendInviteState,
   } = useBusinessDetail(businessId, { initialDetail, initialChannels });
 
   const failedRequest = `GET /api/admin/businesses/${businessId}`;
@@ -260,6 +322,14 @@ export function BusinessDetailClient({
           </div>
         </div>
       )}
+
+      <ResendInvitePanel
+        subscriptionStatus={account.subscriptionStatus}
+        state={resendInviteState}
+        onResend={() => {
+          void resendInvite();
+        }}
+      />
 
       <PastDueExtensionPanel
         accountId={account.id}

@@ -304,3 +304,84 @@ None widens *behaviour*. None touches a locked intake decision, the reviewed des
 Left deliberately: deleting it means touching self-serve signup callers for a cosmetic win. Worth a follow-up ticket, not a late widening of this branch.
 
 **Triage verdict:** _(pending step 6)_
+
+---
+
+## D-13 — 2026-08-14 — T7 shipped the Supabase re-invite error mapping BEFORE the staging verification the plan blocks it on
+
+**What.** Plan step 9 says the resend-invite error mapping is "staging-first contract work: verify Supabase's actual re-invite behavior and error shapes on an already-accepted user in staging BEFORE writing the error mapping". T7 wrote the mapping without that verification — the run was scoped local + mocked and explicitly forbidden from touching Supabase/staging remotes.
+
+**How it is contained.** The mapping is a single exported unit (`INVITE_ERROR_CODE_MAP` + `mapInviteProviderError` in `src/lib/onboarding/resend-invite.ts`) whose header opens with **"CONTRACT NOT YET VERIFIED — staging-verify before prod."**, enumerates each assumption (`email_exists` / `user_already_exists` on an already-registered address, `over_email_send_rate_limit` on budget exhaustion, plain success on a still-unaccepted invitee), and lists the three staging steps that confirm or refute them. Every branch keys on `code`/`status` only — never message text (round-1 finding 7) — and anything unrecognised maps to **HTTP 502, logs the raw provider code + status, and is never retried**, so a wrong assumption surfaces as a loud, non-sending failure rather than a duplicate email or a wrong branch.
+
+**Why this is safe to land now.** Nothing in the mapping can *send* extra mail: the eligibility gate (Account `pending_payment` AND provider `last_sign_in_at` null) runs before the invite call, a provider-lookup failure maps to `PROVIDER_UNAVAILABLE` (502) rather than being read as "never signed in", and the route caps attempts at 3/hour per Business. The staging verification remains genuinely outstanding — it belongs to the step-11/12 staging smoke pass, and the header comment is where the next reader will find it.
+
+**Triage verdict:** _(pending step 6)_
+
+---
+
+## D-14 — 2026-08-14 — T8 (docs sweep): three docs contradicted shipped reality, and one comment T8 may not fix
+
+Recorded from the docs/reference sweep. The first three were **fixed** in T8;
+the fourth is out of T8's surface and needs an owner.
+
+1. **`docs/design/landing-page.md` and `docs/directory.md` justified the landing
+   nav gate with a claim that is no longer true.** Both said the Log in / Sign up
+   pair is hidden when `SELF_SERVE_SIGNUP_ENABLED` is off *because both routes
+   404 without it* — "correctness, not cosmetics". After T4, `/login` is
+   **always-on**; only `/signup` still 404s. The gate itself is deliberate and
+   unchanged (flag-inventory row 43 keeps marketing CTA display gated, and
+   "advertises anonymous signup" is exactly the re-scoped meaning), so the
+   **behaviour** is right and only the stated rationale was stale. Both docs now
+   describe it as a marketing-posture choice. Worth knowing, and now stated in
+   both: an invited owner who lands on the marketing homepage sees no Log in
+   link, so the invite email is their only signposted way in. Acceptable for a
+   hand-run beta; a real gap the day the flag is on for some other reason.
+
+2. **`docs/directory.md` described `GET /api/signup/place-prefill` as a POST.**
+   It was already a GET before this branch (plan step 6: "it is a GET —
+   verified"), so the doc was independently wrong. Corrected to GET, with the
+   flag gate replaced by the real boundary T4 gave it (auth + `role='owner'` +
+   pre-activation state + per-auth-id limit alongside the per-IP one).
+
+3. **`docs/launch-checklist.md` described a coupon mechanism this branch
+   deleted.** Its "Mechanics note" said the comp would be applied Stripe-side
+   during an out-of-band activation step *because* admin-onboarded accounts
+   cannot self-pay (`pending_payment_admin_handoff` → `PendingAdminHandoffScreen`).
+   Both symbols are gone and owners now self-activate. Marked **superseded** in
+   place rather than rewritten away: the surrounding pricing decision (100% off /
+   `repeating` / 3 months / deliberately not a trial) is still the locked
+   decision — only the delivery mechanism changed.
+
+**Not fixed — outside T8's surface, needs whoever next owns `src/`:**
+`src/app/api/signup/place-prefill/route.ts:14` still carries a comment pointing
+at `src/app/api/admin/businesses/prefill/route.ts`, which T6 deleted. D-9 left it
+"for whoever owns the docs/comment sweep" — but T8's surface is `docs/**`,
+`CONTEXT.md` and `.claude/reference/**`, and a code comment is code. One-line fix
+for any ticket that legitimately touches that file.
+
+**Verified already-correct, no action taken:** `.claude/reference/migrations-log.md`
+head reads **106 / next 107** and both the 105 and 106 entries are accurate,
+including their LOCAL-ONLY markers and 105's WS8 sequencing note.
+`docs/analytics/events.md` already carries `checkout_coupon_decision`;
+`pnpm ci:analytics-events` passes. The `BETA_COMP_COUPON_ID` entry in
+`env-vars.md` was already written by a concurrent agent and was only *extended*
+(pending-ops banner + a prod WS8 sequencing paragraph), never rewritten.
+
+**Live-vs-archive calls made during the cross-reference sweep** — recorded so the
+next sweep does not re-litigate them. **Treated as LIVE and fixed:**
+`docs/directory.md`, `docs/launch-checklist.md`, `docs/design/landing-page.md`,
+`docs/eservices-variables.md`, `docs/runbooks/{beta-onboarding-cofounder-guide,
+beta-production-standup,launch-flag-readiness,rollback}.md`,
+`.claude/reference/env-vars.md`, `CONTEXT.md`. **Treated as HISTORICAL RECORD and
+left alone:** everything under `docs/progress-archive/`,
+`docs/runbooks/completed_runbooks/` and `docs/reviews/`;
+`docs/plans/Final_Implementation_Plan.md`; the dated
+`docs/superpowers/{specs,plans}/*` files (including this feature's own plan,
+review log, flag inventory and this deviations file — they record what was
+decided, not what is true today); `docs/production-readiness-deep-scan-2026-05-28.md`
+(a dated audit report whose `pending_payment_admin_handoff` mention is a
+carve-out *rationale* that was true when written); and `docs/progresstracking.md`'s
+"still ops-only" line, which sits inside a numbered PR history rather than a live
+checklist.
+
+**Triage verdict:** _(pending step 6)_

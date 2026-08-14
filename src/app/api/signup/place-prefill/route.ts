@@ -10,8 +10,10 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 // ── Documented invariant exception ───────────────────────────────────
 // CLAUDE.md invariant: "Vercel serves UI only. All SLA-critical compute
 // runs on Railway." This route makes an outbound SerpAPI call from a
-// Vercel serverless function — same exception that applies to the admin
-// prefill route (`src/app/api/admin/businesses/prefill/route.ts`):
+// Vercel serverless function. It is now the ONLY SerpAPI prefill route: the
+// admin twin at `src/app/api/admin/businesses/prefill/route.ts` was deleted
+// with the admin form's Place capture (admin-invite-funnel), so the shared
+// justification lives here:
 //   1. The call is user-triggered (the wizard's PlaceAutocomplete fires
 //      it on selection; no automation).
 //   2. The wizard needs sub-second feedback to fill the form.
@@ -21,7 +23,7 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 //   5. Costs land in `api_costs` (business_id=NULL) on every call,
 //      including timeouts/errors.
 //
-// Structurally mirrors the admin route. Differences:
+// How it differs from the deleted admin twin it was modelled on:
 //   - Auth: an authenticated OWNER whose Account is still pre-activation
 //     (`pending_payment`). This route used to be deliberately
 //     unauthenticated, gated only by `SELF_SERVE_SIGNUP_ENABLED` + a
@@ -32,8 +34,8 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 //     SerpAPI-billed endpoint permanently public. The session IS the
 //     gate now.
 //   - Rate-limit keys: BOTH the pre-existing per-IP key and a per-auth-id
-//     key mirroring the admin route, so one owner cannot rotate IPs to
-//     multiply SerpAPI spend.
+//     key carried over from that admin route, so one owner cannot rotate
+//     IPs to multiply SerpAPI spend.
 
 export const dynamic = 'force-dynamic';
 

@@ -39,7 +39,8 @@ Common flips:
 | Flag | Effect when off |
 |---|---|
 | `ZERNIO_PUBLISHING_ENABLED=false` | Worker stops calling Zernio; ingress returns 503; already-posted replies stay posted. The Zernio kill-switch — see `deployment-guide.md §10.5`. |
-| `SELF_SERVE_SIGNUP_ENABLED=false` | Public signup closes; admin onboarding still works. |
+| `SELF_SERVE_SIGNUP_ENABLED=false` | **Anonymous account-minting closes** — `/signup` + its sub-pages 404 and the signup APIs refuse. Everything else keeps working. **(Re-scoped 2026-08-14 — this is a genuine improvement worth knowing during an incident.)** Flipping it off no longer locks anyone out of `/login`, `/forgot-password` or `/reset-password`, which are always-on, and it does not close the authenticated onboarding funnel: an admin-invited owner mid-funnel can still log in, recover a password, capture their location, see the demo, check out, and finish the wizard. Admin onboarding still works. Blast radius is now exactly "no new strangers", where it used to also mean "existing invitees are locked out of login and password recovery". |
+| `BETA_COMP_COUPON_ID` unset | The beta comp stops attaching to **new** Checkout attempts (they snapshot `NULL` and render at full price). **Already-snapshotted attempts keep their comp** — that is the per-attempt Stripe idempotency contract, not a leak. Use this if the wrong coupon ID was deployed; pair it with a code rollback only if the coupon *emission* is what broke. |
 | `OPENAI_MODERATION_ENABLED=false` | OpenAI moderation layer off; local regex rules still run (they always run). Drafts are still held on local high-severity flags. |
 
 Flags are not data fixes: anything already written stays written. Combine with a

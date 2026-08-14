@@ -81,8 +81,12 @@ export class AdminOnboardingError extends Error {
  * the full domain, mask the rest. `norbertesekiel@gmail.com` → `n***@gmail.com`.
  * Never emit raw owner emails to logs (PII; also helps when ops pastes a log
  * line into a ticket).
+ *
+ * Exported for `./resend-invite.ts` (step 9 / T7): the resend path logs the
+ * same owner address on the same failure classes, and two spellings of "how we
+ * redact an email" is how one of them ends up logging the raw value.
  */
-function redactEmail(email: string): string {
+export function redactEmail(email: string): string {
   const at = email.indexOf('@');
   if (at <= 0) return '***';
   const local = email.slice(0, at);
@@ -105,8 +109,16 @@ function redactEmail(email: string): string {
  *   - Parse via URL constructor (rejects missing scheme, illegal chars)
  *   - Enforce scheme allowlist: https://, OR http://localhost for dev
  *   - Use parsed.origin so any path/query/fragment in the env is dropped
+ *
+ * Exported for `./resend-invite.ts` (step 9 / T7). The resend MUST send the
+ * owner to the byte-identical redirect the creation path built — two spellings
+ * of one invite redirect URL is how the invite link rots (the second copy
+ * drifts, and only the resent email is broken). Exporting the existing
+ * function is the smallest change that guarantees one spelling; moving it to a
+ * new shared module would buy nothing here beyond an extra file, since both
+ * consumers live in this directory and both raise `AdminOnboardingError`.
  */
-function buildInviteRedirectTo(): string {
+export function buildInviteRedirectTo(): string {
   const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!rawAppUrl || !rawAppUrl.trim()) {
     console.error(
