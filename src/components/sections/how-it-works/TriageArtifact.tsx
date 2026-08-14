@@ -25,7 +25,7 @@ export function TriageArtifact() {
             <span className="hiw-receipt-lbl">Severity</span>
             <span className="hiw-receipt-val">
               <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#F2C3B9', display: 'inline-block' }} />
-              Elevated
+              Medium
             </span>
           </div>
           <div className="hiw-receipt-cell">
@@ -33,7 +33,7 @@ export function TriageArtifact() {
             <span className="hiw-receipt-val">Draft with care</span>
           </div>
           <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">If critical</span>
+            <span className="hiw-receipt-lbl">If serious</span>
             <span className="hiw-receipt-val">Escalate to owner</span>
           </div>
         </div>

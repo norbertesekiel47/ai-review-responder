@@ -119,9 +119,29 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('Webhook from Google');
     expect(html).not.toContain('ever posted without your explicit go-ahead');
     expect(html).not.toContain('7am');
+    // triage severity vocabulary is low/medium/high (triage-schema.ts), and
+    // review-bombing detection is proposed-only, not built (PRODUCT.md)
+    expect(html).not.toContain('elevated');
+    expect(html).not.toContain('critical');
+    expect(html).not.toContain('review-bombing');
+    // no measured customer data exists (PRODUCT.md "Evidence on Hand"): any
+    // figure must carry an illustrative disclaimer, and empirical claims about
+    // owner behaviour may not appear at all
+    expect(html).not.toContain('Median owner time');
+    expect(html).not.toContain('most owners');
+    expect(html).not.toContain('86%');
+    // the digest has no topic-frequency extraction and no avg-star tile
+    expect(html).not.toContain('Top mentions this week');
+    expect(html).not.toContain('Avg stars');
+    // competitor scorecard is a roadmap preview, not a live program
+    expect(html).not.toContain('private testing');
 
     expect(html).toContain('Nothing is posted without your go-ahead');
     expect(html).toContain('Insights · every Monday');
+    // the illustrative disclaimers must stay attached to their figures
+    expect(html).toContain('Illustrative targets, not live performance data.');
+    expect(html).toContain('Illustrative target, not live performance data.');
+    expect(html).toContain('Sample dashboard with illustrative numbers');
   });
 
   it('presents the weekly brief as the Insights agent', () => {
@@ -137,10 +157,15 @@ describe('FeaturesContent', () => {
     expect(html).toContain('from a template.');
   });
 
-  it('describes the Copilot gate with all three channels', () => {
+  it('describes the Copilot gate as email-only until other channels launch', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
     expect(html).toContain('Copilot · your control');
-    expect(html).toContain('email, Telegram, or WhatsApp');
+    expect(html).toContain('comes to you by email');
+    // Telegram and WhatsApp exist in code but are off in production
+    // (CHANNELS_TELEGRAM_ENABLED / CHANNELS_WHATSAPP_ENABLED) — do not name
+    // them in marketing copy until they are actually on.
+    expect(html).not.toContain('Telegram');
+    expect(html).not.toContain('WhatsApp');
     expect(html).toContain('Nothing is posted without your go-ahead');
   });
 

@@ -5,8 +5,8 @@ import { useReveal } from './useReveal';
 
 const GUARDIAN_STEPS = [
   { n: '01', title: '1★ review lands', sub: 'Negative lane: Guardian reads it first', t: '0:00', dark: false, d: '100ms' },
-  { n: '02', title: 'Severity read', sub: 'Routine · elevated · critical: a bounded AI check', t: '+0:01', dark: false, d: '300ms' },
-  { n: '03', title: 'Critical → escalation', sub: "You're notified with the full context", t: '+0:02', dark: false, d: '500ms' },
+  { n: '02', title: 'Severity read', sub: 'Low · medium · high: a bounded AI check', t: '+0:01', dark: false, d: '300ms' },
+  { n: '03', title: 'Serious → escalation', sub: "You're notified with the full context", t: '+0:02', dark: false, d: '500ms' },
   { n: '04', title: 'You acknowledge and resolve', sub: 'Tracked until discharged · never auto-posted', t: 'ongoing', dark: true, d: '700ms' },
 ];
 
@@ -30,9 +30,10 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
             Bad reviews get read <span className="rw-display-serif text-rw-teal-strong">first</span>, not just answered.
           </h2>
           <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
-            Guardian triages every negative review by severity before anything is drafted. Routine
-            gripes flow on to drafting; serious ones (health claims, legal threats, review-bombing)
-            escalate straight to you with the context attached. Guardian never posts anything, anywhere.
+            Guardian reads every review that isn&apos;t clearly positive and grades its severity
+            before anything is drafted. Serious ones (health claims, legal threats, safety hazards)
+            escalate straight to you with the context attached — a careful draft is still prepared,
+            but it always waits for you. Guardian never posts anything, anywhere.
           </p>
         </div>
       </div>

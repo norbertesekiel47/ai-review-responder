@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'RepWorth: Automated Google review responses',
   description:
-    'RepWorth drafts on-brand replies to your Google reviews and posts them only after you approve. Reply to every review without the busywork.',
+    'RepWorth drafts on-brand replies to your Google reviews and posts them only after your approval — or inside the bounds you set. Reply to every review without the busywork.',
 };
 
 function resolveTrialDays(): number {
