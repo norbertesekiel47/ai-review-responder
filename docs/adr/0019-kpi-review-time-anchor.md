@@ -229,3 +229,27 @@ degrade to a fresh computation); account scope joins `businesses` with
 `archived_at IS NULL`; `windowDays`/`trendWeeks` reach SQL only as bound
 integers via `make_interval` (#403); `ratePct` and every rounded average return
 **null on an empty sample**, never `0`.
+
+### Sargability: measured 2026-08-13 (closing this addendum's open flag)
+
+`EXPLAIN (ANALYZE, BUFFERS)` on staging against the flagged path — the
+All-Locations aggregate **velocity** query — for the largest account
+(66 reviews; `reviews` table 95 rows):
+
+| Variant | Plan on `reviews` | Execution |
+|---|---|---|
+| Anchored (`LEAST(review_date, detected_at)`) | Seq Scan, filter | 1.9 ms |
+| Control (`detected_at`) | Seq Scan, filter | 0.5 ms |
+
+**Finding: no plan regression exists today** — at current volume the planner
+seq-scans `reviews` under *either* predicate, so the anchor changed per-row
+filter cost only, not the plan shape. The at-scale concern is real but bounded:
+when volume grows enough for the planner to want an index, the `detected_at`
+variant can use `idx_reviews_business_detected_at` and the anchored one cannot
+use any existing index. **The ready mitigation is an expression index** —
+`(business_id, LEAST(review_date, detected_at))` is legal because `LEAST` of
+two columns is IMMUTABLE (same class as the repo's existing
+`(created_at AT TIME ZONE 'UTC')::date` convention). Trigger to act: p95 growth
+on `GET /api/dashboard` aggregate scope, or any single account's non-deleted
+reviews reaching the thousands. The rating-breakdown/avg-star/trend queries use
+the same predicate class and inherit the same conclusion.
