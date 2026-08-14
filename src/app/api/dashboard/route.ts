@@ -396,7 +396,20 @@ async function handleAggregateDashboard(
              a.stripe_customer_id, a.onboarding_wizard_completed_at,
              b.place_id_verified, b.google_maps_url
       FROM accounts a
-      LEFT JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
+      -- archived_at IS NULL is NOT optional. Migration 034 enforces primary
+      -- uniqueness with a PARTIAL index (businesses_account_primary_uniq,
+      -- WHERE is_primary = TRUE AND archived_at IS NULL), so an account that
+      -- archived its original primary legitimately holds SEVERAL
+      -- is_primary = TRUE rows and exactly one live one. Without this
+      -- predicate the join fans out and the single-row destructure below
+      -- resolves funnelUrl, past_due_at, flags and stripe_customer_id from an
+      -- arbitrary, possibly archived location. The primary-business subquery
+      -- in plan-activation.ts spells the same concept correctly; keep the two
+      -- in step.
+      LEFT JOIN businesses b
+        ON b.account_id = a.id
+       AND b.is_primary = TRUE
+       AND b.archived_at IS NULL
       WHERE a.id = ${accountId}::uuid
     `;
     if (!accountRow) {

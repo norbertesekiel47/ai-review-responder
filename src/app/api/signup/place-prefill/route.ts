@@ -5,7 +5,10 @@ import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { getIpKey } from '@/lib/shared/request-ip';
 import { isPlaceId } from '@/lib/reviews/url-parser';
 import { fetchBusinessDetails } from '@/lib/reviews/serpapi-prefill';
-import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  SubscriptionStatus,
+  subscriptionGrantsFullAccess,
+} from '@/lib/shared/subscription-status';
 
 // ── Documented invariant exception ───────────────────────────────────
 // CLAUDE.md invariant: "Vercel serves UI only. All SLA-critical compute
@@ -42,7 +45,6 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
 interface PrefillGuardRow {
-  role: string;
   subscription_status: string;
 }
 
@@ -117,14 +119,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 3. Owner + pre-activation state. Owner-only filter at the SQL
-  //    boundary (proxy does not gate `/api/signup/*` on role), so an
-  //    admin or sales_partner session reads as "no row" → 404. An
-  //    activated owner has no business calling a signup-funnel prefill:
-  //    403 keeps the SerpAPI spend scoped to accounts actually walking
-  //    the funnel.
+  // 3. Owner + still-walking-the-funnel state. Owner-only filter at the
+  //    SQL boundary (proxy does not gate `/api/signup/*` on role), so an
+  //    admin or sales_partner session reads as "no row" → 404. The state
+  //    check keeps SerpAPI spend scoped to accounts actually walking the
+  //    funnel — but the funnel does NOT end at payment. `StepLocation` in
+  //    the wizard (`/onboarding/business`) is this route's other caller,
+  //    and **the wizard is reached POST-payment** (Funnel entry: full
+  //    access + wizard incomplete → `/onboarding/business`). A
+  //    `pending_payment`-only guard therefore 403s the wizard, whose
+  //    caller soft-swallows `!res.ok` — category/website prefill would
+  //    silently die for every owner in the non-demo wizard, which is the
+  //    production shape while `ONBOARDING_DEMO_ENABLED` is off, and for
+  //    every card-up-front trial. Allowed: `pending_payment` (demo lane)
+  //    plus full access (wizard). Everything else — `cancelled`,
+  //    `past_due`, `pending_payment`'s post-cancellation cousins — has no
+  //    business spending SerpAPI credits on a funnel it is not in.
   const [row] = await sql<PrefillGuardRow[]>`
-    SELECT u.role, a.subscription_status
+    SELECT a.subscription_status
     FROM users u
     JOIN accounts a ON a.id = u.account_id
     WHERE u.auth_id = ${user.id}
@@ -137,7 +149,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { status: 404, headers: NO_STORE },
     );
   }
-  if (row.subscription_status !== SubscriptionStatus.PENDING_PAYMENT) {
+  const inFunnel =
+    row.subscription_status === SubscriptionStatus.PENDING_PAYMENT ||
+    subscriptionGrantsFullAccess(row.subscription_status);
+  if (!inFunnel) {
     return NextResponse.json(
       { error: 'forbidden' },
       { status: 403, headers: NO_STORE },

@@ -9,6 +9,7 @@ const {
   mockCreateCheckoutSession,
   mockApplyTierSnapshot,
   mockResolveCheckoutContext,
+  mockReleaseCouponFaultedAttempt,
   mockSql,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
@@ -17,6 +18,7 @@ const {
   mockCreateCheckoutSession: vi.fn(),
   mockApplyTierSnapshot: vi.fn(),
   mockResolveCheckoutContext: vi.fn(),
+  mockReleaseCouponFaultedAttempt: vi.fn(),
   mockSql: vi.fn(),
 }));
 
@@ -29,6 +31,7 @@ vi.mock('@/lib/payments/plan-activation', () => {
     CheckoutAttemptConflictError,
     applyTierSnapshot: mockApplyTierSnapshot,
     resolveCheckoutContext: mockResolveCheckoutContext,
+    releaseCouponFaultedAttempt: mockReleaseCouponFaultedAttempt,
   };
 });
 vi.mock('@/lib/payments/create-checkout-session', () => {
@@ -426,5 +429,40 @@ describe('POST /api/onboarding/select-plan', () => {
     const body = await res.json();
     expect(body.error).toBe('checkout_coupon_misconfigured');
     expect(body.detail).toContain('beta_comp_3mo');
+  });
+
+  it('releases the coupon-faulted attempt so the owner is not permanently bricked', async () => {
+    // applyTierSnapshot has already COMMITTED the bad coupon into a `creating`
+    // attempt, and prepareCheckoutAttempt REUSES a `creating` attempt for the
+    // same selection. Without the release every retry rebuilds the identical
+    // rejected Stripe params and 502s forever — and unsetting BETA_COMP_COUPON_ID
+    // cannot rescue this owner, because their next attempt is not a new attempt.
+    // Step-7 spec review, and the half of the rollback plan that was untrue.
+    const { CheckoutCouponConfigurationError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutCouponConfigurationError('beta_comp_3mo', 'No such coupon'),
+    );
+
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(mockReleaseCouponFaultedAttempt).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT release the attempt on a non-coupon checkout failure', async () => {
+    // A provider outage leaves a legitimately reusable lease. Clearing it there
+    // would discard a valid attempt and re-mint one on every transient Stripe
+    // blip — the opposite of what the per-attempt idempotency key exists for.
+    const { CheckoutUnavailableError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutUnavailableError('missing selected Price'),
+    );
+
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(mockReleaseCouponFaultedAttempt).not.toHaveBeenCalled();
   });
 });

@@ -14,6 +14,7 @@ import {
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
+  releaseCouponFaultedAttempt,
   resolveCheckoutContext,
 } from '@/lib/payments/plan-activation';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
@@ -264,6 +265,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   // Create a Stripe Checkout Session instead of a Payment Link URL.
   // The session includes the correct base + overage line items.
+  //
+  // Captured before the try so the coupon-fault branch of the catch can
+  // release the attempt this snapshot COMMITTED without depending on
+  // control-flow narrowing surviving into a catch block.
+  const committedAttemptId = result.attemptId;
   let checkoutUrl: string;
   try {
     const checkout = await createCheckoutSession(
@@ -315,6 +321,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         reason: 'checkout_coupon_misconfigured',
         businessId,
       });
+      // Release the committed `creating` lease. Without this the owner's every
+      // retry reuses this same rejected coupon snapshot and 502s forever —
+      // unsetting BETA_COMP_COUPON_ID cannot rescue them, because their next
+      // attempt is not a new attempt.
+      await releaseCouponFaultedAttempt(sql, ctx.accountId, committedAttemptId);
       return NextResponse.json(
         { error: 'checkout_coupon_misconfigured', detail: err.message },
         { status: 502, headers: NO_STORE },

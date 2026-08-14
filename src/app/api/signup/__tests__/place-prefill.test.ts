@@ -109,19 +109,46 @@ describe('GET /api/signup/place-prefill', () => {
     expect(callArgs.slice(1)).toContain(AUTH_ID);
   });
 
-  it('place-prefill rejects an owner whose account is not in a pre-activation state', async () => {
-    // An activated owner has no business calling a signup-funnel prefill;
-    // keeping the SerpAPI spend scoped to accounts actually walking the funnel
-    // is the point of the state half of the guard.
-    mockSql.mockResolvedValueOnce([
-      { role: 'owner', subscription_status: 'active' },
-    ]);
+  it('place-prefill rejects an owner whose account has left the funnel', async () => {
+    // Retitled from "…is not in a pre-activation state", which encoded a guard
+    // that was too narrow to be correct: `pending_payment`-only 403s the WIZARD,
+    // whose StepLocation is this route's other caller and is reached
+    // POST-payment. See the sibling test below. `cancelled` is the real
+    // out-of-funnel case — SerpAPI spend stays scoped to owners still walking.
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'cancelled' }]);
 
     const res = await GET(mkReq('ChIJtest1234567890ab'));
 
     expect(res.status).toBe(403);
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
     expect(mockFetchBusinessDetails).not.toHaveBeenCalled();
+  });
+
+  it('place-prefill serves a post-payment owner filling in the wizard', async () => {
+    // REGRESSION GUARD. At the fork point this route had no subscription-status
+    // guard at all, and `src/app/onboarding/business/StepLocation.tsx` already
+    // called it. This branch added a `pending_payment`-only check, which 403s
+    // that caller — and StepLocation soft-swallows `!res.ok`, so category and
+    // website prefill died SILENTLY in the wizard: the production shape while
+    // ONBOARDING_DEMO_ENABLED is off, and every card-up-front trial. Found by
+    // the step-7 spec review via blast-radius; nothing else covered this caller.
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'active' }]);
+
+    const res = await GET(mkReq('ChIJtest1234567890ab'));
+
+    expect(res.status).toBe(200);
+    expect(mockFetchBusinessDetails).toHaveBeenCalledOnce();
+  });
+
+  it('place-prefill serves a trialing owner filling in the wizard', async () => {
+    // `trialing` is full access (invariant #11) — a card-up-front trial owner
+    // walks the same wizard, so a raw === 'active' test would have missed it.
+    mockSql.mockResolvedValueOnce([{ subscription_status: 'trialing' }]);
+
+    const res = await GET(mkReq('ChIJtest1234567890ab'));
+
+    expect(res.status).toBe(200);
+    expect(mockFetchBusinessDetails).toHaveBeenCalledOnce();
   });
 
   // ── Query validation ───────────────────────────────────────────────

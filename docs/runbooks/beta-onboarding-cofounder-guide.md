@@ -87,7 +87,7 @@ team and come back to you tomorrow"* — that is always an acceptable answer.
 
 **Payment mechanics — read this carefully, it changed on 2026-08-14.** The owner
 now goes through a **real Stripe checkout during the meeting**, and it will ask
-for a **card**. The total is **$0 due today**: the beta discount (100% off for
+for a **card**. The total is **$0 due today**: the beta comp coupon (100% off for
 3 months) is applied automatically by our system because the account was created
 from an admin invite — nobody types a promo code, and there is no code to type.
 
@@ -317,7 +317,7 @@ From the demo they continue to plan selection and then **Stripe's checkout page*
   Part 2 script out loud *before* they see the card field.
 - **Check the total before they submit.** It must read $0 due today. If it shows
   $19, $29, or any non-zero amount, **stop — do not have them pay.** That means
-  the beta discount didn't attach; screenshot the page and escalate (Part 9).
+  the beta comp coupon didn't attach; screenshot the page and escalate (Part 9).
   It is not fixable in the meeting and paying "and we'll refund you" is not an
   acceptable workaround.
 - They submit. Their subscription becomes active with the discount attached, and
@@ -549,7 +549,7 @@ confidence; ten minutes of on-call fiddling destroys it.
 | Symptom | What you say | What you do |
 |---|---|---|
 | Invite email never arrives | "Let's check spam… no? I'll resend it right now." | Verify the email address you entered, then use **Resend invite** on the business's admin page (see below). If the resend also fails to arrive, escalate. |
-| **Checkout total is NOT $0** | "Give me one second — I don't want you paying for something that's meant to be free." | **STOP. Do not let them pay.** Screenshot the checkout page, escalate immediately. The beta discount didn't attach; it is not fixable in the meeting. |
+| **Checkout total is NOT $0** | "Give me one second — I don't want you paying for something that's meant to be free." | **STOP. Do not let them pay.** Screenshot the checkout page, escalate immediately. The beta comp coupon didn't attach; it is not fixable in the meeting. |
 | Checkout page errors or won't load | "That's on us — team will sort it today." | Screenshot (with the address bar), escalate. Do not retry more than once. |
 | They log in and land somewhere unexpected | "Let me look — the system picks the screen for you." | Note exactly what they saw and where they'd got to, and escalate. Don't hand them a URL to type. |
 | Google connect errors or loops | "This is on us, not on you — team will sort it today." | Screenshot (with the address bar), escalate. |
@@ -652,9 +652,12 @@ from the founder who onboarded them works far better than anything automated.
   Nothing from it is ever posted.
 - **Setup wizard** — the short post-checkout sequence Profile → Voice → Connect
   Google that ends on the dashboard.
-- **Beta discount** — the automatic 100%-off-for-3-months applied at checkout
+- **Beta comp coupon** — the automatic 100%-off-for-3-months applied at checkout
   because the account came from an admin invite. There is no promo code to type
-  and no code to give out.
+  and no code to give out. (Say "beta comp coupon", not "beta discount" or
+  "discount code" — `CONTEXT.md` locks the term and lists those as the phrasings
+  to avoid, because a *code* is something a customer types and this is
+  server-selected.)
 
 ---
 

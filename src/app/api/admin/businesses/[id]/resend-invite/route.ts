@@ -60,7 +60,16 @@ async function enforceResendRateLimit(
         { status: 429 },
       );
     }
-  } catch {
+  } catch (err) {
+    // Report BEFORE returning, matching `api/onboarding/start/route.ts`. This
+    // limiter is `strict: true` — Redis-down fails CLOSED — so a swallowed
+    // catch here means an Upstash outage silently disables the one admin action
+    // that mails a customer, with zero Sentry signal to explain why. The 503 is
+    // correct; the silence was not.
+    reportCaughtError('api/admin/businesses/[id]/resend-invite POST', err, {
+      reason: 'resend_invite_rate_limit_unavailable',
+      businessId,
+    });
     return NextResponse.json(
       { error: 'Rate limiting unavailable — try again later' },
       { status: 503 },

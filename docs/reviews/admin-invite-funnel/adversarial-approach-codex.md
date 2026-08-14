@@ -23,3 +23,43 @@ Next steps:
 - Complete and record the real Supabase resend-contract staging probe before production rollout.
 - Redesign coupon eligibility around an explicit entitlement rather than `onboarded_by`.
 
+---
+
+## Triage verdicts — round 1, 2026-08-14
+
+- **[high] resend-invite rests on an unverified Supabase contract** — **ACCEPTED,
+  already tracked as D-13.** No code change: the map is *unverifiable* without a
+  real provider response, and guessing again is what D-13 records. Its
+  containment stands (code-keyed branches, unknown → 502 + logged raw code,
+  never auto-retried, header marked `CONTRACT NOT YET VERIFIED`). The staging
+  probe — accepted / unaccepted / deleted-user / rate-limited — remains a live
+  blocking ops item before the route is used in production. Codex independently
+  reaching the same conclusion as the spec axis raises its priority, not its
+  scope.
+- **[high] `onboarded_by IS NOT NULL` is not a trustworthy comp marker** —
+  **REJECTED ON THE PREMISE**, with one real residue carried forward.
+  - The claim that "historical self-serve accounts can be classified as invited"
+    is false: self-serve signup shipped in the **same commit** as 025's backfill
+    (`d0f3d9fa`, #7), and `2026-04-23-owner-self-serve-signup-design.md:220,224`
+    records that admin onboarding never populated `onboarded_by` before then. So
+    every row the backfill touched was genuinely admin-onboarded; there was no
+    self-serve population to mislabel. The backfill was correct-by-construction,
+    and `:257` documents the placeholder id as deliberately informational.
+  - The recommended fix (a dedicated per-account comp entitlement) is
+    additionally `non_goals[2]` of the locked intake.
+  - **A migration NULLing the backfilled rows was drafted, owner-approved, then
+    withdrawn** once the premise was checked. It would have granted those
+    accounts trial eligibility they must not have (`plan-activation.ts` gates
+    trials on `onboarded_by IS NULL`) and stripped layer 2 of
+    `CleanupAbandonedSignupsPoller`'s three-layer safety — a data-loss risk in
+    service of a non-problem.
+  - **Real residue, closed differently:** a *legacy* admin-onboarded account
+    still sitting in `pending_payment` would draw a comp once a live coupon
+    exists. That is semantically consistent with the marker but not who the comp
+    is for, so it is now a **blocking pre-flight audit** in
+    `docs/launch-checklist.md` ahead of Phase F2, rather than a code or data
+    change.
+
+**Net:** one finding accepted as an already-tracked ops blocker, one rejected on
+verified fact with its genuine residue converted into a launch gate.
+

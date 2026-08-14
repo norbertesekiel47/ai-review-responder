@@ -82,9 +82,15 @@ export interface TenantScopeAllowlistEntry {
 //     ownership proof/lock. The globally unique review id remains the key.
 //   398 → 399 (admin-invite-funnel T4), a GROWTH of one. `GET
 //     /api/signup/place-prefill` stopped being an unauthenticated,
-//     flag-gated endpoint and gained an owner + pre-activation-state lookup;
+//     flag-gated endpoint and gained an owner + in-funnel-state lookup;
 //     that new read is the guard itself, scoped through Supabase `auth_id` to
-//     `users.account_id` exactly like its onboarding siblings. Four existing
+//     `users.account_id` exactly like its onboarding siblings. (Step-7 review
+//     refreshed this snippet twice over: the state half widened from
+//     `pending_payment`-only to "still walking the funnel" — the narrow form
+//     403'd the post-payment wizard's `StepLocation`, which soft-swallows
+//     `!res.ok`, so prefill died silently; and the now-unread `u.role`
+//     projection was dropped from the SELECT, the predicate having already
+//     decided it. Same scope key, same auth path.) Four existing
 //     onboarding entries had their snippets refreshed in the same change (the
 //     `/onboarding/pay` page query gained `AND u.role = 'owner'`, the
 //     `/onboarding/start` page query gained `b.name` for the invited-owner
@@ -1528,7 +1534,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/app/api/signup/place-prefill/route.ts",
     table: "accounts",
-    sqlSnippet: "SELECT u.role, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
+    sqlSnippet: "SELECT a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },

@@ -55,15 +55,18 @@ beforeEach(() => {
 });
 
 describe('OnboardingPayPage guard', () => {
-  it('onboarding pay page 404s for a non-owner user', async () => {
+  it('onboarding pay page redirects a non-owner user to /signup (never serves the plan picker)', async () => {
+    // Retitled from "404s for a non-owner user" — the assertion below is a
+    // /signup REDIRECT, and a title asserting a 404 described a status code no
+    // line here checks (D-6 item 2, handed to step-7 review). The 404 is real
+    // but it belongs to /signup while SELF_SERVE_SIGNUP_ENABLED is off, one hop
+    // downstream of this page and out of this test's reach; what THIS page
+    // guarantees is that a non-owner is never served the picker.
+    //
     // The page query gained `AND u.role = 'owner'`; before that an admin or
     // sales_partner session read whichever business their account pointed at
-    // and was offered a plan picker for it (Codex round-1 finding 8).
-    //
-    // A non-owner session gets exactly the missing-row treatment — the page is
-    // never served. Mechanically that is the /signup redirect, and /signup
-    // itself 404s while SELF_SERVE_SIGNUP_ENABLED is off, which is the beta
-    // posture this ticket targets.
+    // and was offered a plan picker for it (Codex round-1 finding 8). A
+    // non-owner session now gets exactly the missing-row treatment.
     mockSql.mockResolvedValueOnce([]); // owner-filtered query finds nothing
 
     await expect(OnboardingPayPage({ searchParams })).rejects.toThrow(

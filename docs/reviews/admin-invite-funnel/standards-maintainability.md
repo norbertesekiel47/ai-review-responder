@@ -288,3 +288,25 @@ These are judgement calls, not standards violations. Recorded for the author, de
 ---
 
 **Verdict on my axis:** REQUEST CHANGES — findings 1, 2 and 3. Findings 4-8 are cheap and should ride along. 9-13 are the author's call.
+
+---
+
+## Triage verdicts — round 1, 2026-08-14
+
+Each high was verified against the code before triage; all three held.
+
+| # | Sev | Verdict |
+|---|---|---|
+| 1 | HIGH | `create-business.ts` duplication — **ACCEPTED, DEFERRED by owner decision.** Real, and the column-order hazard is correctly characterised. Deferred because it is the highest-risk file on the branch and already proven end-to-end on staging; a ~230-line no-behaviour-change restructure would void that proof. Filed: `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md`. |
+| 2 | HIGH | Missing `archived_at IS NULL` on the aggregate primary join — **ACCEPTED, FIXED.** Confirmed against `034`'s partial unique index. The only finding this round that silently corrupts a live owner's payload. |
+| 3 | HIGH | `recordCouponDecision` post-commit + swallow — **ACCEPTED, FIXED** via `tx.savepoint`. Half the reasoning corrected: the rollback direction cannot occur (gated on `result.kind === 'ok'`), but crash-after-commit is real — and the un-migrated-106 objection the original comment raised is answered by the savepoint rather than by the ordering, so the fix keeps both properties. |
+| 4 | MED | Silent `catch {}` on the fail-closed invite rate limit — **ACCEPTED, FIXED** (`reportCaughtError` before the 503). |
+| 5 | MED | `funnelUrl` optional + nullable + widened — **ACCEPTED, DEFERRED.** Type-only tightening, no behavioural effect; belongs with the D-12 cleanup rather than adding churn to a staging-proven branch. |
+| 6 | MED | `hasPlace` hand-spelled at 15 call sites — **ACCEPTED, DEFERRED**, same follow-up. The predicate is identical at every site today, so this is rot-prevention, not a live defect. |
+| 7 | MED | Glossary: **Beta discount** — **ACCEPTED, FIXED.** All four prose sites now say **Beta comp coupon**; the glossary entry retains the banned form only as an explicit "say this, not that". |
+| 8 | MED | `select-plan` still returns `paymentUrl` — **ACCEPTED WITH A DIFFERENT FIX.** The route is right: that field holds a genuine Stripe payment URL. `CONTEXT.md`'s flat "`paymentUrl` is deleted, not renamed" was over-broad — the claim concerns the *dashboard's funnel-destination* field — so the doc was corrected, not the code. |
+| 9 | LOW-MED | `CreateBusinessResult.paymentUrl` dead field — **ACCEPTED, DEFERRED.** The reviewer is right that D-12's stated cost does not hold; that correction is recorded in the follow-up doc. |
+| 10 | LOW | Dead ternary at `plan-activation.ts:219` — **ACCEPTED, FIXED**; collapsed to one binding. |
+| 11 | LOW | Unread `role` projection in `place-prefill` — **ACCEPTED, FIXED**; dropped from both the type and the SELECT. |
+| 12 | LOW | `isWellFormedCouponSnapshot`'s `typeof` re-test — **REJECTED.** The function's own doc comment (`create-checkout-session.ts:85-86`) states an un-projected column arrives as runtime `undefined`, which `string \| null` does not express. Deliberate runtime narrowing, not redundancy — removing it would delete a real guard. |
+| 13 | LOW | Fourth copy of the owner-page SSR preamble — **ACCEPTED, DEFERRED.** Extracting a `requireOwnerPage` twin of `requireAdminPage` is the right shape but touches four page files outside this round's risk budget; folded into the follow-up. |

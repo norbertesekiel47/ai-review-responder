@@ -16,7 +16,7 @@
 // Validation contract: VAL-BILLING-065, VAL-SCHEMA-037 (deprecated
 // businesses.subscription_tier column, retained for backward compat).
 
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
@@ -40,6 +40,7 @@ import {
 import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
 import { getStripe } from '@/lib/payments/stripe-client';
+import { errorStringProperty } from '@/lib/payments/stripe-error-inspect';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -215,8 +216,12 @@ function resolveCheckoutCreateShape(
     throw new Error('Checkout owner email is required');
   }
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  const configuredCoupon = primaryOnboardedBy !== null ? betaCompCouponId() : null;
-  const couponId = primaryOnboardedBy !== null ? (configuredCoupon ?? null) : null;
+  // Exactly two facts decide the comp, and only two (CONTEXT.md "Beta comp
+  // coupon"): the primary Business is admin-invited, AND the env var is set.
+  // One binding, because `betaCompCouponId()` already returns `string | null` —
+  // the second ternary and `?? null` this replaced were both unreachable, in
+  // the four lines that decide whether a founding customer gets charged.
+  const couponId = primaryOnboardedBy !== null ? betaCompCouponId() : null;
   const couponReason: CheckoutCouponDecisionReason =
     primaryOnboardedBy === null
       ? 'not_invited'
@@ -527,24 +532,33 @@ export async function applyTierSnapshot(
           updated_at = NOW()
       WHERE id = ${accountId}::uuid
     `;
-    // The coupon decision rides OUT of the transaction on the result so it can
-    // be reported after COMMIT — see recordCouponDecision.
+    // The DURABLE half of the coupon decision is written here, inside the
+    // transaction, so the event cannot survive a rolled-back decision and — the
+    // case that matters — a committed decision cannot lose its event to a crash.
+    // Only the LOG line rides out on the result, to be emitted after COMMIT.
+    const couponDecision = {
+      couponId: checkoutCreateShape.couponId,
+      reason: checkoutCreateShape.couponReason,
+    };
+    await emitCouponDecisionEvent(tx, {
+      accountId,
+      attemptId,
+      actorUserId,
+      ...couponDecision,
+    });
     return {
       kind: 'ok' as const,
       accountId,
       variant,
       attemptId,
-      couponDecision: {
-        couponId: checkoutCreateShape.couponId,
-        reason: checkoutCreateShape.couponReason,
-      },
+      couponDecision,
     };
   });
   if (result.kind !== 'ok') return result;
 
   await synchronizeBusinessTierMirror(sql, result.accountId);
   if (result.couponDecision) {
-    await recordCouponDecision(sql, {
+    logCouponDecision({
       accountId: result.accountId,
       attemptId: result.attemptId,
       actorUserId,
@@ -559,65 +573,165 @@ export async function applyTierSnapshot(
   };
 }
 
+interface CouponDecisionRecord {
+  accountId: string;
+  attemptId: string;
+  actorUserId?: string | null;
+  couponId: string | null;
+  reason: CheckoutCouponDecisionReason;
+}
+
 /**
- * Best-effort observability for the beta comp decision, run AFTER the
- * tier-snapshot transaction commits.
+ * Writes the DURABLE coupon decision inside the tier-snapshot transaction,
+ * through a savepoint.
  *
- * Post-commit and log-and-swallow, both deliberately:
- *   - Post-commit because `checkout_coupon_decision` is admitted by the
- *     `analytics_events.event_name` CHECK only once migration 106 is applied;
- *     emitting inside `sql.begin` would let an unapplied 106 abort the whole
- *     tier snapshot (the blast radius migration 102's header describes).
- *   - Log-and-swallow because a telemetry failure caught by the caller would
- *     turn an already-committed attempt into a failed plan selection
- *     (CLAUDE.md: never let observability poison the success path).
+ * WHY IN-TRANSACTION. Migration 106's header calls this event "the ONLY
+ * durable signal that a beta tester's comp was silently skipped before they
+ * are charged". A post-commit emitter loses exactly that signal in exactly the
+ * case it exists for: the process dies (or Redis/PG blips) between COMMIT and
+ * the insert, and the attempt then carries a coupon answer no event records.
+ * Written here, the event commits if and only if the decision does — the
+ * property `import-consent.ts:81-90` pins for the same class of event.
+ *
+ * WHY A SAVEPOINT AND NOT A BARE INSERT. `checkout_coupon_decision` is
+ * admitted by the `analytics_events.event_name` CHECK only once migration 106
+ * is applied, so a bare in-transaction insert against an un-migrated database
+ * would abort the WHOLE tier snapshot — the blast radius migration 102's
+ * header describes, and the original reason this ran post-commit. A savepoint
+ * closes that: a CHECK violation rolls back to the savepoint only, is swallowed
+ * below, and the snapshot commits without its event. So the savepoint form is
+ * strictly better than post-commit — it keeps the un-migrated-106 safety AND
+ * removes the crash window.
+ *
+ * Swallows only Postgres-coded failures, per `emitConsentEvent`: anything with
+ * no `code` is not a constraint/telemetry fault but a programming error, and
+ * rethrowing it is deliberate.
+ */
+async function emitCouponDecisionEvent(
+  tx: TransactionSql,
+  input: CouponDecisionRecord,
+): Promise<void> {
+  const decision = checkoutCouponDecisionLabel(input.reason);
+  try {
+    await tx.savepoint((sp) =>
+      enqueueAnalyticsEvent(sp, {
+        eventName: 'checkout_coupon_decision',
+        // One decision per attempt by construction — the attempt id is minted
+        // in the same transaction that takes the decision, so a replay of this
+        // emission drops on ON CONFLICT (event_key) DO NOTHING.
+        eventKey: makeAnalyticsEventKey('checkout_coupon_decision', [
+          input.attemptId,
+        ]),
+        distinctId: input.accountId,
+        accountId: input.accountId,
+        userId: input.actorUserId ?? null,
+        properties: {
+          decision,
+          reason: input.reason,
+          coupon_applied: input.couponId !== null,
+        },
+      }),
+    );
+  } catch (err) {
+    if (errorStringProperty(err, 'code') === undefined) throw err;
+    reportCaughtError('checkout-attempt', err, {
+      reason: 'checkout_coupon_decision_analytics_enqueue_failed',
+      accountId: input.accountId,
+      attemptId: input.attemptId,
+    });
+  }
+}
+
+/**
+ * Logs the beta comp decision AFTER the tier-snapshot transaction commits.
+ *
+ * Post-commit deliberately: a log line emitted inside the transaction would
+ * assert a decision that a later rollback un-makes. The durable half of this
+ * observability lives in `emitCouponDecisionEvent`, inside the transaction.
  *
  * The raw coupon id is NOT logged: an admin diagnosing a miss needs the
  * DECISION, and the id is already recoverable from the attempt row. It appears
  * in exactly one place — the invalid-coupon error message in
  * create-checkout-session.ts, where naming it IS the actionable content.
  */
-async function recordCouponDecision(
-  sql: Sql,
-  input: {
-    accountId: string;
-    attemptId: string;
-    actorUserId?: string | null;
-    couponId: string | null;
-    reason: CheckoutCouponDecisionReason;
-  },
-): Promise<void> {
-  const decision = checkoutCouponDecisionLabel(input.reason);
+function logCouponDecision(input: CouponDecisionRecord): void {
   createWorkerLogger(LOG_PREFIX).log('Beta comp coupon decision', {
     account_id: input.accountId,
     attempt_id: input.attemptId,
-    decision,
+    decision: checkoutCouponDecisionLabel(input.reason),
     reason: input.reason,
     coupon_applied: input.couponId !== null,
   });
+}
+
+// ── releaseCouponFaultedAttempt ──────────────────────────────────────────
+
+/**
+ * Releases a `creating` Checkout attempt whose frozen coupon snapshot Stripe
+ * rejected, so the owner's next click re-snapshots against current config.
+ *
+ * WITHOUT THIS THE OWNER IS BRICKED PERMANENTLY. `applyTierSnapshot` has
+ * already COMMITTED the bad coupon into a `creating` attempt by the time
+ * Stripe rejects it, `prepareCheckoutAttempt` REUSES a `creating` attempt for
+ * the same selection on every retry, and nothing in the codebase expires or
+ * reaps an attempt — there is no `checkout_attempt_expires_at` and no reaper
+ * poller. So every retry rebuilds the identical rejected Session params and
+ * 502s again, forever, and the rollback plan's stated kill switch ("leave
+ * BETA_COMP_COUPON_ID unset — every new attempt then snapshots NULL") cannot
+ * reach an owner who already has an attempt: their next attempt is not new.
+ * Clearing the lease is what makes that kill switch true.
+ *
+ * Scoped deliberately narrowly: `state = 'creating'` AND the attempt id the
+ * caller just failed on. An `open`/`completed` attempt has a live Stripe
+ * Session behind it and must never be cleared from an error path — and the
+ * attempt-id predicate means a concurrent request that already replaced the
+ * lease is left alone rather than having its attempt yanked.
+ *
+ * NULLs all nineteen attempt columns in one statement because migration 105's
+ * cleared branch of `accounts_checkout_attempt_complete_check` enumerates
+ * every one of them: a partial clear does not satisfy either branch and the
+ * UPDATE would be rejected. An attempt is complete-or-cleared as a WHOLE.
+ *
+ * Best-effort by contract: the caller is already returning an error to the
+ * owner, so a failure here must not mask it. Never throws.
+ */
+export async function releaseCouponFaultedAttempt(
+  sql: Sql,
+  accountId: string,
+  attemptId: string,
+): Promise<void> {
   try {
-    await enqueueAnalyticsEvent(sql, {
-      eventName: 'checkout_coupon_decision',
-      // One decision per attempt by construction — the attempt id is minted in
-      // the same transaction that takes the decision, so a replay of this
-      // emission drops on ON CONFLICT (event_key) DO NOTHING.
-      eventKey: makeAnalyticsEventKey('checkout_coupon_decision', [
-        input.attemptId,
-      ]),
-      distinctId: input.accountId,
-      accountId: input.accountId,
-      userId: input.actorUserId ?? null,
-      properties: {
-        decision,
-        reason: input.reason,
-        coupon_applied: input.couponId !== null,
-      },
-    });
+    await sql`
+      UPDATE accounts
+         SET checkout_attempt_state = NULL,
+             checkout_attempt_id = NULL,
+             checkout_session_id = NULL,
+             checkout_attempt_tier = NULL,
+             checkout_attempt_price_variant = NULL,
+             checkout_attempt_base_price_id = NULL,
+             checkout_attempt_overage_price_id = NULL,
+             checkout_attempt_base_price_cents = NULL,
+             checkout_attempt_overage_price_cents = NULL,
+             checkout_attempt_locations_included = NULL,
+             checkout_attempt_locations_paid = NULL,
+             checkout_attempt_overage_quantity = NULL,
+             checkout_attempt_trial_period_days = NULL,
+             checkout_attempt_tax_enabled = NULL,
+             checkout_attempt_customer_email = NULL,
+             checkout_attempt_success_url = NULL,
+             checkout_attempt_cancel_url = NULL,
+             checkout_attempt_updated_at = NULL,
+             checkout_attempt_coupon_id = NULL,
+             updated_at = NOW()
+       WHERE id = ${accountId}::uuid
+         AND checkout_attempt_id = ${attemptId}::uuid
+         AND checkout_attempt_state = 'creating'
+    `;
   } catch (err) {
-    reportCaughtError('checkout-attempt', err, {
-      reason: 'checkout_coupon_decision_analytics_enqueue_failed',
-      accountId: input.accountId,
-      attemptId: input.attemptId,
+    reportCaughtError('plan-activation', err, {
+      reason: 'coupon_faulted_attempt_release_failed',
+      accountId,
+      attemptId,
     });
   }
 }

@@ -491,3 +491,69 @@ Removing the key alone fixes it, and the result is exactly what the plan promise
 3. *A named error class is worthless until a route maps it.* Adding the class and wiring the mapping belong in the same change.
 
 **Triage verdict:** ACCEPT — fixed, regression-tested, and the plan's incorrect premise is recorded here rather than silently corrected.
+
+---
+
+## D-17 — 2026-08-14 — Step-7 review round 1: fixes applied (see `docs/reviews/admin-invite-funnel/`)
+
+Three-axis review (spec & correctness · standards & maintainability · Codex
+adversarial approach) against `2b3c872a..HEAD`. Reports committed under
+`docs/reviews/admin-invite-funnel/`; per-finding verdicts are recorded in each
+report. What changed on the branch as a result:
+
+| Fix | Site | Class |
+|---|---|---|
+| Added `AND b.archived_at IS NULL` to the aggregate primary-business join | `src/app/api/dashboard/route.ts` | **live correctness bug** |
+| Widened the prefill guard to the whole funnel, not just `pending_payment` | `src/app/api/signup/place-prefill/route.ts` | **live correctness bug** |
+| Mapped `CheckoutCouponConfigurationError` on the second consumer | `src/app/api/billing/checkout/route.ts` | D-16's own open second half |
+| `releaseCouponFaultedAttempt` — release a coupon-faulted `creating` lease | `src/lib/payments/plan-activation.ts` + both routes | **permanent owner lockout** |
+| Coupon-decision event moved INSIDE the tx via `tx.savepoint` | `src/lib/payments/plan-activation.ts` | durability of the only comp signal |
+| Corrected the falsified `allow_promotion_codes` claim in 4 live docs | `CONTEXT.md`, `docs/launch-checklist.md` ×2, `docs/runbooks/beta-production-standup.md` | doc asserting the D-16 bug |
+| Blocking pre-flight audit of the legacy `onboarded_by` population | `docs/launch-checklist.md` | financial pre-flight gate |
+| Reported the fail-closed rate-limit outage instead of swallowing it | `src/app/api/admin/businesses/[id]/resend-invite/route.ts` | no-silent-catch standard |
+| Collapsed a dead ternary in the four lines that decide comp | `src/lib/payments/plan-activation.ts` | dead code |
+| Dropped an unread `role` projection | `src/app/api/signup/place-prefill/route.ts` | dead code |
+| Glossary: **Beta discount** → **Beta comp coupon** (4 sites) | `docs/runbooks/beta-onboarding-cofounder-guide.md` | locked-term violation |
+
+### `tests_to_add` retitle (a deviations entry, NOT a surface amendment — same rule as D-2)
+
+`onboarding pay page 404s for a non-owner user`
+→ `onboarding pay page redirects a non-owner user to /signup (never serves the plan picker)`
+
+**Why.** The assertion is `expect(mockRedirect).toHaveBeenCalledWith('/signup')`;
+no line checked a 404. The 404 is real but belongs to `/signup` while
+`SELF_SERVE_SIGNUP_ENABLED` is off — one hop downstream and out of this test's
+reach. What this page guarantees is that a non-owner is never served the picker,
+so the title now says that. D-6 item 2 flagged this mismatch and explicitly
+handed it to a reviewer; both intake copies were updated in lockstep and
+`intakeSha256` re-synced.
+
+### Findings REJECTED, with reasoning
+
+- **Codex high — "`onboarded_by IS NOT NULL` misclassifies historical self-serve
+  accounts as invited."** Rejected on the premise. Self-serve signup shipped in
+  the *same commit* as 025's backfill (`d0f3d9fa`, #7), and
+  `2026-04-23-owner-self-serve-signup-design.md:220,224` records that admin
+  onboarding never populated `onboarded_by` before then. So every row 025
+  touched was genuinely admin-onboarded and there was no self-serve population
+  to mislabel. Codex's proposed fix (a dedicated per-account comp entitlement)
+  is additionally `non_goals[2]`. **A migration NULLing those rows was drafted,
+  owner-approved, and then withdrawn** once the premise was checked: it would
+  have granted those accounts trial eligibility they must not have
+  (`plan-activation.ts` gates trials on `onboarded_by IS NULL`) and stripped the
+  `CleanupAbandonedSignupsPoller` reference guard. The residual *real* risk — a
+  legacy admin-onboarded account still in `pending_payment` drawing a comp once
+  the live coupon exists — is closed by the blocking checklist audit instead.
+- **Standards low — "`isWellFormedCouponSnapshot`'s `typeof value === 'string'`
+  is unreachable given the signature."** Rejected: the function's own doc
+  comment (`create-checkout-session.ts:85-86`) states that an un-projected
+  column arrives as runtime `undefined`, which the `string | null` type does not
+  express. The check is deliberate runtime narrowing, not redundancy.
+- **Standards high — `runAdminTx`/`runSelfServeTx` duplication.** Real, and
+  **deferred by owner decision** to a follow-up ticket: it is the
+  highest-risk file on the branch, already proven end-to-end on staging, and a
+  ~230-line restructure would invalidate that proof for a change with no
+  behavioural effect. Recorded so the next reader does not mistake it for
+  unnoticed.
+
+**Triage verdict:** ACCEPT — all accepted findings fixed; rejections reasoned above.

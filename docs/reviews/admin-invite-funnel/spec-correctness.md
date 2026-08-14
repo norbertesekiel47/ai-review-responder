@@ -356,3 +356,53 @@ logger as the convention.
 
 **A8 — intake `tests_to_add` has 51 entries, not 52.** Both intake copies agree at 51; the
 review brief said 52. No entry is missing relative to the contract on disk.
+
+_(A8 is correct — my brief miscounted. The contract now holds 52 after this round
+added `place-prefill serves a post-payment owner filling in the wizard`.)_
+
+---
+
+## Triage verdicts — round 1, 2026-08-14
+
+Every major was verified against the code before triage; all four held.
+
+- **[major] `place-prefill:140` 403s the post-payment wizard caller** —
+  **ACCEPTED, FIXED.** The strongest finding of the round, and blast-radius is
+  what surfaced it. Verified at the fork point: `StepLocation.tsx` **already**
+  called this route and the route had **no** subscription-status guard, so the
+  branch introduced the regression. Because the caller soft-swallows `!res.ok`,
+  it failed silently — in the production wizard shape (`ONBOARDING_DEMO_ENABLED`
+  off) and for every card-up-front trial. The guard now admits `pending_payment`
+  **plus** full access, and `cancelled` remains rejected. Three tests added,
+  including `trialing` (a raw `=== 'active'` check would have missed it). This
+  also corrected the locked contract itself: the promised title
+  "…is not in a pre-activation state" *specified* the too-narrow guard, so it was
+  retitled in both intake copies (D-17, same rule as D-2).
+- **[major] `create-checkout-session.ts:384` — a coupon fault is unrecoverable** —
+  **ACCEPTED, FIXED.** Verified: `prepareCheckoutAttempt` reuses a `creating`
+  attempt for the same selection, and no expiry column or reaper exists
+  anywhere. So the owner 502s forever and the intake's own documented kill switch
+  ("leave `BETA_COMP_COUPON_ID` unset") cannot reach them, because their next
+  attempt is not a new attempt. Added `releaseCouponFaultedAttempt`, wired into
+  both coupon-fault handlers, scoped to `state = 'creating'` AND the failed
+  attempt id, NULLing all nineteen columns so 105's cleared branch is satisfied.
+- **[major] `billing/checkout:207` never maps `CheckoutCouponConfigurationError`** —
+  **ACCEPTED, FIXED.** Confirmed only `select-plan` mapped it. This is literally
+  D-16's own recorded second finding, still open on the other consumer, and only
+  half of `intake.observability[3]`. Now mapped to `checkout_coupon_misconfigured`
+  (502) with its own Sentry reason, plus a regression test.
+- **[major] four live docs still assert "`allow_promotion_codes` stays `false`"** —
+  **ACCEPTED, FIXED.** The highest-leverage finding for the *next* engineer: three
+  of the four were written by this branch *after* the fix, so the locked glossary
+  itself instructed a reader to restore the parameter that 500'd staging. All four
+  now state that the key is **omitted** on the coupon path and that Stripe rejects
+  by presence, not value.
+- **[minor] pay-page test title asserts a 404 it never checks** — **ACCEPTED,
+  FIXED.** Retitled to what it actually pins (a `/signup` redirect); the 404
+  belongs to `/signup` one hop downstream. Both intake copies updated in lockstep
+  and `intakeSha256` re-synced. D-6 item 2 had explicitly deferred this to a
+  reviewer.
+
+**Net:** all five findings accepted; four fixed in code, and the fifth
+(`place-prefill`) additionally required correcting the locked contract that had
+specified the defect.

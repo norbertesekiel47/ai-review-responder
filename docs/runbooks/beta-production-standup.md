@@ -219,9 +219,12 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       `buildCheckoutSessionParams` emits it as `discounts: [{ coupon }]` plus an
       explicit `payment_method_collection: 'always'` from that snapshot alone —
       never a live env read, because every Session parameter is built under a
-      per-attempt idempotency key. `allow_promotion_codes` stays `false` (a
-      server-selected coupon is not a promotion code, so there is no Stripe
-      mutual-exclusion conflict). The decision is logged and emitted as the
+      per-attempt idempotency key. On that path `allow_promotion_codes` is
+      **omitted, not sent as `false`** — Stripe rejects it beside `discounts`
+      **by parameter presence, not by value**, so `false` fails the whole
+      request; a full-price session still sends it. Asserting the two can
+      coexist is what 500'd the first real staging checkout (**D-16**). The
+      decision is logged and emitted as the
       durable `checkout_coupon_decision` analytics event (migration **106**).
       The dead `pending_payment_admin_handoff` screen is deleted; owners now
       self-activate through the funnel.
