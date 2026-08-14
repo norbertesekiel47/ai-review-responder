@@ -74,7 +74,12 @@ jobs:
       - name: Setup Node + pnpm
         uses: ./.github/actions/setup
       - name: Install fallow
-        run: npm install -g fallow@2.88.2
+        # Pinned (same philosophy as the react-doctor pin in package.json): a
+        # floating version makes findings drift day to day. v3.0 is flag/config/
+        # JSON-contract compatible with v2 per its release notes; verified
+        # empirically before this bump — same diff, same verdict, new-rule
+        # findings classified inherited and excluded by --gate new-only.
+        run: npm install -g fallow@3.16.0
       - name: Prepare test database
         # Same composite action as ci.yml's `test` job and e2e.yml — one owner for
         # the schema recipe (bootstrap + every migration, in order).

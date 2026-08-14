@@ -5,7 +5,13 @@
     "postcss-load-config",
     "eslint-config-next",
     // CLI tool, invoked via the `doctor` script / React Doctor Action, never imported.
-    "react-doctor"
+    "react-doctor",
+    // Build-time CSS tool (Tailwind v4): imported only by globals.css /
+    // postcss.config.mjs, consumed entirely at `next build`. Vercel builds with
+    // the full install and the Railway worker never touches it, so fallow 3.x's
+    // dev-dependency-in-production rule (its "breaks under --prod install"
+    // rationale) does not apply — deliberately kept in devDependencies.
+    "tailwindcss"
   ],
   "entry": [
     "scripts/clear-signup-rate-limits.ts",
