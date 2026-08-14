@@ -706,10 +706,31 @@ describeWithDb(
           AND column_name LIKE 'checkout_%'
         ORDER BY column_name
       `;
-      expect(checkoutColumns).toHaveLength(18);
+      // Deliberately EXACT, not a subset: an unexpected `checkout_%` column on
+      // `accounts` is exactly the drift this asserts against. The price of that
+      // strictness is that every migration adding one must bump this count and
+      // assert the new column's shape below — 105 (`checkout_attempt_coupon_id`,
+      // 18 → 19) is the worked example. Do not soften it to a subset check; that
+      // trades a real guard for never having to touch this line.
+      //
+      // Note for whoever adds the 20th: this suite is a LIVE-DB suite, so a
+      // whole-repo `pnpm test` with the DB asleep skips it and a local gate can
+      // go green while this is red in CI (the #520 class). Run it explicitly.
+      expect(checkoutColumns).toHaveLength(19);
       expect(checkoutColumns.find((column) => column.column_name === 'checkout_attempt_id')).toEqual({
         column_name: 'checkout_attempt_id',
         data_type: 'uuid',
+        is_nullable: 'YES',
+      });
+      // Added by 105. Nullable by design: NULL is the explicit no-coupon
+      // decision, and the null-at-rest branch of
+      // accounts_checkout_attempt_complete_check requires it to be NULL when the
+      // attempt is cleared.
+      expect(
+        checkoutColumns.find((column) => column.column_name === 'checkout_attempt_coupon_id'),
+      ).toEqual({
+        column_name: 'checkout_attempt_coupon_id',
+        data_type: 'text',
         is_nullable: 'YES',
       });
       expect(checkoutColumns.find((column) => column.column_name === 'checkout_session_id')).toEqual({

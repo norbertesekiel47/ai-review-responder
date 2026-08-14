@@ -418,3 +418,28 @@ carve-out *rationale* that was true when written); and `docs/progresstracking.md
 checklist.
 
 **Triage verdict:** _(pending step 6)_
+
+---
+
+## D-15 — 2026-08-14 — CI caught a regression the local gate structurally could not: migration 077's shape suite
+
+**What failed.** PR #821's first CI run: `test` and `fallow` both red on ONE assertion —
+`src/lib/shared/__tests__/migration-077-copilot-autopilot.integration.test.ts` →
+"creates the complete account-scoped Checkout lease constraint and unique Session index" →
+`expected […] to have a length of 18 but got 19`. `fallow` failed for the same reason, not its own: its "Generate coverage" step runs the full suite against a DB, so it inherited the failure and its audit never ran. One fix cleared both.
+
+**Root cause.** That suite queries the LIVE `accounts` table for every `checkout_%` column and asserts the count is exactly 18. Migration **105** legitimately adds a 19th (`checkout_attempt_coupon_id`). The assertion was correct before and correct after — it simply had to be updated by the migration that changes the shape.
+
+**Why the local gate was green.** Two correct behaviours combined into a blind spot:
+1. `pnpm test` runs whole-repo with the DB **asleep** — deliberate (#563), because live-DB suites plus import-time singletons is the #520 class.
+2. `verify-gate.sh` runs live-DB suites only for **changed** `*.integration.test.ts` files — here 102, 105, 106.
+
+077's suite was **not changed by this branch**, so nothing local ever ran it against a database. CI runs the whole suite with a real DB and caught it immediately. This is CLAUDE.md's own warning made concrete: *"an existing-but-not-run suite is how #520 shipped."*
+
+**Fix.** Bumped to 19 and added an explicit shape assertion for the new column, rather than softening the count to a subset check — the exactness is the guard (it catches an *unexpected* `checkout_%` column), and the maintenance cost is one line per migration. Left a comment naming 105 as the worked example and warning the next person that this is a live-DB suite a green local gate can miss.
+
+**Lesson to promote at step 8** (lab-notes / CLAUDE.md gotchas): *a migration that alters a table's column set must run every shape suite that asserts over that table, not just the suites the branch touched.* `pnpm vitest run --project integration` with `TEST_DATABASE_POOL_URL` set is the cheap sweep; the per-branch gate is not a substitute. Worth considering whether `verify-gate.sh` should run the full `integration` project whenever the diff contains `supabase/migrations/**`.
+
+**Local caveat recorded for honesty.** Running the full integration project locally afterwards showed 4 files failing (`demos/lifecycle`, `migration-056-account-offboarding`, `response-status-sql`, `autopilot-entitlement-concurrency`) — all `ECONNREFUSED :5432` / `relation … does not exist`, i.e. they resolve a different database than the container this machine runs. All four **passed in CI** (940 passed / 1 failed), so they are environmental, not regressions.
+
+**Triage verdict:** ACCEPT — real defect, correctly caught by the gate of record (CI), fixed at the assertion that owns the invariant.
