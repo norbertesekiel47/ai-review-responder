@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **104** — next migration is **105**
+Current head: **105** — next migration is **106**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,41 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **105** — `checkout_attempt_coupon`: the beta comp coupon on the **Checkout
+  attempt** snapshot (admin-invite-funnel plan step 2 / ticket T1,
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`; the constraint
+  rewrite is that plan's review-log round 2 finding 5). Adds nullable
+  `accounts.checkout_attempt_coupon_id TEXT` (no default) and REPLACES
+  `accounts_checkout_attempt_complete_check` with 077's two branches reproduced
+  byte-for-byte plus exactly ONE addition: the null-at-rest branch gains
+  `AND checkout_attempt_coupon_id IS NULL`. **Why a column instead of a live env
+  read:** every Stripe Session parameter is built from the immutable attempt
+  snapshot under a per-attempt idempotency key, so reading `BETA_COMP_COUPON_ID`
+  at session-creation time would let an env change between attempt creation and
+  a retry produce different params under the SAME key; the decision is taken
+  once, inside `applyTierSnapshot` under the activation lock, and snapshotted
+  here. **Why the null branch and not the active one:** 077's first branch
+  enumerates every attempt column so a cleared attempt is cleared WHOLE (the
+  attempt-completeness invariant) — leaving the new column out would let a row
+  hold no attempt but a live coupon snapshot that no later writer is obliged to
+  overwrite; while in the active branch NULL is not a missing value but the
+  explicit "no coupon" decision recorded for every non-invitee, so a full-price
+  attempt is a COMPLETE attempt and the column stays unconstrained there. New
+  column is NULL on every existing row → the widened branch passes trivially, no
+  preflight; DROP-then-ADD of the named CHECK keeps the file re-runnable and
+  REPAIRS a stale definition (077's own rationale). **No new relation → no RLS
+  change and no retention-policy row.** Schema requirement:
+  `MIGRATION_105_CHECKOUT_ATTEMPT_COUPON` (schema-ready.ts) — the COLUMN only,
+  because the constraint NAME predates this migration and would be a false
+  proof; the definition is asserted directly by
+  `src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts`.
+  **Sequencing:** 105 replaces a constraint over columns 077 added, so it cannot
+  be applied where 077 has not been — and 077/078 are deliberately absent in
+  production until the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`;
+  standing exception in `.claude/CLAUDE.md`). Staging now, production only
+  at/after that cutover. **LOCAL-ONLY** — applied to the rebuildable local test
+  container via `pnpm test:db:setup`; not yet on staging or production.
 
 - **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
   staleness cap** skips (#738, closing #719 step-7 review A3's accepted
