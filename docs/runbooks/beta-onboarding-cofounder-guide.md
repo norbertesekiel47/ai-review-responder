@@ -294,14 +294,19 @@ If they stop the meeting here and come back tomorrow, logging in returns them to
 this same demo — they will not be sent back to re-enter their location.
 
 > ⚠️ **This whole step only exists when the pre-pay demo lane is switched on**
-> (`ONBOARDING_DEMO_ENABLED`, which is **off by default**). With it off, logging
-> in takes the owner **straight to plan selection and checkout (Step 5)** — no
-> location step, no demo — and they enter their location inside the setup wizard
-> instead, which then runs **Location → Profile → Voice** with Connect Google
-> from the dashboard afterwards rather than as a wizard step. Nothing breaks
-> either way, but the meeting is materially less impressive without the demo.
-> **Ask Norbert which way the environment you're onboarding into is set,** and
-> ask before your first meeting rather than discovering it on the call.
+> (`ONBOARDING_DEMO_ENABLED`). The flag is **off by default**, and the intended
+> beta setting is **`true` in both staging and production** — see Part 12, where
+> it is a DECISION REQUIRED item. With it off, logging in takes the owner
+> **straight to plan selection and checkout (Step 5)** — no location step, no
+> demo — and they enter their location inside the setup wizard instead, which
+> then runs **Location → Profile → Voice** with Connect Google from the dashboard
+> afterwards rather than as a wizard step. Nothing breaks either way, but the
+> meeting loses its best moment.
+>
+> **Before your first meeting, confirm the flag is actually `true` in the
+> environment you are onboarding into.** It degrades silently — there is no error
+> to notice — so the only way to know is to check, or to walk the funnel yourself
+> once.
 
 ### Step 5 — Checkout at $0 (5 min, owner drives)
 
@@ -684,15 +689,35 @@ from the founder who onboarded them works far better than anything automated.
       staging-verify-before-prod in the module itself. Exercise at least: an
       owner who has never signed in (expect success), and an owner who has
       already accepted (expect a clean refusal, not a duplicate invite).
-- [ ] **Decide and set `ONBOARDING_DEMO_ENABLED` per environment.** It is **off
-      by default**, and with it off the invited owner goes straight from login to
-      checkout — no location step and **no AI demo**, which is the meeting's best
-      moment. The funnel is correct either way (`resolveFunnelEntry` routes
-      `pending_payment` → `/onboarding/pay` when the demo is off, and the wizard
-      captures the location itself), so this is a product call, not a bug — but
-      it must be a *decided* one, and Part 5 step 4 tells the co-founders to ask.
-      Note the per-demo LLM cost sits under the existing onboarding-demo cost
-      guard.
+- [ ] **⚠ DECISION REQUIRED — set `ONBOARDING_DEMO_ENABLED=true` in Vercel for
+      staging AND production.** Not an optional enhancement: it is the switch
+      that decides whether the approved journey exists at all. The flag is **off
+      by default**, and with it off an invited owner goes password →
+      `/onboarding/pay` → the **legacy 3-step wizard** — no location step, **no
+      AI demo**, no wow-moment on the live call. That is a different product from
+      the one this change was designed and reviewed to deliver: "invited owners
+      get the AI demo lane too" is a locked decision in the plan's *Key decisions
+      & tradeoffs*.
+
+      The funnel code is correct either way — `resolveFunnelEntry` routes
+      `pending_payment` → `/onboarding/pay` when the demo is off, and the legacy
+      wizard captures the location itself — so nothing breaks. It degrades
+      **silently**, which is exactly why this is a checklist item and not a
+      runtime error.
+
+      Mechanics (flip via the `flag-flip` skill):
+      - Exact value `true`. The reader accepts that literal string only —
+        `TRUE`, `1`, `yes` all read as off.
+      - **Vercel only, then redeploy.** The flag has 15 read sites under
+        `src/**` and **zero** under `worker/**`, so a Railway-only flip changes
+        nothing: the worker's demo job runs whenever it is enqueued, and every
+        gate lives at the Next.js entry points.
+      - Staging first, smoke it (Phase F), then production.
+      - Cost: each demo reserves 20¢ pessimistically and reconciles to ~3¢,
+        under the existing `ONBOARDING_DEMO_DAILY_CENTS` ceiling ($10/day).
+      - Kill switch: back to `false` returns new owners to the legacy wizard;
+        an owner who already captured a location keeps it, and
+        `resolveFunnelEntry` sends them to `/onboarding/pay` on their next visit.
 - [ ] **Verify the live production value of `SELF_SERVE_SIGNUP_ENABLED`.** The
       design assumed it has always been `false` in prod; if it was ever flipped
       on temporarily during an onboarding, some assumptions in the plan's

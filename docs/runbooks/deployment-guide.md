@@ -153,7 +153,7 @@ and no webhook endpoints, which is exactly what staging must exercise.
 | WhatsApp channel | `CHANNELS_WHATSAPP_ENABLED=false` | code complete; **Meta verification + template already approved** — flip on when ready |
 | Ranking tracking | `RANKING_TRACKING_ENABLED=false` | feature not ready; SerpAPI cost |
 | Edit existing replies | `EDIT_REPLIES_ENABLED=false` | code complete on `main`; **sole gate** since #678 retired `PAST_REPLIES_VIEW_ENABLED` — the **Reviews list** now renders unconditionally, so this flag alone governs the live-Google mutation |
-| Pre-pay demo lane | `ONBOARDING_DEMO_ENABLED=false` | code complete; pre-paywall demo preview + 3-step wizard |
+| Pre-pay demo lane | `ONBOARDING_DEMO_ENABLED=false` — **must become `true` for the admin-invite beta** | code complete; pre-paywall demo preview + 2-step wizard. Since admin-invite-funnel this flag also governs whether an **admin-invited** owner gets place capture and the AI demo — with it off the invited journey degrades **silently** to password → `/onboarding/pay` → legacy 3-step wizard. **Vercel-only** read path (15 sites under `src/**`, none under `worker/**`); redeploy after setting. Flip via the `flag-flip` skill; details in `.claude/reference/env-vars.md` and `beta-onboarding-cofounder-guide.md` Part 12 |
 | `MOCK_EXTERNAL_APIS` | **must be `false`** in any deployed env | mock mode no-ops real Zernio / Resend / Stripe |
 
 > `SELF_SERVE_SIGNUP_ENABLED` itself defaults `false`. Its prerequisites — Supabase
