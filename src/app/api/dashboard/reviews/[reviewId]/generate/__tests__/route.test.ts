@@ -240,8 +240,8 @@ describe('POST /api/dashboard/reviews/[reviewId]/generate', () => {
 
     const payload = lastOutboxPayload();
     expect(payload.origin_lane).toBe(GENERATE_RESPONSE_ORIGIN_LANE.ON_DEMAND_GENERATE);
-    // Invariant #3: a Generate draft is version 1, so the lane is the ONLY thing
-    // excluding it from isAutoApprovalCandidate (persist.ts:86-90).
+    // Invariant #3: the on-demand lane and notification suppression are
+    // independent exclusions in auto-approval.ts#isAutoApprovalCandidate.
     expect(payload.origin_lane).not.toBe(GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW);
     expect(payload.suppress_notification).toBe(true);
     expect(payload.review_id).toBe(REVIEW_ID);

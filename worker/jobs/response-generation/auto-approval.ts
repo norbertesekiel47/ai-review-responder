@@ -273,6 +273,44 @@ export interface StructuralBlockInput {
   suppressNotification: boolean;
 }
 
+interface StructuralGateInput extends StructuralBlockInput {
+  runtimeEnabled: boolean;
+}
+
+type StructuralGate = readonly [
+  predicate: (input: StructuralGateInput) => boolean,
+  reason: AutoApprovalBlockReason,
+];
+
+const STRUCTURAL_GATES: readonly StructuralGate[] = [
+  [(input) => !input.runtimeEnabled, 'auto_approval_disabled'],
+  [
+    (input) => input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW,
+    'bad_origin_lane',
+  ],
+  [(input) => input.version !== 1, 'unsupported_version'],
+  [(input) => input.suppressNotification, 'suppressed_notification'],
+];
+
+function collectStructuralBlockReasons(
+  input: StructuralBlockInput,
+  runtimeEnabled: boolean,
+): AutoApprovalBlockReason[] {
+  const gateInput: StructuralGateInput = { ...input, runtimeEnabled };
+  return compactBlockReasons(
+    STRUCTURAL_GATES.map(([predicate, reason]) => when(predicate(gateInput), reason)),
+  );
+}
+
+/**
+ * Cheap structural candidacy check for the pre-transaction persist split.
+ * Every structural decision form is derived from the STRUCTURAL_GATES table.
+ */
+export function isAutoApprovalCandidate(input: StructuralBlockInput): boolean {
+  const runtimeEnabled = autoApprovalRuntimeEnabled();
+  return collectStructuralBlockReasons(input, runtimeEnabled).length === 0;
+}
+
 /**
  * Decision for STRUCTURAL non-candidates — drafts that can never auto-approve
  * regardless of DB state: runtime flag off, wrong origin lane, regenerated
@@ -292,12 +330,8 @@ export interface StructuralBlockInput {
  * 'not_evaluated_structural_block' denial rather than a fabricated check.
  */
 export function structurallyBlockedDecision(input: StructuralBlockInput): AutoApprovalDecision {
-  const blockReasons = compactBlockReasons([
-    when(!autoApprovalRuntimeEnabled(), 'auto_approval_disabled'),
-    when(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW, 'bad_origin_lane'),
-    when(input.version !== 1, 'unsupported_version'),
-    when(input.suppressNotification, 'suppressed_notification'),
-  ]);
+  const runtimeEnabled = autoApprovalRuntimeEnabled();
+  const blockReasons = collectStructuralBlockReasons(input, runtimeEnabled);
   if (blockReasons.length === 0) {
     // Contract violation: the caller short-circuited a draft that is a
     // structural candidate — it must go through evaluateAutoApprovalCandidate.
@@ -310,7 +344,7 @@ export function structurallyBlockedDecision(input: StructuralBlockInput): AutoAp
     // Never confirmed matched — the current hash was not read.
     reviewContentHashMatched: false,
     providerModerationEnabled: providerModerationEnabled(),
-    runtimeEnabled: autoApprovalRuntimeEnabled(),
+    runtimeEnabled,
   };
 }
 
@@ -328,10 +362,11 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     && input.currentReviewContentHash !== null
     && input.loadedReviewContentHash === input.currentReviewContentHash;
   const thresholdReason = thresholdBlockReason(input);
+  const structuralBlockReasons = collectStructuralBlockReasons(input, runtimeEnabled);
 
   const blockReasons = compactBlockReasons([
     thresholdReason,
-    when(input.originLane !== GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW, 'bad_origin_lane'),
+    ...structuralBlockReasons,
     reviewContentHashBlockReason(input, reviewContentHashMatched),
     when(input.currentStarRating === null, 'current_rating_missing'),
     providerModerationBlockReason(input.moderation, providerEnabled),
@@ -341,9 +376,6 @@ export function evaluateAutoApprovalCandidate(input: AutoApprovalCandidateInput)
     when(!tierGrantsAutopilot(input.subscriptionTier), 'autopilot_tier_required'),
     when(!input.activeLocationNow, 'archived_location'),
     when(!input.activeZernioConnectionNow, 'active_zernio_connection_missing'),
-    when(!runtimeEnabled, 'auto_approval_disabled'),
-    when(input.version !== 1, 'unsupported_version'),
-    when(input.suppressNotification, 'suppressed_notification'),
     when(input.triageSeverity === 'high', 'triage_high_severity'),
     when(input.triageSource === TRIAGE_SOURCE.FALLBACK, 'triage_fallback'),
     // WS4 gates (spec §2.2–§2.4). The positive-quadrant hard floor sits ABOVE

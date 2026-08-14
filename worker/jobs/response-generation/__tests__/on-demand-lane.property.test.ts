@@ -4,15 +4,14 @@
 // **Origin lane** `on_demand_generate`.
 //
 // D-H: the whole production change is ONE entry in GENERATE_RESPONSE_ORIGIN_LANE.
-// `isAutoApprovalCandidate` already requires `live_ingest_new`, so a Generate
+// `isAutoApprovalCandidate` requires `live_ingest_new`, so a Generate
 // draft — which IS version 1 — is excluded structurally. Everything here is an
 // ASSERTION of that existing guard, never a second gate (ticket #678: "do NOT
-// add a second auto-approval guard"). `worker/jobs/response-generation/**`
-// production files are outside the allowed edit surface; only `__tests__/**`.
+// add a second auto-approval guard").
 //
-// F1: the two `fast-check` properties are cheap regression on the lane SET, but
-// they are NOT the primary evidence — a hand-copied predicate drifts from
-// persist.ts. The third title runs through the REAL `persistResponseAndNotify`.
+// #763: the two `fast-check` properties consume the production predicate from
+// auto-approval.ts. The persist test runs through the REAL
+// `persistResponseAndNotify` transaction split.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
@@ -20,22 +19,25 @@ import {
   GENERATE_RESPONSE_ORIGIN_LANE,
   GENERATE_RESPONSE_ORIGIN_LANES,
 } from '../../../../src/lib/shared/worker-types';
-
-// Mirrors worker/jobs/response-generation/persist.ts:86-90 exactly. This is an
-// ASSERTION of the existing guard (ticket #678: "Do NOT add a second
-// auto-approval guard"), not a second gate.
-const isAutoApprovalCandidate = (
-  runtimeEnabled: boolean,
-  originLane: string | null,
-  version: number,
-  suppressNotification: boolean,
-): boolean =>
-  runtimeEnabled
-  && originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
-  && version === 1
-  && !suppressNotification;
+import { isAutoApprovalCandidate } from '../auto-approval';
 
 describe('invariants', () => {
+  beforeEach(() => {
+    process.env.AUTO_APPROVAL_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.AUTO_APPROVAL_ENABLED;
+  });
+
+  it('live_ingest_new version 1 without suppression is a candidate when AUTO_APPROVAL_ENABLED is true', () => {
+    expect(isAutoApprovalCandidate({
+      originLane: GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW,
+      version: 1,
+      suppressNotification: false,
+    })).toBe(true);
+  });
+
   it('property: isAutoApprovalCandidate is false for every origin lane other than live_ingest_new', () => {
     fc.assert(
       fc.property(
@@ -44,7 +46,11 @@ describe('invariants', () => {
         fc.boolean(),
         (lane, version, suppress) => {
           if (lane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW) return true;
-          return isAutoApprovalCandidate(true, lane, version, suppress) === false;
+          return isAutoApprovalCandidate({
+            originLane: lane,
+            version,
+            suppressNotification: suppress,
+          }) === false;
         },
       ),
     );
@@ -55,7 +61,11 @@ describe('invariants', () => {
       fc.property(
         fc.constantFrom(...GENERATE_RESPONSE_ORIGIN_LANES),
         fc.integer({ min: 1, max: 50 }),
-        (lane, version) => isAutoApprovalCandidate(true, lane, version, true) === false,
+        (lane, version) => isAutoApprovalCandidate({
+          originLane: lane,
+          version,
+          suppressNotification: true,
+        }) === false,
       ),
     );
   });

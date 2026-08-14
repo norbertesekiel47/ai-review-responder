@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "Structural auto-approval candidacy is an invariant-#3 authority boundary: drift can allow a draft to auto-post or can bypass the intended owner-approval lane.",
+    "The pre-transaction candidacy result controls whether candidate-only database locks and migration-074 runtime-state reads execute."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "All structural Auto-approval call shapes derive candidacy and block reasons from one ordered gate table without changing which drafts may auto-post or which drafts take candidate-only database locks.",
+  "non_goals": [
+    "Change any non-structural Auto-approval gate, trust-dial policy, moderation rule, subscription rule, tier rule, or veto-window behavior.",
+    "Change database schema, queries, feature-flag defaults, publishing behavior, or production configuration.",
+    "Refactor unrelated response-generation duplication from the Pathfinder report."
+  ],
+  "user_visible_behavior": [
+    "A draft remains structurally eligible for Auto-approval only when AUTO_APPROVAL_ENABLED is true, origin_lane is live_ingest_new, version is 1, and suppress_notification is false.",
+    "Every structurally ineligible draft remains in the owner-review path with the applicable structural block reasons.",
+    "Structurally ineligible drafts continue to skip the businesses FOR UPDATE lock and Auto-approval runtime-state reads."
+  ],
+  "invariants": [
+    "Invariant #3 remains fail-closed: no new input combination becomes structurally eligible for auto-policy approval.",
+    "The ordered structural reason vocabulary remains auto_approval_disabled, bad_origin_lane, unsupported_version, and suppressed_notification with each applicable reason emitted once.",
+    "The cheap structural boolean remains computable from environment and job inputs before sql.begin candidate-only work.",
+    "evaluateAutoApprovalCandidate remains the total evaluator and continues to apply every existing non-structural gate unchanged.",
+    "No dependency, schema, environment-variable, or externally visible contract is added."
+  ],
+  "edge_cases": [
+    "Runtime disabled blocks every origin lane and version.",
+    "Null or any non-live_ingest_new origin lane is structurally blocked.",
+    "Every version other than exactly 1 is structurally blocked.",
+    "suppress_notification true is structurally blocked even when every other field is eligible.",
+    "Inputs failing multiple structural gates return all applicable reasons exactly once, and the total evaluator agrees with the blocked-decision form.",
+    "A fully eligible structural input still reaches candidate-only locking and runtime evaluation."
+  ],
+  "existing_patterns_to_follow": [
+    "worker/jobs/response-generation/auto-approval.ts structurallyBlockedDecision and evaluateAutoApprovalCandidate",
+    "worker/jobs/response-generation/persist.ts pre-transaction isAutoApprovalCandidate short-circuit",
+    "worker/jobs/response-generation/__tests__/persist.test.ts fast-check invariant property style",
+    "src/lib/reviews/__tests__/sentiment.test.ts fast-check house style"
+  ],
+  "test_seams": [
+    "The exported structural-candidacy boolean from worker/jobs/response-generation/auto-approval.ts",
+    "structurallyBlockedDecision",
+    "evaluateAutoApprovalCandidate",
+    "persistResponseAndNotify mocked-SQL statement trace"
+  ],
+  "allowed_edit_surface": [
+    "worker/jobs/response-generation/auto-approval.ts",
+    "worker/jobs/response-generation/persist.ts",
+    "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
+    "worker/jobs/response-generation/__tests__/on-demand-lane.property.test.ts",
+    "worker/jobs/response-generation/__tests__/persist.test.ts",
+    "src/lib/shared/worker-types.ts",
+    "src/lib/reviews/on-demand-generate.ts",
+    "src/app/api/dashboard/reviews/\\[reviewId\\]/generate/__tests__/route.test.ts",
+    "src/app/api/dashboard/reviews/[reviewId]/generate/__tests__/route.test.ts",
+    "docs/superpowers/plans/2026-08-13-763-structural-auto-approval-gates.md"
+  ],
+  "tests_to_add": [
+    "property: structural candidate boolean, blocked decision, and total evaluator agree for every candidate-fields input"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run worker/jobs/response-generation/__tests__/auto-approval.test.ts worker/jobs/response-generation/__tests__/on-demand-lane.property.test.ts worker/jobs/response-generation/__tests__/persist.test.ts",
+    "pnpm build"
+  ],
+  "estimated_prod_lines": 55,
+  "estimated_test_lines": 90,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the structural-gates table and its consumers together, restoring the three prior hand-spelled predicates; no data rollback, migration, or remote flag change is required.",
+  "observability": [
+    "Existing Auto-approval decision summaries and approval_audit_log rows continue to expose the evaluator outcome.",
+    "Existing mocked-SQL tests distinguish candidate-only businesses locking/runtime reads from structural short-circuit paths."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

@@ -29,9 +29,9 @@ export const GENERATE_RESPONSE_ORIGIN_LANE = {
   /**
    * Owner-initiated `Generate` from the Reviews list on a never-replied review
    * (On-demand generation, spec §6.3b). Deliberately distinct from
-   * LIVE_INGEST_NEW: a Generate draft is version 1, so this lane value is the
-   * ONLY thing excluding it from `isAutoApprovalCandidate`
-   * (worker/jobs/response-generation/persist.ts:86-90) — invariant #3.
+   * LIVE_INGEST_NEW: this lane and `suppress_notification=true` independently
+   * exclude the draft through `auto-approval.ts#isAutoApprovalCandidate` —
+   * invariant #3, with neither fail-closed exclusion treated as redundant.
    */
   ON_DEMAND_GENERATE: 'on_demand_generate',
 } as const;
