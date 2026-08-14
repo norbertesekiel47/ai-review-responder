@@ -1,10 +1,12 @@
 name: CI
 
+# PR-only by design. The ruleset's strict up-to-date requirement means the PR
+# run tests the exact tree that lands on main, so a post-merge push-to-main
+# re-run was a pure duplicate (~20 billable minutes per merge). Main-branch
+# cache warming (the reason a main run used to matter beyond the re-test) lives
+# in cache-warm.yml.
 on:
   pull_request:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -35,10 +37,75 @@ env:
   ENCRYPTION_KEY_VERSION: '1'
 
 jobs:
+  # Classifies what this PR touches so the heavy jobs can short-circuit.
+  # Job-level `if:` skips report a `skipped` conclusion, which required status
+  # checks treat as PASSING — unlike workflow-level `paths:` filters, which
+  # leave a required check Expected forever and block the merge (same reasoning
+  # as llm-eval's in-job detect below). `changes` is itself a required check so
+  # a failure here blocks the merge instead of skipping every dependent gate
+  # into a false green; the dependent `if:` conditions are written fail-open
+  # (they run unless this job explicitly said skip).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+      deploy_surface: ${{ steps.detect.outputs.deploy_surface }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the three-dot diff below needs the merge-base.
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != 'pull_request' ]; then
+            # Defensive: the workflow is PR-only today. Anything else runs everything.
+            echo 'docs_only=false' >> "$GITHUB_OUTPUT"
+            echo 'deploy_surface=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Three-dot diff = merge-base(base, head) vs head: exactly the files
+          # THIS PR changes (see llm-eval's detect for why not two-dot).
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf 'changed files:\n%s\n' "$changed"
+          # Keep this docs definition in lockstep with the paths-ignore lists in
+          # fallow.yml / react-doctor.yml / claude-code-review.yml.
+          non_docs="$(printf '%s\n' "$changed" | grep -vE '^(docs/|\.claude/)|\.md$' || true)"
+          if [ -n "$changed" ] && [ -z "$non_docs" ]; then
+            echo 'docs-only change — heavy jobs will skip'
+            echo 'docs_only=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'docs_only=false' >> "$GITHUB_OUTPUT"
+          fi
+          # deploy-install canary surface: the install recipe + lifecycle-script
+          # inputs are the only thing that job can catch a regression in.
+          deploy_watch='^(package\.json$|pnpm-lock\.yaml$|\.nvmrc$|lefthook\.yml$|\.github/actions/setup/|\.github/workflows/ci\.yml$)'
+          if printf '%s\n' "$changed" | grep -qE "$deploy_watch"; then
+            echo 'deploy_surface=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'deploy_surface=false' >> "$GITHUB_OUTPUT"
+          fi
+
   # The `ci:*` audit steps below are not the authoritative list — package.json
   # is. src/__tests__/ci-audit-wiring.test.ts (run by the `test` job) fails when
   # an audit is declared there and gates nothing, or runs here and not in
   # lefthook.yml (#590).
+  #
+  # `lint` never short-circuits — several audits (feature-surface, config-coverage,
+  # dropped-columns) scan docs/** and *.md, so docs-only PRs still need it.
+  # typecheck is folded in here rather than kept as its own job: a separate job
+  # paid a duplicate checkout+install plus per-job minute rounding for a ~90s
+  # tsc run. The ruleset's required contexts are changes/lint/test/build/
+  # deploy-install/llm-eval.
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -55,6 +122,8 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run lint
         run: pnpm lint
+      - name: Run typecheck
+        run: pnpm typecheck
       - name: Run tenant scope audit
         run: pnpm ci:tenant-scope
       - name: Run analytics events audit
@@ -95,24 +164,17 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Setup Node + pnpm
-        uses: ./.github/actions/setup
-      - name: Run typecheck
-        run: pnpm typecheck
-
   test:
     name: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    # Docs-only PRs skip the whole job: no unit test reads docs/** or *.md at
+    # run time (verified when this gate landed — the guards in src/__tests__
+    # read package.json/workflows/lefthook, and the audits that DO scan docs
+    # run in `lint`, which never skips). If a doc-reading test ever appears,
+    # this condition must learn about it.
+    if: needs.changes.outputs.docs_only != 'true'
     # A real Postgres so the DB-backed suite (CHECK-constraint, RLS, tenant-scope,
     # and other *.integration.test.ts) actually runs instead of self-skipping.
     # DATABASE_POOL_URL is already pointed here by the workflow env; TEST_DATABASE_POOL_URL
@@ -221,6 +283,8 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -246,6 +310,8 @@ jobs:
     name: build-dummy-env-canary
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     env:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
@@ -272,6 +338,12 @@ jobs:
     name: deploy-install
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    # Runs only when the install recipe or a lifecycle-script input changed —
+    # that surface (see `deploy_watch` in the changes job) is the only thing
+    # this canary can catch a regression in. Fail-open: `!= 'false'` runs the
+    # job unless the detect step explicitly cleared it.
+    if: needs.changes.outputs.deploy_surface != 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

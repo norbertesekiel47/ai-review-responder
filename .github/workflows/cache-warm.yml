@@ -1,0 +1,49 @@
+name: Cache warm
+
+# ci.yml and e2e.yml are PR-only, so nothing writes Actions caches on `main`
+# anymore — and cache entries are only shared ACROSS branches when they were
+# saved on the default branch. Without this job, every new PR branch would
+# cold-install once the pre-existing main caches age out. This warms the two
+# main-branch entries the PR jobs restore (pnpm store; Playwright browsers),
+# and runs only when a cache key input actually changes (~1-2 min, a few times
+# a month) instead of the ~20-minute full-CI re-run that used to ride every
+# push to main.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - pnpm-lock.yaml
+      - .nvmrc
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    name: warm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node + pnpm (writes the pnpm store cache)
+        uses: ./.github/actions/setup
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      # Same key as e2e.yml's browser cache — keep the two in lockstep.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      # Browser download only — system deps (apt) are not in the cached path,
+      # so e2e.yml installs those itself either way.
+      - name: Download chromium on cache miss
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
