@@ -5,9 +5,9 @@ import { useReveal } from './useReveal';
 
 const APPROVAL_STEPS = [
   { n: '01', title: 'New review lands', sub: 'New review detected via webhook', t: '0:00', dark: false, d: '100ms' },
-  { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses past approvals as style reference', t: '+0:12', dark: false, d: '300ms' },
-  { n: '03', title: 'You get a message on your channel', sub: 'Email, Telegram, or WhatsApp: review + draft + three buttons', t: '+0:15', dark: false, d: '500ms' },
-  { n: '04', title: 'You tap approve · we post it', sub: 'Median owner time: 28 seconds · No login required', t: '+0:58', dark: true, d: '700ms' },
+  { n: '02', title: 'AI drafts a reply in your voice', sub: 'Uses your past edits as style reference', t: '+0:12', dark: false, d: '300ms' },
+  { n: '03', title: 'You get an email', sub: 'Review + draft + three buttons, in your inbox', t: '+0:15', dark: false, d: '500ms' },
+  { n: '04', title: 'You tap approve · we post it', sub: 'One tap on your phone · No login required', t: '+0:58', dark: true, d: '700ms' },
 ];
 
 /* ================== 04 THE GATE ================== */
@@ -31,9 +31,9 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
             Every reply needs your <span className="rw-display-serif text-rw-teal-strong">sign-off</span>.
           </h2>
           <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
-            On Copilot, every draft comes to you on the channel you choose: email, Telegram, or
-            WhatsApp, with the review and the reply side-by-side. Tap approve, edit inline, or ask
-            for a fresh draft. Nothing is posted without your go-ahead.
+            On Copilot, every draft comes to you by email, with the review and the reply
+            side-by-side. Tap approve, edit inline, or ask for a fresh draft. Nothing is posted
+            without your go-ahead.
           </p>
         </div>
       </div>

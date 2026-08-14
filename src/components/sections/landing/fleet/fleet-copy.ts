@@ -89,9 +89,13 @@ export const HEADING_ACCENT = 'the fleet.';
  * "posts on its own" is deliberate: on Copilot the owner approves and the
  * Judge is not in that path, so "nothing reaches the public without passing
  * them" would be false. Invariant #3 ties the Judge to AUTO-posting only.
+ * "Unless they are watching", not "without clearing them": the Judge's
+ * verdict lands AFTER an auto-post — its availability is the precondition,
+ * the review is post-hoc — so "clearing" would imply a pre-approval step
+ * that does not exist.
  */
 export const LEAD_IN =
-  'The two above supervise the ones below — nothing posts on its own without clearing them.';
+  'The two above supervise the ones below — nothing posts on its own unless they are watching.';
 
 /**
  * Replaces the reference design's pulsing "LIVE" status pill. That indicator

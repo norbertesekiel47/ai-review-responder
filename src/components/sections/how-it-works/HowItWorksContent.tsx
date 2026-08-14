@@ -52,10 +52,10 @@ const STEPS = [
     tick: 'T + 0:01',
     kicker: 'Triage',
     title: 'Guardian reads it before anyone answers.',
-    sub: 'Every review is sorted by star sentiment first. Negative reviews get a severity read (routine, elevated, or critical), and critical ones escalate straight to you with the context attached. Positive reviews flow on to drafting.',
+    sub: 'Every review is sorted by star sentiment first. Reviews that aren’t clearly positive get a severity read (low, medium, or high), and the ones Guardian decides need a human escalate straight to you with the context attached. Positive reviews flow on to drafting.',
     bullets: [
       'Negative lane gets a bounded AI severity read',
-      'Critical issues escalate to you immediately',
+      'Serious issues escalate to you with full context',
       'Guardian never posts anything, anywhere',
     ],
     Artifact: TriageArtifact,
@@ -66,9 +66,9 @@ const STEPS = [
     tick: 'T + 0:12',
     kicker: 'Draft',
     title: 'AI drafts a reply, in your voice.',
-    sub: 'RepWorth learns from the replies you approve and edit. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
+    sub: 'RepWorth learns from the edits you make to drafts. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
-      'Learns from the replies you approve and edit',
+      'Learns from the replies you edit',
       'Every draft passes a moderation check before the gate',
       'Regenerate button if the first pass misses',
     ],
@@ -80,9 +80,9 @@ const STEPS = [
     tick: 'T + 0:20',
     kicker: 'The Gate',
     title: 'Copilot asks you. Autopilot asks your policy.',
-    sub: 'This is the fork. On Copilot, every draft comes to you (email, Telegram, or WhatsApp) with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
+    sub: 'This is the fork. On Copilot, every draft comes to you by email with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
     bullets: [
-      'One-tap approve on the channel you choose',
+      'One-tap approve, straight from your inbox',
       'Autopilot posts only inside your rating band and daily cap',
       'The veto window is your one-tap stop before anything goes live',
     ],
@@ -108,7 +108,7 @@ const STEPS = [
     tick: 'T + 1:47',
     kicker: 'Judge',
     title: 'Every auto-post gets a second opinion.',
-    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against your policy and your brand. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against a fixed safety rubric: no unauthorized promises, no personal details, no hostile or unprofessional tone. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
     bullets: [
       '100% of auto-posted replies are reviewed',
       'The Governor can suspend autonomy per account',
@@ -120,7 +120,7 @@ const STEPS = [
 
 const HOOD = [
   { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
-  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Severity read on the negative lane; critical reviews escalate to the owner.', tech: 'severity · escalation', glyph: '⚑' },
+  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Severity read on the negative lane; serious reviews escalate to the owner.', tech: 'severity · escalation', glyph: '⚑' },
   { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, then runs it through moderation.', tech: 'LLM · moderated', glyph: '✎' },
   { color: '#D6CBBF', title: 'The gate', sub: 'Owner approval on Copilot; policy + veto window on Autopilot.', tech: 'approval · veto', glyph: '✋' },
   { color: '#D2E0D3', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
@@ -139,7 +139,7 @@ const GUARANTEES = [
   },
   {
     title: 'Sounds like you wrote it',
-    desc: 'RepWorth learns from your existing replies. Your tone, your phrasing, your voice.',
+    desc: 'RepWorth learns from every edit you make. Your tone, your phrasing, your voice.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -163,7 +163,7 @@ const FAQ_ITEMS = [
   { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy, and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
   { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post: the review simply stays unanswered on your end.' },
   { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted), and the tone defaults to acknowledging the issue and offering a path forward.' },
-  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the replies you approve and edit. As you tweak drafts it picks up your tone, length, and phrasing: the more you use it, the more it sounds like you.' },
+  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the edits you make. As you tweak drafts it picks up your tone, length, and phrasing: the more you edit, the more it sounds like you.' },
   { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap: if it can't review, pending auto-approved replies fall back to your normal approval queue." },
   { q: 'Which review platforms do you support?', a: "Today, Google only: that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];

@@ -54,8 +54,8 @@ export default function SecurityPage() {
                 enabled on protected database tables as a defense-in-depth backstop.
               </li>
               <li>
-                Likely protected health information (PHI) in imported review text is blocked
-                before persistence or logging.
+                Likely protected health information (PHI) in review text ingested from your
+                connected Google Business Profile is blocked before persistence or logging.
               </li>
               <li>SOC 2 audit is not yet complete.</li>
             </ul>

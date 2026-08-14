@@ -3,11 +3,12 @@
 import { type CSSProperties, type RefObject } from 'react';
 import { useReveal } from './useReveal';
 
-const BRIEF_MENTIONS = [
-  { topic: 'al pastor tacos', count: '7×', width: 88, tone: 'sage' as const },
-  { topic: 'friendly staff', count: '6×', width: 75, tone: 'sage' as const },
-  { topic: 'wait time', count: '4×', width: 50, tone: 'peach' as const },
-  { topic: 'parking', count: '2×', width: 25, tone: 'peach' as const },
+// Mirrors the digest's real sections: this-week volume vs the trailing 4-week
+// average, and the "needs your eye" lane (lowest-rated reviews of the week).
+const BRIEF_ROWS = [
+  { topic: 'New reviews this week', count: '14', width: 88, tone: 'sage' as const },
+  { topic: '4-week average', count: '11', width: 69, tone: 'sage' as const },
+  { topic: 'Needs your eye (≤2★)', count: '2', width: 13, tone: 'peach' as const },
 ];
 
 /* ================== 03 INSIGHTS ================== */
@@ -36,7 +37,7 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
           <ul className="space-y-3 text-sm">
             {[
               'Review volume and trend',
-              'One concrete operational suggestion',
+              'A plain-language brief with one concrete suggestion',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
                 <span className="mt-1.5 size-1.5 rounded-full bg-rw-teal shrink-0" />
@@ -62,21 +63,21 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div>
                 <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Reviews</p>
-                <p className="rw-num-tag text-3xl text-rw-ink">14 <span className="text-xs text-rw-teal-strong">↑3</span></p>
-              </div>
-              <div>
-                <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Avg stars</p>
-                <p className="rw-num-tag text-3xl text-rw-ink">4.6 <span className="text-xs text-rw-teal-strong">↑0.2</span></p>
+                <p className="rw-num-tag text-3xl text-rw-ink">14</p>
               </div>
               <div>
                 <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Responded</p>
-                <p className="rw-num-tag text-3xl text-rw-ink">96<span className="text-lg">%</span></p>
+                <p className="rw-num-tag text-3xl text-rw-ink">13</p>
+              </div>
+              <div>
+                <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Rate</p>
+                <p className="rw-num-tag text-3xl text-rw-ink">93<span className="text-lg">%</span></p>
               </div>
             </div>
 
-            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-3">Top mentions this week</p>
+            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-3">This week at a glance</p>
             <div className="space-y-2 mb-6">
-              {BRIEF_MENTIONS.map((m, i) => {
+              {BRIEF_ROWS.map((m, i) => {
                 const dot = m.tone === 'sage' ? 'bg-rw-teal' : 'bg-rw-peach';
                 const fill = m.tone === 'sage' ? 'bg-rw-teal' : 'bg-rw-peach';
                 const track = m.tone === 'sage' ? 'bg-rw-teal/15' : 'bg-rw-peach/20';

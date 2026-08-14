@@ -71,7 +71,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             <div className="mt-4 pt-4 border-t border-white/10 flex items-center gap-3">
               <span className="size-2 rounded-full bg-rw-peach shrink-0" aria-hidden />
               <p className="text-xs text-white/70">
-                Flagged verdict → the Governor suspends autonomy for this account and notifies the owner.
+                Flagged verdict → autonomy is suspended for this account and you are notified.
                 Replies go back to your approval queue.
               </p>
             </div>
