@@ -443,3 +443,49 @@ checklist.
 **Local caveat recorded for honesty.** Running the full integration project locally afterwards showed 4 files failing (`demos/lifecycle`, `migration-056-account-offboarding`, `response-status-sql`, `autopilot-entitlement-concurrency`) — all `ECONNREFUSED :5432` / `relation … does not exist`, i.e. they resolve a different database than the container this machine runs. All four **passed in CI** (940 passed / 1 failed), so they are environmental, not regressions.
 
 **Triage verdict:** ACCEPT — real defect, correctly caught by the gate of record (CI), fixed at the assertion that owns the invariant.
+
+---
+
+## D-16 — 2026-08-14 — PLAN DEFECT: `allow_promotion_codes` + `discounts` is mutually exclusive by PRESENCE, not by value
+
+**The failure.** The first real checkout on staging returned, to the owner:
+
+```json
+{ "error": "checkout_error",
+  "detail": "Unable to connect to payment provider. Please try again later." }
+```
+
+**Root cause — a wrong claim in the locked plan, not an implementation slip.** Plan step 2 states:
+
+> `allow_promotion_codes` is already `false` (verified) — no Stripe mutual-exclusion conflict.
+
+That is false. Stripe rejects the **presence** of both parameters regardless of value. Reproduced directly against the staging key:
+
+```
+POST /v1/checkout/sessions  … allow_promotion_codes=false  discounts[0][coupon]=beta_comp_3mo
+→ invalid_request_error, param=allow_promotion_codes
+  "You may only specify one of these parameters: allow_promotion_codes, discounts."
+```
+
+Removing the key alone fixes it, and the result is exactly what the plan promised:
+`amount_total = 0`, `payment_method_collection = always` (probe session `cs_test_a1VVWns…`, expired immediately after).
+
+**Why nothing caught it.** Four compounding reasons, each worth remembering:
+1. **Four adversarial review rounds accepted the claim.** It reads like a verified fact ("already `false` (verified)") and no reviewer re-derived it against Stripe's actual contract.
+2. **Every unit test mocks Stripe.** `createMock.mock.calls[0][0]` records whatever object we build; a mock cannot reject a parameter combination. Mocked provider tests validate *our* intent, never the *provider's* contract.
+3. **The test actively encoded the wrong belief**: `expect(params.allow_promotion_codes).toBe(false)` on the coupon path. It passed, and it was asserting the bug.
+4. **The staging smoke that would have caught it was still an open ops item** — it is the first step that makes a real Stripe call.
+
+**Fix.**
+- `buildCheckoutSessionParams` now emits `allow_promotion_codes: false` **only when there is no coupon**, and omits it entirely on the coupon path. Omission is semantically free: an absent `allow_promotion_codes` already means "no promotion-code entry".
+- The stale assertion is inverted to `expect(params).not.toHaveProperty('allow_promotion_codes')`, with the history in a comment so nobody "restores" it.
+- Added `never sends allow_promotion_codes together with discounts` as an explicit invariant test.
+
+**Second, independent defect this exposed — the error was needlessly opaque.** `CheckoutCouponConfigurationError` existed (plan step 11b asked for it) but `/api/onboarding/select-plan` never mapped it, so any coupon fault fell into the generic catch-all and told the owner to *retry a connection problem* — wrong in both halves: nothing was unreachable, and retrying could never help. Now mapped to `checkout_coupon_misconfigured` (502) with its own `reportCaughtError` reason, plus a regression test. Step 11b's intent was real; only its wiring was missing.
+
+**Lessons to promote at step 8** (lab-notes / CLAUDE.md):
+1. *A provider's parameter-compatibility rules cannot be validated by a mocked client.* Any change to an outbound provider payload shape needs one real call — the staging smoke is not optional polish, it is the only test of that class.
+2. *Beware a plan claim that carries its own "(verified)".* It suppresses exactly the scrutiny it asserts. Verification belongs in an artifact — a transcript, a probe, a test against the real API — not an adjective.
+3. *A named error class is worthless until a route maps it.* Adding the class and wiring the mapping belong in the same change.
+
+**Triage verdict:** ACCEPT — fixed, regression-tested, and the plan's incorrect premise is recorded here rather than silently corrected.

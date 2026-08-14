@@ -34,7 +34,9 @@ vi.mock('@/lib/payments/plan-activation', () => {
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   class CheckoutOffboardingBlockedError extends Error {}
+  class CheckoutCouponConfigurationError extends Error {}
   return {
+    CheckoutCouponConfigurationError,
     CheckoutOffboardingBlockedError,
     CheckoutUnavailableError,
     createCheckoutSession: mockCreateCheckoutSession,
@@ -396,5 +398,27 @@ describe('POST /api/onboarding/select-plan', () => {
       error: 'checkout_error',
       detail: 'Unable to connect to payment provider. Please try again later.',
     });
+  });
+
+  it('maps a Beta comp coupon misconfiguration to its own error, not checkout_error', async () => {
+    // Regression guard for the first staging checkout failure. A coupon fault
+    // is a CONFIGURATION problem: it fails every Admin invite identically and
+    // retrying cannot help. Collapsed into `checkout_error` it told the owner
+    // "Unable to connect to payment provider. Please try again later." — wrong
+    // in both halves, and it cost a staging debugging round to see past.
+    const { CheckoutCouponConfigurationError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutCouponConfigurationError('coupon "beta_comp_3mo" was rejected by Stripe'),
+    );
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(502);
+    expectPrivateNoStore(res);
+    const body = await res.json();
+    expect(body.error).toBe('checkout_coupon_misconfigured');
+    expect(body.detail).toContain('beta_comp_3mo');
   });
 });

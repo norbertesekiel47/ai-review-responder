@@ -180,14 +180,25 @@ function buildCheckoutSessionParams(
   // (admin-invite-funnel review-log round 1 finding 3). Both keys are emitted
   // ONLY alongside a coupon, so a full-price attempt's params stay byte-identical
   // to what this function produced before the comp existed.
-  // `allow_promotion_codes` is already false, so there is no Stripe mutual
-  // exclusion with `discounts` to resolve.
+  //
+  // `allow_promotion_codes` is OMITTED — not set to `false` — whenever a coupon
+  // is present. Stripe's mutual exclusion is PARAMETER-PRESENCE based, not
+  // value based: sending `allow_promotion_codes: false` beside `discounts`
+  // still fails the whole request with
+  //   "You may only specify one of these parameters: allow_promotion_codes,
+  //    discounts."
+  // The plan asserted the opposite ("already false … no mutual-exclusion
+  // conflict"). That claim survived four adversarial review rounds and every
+  // mocked unit test, and was falsified only by a real Stripe call from
+  // staging, where it surfaced to the owner as a bare `checkout_error`.
+  // Omitting the key costs nothing: an absent `allow_promotion_codes` already
+  // means "no promotion-code entry", which is what `false` was asking for.
   const couponParams = attempt.checkout_attempt_coupon_id
     ? {
         discounts: [{ coupon: attempt.checkout_attempt_coupon_id }],
         payment_method_collection: 'always' as const,
       }
-    : {};
+    : { allow_promotion_codes: false };
   return {
     mode: 'subscription',
     line_items: lineItems,
@@ -195,7 +206,6 @@ function buildCheckoutSessionParams(
     customer_email: attempt.checkout_attempt_customer_email!,
     success_url: attempt.checkout_attempt_success_url!,
     cancel_url: attempt.checkout_attempt_cancel_url!,
-    allow_promotion_codes: false,
     metadata: { checkout_attempt_id: attemptId },
     subscription_data: subscriptionData,
     ...taxParams,

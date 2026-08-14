@@ -626,7 +626,34 @@ describe('createCheckoutSession beta comp coupon', () => {
 
     const params = createMock.mock.calls[0]![0];
     expect(params.discounts).toEqual([{ coupon: COUPON_ID }]);
-    expect(params.allow_promotion_codes).toBe(false);
+    // ABSENT, not false. Stripe's mutual exclusion is parameter-PRESENCE based:
+    // `allow_promotion_codes: false` beside `discounts` fails the whole request
+    // ("You may only specify one of these parameters"). This assertion used to
+    // read `.toBe(false)` — it encoded the plan's incorrect claim that a `false`
+    // value avoided the conflict, and so it passed while real staging checkouts
+    // returned `checkout_error` to the owner.
+    expect(params).not.toHaveProperty('allow_promotion_codes');
+  });
+
+  it('never sends allow_promotion_codes together with discounts', async () => {
+    // The regression guard for the staging outage: whatever else changes about
+    // coupon params, these two keys must never both reach Stripe.
+    vi.stubEnv('BETA_COMP_COUPON_ID', '');
+    resetServerConfigForTests();
+    queueCreate(attemptRow({ couponId: COUPON_ID }));
+
+    await createCheckoutSession(
+      mockSql,
+      ACCOUNT_ID,
+      SubscriptionTier.COPILOT,
+      'list',
+      options(),
+    );
+
+    const params = createMock.mock.calls[0]![0];
+    const hasDiscounts = Object.hasOwn(params, 'discounts');
+    const hasPromotionCodes = Object.hasOwn(params, 'allow_promotion_codes');
+    expect(hasDiscounts && hasPromotionCodes).toBe(false);
   });
 
   it('buildCheckoutSessionParams omits discounts when the snapshot coupon is null', async () => {

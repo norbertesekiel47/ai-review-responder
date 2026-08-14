@@ -6,6 +6,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import {
+  CheckoutCouponConfigurationError,
   CheckoutOffboardingBlockedError,
   CheckoutUnavailableError,
   createCheckoutSession,
@@ -300,6 +301,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_attempt_conflict' },
         { status: 409, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutCouponConfigurationError) {
+      // A Beta comp coupon fault is a CONFIGURATION problem, not a provider
+      // outage, and it fails every Admin invite identically. Left in the
+      // generic bucket below, it reached the owner as "Unable to connect to
+      // payment provider. Please try again later." — advice wrong in both
+      // halves: nothing is unreachable, and retrying cannot help. Plan step 11b
+      // asked for this mapping and the route never wired it, which is what made
+      // the first staging checkout failure opaque.
+      reportCaughtError('select-plan', err, {
+        reason: 'checkout_coupon_misconfigured',
+        businessId,
+      });
+      return NextResponse.json(
+        { error: 'checkout_coupon_misconfigured', detail: err.message },
+        { status: 502, headers: NO_STORE },
       );
     }
     reportCaughtError('select-plan', err, { reason: 'checkout_session_creation_failed', businessId });
