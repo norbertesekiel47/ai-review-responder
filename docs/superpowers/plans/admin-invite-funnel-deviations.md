@@ -2,6 +2,39 @@
 
 Entries the plan did not anticipate. Each gets a triage verdict (ACCEPT / RE-PLAN) at step 6 before review.
 
+## Step-6 triage — completed 2026-08-14, gate GREEN
+
+Read end to end by the orchestrator. **No entry is RE-PLAN**: none invalidates a locked intake decision or anything Codex approved across four rounds.
+
+| # | Verdict | One line |
+|---|---|---|
+| D-1 | **ACCEPT** | Surface amendment #1. Forced by two pre-existing CI audits, not by design drift. |
+| D-2 | **ACCEPT** | Retitle only. The original title asserted a comparison the function structurally cannot make. |
+| D-3 | **ACCEPT** | Two log lines beat one invented fact — the coupon *reason* genuinely does not exist at session-creation time. |
+| D-4 | **ACCEPT** | Correctly-forced edit to an intentional lock. Reclassified by the orchestrator as *not* an amendment. |
+| D-5 | **ACCEPT** | Three files the ticket did not name but the intake surface already covered; each mechanically forced. |
+| D-6 | **ACCEPT, flagged for review** | Two letter-vs-intent gaps, both implemented per intent and disclosed. See the note below. |
+| D-7 | **ACCEPT** | A real `past_due` fall-through closed; the page now matches the API it submits to. |
+| D-8 | **ACCEPT** | Surface amendment #2 + the T3 regression it existed to fix (5 real failures). |
+| D-9 | **ACCEPT** | Two forced test-file edits, both inside the intake surface. |
+| D-10 | **ACCEPT, superseded** | The tombstone it had to leave behind was removed in D-11. |
+| D-11 | **ACCEPT — needs owner sign-off** | Surface amendment #3. Trips the stated abort threshold; the reasoning for proceeding is in the entry and is surfaced in the run report. |
+| D-12 | **ACCEPT** | Known dead field left in place deliberately; follow-up ticket, not a late widening. |
+| D-13 | **ACCEPT — the headline caveat** | The Supabase re-invite mapping shipped *before* its staging verification, as this run's scope required. Contained: code-keyed branches, unknown → 502 + logged raw code + never retried, header marked CONTRACT NOT YET VERIFIED. Staging verification is a live pending-ops item, not a closed one. |
+| D-14 | **ACCEPT** | Three stale docs fixed; its one "not fixed" item (the `place-prefill` comment pointing at the deleted admin route) was closed by the orchestrator before the gate run. |
+
+**D-6 note for the reviewer.** Item 1 widens `/api/onboarding/business`'s `display_name` predicate on a branch its own step-4 full-access gate makes unreachable. Accepted because two sites now spell one rule identically and divergent spellings are how a rule rots — but it is a predicate, not a control-flow branch, so it does not conflict with "assert impossible states, don't branch around them". Item 2 leaves the verbatim title `onboarding pay page 404s for a non-owner user` on a test that asserts a redirect; the *behaviour* follows the instruction ("same treatment a missing row gets") and the journey does end at a 404 while the flag is off, but the title is imprecise and a reviewer should decide whether to keep it.
+
+## Step-5 re-classification trigger — fired, lane confirmed unchanged
+
+The gate's `reclassify` row is WARN: production **4008** vs an estimated 1100 changed lines (3.6×), test **3517** vs 1600 (2.2×). Re-running step 0 with the real numbers:
+
+- **RISK stays `high`** — schema + billing + auth, already the heaviest lane. No control was skipped.
+- **SIZE reads `epic`** on the real numbers (three risk domains, >8 tickets). The epic path's remedy is "decompose into tickets each sized to one `/feature` run" — which the 4-round-approved `PLAN.md` had already done (12 steps → 8 tickets with disjoint file sets and explicit blocking edges), and which this run executed. So the trigger's output is: **the estimate was wrong, the lane and the decomposition were not.**
+- **Why the estimate missed by 3×**: it was framed as *net new* code, but the gate counts added + deleted, and deletion was a first-class deliverable here (5 files, two form sections, a whole route, a dashboard view-state). The 14 flag-gate removals also each carried a comment rewrite, a replacement guard and a test flip across 29 files — roughly 3 lines touched per line "removed".
+
+Recorded rather than waved away: the next feature of this shape should estimate churn, not net growth.
+
 ---
 
 ## D-1 — 2026-08-14 — Surface amendment #1 (auto-applied, orchestrator)
