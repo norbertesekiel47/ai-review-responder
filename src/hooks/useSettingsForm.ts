@@ -14,7 +14,7 @@ export interface SettingsPageData {
 /** GET /api/settings union: settings data, or a redirect-gate marker. */
 type SettingsResponse = Partial<SettingsPageData> & {
   subscriptionStatus?: string;
-  paymentUrl?: string | null;
+  funnelUrl?: string | null;
 };
 
 export interface SettingsForm {
@@ -65,13 +65,12 @@ function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string
 }
 
 export function settingsRedirectForDashboardData(
-  json: { subscriptionStatus?: string; paymentUrl?: string | null },
+  json: { subscriptionStatus?: string; funnelUrl?: string | null },
 ): string | null {
-  if (json.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return json.paymentUrl ?? '/dashboard';
-  if (
-    json.subscriptionStatus === 'active_pending_business' ||
-    json.subscriptionStatus === 'pending_payment_admin_handoff'
-  ) {
+  // The server's funnel entry point, not a hardcoded paywall URL. Absent →
+  // /dashboard, whose own account-state screen carries the same next action.
+  if (json.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) return json.funnelUrl ?? '/dashboard';
+  if (json.subscriptionStatus === 'active_pending_business') {
     return '/dashboard';
   }
   return null;

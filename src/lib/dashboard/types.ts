@@ -148,13 +148,14 @@ export interface DashboardDataPendingPayment {
   subscriptionStatus: 'pending_payment';
   businessId: string;
   businessName: string;
-  paymentUrl: string | null;
-}
-
-export interface DashboardDataPendingAdminHandoff {
-  subscriptionStatus: 'pending_payment_admin_handoff';
-  businessId: string;
-  businessName: string;
+  /**
+   * Server-computed funnel entry point (`resolveFunnelEntry`) — replaces the
+   * old hardcoded `paymentUrl`, which was always `/onboarding/pay` and
+   * therefore skipped the pre-pay demo lane for owners owed it. Nullable so the
+   * screen keeps an honest "unavailable" branch for a payload that predates the
+   * field; the route always sends one.
+   */
+  funnelUrl?: string | null;
 }
 
 export interface DashboardDataActivePendingBusiness {
@@ -193,7 +194,6 @@ export type DashboardDataPastDue = Omit<DashboardDataActive, 'subscriptionStatus
 export type DashboardData =
   | DashboardDataActive
   | DashboardDataPendingPayment
-  | DashboardDataPendingAdminHandoff
   | DashboardDataActivePendingBusiness
   | DashboardDataCancelled
   | DashboardDataPastDue;

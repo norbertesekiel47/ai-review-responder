@@ -10,6 +10,7 @@ import {
 } from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 
 export const dynamic = 'force-dynamic';
 
@@ -196,15 +197,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       && row.onboarding_wizard_completed_at !== null
     : row.place_id_verified || row.google_maps_url !== null;
 
-  // 5. Return subscription status + role + businessOnboarded. The
+  // 5. The funnel destination, computed SERVER-side. This is how the browser
+  //    learns flag state without a `NEXT_PUBLIC_*` companion (invariant #13):
+  //    `onboardingDemoEnabled()` is read here, folded into a URL, and only the
+  //    URL crosses the wire. `loginDestination.applySubscriptionGuard` consumes
+  //    it instead of re-deciding client-side (where it was demo-blind and sent
+  //    every pending_payment owner to /onboarding/pay).
+  const funnelUrl = resolveFunnelEntry({
+    subscriptionStatus,
+    demoEnabled: demoFlowEnabled,
+    hasPlace: row.place_id_verified || row.google_maps_url !== null,
+    wizardCompleted: row.onboarding_wizard_completed_at !== null,
+  });
+
+  // 6. Return subscription status + role + businessOnboarded + funnelUrl. The
   //    /onboarding/payment-success page polls with exponential backoff
   //    (2s → 30s, up to 5 min) and redirects to /onboarding/business when
   //    status === 'active' && !businessOnboarded, otherwise to /dashboard.
+  //    `subscriptionStatus`/`role`/`businessOnboarded` keep their existing
+  //    meaning — other callers read them.
   return NextResponse.json(
     {
       subscriptionStatus,
       role: row.role,
       businessOnboarded,
+      funnelUrl,
     },
     {
       status: 200,

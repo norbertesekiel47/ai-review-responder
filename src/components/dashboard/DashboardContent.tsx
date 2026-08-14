@@ -11,7 +11,6 @@ import {
 } from '@/components/dashboard/account-state/AccountStateScreens';
 import type { OffboardingStatusView } from '@/components/dashboard/account-state/OffboardingStatusBanner';
 import { ACCOUNT_OFFBOARDING_STATUS_PATH } from '@/lib/shared/request-path-header';
-import { PendingAdminHandoffScreen } from '@/components/dashboard/account-state/PendingAdminHandoffScreen';
 import { PendingPaymentScreen } from '@/components/dashboard/account-state/PendingPaymentScreen';
 import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
@@ -200,17 +199,8 @@ function DashboardOperationalContent() {
     );
   }
 
-  if (data.subscriptionStatus === 'pending_payment_admin_handoff') {
-    return (
-      <>
-        <TopBar title="Dashboard" />
-        <div className="content">
-          <PendingAdminHandoffScreen />
-        </div>
-      </>
-    );
-  }
-
+  // One pending_payment treatment for every owner, admin-invited or not: the
+  // screen's CTA carries the server-computed funnel entry point.
   if (data.subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT) {
     return (
       <>

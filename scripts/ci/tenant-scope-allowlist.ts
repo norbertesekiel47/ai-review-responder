@@ -89,7 +89,16 @@ export interface TenantScopeAllowlistEntry {
 //     `/onboarding/pay` page query gained `AND u.role = 'owner'`, the
 //     `/onboarding/start` page query gained `b.name` for the invited-owner
 //     name prefill) — same scope key, tighter or equal predicates.
-export const ALLOWLIST_BASELINE = 399;
+//   399 → 400 (admin-invite-funnel T5), a GROWTH of one. `POST
+//     /api/auth/verify-otp` stopped owning a private start-vs-pay branch and
+//     now hands owner state to `resolveFunnelEntry`, so its single lookup gained
+//     the account's `subscription_status` + `onboarding_wizard_completed_at`
+//     and therefore a `JOIN accounts` it did not have before. That new
+//     `accounts` reference needs its own entry alongside the refreshed
+//     `businesses` one — the identical pair `/api/auth/signup-status` already
+//     carries for the identical shape. Scope is unchanged: Supabase `auth_id` →
+//     `users.account_id` → the account and its primary location.
+export const ALLOWLIST_BASELINE = 400;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1369,8 +1378,15 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   },
   {
     file: "src/app/api/auth/verify-otp/route.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id, a.subscription_status, a.onboarding_wizard_completed_at, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
+    category: 'supabase-auth-id',
+    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
+  },
+  {
+    file: "src/app/api/auth/verify-otp/route.ts",
     table: "businesses",
-    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id FROM users u JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
+    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id, a.subscription_status, a.onboarding_wizard_completed_at, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
     category: 'supabase-auth-id',
     reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },

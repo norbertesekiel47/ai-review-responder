@@ -4,13 +4,15 @@ import type { FieldErrors, UseFormRegister } from 'react-hook-form';
 import type { FormData } from '../schema';
 import { Field, SectionCard, inputClass } from './_shared';
 
+// Name + email only. The phone field went with the SerpAPI prefill it was
+// mostly populated by; nothing in the invite flow reads owner_phone, and the
+// owner can supply it later from settings.
 interface OwnerInfoSectionProps {
   register: UseFormRegister<FormData>;
   errors: FieldErrors<FormData>;
-  prefilling: boolean;
 }
 
-export function OwnerInfoSection({ register, errors, prefilling }: OwnerInfoSectionProps) {
+export function OwnerInfoSection({ register, errors }: OwnerInfoSectionProps) {
   return (
     <SectionCard title="Owner Info">
       <Field label="Owner Name *" error={errors.ownerName?.message}>
@@ -30,20 +32,6 @@ export function OwnerInfoSection({ register, errors, prefilling }: OwnerInfoSect
           placeholder="jane@example.com"
         />
       </Field>
-
-      <Field
-        label="Phone"
-        error={errors.ownerPhone?.message}
-        hint={prefilling ? 'Fetching suggestions from Google Maps…' : undefined}
-      >
-        <input
-          {...register('ownerPhone')}
-          type="tel"
-          className={inputClass}
-          placeholder="+1 555 000 0000"
-        />
-      </Field>
-
     </SectionCard>
   );
 }

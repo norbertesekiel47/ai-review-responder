@@ -72,7 +72,7 @@
     "src/lib/analytics/**",
     "src/lib/shared/schemas.ts",
     "src/lib/shared/__tests__/**",
-    "src/lib/dashboard/types.ts",
+    "src/lib/dashboard/**",
     "src/lib/admin/**",
     "src/app/admin/businesses/**",
     "src/app/api/admin/businesses/**",

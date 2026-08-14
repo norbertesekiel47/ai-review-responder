@@ -124,18 +124,25 @@ import { resetServerConfigForTests } from '@/lib/config/server';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-// Minimum valid Place ID: starts with letter, 20+ base64url chars
-const VALID_PLACE_ID = 'ChIJgUbEo8cfqokR5lP9Wh_DaM';
-
+// The whole admin payload: owner email, owner name, business name. Place,
+// voice and tier moved to the invited owner's own funnel.
 function makeBody(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     name: 'Test Cafe',
     ownerName: 'Jane Smith',
     ownerEmail: 'jane@testcafe.com',
-    googlePlaceId: VALID_PLACE_ID,
-    subscriptionTier: 'copilot',
     ...overrides,
   };
+}
+
+/** Flattened bound values across every inside-transaction write. */
+function txValues(): unknown[] {
+  return mockTxCalls.flatMap((args) => args.slice(1));
+}
+
+/** Template text of every inside-transaction write. */
+function txTemplates(): string[] {
+  return mockTxCalls.map((args) => (args[0] as string[]).join(''));
 }
 
 function makePostRequest(body: Record<string, unknown>): NextRequest {
@@ -172,6 +179,10 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     mockDeleteUser.mockReset();
     mockDeleteUser.mockResolvedValue({ data: null, error: null });
     process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+    // Cleared per-test: one case below flips them, and process.env survives
+    // across cases in a file.
+    delete process.env.AUTOPILOT_PURCHASABLE;
+    delete process.env.AUTO_APPROVAL_ENABLED;
     process.env.FOUNDING_DEADLINE = '2027-01-01T00:00:00Z';
     process.env.STRIPE_PRICE_COPILOT_LIST = 'price_copilot_list';
     process.env.STRIPE_PRICE_COPILOT_FOUNDING = 'price_copilot_founding';
@@ -207,14 +218,102 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     expect(enrollmentInsert).toBeDefined();
   });
 
-  it('returns 201 with id and paymentUrl on success', async () => {
+  it('returns 201 with the business id and nothing else', async () => {
     const req = makePostRequest(makeBody());
     const res = await POST(req);
 
     expect(res.status).toBe(201);
-    const json = await res.json() as { id: string; paymentUrl: string | null };
+    const json = await res.json() as { id: string };
     expect(typeof json.id).toBe('string');
     expect(json.id).toHaveLength(36); // UUIDv7
+    // The dead `paymentUrl: null` is gone — the invited owner reaches Stripe
+    // through /onboarding/pay, not through a link handed to the admin.
+    expect(Object.keys(json)).toEqual(['id']);
+  });
+
+  // ── Admin onboarding contract: three fields, nothing else ──────────
+  //
+  // These four pin the whole point of the shrink. The admin types owner
+  // email, owner name and business name; the invited owner supplies place
+  // (/onboarding/start), tier (/onboarding/pay) and voice (post-payment
+  // wizard) themselves, so none of that may be accepted, persisted, or
+  // enqueued here.
+
+  it('admin onboarding accepts only owner email, owner name and business name', async () => {
+    const res = await POST(makePostRequest(makeBody()));
+    expect(res.status).toBe(201);
+
+    const values = txValues();
+    expect(values).toContain('Test Cafe');
+    expect(values).toContain('Jane Smith');
+    expect(values).toContain('jane@testcafe.com');
+
+    // Each of the three is individually required — drop any one and the
+    // schema 400s before a single write.
+    for (const field of ['name', 'ownerName', 'ownerEmail']) {
+      mockTxCalls.length = 0;
+      const body = makeBody();
+      delete body[field];
+      const missing = await POST(makePostRequest(body));
+      expect(missing.status, `${field} must be required`).toBe(400);
+      expect(mockTxCalls).toHaveLength(0);
+    }
+  });
+
+  it('admin onboarding rejects a payload carrying place, voice or tier fields', async () => {
+    // OnboardBusinessSchema STRIPS unknown keys (Zod's object default, and
+    // the uniform posture of every schema in @/lib/shared/schemas) rather
+    // than 400-ing, so a stale admin bundle still onboards its owner. The
+    // rejection that matters is therefore at the persistence boundary: none
+    // of these values may reach a DB write.
+    const contraband = {
+      googlePlaceId: 'ChIJgUbEo8cfqokR5lP9Wh_DaM',
+      googlePlaceAddress: '1 Contraband Way',
+      googleMapsUrl: 'https://www.google.com/maps/place/Test+Cafe/@40.7,-74.0,15z',
+      website: 'https://contraband.example',
+      ownerPhone: '+1 555 000 0000',
+      category: 'Cafe',
+      tone: 'aggressively contraband',
+      productsServices: 'contraband espresso',
+      staffNames: 'Contraband Carol',
+      highlightFacts: 'contraband fact',
+      avoidFacts: 'contraband avoid',
+      sampleResponses: 'contraband sample',
+      subscriptionTier: 'autopilot',
+    };
+
+    const res = await POST(makePostRequest(makeBody(contraband)));
+    expect(res.status).toBe(201);
+
+    const values = txValues();
+    for (const smuggled of Object.values(contraband)) {
+      expect(values, `${smuggled} must never reach a DB write`).not.toContain(smuggled);
+    }
+  });
+
+  it('admin onboarding creates the business on the copilot default tier', async () => {
+    // Even when the payload asks for autopilot: the tier is not the admin's
+    // to choose any more, and the row is created on the safe Copilot pending
+    // snapshot exactly like a self-serve signup.
+    const res = await POST(
+      makePostRequest(makeBody({ subscriptionTier: 'autopilot' })),
+    );
+    expect(res.status).toBe(201);
+
+    const accountsInsert = mockTxCalls.find((args) =>
+      (args[0] as string[]).join('').includes('INSERT INTO accounts'),
+    )!;
+    expect(accountsInsert).toBeDefined();
+    expect(accountsInsert.slice(1)).toContain('copilot');
+    expect(txValues()).not.toContain('autopilot');
+  });
+
+  it('admin onboarding enqueues no validate_place_id row', async () => {
+    const res = await POST(makePostRequest(makeBody()));
+    expect(res.status).toBe(201);
+
+    expect(txTemplates().some((t) => /INSERT INTO job_outbox/i.test(t))).toBe(false);
+    expect(txValues()).not.toContain('validate_place_id');
   });
 
   it('returns 401 when requireRole rejects', async () => {
@@ -236,26 +335,26 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
     expect(mockTxCalls).toHaveLength(0);
   });
 
-  it('returns 400 for invalid Place ID format', async () => {
-    const req = makePostRequest(makeBody({ googlePlaceId: 'bad-id' }));
+  it('returns 400 for a malformed owner email', async () => {
+    const req = makePostRequest(makeBody({ ownerEmail: 'not-an-email' }));
     const res = await POST(req);
 
     expect(res.status).toBe(400);
     expect(mockTxCalls).toHaveLength(0);
   });
 
-  it('rejects unavailable Autopilot before any account/business/user write', async () => {
+  it('a closed Autopilot launch no longer blocks admin creation', async () => {
+    // Pre-shrink this 409'd, because admin provisioning WAS a tier choice.
+    // The tier decision now belongs to the owner at /onboarding/pay, so the
+    // gate has nothing to say about creating the invited account.
     process.env.AUTOPILOT_PURCHASABLE = 'false';
     process.env.AUTO_APPROVAL_ENABLED = 'true';
     resetServerConfigForTests();
 
-    const res = await POST(
-      makePostRequest(makeBody({ subscriptionTier: 'autopilot' })),
-    );
+    const res = await POST(makePostRequest(makeBody()));
 
-    expect(res.status).toBe(409);
-    expect(mockTxCalls).toHaveLength(0);
-    expect(mockInviteUserByEmail).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(mockInviteUserByEmail).toHaveBeenCalledTimes(1);
   });
 
   it('enrollment insert uses same ownerEmail as business insert', async () => {

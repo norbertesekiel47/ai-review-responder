@@ -156,56 +156,24 @@ const googleMapsUrlSchema = z
 
 // ── Onboarding schema (POST /api/admin/businesses) ─────────────────
 
-export const OnboardBusinessSchema = z
-  .object({
-    name: businessNameSchema,
-    category: categorySchema.optional(),
-    // Validate Place ID shape at the schema layer — mirrors
-    // BusinessOnboardingSchema (owner-side, line 167–171) so both onboarding
-    // entry points share the same input contract. The admin route
-    // additionally re-checks via `isPlaceId(data.googlePlaceId)` at the
-    // handler layer (route.ts ~142) as belt-and-suspenders, but having the
-    // refine here means: (a) any future caller of
-    // OnboardBusinessSchema.safeParse() — tests, other routes, internal
-    // tooling — gets the validation for free, (b) a refactor that moves
-    // the strict route-level check can't accidentally drop validation
-    // entirely, (c) the schema-level error shape feeds the existing
-    // safeParse error-message handling at route.ts:130 without any
-    // route-side work.
-    googlePlaceId: z
-      .string()
-      .min(1)
-      .refine((v) => isPlaceId(v), { message: 'Invalid Google Place ID format' })
-      .optional(),
-    googlePlaceAddress: z.string().optional(),
-    googleMapsUrl: googleMapsUrlSchema.optional(),
-    ownerName: ownerNameSchema,
-    ownerEmail: ownerEmailSchema,
-    ownerPhone: ownerPhoneSchema.optional(),
-    tone: toneSchema.default('professional and friendly'),
-    productsServices: z.string().max(5000).optional(),
-    staffNames: z.string().max(2000).optional(),
-    highlightFacts: z.string().max(2000).optional(),
-    avoidFacts: z.string().max(2000).optional(),
-    sampleResponses: z.string().max(5000).optional(),
-    subscriptionTier: z.enum([
-      SubscriptionTier.COPILOT,
-      SubscriptionTier.AUTOPILOT,
-    ]),
-    website: websiteUrlSchema.optional().nullable(),
-  })
-  // True XOR — exactly one of googlePlaceId / googleMapsUrl, never both.
-  // Allowing both lets the two diverge downstream: createBusinessTx admin
-  // mode prefers googlePlaceId for the placeIdInput shape but the wizard
-  // guard treats either as authoritative. Keep this in lockstep with
-  // BusinessOnboardingSchema (the owner-side equivalent below).
-  .refine(
-    (data) => Boolean(data.googlePlaceId) !== Boolean(data.googleMapsUrl),
-    {
-      message: 'Provide exactly one of googlePlaceId or googleMapsUrl, not both',
-      path: ['googlePlaceId'],
-    },
-  );
+// Admin onboarding is invite-only IDENTITY capture: owner email, owner name,
+// business name. Everything the admin used to send (place, voice & context,
+// subscription tier) is now collected from the OWNER inside the self-serve
+// funnel — place at /onboarding/start, tier at /onboarding/pay, voice in the
+// post-payment wizard — so accepting it here only duplicated it. The
+// googlePlaceId/googleMapsUrl XOR refine went with those fields: with neither
+// present it could only ever fail.
+//
+// Unknown keys are STRIPPED, not rejected — Zod's object default, and the
+// uniform posture of every schema in this file. A stale admin bundle still
+// POSTing the old 15-field payload therefore onboards the owner correctly
+// instead of 400-ing mid-deploy, and stripping is precisely what guarantees
+// the removed fields can never reach the createBusinessTx write.
+export const OnboardBusinessSchema = z.object({
+  name: businessNameSchema,
+  ownerName: ownerNameSchema,
+  ownerEmail: ownerEmailSchema,
+});
 
 // ── Update schema (PATCH /api/admin/businesses/:id) ─────────────────
 

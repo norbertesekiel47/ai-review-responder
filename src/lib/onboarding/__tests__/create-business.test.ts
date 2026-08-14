@@ -21,8 +21,6 @@ const adminInput: AdminBusinessTxInput = {
   ownerEmail: 'a@b.com',
   ownerName: 'Jane',
   businessName: 'Acme',
-  subscriptionTier: 'copilot',
-  placeId: { placeIdVerified: true, placeId: 'ChIJtest' },
 };
 
 const selfServeInput: SelfServeBusinessTxInput = {
@@ -79,9 +77,9 @@ describe('createBusinessTx — admin mode', () => {
     expect(harness.sqlCalls).toHaveLength(0);
   });
 
-  it('writes users.auth_id=NULL and does NOT create outbox entry for placeIdVerified=true', async () => {
-    // With placeIdVerified=true, no outbox row is inserted — review ingestion
-    // is webhook-driven via Zernio. Only businesses + users + channel_enrollments are written.
+  it('writes users.auth_id=NULL and does NOT create an outbox entry', async () => {
+    // The admin row carries no place at all now, so there is nothing to
+    // enqueue: only accounts + businesses + users + channel_enrollments.
     const res = await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     expect(res.businessId).toBeTruthy();
     const calls = harness.mockSql.mock.calls.map((c: any[]) => (c[0] as TemplateStringsArray).join('?'));
@@ -104,17 +102,31 @@ describe('createBusinessTx — admin mode', () => {
     expect(calls.some((t: string) => t.includes('sync_reviews'))).toBe(false);
   });
 
-  it('enqueues validate_place_id when placeIdVerified=false', async () => {
-    const input: AdminBusinessTxInput = {
-      ...adminInput,
-      placeId: { placeIdVerified: false, googleMapsUrl: 'https://maps.google.com/?cid=1' },
-    };
-    await createBusinessTx(mockSql, input, { mode: 'admin', onboardedBy: 'admin-1' });
-    const outboxCall = harness.mockSql.mock.calls.find((c: any[]) =>
-      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO job_outbox'))!;
-    // Topic is an interpolated QUEUE_NAMES value, not a template literal —
-    // check the bound values, not the raw strings array.
-    expect(outboxCall.slice(1)).toContain('validate_place_id');
+  // The admin form no longer captures a place (the invited owner captures
+  // their own at /onboarding/start), so runAdminTx enqueues nothing at all —
+  // this pins the absence, which is the whole point of the shrink.
+  it('enqueues no validate_place_id row', async () => {
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const templates = harness.mockSql.mock.calls.map((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?'));
+    expect(templates.some((t: string) => t.includes('INSERT INTO job_outbox'))).toBe(false);
+    const allValues = harness.mockSql.mock.calls.flatMap((c: any[]) => c.slice(1));
+    expect(allValues).not.toContain('validate_place_id');
+  });
+
+  it('writes NULL place fields and empty voice arrays on the admin row', async () => {
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const bizCall = harness.mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO businesses'))!;
+    const values = (bizCall as unknown[]).slice(1);
+    // Same placeholder shape as self-serve: google_place_id + google_maps_url
+    // NULL, place_id_verified false, the four voice arrays empty, tone at its
+    // default. Only `name` and `onboarded_by` differ.
+    expect(values.filter((v) => v === null).length).toBeGreaterThanOrEqual(2);
+    expect(values.filter((v) => Array.isArray(v) && v.length === 0)).toHaveLength(4);
+    expect(values).toContain(false);
+    expect(values).toContain('professional and friendly');
+    expect(values).toContain('Acme');
   });
 
   it('writes onboarded_by value to businesses row', async () => {
@@ -346,23 +358,16 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
     expect(accountsCall.slice(1)).toContain(0);
   });
 
-  it('admin Autopilot/founding writes $49 complete snapshot', async () => {
+  it('admin founding-window writes the $19 founding Copilot snapshot', async () => {
+    // The founding-window snapshot survives the shrink; only the tier CHOICE
+    // moved to the owner. Admin creation is Copilot in both price variants.
     vi.setSystemTime(new Date('2026-12-31T23:59:59Z'));
-    vi.stubEnv('AUTOPILOT_PURCHASABLE', 'true');
-    vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
-    resetServerConfigForTests();
-    const autopilotInput: AdminBusinessTxInput = {
-      ...adminInput,
-      subscriptionTier: 'autopilot',
-    };
-    await createBusinessTx(mockSql, autopilotInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
     const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
       (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
     expect(accountsCall.slice(1)).toContain('founding');
-    expect(accountsCall.slice(1)).toContain('autopilot');
-    expect(accountsCall.some((a: unknown) => a === 4900)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 2000)).toBe(true);
-    expect(accountsCall.some((a: unknown) => a === 1)).toBe(true);
+    expect(accountsCall.slice(1)).toContain('copilot');
+    expect(accountsCall.slice(1)).toContain(1900);
   });
 
   it('self-serve exact deadline is list Copilot with paid=0', async () => {
@@ -398,19 +403,20 @@ describe('createBusinessTx — complete immutable billing snapshot', () => {
     expect(template).toContain('locations_paid');
   });
 
-  it('closed Autopilot gate performs zero SQL writes', async () => {
+  // Admin provisioning no longer chooses a tier, so `assertTierPurchasable`
+  // is gone from this path entirely: a closed Autopilot launch cannot affect
+  // admin creation because admin creation is always Copilot. The gate itself
+  // is covered where a tier IS chosen (tier-purchasability, plan-activation,
+  // tier-change, select-plan, checkout).
+  it('creates on the copilot default tier regardless of the Autopilot gate', async () => {
     vi.stubEnv('AUTOPILOT_PURCHASABLE', 'false');
     vi.stubEnv('AUTO_APPROVAL_ENABLED', 'true');
     resetServerConfigForTests();
-    await expect(
-      createBusinessTx(
-        mockSql,
-        { ...adminInput, subscriptionTier: 'autopilot' },
-        { mode: 'admin', onboardedBy: 'admin-1' },
-      ),
-    ).rejects.toThrow('Autopilot is not currently purchasable');
-    expect(harness.sqlCalls).toHaveLength(0);
-    expect(harness.mockSql.begin).not.toHaveBeenCalled();
+    await createBusinessTx(mockSql, adminInput, { mode: 'admin', onboardedBy: 'admin-1' });
+    const accountsCall = harness.mockSql.mock.calls.find((c: any[]) =>
+      (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO accounts'))!;
+    expect(accountsCall.slice(1)).toContain('copilot');
+    expect(accountsCall.slice(1)).not.toContain('autopilot');
   });
 });
 

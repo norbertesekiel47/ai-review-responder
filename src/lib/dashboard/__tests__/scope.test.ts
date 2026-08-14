@@ -90,7 +90,7 @@ describe('authoritativePendingCount', () => {
       subscriptionStatus: 'pending_payment',
       businessId: 'b1',
       businessName: 'Biz',
-      paymentUrl: null,
+      funnelUrl: '/onboarding/pay',
     };
     expect(authoritativePendingCount(pendingPayment)).toBe(0);
   });

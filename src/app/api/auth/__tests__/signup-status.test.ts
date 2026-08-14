@@ -174,6 +174,69 @@ describe('GET /api/auth/signup-status', () => {
     };
   }
 
+  it('signup-status returns funnelUrl for a pending_payment owner', async () => {
+    // The browser must not re-decide the funnel (it cannot read
+    // ONBOARDING_DEMO_ENABLED — invariant #13), so the server folds the flag
+    // into a URL. Demo ON + no place captured = the location picker.
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    mockSql.mockResolvedValueOnce([rowFor({ subscription_status: 'pending_payment' })]);
+
+    const res = await GET(mkReq());
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.funnelUrl).toBe('/onboarding/start');
+    // The pre-existing fields keep their meaning — other callers read them.
+    expect(json.subscriptionStatus).toBe('pending_payment');
+    expect(json.role).toBe('owner');
+    expect(json.businessOnboarded).toBe(false);
+
+    // Same owner, place already captured → the demo they were promised, NOT
+    // the paywall (the drop-off return point).
+    mockSql.mockResolvedValueOnce([
+      rowFor({ subscription_status: 'pending_payment', place_id_verified: true }),
+    ]);
+    expect((await (await GET(mkReq())).json()).funnelUrl).toBe('/onboarding/demo');
+
+    // Demo OFF → the paywall, which is what the old hardcoded branch always did.
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+    mockSql.mockResolvedValueOnce([
+      rowFor({ subscription_status: 'pending_payment', place_id_verified: true }),
+    ]);
+    expect((await (await GET(mkReq())).json()).funnelUrl).toBe('/onboarding/pay');
+  });
+
+  it('signup-status stays reachable post-payment while Stripe projection is pending', async () => {
+    // This poller carries the owner ACROSS the payment transition, so it must
+    // answer — with a usable funnelUrl — in every post-payment state, not just
+    // 'active'. A 403/404 here would strand /onboarding/payment-success.
+    for (const status of ['active', 'trialing']) {
+      mockSql.mockResolvedValueOnce([
+        rowFor({ subscription_status: status, place_id_verified: true }),
+      ]);
+      const res = await GET(mkReq());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.subscriptionStatus).toBe(status);
+      // Post-payment + wizard stamp still NULL → the wizard, never /dashboard.
+      expect(json.funnelUrl).toBe('/onboarding/business');
+    }
+
+    // Wizard done → nothing left to route to.
+    mockSql.mockResolvedValueOnce([
+      rowFor({
+        subscription_status: 'active',
+        place_id_verified: true,
+        onboarding_wizard_completed_at: new Date('2026-08-01T00:00:00Z'),
+      }),
+    ]);
+    expect((await (await GET(mkReq())).json()).funnelUrl).toBe('/dashboard');
+
+    // Non-entitled leftovers own their dashboard banners, not a funnel step.
+    mockSql.mockResolvedValueOnce([rowFor({ subscription_status: 'past_due' })]);
+    expect((await (await GET(mkReq())).json()).funnelUrl).toBe('/dashboard');
+  });
+
   it('returns 200 + { subscriptionStatus, role, businessOnboarded } with no-store header on success', async () => {
     mockSql.mockResolvedValueOnce([rowFor({ subscription_status: 'pending_payment' })]);
     const res = await GET(mkReq());

@@ -251,10 +251,15 @@ export const SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST: ReadonlySet<string> = new Se
   'worker/ingress/stripe/shared.ts:147',
   // ── dashboard view-model discriminant union (type-level literals; the union
   //    mixes enum statuses with synthetic states like 'active_pending_business') ──
+  // :167 → :177, :176 → :186, :283 → :292 (admin-invite-funnel T5). Same three
+  // discriminants, same union: `DashboardDataPendingAdminHandoff` was deleted
+  // and `DashboardDataPendingPayment` gained its `funnelUrl` doc block, so
+  // every entry below the pending-payment member moved. A line-keyed allowlist
+  // shifts whenever anything above an entry changes size.
   'src/lib/dashboard/types.ts:148',
-  'src/lib/dashboard/types.ts:167',
-  'src/lib/dashboard/types.ts:176',
-  'src/lib/dashboard/types.ts:283',
+  'src/lib/dashboard/types.ts:177',
+  'src/lib/dashboard/types.ts:186',
+  'src/lib/dashboard/types.ts:292',
 ]);
 
 /** True when the trimmed line begins a line/block comment (so a status literal

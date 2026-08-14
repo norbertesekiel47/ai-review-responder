@@ -76,10 +76,10 @@ async function createBusiness(request: NextRequest): Promise<NextResponse> {
       ...parsed.data,
       onboardedBy: admin.id,
     });
-    return NextResponse.json(
-      { id: result.businessId, paymentUrl: result.paymentUrl },
-      { status: 201 },
-    );
+    // `id` only. The response used to carry a `paymentUrl` the server has
+    // always returned as null — the invited owner reaches Stripe through
+    // /onboarding/pay, not through a link handed to the admin.
+    return NextResponse.json({ id: result.businessId }, { status: 201 });
   } catch (err) {
     if (err instanceof AdminOnboardingError) {
       const body: { error: string; rollback?: typeof err.rollback } = {

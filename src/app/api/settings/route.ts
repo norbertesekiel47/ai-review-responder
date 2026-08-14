@@ -13,6 +13,8 @@ import {
   buildDashboardSettings,
   type DashboardBusinessRow,
 } from '@/lib/dashboard/service-mappers';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,9 +107,9 @@ async function runScopedUpdate<Field extends string>(
 // onboarding columns the redirect gates need.
 interface SettingsRow extends DashboardBusinessRow {
   subscription_status: string;
-  onboarded_by: string | null;
   place_id_verified: boolean;
   google_maps_url: string | null;
+  onboarding_wizard_completed_at: Date | null;
 }
 
 /**
@@ -141,7 +143,8 @@ async function getSettings(request: NextRequest): Promise<NextResponse> {
              b.sample_responses, b.owner_phone, b.owner_email,
              a.weekly_summary_enabled, a.monthly_impact_enabled,
              b.category, b.google_place_id,
-             a.subscription_status, b.onboarded_by, b.place_id_verified, b.google_maps_url
+             a.subscription_status, b.place_id_verified, b.google_maps_url,
+             a.onboarding_wizard_completed_at
       FROM businesses b
       JOIN accounts a ON a.id = b.account_id
       WHERE b.id = ${user.locationId}
@@ -151,15 +154,18 @@ async function getSettings(request: NextRequest): Promise<NextResponse> {
       return jsonResponse({ error: 'Business not found' }, 404);
     }
 
-    // Redirect gates — same semantics as /api/dashboard's per-location path.
+    // Redirect gates — same semantics as /api/dashboard's per-location path,
+    // including its single pending_payment treatment: the admin-handoff branch
+    // is gone, so an admin-invited owner is redirected into the same funnel.
     if (row.subscription_status === SubscriptionStatus.PENDING_PAYMENT) {
-      if (row.onboarded_by !== null) {
-        return jsonResponse({ subscriptionStatus: 'pending_payment_admin_handoff' });
-      }
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
       return jsonResponse({
         subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
-        paymentUrl: `${baseUrl}/onboarding/pay`,
+        funnelUrl: resolveFunnelEntry({
+          subscriptionStatus: row.subscription_status,
+          demoEnabled: onboardingDemoEnabled(),
+          hasPlace: row.place_id_verified || row.google_maps_url !== null,
+          wizardCompleted: row.onboarding_wizard_completed_at !== null,
+        }),
       });
     }
     const isActivePendingBusiness =

@@ -18,6 +18,8 @@ import {
 } from '@/lib/shared/past-due-recovery';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import type { DashboardWindow } from '@/lib/kpi/types';
+import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 import { resolveDashboardRequest } from './policy';
 
 export const dynamic = 'force-dynamic';
@@ -57,9 +59,9 @@ interface LocationAccountRow {
   subscription_status: string;
   subscription_tier: string;
   owner_email: string | null;
-  onboarded_by: string | null;
   place_id_verified: boolean;
   google_maps_url: string | null;
+  onboarding_wizard_completed_at: Date | null;
   archived_at: Date | null;
   past_due_at: Date | string | null;
   trial_ends_at: Date | string | null;
@@ -87,8 +89,9 @@ interface LocationAccountRow {
 async function fetchLocationAccountRow(locationId: string): Promise<LocationAccountRow | null> {
   const [row] = await sql<LocationAccountRow[]>`
     SELECT b.account_id, b.name, a.subscription_status, a.subscription_tier,
-           b.owner_email, b.onboarded_by,
+           b.owner_email,
            b.place_id_verified, b.google_maps_url,
+           a.onboarding_wizard_completed_at,
            b.archived_at,
            a.past_due_at, a.trial_ends_at, a.flags, a.stripe_customer_id,
            b.created_at, b.initial_review_count, b.initial_responded_count,
@@ -103,28 +106,36 @@ async function fetchLocationAccountRow(locationId: string): Promise<LocationAcco
   return row ?? null;
 }
 
-/** pending_payment per-location response: admin-handoff vs self-serve pay CTA. */
+/**
+ * pending_payment per-location response.
+ *
+ * There is exactly ONE treatment now. The old `onboarded_by !== null` branch
+ * returned a synthetic `pending_payment_admin_handoff` view-state whose screen
+ * offered no activation mechanism at all — admin-invited owners walk the same
+ * funnel as everyone else and activate through the same Stripe checkout.
+ *
+ * `funnelUrl` is server-computed (`resolveFunnelEntry`) rather than a hardcoded
+ * `/onboarding/pay`, so an owner owed the pre-pay demo gets it instead of the
+ * paywall. It is a relative path — same-origin by construction, no
+ * `NEXT_PUBLIC_APP_URL` needed.
+ */
 function pendingPaymentResponse(
-  subRow: { name: string; onboarded_by: string | null },
+  subRow: Pick<
+    LocationAccountRow,
+    'name' | 'subscription_status' | 'place_id_verified' | 'google_maps_url' | 'onboarding_wizard_completed_at'
+  >,
   locationId: string,
 ): NextResponse {
-  // Admin-onboarded businesses get a handoff payload, never the self-serve
-  // payment CTA — showing a payment link risks a double-charge via the partner.
-  if (subRow.onboarded_by !== null) {
-    return jsonResponse({
-      subscriptionStatus: 'pending_payment_admin_handoff',
-      locationId,
-      businessName: subRow.name,
-    });
-  }
-  // Self-serve owners are routed to /onboarding/pay (PlanPickerClient creates the
-  // Checkout Session) — this replaces the old Payment Link URL flow.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
   return jsonResponse({
     subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
     locationId,
     businessName: subRow.name,
-    paymentUrl: `${baseUrl}/onboarding/pay`,
+    funnelUrl: resolveFunnelEntry({
+      subscriptionStatus: subRow.subscription_status,
+      demoEnabled: onboardingDemoEnabled(),
+      hasPlace: subRow.place_id_verified || subRow.google_maps_url !== null,
+      wizardCompleted: subRow.onboarding_wizard_completed_at !== null,
+    }),
   });
 }
 
@@ -308,6 +319,14 @@ interface AggregateAccountRow {
   trial_ends_at: Date | string | null;
   flags: AccountFlagsInput;
   stripe_customer_id: string | null;
+  // Funnel-entry inputs (`resolveFunnelEntry`) for the pending_payment branch.
+  // The place columns come from the account's PRIMARY business — an aggregate
+  // scope has no single location, and the funnel is a per-account journey.
+  // Null when the account somehow has no primary row; that reads as "no place",
+  // which routes to the location-capture step.
+  onboarding_wizard_completed_at: Date | null;
+  place_id_verified: boolean | null;
+  google_maps_url: string | null;
 }
 
 // Aggregate (scope=all) subscription gating. Returns a response for any
@@ -322,7 +341,12 @@ async function aggregateSubscriptionResponse(
     return jsonResponse({
       subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
       businessName: 'Account',
-      paymentUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/onboarding/pay`,
+      funnelUrl: resolveFunnelEntry({
+        subscriptionStatus: accountRow.subscription_status,
+        demoEnabled: onboardingDemoEnabled(),
+        hasPlace: (accountRow.place_id_verified ?? false) || accountRow.google_maps_url !== null,
+        wizardCompleted: accountRow.onboarding_wizard_completed_at !== null,
+      }),
     });
   }
 
@@ -368,9 +392,12 @@ async function handleAggregateDashboard(
 ): Promise<NextResponse> {
   try {
     const [accountRow] = await sql<AggregateAccountRow[]>`
-      SELECT subscription_status, past_due_at, trial_ends_at, flags, stripe_customer_id
-      FROM accounts
-      WHERE id = ${accountId}::uuid
+      SELECT a.subscription_status, a.past_due_at, a.trial_ends_at, a.flags,
+             a.stripe_customer_id, a.onboarding_wizard_completed_at,
+             b.place_id_verified, b.google_maps_url
+      FROM accounts a
+      LEFT JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
+      WHERE a.id = ${accountId}::uuid
     `;
     if (!accountRow) {
       return errorResponse('Account not found', 404);
