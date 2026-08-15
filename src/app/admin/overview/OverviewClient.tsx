@@ -9,6 +9,7 @@ import type { OverviewData } from '@/lib/admin/overview-service';
 import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
+import { HealthBadge } from '@/components/admin/ui/HealthBadge';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminCount } from '@/components/admin/ui/format';
@@ -27,25 +28,6 @@ function formatRelative(isoString: string | null): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
   return `${diffDays}d ago`;
-}
-
-const HEALTH_BADGE_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  watch: 'bg-gray-100 text-gray-700',
-  at_risk: 'bg-red-100 text-red-800',
-};
-const HEALTH_BADGE_LABELS: Record<string, string> = {
-  healthy: 'Healthy',
-  watch: 'Watch',
-  at_risk: 'At Risk',
-};
-
-function HealthBadge({ level, score }: { level: string; score: number }) {
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
-      {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
-    </span>
-  );
 }
 
 function buildColumns(windowDays: number): DataTableColumn<BusinessRow>[] {

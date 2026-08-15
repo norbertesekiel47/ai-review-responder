@@ -59,6 +59,8 @@
     "src/app/admin/businesses/page.tsx",
     "src/app/admin/businesses/BusinessesClient.tsx",
     "src/app/admin/businesses/__tests__/**",
+    "src/components/admin/ui/HealthBadge.tsx",
+    "src/components/admin/ui/__tests__/HealthBadge.test.tsx",
     "src/app/api/admin/overview/route.ts",
     "src/app/api/admin/businesses/route.ts",
     "src/app/api/admin/businesses/__tests__/**",
