@@ -12,7 +12,7 @@ import {
   isThresholdExpansion,
   type PolicyExposure,
 } from '@/lib/auto-approval/policy';
-import { isVetoWindowMinutes } from '@/lib/auto-approval/types';
+import { autoApprovalThresholdLabel, isVetoWindowMinutes } from '@/lib/auto-approval/types';
 import type {
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
@@ -25,9 +25,9 @@ import type {
 import { readJsonObject } from '@/lib/client-response';
 
 const THRESHOLD_OPTIONS: Array<{ value: AutoApprovalThreshold | null; label: string }> = [
-  { value: null, label: 'Off' },
-  { value: 5, label: '5★ only' },
-  { value: 4, label: '4–5★' },
+  { value: null, label: autoApprovalThresholdLabel(null) },
+  { value: 5, label: autoApprovalThresholdLabel(5) },
+  { value: 4, label: autoApprovalThresholdLabel(4) },
 ];
 
 // Client mirror of the server-side cap validation (the settings zod schema owns it).

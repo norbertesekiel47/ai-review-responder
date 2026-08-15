@@ -6,6 +6,22 @@ const AutoApprovalThresholdSchema = z.union([z.literal(4), z.literal(5)]);
 
 export type AutoApprovalThreshold = z.infer<typeof AutoApprovalThresholdSchema>;
 
+/**
+ * Threshold vocabulary, shared by the owner settings screen and the admin
+ * diagnostics panel so the two cannot drift. The two
+ * `AutoApprovalReadinessBlockReason` maps are deliberately NOT shared — admin
+ * renders terse ops labels, owner renders explanatory sentences.
+ */
+export const AUTO_APPROVAL_THRESHOLD_LABELS: Record<AutoApprovalThreshold, string> = {
+  4: '4–5★',
+  5: '5★ only',
+};
+
+/** `null` means auto-approval is off for that scope. */
+export function autoApprovalThresholdLabel(threshold: AutoApprovalThreshold | null): string {
+  return threshold === null ? 'Off' : AUTO_APPROVAL_THRESHOLD_LABELS[threshold];
+}
+
 // Veto window sizes (spec §2.1); migration 074's CHECK mirrors this union.
 const VetoWindowMinutesSchema = z.union([z.literal(15), z.literal(30)]);
 
