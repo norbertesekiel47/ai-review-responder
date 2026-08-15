@@ -2395,3 +2395,64 @@ the caller's client as a union — `SubscriptionSql` in
   first ACCESS inside the Proxy `get` trap and memoize them (identity must stay
   stable or `vi.spyOn` breaks); merely constructing a wrapper must never assume
   the wrapped object is real.
+
+## 2026-08-14 — admin invite funnel: four ways a mocked provider lies
+
+- [2026-08-14] **A mocked provider client cannot validate the provider's contract
+  — only our intent.** FAILED → `buildCheckoutSessionParams` sent
+  `allow_promotion_codes: false` alongside `discounts` on the beta-comp path. The
+  plan asserted the two could coexist and carried its own "(verified)"; the claim
+  survived **four** adversarial plan-review rounds and every unit test, and a test
+  actively asserted the bug (`expect(params.allow_promotion_codes).toBe(false)` on
+  the coupon path — green, and wrong). It 500'd the first real Stripe call from
+  staging. WHY → Stripe rejects that pair **by parameter PRESENCE, not by value**:
+  `false` beside a discount fails the entire request ("You may only specify one of
+  these parameters"). `createMock.mock.calls[0][0]` records whatever object we
+  build; a mock has no opinion about combinations. CORRECT → any change to an
+  outbound provider payload SHAPE needs one real call before it is believed; the
+  staging smoke is not polish, it is the only test of that class. Corollary worth
+  its own line: **a plan claim carrying "(verified)" suppresses exactly the
+  scrutiny it asserts** — verification belongs in an artifact (a transcript, a
+  probe, a test against the real API), never an adjective. (D-16)
+
+- [2026-08-14] **The shape a client surfaces an error in is itself an unverified
+  contract.** FAILED → nearly, and invisibly. `INVITE_ERROR_CODE_MAP` keys on
+  `error.code` typed `string`, and Supabase's raw GoTrue body carries BOTH a
+  numeric `code: 422` and a string `error_code: 'email_exists'`. WHY it matters →
+  had `@supabase/supabase-js` surfaced the NUMBER on `.code`, every branch of that
+  table would have been dead code and every invite error would have fallen to the
+  502 fallback **silently** — a whole error-mapping table quietly collapsed to one
+  bucket, with no test failing. It does surface the string (2.106.2, probed), so
+  the table works. CORRECT → when a map keys on a provider's error identifier, pin
+  BOTH the value and its TYPE with a test, and probe the real CLIENT rather than
+  reading the wire format — they disagreed here. Probe method + verified contract:
+  `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md` → "D-13".
+
+- [2026-08-14] **The local verify gate runs live-DB suites only for CHANGED
+  integration files, so a migration that alters a table's column set escapes it.**
+  FAILED → migration 105 added `accounts.checkout_attempt_coupon_id`, and the
+  migration **077** shape suite (which asserts 077's exact column set) began
+  failing. The local gate never ran it — that file was unchanged — so only CI saw
+  it. CORRECT → after any migration that adds or removes a column on an
+  already-asserted table, run the full sweep explicitly:
+  `pnpm vitest run --project integration` with `TEST_DATABASE_POOL_URL` set.
+  Changed-file selection is the wrong granularity for schema shape. (D-15)
+
+- [2026-08-14] **A "durable signal" emitted post-commit is not durable.** FAILED →
+  the `checkout_coupon_decision` event — which migration 106's own header calls
+  "the ONLY durable signal that a beta tester's comp was silently skipped before
+  they are charged" — was emitted AFTER `applyTierSnapshot` committed, in a
+  log-and-swallow block. A crash between COMMIT and the insert leaves an attempt
+  whose coupon answer nothing records: precisely the case the event exists for.
+  WHY the original shape looked right → emitting inside the tx risked an unapplied
+  106's `23514` aborting the whole tier snapshot. CORRECT →
+  `tx.savepoint(sp => enqueueAnalyticsEvent(sp, …))` gets BOTH properties and is
+  the repo's canonical form (`src/lib/reviews/import-consent.ts:558`, rationale at
+  `:81-90`): the event commits iff the decision does, while a constraint violation
+  rolls back to the savepoint only and is swallowed there. Swallow **only
+  Postgres-coded** errors — a code-less error must RETHROW, because that is how a
+  handle with no `.savepoint` at all is found (a `Sql`-shaped mock, root `sql`, or
+  `sql.reserve()`); swallowing it kills the event forever behind a warning that
+  reads like a missing migration. Note the shared harness
+  `worker/__tests__/helpers/mock-sql.ts` does **not** model `savepoint`, so a suite
+  exercising savepoint code must stub it or it fails with exactly that `TypeError`.

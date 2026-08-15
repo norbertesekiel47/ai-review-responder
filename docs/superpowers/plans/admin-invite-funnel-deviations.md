@@ -592,3 +592,29 @@ handed it to a reviewer; both intake copies were updated in lockstep and
   unnoticed.
 
 **Triage verdict:** ACCEPT — all accepted findings fixed; rejections reasoned above.
+
+---
+
+## D-18 — 2026-08-14 — Surface amendment #4 (owner-approved) — `.claude/CLAUDE.md`
+
+`allowed_edit_surface` widened in both intake copies: `.claude/CLAUDE.md`.
+
+**Why.** The `document-feature` sweep's trigger for that file — "an architecture
+invariant, a file location, or a 'Where things live' row changed" — fired: this
+branch adds a subsystem (funnel entry, checkout-attempt coupon snapshot, admin
+invite, resend-invite) with four locked `CONTEXT.md` terms and no row in the index
+every agent loads first. The surface already carried `.claude/reference/**` and
+`docs/**`; the root `CLAUDE.md` was simply not anticipated, which is the
+"declared too narrowly" case rather than scope drift. **Docs-only, purely
+additive — one table row, no code.**
+
+Splitting the pointer into `.claude/reference/` instead was rejected: the "Where
+things live" table is that fact's single authoritative owner, and a second copy
+elsewhere is the drift this project's own rule forbids.
+
+**Amendment budget.** This is amendment **4**, past the stated abort threshold —
+same posture as D-11, and **explicitly approved by the owner** when surfaced,
+with the two alternatives (skip it; do it in a follow-up PR against `main`) put
+alongside it.
+
+**Triage verdict:** ACCEPT — owner-approved, docs-only.

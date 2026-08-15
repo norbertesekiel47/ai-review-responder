@@ -7,7 +7,80 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-13 (#773 admission chokepoint + wedge alert — Quick summary immediately below. Prior entry: #790 response-rate period framing — PR #805, squash `db4dd4a1`.)
+Last updated: 2026-08-14 (admin invite funnel — Quick summary immediately below. Prior entry: #773 admission chokepoint + wedge alert.)
+
+## Quick summary — admin invite funnel (2026-08-14, PR #821)
+
+**Staff no longer onboard a business. They invite an owner, and the owner does it.**
+
+Before, an admin filled a four-section form (business, location, voice, tier), the
+owner landed on a dead-end screen, and a human activated the account out of band.
+That whole shape is gone. An admin now types **three facts** — owner email, owner
+name, business name — and the invited owner walks the *same* funnel every self-serve
+owner walks: set password → capture their location → see an AI demo on their real
+reviews → real Stripe checkout → wizard → dashboard.
+
+The owner pays **$0 today with a card still on file**, because a server-selected
+100%-off 3-month Stripe coupon is applied for them. Nobody types a promo code. After
+three months it continues at the founding rate unless they cancel.
+
+**Four ideas carry the whole feature** (all four are locked terms in `CONTEXT.md`):
+
+- **Admin invite** — the durable marker is `businesses.onboarded_by IS NOT NULL`, and
+  deliberately nothing else: no comp flag, no invite table, no parallel journey.
+- **Checkout attempt** — the Stripe Session is built *only* from an immutable snapshot
+  on `accounts.checkout_attempt_*`, never a live env read. The coupon had to join that
+  snapshot, or an ops flip between an owner's first click and their retry would
+  silently change the price under a key Stripe treats as identical.
+- **Funnel entry** — one server-side function (`resolveFunnelEntry`) decides where an
+  owner is owed to be. It replaced three places that disagreed. The browser learns a
+  URL, never a flag.
+- **Beta comp coupon** — eligibility is exactly two facts (invited + env var set). The
+  kill switch is unsetting the env var, and it affects *new* attempts only.
+
+**`SELF_SERVE_SIGNUP_ENABLED` was re-scoped** to mean only "strangers may mint
+accounts". Login, forgot-password and reset-password now work regardless of it, so an
+invited beta owner can recover their own password.
+
+### What the reviews caught, and why it is worth remembering
+
+The branch produced four defects that every mocked test called correct:
+
+- **`allow_promotion_codes` and `discounts` are mutually exclusive by parameter
+  PRESENCE, not by value** (D-16). The plan asserted the opposite, the claim survived
+  *four* adversarial review rounds, and it 500'd the first real staging checkout.
+  Mocked provider tests validate our intent; they can never validate the provider's
+  contract.
+- Two live guard bugs, both found by step-7 review: the new prefill guard **403'd the
+  post-payment wizard** (silently — that caller swallows the error), and the aggregate
+  dashboard's primary-business join **omitted `archived_at IS NULL`**, so an account
+  that had archived a primary could read its own state off an arbitrary location.
+- A misconfigured coupon **bricked an owner permanently** — the failed attempt was
+  reused on every retry, so the documented kill switch could not reach them.
+
+The resend-invite provider contract was then **verified for real** against staging:
+re-invite-while-pending succeeds, an accepted owner is refused by the eligibility
+gate, and `last_sign_in_at` genuinely does prove acceptance.
+
+### The new shape
+
+| Concern | Lives in |
+|---|---|
+| Where an owner is owed to be | `src/lib/onboarding/funnel-entry.ts` (pure; caller passes the flag) |
+| Coupon decision + attempt snapshot | `src/lib/payments/plan-activation.ts` |
+| Session params from the snapshot alone | `src/lib/payments/create-checkout-session.ts` |
+| Releasing a coupon-faulted attempt | `releaseCouponFaultedAttempt`, same file as the snapshot |
+| 3-field admin form | `src/app/admin/businesses/new/` |
+| Resend invite + provider error map | `src/lib/onboarding/resend-invite.ts`, `src/app/api/admin/businesses/[id]/resend-invite/` |
+| Schema | migrations **105** (`checkout_attempt_coupon_id`), **106** (analytics event name) |
+
+**Not live in production.** 105 depends on 077's columns, and 077/078 are deliberately
+absent in prod until the WS8 cutover. No live-mode coupon exists and
+`ONBOARDING_DEMO_ENABLED` is off in prod. Before that coupon is created there is a
+**blocking pre-flight audit** in `docs/launch-checklist.md`: migration 025 backfilled
+`onboarded_by` on every pre-April-2026 business, so a legacy admin-onboarded account
+still sitting in `pending_payment` would otherwise draw a comp it was never meant to
+get.
 
 ## Quick summary — #773 database connection wedge, closed (2026-08-13)
 

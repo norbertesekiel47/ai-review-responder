@@ -994,19 +994,31 @@ Revisit triggers:
   event name — registering it only in TypeScript raises 23514 at insert, and
   `ci:analytics-events` cannot catch that (it compares the TS allowlist against
   `docs/analytics/events.md`, never the database). **Blast radius of an
-  unapplied 106:** bounded by construction — `recordCouponDecision`
-  (`src/lib/payments/plan-activation.ts`) emits POST-COMMIT inside its own
-  try/catch (`reportCaughtError`, then swallow), so a rejected insert costs the
+  unapplied 106:** still bounded, but by a DIFFERENT mechanism than this entry
+  originally described. The step-7 review moved the emission INSIDE
+  `applyTierSnapshot`'s transaction, through `emitCouponDecisionEvent`'s
+  `tx.savepoint(...)` (`src/lib/payments/plan-activation.ts`) — the earlier
+  post-commit `recordCouponDecision` is gone. A post-commit emitter lost the
+  event in exactly the case it exists for: a crash between COMMIT and the insert
+  left an attempt whose coupon answer nothing recorded. In-transaction, the event
+  commits **iff** the decision does. The un-applied-106 safety that justified
+  post-commit is preserved by the savepoint, not by the ordering: a `23514`
+  rolls back to the savepoint only, is swallowed there (Postgres-coded errors
+  only — a code-less error RETHROWS, which is what catches a handle with no
+  `.savepoint`), and the snapshot still commits. So a rejected insert costs the
   metric plus a Sentry-reported handled error, never the tier snapshot, the
   Checkout attempt, or the owner's plan selection. Deploy ordering still stands:
   STAGING first, then PRODUCTION, in both cases BEFORE the emitting code — the
   event is the only durable signal that an invited beta tester's comp was
-  silently skipped. **Constraint-only** (no new relation, column or index; the
-  constraint name has existed since 046) → **no `SchemaRequirement` export, no
-  `assertSchemaReady` entry, no RLS change, no retention-policy row** — 094, 097
-  and 102 record the same reasoning. Rollback: revert the deploy; the constraint
-  is a superset of the old one and the event simply stops being emitted.
-  **LOCAL-ONLY** — not yet on staging or production.
+  silently skipped. **106 does NOT depend on 077**, so unlike 105 it may be
+  applied to production independently of the WS8 cutover. **Constraint-only** (no
+  new relation, column or index; the constraint name has existed since 046) →
+  **no `SchemaRequirement` export, no `assertSchemaReady` entry, no RLS change,
+  no retention-policy row** — 094, 097 and 102 record the same reasoning.
+  Rollback: revert the deploy; the constraint is a superset of the old one and
+  the event simply stops being emitted. **Applied: local + STAGING (verified
+  2026-08-14). Production: NOT YET** — apply before/with the merge of PR #821,
+  since that lands the emitting code on `main`.
 
 - **105** — `checkout_attempt_coupon`: the beta comp coupon on the **Checkout
   attempt** snapshot (admin-invite-funnel plan step 2 / ticket T1,
@@ -1040,8 +1052,10 @@ Revisit triggers:
   be applied where 077 has not been — and 077/078 are deliberately absent in
   production until the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`;
   standing exception in `.claude/CLAUDE.md`). Staging now, production only
-  at/after that cutover. **LOCAL-ONLY** — applied to the rebuildable local test
-  container via `pnpm test:db:setup`; not yet on staging or production.
+  at/after that cutover. **Applied: local + STAGING (verified 2026-08-14).
+  Production: BLOCKED until the WS8 cutover** — not an oversight, a sequencing
+  constraint. 105's constraint rewrite references columns 077 added, so applying
+  it to a database without 077 fails outright.
 
 - **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
   staleness cap** skips (#738, closing #719 step-7 review A3's accepted

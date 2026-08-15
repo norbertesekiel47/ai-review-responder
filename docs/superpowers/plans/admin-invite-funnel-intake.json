@@ -94,6 +94,7 @@
     "scripts/ci/**",
     "docs/**",
     ".claude/reference/**",
+    ".claude/CLAUDE.md",
     ".env.example"
   ],
   "tests_to_add": [
