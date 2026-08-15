@@ -222,6 +222,19 @@ is declared once, in the client, and imported by the server page.
 
 ### `api/` — API routes (all thin; no LLM or heavy work)
 
+#### `_shared/channels/`
+
+Shared by BOTH portals' channel routes — placed at the common ancestor of
+`api/admin/channels/*` and `api/dashboard/channels/*` per the `_shared`
+convention. All 12 enrollment routes are binding shims over these.
+
+| File | Purpose |
+|------|---------|
+| `resolve-actor.ts` | The **Channel actor** seam: `resolveAdminActor` (body `businessId` + admin MFA gate, optional full-access check) and `resolveOwnerActor` (session `locationId` + `resolveWritableAccountForLocation`). The only axis that varies between the portals. |
+| `start.ts` | `runChannelStart` + the shared 4-field `ChannelRouteConfig`. Token mint → advisory-locked enrollment upsert → cache invalidate → QR/deep-link response. |
+| `action.ts` | `runChannelCancel`, `runChannelDisable`. |
+| `flag-off.ts` | `flagOff()` — the single "channel disabled" 404. Called by the runners directly, never a config field. |
+
 #### `u/` — unauthenticated recipient opt-out
 
 | Route | What it does |
@@ -349,11 +362,9 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | `impersonation/start/route.ts` | **(Wave 2)** Starts an audited one-hour admin impersonation session. Same-origin, admin, current AAL2, validates owner/account, sets a signed httpOnly cookie. |
 | `impersonation/end/route.ts` | **(Wave 2)** Ends the current signed impersonation session and clears the cookie. |
 | `locations/csv-import/route.ts` | Admin CSV bulk-location import. Returns partial-success row failures and writes aggregate audit + billing outbox. |
-| `channels/telegram/_shared.ts` | `isTelegramEnabled()`, `flagOff()`, `assertTelegramEnvReady()` — shared by all Telegram admin routes. |
 | `channels/telegram/start/route.ts` | POST: start Telegram enrollment (generates QR token). |
 | `channels/telegram/cancel/route.ts` | POST: cancel pending enrollment. |
 | `channels/telegram/disable/route.ts` | POST: disable active enrollment. |
-| `channels/whatsapp/_shared.ts` | `isWhatsAppEnabled()`, `flagOff()`, `assertWhatsAppEnvReady()` — shared by all WhatsApp admin routes. |
 | `channels/whatsapp/start/route.ts` | POST: start WhatsApp enrollment (sends click-to-chat link). |
 | `channels/whatsapp/cancel/route.ts` | POST: cancel pending enrollment. |
 | `channels/whatsapp/disable/route.ts` | POST: disable active enrollment. |
@@ -733,9 +744,12 @@ Sending approval notifications to business owners.
 | `channels/telegram-channel.ts` | Telegram via Bot API. Checks `CHANNELS_TELEGRAM_ENABLED`; **WS6** sends the account-only suspension body and HTTPS settings button. |
 | `channels/telegram-client.ts` | Low-level Telegram REST client (native `fetch`, 10s timeout, 4 typed error classes). |
 | `channels/telegram-body.ts` | Formats the Telegram HTML messages and inline keyboards (approval request, auto-post FYI, escalation notice, **WS4** pending-post, and **WS6** autonomy-suspended notice). |
+| `channels/telegram-env.ts` | `assertTelegramEnvReady()` — 503 when `CHANNELS_TELEGRAM_ENABLED=true` but Telegram env is incomplete. `MOCK_EXTERNAL_APIS=true` bypasses. |
 | `channels/whatsapp-channel.ts` | WhatsApp via Twilio Content API. Checks `CHANNELS_WHATSAPP_ENABLED`; **WS6** skips suspension notices cleanly when the optional approved template SID is absent. |
 | `channels/whatsapp-client.ts` | Low-level WhatsApp client (Twilio SDK, 7 typed error classes, `classifyError` dispatch). |
 | `channels/whatsapp-body.ts` | Builds Twilio Content variables for five WhatsApp templates (approval, autopost FYI, escalation, **WS4** pending-post, **WS6** autonomy-suspended); extracts tokens where applicable, validates the fixed WS6 settings suffix, and owns body-length budgets (authoritative copy: `docs/runbooks/whatsapp-templates.md`). |
+| `channels/whatsapp-env.ts` | `missingWhatsAppEnv()`, `whatsappEnvReady()`, `assertWhatsAppEnvReady()`. `whatsappEnvReady()` is also read by the owner settings page and `GET /api/dashboard/channels` so the UI never offers a Connect button the start route would 503. |
+| `channels/deep-links.ts` | `buildMobileDeepLink(channel, rawToken)` — the single owner of the `t.me` / `wa.me` enrollment deep link, exhaustive over `MobileChannel`. Two per-portal copies had diverged twice before this. |
 | `channels/enrollment-reducer.ts` | Pure `(state, action) => state` reducer for QR/deep-link channel enrollment (8 states, 27 unit tests). Handles Telegram (and future Discord/Slack). No I/O or timers — all logic is side-effect-free. |
 | `channels/use-enrollment.ts` | React hook wiring `enrollmentReducer` to fetch calls (start / cancel / disable / status), 3s polling loop, 1s TTL tick, and HTTP error classification. Browser-only (marked `'use client'`). |
 

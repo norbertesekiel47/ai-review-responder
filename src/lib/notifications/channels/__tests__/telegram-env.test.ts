@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { assertTelegramEnvReady } from '../telegram-env';
 import { flagOff } from '@/app/api/_shared/channels/flag-off';
 
-describe('admin telegram _shared', () => {
+describe('telegram-env', () => {
   beforeEach(() => {
     delete process.env.CHANNELS_TELEGRAM_ENABLED;
     delete process.env.TELEGRAM_BOT_TOKEN;
