@@ -515,6 +515,24 @@ export async function loadRivalPickerView(
   return { state: 'ready', businessId, keyword, options, pick: toPickedRival(context, options) };
 }
 
+/**
+ * Every active location's rival-picker view, loaded SEQUENTIALLY — one query in
+ * flight at a time (#773). Do NOT reintroduce a `Promise.all` here or in the
+ * page: `loadRivalPickerView` is itself a 3-query chain, so an account with N
+ * locations would put N chains in flight against a 3-connection pool, and the
+ * width grows with the customer. Mirrors `loadLocationsSettingsView`.
+ */
+export async function loadRivalPickerViews(
+  db: Sql,
+  { accountId, businessIds }: { accountId: string; businessIds: LocationId[] },
+): Promise<RivalPickerView[]> {
+  const views: RivalPickerView[] = [];
+  for (const businessId of businessIds) {
+    views.push(await loadRivalPickerView(db, { accountId, businessId }));
+  }
+  return views;
+}
+
 // Same #581 phantom CRAP as loadRivalPickerView above: integration-only coverage.
 // fallow-ignore-next-line complexity
 function toPickedRival(
