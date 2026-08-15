@@ -126,9 +126,15 @@ Pre-invite actions from these decisions:
   set deliberately during stand-up Phase B; fix the stale env-vars.md row in
   Phase G6.)*
 - [ ] Run the prod WS8 tier cutover (`docs/runbooks/ws8-tier-cutover.md`) —
-  stand-up Phase D. **Both 077 AND 078 are WS8-only migrations** (077 =
-  quiesced expand, 078 = strict contract) — never apply either as an ordinary
-  missing migration; the first prod worker deploy happens between them.
+  stand-up Phase D. **077, 078 AND 105 are all WS8-only migrations** (077 =
+  quiesced expand, 078 = strict contract, **105 = the coupon column + its
+  constraint rewrite, applied LAST**) — never apply any of them as an ordinary
+  missing migration; the first prod worker deploy happens between 077 and 078.
+  **Do not stop at 078.** 105 replaces a constraint 077 created, so it cannot be
+  applied before 077 — and the strict code deployed mid-cutover writes the column
+  105 adds, so skipping it fails **every** checkout, not only admin-invited ones.
+  It is section 8 of that runbook. (Migration **106** is NOT part of this — it is
+  independent of 077 and was applied to prod on 2026-08-14.)
 - [ ] **Implement + staging-test the beta activation path** — stand-up
   Phase F: server-selected 100% coupon on the leased checkout for
   admin-onboarded accounts (`allow_promotion_codes` **omitted** on that path —

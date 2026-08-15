@@ -1016,9 +1016,10 @@ Revisit triggers:
   **no `SchemaRequirement` export, no `assertSchemaReady` entry, no RLS change,
   no retention-policy row** — 094, 097 and 102 record the same reasoning.
   Rollback: revert the deploy; the constraint is a superset of the old one and
-  the event simply stops being emitted. **Applied: local + STAGING (verified
-  2026-08-14). Production: NOT YET** — apply before/with the merge of PR #821,
-  since that lands the emitting code on `main`.
+  the event simply stops being emitted. **Applied: local + STAGING + PRODUCTION
+  (all 2026-08-14).** Deliberately NOT part of the WS8 cutover exception — 106
+  touches only `analytics_events` and references nothing 077 added, which is why
+  it could go to prod independently while 105 waits.
 
 - **105** — `checkout_attempt_coupon`: the beta comp coupon on the **Checkout
   attempt** snapshot (admin-invite-funnel plan step 2 / ticket T1,
@@ -1052,10 +1053,14 @@ Revisit triggers:
   be applied where 077 has not been — and 077/078 are deliberately absent in
   production until the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`;
   standing exception in `.claude/CLAUDE.md`). Staging now, production only
-  at/after that cutover. **Applied: local + STAGING (verified 2026-08-14).
-  Production: BLOCKED until the WS8 cutover** — not an oversight, a sequencing
-  constraint. 105's constraint rewrite references columns 077 added, so applying
-  it to a database without 077 fails outright.
+  at/after that cutover — specifically **section 8** of that runbook, which
+  exists because the runbook previously ended at 078 and 105 would have been
+  missed. **Applied: local + STAGING (verified 2026-08-14). Production: BLOCKED
+  until the WS8 cutover** — not an oversight, a sequencing constraint. 105's
+  constraint rewrite references columns 077 added, so applying it to a database
+  without 077 fails outright; and the strict code deployed mid-cutover writes
+  `checkout_attempt_coupon_id`, so stopping the cutover at 078 fails **every**
+  checkout, not only admin-invited ones.
 
 - **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
   staleness cap** skips (#738, closing #719 step-7 review A3's accepted
