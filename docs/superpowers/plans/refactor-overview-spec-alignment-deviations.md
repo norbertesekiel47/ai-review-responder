@@ -23,6 +23,35 @@ Read end to end before review. One verdict per entry, in file order:
 No entry rose to RE-PLAN; no locked decision was invalidated (entry 7 was
 escalated to the owner rather than absorbed).
 
+## Finding C (orchestrator) — the `reclassify` trigger fired; step 0 re-run, lane UNCHANGED
+
+The gate's `reclassify` row fired on both buckets: prod churn 1145 vs an estimate of
+480 (2.39×), test churn 1369 vs 420 (3.26×). Two triggers were live at once, since
+`allowed_edit_surface` had also been amended once (HealthBadge). Step 0 was re-run
+with the real numbers, as the workflow requires. **The lane is unchanged: RISK=normal,
+SURFACE=mixed, SIZE=normal.**
+
+Why the estimate missed, and why it is not a lane error:
+
+- The gate counts **churn** (`added + deleted`). This PR is move-heavy — every line
+  relocated from `overview-service.ts` / `businesses-list-service.ts` into
+  `business-summary.ts` is counted **twice**. The estimate was made against net change.
+- Net tells the honest story: **production is +578 / −557 = net +21 lines** across 22
+  non-docs files. Two shallow modules collapsed into one deep one; the payload
+  shrank from every business to at most five. Entropy-negative, as the intake predicted.
+- Tests are net +647, which is the intended direction: the at-risk selection/ordering
+  matrix and the bounded-fetch property did not exist before. Estimating tests at 1:1
+  with production is the #643 failure mode the separate buckets exist to catch — the
+  test bucket "overrunning" here is the feature working as designed, not sprawl.
+
+Re-checked against the epic criteria, none of which hold: `allowed_edit_surface` is a
+precise 21-glob list (not "a few top-level directories"); one risk domain (admin read
+paths — no schema, billing, worker or auth); it decomposed into 5 tracer tickets plus
+one micro-ticket, well under ~8; and no open investigation questions remain.
+
+**Lesson for the next estimate:** on a relocation-shaped refactor, estimate CHURN, not
+net — or the reclassify row fires on every well-executed move.
+
 ## Finding A (orchestrator) — the windowing SQL contract is pinned in the wrong suite
 
 `getAdminOverview — response-metric windowing (SQL contract)` still lives in
