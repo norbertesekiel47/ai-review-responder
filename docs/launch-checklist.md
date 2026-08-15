@@ -118,9 +118,11 @@ Pre-invite actions from these decisions:
   callout records (full Stripe env + six price IDs + both tier cost limits are
   also hard boot gates). The stand-up sequences: land-the-plan → provisioning
   → env vars → **WS8 zero-state cutover containing the first worker deploy
-  (077 → deploy → smoke → 078)** → remaining webhooks → beta activation path →
-  alerting → smoke. Its phases subsume the items below; they stay listed as
-  individually tickable gates.
+  (077 → deploy → smoke → 078 → 105)** → remaining webhooks → beta activation
+  path → alerting → smoke. Its phases subsume the items below; they stay listed
+  as individually tickable gates. Note the cutover does **not** end at 078 —
+  migration 105 is section 8 of `ws8-tier-cutover.md`, and skipping it fails
+  every checkout once traffic resumes.
   *(This also resolved the 2026-08-09 `ZERNIO_PUBLISHING_ENABLED` discrepancy
   note: both prior readings described a worker that had never run. The flag is
   set deliberately during stand-up Phase B; fix the stale env-vars.md row in
@@ -172,6 +174,22 @@ Pre-invite actions from these decisions:
 - [ ] Create the live-mode beta coupon (100% off, repeating, 3 months —
   verify `repeating` behaves against the pinned Stripe apiVersion) and record
   its ID here: `____` — stand-up Phase F2.
+- [ ] Set `BETA_COMP_COUPON_ID` to that coupon in **Vercel production** and
+  redeploy (Vercel does not pick up env changes without one). Server-only, no
+  `NEXT_PUBLIC_*` companion. Until it is set, every attempt snapshots NULL and
+  invitees are charged full price — the failure is a **charged founding
+  customer**, not an error.
+- [ ] **Set `ONBOARDING_DEMO_ENABLED=true` in Vercel production** and redeploy —
+  stand-up Phase B flag audit / Phase F. **This is a required rollout step, not
+  an optional enhancement, and its failure mode is SILENT.** With it off the
+  invited owner still gets their password, still pays $0, still reaches the
+  dashboard — nothing errors and nothing looks broken — but they never see place
+  capture or the AI demo, so the live onboarding call loses the wow-moment the
+  whole beta script is built around (`beta-onboarding-cofounder-guide.md` Part 5,
+  steps 4–5). `resolveFunnelEntry` takes the flag as an argument, so with it off
+  the journey degrades to password → `/onboarding/pay` → legacy 3-step wizard.
+  **Vercel-only**: 15 read sites under `src/**`, zero under `worker/**` — a
+  Railway flip changes nothing. Flip via the `flag-flip` skill.
 - [ ] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
   live snapshot — Railway AND the still-missing Vercel-side read — stand-up
   Phase G5.
