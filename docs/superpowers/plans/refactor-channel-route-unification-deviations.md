@@ -283,3 +283,60 @@ so the constructor's second argument is ignored at runtime and every instance is
 future 403 case added here would silently assert 401. Give the factory a real
 `constructor(message, statusCode)` (as the two precedent suites above do) at the
 moment a second status is needed, not before.
+
+## Task 5 — the three shared runners
+
+**Deviations from the plan's code: none.** `src/app/api/_shared/channels/start.ts`
+and `action.ts` are the plan's Task 5 blocks verbatim. `ChannelRouteConfig` stayed
+at its 4-field budget; no fifth field was wanted. `git rm` removed both admin
+runners and `src/app/api/admin/channels/_shared/` is gone.
+
+### Crypto wiring guard: PASSED — the documented fallback was NOT needed
+
+`the node:crypto spy intercepts the runner token mint` passed on its first
+execution. `vi.mock('node:crypto', …)` with `importOriginal` spread does intercept
+the runner's `import { createHash, randomUUID } from 'node:crypto'`, so this repo
+now has a working precedent for mocking a `node:` builtin. `runners.test.ts` was
+**not** edited (`git diff --quiet HEAD` verified); the throwing-`begin` fallback in
+Task 2b Step 1 remains unused.
+
+**The timing test was additionally proven non-vacuous by mutation.** Passing the
+wiring guard shows the spy fires, but not that `txDepth` discriminates. So the mint
+was temporarily moved inside `sql.begin`, the suite re-run, and
+`runChannelStart mints the enrollment token outside the transaction` went RED alone
+(1 failed / 22 passed) — then the mutation was reverted and all 23 went green again.
+The assertion detects exactly the regression it names. Anyone tempted to weaken it
+to a `/^[0-9a-f]{64}$/` hash-shape check should note that the mutated build still
+produced a perfectly well-formed sha256; only the call-time depth caught it.
+
+### Carry-forward: 8 typecheck errors in test files that Tasks 6–8 will NOT fix
+
+Typecheck is RED as Task 5 expects, but not every error is a route import awaiting
+Tasks 6–8. Sorting the surface: 22 `TS2307 Cannot find module` errors are the
+expected ones (12 routes → T6/T7; `dashboard/channels/route.ts` and
+`(authenticated)/settings/channels/page.tsx` → T8). The remaining **8 are in test
+files and no route rebind will clear them**:
+
+- `runners.test.ts:323,335,351` — `TS2554: Expected 0 arguments, but got 1`.
+  `EnrollmentDatabaseError` (`src/lib/channels/unique-violation.ts:38`) takes **no**
+  constructor argument on purpose — "Deliberately generic — never echoes the
+  underlying Postgres message (which would leak constraint_name)". The frozen suite
+  calls `new EnrollmentDatabaseError('boom')`. Runtime is unaffected (JS discards the
+  extra arg), which is why all 23 tests pass; only `tsc` objects. Fix is to drop the
+  three `'boom'` arguments — **not** to widen the error's constructor, which would
+  re-open the leak the zero-arg signature exists to close.
+- `runners.test.ts:211,212`, `resolve-actor.test.ts:124,125`,
+  `bindings.test.ts:179` — `TS2532`/`TS2488` on indexed `mock.calls[0]` /
+  `log[0]` access under `noUncheckedIndexedAccess`.
+
+All 8 predate Task 5 (they landed with the test files in Tasks 2b/3/4) and all sit
+in files Task 5 is forbidden to touch — `runners.test.ts` is the contract under
+test and `bindings.test.ts` is frozen. Whoever closes the typecheck at the end of
+T6–T8 must clear these separately or the branch cannot go green.
+
+### Verification
+
+`pnpm test src/app/api/_shared/channels` → **34/34 green, 2 files** (23 runners +
+11 resolve-actor); nothing deferred to T6/T7. `npx eslint` on both new files clean.
+Frozen six byte-identical (`git diff --quiet HEAD` on both `__tests__` dirs).
+Working tree at commit time was exactly 2 deletions + 2 additions.
