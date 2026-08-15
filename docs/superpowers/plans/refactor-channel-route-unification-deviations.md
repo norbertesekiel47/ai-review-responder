@@ -36,3 +36,28 @@ WhatsApp `start` does. §4.5 now matches the plan's Task 2 + Task 2b.
 
 No intake field changed; `allowed_edit_surface` already covers the spec file, so
 this is a deviations entry and not an amendment.
+
+## Task 2 — one of the two Step 5 tests is GREEN on arrival (observation, not a deviation)
+
+Every file was written verbatim from the plan and Step 6's RED matched the
+prediction on 6 of the 7 reported failures. The one mismatch is in the plan's own
+Step 6 expectation line:
+
+> the two appended runner/label tests fail at `Cannot find module
+> '@/app/api/_shared/channels/start'`
+
+Only **one** of those two tests imports that module. `runChannelStart returns the
+flag-off 404 without reading the database` fails as predicted. The other —
+`the channel cache label keeps the admin and dashboard surfaces distinct` — calls
+the existing `POST` from `../disable/route` and asserts
+`safeInvalidateChannelCache(..., 'dashboard.telegram.disable')`, which the owner
+route already does today, so it **passes** against unrefactored code.
+
+That is arguably the correct shape for it: it is a *regression guard* pinning a
+label the refactor must not silently flip to `admin.*` once both portals share one
+runner, not a spec for new behaviour. It was left exactly as the plan wrote it (the
+title is on the gate's verbatim-grep list). Flagging only so the plan owner is not
+surprised that Task 2's RED is 5 failing tests + 2 failing suites rather than the
+6 + 2 the Step 6 wording implies.
+
+No file content deviates from the plan.

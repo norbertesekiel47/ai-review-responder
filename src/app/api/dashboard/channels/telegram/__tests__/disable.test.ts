@@ -103,4 +103,44 @@ describe('POST /api/dashboard/channels/telegram/disable', () => {
     expect(disableQuery!.values).toContain('acct-1');
     expect(disableQuery!.values).not.toContain('L2');
   });
+
+  it('owner telegram disable returns 404 not_found when the location has no billing account', async () => {
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([]); // accounts lookup finds no row → no_account
+    const res = await POST(mkReq() as never);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('the channel cache label keeps the admin and dashboard surfaces distinct', async () => {
+    // disconnectChannel composes `${surface}.${channel}.disable`; the owner route
+    // must resolve surface 'dashboard', never 'admin'.
+    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
+    sqlQueue.push([{ id: 'e1' }]);
+    await POST(mkReq() as never);
+
+    const { safeInvalidateChannelCache } = await import('@/lib/notifications/resolve-channels');
+    expect(safeInvalidateChannelCache).toHaveBeenCalledWith(
+      expect.anything(),
+      'dashboard.telegram.disable',
+    );
+  });
+
+  it('runChannelStart returns the flag-off 404 without reading the database', async () => {
+    // The flag gate precedes auth AND the first query: a disabled channel is
+    // indistinguishable from a missing route, for an unauthenticated caller too.
+    const { runChannelStart } = await import('@/app/api/_shared/channels/start');
+    const neverCallSql = (() => { throw new Error('sql must not be called when the flag is off'); }) as never;
+
+    const res = await runChannelStart(neverCallSql, mkReq() as never, {
+      channel: 'telegram',
+      isEnabled: () => false,
+      assertEnvReady: () => null,
+      resolveActor: () => { throw new Error('resolveActor must not be called when the flag is off'); },
+    });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
 });

@@ -61,4 +61,12 @@ describe('POST /api/dashboard/channels/whatsapp/disable', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
   });
+
+  it('owner whatsapp disable returns 404 not_found when the location has no billing account', async () => {
+    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
+    sqlQueue.push([]); // accounts lookup finds no row → no_account
+    const res = await POST(mkReq() as never);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
 });
