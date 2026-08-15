@@ -20,7 +20,7 @@
 | Piece | State | Evidence |
 |---|---|---|
 | Vercel UI (`rep-worth` → repworth.net) | **Live** | serving prod since 2026-05 |
-| Prod Supabase `udeyaqnvpojbwgoaxwdg` | **Live, healthy** | MCP read 2026-08-10; migrations lockstep-current EXCEPT the WS8 pair (below) |
+| Prod Supabase `udeyaqnvpojbwgoaxwdg` | **Live, healthy** | full introspection audit 2026-08-14: 106 of 107 migrations applied — **only 078** is outstanding (below). 005/105/107 landed 2026-08-14; 077 was already applied |
 | Staging (full stack) | **Live, proven** | §II.2.8 gate + staging runbook evidence |
 | Railway prod worker (`repworth-worker`, project `ad641d0e-dc01-4250-b71c-db1beedb9c8c`) | **Never successfully deployed** | deployment-guide "Current cloud state (2026-07-28)" |
 | Railway prod queue Redis | **Not provisioned** | same |
@@ -295,14 +295,15 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
           code/status you observe for the already-accepted case, and reconcile
           the mapping against it before prod.
 - [ ] **F4. Production is gated on the WS8 cutover — do not run F2b in prod
-      early.** Migration 105 replaces a constraint over columns migration **077**
-      added, and 077/078 are deliberately absent in production until Phase D
-      above (`ws8-tier-cutover.md`). Order for prod: Phase D cutover → apply 105
-      then 106 → set `BETA_COMP_COUPON_ID` (live-mode ID) → re-run the F3 smoke
-      against production with a real card and an immediate cancel, or against a
-      staff account. Until then the invited-owner checkout path is
-      **staging-only**, and `beta-onboarding-cofounder-guide.md` says so at the
-      top.
+      early.** The gate is now **code and Stripe, not schema**: as of 2026-08-14
+      migrations 077, 105 and 106 are all applied in production, and **078** is
+      the only one still outstanding (it applies in Phase D,
+      `ws8-tier-cutover.md` §7). Order for prod: Phase D cutover (resume at §6 —
+      §5/§8 are verify-only there) → set `BETA_COMP_COUPON_ID` (live-mode ID)
+      → re-run the F3 smoke against production with a real card and an immediate
+      cancel, or against a staff account. Until Phase D completes the
+      invited-owner checkout path is **staging-only**, and
+      `beta-onboarding-cofounder-guide.md` says so at the top.
 
 ### Phase G — Alerting + posture verification
 

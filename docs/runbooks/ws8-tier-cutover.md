@@ -13,6 +13,14 @@ created and so cannot be applied before 077; the strict code deployed here write
 the column it adds, so skipping it fails every checkout. Section 8 is not
 optional.
 
+> **Production is partially through this sequence already (verified 2026-08-14).**
+> **077 and 105 are applied in prod; 078 is not.** Sections 5 and 8 are therefore
+> **verify** steps for the production run, and the live resume point is
+> **section 6**. Staging is unaffected — it has had all three since 2026-07-16.
+> Do not read the sequence above as "nothing has run in prod"; re-introspect
+> before assuming. Detail: `.claude/reference/migrations-log.md` entries 077/105,
+> and lab-notes "Migration lockstep audit".
+
 There is no live-traffic compatibility reader, grandfathering map, or alternate
 migration order. Run every phase in staging first. After staging evidence is
 accepted, repeat the complete sequence in production. Do not edit an existing
@@ -233,6 +241,19 @@ writes the database. Rerun the default dry-run after provider changes and requir
 
 ## 5. Apply migration 077 and verify expansion/normalization
 
+> **Production status (verified 2026-08-14): 077 is ALREADY APPLIED in prod.**
+> For the production run this section is a **verify** step, not an apply step —
+> run the introspection below, confirm it passes, and continue to section 6.
+> Re-applying is safe if you prefer the belt-and-braces path (077 is written to
+> be re-runnable and repairs defaults/CHECK/function/trigger without rewriting
+> account or business data), but it is not required.
+>
+> How this happened: the prod cutover paused on 2026-07-17 with this section
+> pending (`docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md`
+> verified `price_variant` absent at 01:11:05Z). 077 landed after that, and no
+> evidence file records it — so **the prod cutover is partially executed through
+> this section**. Staging is unaffected: it has 077 and always did.
+
 Apply `supabase/migrations/077_copilot_autopilot_expand.sql` through the normal
 approved migration channel. Migration 077 is direct SQL and does not call this
 script, Stripe, Redis, TypeScript, or enqueue reconciliation work.
@@ -379,7 +400,20 @@ proceeds. Stale entries there are bugs per the doc-hygiene rule.
 After staging acceptance, repeat sections 1–7 in production. Do not reuse
 staging Price IDs, Stripe mode, database URL, or evidence as production proof.
 
-## 8. Apply migration 105 — the cutover is not finished at 078
+## 8. Verify migration 105 — the cutover is not finished at 078
+
+> **Production status (verified 2026-08-14): 105 is ALREADY APPLIED in prod.**
+> For the production run this is a **verify** step. Run the two queries below
+> and confirm the expected values; do not re-apply.
+>
+> Why it moved out of the sequence: 105's only ordering constraint was the 077
+> dependency, and the 2026-08-14 migration lockstep audit found 077 already
+> applied in prod (see section 5). With the dependency satisfied, 105 is a
+> nullable column plus a CHECK branch that passes trivially on NULL, against a
+> table holding zero rows — so it was applied out of band to restore full
+> staging↔prod lockstep and shrink the standing exception to **078 alone**.
+> The warning below is unchanged in substance and still governs any environment
+> that has NOT yet had 105 applied.
 
 **Do not stop at 078.** `supabase/migrations/105_checkout_attempt_coupon.sql`
 is the last step of this cutover, not a separate pending migration, and it is
@@ -449,6 +483,12 @@ closing the runtime is the live backstop for new sales and policy expansion.
 - **After 077:** old binaries cannot parse the normalized Copilot/list rows.
   Stay quiesced and roll forward or repair the strict code. Do not restore old
   tier data or open a compatibility window.
+  > **Production has already crossed this boundary, and it is inert there.**
+  > 077 is applied in prod, but prod was truncated to zero tenant rows on
+  > 2026-07-16 and still holds 0 accounts / 0 businesses — so 077's first-apply
+  > normalization UPDATE touched no rows, and there are no normalized
+  > Copilot/list rows for an old binary to fail on. The boundary becomes real
+  > the moment prod has its first account.
 - **After 078:** recovery requires an explicit forward schema/data repair.
   Reintroducing old-tier rows or old constraints is not an authorized rollback.
 
