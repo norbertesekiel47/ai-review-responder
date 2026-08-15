@@ -6,7 +6,12 @@ quiesced environment:
 
 > quiesce → provider-wide Stripe preflight reaches zero blockers → migration
 > 077 expand/normalize → deploy strict code → controlled smoke → migration 078
-> contract → resume
+> contract → resume → **migration 105** (section 8)
+
+**105 is part of this cutover, not a follow-up.** It replaces a constraint 077
+created and so cannot be applied before 077; the strict code deployed here writes
+the column it adds, so skipping it fails every checkout. Section 8 is not
+optional.
 
 There is no live-traffic compatibility reader, grandfathering map, or alternate
 migration order. Run every phase in staging first. After staging evidence is
@@ -373,6 +378,53 @@ proceeds. Stale entries there are bugs per the doc-hygiene rule.
 
 After staging acceptance, repeat sections 1–7 in production. Do not reuse
 staging Price IDs, Stripe mode, database URL, or evidence as production proof.
+
+## 8. Apply migration 105 — the cutover is not finished at 078
+
+**Do not stop at 078.** `supabase/migrations/105_checkout_attempt_coupon.sql`
+is the last step of this cutover, not a separate pending migration, and it is
+the one most likely to be missed because every other section above is about
+077/078.
+
+105 adds `accounts.checkout_attempt_coupon_id` and REPLACES the named CHECK
+`accounts_checkout_attempt_complete_check` that 077 created — a constraint whose
+body enumerates all nineteen `checkout_attempt_*` columns. It therefore **cannot
+be applied where 077 has not been** (it fails outright on the missing columns),
+which is exactly why it is sequenced here and was deliberately held out of
+production while 077/078 were absent.
+
+**What breaks if you skip it.** The strict code deployed in section 6 writes
+`checkout_attempt_coupon_id` on every checkout attempt
+(`applyTierSnapshot`, `src/lib/payments/plan-activation.ts`). Without 105 that
+column does not exist, so **every** plan selection fails — not only
+admin-invited ones. The failure is loud and immediate rather than silent, but it
+lands on live traffic the moment you resume, because resume happens in section 7.
+
+Apply it through the normal approved channel, then verify:
+
+```sql
+-- 1. the column exists and is nullable
+SELECT column_name, is_nullable FROM information_schema.columns
+ WHERE table_name = 'accounts' AND column_name = 'checkout_attempt_coupon_id';
+
+-- 2. the rewritten constraint names the coupon column in its cleared branch
+SELECT pg_get_constraintdef(oid) FROM pg_constraint
+ WHERE conname = 'accounts_checkout_attempt_complete_check';
+```
+
+Expect `is_nullable = YES`, and the constraint definition to contain
+`checkout_attempt_coupon_id IS NULL` in the cleared branch. The shape is asserted
+by `src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts`.
+
+Migration **106** (`checkout_coupon_decision` analytics event name) is
+independent of this cutover — it does not touch 077's columns and may be applied
+at any time. It was applied to production on 2026-08-14, ahead of this cutover.
+
+After 105 is live, the **Beta comp coupon** still does nothing until its own
+prerequisites are met, and those are deliberately separate from this runbook:
+create the live-mode Stripe coupon, set `BETA_COMP_COUPON_ID`, and clear the
+blocking legacy-`onboarded_by` audit in `docs/launch-checklist.md`. See
+`docs/runbooks/beta-production-standup.md` Phase F.
 
 ## Independent authorization for Autopilot sales
 
