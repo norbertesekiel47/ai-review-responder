@@ -3790,3 +3790,44 @@ diverge despite the composite action claiming "one owner", and two assertions in
 `migration-056-account-offboarding.integration.test.ts` fail locally with `42P01` where they
 expect `42501`. Pre-existing (reproduced at head 106 with 107 removed), CI-green, and
 unrelated to this change — left for its own PR.
+
+---
+
+## Test-DB bootstrap schema grant (2026-08-14, branch `fix/test-db-bootstrap-schema-grant`)
+
+**Why:** closes the item the migration-lockstep PR (#825) explicitly left open. Two assertions
+in `migration-056-account-offboarding.integration.test.ts` failed on a developer machine while
+passing in CI — the classic "works on CI, broken locally" shape that gets misread as a bad
+laptop and ignored.
+
+**Root cause — two provisioning paths, one claimed owner.** `.github/actions/test-db` applies
+`scripts/ci/test-db-bootstrap.sql` to the service container's **pristine** `public` schema,
+which still carries Postgres's default `GRANT USAGE ON SCHEMA public TO PUBLIC`, so
+`authenticated` inherited USAGE. `scripts/test-db-setup.sh` first runs
+`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`, and on PG15+ the new schema has **no**
+grant to `PUBLIC` at all (`nspacl = NULL`). Same recipe, different starting schema, different
+database.
+
+**Why it cost a full isolation pass.** Without USAGE a role cannot see any relation, so a
+table-level privilege probe answers `42P01 relation does not exist` rather than
+`42501 permission denied for table`. A suite asserting the *denial message* fails with what
+looks like a missing migration. Attribution required re-provisioning at head 106 with
+migration 107 removed to prove the failure predated that work.
+
+**What was done:**
+
+1. **`scripts/ci/test-db-bootstrap.sql`** — grants USAGE on schema `public` to `PUBLIC` and
+   explicitly to `anon`/`authenticated`/`service_role`, mirroring a real Supabase project's
+   `public` ACL (verified against staging: `{…,=U/…,anon=U/…,authenticated=U/…,service_role=U/…}`).
+   Redundant no-op on CI's pristine schema; the actual repair locally. The bootstrap is the one
+   file **both** paths run, so it is the correct owner.
+2. **`scripts/test-db-setup.sh`** — comments the ordering coupling at the call site: the reset
+   must precede the bootstrap, or the grant is destroyed again.
+3. **Lab-notes** — "Test-DB provisioning" entry, plus a CI/tooling topic-index pointer, so the
+   next local-only permission failure is diagnosed in seconds rather than hours.
+
+**Verification.** Re-provisioned from scratch with no manual grant: resulting ACL matches
+Supabase's shape, `has_schema_privilege('authenticated','public','USAGE')` is true, the
+previously-failing suite passes 10/10, and all 91 live-DB integration files (748 tests) pass.
+CI's path re-proved independently on a fresh database — bootstrap applied to a pristine schema
+exits 0, produces the same ACL, and is idempotent across two consecutive runs.

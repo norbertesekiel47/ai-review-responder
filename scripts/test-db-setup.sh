@@ -44,7 +44,14 @@ esac
 echo "→ resetting schema public on '$HOST' (test database — all data is discarded)"
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
 
-echo "→ bootstrapping Supabase prerequisites (roles, auth.uid(), uuidv7)"
+# ORDER MATTERS: the recreate above drops every grant on schema public, and on
+# PG15+ the new schema is created with NO grant to PUBLIC. The bootstrap below is
+# what restores USAGE for anon/authenticated/service_role — CI never reaches this
+# reset (it applies the bootstrap to a pristine schema that still has the default
+# grant), so this path is the only one that depends on that ordering. Moving the
+# bootstrap above the reset, or dropping the schema after it, silently returns
+# every RLS/permission suite to failing locally while passing in CI.
+echo "→ bootstrapping Supabase prerequisites (roles, schema grants, auth.uid(), uuidv7)"
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f scripts/ci/test-db-bootstrap.sql
 
 echo "→ applying migrations"
