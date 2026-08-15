@@ -62,6 +62,14 @@ surprised that Task 2's RED is 5 failing tests + 2 failing suites rather than th
 
 No file content deviates from the plan.
 
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). The already-green case is a
+regression guard, not a spec for new behaviour — and it is guarding the exact thing
+unification puts at risk: that one shared runner does not silently relabel the
+owner surface `admin.*`. Its title is on the gate's verbatim list and the
+`promised-tests` row is PASS, so the arithmetic mismatch in the plan's Step 6
+wording (5 failing tests + 2 failing suites, not 6 + 2) misdescribes the RED
+without weakening it.
+
 ## Task 2b — three harness defects in the plan's `bindings.test.ts`, and the crypto spy is still UNVERIFIED
 
 `runners.test.ts` was written **verbatim** from the plan; no character deviates.
@@ -204,6 +212,16 @@ RED — these specify NEW behaviour the refactor must deliver:
 `pnpm ci:live-db-suites`, `pnpm ci:db-imports` and `pnpm ci:static-policy` all
 pass with both new files present, and `npx eslint` is clean on both.
 
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). All three repairs are suite
+setup only — no test title, assertion, mock target or expectation shape moved, and
+the frozen six were byte-identical at this point. Defect 3 is the entry that earns
+its keep: a `getServerConfig()` memo made a test green while asserting the
+`beforeEach` number instead of its own, i.e. the false-green class both plan review
+rounds were hunting, found by execution rather than by review. The one open risk
+this entry raised — the precedent-free `node:crypto` spy — is closed under Task 5
+below (guard passed first execution, timing assertion additionally proven
+non-vacuous by mutation); the documented throwing-`begin` fallback stayed unused.
+
 ## Task 3 — executed verbatim; one stale `describe` title left in place (observation, not a deviation)
 
 Every file was written exactly as the plan quotes it, and Step 7 matched the
@@ -234,6 +252,11 @@ set regressed. No compatibility re-export shim was left behind for the deleted
 `_shared.ts` modules. `pnpm ci:static-policy`, `pnpm ci:db-imports` and
 `pnpm ci:live-db-suites` all pass, and `npx eslint` is clean on all six touched
 files.
+
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). Executed verbatim; the only
+residue was a `describe` string naming a deleted file, correctly left alone as
+out-of-instruction rather than absorbed silently — and closed by Task 8 Addition 1,
+so nothing carries past this branch.
 
 ## Task 4 — a fourth harness defect in the Task 2 eval: the role-gate test rejected with a look-alike class
 
@@ -283,6 +306,16 @@ so the constructor's second argument is ignored at runtime and every instance is
 future 403 case added here would silently assert 401. Give the factory a real
 `constructor(message, statusCode)` (as the two precedent suites above do) at the
 moment a second status is needed, not before.
+
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). The eval, not the resolver,
+was wrong: a look-alike throwable took `requireRoleOr401`'s deliberate re-throw
+path, so the test died before reaching the branch it names. The fix follows the two
+cited precedent suites and is visible in the tree — `resolve-actor.test.ts:20-24`
+carries the comment explaining why the local look-alike cannot come back, and :131
+rejects with the mocked `AuthError`. The carry-forward (class-field `statusCode`
+makes every instance a 401 regardless of the constructor arg) is a latent
+test-harness trap, correctly deferred to the moment a second status is needed;
+promote it at step 8 rather than leaving it only here.
 
 ## Task 5 — the three shared runners
 
@@ -341,6 +374,18 @@ T6–T8 must clear these separately or the branch cannot go green.
 Frozen six byte-identical (`git diff --quiet HEAD` on both `__tests__` dirs).
 Working tree at commit time was exactly 2 deletions + 2 additions.
 
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). No code deviation, and the
+4-field `ChannelRouteConfig` budget held — the plan's own "a fifth field means the
+seam is wrong" tripwire never fired, which is the strongest single signal that the
+Channel actor seam was cut in the right place. The mutation check (move the mint
+inside `sql.begin` → exactly one test goes red → revert) is the right way to prove
+a timing assertion, since the hash looks identical either way. The 8-error
+typecheck carry-forward was cleared at the step-5 gate and took the prescribed
+route: verified in the tree that `EnrollmentDatabaseError`'s zero-arg constructor
+is untouched (`src/lib/channels/unique-violation.ts:38`, no diff vs `origin/main`)
+and the `'boom'` arguments were dropped instead — the leak the signature exists to
+close stays closed.
+
 ## Task 7 — staged six explicit paths instead of the directory (one deviation)
 
 **Deviation.** Step 4 says `git add src/app/api/dashboard/channels`. That
@@ -379,6 +424,17 @@ location has no billing account` are green, as is the backfilled
 `telegram/cancel` suite (3 tests). `npx tsc --noEmit -p tsconfig.json` filtered to
 `dashboard/channels/(telegram|whatsapp)` → **no output**. `npx eslint` on both
 owner channel dirs → clean.
+
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). The deviation is strictly
+NARROWER than the instruction — six explicit paths instead of a directory that also
+held T8's in-flight `route.ts` — so it prevented cross-task contamination in a
+shared worktree rather than widening anything; `git show --stat` on that commit is
+exactly the six files. The `--no-verify` is sound for the same reason (lefthook's
+repo-wide `vitest --changed` would have judged T6/T8 breakage that was not T7's),
+and it costs nothing: lefthook still gates the push, and the full gate ran green at
+`3bc26bcc`. The query-count check landing with no `sqlQueue.push` adjustment is the
+substantive finding here — it is the mechanical proof that `resolveOwnerActor`
+issues exactly the one query the inline code it replaced did.
 
 ## Task 8 — executed as written; one arrangement choice in `directory.md`
 
@@ -438,6 +494,15 @@ landed their route repairs in the shared worktree; run in isolation against an
 unrepaired tree it would have failed on files this task does not own. Only the
 five owned files were staged — the six in-flight `api/admin/channels/**` files
 belonging to T6 were left unstaged.
+
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). Both arrangement choices in
+`directory.md` follow that file's existing conventions rather than the plan's
+approximation of them, which is the correct precedence — and the delete-a-doc-entry
+rule was applied with a grep, not a claim. Addition 1 closes the Task 3 residue. The
+scoping caveat on Step 4's mechanical check is honest and worth keeping: `PASS: no
+owner→admin channel import remains` is only meaningful because T6 and T7 had already
+landed, and it is re-asserted independently as a `verification_commands` row on every
+gate run.
 
 ---
 
@@ -562,3 +627,35 @@ argued and approved instead of absorbed silently by an agent mid-refactor.
 `scripts/ci/admin-aal2-audit.ts`, `scripts/ci/__tests__/admin-aal2-audit.test.ts`
 and `scripts/ci/process-env-baseline.ts`. A second amendment triggers the abort
 criteria.
+
+**VERDICT: ACCEPT** (orchestrator, step-6 read-back). Item 1 is the load-bearing one
+and it went the strictly-stronger way — verified in the tree:
+`GATED_SHARED_HELPERS = ['resolveAdminActor']` (`scripts/ci/admin-aal2-audit.ts:40`)
+now names the function that calls the gate rather than three delegators that merely
+sat behind it, and case `(k)`
+(`scripts/ci/__tests__/admin-aal2-audit.test.ts:150`) pins the regression the naive
+fix would have opened: an admin route binding `resolveOwnerActor` to a shared runner
+must be FLAGGED. That is the one place in this refactor where an audit could have
+been quietly downgraded to keep a gate green, and it wasn't. Item 4 is correctly
+classified — a `verification_commands` correction is a deviations entry, not an
+amendment (step 5), so the amendment budget stands at 1 of 2.
+
+---
+
+## Step 6 — deviations read-back complete
+
+All 10 entries carry a verdict. **10 ACCEPT / 0 RE-PLAN** — no entry invalidates a
+locked intake decision, so the abort criteria are not engaged. Amendment budget:
+**1 of 2** used (step-5 gate, `scripts/ci/**`). Three claims were re-verified against
+git rather than taken from the prose: the frozen-six blast radius (4 files / 6 sites,
+no stale `account_id: 'acct-1'` fixture survives), the `admin-aal2` allowlist swap,
+and the untouched `EnrollmentDatabaseError` signature.
+
+Two themes recur across the entries and should be handed to the step-7 reviewers as
+prior art, not re-derived: (1) **false greens dominate the defect count** — a
+memoized `getServerConfig()`, a look-alike `AuthError`, and five vacuously-passing
+frozen fixtures, three unrelated routes to the same failure mode; (2) every real
+correctness catch came from EXECUTION, not from either plan review round. Two items
+are carry-forwards for step 8's promotion rule rather than branch defects: the
+class-field `AuthError` trap (Task 4) and the now-established `vi.mock('node:crypto')`
+precedent (Task 5).
