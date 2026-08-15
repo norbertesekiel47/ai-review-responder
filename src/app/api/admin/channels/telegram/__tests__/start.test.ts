@@ -66,6 +66,26 @@ function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
   });
 }
 
+/**
+ * Drives the happy path with one specific TELEGRAM_BOT_USERNAME value and hands
+ * back the parsed body. Env + `resetServerConfigForTests()` is this file's
+ * established config seam — there is no `getServerConfig` mock to reach for, and
+ * `TELEGRAM_BOT_USERNAME` is declared `rawOpt`, so ''/'   ' survive the parse
+ * byte-for-byte and reach `buildTelegramDeepLink` intact.
+ */
+async function startWithBotUsername(botUsername: string) {
+  process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+  process.env.TELEGRAM_BOT_USERNAME = botUsername;
+  resetServerConfigForTests();
+  sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription check
+  sqlQueue.push([]); // advisory lock
+  sqlQueue.push([]); // SELECT existing enrollment (none)
+  sqlQueue.push([]); // INSERT enrollment
+  const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+  expect(res.status).toBe(200);
+  return (await res.json()) as { deepLink: string };
+}
+
 beforeEach(() => {
   sqlQueue.length = 0;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -139,5 +159,15 @@ describe('POST /api/admin/channels/telegram/start', () => {
     sqlQueue.push([{ id: 'enrl-1', status: 'verified' }]); // existing verified row
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(409);
+  });
+
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is blank', async () => {
+    const body = await startWithBotUsername('');
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
+  });
+
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is whitespace only', async () => {
+    const body = await startWithBotUsername('   ');
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
   });
 });

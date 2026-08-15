@@ -49,3 +49,44 @@ satisfies invariant #15, and makes the sequential behaviour unit-testable in the
 existing `named-rival.test.ts`. Projected aggregate coverage ~91%.
 
 **Verdict:** _pending step 6_
+
+---
+
+## D3 — BLOCKER: `edit-surface-guard.sh` cannot match the three `[id]` route paths
+
+`edit-surface-guard.sh:122` matches with bash's `[[ "$REL_PATH" == $GLOB ]]`,
+where `[id]` is a **character class** (one char, `i` or `d`) — not the literal
+directory name of a Next.js dynamic route segment. Every declared entry under
+`src/app/admin/businesses/[id]/` is therefore unmatchable, and the guard rejects
+writes to paths the signed intake explicitly lists.
+
+Confirmed:
+
+```
+p="src/app/admin/businesses/[id]/__tests__/page-source.test.ts"
+[[ $p == "src/app/admin/businesses/[id]/__tests__/**" ]]   # false
+```
+
+Consequence: Task 1 Step 5 could not create
+`src/app/admin/businesses/[id]/__tests__/page-source.test.ts`, so the promised
+test title `keeps the admin business detail page free of Promise.all fan-out`
+is **not yet authored**. Tasks 5 and 6 will hit the identical wall on
+`src/app/admin/businesses/[id]/page.tsx` and
+`src/app/admin/businesses/[id]/_components/AutoApprovalDiagnosticsPanel.tsx`.
+
+Not fixed here, deliberately: the only routes to unblocking are amending
+`.feature/intake.json` or relaxing the guard, and both are contract/permission
+changes that need the user's own sign-off rather than an agent's judgement.
+
+Two candidate fixes for the user to choose between:
+
+1. **Durable** — make the guard match literally (`jq`-side `fnmatch`, or
+   `case` with the glob quoted) instead of through bash pattern expansion. Every
+   dynamic-route segment in the repo hits this otherwise.
+2. **Local** — append `?`-for-bracket siblings to `.feature/intake.json` (the
+   untracked runtime artifact), leaving the tracked intake in its `[id]` form:
+   `src/app/admin/businesses/?id?/page.tsx`,
+   `src/app/admin/businesses/?id?/__tests__/*`,
+   `src/app/admin/businesses/?id?/_components/AutoApprovalDiagnosticsPanel.tsx`.
+
+**Verdict:** _pending step 6_

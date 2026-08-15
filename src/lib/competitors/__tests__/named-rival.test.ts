@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { __testing } from '../named-rival';
+import { describe, expect, it, vi } from 'vitest';
+import type { Sql } from 'postgres';
+import { __testing, loadRivalPickerViews } from '../named-rival';
+import { asLocationId } from '@/lib/shared/ids';
 
 const { selectAutoDefaultRival, selectNamedRival, parseCompetitorRating } = __testing;
 
@@ -234,5 +236,82 @@ describe('parseCompetitorRating', () => {
     expect(parseCompetitorRating(null)).toBeNull();
     expect(parseCompetitorRating('   ')).toBeNull();
     expect(parseCompetitorRating('not-a-number')).toBeNull();
+  });
+});
+
+const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+const LOCATION_A = asLocationId('aaaaaaaa-1111-4111-8111-111111111111');
+const LOCATION_B = asLocationId('bbbbbbbb-2222-4222-8222-222222222222');
+const LOCATION_C = asLocationId('cccccccc-3333-4333-8333-333333333333');
+
+/**
+ * One row shape that satisfies all three reads `loadRivalPickerView` issues
+ * (context → latest snapshot date → pack rows), so each location's chain runs to
+ * its terminal `ready` state instead of throwing `RivalPickNotFoundError` on an
+ * empty context row. `place_id: null` makes every pack row unpickable, so
+ * `options` comes back empty and no fixture detail leaks into the assertions —
+ * these two tests are about SEQUENCING, not about rival selection.
+ */
+const PICKER_STUB_ROW = {
+  keyword: 'best bakery',
+  search_location: '40.7,-74.0',
+  rival_place_id: null,
+  rival_title_snapshot: null,
+  snapshot_date: '2026-08-01',
+  rank_position: null,
+  place_id: null,
+  title: '',
+  rating: null,
+  review_count: null,
+  is_self: false,
+};
+
+/**
+ * A `sql` stand-in that reports when a query is IN FLIGHT rather than merely
+ * constructed. postgres.js Queries are lazy thenables — `primaryTrackedKeywordSql`
+ * builds one as a nested fragment and never awaits it — so the in-flight window
+ * opens in `then`, not at call time. Otherwise the counter would measure
+ * "template literals evaluated", not "concurrent round trips".
+ */
+function makeSequentialSpySql(onEnter: () => () => void) {
+  return vi.fn(() => ({
+    then(resolve: (rows: unknown[]) => void) {
+      const onExit = onEnter();
+      void Promise.resolve().then(() => {
+        onExit();
+        resolve([PICKER_STUB_ROW]);
+      });
+    },
+  }));
+}
+
+describe('loadRivalPickerViews', () => {
+  it('loads each location rival view sequentially', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const sql = makeSequentialSpySql(() => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return () => { inFlight -= 1; };
+    });
+
+    const views = await loadRivalPickerViews(sql as unknown as Sql, {
+      accountId: ACCOUNT_ID,
+      businessIds: [LOCATION_A, LOCATION_B, LOCATION_C],
+    });
+
+    expect(views).toHaveLength(3);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it('issues no rival-view queries when the account has no active locations', async () => {
+    const sql = makeSequentialSpySql(() => () => {});
+    const views = await loadRivalPickerViews(sql as unknown as Sql, {
+      accountId: ACCOUNT_ID,
+      businessIds: [],
+    });
+
+    expect(views).toEqual([]);
+    expect(sql).not.toHaveBeenCalled();
   });
 });
