@@ -3,6 +3,73 @@
 Notes on things the locked plan did not anticipate. Each entry records an
 observation for the plan owner.
 
+## Orchestrator triage (step 6) — verdicts
+
+Read end to end before review. One verdict per entry, in file order:
+
+| # | Entry | Verdict |
+|---|---|---|
+| 1 | T2 — folded tests not byte-identical | **ACCEPT** — all three changes are *widenings* forced by the superset DTO (locked decision 2) and `responseMetricsWindowDays` (decision 6); nothing weakened to `objectContaining`. Correctly distinguished from the trap-3 class. |
+| 2 | T2 — which test left `overview-service.test.ts` | **ACCEPT** — the one moved test kept byte-identical assertions; the two mapping behaviours with no standalone home were ADDED rather than moved, which is the right call. (The stated reason — "removing them would leave T4 fewer than six" — is backwards; hitting six was never the goal. The outcome is correct regardless.) |
+| 3 | T2 — three unnamed consumers | **ACCEPT** — all inside `allowed_edit_surface`, minimum change each. The touch on T3's test file was fixtures only; T3 confirmed no collision. |
+| 4 | T2 — `pendingCount` → `pendingApprovalCount` | **ACCEPT** — forced by `tsc`. Renaming a field reference inside an existing column is not "adding a column"; T3's surface stayed intact. |
+| 5 | T2 — tenant-scope 7 entries not 4 | **ACCEPT** — audit-driven, not guessed. |
+| 6 | T3 — `HealthBadge` imported, not lifted | **ACCEPT** — that is T2b, executed under an owner-approved surface amendment. The import is the stronger form of the ticket's own goal. |
+| 7 | T4 — `OVERVIEW_AT_RISK_LIMIT` location | **ACCEPT — owner-confirmed.** Presented to the owner with the eslint evidence; option A chosen. The locked decision's *purpose* (one source of truth for list length) is intact; only its file changed, because the specified file was illegal. |
+| 8 | T4 — the six rewritten tests | **ACCEPT** — each rewrite maps to a spec line, and spot-checking #2 confirmed the SQL-contract assertions genuinely relocated to `business-summary.test.ts:252-257` rather than vanishing. See finding A below for the part that did NOT relocate. |
+| 9 | T4 — two `OverviewClient` tests | **ACCEPT** — both had their subject deleted by §5.3; neither is a trap-3 mapping assertion. |
+| 10 | T4 — tenant-scope 403 → 396 | **ACCEPT** — `UNUSED_ALLOWLIST_REASON` would fail on stale entries; removal was required. |
+
+No entry rose to RE-PLAN; no locked decision was invalidated (entry 7 was
+escalated to the owner rather than absorbed).
+
+## Finding A (orchestrator) — the windowing SQL contract is pinned in the wrong suite
+
+`getAdminOverview — response-metric windowing (SQL contract)` still lives in
+`src/lib/admin/__tests__/overview-service.test.ts` (~L523-562) and asserts against
+`harness.sqlCalls[5]` — which is now **`business-summary.ts`'s** base query, reached
+transitively through `getAdminOverview`. `business-summary.test.ts` pins the
+FROM/JOIN/status-literal/ORDER BY contract (L252-257) but **not** the trailing-window
+`FILTER` (`CURRENT_DATE - ?::int`, `total_responses`, `completed_responses`,
+`avg_response_time_hours`, `last_activity`), so that contract exists in exactly one
+place and it is the wrong module.
+
+Coverage is intact — nothing is lost — but ownership is inverted: editing
+`business-summary.ts`'s windowing breaks the *Overview* suite. That is the precise
+"single owner" discipline this PR exists to establish, so it should move.
+`surfaces responseMetricsWindowDays…` is a different case: its first assertion is
+genuinely `getAdminOverview`'s payload contract and belongs where it is; only its
+second (`sqlCalls[5].values`) reaches across.
+
+**Status:** raised as seeded focus context for the step-7 review agents rather than
+patched pre-emptively, so the reviewers verify the reading and check for siblings.
+
+## Finding B (orchestrator) — two `verification_commands` were wrong, and the gate caught it
+
+Both extra commands in the locked intake were mis-specified by the orchestrator.
+Corrected in both intake copies; recorded here as a deviation, **not** a surface
+amendment (only `allowed_edit_surface` changes count toward the abort budget).
+
+1. `pnpm test:coverage && pnpm ci:fallow:coverage` — `verify-gate.sh --review` runs
+   its own `vitest --coverage`, and the gate runs rows in PARALLEL. Two vitest
+   coverage runs sharing `coverage/.tmp` clobbered each other:
+   *"Something removed the coverage directory … Make sure you are not running
+   multiple Vitests with the same coverage.reportsDirectory at the same time."*
+   That failed BOTH the `test` row and this row. Structurally the same mistake as
+   the #643 lesson already recorded in the workflow (a destructive/duplicating
+   command as a parallel peer). Re-run serially, `pnpm test` is green: **11752
+   passed | 330 skipped**. Removed from `verification_commands`; `ci:fallow:coverage`
+   is run serially after the gate instead.
+2. `pnpm doctor` — scans the WHOLE repo and exits non-zero on the pre-existing
+   backlog (16 errors: RLS-less tables in migrations, uncleaned effects, layout
+   animation — none in this branch). CI's gate is
+   `.github/workflows/react-doctor.yml` with `scope: changed` + `blocking: error`,
+   i.e. only NEW error-level findings vs the base ref. Replaced with the matching
+   invocation: `npx react-doctor@0.9.11 --scope changed --base origin/main`.
+   This branch's only doctor finding is the *warning* "Sequential independent
+   awaits" at `overview-service.ts:136,142` — the rule trap 2 says to defy, and its
+   repo-wide count DROPPED 34 → 32 on this branch.
+
 ## T2 — the folded `businesses-list-service` tests could NOT keep byte-identical assertion bodies
 
 The T2 ticket says to fold both tests from

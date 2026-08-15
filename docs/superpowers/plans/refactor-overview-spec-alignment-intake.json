@@ -87,8 +87,7 @@
     "renders the metric columns absorbed from Overview"
   ],
   "verification_commands": [
-    "pnpm doctor",
-    "pnpm test:coverage && pnpm ci:fallow:coverage"
+    "npx react-doctor@0.9.11 --scope changed --base origin/main"
   ],
   "estimated_prod_lines": "480",
   "estimated_test_lines": "420",
