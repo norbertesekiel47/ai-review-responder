@@ -33,7 +33,7 @@ export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | nu
           </p>
           <p className="text-rw-ink-soft max-w-md leading-relaxed">
             Today RepWorth minds your Google reviews. The roster above is what the agent takes on
-            next — previewed here as the neighborhood scorecard, drawn with sample data.
+            next, previewed here as the neighborhood scorecard, drawn with sample data.
           </p>
         </div>
 

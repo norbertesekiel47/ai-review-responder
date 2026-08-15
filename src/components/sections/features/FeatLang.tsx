@@ -37,7 +37,7 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
             </div>
           </div>
           <p className="text-rw-ink-soft max-w-md leading-relaxed mb-8">
-            RepWorth detects the language of every review and responds in the same language: no
+            RepWorth detects the language of every review and responds in the same language. No
             setup, no toggles. Your customers feel heard in their own words.
           </p>
           <div className="grid grid-cols-3 gap-2 max-w-md">

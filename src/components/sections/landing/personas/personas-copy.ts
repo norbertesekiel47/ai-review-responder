@@ -58,9 +58,9 @@ export const PERSONAS: readonly Persona[] = [
     id: 'reply',
     name: 'Reply',
     tagline: 'Every review gets a response, in your voice.',
-    body: 'The workhorse. It drafts a reply to every new review as it lands — not just the easy ones — and matches how you actually talk. On Autopilot it can post the safe, positive ones by itself, inside the rating band and daily cap you set.',
+    body: 'The workhorse. It drafts a reply to every new review as it lands, not just the easy ones, and matches how you actually talk. On Autopilot it can post the safe, positive ones by itself, inside the rating band and daily cap you set.',
     publishes: 'bounded',
-    publishLabel: 'Publishes — inside your bounds',
+    publishLabel: 'Publishes inside your bounds',
     status: 'live',
   },
   {
@@ -84,10 +84,10 @@ export const PERSONAS: readonly Persona[] = [
   {
     id: 'solicitor',
     name: 'Solicitor',
-    tagline: 'Not just answering reviews — creating the flow of them.',
+    tagline: 'Asking your customers, so more reviews arrive.',
     body: 'Most tools only react to whatever arrives. Solicitor will ask your real customers for reviews in managed batches, so volume and recency keep climbing. Consent is checked first, every opt-out is honoured, and it never posts anything publicly.',
     publishes: 'outbound',
-    publishLabel: 'Outbound only — never posts',
+    publishLabel: 'Outbound only, never posts',
     status: 'next',
   },
 ];
@@ -97,7 +97,7 @@ export const HEADING_LEAD = 'One job each,';
 export const HEADING_ACCENT = 'and a fixed limit.';
 
 export const LEAD_IN =
-  'Four named agents do the work. What separates them is not how clever they are — it is what each one is permitted to do, and what it can never do at all.';
+  'Four named agents do the work. What separates them is what each one is permitted to do, and what it can never do at all.';
 
 /** Column header above the publish chips, on wide viewports. */
 export const PUBLISH_HEADING = 'Can it reach the public?';

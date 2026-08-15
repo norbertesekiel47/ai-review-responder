@@ -55,7 +55,7 @@ export const COMMITTED: readonly FutureAgent[] = [
   {
     id: 'crm',
     name: 'CRM Manager',
-    body: 'Will own the customer relationship layer — contacts, follow-ups, and segmentation — turning one-off review interactions into an ongoing relationship.',
+    body: 'Will own contacts, follow-ups, and segmentation, so one-off review interactions become an ongoing relationship.',
   },
   {
     id: 'social',
@@ -70,7 +70,7 @@ export const COMMITTED: readonly FutureAgent[] = [
   {
     id: 'platforms',
     name: 'Multi-Platform',
-    body: 'Will extend past a single review source to every platform that matters to your business — more review sites, maps, social, directories — normalised into one system, one voice, one set of rules.',
+    body: 'Will extend past a single review source to more review sites, maps, social, and directories, normalised into one system, one voice, one set of rules.',
   },
 ];
 
@@ -92,7 +92,7 @@ export const HEADING_LEAD = 'The AI reputation department';
 export const HEADING_ACCENT = 'every business deserves.';
 
 export const LEAD_IN =
-  'No small business can staff a review team, a CRM, a social manager and a fraud-dispute process. The ambition is to be all of it — one supervised fleet covering everything your business’s reputation touches, not just its reviews.';
+  'No small business can staff a review team, a CRM, a social manager and a fraud-dispute process. The ambition is to be all of it: one supervised fleet covering everything your business’s reputation touches, not only its reviews.';
 
 export const COMMITTED_LABEL = 'Committed direction';
 export const COMMITTED_NOTE = 'Not available yet. This is what the fleet grows into next.';
@@ -111,7 +111,7 @@ export const CARD_TAG = 'Planned';
  * trustworthy machine, doing more", which is the entire argument for why any
  * of the above is credible.
  */
-export const CLOSING_LEAD = 'We are not bolting on features.';
-export const CLOSING_ACCENT = 'We are growing the fleet —';
+export const CLOSING_LEAD = 'Every new agent joins';
+export const CLOSING_ACCENT = 'the same supervised fleet,';
 export const CLOSING_TAIL =
-  'and keeping the safety architecture that makes trusting AI with a business’s public reputation defensible in the first place.';
+  'keeping the safety architecture that makes trusting AI with a business’s public reputation defensible.';

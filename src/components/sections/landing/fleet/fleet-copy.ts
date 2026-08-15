@@ -55,7 +55,7 @@ export const PERSONAS: readonly FleetAgent[] = [
   {
     id: 'reply',
     name: 'Reply',
-    role: 'Drafts a response to every review. The only agent that can publish — and only inside your bounds.',
+    role: 'Drafts a response to every review. The only agent that can publish, and only inside your bounds.',
     status: 'live',
   },
   {
@@ -95,7 +95,7 @@ export const HEADING_ACCENT = 'the fleet.';
  * that does not exist.
  */
 export const LEAD_IN =
-  'The two above supervise the ones below — nothing posts on its own unless they are watching.';
+  'The two above supervise the ones below. Nothing posts on its own unless they are watching.';
 
 /**
  * Replaces the reference design's pulsing "LIVE" status pill. That indicator
