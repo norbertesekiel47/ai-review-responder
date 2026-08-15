@@ -115,7 +115,8 @@ Note for anyone re-checking this: verifying in zsh gives the right verdict for
 the wrong reason — zsh's `?` did not match `[` in the same expression where
 bash's does. Re-run any glob check with `bash -c`.
 
-**Follow-up filed (not in this PR):** `.claude/hooks/edit-surface-guard.sh:122`
+**Follow-up — RECORDED HERE ONLY, not yet filed as an issue (not in this PR):**
+`.claude/hooks/edit-surface-guard.sh:122`
 should match literally rather than through bash pattern expansion. Every Next.js
 dynamic segment in this repo hits the same wall — `[reviewId]`, `[token]`,
 `[responseId]`, `[sessionId]`, `[offboardingId]`, `[escalationId]`,
@@ -177,7 +178,8 @@ Step 0 was re-run with the true numbers. Classification is unchanged:
 **RISK = normal · SURFACE = mixed · SIZE = normal**. The trigger was obeyed, not
 waived — it simply did not survive contact with the real measurement.
 
-**Follow-up (not in this PR):** add `docs/superpowers/specs/**` to the gate's
+**Follow-up — RECORDED HERE ONLY, not yet filed as an issue (not in this PR):**
+add `docs/superpowers/specs/**` to the gate's
 workflow-artifact exclusion alongside `plans/**` and `reviews/**`. Any feature
 that carries its own spec on the branch will otherwise trip this trigger.
 
