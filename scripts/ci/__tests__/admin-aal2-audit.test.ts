@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { scanRouteFile } from '../admin-aal2-audit';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { scanRouteFile, collectRouteFiles } from '../admin-aal2-audit';
 
 describe('scanRouteFile — admin AAL2 gate audit', () => {
   const adminPath = 'src/app/api/admin/businesses/route.ts';
@@ -251,4 +254,60 @@ describe('scanRouteFile — admin AAL2 gate audit', () => {
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
   });
 
+});
+
+// collectRouteFiles decides WHICH files scanRouteFile ever sees. An under-walk
+// makes the whole audit pass vacuously — every case above proves nothing about a
+// route the walker never handed over — so its scope rules are pinned here.
+describe('collectRouteFiles — audit scope', () => {
+  let root: string;
+
+  beforeAll(() => {
+    // realpath: on macOS $TMPDIR is /var/folders/... symlinked to /private/var/...,
+    // and `relative()` against the unresolved root would yield ../.. paths.
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-scope-')));
+
+    const admin = join(root, 'src', 'app', 'api', 'admin');
+    mkdirSync(join(admin, 'businesses'), { recursive: true });
+    mkdirSync(join(admin, 'channels', 'telegram', 'start'), { recursive: true });
+    mkdirSync(join(admin, 'channels', 'telegram', '__tests__'), { recursive: true });
+
+    writeFileSync(join(admin, 'businesses', 'route.ts'), 'export const POST = 1;');
+    writeFileSync(join(admin, 'channels', 'telegram', 'start', 'route.ts'), 'export const POST = 1;');
+    // Must be ignored: not named route.ts.
+    writeFileSync(join(admin, 'businesses', 'helpers.ts'), 'export const x = 1;');
+    // Must be ignored: test directories are deliberately out of scope, and their
+    // fixtures contain route-shaped strings that would produce phantom findings.
+    writeFileSync(join(admin, 'channels', 'telegram', '__tests__', 'route.ts'), 'export const POST = 1;');
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('collects every route.ts under the tree, relative to root', async () => {
+    const out: string[] = [];
+    await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
+
+    expect(out.sort()).toEqual([
+      join('src', 'app', 'api', 'admin', 'businesses', 'route.ts'),
+      join('src', 'app', 'api', 'admin', 'channels', 'telegram', 'start', 'route.ts'),
+    ]);
+  });
+
+  it('skips __tests__ directories and non-route.ts files', async () => {
+    const out: string[] = [];
+    await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
+
+    expect(out.some((p) => p.includes('__tests__'))).toBe(false);
+    expect(out.some((p) => p.endsWith('helpers.ts'))).toBe(false);
+  });
+
+  it('returns quietly for a directory that does not exist', async () => {
+    // A permissions or missing-path error must not fail the build. Pinned because
+    // the swallow is deliberate and would otherwise read as a missing catch.
+    const out: string[] = [];
+    await expect(collectRouteFiles(join(root, 'no', 'such', 'dir'), root, out)).resolves.toBeUndefined();
+    expect(out).toEqual([]);
+  });
 });

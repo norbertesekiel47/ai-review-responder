@@ -114,7 +114,16 @@ export function scanRouteFile(path: string, text: string): string[] {
   ];
 }
 
-async function collectRouteFiles(dir: string, root: string, out: string[]): Promise<void> {
+/**
+ * Walks `dir` and appends every `route.ts` path (relative to `root`) to `out`.
+ *
+ * Exported for tests because it decides the audit's SCOPE: a directory this
+ * function silently skips is a directory `scanRouteFile` never sees, so an
+ * under-walk makes the whole MFA guarantee pass vacuously. An unreadable
+ * directory returns quietly by design — a permissions error must not fail the
+ * build — which is exactly the branch worth pinning.
+ */
+export async function collectRouteFiles(dir: string, root: string, out: string[]): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
