@@ -203,3 +203,34 @@ RED — these specify NEW behaviour the refactor must deliver:
 
 `pnpm ci:live-db-suites`, `pnpm ci:db-imports` and `pnpm ci:static-policy` all
 pass with both new files present, and `npx eslint` is clean on both.
+
+## Task 3 — executed verbatim; one stale `describe` title left in place (observation, not a deviation)
+
+Every file was written exactly as the plan quotes it, and Step 7 matched the
+prediction: `pnpm test src/lib/notifications/channels` is **15 files / 192 tests,
+all green**, including all four `deep-links.test.ts` cases — the Task 2 Step 2
+red (and the Task 2b Defect-3 wa.me case it shares a subject with) is now closed
+by the shared builder's `/\D/g` normalisation. The carry-forward was honoured:
+`deep-links.ts` reads both vars through the memoized `getServerConfig()` exactly
+as written, and the suite's `resetServerConfigForTests()` calls were not touched.
+
+One cosmetic residue the plan did not mention. Step 5 specifies only the import
+rewrite and the deletion of the `isTelegramEnabled` / `isWhatsAppEnabled` cases,
+so `telegram-env.test.ts` still opens with `describe('admin telegram _shared', …)`
+— a name that now points at a deleted file in a directory that is no longer under
+`admin/`. The three surviving cases inside it are all env/flag-off cases the plan
+explicitly says to keep, so nothing is mis-covered; only the label is stale.
+Renaming it was outside Task 3's instructions (which scope the edit to the import
+line and the two deleted cases), so it was left verbatim. Task 8's doc/name sweep
+is the natural place to rename it to `telegram-env`. `whatsapp-env.test.ts` has
+no equivalent problem — its `describe` blocks are named after the functions.
+
+Typecheck is RED at commit time, as Step 6 predicts. The failing set is exactly
+the repair surface Tasks 6–8 own: the 6 admin + 6 owner channel routes,
+`api/dashboard/channels/route.ts`, and `dashboard/channels/telegram/__tests__/disable.test.ts`
+— plus the three eval suites (`resolve-actor.test.ts`, `runners.test.ts`,
+`bindings.test.ts`) that were already red pending Tasks 4/5. No file outside that
+set regressed. No compatibility re-export shim was left behind for the deleted
+`_shared.ts` modules. `pnpm ci:static-policy`, `pnpm ci:db-imports` and
+`pnpm ci:live-db-suites` all pass, and `npx eslint` is clean on all six touched
+files.
