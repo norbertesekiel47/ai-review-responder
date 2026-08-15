@@ -53,7 +53,7 @@
     "src/app/(authenticated)/dashboard/add-location/page.tsx",
     "src/app/api/account/settings/route.ts",
     "src/app/api/locations/add/route.ts",
-    "src/lib/auto-approval/labels.ts",
+    "src/lib/auto-approval/types.ts",
     "src/lib/auto-approval/__tests__/**",
     "src/lib/competitors/named-rival.ts",
     "src/lib/competitors/__tests__/**",
