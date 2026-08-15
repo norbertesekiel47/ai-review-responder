@@ -38,6 +38,7 @@ skip the file and say so in the final table — do not invent content.
 | [.claude/reference/review-ingestion.md](../../../.claude/reference/review-ingestion.md) | A ReviewSource or the ingest path changed | Update the relevant section |
 | [.claude/reference/lab-notes.md](../../../.claude/reference/lab-notes.md) | A non-obvious root cause / named-subsystem gotcha was found | Add a dated lab note: `[DATE] WHAT FAILED → WHY → CORRECT APPROACH` |
 | [.claude/CLAUDE.md](../../../.claude/CLAUDE.md) | An architecture invariant, a file location, or a "Where things live" row changed | Edit minimally — invariants list, worker layout, or the table only |
+| [.claude/reference/arch-review-log.md](../../../.claude/reference/arch-review-log.md) | **Always, on a MERGED feature** (skip only if this sweep is running pre-merge) | **Increment the "Merges since last architecture pass: N" counter**, then add a `- **PR #<n>** — <feature> (<date>, squash \`<sha>\`)` entry at the TOP of the list. Say what it did to the *architecture*: migrations, env vars, flags, dependencies, new single owners, deleted concepts, allowlist baselines moved — and name what the next pass should look at. At **≥ 5**, tell the user a pass is due (their call — never start one automatically). |
 
 ### currents.md vs progresstracking.md — the boundary
 
@@ -65,6 +66,24 @@ End your run with this table so the user has a review surface:
 |---|---|---|
 | currents.md | ✅ | added trial summary + bumped Last updated |
 | migrations-log.md | ⛔ | no migration in this diff |
+| arch-review-log.md | ✅ | counter 3 → 4, entry for PR #NNN |
 | … | | |
 
 Do **not** claim a file was updated unless you actually edited it.
+
+### Why `arch-review-log.md` is in that table
+
+Because it kept being forgotten when it wasn't. The counter is the only thing
+tracking architectural entropy between passes, and a missed increment is
+invisible — nothing fails, the number is just quietly wrong, and the pass that
+should have been triggered isn't.
+
+It was missed on **#712, #716 and #746**, each time by a session that ran this
+sweep and had no reason to think of it. Two architecture passes then prescribed
+"add a mandatory row to `document-feature`'s table" as the fix, and both times
+the fix itself was never applied — so the class survived two attempts to kill it
+and claimed a fourth feature (**#821**, incremented by hand from a handoff
+checklist rather than by this skill).
+
+That is the whole argument for the row: an instruction that lives only in a
+runbook depends on someone remembering to read the runbook. Keep it in the table.
