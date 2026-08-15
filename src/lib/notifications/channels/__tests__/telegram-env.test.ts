@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
+import { assertTelegramEnvReady } from '../telegram-env';
+import { flagOff } from '@/app/api/_shared/channels/flag-off';
 
 describe('admin telegram _shared', () => {
   beforeEach(() => {
@@ -7,15 +8,6 @@ describe('admin telegram _shared', () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     delete process.env.MOCK_EXTERNAL_APIS;
-  });
-
-  it('isTelegramEnabled returns false by default', () => {
-    expect(isTelegramEnabled()).toBe(false);
-  });
-
-  it('isTelegramEnabled returns true when flag is set', () => {
-    process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
-    expect(isTelegramEnabled()).toBe(true);
   });
 
   it('flagOff returns 404', async () => {

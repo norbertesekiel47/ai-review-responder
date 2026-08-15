@@ -1,18 +1,14 @@
-// src/app/api/admin/channels/whatsapp/_shared.ts
+// src/lib/notifications/channels/whatsapp-env.ts
 //
-// Shared helpers for the three admin WhatsApp routes (start, cancel, disable).
-// Mirrors the Telegram pattern at ../telegram/_shared.ts.
+// WhatsApp enrollment env-readiness gate. Sibling of telegram-env.ts; see that
+// file for why these live beside flags.ts rather than under an admin route.
+//
+// whatsappEnvReady() has a non-route consumer by design: the owner settings page
+// and GET /api/dashboard/channels call it so the UI never renders a Connect
+// button the start route would 503.
 
 import { NextResponse } from 'next/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
-
-export function isWhatsAppEnabled(): boolean {
-  return channelsWhatsappEnabled();
-}
-
-// Disabled-channel 404 — single source shared with telegram (see _shared/flag-off).
-export { flagOff } from '../_shared/flag-off';
 
 const WHATSAPP_REQUIRED_ENV = [
   'TWILIO_ACCOUNT_SID',
@@ -40,7 +36,7 @@ export function whatsappEnvReady(): boolean {
 
 /**
  * Returns a 503 NextResponse if CHANNELS_WHATSAPP_ENABLED=true but required
- * env vars are missing. Returns null if env is ready (route should proceed).
+ * env vars are missing. Returns null if env is ready (caller should proceed).
  * Mirrors the worker-side startup assertion pattern.
  *
  * MOCK_EXTERNAL_APIS=true bypasses this check (local dev).

@@ -1,16 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady, whatsappEnvReady, missingWhatsAppEnv } from '../_shared';
-
-describe('isWhatsAppEnabled', () => {
-  it('returns false when env unset', () => {
-    delete process.env.CHANNELS_WHATSAPP_ENABLED;
-    expect(isWhatsAppEnabled()).toBe(false);
-  });
-  it('returns true when env is "true"', () => {
-    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    expect(isWhatsAppEnabled()).toBe(true);
-  });
-});
+import { assertWhatsAppEnvReady, whatsappEnvReady, missingWhatsAppEnv } from '../whatsapp-env';
+import { flagOff } from '@/app/api/_shared/channels/flag-off';
 
 describe('flagOff', () => {
   it('returns 404 not_found', async () => {
