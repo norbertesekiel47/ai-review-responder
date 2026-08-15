@@ -7,7 +7,69 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-14 (admin invite funnel — Quick summary immediately below. Prior entry: #773 admission chokepoint + wedge alert.)
+Last updated: 2026-08-15 (channel-route unification — Quick summary immediately below. Prior entry: admin invite funnel.)
+
+## Quick summary — channel-route unification (2026-08-15, PR #831)
+
+**The 12 mobile-channel enrollment routes stopped being 12 copies of one thing.**
+
+RepWorth enrolls a phone channel (Telegram, WhatsApp) from two portals — the admin
+console and the owner dashboard — with three actions each: start, cancel, disable.
+That is 2 × 2 × 3 = **12 routes**, and until now each carried its own copy of the
+same chain: flag gate → env gate → work out who is acting → mint a token →
+advisory-locked enrollment write → invalidate the channel cache → respond.
+
+Twelve copies drifted, exactly as copies do. The WhatsApp deep link diverged twice:
+the admin route stripped `/^whatsapp:\+?/` and left spaces and parentheses in the
+`wa.me` path (a broken link), while the owner route stripped `/\D/g`. The owner
+portal also imported modules out of `src/app/api/admin/**`, so the two portals were
+not merely similar — they were coupled.
+
+**The new shape.** One runner per action, one resolver per portal:
+
+```
+src/app/api/_shared/channels/
+  start.ts          ← runChannelStart — the enrollment-start chain, both portals
+  action.ts         ← runChannelCancel + runChannelDisable, both portals
+  resolve-actor.ts  ← resolveAdminActor / resolveOwnerActor — the Channel actor seam
+  flag-off.ts       ← the one "channel disabled" 404 (was re-exported per channel)
+src/lib/notifications/channels/
+  deep-links.ts     ← NEW: the single deep-link owner, both channels, both portals
+  telegram-env.ts   ← MOVED out of admin/channels/telegram/_shared.ts
+  whatsapp-env.ts   ← MOVED out of admin/channels/whatsapp/_shared.ts
+src/app/api/{admin,dashboard}/channels/**/route.ts
+                    ← 12 thin shims: name a channel, bind a resolver, call a runner
+```
+
+The twelve routes are now ~22-line shims (owner routes were 39–84 lines). Net
+production diff is **−15 lines**, and the owner→admin import is gone — re-proven
+mechanically on every gate run rather than by inspection.
+
+**The concept that made it work: the Channel actor** (glossary term, `CONTEXT.md`).
+Resolving *who* an enrollment action runs as is the ONLY thing that differs between
+the portals, which is why it is the seam. The two resolvers stay two functions on
+purpose, because the difference is a security boundary: `resolveAdminActor` reads
+`businessId` from the request **body** behind the admin MFA gate;
+`resolveOwnerActor` reads `locationId` from the **session** and never from the body.
+Each resolver also owns its portal's subscription policy — admin `start` requires
+full access, admin `cancel`/`disable` deliberately require none, owner applies its
+writable-account check on all three — and the runners consume that outcome without
+second-guessing it.
+
+**One behaviour change owners can see:** owner `cancel`/`disable` now return 404
+(not 403) when the session's location has no billing account.
+
+**A guard to know about.** The admin MFA gate used to be structural — the shared
+admin helper called it unconditionally. Now the runner is portal-agnostic and calls
+whichever resolver it is handed, so the type system can no longer reject a
+mis-binding; `ci:admin-aal2` is the compensating check, and it was hardened here to
+read comment-stripped code (a header comment used to satisfy it). Its floor: it is
+still a text scan, so an aliased import would clear it.
+
+**This is PR 2 of 3** from `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md`.
+PR 1 (#827) shipped the correctness fixes. **PR 3 (§5, Overview spec-alignment) is
+not built** — its target duplication is still live in `src/lib/admin/overview-service.ts`
+and `src/lib/admin/businesses-list-service.ts`.
 
 ## Quick summary — admin invite funnel (2026-08-14, PR #821)
 
@@ -1737,7 +1799,7 @@ src/lib/publishing/review-publisher.ts        ← NEW: the ReviewPublisher inter
 src/lib/publishing/zernio-review-publisher.ts ← NEW: first adapter; owns the Zernio connection lookup, review-id resolution, page-cache. A GBP adapter is the second.
 worker/transient-rejection-governor.ts        ← NEW: duration-based governor — survive a brief DB blip, escalate a SUSTAINED storm to a crash+restart.
 src/lib/db/transient-error.ts                 ← MOVED here from worker/jobs/billing/; adds isCrashNetRecoverableDbError (an explicit, conservative allowlist for the worker crash-net).
-src/app/api/admin/channels/_shared/flag-off.ts← NEW: single source for the disabled-channel 404 (telegram + whatsapp re-export it).
+src/app/api/_shared/channels/flag-off.ts      ← NEW: single source for the disabled-channel 404. (Was admin/channels/_shared/flag-off.ts, re-exported per channel; #831 moved it beside the shared runners and the three runners now call it directly — no re-exports.)
 
 # The 6 publisher worker call-sites now go through the seam (no direct zernioClient in the publish path):
 worker/jobs/publisher/{ResponsePublisherWorker,review-lookup,post-reply,verify-posted,publisher-error-handlers,edit-publish}.ts

@@ -2608,3 +2608,73 @@ production lines against a real 84). Re-measure per bucket before obeying it.
 A test that builds a temp git repo and expects a path-prefix strip must
 `realpathSync` the temp dir, or every case fails in a way that looks exactly
 like the bug under test.
+
+## 2026-08-15 — #831 portal-audit PR2: four ways a green test proved nothing
+
+The channel-route unification (12 enrollment routes → 3 runners + 2 **Channel
+actor** resolvers). Every real correctness defect on this branch was a test or a
+guard that PASSED while asserting nothing, and all four were found by EXECUTION
+— two adversarial plan-review rounds found none of them. Treat "the suite is
+green" as the weakest evidence in the repo.
+
+- **[2026-08-15] A bypass flag cleared an env gate, so a `!` at the use site
+  became a TypeError AFTER the commit → `MOCK_EXTERNAL_APIS=true` makes
+  `whatsappEnvReady()` return `true` without `TWILIO_WHATSAPP_NUMBER` being set,
+  and the deep link was built after `sql.begin` → an env gate a bypass flag can
+  short-circuit does NOT license `!`; throw with context, and compute anything
+  the response requires BEFORE the irreversible write.** The 500 stranded a
+  `pending_verification` row on the migration-027 partial-unique slot, which the
+  owner cannot retry past — a data consequence from a "local dev only" config.
+  Generalise: order side effects so the fallible pure work runs first.
+
+- **[2026-08-15] `getServerConfig()` memoises `process.env` on first read, so a
+  test that sets its own env value silently asserted the `beforeEach` value →
+  the wa.me case was green against unrefactored code that could not possibly
+  satisfy it → call `resetServerConfigForTests()` at the END of `beforeEach`.**
+  Precedent: `src/lib/costs/__tests__/tracker.test.ts` + 7 others. If a test
+  passes before the feature exists, that is the finding — not a lucky head start.
+
+- **[2026-08-15] A test-local look-alike error class took the deliberate re-throw
+  path → `requireRoleOr401` branches on `err instanceof AuthError` and re-throws
+  everything else, so a structurally identical stub never reached the branch
+  under test → reject with the class from the module you already mocked.**
+  Related trap left in place deliberately: a mock factory written
+  `AuthError: class extends Error { statusCode = 401 }` uses a class FIELD, so
+  the constructor's second argument is ignored and every instance is a 401. Fine
+  for one status; the moment a 403 case is added it asserts the wrong thing.
+  Give it a real `constructor(message, statusCode)` then, not before.
+
+- **[2026-08-15] Stale mock fixtures survived a query change as FIVE vacuous
+  passes and one loud failure → the refactor moved the admin resolver from
+  `SELECT account_id FROM businesses` to an accounts join projecting `a.id`, so
+  fixtures seeding `{ account_id }` yielded `accountId === undefined` → grep the
+  OLD projected column name across every suite, not just the failing one.**
+  `undefined` flowed into the advisory-lock key (`mobile_enroll:undefined`) and
+  the cache label, silently neutering a guard whose own comment read "Reverting
+  to `business_id` fails here". One red test is not the blast radius.
+
+**A text-scan guard is wrong in BOTH directions — the generalisation of #827's
+"strip comments before asserting".** `admin-aal2-audit.ts` cleared a route when
+the file text contained `resolveAdminActor`, which a header comment satisfies —
+so an admin route could bind `resolveOwnerActor`, skip MFA step-up and stay
+green. The first fix (deny any admin route naming `resolveOwnerActor`) then
+false-positived on a real route that merely DOCUMENTS its owner counterpart.
+Both failures are one bug: the scan read prose. It now strips comments and
+checks code. **Its floor, so the next person does not over-trust it:** it is
+still a text scan, so an aliased import (`resolveOwnerActor as r`) or an unused
+`resolveAdminActor` import clears it; closing that needs an AST audit.
+
+**Also — the gate that made this branch's guard rebindable.** Before, the admin
+runners called `requireAdminWithAal2` unconditionally, so the gate was
+structural. After, the runners are portal-agnostic and call `config.resolveActor`
+— a per-route VALUE — so `tsc` can no longer reject a mis-binding. When a
+refactor turns a hard-coded gate into configuration, the compensating CI check
+must verify the BINDING, not the presence of a token; and say so where the
+allowlist is defined.
+
+**Precedent established:** `vi.mock('node:crypto', …)` with an `importOriginal`
+spread DOES intercept a module's `import { createHash, randomUUID } from
+'node:crypto'`. This repo had no prior instance of mocking a `node:` builtin.
+Proven non-vacuous by mutation — moving the mint inside `sql.begin` turned
+exactly one test red — which is the only way to trust a timing assertion, since
+a sha256 string looks identical whether it was minted before or inside the tx.

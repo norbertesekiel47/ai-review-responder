@@ -194,7 +194,15 @@ disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
 
 **Required when on:**
 - `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_NUMBER` — format: `whatsapp:+<digits>` (assertion enforces format)
+- `TWILIO_WHATSAPP_NUMBER` — format: `whatsapp:+<digits>` (assertion enforces format).
+  The enrollment **deep link** is tolerant of the spelling — since #831 the single
+  builder (`src/lib/notifications/channels/deep-links.ts`) strips every non-digit,
+  so `+1 (555) 123-4567` and `whatsapp:+15551234567` both yield the same `wa.me`
+  path; the strict format assertion still governs the Twilio send path. **Unset is
+  reachable despite the env gate** — `MOCK_EXTERNAL_APIS=true` makes
+  `whatsappEnvReady()` return `true` without it — so the builder throws with named
+  context rather than asserting non-null, and the start runner builds the link
+  BEFORE its write so the failure cannot strand a `pending_verification` row.
 - `WHATSAPP_APPROVAL_TEMPLATE_SID` — Twilio Content SID for `repworth_approval_request_v1`
 - `WHATSAPP_APPROVAL_URL_BASE` — must equal `NEXT_PUBLIC_APP_URL + '/approve/'` (assertion enforces equality)
 
