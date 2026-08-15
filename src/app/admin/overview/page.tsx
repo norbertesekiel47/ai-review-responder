@@ -5,9 +5,6 @@ import { getAdminOverview } from '@/lib/admin/overview-service';
 import { getAdminNavCounts } from '@/lib/admin/nav-counts-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { OverviewClient } from './OverviewClient';
-// Server-safe: PAGE_SIZE must NOT be imported from the client component
-// module — the bundler would hand the server a stub. See page-sizes.ts.
-import { OVERVIEW_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +17,7 @@ export default async function AdminOverviewPage() {
   // puts 3 queries in flight against a 3-connection pool with zero headroom —
   // any future growth in either callee silently crosses the pipelining
   // threshold and reintroduces the permanent Connection wedge.
-  const overview = await getAdminOverview(sql, { limit: PAGE_SIZE, offset: 0 });
+  const overview = await getAdminOverview(sql);
   const navCounts = await getAdminNavCounts(sql);
 
   return (

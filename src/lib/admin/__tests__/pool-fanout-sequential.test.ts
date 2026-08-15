@@ -80,12 +80,16 @@ function makeConcurrencyTrackingSql(rows: unknown[] = []) {
 }
 
 describe('#505 sequential execution — Vercel admin read paths (pool = DB_POOL_MAX = 3)', () => {
-  it('getAdminOverview runs its 7-query bundle one query at a time', async () => {
+  it('getAdminOverview runs its 6-query bundle one query at a time', async () => {
+    // 6, not 7: the 5 system-health queries plus the ONE base query
+    // getBusinessSummaries issues unpaginated. The tracking sql yields no rows,
+    // so that module's conditional metrics CTE is skipped — either way the
+    // property under test is the peak, not the count.
     const { sql, getMaxConcurrency } = makeConcurrencyTrackingSql();
 
-    await getAdminOverview(sql, { limit: 20, offset: 0 });
+    await getAdminOverview(sql);
 
-    // 1, not 7. A Promise.all here wedges the pool permanently on Vercel.
+    // 1, not 6. A Promise.all here wedges the pool permanently on Vercel.
     expect(getMaxConcurrency()).toBe(1);
   });
 

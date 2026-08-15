@@ -127,3 +127,128 @@ in the same PR, so this is a move, not a duplication.
 
 Reviewers checking the ticket line-by-line should expect an import for the
 first item and copied source for the other two.
+
+## T4 — `OVERVIEW_AT_RISK_LIMIT` could NOT live in `src/app/admin/page-sizes.ts`
+
+Spec §5.1 says the constant lives "alongside the existing page sizes in
+`src/app/admin/page-sizes.ts`, so the server page and its client component
+cannot disagree about the list length", and the T4 ticket repeats it. That
+placement is impossible as specified, and the reason it was specified turned out
+not to hold:
+
+1. **ESLint forbids it.** The cap is applied inside
+   `src/lib/admin/overview-service.ts` (the service returns the already-capped
+   `atRisk`, per §5.3/§5.5 — the payload itself is capped), and `src/lib/**` may
+   not import `@/app/**`: eslint.config.mjs's `APP_LEAF_IMPORT_BAN` — "Route
+   leaves (app/**) are terminal — non-route code must not import from app/."
+   Verified directly:
+
+       $ echo "import { OVERVIEW_AT_RISK_LIMIT } from '@/app/admin/page-sizes';" \
+           | npx eslint --stdin --stdin-filename src/lib/admin/probe-boundary.ts
+       error  '@/app/admin/page-sizes' import is restricted … no-restricted-imports
+
+   A relative spelling is banned too (`PARENT_TRAVERSAL_BAN`).
+2. **Nobody on the app side reads it.** `page.tsx` calls `getAdminOverview(sql)`
+   with no arguments and `OverviewClient` renders `At risk (N of M)` from
+   `atRisk.length` / `totalBusinesses`. The disagreement §5.1 wanted to prevent —
+   server page vs client component — cannot occur, because neither knows the
+   number.
+
+**Resolution:** the constant is declared and exported ONCE, by the module that
+applies it (`src/lib/admin/overview-service.ts`), and the test imports it from
+there. `page-sizes.ts` deletes `OVERVIEW_PAGE_SIZE` as the ticket says and gains
+a comment pointing at the new owner instead of a second declaration. The two
+rules behind the ticket's wording are both honoured: never re-declared, and
+never exported from a `'use client'` module. Re-exporting it *through*
+`page-sizes.ts` was considered and rejected — that file is imported by six admin
+client components, and a value re-export would put `overview-service.ts` (and
+transitively `business-summary.ts` + `churn-score.ts`) in the client module
+graph, which is precisely the bundler-chunking hazard the file's own header
+comment exists to document.
+
+## T4 — the six rewritten `getAdminOverview` tests
+
+Per `locked_decisions[0]` the six tests whose subject §5 deletes were rewritten,
+not deleted. Each is listed with the spec line that mandates the rewrite:
+
+1. `returns the full OverviewData shape for a single business` →
+   **`returns the full OverviewData shape for a single at-risk business`**.
+   Mandated by **§5.5** ("`GET /api/admin/overview` returns `atRisk[]` in place
+   of `businesses[]`") and locked decision 4 (`limit`/`offset` leave
+   `OverviewData`). The `toEqual` still pins the WHOLE payload; the fixture's
+   metrics changed from a healthy profile (score 0) to `approval_rate: 0.2` +
+   `days_since_approval: 20` (real score 55, level `watch`) because **§5.1**
+   ("only businesses whose `churnScore.level` is not `healthy` are eligible")
+   means a healthy fixture would now assert an empty list and stop pinning the
+   DTO at all. Query count 8 → 7.
+2. `pins the status literals used by the businessRows query
+   (behavior-preservation)` → **`reports totalBusinesses as the number of rows
+   read, not a separate count query`**. Mandated by **§5.2** (the base query's
+   single owner is `business-summary.ts`, where the identical status-literal +
+   JOIN contract assertions already live, moved in T2) and **§5.3** ("Drops one
+   query: `totalBusinesses` becomes `rows.length`"). The subject moved module, so
+   the slot was re-spent on the behaviour that replaced it.
+3. `skips the metricsRows query entirely when there are no businesses` →
+   **`returns an empty at-risk list and zero totalBusinesses when the account has
+   no businesses`**. Mandated by **§5.2** — the conditional metrics skip is now
+   `business-summary.ts`'s property and is pinned there by T1's `skips the
+   metrics query entirely when the page has no rows`. What is still
+   `getAdminOverview`'s to prove is the zero-business payload. Query count 7 → 6.
+4. `sorts by churnScore.score desc, then pendingApprovalCount desc, then name
+   asc, then id asc` → split into the two verbatim titles **`orders the at-risk
+   list by churn score descending`** and **`breaks a score-and-pending tie on
+   business name ascending`**. Mandated by **§5.6** ("New: at-risk selection and
+   ordering — … highest score first, ties broken on name"). Split because the
+   old single test could not distinguish which comparator tier decided the tie;
+   the tie fixture now holds score AND `pendingApprovalCount` equal, so it pins
+   the NAME tier specifically. The comparator itself moved verbatim.
+5. `slices the churn-sorted list by limit/offset and preserves totalBusinesses as
+   the full count` → **`caps the at-risk list at OVERVIEW_AT_RISK_LIMIT even when
+   more businesses qualify`**. Mandated by **§5.3** ("an unpaginated at-risk list
+   of at most `OVERVIEW_AT_RISK_LIMIT` (5) rows") — the `.slice(offset, offset +
+   limit)` this test existed for is gone, and §5.1's "`.slice()` disappears …
+   because Overview stops paginating and starts ranking" is the same sentence
+   read from the other side.
+6. `returns an empty slice when offset is past the end of the list` →
+   **`returns an empty at-risk list when every business is healthy`**. Mandated
+   by **§5.1** ("An all-healthy account therefore renders the empty state rather
+   than five healthy businesses under an 'At risk' heading") — the
+   past-the-end-offset edge case ceased to exist with pagination, and the
+   all-healthy edge case replaced it as the payload's only empty path.
+
+`excludes every healthy business from the at-risk list` is a pure addition, not a
+rewrite. `computeChurnRiskScore` stays unmocked throughout: every score and level
+asserted above (0 / 6 / 31 / 38 / 40 / 45 / 55 / 70) is the real function's
+output for the fixture it is given.
+
+## T4 — two `OverviewClient` tests the ticket did not list also had to change
+
+The T4 ticket enumerates rewrites for the service suite only, but two existing
+tests in `src/app/admin/overview/__tests__/OverviewClient.test.tsx` assert
+against the table §5.3 deletes. Neither is a trap-3 mapping assertion:
+
+1. `renders a business row with the shared StatusBadge's status text` →
+   **`renders an at-risk row with the shared HealthBadge, linking to the business
+   detail page`**. `StatusBadge` is not in the at-risk row (§5.3: "name, level,
+   score, link to detail"), so the old assertion had no subject. The replacement
+   pins what the row now shows and the `/admin/businesses/<id>` href.
+2. `keeps the cached businesses table visible …` → **`keeps the cached at-risk
+   list visible …`**. Body unchanged apart from the query key, which lost its
+   page component when the `page` state was deleted:
+   `['admin-overview', 0]` → `['admin-overview']`.
+
+The `baseData` fixture is now typed `OverviewData` rather than inferred, so the
+`level` literals in the per-test overrides widen correctly; its business was
+given `churnScore.level: 'at_risk'` so the list renders at all.
+
+## T4 — tenant-scope re-key: 7 entries removed, baseline 403 → 396
+
+T2's entry closes with "All 7 `overview-service.ts` entries stay — that file
+keeps its own copy of every query until T4." T4 is that PR: the base query (×3
+tables), the metrics CTE (×3 tables) and the unfiltered COUNT are gone from
+`overview-service.ts`, and `ci:tenant-scope`'s `UNUSED_ALLOWLIST_REASON` check
+fails on a stale entry, so all 7 were removed and `ALLOWLIST_BASELINE` dropped
+403 → 396. The 3 system-health entries (`api_costs` + the two
+`notification_deliveries` aggregates) stay. `scripts/ci/tenant-scope-allowlist.ts`
+is inside `allowed_edit_surface` but is not named in the T4 file list — this note
+is the record that T4 touched it, and why.
