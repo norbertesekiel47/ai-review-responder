@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { sql } from '@/lib/db/server';
 import { requireAdminPage } from '@/lib/auth/page-gate';
-import { getAdminBusinessesList } from '@/lib/admin/businesses-list-service';
+import { getBusinessSummaries } from '@/lib/admin/business-summary';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { BusinessesClient } from './BusinessesClient';
 // Server-safe: PAGE_SIZE must NOT be imported from the client component
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function AdminBusinessesPage() {
   await requireAdminPage(sql, { from: '/admin/businesses' });
 
-  const data = await getAdminBusinessesList(sql, { limit: PAGE_SIZE, offset: 0 });
+  const data = await getBusinessSummaries(sql, { limit: PAGE_SIZE, offset: 0 });
 
   return (
     <AdminPage

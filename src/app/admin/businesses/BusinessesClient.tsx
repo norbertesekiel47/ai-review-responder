@@ -5,16 +5,17 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { AdminBusinessesList } from '@/lib/admin/businesses-list-service';
+import type { BusinessSummariesResult } from '@/lib/admin/business-summary';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminDate } from '@/components/admin/ui/format';
 
-// Mirrors src/app/api/admin/businesses/route.ts's GET body: the list + total
-// come from AdminBusinessesList (single owner: businesses-list-service.ts);
-// limit/offset are request-echo fields the route adds on top.
-type BusinessListData = AdminBusinessesList & {
+// Mirrors src/app/api/admin/businesses/route.ts's GET body: the list, total and
+// response-metrics window come from BusinessSummariesResult (single owner:
+// business-summary.ts, shared with /admin/overview); limit/offset are
+// request-echo fields the route adds on top.
+type BusinessListData = BusinessSummariesResult & {
   limit: number;
   offset: number;
 };
@@ -48,9 +49,9 @@ const columns: DataTableColumn<BusinessRow>[] = [
     key: 'pending',
     header: 'Pending',
     render: (b) =>
-      b.pendingCount > 0 ? (
+      b.pendingApprovalCount > 0 ? (
         <span className="inline-block rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-          {b.pendingCount}
+          {b.pendingApprovalCount}
         </span>
       ) : (
         <span className="text-gray-400">0</span>

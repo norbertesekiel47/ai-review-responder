@@ -195,34 +195,10 @@ describe('getAdminOverview — shape', () => {
     expect(harness.sqlCalls).toHaveLength(8);
   });
 
-  it('maps null last_sync_at / last_activity to null (not a crash on missing Date)', async () => {
-    queueBaseQueries(harness, {
-      businessRows: [
-        {
-          id: 'biz-null-dates',
-          name: 'No Sync Co',
-          subscription_status: 'trialing',
-          last_sync_at: null,
-          pending_approval_count: 0,
-          pending_reconnect_count: 0,
-          total_responses: 0,
-          completed_responses: 0,
-          avg_response_time_hours: null,
-          last_activity: null,
-        },
-      ],
-      businessCount: [{ total: 1 }],
-    });
-    harness.sqlReturnQueue.push([] satisfies MetricsRowFixture[]);
-
-    const result = await getAdminOverview(mockSql, { limit: 20, offset: 0 });
-
-    expect(result.businesses[0]!.lastSyncAt).toBeNull();
-    expect(result.businesses[0]!.lastActivity).toBeNull();
-    expect(result.businesses[0]!.avgResponseTimeHours).toBeNull();
-    // total_responses=0 → responseRate falls back to 0, not NaN/Infinity.
-    expect(result.businesses[0]!.responseRate).toBe(0);
-  });
+  // `maps null last_sync_at / last_activity to null (not a crash on missing
+  // Date)` moved to __tests__/business-summary.test.ts in T2: it characterizes
+  // buildBusinessSummary, which is now owned by src/lib/admin/business-summary.ts
+  // (spec §5.2/§5.6). Its assertion bodies went over unchanged.
 
   it('pins the status literals used by the businessRows query (behavior-preservation)', async () => {
     queueBaseQueries(harness, { businessRows: [], businessCount: [{ total: 0 }] });

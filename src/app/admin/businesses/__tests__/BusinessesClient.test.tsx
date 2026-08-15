@@ -8,6 +8,21 @@ import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '@/app/admin/page-sizes';
 type Props = Parameters<typeof BusinessesClient>[0];
 type InitialData = Props['initialData'];
 
+/**
+ * The metric half of the BusinessSummary DTO the page now receives (single
+ * owner: src/lib/admin/business-summary.ts). No column renders these yet, so
+ * every fixture below shares one neutral set.
+ */
+const summaryMetrics = {
+  pendingReconnectCount: 0,
+  totalResponses: 0,
+  completedResponses: 0,
+  responseRate: 0,
+  avgResponseTimeHours: null,
+  lastActivity: null,
+  churnScore: { score: 2, level: 'healthy' as const, breakdown: [] },
+};
+
 const oneBusiness: InitialData = {
   businesses: [
     {
@@ -16,10 +31,12 @@ const oneBusiness: InitialData = {
       category: 'restaurant',
       subscriptionStatus: 'past_due',
       lastSyncAt: '2026-08-01T12:30:00.000Z',
-      pendingCount: 3,
+      pendingApprovalCount: 3,
+      ...summaryMetrics,
     },
   ],
   total: 1,
+  responseMetricsWindowDays: 30,
   limit: PAGE_SIZE,
   offset: 0,
 };
@@ -31,14 +48,22 @@ const multiPage: InitialData = {
     category: null,
     subscriptionStatus: 'active',
     lastSyncAt: null,
-    pendingCount: 0,
+    pendingApprovalCount: 0,
+    ...summaryMetrics,
   })),
   total: 57,
+  responseMetricsWindowDays: 30,
   limit: PAGE_SIZE,
   offset: 0,
 };
 
-const emptyData: InitialData = { businesses: [], total: 0, limit: PAGE_SIZE, offset: 0 };
+const emptyData: InitialData = {
+  businesses: [],
+  total: 0,
+  responseMetricsWindowDays: 30,
+  limit: PAGE_SIZE,
+  offset: 0,
+};
 
 function renderClient(initialData: InitialData) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

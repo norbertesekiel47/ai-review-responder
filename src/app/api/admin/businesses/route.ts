@@ -8,17 +8,18 @@ import {
 import { requireRoleOr401, withSameOrigin } from '@/lib/auth/route-helpers';
 import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { getAdminBusinessesList } from '@/lib/admin/businesses-list-service';
+import { getBusinessSummaries } from '@/lib/admin/business-summary';
 
 export const dynamic = 'force-dynamic';
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/businesses — paginated business list
 //
-// The queries + row mapping live in src/lib/admin/businesses-list-service.ts so
-// the /admin/businesses server page can read the same data without going
-// through HTTP. This handler keeps the query-param parsing/clamping and echoes
-// `limit`/`offset` back — the response shape is unchanged.
+// The queries + row mapping live in src/lib/admin/business-summary.ts — the
+// single owner shared with /admin/overview (spec §5.2) — so the
+// /admin/businesses server page can read the same data without going through
+// HTTP. This handler keeps the query-param parsing/clamping and echoes
+// `limit`/`offset` back on top of the service payload.
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       0,
     );
 
-    const data = await getAdminBusinessesList(sql, { limit, offset });
+    const data = await getBusinessSummaries(sql, { limit, offset });
 
     return NextResponse.json({ ...data, limit, offset });
   } catch (error) {

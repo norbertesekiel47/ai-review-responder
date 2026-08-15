@@ -20,10 +20,12 @@
 // order; the base query's `${businessIds}` array is one such bound value.
 //
 // The row→DTO mapping (null-date handling, response-rate math, trend
-// derivation, real computeChurnRiskScore fixtures) is deliberately NOT asserted
-// here: those characterization tests move over from overview-service.test.ts in
-// T2 with their assertion bodies unchanged. Fixtures below are therefore
-// minimal — they exist to produce ids, not to exercise the mapping.
+// derivation, real computeChurnRiskScore fixtures) is characterized in the
+// second describe below: those tests came over from overview-service.test.ts
+// with `getAdminOverview` swapped for `getBusinessSummaries` and their
+// ASSERTION BODIES UNCHANGED, because buildBusinessSummary now lives here
+// (spec §5.2/§5.6). Fixtures in the FIRST describe are therefore minimal —
+// they exist to produce ids, not to exercise the mapping.
 //
 // Query order (matches the module's sequential dispatch order, which the mock's
 // lazy-thenable FIFO queue is consumed in — #773, at most one in flight):
@@ -52,6 +54,17 @@ interface BusinessRowFixture {
   completed_responses: number;
   avg_response_time_hours: number | null;
   last_activity: Date | null;
+}
+
+interface MetricsRowFixture {
+  business_id: string;
+  approval_rate: number | null;
+  notified_count: number;
+  pending_count: number;
+  days_since_approval: number | null;
+  account_age_days: number;
+  avg_hours_current: number | null;
+  avg_hours_prev: number | null;
 }
 
 /** A base-query row with every metric at its zero/null default — see header. */
@@ -149,5 +162,297 @@ describe('getBusinessSummaries — bounded metrics fetch', () => {
 
     expect(result.businesses).toEqual([]);
     expect(result.total).toBe(7);
+  });
+});
+
+// Folded in from the deleted src/lib/admin/__tests__/businesses-list-service.test.ts
+// (T2 deletes businesses-list-service.ts — business-summary.ts is now the single
+// owner of its query). The query-contract and COUNT assertions carry over
+// verbatim; the DTO assertions widened from AdminBusinessListItem to the
+// superset BusinessSummary, which is the whole point of the merge.
+describe('getBusinessSummaries — page mapping (folded from getAdminBusinessesList)', () => {
+  it('maps the list page + total, converting last_sync_at to an ISO string', async () => {
+    harness.sqlReturnQueue.push([
+      {
+        id: 'biz-1',
+        name: 'Test Cafe',
+        category: 'restaurant',
+        subscription_status: 'active',
+        // A real Date, exactly what Postgres.js decodes a timestamptz into.
+        // The RSC boundary preserves Date instances, so a DTO field typed
+        // `string` holding a Date breaks the server page on first paint.
+        last_sync_at: new Date('2026-08-01T12:30:00.000Z'),
+        pending_approval_count: 3,
+        pending_reconnect_count: 0,
+        total_responses: 0,
+        completed_responses: 0,
+        avg_response_time_hours: null,
+        last_activity: null,
+      },
+      {
+        id: 'biz-2',
+        name: 'Never Synced',
+        category: null,
+        subscription_status: 'past_due',
+        last_sync_at: null,
+        pending_approval_count: 0,
+        pending_reconnect_count: 0,
+        total_responses: 0,
+        completed_responses: 0,
+        avg_response_time_hours: null,
+        last_activity: null,
+      },
+    ] satisfies BusinessRowFixture[]);
+    harness.sqlReturnQueue.push([{ total: 42 }]);
+    harness.sqlReturnQueue.push([] satisfies MetricsRowFixture[]);
+
+    const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 0 });
+
+    // Score 2 / 'healthy' is the REAL computeChurnRiskScore output for a row
+    // with no metrics companion: every signal reads "no data" except account
+    // age, which defaults to 0 days → the <5-week bucket → 2 points.
+    expect(result.businesses).toEqual([
+      {
+        id: 'biz-1',
+        name: 'Test Cafe',
+        category: 'restaurant',
+        subscriptionStatus: 'active',
+        lastSyncAt: '2026-08-01T12:30:00.000Z',
+        pendingApprovalCount: 3,
+        pendingReconnectCount: 0,
+        totalResponses: 0,
+        completedResponses: 0,
+        responseRate: 0,
+        avgResponseTimeHours: null,
+        lastActivity: null,
+        churnScore: { score: 2, level: 'healthy', breakdown: expect.any(Array) },
+      },
+      {
+        id: 'biz-2',
+        name: 'Never Synced',
+        category: null,
+        subscriptionStatus: 'past_due',
+        lastSyncAt: null,
+        pendingApprovalCount: 0,
+        pendingReconnectCount: 0,
+        totalResponses: 0,
+        completedResponses: 0,
+        responseRate: 0,
+        avgResponseTimeHours: null,
+        lastActivity: null,
+        churnScore: { score: 2, level: 'healthy', breakdown: expect.any(Array) },
+      },
+    ]);
+    expect(result.total).toBe(42);
+
+    // The trap guard: `toEqual` above would pass for a Date whose ISO string
+    // matches, so assert the runtime type explicitly.
+    expect(typeof result.businesses[0]!.lastSyncAt).toBe('string');
+
+    expect(harness.sqlCalls[0]!.text).toContain('FROM businesses b');
+    expect(harness.sqlCalls[0]!.text).toContain('JOIN accounts a ON a.id = b.account_id');
+    expect(harness.sqlCalls[0]!.text).toContain('LEFT JOIN responses resp');
+    expect(harness.sqlCalls[0]!.text).toContain("resp.status != 'superseded'");
+    expect(harness.sqlCalls[0]!.text).toContain("resp.status = 'pending_approval'");
+    expect(harness.sqlCalls[0]!.text).toContain('ORDER BY b.name ASC');
+    // LIMIT/OFFSET are the last two binds; the leading binds are the response
+    // window + handled-status array the merged base query adds.
+    expect(harness.sqlCalls[0]!.values.slice(-2)).toEqual([20, 0]);
+
+    expect(harness.sqlCalls[1]!.text).toContain('SELECT COUNT(*)::int AS total FROM businesses');
+  });
+
+  it('returns an empty list and a zero total for empty results', async () => {
+    harness.sqlReturnQueue.push([]);
+    harness.sqlReturnQueue.push([]);
+
+    const result = await getBusinessSummaries(mockSql, { limit: 20, offset: 40 });
+
+    expect(result).toEqual({ businesses: [], total: 0, responseMetricsWindowDays: 30 });
+    expect(harness.sqlCalls[0]!.values.slice(-2)).toEqual([20, 40]);
+  });
+});
+
+// Relocated from src/lib/admin/__tests__/overview-service.test.ts: these are
+// buildBusinessSummary's row→DTO characterization tests, and buildBusinessSummary
+// now lives in business-summary.ts (spec §5.2, §5.6 "the existing overview
+// characterization tests follow buildBusinessSummary into the shared module").
+// The ASSERTION BODIES are unchanged — only the arrange/act swapped
+// `getAdminOverview` for `getBusinessSummaries`, which is possible because both
+// return a `businesses` array of the same DTO.
+//
+// computeChurnRiskScore is NOT mocked: fixtures feed real BusinessMetrics inputs
+// and the assertions pin the REAL resulting score/level.
+describe('getBusinessSummaries — row→DTO mapping (buildBusinessSummary)', () => {
+  it('maps null last_sync_at / last_activity to null (not a crash on missing Date)', async () => {
+    harness.sqlReturnQueue.push([
+      {
+        id: 'biz-null-dates',
+        name: 'No Sync Co',
+        category: null,
+        subscription_status: 'trialing',
+        last_sync_at: null,
+        pending_approval_count: 0,
+        pending_reconnect_count: 0,
+        total_responses: 0,
+        completed_responses: 0,
+        avg_response_time_hours: null,
+        last_activity: null,
+      },
+    ] satisfies BusinessRowFixture[]);
+    harness.sqlReturnQueue.push([] satisfies MetricsRowFixture[]);
+
+    const result = await getBusinessSummaries(mockSql);
+
+    expect(result.businesses[0]!.lastSyncAt).toBeNull();
+    expect(result.businesses[0]!.lastActivity).toBeNull();
+    expect(result.businesses[0]!.avgResponseTimeHours).toBeNull();
+    // total_responses=0 → responseRate falls back to 0, not NaN/Infinity.
+    expect(result.businesses[0]!.responseRate).toBe(0);
+  });
+
+  it('maps the populated row: response-rate math and ISO dates', async () => {
+    // Fixture + expectations lifted from overview-service.test.ts's `— shape`
+    // case (10 windowed responses, 7 handled → 70%), whose getAdminOverview-level
+    // subject §5 replaces.
+    const lastSync = new Date('2026-06-01T12:00:00Z');
+    const lastActivity = new Date('2026-06-30T08:00:00Z');
+
+    harness.sqlReturnQueue.push([
+      {
+        id: 'biz-shape',
+        name: 'Shape Co',
+        category: 'Cafe',
+        subscription_status: 'active',
+        last_sync_at: lastSync,
+        pending_approval_count: 2,
+        pending_reconnect_count: 1,
+        total_responses: 10,
+        completed_responses: 7,
+        avg_response_time_hours: 3.5,
+        last_activity: lastActivity,
+      },
+    ] satisfies BusinessRowFixture[]);
+    harness.sqlReturnQueue.push([
+      {
+        business_id: 'biz-shape',
+        approval_rate: 1,
+        notified_count: 5,
+        pending_count: 0,
+        days_since_approval: 1,
+        account_age_days: 100,
+        avg_hours_current: null,
+        avg_hours_prev: null,
+      },
+    ] satisfies MetricsRowFixture[]);
+
+    const result = await getBusinessSummaries(mockSql);
+
+    expect(result.businesses).toEqual([
+      {
+        id: 'biz-shape',
+        name: 'Shape Co',
+        category: 'Cafe',
+        subscriptionStatus: 'active',
+        lastSyncAt: lastSync.toISOString(),
+        pendingApprovalCount: 2,
+        pendingReconnectCount: 1,
+        totalResponses: 10,
+        completedResponses: 7,
+        responseRate: 70,
+        avgResponseTimeHours: 3.5,
+        lastActivity: lastActivity.toISOString(),
+        churnScore: {
+          score: 0,
+          level: 'healthy',
+          breakdown: expect.any(Array),
+        },
+      },
+    ]);
+    expect(result.responseMetricsWindowDays).toBe(30);
+  });
+
+  it('derives responseTimeTrend and pins the real churn scores it feeds', async () => {
+    // The four metrics fixtures from overview-service.test.ts's
+    // `— churn-descending sort` case, whose SORT subject moves to Overview's
+    // at-risk selection. What belongs to buildBusinessSummary is what is kept
+    // here: biz-risky's avg_hours_current 10 vs avg_hours_prev 2 (> 1.5×) is
+    // the ONLY input that derives responseTimeTrend='slower', worth 8 of its
+    // 65 points. Rows are queued in already-ranked order because this module
+    // does not sort — `ORDER BY b.name ASC` is the DB's, ranking is Overview's.
+    const commonBusinessFields = {
+      category: null,
+      subscription_status: 'active',
+      last_sync_at: null,
+      pending_reconnect_count: 0,
+      total_responses: 10,
+      completed_responses: 5,
+      avg_response_time_hours: null,
+      last_activity: null,
+    };
+
+    harness.sqlReturnQueue.push([
+      { id: 'biz-risky', name: 'Delta Co', pending_approval_count: 3, ...commonBusinessFields },
+      { id: 'biz-tie-hi', name: 'Alpha Co', pending_approval_count: 5, ...commonBusinessFields },
+      { id: 'biz-tie-b', name: 'Bravo Co', pending_approval_count: 2, ...commonBusinessFields },
+      { id: 'biz-tie-lo', name: 'Charlie Co', pending_approval_count: 2, ...commonBusinessFields },
+    ] satisfies BusinessRowFixture[]);
+    harness.sqlReturnQueue.push([
+      {
+        business_id: 'biz-tie-lo',
+        approval_rate: 0.9,
+        notified_count: 5,
+        pending_count: 0,
+        days_since_approval: 1,
+        account_age_days: 100,
+        avg_hours_current: null,
+        avg_hours_prev: null,
+      },
+      {
+        business_id: 'biz-tie-b',
+        approval_rate: 0.9,
+        notified_count: 5,
+        pending_count: 0,
+        days_since_approval: 1,
+        account_age_days: 100,
+        avg_hours_current: null,
+        avg_hours_prev: null,
+      },
+      {
+        business_id: 'biz-tie-hi',
+        approval_rate: 0.9,
+        notified_count: 5,
+        pending_count: 0,
+        days_since_approval: 1,
+        account_age_days: 100,
+        avg_hours_current: null,
+        avg_hours_prev: null,
+      },
+      {
+        business_id: 'biz-risky',
+        approval_rate: 0.2,
+        notified_count: 5,
+        pending_count: 3,
+        days_since_approval: 20,
+        account_age_days: 14,
+        avg_hours_current: 10,
+        avg_hours_prev: 2,
+      },
+    ] satisfies MetricsRowFixture[]);
+
+    const result = await getBusinessSummaries(mockSql);
+
+    // Pin the actual (real, un-mocked) churn scores driving the order.
+    expect(result.businesses[0]!.churnScore.score).toBe(65);
+    expect(result.businesses[0]!.churnScore.level).toBe('at_risk');
+    expect(result.businesses[1]!.churnScore.score).toBe(6);
+    expect(result.businesses[1]!.churnScore.level).toBe('healthy');
+    expect(result.businesses[2]!.churnScore.score).toBe(6);
+    expect(result.businesses[3]!.churnScore.score).toBe(6);
+    // The 'slower' trend contributes 8 of biz-risky's 65 — the mapping branch
+    // no other fixture in this suite reaches.
+    expect(
+      result.businesses[0]!.churnScore.breakdown.find((b) => b.signal === 'Response time trend'),
+    ).toEqual({ signal: 'Response time trend', value: 'slower', contribution: 8 });
   });
 });
