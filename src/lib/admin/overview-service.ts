@@ -68,8 +68,10 @@ export interface OverviewData {
   };
   /** UNFILTERED business count — the rows just read, not a separate COUNT query. */
   totalBusinesses: number;
-  /** Trailing window (days) that responseRate + avgResponseTimeHours cover. */
-  responseMetricsWindowDays: number;
+  // No `responseMetricsWindowDays` here: §5.3 deleted Overview's two
+  // window-labelled columns, so nothing on this page reads the window any more.
+  // It stays on BusinessSummariesResult, where /admin/businesses genuinely
+  // labels its "Response rate (Nd)" / "Avg time (Nd)" headers from it.
   /** At-risk list: level !== 'healthy', ranked, capped at OVERVIEW_AT_RISK_LIMIT. */
   atRisk: BusinessSummary[];
 }
@@ -79,7 +81,8 @@ export interface OverviewData {
 // (behavior-preserving, A+ campaign PR 2b).
 // Red state: delivery rate < 95% with at least 5 sends, OR any complaint in
 // 7d, OR any hard bounce in 7d.
-// Same estimated-coverage CRAP artifact as buildBusinessSummary above — this
+// Same estimated-coverage CRAP artifact as buildBusinessSummary, which no longer
+// lives here (it moved to business-summary.ts with the base query, §5.2) — this
 // is a flat, already-minimal defaulting + boolean derivation pinned by the
 // 6 redState characterization tests in overview-service.test.ts.
 // fallow-ignore-next-line complexity
@@ -133,12 +136,14 @@ export async function getAdminOverview(sql: Sql): Promise<OverviewData> {
   const pendingOutboxRows = await sql<SystemHealthRow[]>`
     SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'pending'
   `;
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the pending/failed outbox counts ARE independent; awaiting them one after the other is the deliberate choice. They share the singleton `sql` whose Vercel pool is DB_POOL_MAX = 3, so every extra in-flight query here is one Supavisor backend closer to the permanent pipelined-response wedge described in the block above (#505/#773).
   const failedJobsRows = await sql<SystemHealthRow[]>`
     SELECT COUNT(*)::int AS count FROM job_outbox WHERE status = 'failed'
   `;
   const todayCostRows = await sql<CostRow[]>`
     SELECT COALESCE(SUM(cost_usd), 0)::float AS total FROM api_costs WHERE created_at >= CURRENT_DATE
   `;
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- same #773 reason: the api_costs sum and this notification-failure count touch different tables and could run together, but hoisting them into a Promise.all is exactly the fan-out that left admin pages returning a 200 header and never streaming a body on staging 2026-08-10. Guarded by __tests__/pool-fanout-sequential.test.ts.
   const notifFailureRows = await sql<SystemHealthRow[]>`
     SELECT COUNT(*)::int AS count FROM notification_deliveries WHERE failed_at IS NOT NULL AND failed_at >= NOW() - INTERVAL '24 hours'
   `;
@@ -158,7 +163,7 @@ export async function getAdminOverview(sql: Sql): Promise<OverviewData> {
   // comes back as the rows just read — Overview drops the separate COUNT query
   // it used to issue (§5.3).
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the awaits ARE independent; that is the point. Parallelising them is the #773 fan-out this module exists to avoid — the shared `sql` pool is 3 connections on Vercel, and a pipelined response wedges a backend permanently.
-  const { businesses, total, responseMetricsWindowDays } = await getBusinessSummaries(sql);
+  const { businesses, total } = await getBusinessSummaries(sql);
 
   // FILTER, then sort, then CAP — in that order. Capping first would surface
   // healthy businesses whenever the first 5 rows happen to be healthy.
@@ -182,7 +187,6 @@ export async function getAdminOverview(sql: Sql): Promise<OverviewData> {
       emailHealth: deriveEmailHealth(emailHealthRows[0]),
     },
     totalBusinesses: total,
-    responseMetricsWindowDays,
     atRisk,
   };
 }

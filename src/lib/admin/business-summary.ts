@@ -103,7 +103,9 @@ export interface BusinessSummariesResult {
 // — pre-existing, not introduced here — and is dominated by null-coalescing in the
 // object construction (data mapping), not control-flow complexity, so decomposition
 // doesn't reduce it. Accepted as inherited debt relocated into a named, test-pinned
-// function (the overview characterization tests exercise every branch).
+// function (the row→DTO characterization tests in __tests__/business-summary.test.ts,
+// which came over from the overview suite with buildBusinessSummary, exercise
+// every branch).
 // fallow-ignore-next-line complexity
 function buildBusinessSummary(row: BusinessRow, m: BusinessMetricsRow | undefined): BusinessSummary {
   const responseRate =

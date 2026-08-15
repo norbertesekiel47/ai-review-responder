@@ -22,7 +22,6 @@ const baseData: OverviewData = {
     },
   },
   totalBusinesses: 1,
-  responseMetricsWindowDays: 30,
   atRisk: [
     {
       id: 'biz-1',

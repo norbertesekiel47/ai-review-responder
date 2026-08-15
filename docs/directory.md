@@ -158,7 +158,7 @@ is declared once, in the client, and imported by the server page.
 | `notifications/page.tsx` | **(Phase 2/3)** Server component: gate, `getAdminNotifications`, `<AdminPage group="Operate" title="Notifications">`. |
 | `notifications/NotificationsClient.tsx` | Client island: notification delivery log + businesses filter dropdown; owns `PAGE_SIZE`. |
 | `runbook/page.tsx` | Internal runbook (links to `NEXT_PUBLIC_DOCS_BASE_URL`). Static server page on `<AdminPage group="Operate">`. |
-| `businesses/page.tsx` | **(Phase 3)** Server component: gate, `getAdminBusinessesList`, `<AdminPage group="Businesses">` with the Import CSV / + Add Business actions. |
+| `businesses/page.tsx` | **(Phase 3)** Server component: gate, `getBusinessSummaries` (**§5.2**, page 1 at `BUSINESSES_PAGE_SIZE` — it replaced the deleted `getAdminBusinessesList`), `<AdminPage group="Businesses">` with the Import CSV / + Add Business actions. |
 | `businesses/BusinessesClient.tsx` | **(Phase 3)** Client island: the businesses table (`DataTable`, server-paginated, `rowHref` → detail), shared `StatusBadge`, `Last Sync (UTC)`; page size from `BUSINESSES_PAGE_SIZE`. **(§5.4)** Now the single inventory owner — it absorbed Overview's Reconnect (≥3 / >0 / 0 badge ladder), Response rate, Avg time, Last activity and Health (`HealthBadge`) columns. The two window-labelled headers are built by a function, not a module constant, so their `N` comes from `responseMetricsWindowDays` rather than a literal `30`. |
 | `businesses/[id]/page.tsx` | **(Phase 3)** Server component: gate, `Promise.all([getBusinessDetail, getBusinessChannelEnrollments])`, `notFound()` on a missing business, `<AdminPage>` titled with the business name. |
 | `businesses/[id]/BusinessDetailClient.tsx` | **(Phase 3)** Client island: meta row (health badge, tier/subscription pills, Maps link), the panels below, and both audit logs as client-paginated `DataTable`s. |
@@ -337,7 +337,7 @@ POST: disconnects an active Zernio connection; marks `zernio_connections` status
 | Route | What it does |
 |-------|--------------|
 | `overview/route.ts` | Admin overview stats; delegates to `getAdminOverview`. |
-| `businesses/route.ts` | GET list (auth → parse/clamp `limit`/`offset` → `getAdminBusinessesList` → JSON) + POST create (calls `AdminOnboardingService`). |
+| `businesses/route.ts` | GET list (auth → parse/clamp `limit`/`offset` → `getBusinessSummaries` (**§5.2**, replacing the deleted `getAdminBusinessesList`) → JSON, echoing `limit`/`offset` on top of the service payload) + POST create (calls `AdminOnboardingService`). |
 | `businesses/[id]/route.ts` | GET / PATCH / DELETE a business; delegates to `business-detail-service`. |
 | `businesses/[id]/resend-invite/route.ts` | **(2026-08-14)** POST: re-sends the Supabase invite email for an admin-created owner who has never signed in. Admin + AAL2 + same-origin, mirroring the create route's guards; delegates to `src/lib/onboarding/resend-invite.ts`. Eligibility is asked of the **provider** (`auth.admin.getUserById` → `last_sign_in_at IS NULL`), never of the local `auth_id`, which is populated at creation time and so cannot distinguish "invited" from "accepted". Capped at **3 per hour per business** — the one admin action that puts mail into a third party's inbox on a button press, so an accidental click-loop can't burn sender reputation; auth runs before the limit so an unauthenticated call spends no budget. |
 | `businesses/[id]/channels/route.ts` | GET (delegates to `getBusinessChannelEnrollments`) + POST channel enrollments. |

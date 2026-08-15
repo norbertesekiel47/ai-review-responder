@@ -214,7 +214,9 @@ describe('getAdminOverview — shape', () => {
         },
       },
       totalBusinesses: 1,
-      responseMetricsWindowDays: 30,
+      // No `responseMetricsWindowDays`: §5.3 removed Overview's window-labelled
+      // columns, so the field left OverviewData with its last reader. `toEqual`
+      // is exhaustive, so this object IS the assertion that it is gone.
       atRisk: [
         {
           id: 'biz-shape',
@@ -431,19 +433,74 @@ describe('getAdminOverview — at-risk selection (filter → sort → cap)', () 
     expect(result.atRisk[1]!.churnScore.level).toBe('watch');
   });
 
+  it('breaks a score tie on pendingApprovalCount descending, ahead of the name tier', async () => {
+    // TIER 2 of the 4-level comparator, which no other test in this suite can
+    // separate (intake invariant 8). Both rows score 55, so tier 1 is
+    // exhausted; `pendingApprovalCount` 7 vs 2 must decide.
+    //
+    // Name and id are deliberately ANTI-CORRELATED with the expected order —
+    // the high-pending row is named LAST alphabetically and carries the id that
+    // sorts LAST — so tiers 3 and 4 both produce the OPPOSITE order. Deleting
+    // `b.pendingApprovalCount - a.pendingApprovalCount` therefore fails here
+    // instead of being rescued by a later tier.
+    queueBaseQueries(harness, {
+      businessRows: [
+        businessRow('01991000-0000-7000-8000-000000000001', 'Alpha Co', {
+          pending_approval_count: 2,
+        }),
+        businessRow('01991000-0000-7000-8000-000000000002', 'Zulu Co', {
+          pending_approval_count: 7,
+        }),
+      ],
+    });
+    harness.sqlReturnQueue.push([
+      metricsRow('01991000-0000-7000-8000-000000000001', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
+      metricsRow('01991000-0000-7000-8000-000000000002', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
+    ] satisfies MetricsRowFixture[]);
+
+    const result = await getAdminOverview(mockSql);
+
+    expect(result.atRisk.map((b) => b.name)).toEqual(['Zulu Co', 'Alpha Co']);
+    expect(result.atRisk.map((b) => b.pendingApprovalCount)).toEqual([7, 2]);
+    // Guards the guard: tier 1 deciding this would make the test lie.
+    expect(result.atRisk[0]!.churnScore.score).toBe(result.atRisk[1]!.churnScore.score);
+  });
+
   it('breaks a score-and-pending tie on business name ascending', async () => {
     // Both rows carry the SAME metrics (→ same real score, 55) AND the same
     // pendingApprovalCount (2), so tiers 1 and 2 of the comparator are
     // exhausted and the NAME tier is what decides. Fed name-descending.
+    //
+    // The ids are UUIDv7-shaped and ANTI-CORRELATED with the names — 'Alpha Co',
+    // which must sort FIRST, carries the id that sorts LAST — so the id tier
+    // would produce the opposite order and cannot rescue a deleted name tier.
+    // Production ids are UUIDv7 and uncorrelated with name, so this is the
+    // honest fixture; `biz-a`/`biz-z` were not.
     queueBaseQueries(harness, {
       businessRows: [
-        businessRow('biz-z', 'Zulu Co', { pending_approval_count: 2 }),
-        businessRow('biz-a', 'Alpha Co', { pending_approval_count: 2 }),
+        businessRow('01991000-0000-7000-8000-00000000000a', 'Zulu Co', {
+          pending_approval_count: 2,
+        }),
+        businessRow('01991000-0000-7000-8000-00000000000b', 'Alpha Co', {
+          pending_approval_count: 2,
+        }),
       ],
     });
     harness.sqlReturnQueue.push([
-      metricsRow('biz-z', { approval_rate: 0.2, days_since_approval: 20 }),
-      metricsRow('biz-a', { approval_rate: 0.2, days_since_approval: 20 }),
+      metricsRow('01991000-0000-7000-8000-00000000000a', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
+      metricsRow('01991000-0000-7000-8000-00000000000b', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
     ] satisfies MetricsRowFixture[]);
 
     const result = await getAdminOverview(mockSql);
@@ -452,6 +509,12 @@ describe('getAdminOverview — at-risk selection (filter → sort → cap)', () 
     // Guards the guard: an earlier tier deciding this would make the test lie.
     expect(result.atRisk[0]!.churnScore.score).toBe(result.atRisk[1]!.churnScore.score);
     expect(result.atRisk[0]!.pendingApprovalCount).toBe(result.atRisk[1]!.pendingApprovalCount);
+    // …and a LATER tier deciding it would too: the id tier orders these the
+    // other way round, so only the name tier can produce the expectation above.
+    expect(result.atRisk.map((b) => b.id)).toEqual([
+      '01991000-0000-7000-8000-00000000000b',
+      '01991000-0000-7000-8000-00000000000a',
+    ]);
   });
 
   it('caps the at-risk list at OVERVIEW_AT_RISK_LIMIT even when more businesses qualify', async () => {
@@ -520,44 +583,11 @@ describe('getAdminOverview — at-risk selection (filter → sort → cap)', () 
   });
 });
 
-describe('getAdminOverview — response-metric windowing (SQL contract)', () => {
-  // The mock does not execute SQL, so windowing is verified as a query contract:
-  // the trailing-window FILTER on created_at is exactly what excludes >window
-  // rows from the rate/avg aggregates. Behavioral exclusion IS this pinned FILTER.
-  it('windows total/completed/avg-time by created_at, leaving pending/reconnect/last-activity all-time', async () => {
-    queueBaseQueries(harness, { businessRows: [] });
-
-    await getAdminOverview(mockSql);
-    const businessQuery = harness.sqlCalls[5]!;
-
-    // Windowed aggregates carry the trailing-window FILTER on created_at, with the
-    // window value bound (the ? placeholder) rather than hard-coded — single owner.
-    expect(businessQuery.text).toContain('resp.created_at >= CURRENT_DATE - ?::int');
-    expect(businessQuery.text).toContain('AS total_responses');
-    expect(businessQuery.text).toContain('AS completed_responses');
-    expect(businessQuery.text).toContain('AS avg_response_time_hours');
-    expect(businessQuery.values).toContain(30);
-
-    // Current-state / all-time aggregates must NOT be windowed — old still-pending
-    // items and a dormant business's last activity are the churn signals.
-    expect(businessQuery.text).toContain(
-      "COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count",
-    );
-    expect(businessQuery.text).toContain(
-      "COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count",
-    );
-    expect(businessQuery.text).toContain(
-      'MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity',
-    );
-  });
-
-  it('surfaces responseMetricsWindowDays and binds the same value into the businessRows query', async () => {
-    queueBaseQueries(harness, { businessRows: [] });
-
-    const result = await getAdminOverview(mockSql);
-
-    expect(result.responseMetricsWindowDays).toBe(30);
-    // Single owner: the DTO field and the SQL window derive from one constant.
-    expect(harness.sqlCalls[5]!.values).toContain(result.responseMetricsWindowDays);
-  });
-});
+// The `— response-metric windowing (SQL contract)` describe that used to close
+// this file MOVED to __tests__/business-summary.test.ts. It asserted against
+// `harness.sqlCalls[5]` — business-summary.ts's base query, reached transitively
+// through getAdminOverview — so editing that module's windowing broke a test
+// named for THIS one. Single ownership of the query means single ownership of
+// its contract; the assertions went over unchanged, re-anchored on that suite's
+// own `sqlCalls[0]`. Nothing in this file reaches across the module boundary any
+// more.

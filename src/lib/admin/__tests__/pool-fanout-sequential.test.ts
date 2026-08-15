@@ -39,7 +39,7 @@ import {
 
 /**
  * A fake `sql` that records the peak number of simultaneously in-flight
- * queries.
+ * queries, and how many were dispatched in total.
  *
  * Queries are LAZY THENABLES, matching the shared mock-sql harness: a tagged
  * template only counts as "in flight" once something calls `.then` on it, and
@@ -52,15 +52,25 @@ import {
  *
  * Sequential execution keeps the peak at 1. A `Promise.all` of N queries calls
  * all N `.then`s in the same tick before any resolves → peak N.
+ *
+ * `rows` SEEDS the FIFO result queue, one entry per dispatched query in dispatch
+ * order (a non-array entry is wrapped; an exhausted queue yields `[]`). Seeding
+ * matters wherever the subject's later queries are CONDITIONAL on earlier
+ * results: an unseeded harness returns no rows, the condition goes false, and
+ * the peak is measured over a shorter bundle than the test claims. That is what
+ * `getQueryCount` is for — pin the bundle LENGTH alongside its peak so a silent
+ * skip can't masquerade as a passing sequencing guard.
  */
 function makeConcurrencyTrackingSql(rows: unknown[] = []) {
   let inFlight = 0;
   let maxInFlight = 0;
+  let dispatched = 0;
   const queue = [...rows];
 
   const sql = ((..._args: unknown[]) => ({
     then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) {
       inFlight += 1;
+      dispatched += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       return new Promise((settle) => setTimeout(settle, 0))
         .then(() => {
@@ -76,7 +86,28 @@ function makeConcurrencyTrackingSql(rows: unknown[] = []) {
   (sql as unknown as { begin: (cb: (tx: unknown) => unknown) => Promise<unknown> }).begin = (cb) =>
     Promise.resolve(cb(sql));
 
-  return { sql, getMaxConcurrency: () => maxInFlight };
+  return { sql, getMaxConcurrency: () => maxInFlight, getQueryCount: () => dispatched };
+}
+
+/**
+ * One base-query row, complete enough for `buildBusinessSummary` to map it
+ * without throwing. Its only job here is to make `businessIds` non-empty so the
+ * conditional metrics CTE actually dispatches.
+ */
+function seedBusinessRow() {
+  return {
+    id: 'b1000000-0000-4000-8000-000000000001',
+    name: 'Seed Cafe',
+    category: null,
+    subscription_status: 'active',
+    last_sync_at: null,
+    pending_approval_count: 0,
+    pending_reconnect_count: 0,
+    total_responses: 0,
+    completed_responses: 0,
+    avg_response_time_hours: null,
+    last_activity: null,
+  };
 }
 
 describe('#505 sequential execution — Vercel admin read paths (pool = DB_POOL_MAX = 3)', () => {
@@ -114,12 +145,22 @@ describe('#505 sequential execution — Vercel admin read paths (pool = DB_POOL_
   });
 
   it('getBusinessSummaries runs its paginated bundle one query at a time', async () => {
-    // RED until T2 lands the queries (the stub throws), then green with no edit
-    // to this body: rows → COUNT → metrics, sequential, peak 1.
-    const { sql, getMaxConcurrency } = makeConcurrencyTrackingSql();
+    // The queue is SEEDED so the full paginated bundle really runs: one base row
+    // → a non-empty `businessIds` → the metrics CTE dispatches. An unseeded
+    // harness returns no rows, the CTE is skipped, and this would silently
+    // measure the peak over rows → COUNT only, leaving a
+    // `Promise.all([count, metrics])` regression green.
+    const { sql, getMaxConcurrency, getQueryCount } = makeConcurrencyTrackingSql([
+      [seedBusinessRow()], // rows
+      [{ total: 1 }], // COUNT
+      [], // metrics (no companion row needed — buildBusinessSummary defaults)
+    ]);
 
     await getBusinessSummaries(sql, { limit: 20, offset: 0 });
 
+    // Three, not two: rows → COUNT → metrics. This assertion is what stops the
+    // peak below from passing for the wrong reason.
+    expect(getQueryCount()).toBe(3);
     expect(getMaxConcurrency()).toBe(1);
   });
 
