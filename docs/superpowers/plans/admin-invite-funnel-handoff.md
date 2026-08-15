@@ -46,7 +46,7 @@ Per `deployment-guide.md` §"Re-sync staging": after a squash merge the branches
 
 ## Do NOT do
 
-- **Do not apply migration 105 to production.** 077/078 are deliberately absent in prod and 105 rewrites a constraint over 077's columns. Prod is gated on the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`).
+- ~~**Do not apply migration 105 to production.**~~ **Resolved 2026-08-14 (#825): 105 IS applied in prod.** The instruction rested on 077 being absent there; the migration lockstep audit found 077 already applied, so 105's only blocker was gone and it was applied to restore lockstep. **Do not apply migration 078** — that is now the sole migration held for the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md` §7).
 - Do not set production env vars, do not create the live-mode Stripe coupon (this session had no live-mode access anyway), do not flip `ONBOARDING_DEMO_ENABLED` in prod. All are deliberate, owner-timed steps.
 
 ## Context the files do not carry

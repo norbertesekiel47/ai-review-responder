@@ -123,20 +123,30 @@ Pre-invite actions from these decisions:
   as individually tickable gates. Note the cutover does **not** end at 078 —
   migration 105 is section 8 of `ws8-tier-cutover.md`, and skipping it fails
   every checkout once traffic resumes.
+  **Prod is already partway through that sequence (verified 2026-08-14):** 077
+  and 105 are applied there, so §5 and §8 are **verify** steps and the live
+  resume point is the worker deploy (§6). 078 is the only migration left.
   *(This also resolved the 2026-08-09 `ZERNIO_PUBLISHING_ENABLED` discrepancy
   note: both prior readings described a worker that had never run. The flag is
   set deliberately during stand-up Phase B; fix the stale env-vars.md row in
   Phase G6.)*
 - [ ] Run the prod WS8 tier cutover (`docs/runbooks/ws8-tier-cutover.md`) —
-  stand-up Phase D. **077, 078 AND 105 are all WS8-only migrations** (077 =
-  quiesced expand, 078 = strict contract, **105 = the coupon column + its
-  constraint rewrite, applied LAST**) — never apply any of them as an ordinary
-  missing migration; the first prod worker deploy happens between 077 and 078.
-  **Do not stop at 078.** 105 replaces a constraint 077 created, so it cannot be
-  applied before 077 — and the strict code deployed mid-cutover writes the column
-  105 adds, so skipping it fails **every** checkout, not only admin-invited ones.
-  It is section 8 of that runbook. (Migration **106** is NOT part of this — it is
-  independent of 077 and was applied to prod on 2026-08-14.)
+  stand-up Phase D. **Migration 078 is the only one still to apply in prod**, and
+  it applies *inside* the cutover (§7), never as an ordinary missing migration;
+  the first prod worker deploy happens before it (§6), which is the live resume
+  point.
+  **077 and 105 are already applied in prod** (verified 2026-08-14 by the
+  migration lockstep audit, #825): 077 landed unrecorded after the 2026-07-17
+  cutover pause, and 105 was applied deliberately once that audit showed its only
+  blocker — the 077 dependency — was already satisfied. **§5 and §8 are therefore
+  verify steps in prod, not apply steps.** Staging has had all three since
+  2026-07-16.
+  What has NOT changed, and still governs any environment lacking them: 105
+  replaces a constraint 077 created and cannot be applied before it, and the
+  strict code deployed mid-cutover writes 105's column — so reaching that deploy
+  without 105 fails **every** checkout, not only admin-invited ones.
+  (Migration **106** was never part of this — independent of 077, applied to prod
+  2026-08-14.)
 - [ ] **Implement + staging-test the beta activation path** — stand-up
   Phase F: server-selected 100% coupon on the leased checkout for
   admin-onboarded accounts (`allow_promotion_codes` **omitted** on that path —
