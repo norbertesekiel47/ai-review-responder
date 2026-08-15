@@ -45,7 +45,7 @@ export const WATCHDOGS: readonly Watchdog[] = [
     id: 'governor',
     name: 'Governor',
     tagline: 'The kill switch that does not wait for you.',
-    body: 'If the picture stops looking right for an account, the Governor suspends its autonomy on its own — no support ticket, no waiting for someone to notice on Monday. Everything reverts to needing your approval.',
+    body: 'If the picture stops looking right for an account, the Governor suspends its autonomy on its own. No support ticket, no waiting for someone to notice on Monday. Everything reverts to needing your approval.',
     rule: 'Suspends autonomy per account',
   },
 ];
@@ -55,7 +55,7 @@ export const HEADING_LEAD = 'Something is always';
 export const HEADING_ACCENT = 'watching the agents.';
 
 export const LEAD_IN =
-  'These two never touch your reviews. They exist only to supervise the agents that do — which is the reason trusting any of this is a rational decision rather than a hopeful one.';
+  'These two never touch your reviews. They exist only to supervise the agents that do.';
 
 /**
  * The pull-quote. The reference doc calls this "the strongest trust statement

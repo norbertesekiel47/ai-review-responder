@@ -38,11 +38,11 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
           <span className="rw-num-tag text-7xl leading-none text-white/20 block mb-4">08</span>
           <p className="rw-label-mono text-xs uppercase text-rw-peach mb-3">Over time</p>
           <h2 className="text-4xl md:text-5xl font-medium leading-tight mb-4">
-            It learns your <span className="rw-display-serif text-rw-peach">voice</span>: edit by edit.
+            It learns your <span className="rw-display-serif text-rw-peach">voice</span>, edit by edit.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
             Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
-            the way you handle a complaint. The aim: drafts you approve untouched.
+            the way you handle a complaint. The aim is drafts you approve untouched.
           </p>
         </div>
 

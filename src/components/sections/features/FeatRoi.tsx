@@ -27,7 +27,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             search. The kind of numbers that justify the line item.
           </p>
           <p className="text-[10px] italic text-rw-ink-soft mt-2">
-            Sample dashboard with illustrative numbers — yours shows your own.
+            Sample dashboard with illustrative numbers. Yours shows your own.
           </p>
         </div>
       </div>

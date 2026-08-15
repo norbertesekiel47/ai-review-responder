@@ -32,7 +32,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
           <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
             Guardian reads every review that isn&apos;t clearly positive and grades its severity
             before anything is drafted. Serious ones (health claims, legal threats, safety hazards)
-            escalate straight to you with the context attached — a careful draft is still prepared,
+            escalate straight to you with the context attached. A careful draft is still prepared,
             but it always waits for you. Guardian never posts anything, anywhere.
           </p>
         </div>
