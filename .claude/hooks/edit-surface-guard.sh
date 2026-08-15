@@ -116,10 +116,24 @@ esac
 MATCHED=false
 while IFS= read -r GLOB; do
   [ -n "$GLOB" ] || continue
+  # Escape '[' and ']' so a Next.js dynamic route segment is matched LITERALLY.
+  # Without this, `[[ "$p" == $GLOB ]]` reads the '[id]' in a declared surface
+  # like 'src/app/admin/businesses/[id]/**' as a bash CHARACTER CLASS matching
+  # one char ('i' or 'd'), so the glob can never match the real directory and
+  # the guard blocks writes to paths the intake explicitly lists. Every dynamic
+  # segment in this repo hit it: [id], [reviewId], [token], [responseId],
+  # [sessionId], [offboardingId], [escalationId], [businessId].
+  #
+  # Escaping only the brackets keeps '*' and '?' working as wildcards, so every
+  # existing surface declaration behaves exactly as before. Character classes in
+  # a surface glob are NOT supported (no declaration uses one, and a literal
+  # dynamic-route segment is the overwhelmingly more likely intent).
+  ESCAPED_GLOB="${GLOB//\[/\\[}"
+  ESCAPED_GLOB="${ESCAPED_GLOB//\]/\\]}"
   # [[ == ]] glob match; '*' crosses '/' here, so 'src/worker/*' matches
   # nested paths. Declare surfaces accordingly (e.g. "src/worker/*").
   # shellcheck disable=SC2254
-  if [[ "$REL_PATH" == $GLOB ]]; then MATCHED=true; break; fi
+  if [[ "$REL_PATH" == $ESCAPED_GLOB ]]; then MATCHED=true; break; fi
 done < <(jq -r '.allowed_edit_surface[]?' "$INTAKE")
 
 if [ "$MATCHED" = false ]; then
