@@ -66,6 +66,32 @@ function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
   });
 }
 
+/**
+ * Drives the happy path with one specific TELEGRAM_BOT_USERNAME value and hands
+ * back the parsed body. Env + `resetServerConfigForTests()` is this file's
+ * established config seam — there is no `getServerConfig` mock to reach for, and
+ * `TELEGRAM_BOT_USERNAME` is declared `rawOpt`, so ''/'   ' survive the parse
+ * byte-for-byte and reach `buildTelegramDeepLink` intact.
+ */
+async function startWithBotUsername(botUsername: string | undefined) {
+  process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
+  // `delete`, never `= undefined` — assigning undefined to a process.env key
+  // stores the literal string "undefined", which would test the wrong thing.
+  if (botUsername === undefined) {
+    delete process.env.TELEGRAM_BOT_USERNAME;
+  } else {
+    process.env.TELEGRAM_BOT_USERNAME = botUsername;
+  }
+  resetServerConfigForTests();
+  sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription check
+  sqlQueue.push([]); // advisory lock
+  sqlQueue.push([]); // SELECT existing enrollment (none)
+  sqlQueue.push([]); // INSERT enrollment
+  const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
+  expect(res.status).toBe(200);
+  return (await res.json()) as { deepLink: string };
+}
+
 beforeEach(() => {
   sqlQueue.length = 0;
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
@@ -139,5 +165,24 @@ describe('POST /api/admin/channels/telegram/start', () => {
     sqlQueue.push([{ id: 'enrl-1', status: 'verified' }]); // existing verified row
     const res = await POST(mkReq({ businessId: 'biz-1' }) as any);
     expect(res.status).toBe(409);
+  });
+
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is blank', async () => {
+    const body = await startWithBotUsername('');
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
+  });
+
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is whitespace only', async () => {
+    const body = await startWithBotUsername('   ');
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
+  });
+
+  // Third input named by the same edge case, mirroring the owner suite's unset
+  // case in api/dashboard/channels/telegram/__tests__/start.test.ts. Correct by
+  // inspection (`undefined?.trim()` -> undefined -> fallback), but the admin
+  // mirror should not be the copy that leaves it unexercised.
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is unset', async () => {
+    const body = await startWithBotUsername(undefined);
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
   });
 });

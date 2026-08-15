@@ -515,6 +515,38 @@ export async function loadRivalPickerView(
   return { state: 'ready', businessId, keyword, options, pick: toPickedRival(context, options) };
 }
 
+/**
+ * Every active location's rival-picker view, loaded SEQUENTIALLY — one query in
+ * flight at a time (#773). Do NOT reintroduce a `Promise.all` here or in the
+ * page: `loadRivalPickerView` is itself a 3-query chain, so an account with N
+ * locations would put N chains in flight against a 3-connection pool, and the
+ * width grows with the customer.
+ *
+ * ACCEPTED TRADE-OFF: this converts N-wide concurrency into 3N sequential round
+ * trips, so page latency is now O(N) in the location count. That is the right
+ * trade at current scale — a queued request beats exhausting the pool — but it
+ * is a trade, not a free win.
+ *
+ * The better long-term shape is BATCHING, not looping:
+ * `loadLocationsSettingsView` (src/lib/locations/settings-view.ts) is the
+ * precedent for that, and it deliberately does one `ANY(...)` read rather than
+ * one read per location. Rewriting these three queries to take
+ * `businessIds[]` would be O(1) round trips instead of O(N). Out of scope here
+ * (spec 2026-08-15-portal-audit-remediation §3.4 is a fan-out fix, not a query
+ * rewrite); revisit when an account's location count makes the latency bite.
+ */
+export async function loadRivalPickerViews(
+  db: Sql,
+  { accountId, businessIds }: { accountId: string; businessIds: LocationId[] },
+): Promise<RivalPickerView[]> {
+  const views: RivalPickerView[] = [];
+  for (const businessId of businessIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- serial is deliberate (#773): each iteration is a 3-query chain, so parallelising puts N chains in flight against a 3-connection pool. Slow is the accepted cost; see the trade-off note above.
+    views.push(await loadRivalPickerView(db, { accountId, businessId }));
+  }
+  return views;
+}
+
 // Same #581 phantom CRAP as loadRivalPickerView above: integration-only coverage.
 // fallow-ignore-next-line complexity
 function toPickedRival(

@@ -79,7 +79,13 @@ export function Sidebar({
         setSigningOut(false);
         return;
       }
-      router.push('/admin/login');
+      // The OWNER login page. Sending an owner to /admin/login dead-ends them:
+      // that form is allowedRoles={['admin']}, so re-entering their own
+      // credentials signs them straight back out with "That account is for the
+      // owner portal." The guards in require-owner-access.ts and the
+      // authenticated layout deliberately still target /admin/login — those are
+      // pinned by require-owner-access.test.ts and are not this path.
+      router.push('/login');
       router.refresh();
     } catch {
       setSignOutError(true);

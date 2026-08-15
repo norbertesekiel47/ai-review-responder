@@ -17,7 +17,11 @@ import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
 import { getServerConfig } from '@/lib/config/server';
 
 function buildTelegramDeepLink(rawToken: string): string {
-  const botUsername = getServerConfig().TELEGRAM_BOT_USERNAME ?? 'RepWorthBot';
+  // `||` (not `??`) so a blank TELEGRAM_BOT_USERNAME falls back too. The var is
+  // declared `rawOpt` (src/lib/config/server.ts), which preserves ''/'   '
+  // byte-for-byte, so `??` would emit a broken https://t.me/?start=... link.
+  // Mirrors the owner route at api/dashboard/channels/telegram/start.
+  const botUsername = getServerConfig().TELEGRAM_BOT_USERNAME?.trim() || 'RepWorthBot';
   return `https://t.me/${botUsername}?start=${rawToken}`;
 }
 

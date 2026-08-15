@@ -67,6 +67,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Fetch independent account metrics after the account existence check.
+  // Fixed width 2 on a read path — deliberately NOT sequentialised (spec
+  // docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md §3.6).
+  // Unlike the competitors page, this width does not grow with the customer.
   const [activeLocations, billingSnapshot] = await Promise.all([
     getActiveLocationCount(sql, owner.accountId),
     currentBillingSnapshot(sql, owner.accountId),

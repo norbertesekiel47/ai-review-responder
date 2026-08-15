@@ -6,6 +6,37 @@ const AutoApprovalThresholdSchema = z.union([z.literal(4), z.literal(5)]);
 
 export type AutoApprovalThreshold = z.infer<typeof AutoApprovalThresholdSchema>;
 
+// Module-private: `autoApprovalThresholdLabel` is the only interface. The
+// `Record<AutoApprovalThreshold, string>` annotation is the exhaustiveness
+// guard — widening the union without adding a label is a compile error here.
+const THRESHOLD_LABELS: Record<AutoApprovalThreshold, string> = {
+  4: '4–5★',
+  5: '5★ only',
+};
+
+/**
+ * Threshold vocabulary, shared by the owner settings screen and the admin
+ * diagnostics panel so the two cannot drift. The two
+ * `AutoApprovalReadinessBlockReason` maps are deliberately NOT shared — admin
+ * renders terse ops labels, owner renders explanatory sentences.
+ *
+ * `null` means auto-approval is off for that scope.
+ *
+ * Throws on an out-of-domain threshold rather than returning `undefined` under a
+ * `: string` signature. Migration 074's CHECK makes that unreachable, but the
+ * only producer is an unvalidated row cast (`business-detail/queries.ts`), so a
+ * schema drift would otherwise render the literal string "undefined" in the
+ * admin panel instead of failing loudly.
+ */
+export function autoApprovalThresholdLabel(threshold: AutoApprovalThreshold | null): string {
+  if (threshold === null) return 'Off';
+  const label = THRESHOLD_LABELS[threshold];
+  if (label === undefined) {
+    throw new Error(`unknown_auto_approval_threshold:${threshold}`);
+  }
+  return label;
+}
+
 // Veto window sizes (spec §2.1); migration 074's CHECK mirrors this union.
 const VetoWindowMinutesSchema = z.union([z.literal(15), z.literal(30)]);
 

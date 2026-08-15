@@ -1,9 +1,13 @@
 'use client';
 
+import { autoApprovalThresholdLabel } from '@/lib/auto-approval/types';
 import type { AutoApprovalReadinessBlockReason } from '@/lib/auto-approval/types';
 import type { AutoApprovalDiagnostics } from '../types';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 
+// Deliberately NOT shared with the owner UI's BLOCK_REASON_COPY: admin renders
+// terse ops labels, owner renders explanatory sentences. Both are exhaustive
+// over AutoApprovalReadinessBlockReason, so neither can silently miss a reason.
 const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   auto_approval_disabled: 'Runtime flag off',
   autopilot_unavailable: 'Autopilot unavailable',
@@ -14,16 +18,6 @@ const BLOCK_REASON_LABELS: Record<AutoApprovalReadinessBlockReason, string> = {
   preview_environment: 'Preview environment',
   impersonation_not_allowed: 'Impersonation',
 };
-
-// Same vocabulary as the owner UI's THRESHOLD_OPTIONS (AutoApprovalClient) so
-// admin diagnostics and owner settings read identically. Off / 5★ only / 4–5★
-// is the full WS4 domain; the fallback covers only out-of-domain legacy data.
-function thresholdLabel(threshold: number | null): string {
-  if (threshold === null) return 'Off';
-  if (threshold === 5) return '5★ only';
-  if (threshold === 4) return '4–5★';
-  return `${threshold}–5★`;
-}
 
 function sourceLabel(source: string): string {
   if (source === 'location_override') return 'Location override';
@@ -74,7 +68,7 @@ function DiagnosticsSummary({ diagnostics }: { diagnostics: AutoApprovalDiagnost
           Account default
         </div>
         <div className="mt-1 text-sm font-semibold text-gray-900">
-          {thresholdLabel(diagnostics.accountDefault.threshold)}
+          {autoApprovalThresholdLabel(diagnostics.accountDefault.threshold)}
         </div>
         <div className="mt-1 text-xs text-gray-500">
           {diagnostics.accountDefault.exists ? diagnostics.accountDefault.policyId : 'No policy row'}
@@ -126,10 +120,12 @@ function LocationsTable({ diagnostics }: { diagnostics: AutoApprovalDiagnostics 
                 {location.archivedAt && <span className="ml-2 text-xs text-gray-400">archived</span>}
               </td>
               <td className="px-3 py-2 text-gray-600">
-                {location.override.exists ? thresholdLabel(location.override.threshold) : 'Inherits'}
+                {location.override.exists
+                  ? autoApprovalThresholdLabel(location.override.threshold)
+                  : 'Inherits'}
               </td>
               <td className="px-3 py-2 text-gray-600">
-                {thresholdLabel(location.effective.threshold)}
+                {autoApprovalThresholdLabel(location.effective.threshold)}
               </td>
               <td className="px-3 py-2 text-gray-500">
                 {sourceLabel(location.effective.source)}
