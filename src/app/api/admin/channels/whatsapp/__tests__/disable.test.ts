@@ -84,15 +84,10 @@ describe('POST /api/admin/channels/whatsapp/disable', () => {
   it('flips verified → disabled (account-scoped) and returns 200', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     // Seeds the accounts join (SELECT a.id, a.subscription_status FROM accounts a
-
     // JOIN businesses b ...) that resolveAdminActor issues. Before the channel-route
-
     // unification the resolver was SELECT account_id FROM businesses, so this row
-
     // read `account_id`. Same value in prod either way (b.account_id = a.id); only
-
     // the projected column name changed. Matches what the start suites already seed.
-
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlReturnQueue.push([{ id: 'enrl-1' }]); // org-default UPDATE RETURNING
     sqlReturnQueue.push([]); // override cascade UPDATE
@@ -116,15 +111,10 @@ describe('POST /api/admin/channels/whatsapp/disable', () => {
   it('returns 404 when no verified row and no live override matches', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
     // Seeds the accounts join (SELECT a.id, a.subscription_status FROM accounts a
-
     // JOIN businesses b ...) that resolveAdminActor issues. Before the channel-route
-
     // unification the resolver was SELECT account_id FROM businesses, so this row
-
     // read `account_id`. Same value in prod either way (b.account_id = a.id); only
-
     // the projected column name changed. Matches what the start suites already seed.
-
     sqlReturnQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     sqlReturnQueue.push([]); // org-default UPDATE matches nothing
     sqlReturnQueue.push([]); // override cascade UPDATE matches nothing

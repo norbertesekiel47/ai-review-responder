@@ -2,9 +2,11 @@
 //
 // Shared mobile-channel enrollment-start handler for BOTH portals. All four
 // start routes (2 portals × 2 channels) run the identical chain — flag gate →
-// env gate → Channel actor resolve → token mint → advisory-locked enrollment
-// upsert → cache invalidate → QR/deep-link response — differing only in the
-// resolver they bind (./resolve-actor.ts) and the channel they name.
+// env gate → Channel actor resolve → token mint → deep-link build →
+// advisory-locked enrollment upsert → cache invalidate → QR response —
+// differing only in the resolver they bind (./resolve-actor.ts) and the channel
+// they name. The deep link is built before the upsert deliberately; see the
+// comment at that line.
 //
 // Config is deliberately 4 fields. flagOff never varied across the 12 call sites
 // (called directly below); cacheLabel and the Sentry endpoint tag are derived
@@ -21,12 +23,11 @@ import { MultipleMobileChannelsError, EnrollmentDatabaseError } from '@/lib/chan
 import { TOKEN_TTL_MS } from '@/lib/notifications/channels/constants';
 import { buildMobileDeepLink } from '@/lib/notifications/channels/deep-links';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { asAccountId } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { flagOff } from './flag-off';
 import type { ChannelActorResolver } from './resolve-actor';
-
-const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 export interface ChannelRouteConfig {
   channel: MobileChannel;
@@ -55,6 +56,13 @@ export async function runChannelStart(
   const tokenHash = createHash('sha256').update(rawToken).digest('hex');
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
 
+  // Built BEFORE the write. The link derives only from channel + rawToken, and
+  // the whatsapp builder throws when TWILIO_WHATSAPP_NUMBER is unset — reachable
+  // because MOCK_EXTERNAL_APIS=true bypasses the env gate above. Building it
+  // after the commit would leave a pending_verification row holding the
+  // migration-027 unique slot behind a 500 the owner cannot retry past.
+  const deepLink = buildMobileDeepLink(config.channel, rawToken);
+
   let result: { kind: 'ok' } | { kind: 'already_verified' };
   try {
     result = await sql.begin(async (tx) => {
@@ -63,7 +71,7 @@ export async function runChannelStart(
     });
   } catch (err) {
     if (err instanceof MultipleMobileChannelsError) {
-      return NextResponse.json({ error: 'multiple_mobile_channels' }, { status: 409, headers: NO_STORE });
+      return errorResponse('multiple_mobile_channels', 409);
     }
     if (err instanceof EnrollmentDatabaseError) {
       // Never log rawToken or tokenHash — invariant #5 applied to enrollment tokens.
@@ -73,13 +81,13 @@ export async function runChannelStart(
         businessId,
         accountId,
       });
-      return NextResponse.json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+      return errorResponse('internal', 500);
     }
     throw err;
   }
 
   if (result.kind === 'already_verified') {
-    return NextResponse.json({ error: 'already_verified' }, { status: 409, headers: NO_STORE });
+    return errorResponse('already_verified', 409);
   }
 
   // Invalidate channel cache — the enrollment state change affects which
@@ -87,11 +95,7 @@ export async function runChannelStart(
   // block the response.
   await safeInvalidateChannelCache(asAccountId(accountId), `${surface}.${config.channel}.start`);
 
-  const deepLink = buildMobileDeepLink(config.channel, rawToken);
   const qrDataUrl = await QRCode.toDataURL(deepLink, { margin: 1, width: 256 });
 
-  return NextResponse.json(
-    { deepLink, qrDataUrl, expiresAt: expiresAt.toISOString() },
-    { headers: NO_STORE },
-  );
+  return jsonResponse({ deepLink, qrDataUrl, expiresAt: expiresAt.toISOString() });
 }

@@ -39,14 +39,48 @@ const GATE_TOKEN = 'requireAdminWithAal2';
 // this is strictly stronger than the three names it replaces.
 const GATED_SHARED_HELPERS = ['resolveAdminActor'] as const;
 
+// The owner-portal resolver. An admin route has no legitimate reason to name it:
+// resolveOwnerActor runs behind requireRoleOr401 against the SESSION with no MFA
+// step-up, so an admin route that binds it is an admin mutation with the AAL2
+// gate silently removed.
+//
+// This deny rule exists because the allowlist above is a SUBSTRING test over the
+// whole file, which a mere MENTION satisfies — a header comment naming
+// resolveAdminActor (every channel route carries one) or a leftover import would
+// clear a route that actually binds the owner resolver. The allowlist alone
+// therefore could not catch the very regression it was repointed to catch.
+// Flagged unconditionally: an admin route naming BOTH resolvers is still wrong.
+const OWNER_ONLY_RESOLVER = 'resolveOwnerActor';
+
+/**
+ * Strips comments so every check below reads CODE, not prose.
+ *
+ * A whole-file substring test is wrong in BOTH directions, and this audit hit
+ * each one: a header comment naming `resolveAdminActor` would CLEAR the
+ * allowlist for a route that actually binds the owner resolver (every channel
+ * route carries such a header), and a header comment naming `resolveOwnerActor`
+ * would TRIP the deny rule on a correctly-bound route — which is exactly what
+ * `admin/channels/telegram/start/route.ts` does when it documents its owner
+ * counterpart.
+ *
+ * Only FULL-LINE `//` comments are removed, so a string containing `https://` is
+ * never mistaken for one. Block comments are removed outright; a `/*` inside a
+ * string literal would over-strip, which is acceptable for a route-file
+ * heuristic and fails safe (less text to clear the allowlist, not more).
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+}
+
 /**
  * Pure scan function — no FS access. Returns a list of finding messages
  * (empty array = file is clean).
  *
- * A finding is emitted when ALL three conditions hold:
- *   1. `path` is under `src/app/api/admin/`
- *   2. `text` exports a mutation verb (POST | PUT | PATCH | DELETE)
- *   3. `text` does NOT contain `requireAdminWithAal2`
+ * A finding is emitted when `path` is under `src/app/api/admin/`, the file's CODE
+ * (comments stripped) exports a mutation verb (POST | PUT | PATCH | DELETE), and
+ * EITHER:
+ *   - the code does NOT contain `requireAdminWithAal2` nor a gated shared helper, OR
+ *   - the code references `resolveOwnerActor` at all (deny rule — see above).
  */
 export function scanRouteFile(path: string, text: string): string[] {
   // Normalize to forward slashes for cross-platform consistency.
@@ -55,13 +89,25 @@ export function scanRouteFile(path: string, text: string): string[] {
   // Only admin routes are in scope.
   if (!normalized.includes('src/app/api/admin/')) return [];
 
+  // Every check below reads code, never prose — see stripComments.
+  const code = stripComments(text);
+
   // No mutation verb → nothing to check.
-  if (!MUTATION_VERB_RE.test(text)) return [];
+  if (!MUTATION_VERB_RE.test(code)) return [];
+
+  // Deny rule first — it outranks the allowlist, so naming the admin resolver in
+  // live code cannot buy absolution for also binding the owner one.
+  if (code.includes(OWNER_ONLY_RESOLVER)) {
+    return [
+      `${path} [admin-aal2] admin mutation route must not reference ${OWNER_ONLY_RESOLVER} ` +
+        `(it runs behind requireRoleOr401 with no MFA step-up)`,
+    ];
+  }
 
   // Mutation verb found — gate must be present, either directly in this file
   // or via a known pre-gated shared helper (thin delegator pattern).
-  if (text.includes(GATE_TOKEN)) return [];
-  if (GATED_SHARED_HELPERS.some((helper) => text.includes(helper))) return [];
+  if (code.includes(GATE_TOKEN)) return [];
+  if (GATED_SHARED_HELPERS.some((helper) => code.includes(helper))) return [];
 
   return [
     `${path} [admin-aal2] mutation route must use ${GATE_TOKEN}`,

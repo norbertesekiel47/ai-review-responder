@@ -11,12 +11,11 @@ import type postgres from 'postgres';
 import { cancelMobileEnrollment } from '@/lib/channels/mobile-enrollment';
 import { disconnectChannel } from '@/lib/channels/disable-enrollment';
 import { safeInvalidateChannelCache } from '@/lib/notifications/resolve-channels';
+import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { asAccountId } from '@/lib/shared/ids';
 import { flagOff } from './flag-off';
 import type { ChannelActorResult } from './resolve-actor';
 import type { ChannelRouteConfig } from './start';
-
-const NO_STORE = { 'Cache-Control': 'no-store, private' } as const;
 
 /** Flag gate → env gate → Channel actor resolve. */
 async function gateAndResolveActor(
@@ -62,7 +61,7 @@ export async function runChannelCancel(
   // are available for dispatch.
   await safeInvalidateChannelCache(asAccountId(accountId), `${surface}.${config.channel}.cancel`);
 
-  return NextResponse.json({ ok: true }, { headers: NO_STORE });
+  return jsonResponse({ ok: true });
 }
 
 /**
@@ -89,7 +88,7 @@ export async function runChannelDisable(
   });
 
   if (result.kind === 'not_found') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+    return errorResponse('not_found', 404);
   }
-  return NextResponse.json({ ok: true }, { headers: NO_STORE });
+  return jsonResponse({ ok: true });
 }

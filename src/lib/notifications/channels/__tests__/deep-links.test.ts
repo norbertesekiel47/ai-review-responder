@@ -31,15 +31,39 @@ describe('buildMobileDeepLink', () => {
   });
 
   it('admin and owner build the same wa.me deep link for the same token', () => {
-    // One builder, one result — the divergence this refactor closes is that the
-    // two portals used to own separate copies of this expression.
+    // The two portals' copies diverged on NORMALISATION, not on the template:
+    // admin stripped /^whatsapp:\+?/ (leaving spaces/parens in the path), owner
+    // stripped /\D/g. So "same link" is only meaningful across the two env
+    // spellings those copies used to disagree about — feed both through the one
+    // surviving builder and require an identical result.
+    //
+    // Do NOT reduce this to calling the builder twice with identical arguments
+    // and asserting the results match: that is a tautology over a pure function
+    // and passes no matter what the builder does.
     process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
+    resetServerConfigForTests();
+    const fromPrefixedForm = buildMobileDeepLink('whatsapp', 'tok-2');
 
-    const first = buildMobileDeepLink('whatsapp', 'tok-2');
-    const second = buildMobileDeepLink('whatsapp', 'tok-2');
+    process.env.TWILIO_WHATSAPP_NUMBER = '+1 (555) 123-4567';
+    resetServerConfigForTests();
+    const fromFormattedForm = buildMobileDeepLink('whatsapp', 'tok-2');
 
-    expect(first).toBe(second);
-    expect(first).toBe('https://wa.me/15551234567?text=start-tok-2');
+    expect(fromPrefixedForm).toBe(fromFormattedForm);
+    expect(fromPrefixedForm).toBe('https://wa.me/15551234567?text=start-tok-2');
+  });
+
+  it('the wa.me builder throws with context when TWILIO_WHATSAPP_NUMBER is unset', () => {
+    // Reachable in mock mode: whatsappEnvReady() returns true on
+    // MOCK_EXTERNAL_APIS=true without the var being set, so the env gate does
+    // not guarantee it. Previously a bare `!` made this a TypeError raised
+    // AFTER the enrollment row committed; runChannelStart now builds the link
+    // before the write, so this must fail loudly and namefully.
+    delete process.env.TWILIO_WHATSAPP_NUMBER;
+    resetServerConfigForTests();
+
+    expect(() => buildMobileDeepLink('whatsapp', 'tok-4')).toThrow(
+      /TWILIO_WHATSAPP_NUMBER is unset/,
+    );
   });
 
   it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is blank', () => {

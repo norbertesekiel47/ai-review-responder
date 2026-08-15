@@ -1,18 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { assertTelegramEnvReady } from '../telegram-env';
-import { flagOff } from '@/app/api/_shared/channels/flag-off';
 
+// flagOff() is covered beside the module it lives in
+// (src/app/api/_shared/channels/__tests__/flag-off.test.ts). Importing it here
+// made this file one of only two `src/lib → src/app` imports in the repo — the
+// dependency direction this branch exists to remove.
 describe('telegram-env', () => {
   beforeEach(() => {
     delete process.env.CHANNELS_TELEGRAM_ENABLED;
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     delete process.env.MOCK_EXTERNAL_APIS;
-  });
-
-  it('flagOff returns 404', async () => {
-    const res = flagOff();
-    expect(res.status).toBe(404);
   });
 
   it('assertTelegramEnvReady returns null in mock mode', () => {

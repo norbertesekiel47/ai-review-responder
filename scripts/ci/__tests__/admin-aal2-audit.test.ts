@@ -168,4 +168,87 @@ describe('scanRouteFile — admin AAL2 gate audit', () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]).toContain('[admin-aal2]');
   });
+
+  it('(l) admin route that MENTIONS resolveAdminActor but BINDS resolveOwnerActor → FINDING', () => {
+    // Case (k) passes only because its fixture never names the admin resolver.
+    // The allowlist clearance is a substring test over the whole file, so any
+    // mention of resolveAdminActor satisfies it — and every real channel route
+    // carries a header comment naming its handler. Without the deny rule this
+    // file is an admin mutation running under the owner role gate with no MFA
+    // step-up, and CI is green. Reported by the step-7 adversarial review.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      '// POST /api/admin/channels/telegram/start — resolves via resolveAdminActor.',
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    const findings = scanRouteFile(channelPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('must not reference resolveOwnerActor');
+  });
+
+  it('(m) admin route importing BOTH resolvers is still a FINDING', () => {
+    // The deny rule outranks the allowlist deliberately: an admin route with a
+    // live resolveAdminActor import is exactly the shape a half-finished edit
+    // leaves behind, and "it also mentions the right one" must not clear it.
+    const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
+    const text = [
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor, resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelCancel(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(1);
+  });
+
+  it('(n) admin route binding resolveAdminActor is still clean (no false positive)', () => {
+    // The deny rule must not flag the shipped shape: the 6 real admin channel
+    // routes name only resolveAdminActor and must stay green.
+    const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
+    const text = [
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelCancel(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
+  it('(o) admin route whose COMMENT mentions resolveOwnerActor but binds resolveAdminActor is clean', () => {
+    // The false positive the deny rule produced on its first run, caught by the
+    // gate: the real admin telegram start route documents its owner counterpart
+    // ("The owner equivalent ... binds the same runner with resolveOwnerActor")
+    // while binding the admin resolver. A whole-file substring test is wrong in
+    // BOTH directions, which is why the scan reads comment-stripped code — a
+    // mention must neither clear the allowlist nor trip the deny rule.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      '// POST /api/admin/channels/telegram/start — admin generates a deep link.',
+      '//',
+      '// The owner equivalent at /api/dashboard/channels/telegram/start binds the',
+      '// same runner with resolveOwnerActor.',
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),',
+      '  }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
 });

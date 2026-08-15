@@ -659,3 +659,69 @@ correctness catch came from EXECUTION, not from either plan review round. Two it
 are carry-forwards for step 8's promotion rule rather than branch defects: the
 class-field `AuthError` trap (Task 4) and the now-established `vi.mock('node:crypto')`
 precedent (Task 5).
+
+---
+
+## Step 7 — review round 1 (three axes, 16 findings, 6 fixed)
+
+Full reports + per-finding verdicts: `docs/reviews/refactor-channel-route-unification/`
+(`spec-correctness.md`, `standards-maintainability.md`, `adversarial-approach-codex.md`).
+Only the entries below change something outside those reports.
+
+### Intake-field correction (NOT an `allowed_edit_surface` amendment)
+
+`user_visible_behavior` did not name a consequence of the locked §4.3 403→404
+change: `classifyConnectError` maps 401/403 → "Session expired — please sign in
+again." and 404 → "This channel is currently unavailable."
+(`src/lib/notifications/channels/enrollment-reducer.ts:68-70`), so an owner whose
+session `locationId` points at a location with no billing account now sees a
+different banner on Cancel/Disconnect. **No code change** — the status flip is the
+locked decision and the new copy is arguably less wrong for that state (it is not a
+session failure). Recorded here per step 5's rule that intake-field corrections
+other than `allowed_edit_surface` are deviations entries. Amendment budget
+unchanged at **1 of 2**.
+
+### Deferred to step 8's `document-feature` sweep — three stale cross-references
+
+All three point at files this branch moved or deleted, and all three sit OUTSIDE
+`allowed_edit_surface`. Pulling them in would be **amendment #2, which trips the
+abort criteria** — a disproportionate price for stale prose, especially as
+`docs/directory.md` (the authoritative code map, in-surface) was swept correctly.
+Listed here so the sweep cannot lose them:
+
+1. `docs/currents.md:1740` — still names `src/app/api/admin/channels/_shared/flag-off.ts`
+   as the single source of the disabled-channel 404 "(telegram + whatsapp re-export
+   it)". The file moved; nothing re-exports it. (Found independently by two axes.)
+2. `src/app/admin/businesses/[id]/_components/ChannelsPanel.tsx:34` — comment
+   anchors the panel's entitlement rule to "the API gate at
+   `admin/channels/_shared/start.ts`", deleted here.
+3. `src/lib/config/server.ts:221,224` — env call-site inventory still points at
+   "admin+dashboard whatsapp/start" and the `admin ??` variant; both expressions
+   now live only in `deep-links.ts`.
+
+### Follow-up ticket, deliberately NOT taken on this branch
+
+`reportCaughtError('telegram-admin', …)` / `('whatsapp-admin', …)`
+(`telegram-env.ts:31`, `whatsapp-env.ts:48`) are now misleading — the modules are
+portal-neutral and read by owner routes and the owner settings page. Rejected for
+this branch on three grounds: the plan LOCKED the value verbatim
+(`2026-08-15-channel-route-unification.md:1386`); it is pre-existing rather than
+branch-introduced (owner routes already reached these functions through the admin
+module before the move); and changing a `reportCaughtError` endpoint tag re-groups
+live Sentry issues and any alerting keyed to them, which deserves its own change.
+
+### The one finding with data consequences (fixed)
+
+`TWILIO_WHATSAPP_NUMBER!` in the shared deep-link builder was a non-null assertion
+on a `rawOpt` var that `MOCK_EXTERNAL_APIS=true` leaves unset — mock mode makes
+`whatsappEnvReady()` return `true` without it. `runChannelStart` built the link
+AFTER the `sql.begin` commit and after cache invalidation, so the TypeError landed
+on a committed `pending_verification` row holding the migration-027 unique slot,
+which the owner cannot retry past. Fixed on both axes: the builder throws with
+named context, and the link is now built BEFORE the write. Pre-existing (both
+portals carried the same `!`, per the note at `src/lib/config/server.ts:221`), but
+consolidated into one site by this branch and the failure ordering is in-diff.
+
+**Durable lesson for step 8's promotion rule:** an env gate that a bypass flag can
+short-circuit does not license a `!` at the use site — and a value the response
+requires should be computed before the irreversible write, not after it.
