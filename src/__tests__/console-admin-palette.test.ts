@@ -57,8 +57,6 @@ const SWEPT_FILES = [
   'src/app/admin/businesses/new/_components/_shared.tsx',
   'src/app/admin/businesses/new/_components/BusinessInfoSection.tsx',
   'src/app/admin/businesses/new/_components/OwnerInfoSection.tsx',
-  'src/app/admin/businesses/new/_components/VoiceContextSection.tsx',
-  'src/app/admin/businesses/new/_components/SubscriptionTierSection.tsx',
   'src/app/admin/locations/csv-import/CsvImportClient.tsx',
   'src/app/admin/locations/csv-import/page.tsx',
   'src/app/admin/offboardings/OffboardingsClient.tsx',

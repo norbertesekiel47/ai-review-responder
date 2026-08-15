@@ -1,15 +1,12 @@
 import type { z } from 'zod';
 import type { Sql } from 'postgres';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isPlaceId, extractPlaceId } from '@/lib/reviews/url-parser';
 import type { OnboardBusinessSchema } from '@/lib/shared/schemas';
 import {
   createBusinessTx,
   DuplicateEmailError,
   type AdminBusinessTxInput,
-  type PlaceIdInput,
 } from './create-business';
-import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 
 /**
  * Parsed Zod payload as the admin route currently feeds in. Aliasing the
@@ -23,20 +20,21 @@ export type AdminOnboardingInput = z.infer<typeof OnboardBusinessSchema> & {
 
 export interface AdminOnboardingResult {
   businessId: string;
-  paymentUrl: string | null;
 }
 
 /**
  * Discriminated error codes for the route layer to map to HTTP statuses.
  * Single class keeps the throw-sites simple and the catch-site exhaustive.
+ *
+ * INVALID_PLACE_ID / PLACE_REQUIRED / TIER_UNAVAILABLE are gone with the
+ * fields that produced them: the admin no longer supplies a place or a tier,
+ * so the owner's own funnel (/onboarding/start, /onboarding/pay) owns both
+ * decisions and their errors.
  */
 export type AdminOnboardingErrorCode =
-  | 'INVALID_PLACE_ID'
-  | 'PLACE_REQUIRED'
   | 'MISSING_APP_URL'
   | 'MALFORMED_APP_URL'
   | 'DISALLOWED_APP_URL_SCHEME'
-  | 'TIER_UNAVAILABLE'
   | 'DUPLICATE_EMAIL'
   | 'CREATE_BUSINESS_FAILED'
   | 'INVITE_FAILED'
@@ -83,29 +81,17 @@ export class AdminOnboardingError extends Error {
  * the full domain, mask the rest. `norbertesekiel@gmail.com` → `n***@gmail.com`.
  * Never emit raw owner emails to logs (PII; also helps when ops pastes a log
  * line into a ticket).
+ *
+ * Exported for `./resend-invite.ts` (step 9 / T7): the resend path logs the
+ * same owner address on the same failure classes, and two spellings of "how we
+ * redact an email" is how one of them ends up logging the raw value.
  */
-function redactEmail(email: string): string {
+export function redactEmail(email: string): string {
   const at = email.indexOf('@');
   if (at <= 0) return '***';
   const local = email.slice(0, at);
   const domain = email.slice(at);
   return `${local[0]}***${domain}`;
-}
-
-function splitCommaOrNewline(text: string | undefined): string[] {
-  if (!text?.trim()) return [];
-  return text.split(/\n|,/).flatMap((s) => {
-    const trimmed = s.trim();
-    return trimmed ? [trimmed] : [];
-  });
-}
-
-function splitParagraphs(text: string | undefined): string[] {
-  if (!text?.trim()) return [];
-  return text.split(/\n\n+/).flatMap((s) => {
-    const trimmed = s.trim();
-    return trimmed ? [trimmed] : [];
-  });
 }
 
 /**
@@ -123,8 +109,16 @@ function splitParagraphs(text: string | undefined): string[] {
  *   - Parse via URL constructor (rejects missing scheme, illegal chars)
  *   - Enforce scheme allowlist: https://, OR http://localhost for dev
  *   - Use parsed.origin so any path/query/fragment in the env is dropped
+ *
+ * Exported for `./resend-invite.ts` (step 9 / T7). The resend MUST send the
+ * owner to the byte-identical redirect the creation path built — two spellings
+ * of one invite redirect URL is how the invite link rots (the second copy
+ * drifts, and only the resent email is broken). Exporting the existing
+ * function is the smallest change that guarantees one spelling; moving it to a
+ * new shared module would buy nothing here beyond an extra file, since both
+ * consumers live in this directory and both raise `AdminOnboardingError`.
  */
-function buildInviteRedirectTo(): string {
+export function buildInviteRedirectTo(): string {
   const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!rawAppUrl || !rawAppUrl.trim()) {
     console.error(
@@ -167,58 +161,11 @@ function buildInviteRedirectTo(): string {
   return `${normalizedAppUrl.origin}/api/auth/callback?flow=owner&next=/reset-password`;
 }
 
-function resolvePlaceIdInput(data: AdminOnboardingInput): PlaceIdInput {
-  if (data.googlePlaceId) {
-    // Autocomplete path — validate format server-side.
-    if (!isPlaceId(data.googlePlaceId)) {
-      throw new AdminOnboardingError(
-        'INVALID_PLACE_ID',
-        'Invalid Place ID format',
-        400,
-      );
-    }
-    return {
-      placeIdVerified: true,
-      placeId: data.googlePlaceId,
-      googleMapsUrl: data.googleMapsUrl ?? null,
-    };
-  }
-  if (data.googleMapsUrl) {
-    // URL fallback — extract what we can, validation happens in worker.
-    const placeId = extractPlaceId(data.googleMapsUrl);
-    // placeId may be hex CID or null — that's OK, worker will resolve it.
-    return {
-      placeIdVerified: false,
-      placeId: placeId ?? null,
-      googleMapsUrl: data.googleMapsUrl,
-    };
-  }
-  throw new AdminOnboardingError(
-    'PLACE_REQUIRED',
-    'Place ID or Google Maps URL required',
-    400,
-  );
-}
-
-function buildTxInput(
-  data: AdminOnboardingInput,
-  placeIdInput: PlaceIdInput,
-): AdminBusinessTxInput {
+function buildTxInput(data: AdminOnboardingInput): AdminBusinessTxInput {
   return {
     ownerEmail: data.ownerEmail,
     ownerName: data.ownerName,
-    ownerPhone: data.ownerPhone ?? null,
     businessName: data.name,
-    category: data.category ?? null,
-    tone: data.tone,
-    productsServices: data.productsServices ?? null,
-    staffNames: splitCommaOrNewline(data.staffNames),
-    highlightFacts: splitCommaOrNewline(data.highlightFacts),
-    avoidFacts: splitCommaOrNewline(data.avoidFacts),
-    sampleResponses: splitParagraphs(data.sampleResponses),
-    subscriptionTier: data.subscriptionTier,
-    website: data.website ?? null,
-    placeId: placeIdInput,
   };
 }
 
@@ -253,12 +200,11 @@ export async function rollbackProvisionedBusiness(
 
 /**
  * Admin onboarding orchestration. Runs (in order):
- *   1. Place ID input resolution (autocomplete vs Google Maps URL)
- *   2. NEXT_PUBLIC_APP_URL validation (fail-fast before any DB write)
- *   3. createBusinessTx in admin mode
- *   4. supabase.auth.admin.inviteUserByEmail
+ *   1. NEXT_PUBLIC_APP_URL validation (fail-fast before any DB write)
+ *   2. createBusinessTx in admin mode
+ *   3. supabase.auth.admin.inviteUserByEmail
  *      - on failure: compensating delete of job_outbox + users + businesses
- *   5. users.auth_id patch
+ *   4. users.auth_id patch
  *      - on failure: compensating delete of auth user + DB rows
  *
  * The compensating-delete steps preserve the lab-note 2026-04-24 behavior:
@@ -274,8 +220,7 @@ export async function onboardBusinessAsAdmin(
   supabase: SupabaseClient,
   input: AdminOnboardingInput,
 ): Promise<AdminOnboardingResult> {
-  const placeIdInput = resolvePlaceIdInput(input);
-  const txInput = buildTxInput(input, placeIdInput);
+  const txInput = buildTxInput(input);
   const ownerEmailLower = input.ownerEmail.trim().toLowerCase();
 
   // Validate config BEFORE writing any DB rows. See buildInviteRedirectTo
@@ -293,13 +238,6 @@ export async function onboardBusinessAsAdmin(
       throw new AdminOnboardingError(
         'DUPLICATE_EMAIL',
         'A user with this email already exists',
-        409,
-      );
-    }
-    if (err instanceof TierNotPurchasableError) {
-      throw new AdminOnboardingError(
-        'TIER_UNAVAILABLE',
-        'Autopilot is not currently available for provisioning',
         409,
       );
     }
@@ -466,8 +404,5 @@ export async function onboardBusinessAsAdmin(
     );
   }
 
-  return {
-    businessId: createdResult.businessId,
-    paymentUrl: createdResult.paymentUrl,
-  };
+  return { businessId: createdResult.businessId };
 }

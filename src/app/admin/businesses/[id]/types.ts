@@ -40,6 +40,20 @@ export interface DetailData {
   autoApproval: AutoApprovalDiagnostics;
 }
 
+/**
+ * UI state for the admin "Resend invite" action (plan step 9 / T7). Owned by
+ * `useBusinessDetail` and rendered by `BusinessDetailClient` — deliberately not
+ * a react-query mutation: nothing in the detail payload changes when an invite
+ * is re-sent, so there is no cache to invalidate, only a message to show.
+ */
+export interface ResendInviteState {
+  submitting: boolean;
+  /** Success copy, cleared on the next attempt. */
+  message: string | null;
+  /** The server's mapped error message, cleared on the next attempt. */
+  error: string | null;
+}
+
 export type ZernioConnectionSummary = NonNullable<ZernioPanelData['connection']>;
 export type AwaitingOwnerConnectResponse = ZernioPanelData['awaitingOwnerConnect'][number];
 export type ZernioFinalizeIncident = ZernioPanelData['unresolvedIncidents'][number];

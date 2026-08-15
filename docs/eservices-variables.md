@@ -93,6 +93,12 @@ not strict runtime price resolution: `STRIPE_PRICE_BASIC`,
 `STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_FOUNDERS_OVERAGE`,
 `STRIPE_PRICE_STANDARD`, `STRIPE_PRICE_STANDARD_OVERAGE`,
 `STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PREMIUM_OVERAGE`.
+`BETA_COMP_COUPON_ID` ✅ **(2026-08-14, unset by default)** — the Stripe **Coupon**
+ID for the admin-invite beta comp (100% off, `repeating`, 3 months). Vercel-only
+(no worker path reaches `applyTierSnapshot`), server-only, no `NEXT_PUBLIC_*`
+companion. Unsetting is the kill switch, for **new** Checkout attempts only.
+Different IDs per Stripe mode. ⚠️ The coupon itself has not been created in
+either mode yet — see `.claude/reference/env-vars.md` → `BETA_COMP_COUPON_ID`.
 
 ### Channels (Twilio / Telegram) — flags off by default
 Telegram: `CHANNELS_TELEGRAM_ENABLED` ✅ · `TELEGRAM_BOT_TOKEN` ✅ · `TELEGRAM_WEBHOOK_SECRET` ✅ · `TELEGRAM_BOT_USERNAME` ✅

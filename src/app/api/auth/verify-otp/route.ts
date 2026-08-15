@@ -10,6 +10,7 @@ import { getIpKey } from '@/lib/shared/request-ip';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 import { enrollOwnerEmailChannel } from '@/lib/notifications/channels/enroll-email-owner';
 
 export const dynamic = 'force-dynamic';
@@ -152,10 +153,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    the caller into an unexpected redirect. After migration 034, users
   //    no longer have business_id; we read account_id and resolve the
   //    primary business for the channel enrollment INSERT in step 7.
-  const [row] = await sql<{ role: string; account_id: string; business_id: string; user_id: string }[]>`
-    SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id
+  //
+  //    The row also carries everything `resolveFunnelEntry` needs for the
+  //    success redirect (step 8): the account's subscription status + wizard
+  //    stamp, and the primary business's place columns. One round trip — the
+  //    join is already here for `business_id`.
+  const [row] = await sql<{
+    role: string;
+    account_id: string;
+    business_id: string;
+    user_id: string;
+    subscription_status: string;
+    place_id_verified: boolean;
+    google_maps_url: string | null;
+    onboarding_wizard_completed_at: Date | null;
+  }[]>`
+    SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id,
+           a.subscription_status, a.onboarding_wizard_completed_at,
+           b.place_id_verified, b.google_maps_url
     FROM users u
-    JOIN businesses b ON b.account_id = u.account_id AND b.is_primary = TRUE
+    JOIN accounts a ON a.id = u.account_id
+    JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${data.user.id}
     LIMIT 1
   `;
@@ -184,7 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    Failure here means the owner has a valid session but no email
   //    channel. The OTP is already consumed by Supabase, so we can't
   //    cleanly ask them to retry — log loudly for manual backfill but
-  //    don't block the redirect to /onboarding/pay.
+  //    don't block the funnel redirect.
   try {
     await enrollOwnerEmailChannel(sql, {
       accountId: row.account_id,
@@ -219,12 +237,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Build the success response carrying the freshly-written session cookies.
-  // When the pre-pay demo flag is on, send the owner to /onboarding/start
-  // (location picker → demo generation) instead of straight to the paywall.
-  const postVerifyRedirect =
-    onboardingDemoEnabled()
-      ? '/onboarding/start'
-      : '/onboarding/pay';
+  // The destination is NOT this route's decision: `resolveFunnelEntry` is the
+  // single owner of "where in the funnel does this owner belong?" (shared with
+  // GET /api/auth/signup-status, the dashboard and the settings routes), so an
+  // owner who verifies, drops off, and later logs in lands in the same place
+  // either way. This route only supplies the state the helper reads.
+  const postVerifyRedirect = resolveFunnelEntry({
+    subscriptionStatus: row.subscription_status,
+    demoEnabled: onboardingDemoEnabled(),
+    hasPlace: row.place_id_verified || row.google_maps_url !== null,
+    wizardCompleted: row.onboarding_wizard_completed_at !== null,
+  });
   const successResponse = NextResponse.json({ redirectTo: postVerifyRedirect });
   for (const cookie of cookieJar.cookies.getAll()) {
     successResponse.cookies.set(cookie);

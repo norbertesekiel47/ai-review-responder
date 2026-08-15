@@ -419,9 +419,9 @@ function settingsDbRow(overrides: Record<string, unknown> = {}) {
     category: 'Cafe',
     google_place_id: 'gp-1',
     subscription_status: 'active',
-    onboarded_by: null,
     place_id_verified: true,
     google_maps_url: 'https://maps.google.com/x',
+    onboarding_wizard_completed_at: new Date('2026-01-02T00:00:00Z'),
     ...overrides,
   };
 }
@@ -470,7 +470,10 @@ describe('GET /api/settings', () => {
     expect((await res.json()).settings).toBeDefined();
   });
 
-  it('self-serve pending_payment → redirect marker with paymentUrl', async () => {
+  it('settings pending_payment response returns the server-computed funnelUrl', async () => {
+    // Mirrors /api/dashboard: `funnelUrl` replaced the hardcoded absolute
+    // `paymentUrl`, and the destination comes from `resolveFunnelEntry` so the
+    // pre-pay demo lane is honoured.
     mockRequireRole.mockResolvedValue(ownerUser());
     mockSqlQuery.mockResolvedValue([settingsDbRow({ subscription_status: 'pending_payment' })]);
 
@@ -479,11 +482,30 @@ describe('GET /api/settings', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    expect(body.paymentUrl).toBe(`${APP_URL}/onboarding/pay`);
+    expect(body.funnelUrl).toBe('/onboarding/pay');
+    expect(body.paymentUrl).toBeUndefined();
     expect(body.settings).toBeUndefined();
+
+    // Demo on + a captured place → the demo return point, not the paywall.
+    process.env.ONBOARDING_DEMO_ENABLED = 'true';
+    expect((await (await GET(makeGetRequest())).json()).funnelUrl).toBe('/onboarding/demo');
+
+    // Demo on + nothing captured → the location picker.
+    mockSqlQuery.mockResolvedValue([
+      settingsDbRow({
+        subscription_status: 'pending_payment',
+        place_id_verified: false,
+        google_maps_url: null,
+      }),
+    ]);
+    expect((await (await GET(makeGetRequest())).json()).funnelUrl).toBe('/onboarding/start');
+    delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
-  it('admin-onboarded pending_payment → pending_payment_admin_handoff (no payment link)', async () => {
+  it('admin-onboarded pending_payment gets the ordinary pending_payment response', async () => {
+    // The `onboarded_by !== null` handoff branch is deleted — the column is not
+    // even selected any more. An admin-invited owner is redirected into the
+    // same funnel as a self-serve one.
     mockRequireRole.mockResolvedValue(ownerUser());
     mockSqlQuery.mockResolvedValue([
       settingsDbRow({ subscription_status: 'pending_payment', onboarded_by: 'admin-1' }),
@@ -491,8 +513,8 @@ describe('GET /api/settings', () => {
 
     const res = await GET(makeGetRequest());
     const body = await res.json();
-    expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
-    expect(body.paymentUrl).toBeUndefined();
+    expect(body.subscriptionStatus).toBe('pending_payment');
+    expect(body.funnelUrl).toBe('/onboarding/pay');
   });
 
   it('active owner who never finished the business wizard → active_pending_business', async () => {

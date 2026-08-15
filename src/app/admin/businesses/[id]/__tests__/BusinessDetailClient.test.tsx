@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // useBusinessDetail calls router.refresh() from invalidate(), so an edited
 // name/category reaches the server-rendered page chrome. jsdom mounts no app
@@ -179,6 +179,83 @@ describe('BusinessDetailClient', () => {
     expect(screen.getByText(/Owner email is bouncing/)).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Clear bounce flag/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the Resend invite button only while the account is pending_payment', () => {
+    // `active` (the default fixture) is past the invite stage.
+    const { unmount } = renderClient(detail());
+    expect(screen.queryByRole('button', { name: /Resend invite/ })).not.toBeInTheDocument();
+    unmount();
+
+    const pending = detail();
+    pending.account.subscriptionStatus = 'pending_payment';
+    renderClient(pending);
+
+    expect(screen.getByRole('button', { name: /Resend invite/ })).toBeEnabled();
+    expect(screen.getByText('Owner invite')).toBeInTheDocument();
+  });
+
+  it('POSTs the resend and shows the outcome inline, with no browser dialog', async () => {
+    const confirmSpy = vi.fn(() => true);
+    const alertSpy = vi.fn();
+    vi.stubGlobal('confirm', confirmSpy);
+    vi.stubGlobal('alert', alertSpy);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              String(url).endsWith('/resend-invite')
+                ? { success: true, ownerEmailRedacted: 'a***@cafe.com' }
+                : { enrollments: [] },
+            ),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+
+    const pending = detail();
+    pending.account.subscriptionStatus = 'pending_payment';
+    renderClient(pending);
+
+    fireEvent.click(screen.getByRole('button', { name: /Resend invite/ }));
+
+    expect(await screen.findByText('Invite re-sent to a***@cafe.com.')).toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server-mapped resend error inline', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).endsWith('/resend-invite')
+          ? new Response(
+              JSON.stringify({
+                error: 'This owner has already signed in, so the invite was accepted.',
+                code: 'OWNER_ALREADY_SIGNED_IN',
+              }),
+              { status: 409, headers: { 'content-type': 'application/json' } },
+            )
+          : new Response(JSON.stringify({ enrollments: [] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+      ),
+    );
+
+    const pending = detail();
+    pending.account.subscriptionStatus = 'pending_payment';
+    renderClient(pending);
+
+    fireEvent.click(screen.getByRole('button', { name: /Resend invite/ }));
+
+    expect(
+      await screen.findByText(
+        'This owner has already signed in, so the invite was accepted.',
+      ),
     ).toBeInTheDocument();
   });
 });

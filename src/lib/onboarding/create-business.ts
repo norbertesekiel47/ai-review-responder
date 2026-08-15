@@ -1,10 +1,8 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Sql } from 'postgres';
-import { enqueueValidatePlaceId } from '@/lib/shared/job-outbox-helpers';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   SubscriptionTier,
-  isSubscriptionTier,
   resolveTierSnapshot,
   type PriceVariant,
   type ResolvedTierSnapshot,
@@ -12,7 +10,6 @@ import {
 } from '@/lib/accounts/tier-config';
 import { isFoundingWindowOpen } from '@/lib/payments/founding-window';
 import { priceIdFor } from '@/lib/payments/price-tier-map';
-import { assertTierPurchasable } from '@/lib/payments/tier-purchasability';
 
 /**
  * Thrown when the businesses+users insert transaction fails on a PG 23505
@@ -70,34 +67,17 @@ function isDuplicateEmailViolation(err: unknown): boolean {
 export const PLACEHOLDER_BUSINESS_NAME = '(pending setup)';
 
 /**
- * Place ID input — discriminated union makes "verified but no place ID"
- * and "unverified but no URL" unrepresentable at compile time. Only used
- * by admin onboarding; self-serve always writes NULL place fields and the
- * /onboarding/business wizard fills them in later.
- */
-export type PlaceIdInput =
-  | { placeIdVerified: true; placeId: string; googleMapsUrl?: string | null }
-  | { placeIdVerified: false; placeId?: string | null; googleMapsUrl: string };
-
-/**
- * Admin onboarding input shape — full business details captured up front
- * by the admin form. INSERTs an initial-sync outbox row in the same tx.
+ * Admin onboarding input shape — identity only, plus the real business name
+ * the admin typed. Place, voice/context and tier are no longer captured by
+ * the admin form: the invited owner supplies them inside the self-serve
+ * funnel (/onboarding/start, the post-payment wizard, /onboarding/pay), so
+ * the admin row is shape-identical to the self-serve placeholder row except
+ * that `name` is real and `onboarded_by` is set.
  */
 export interface AdminBusinessTxInput {
   ownerEmail: string;
   ownerName: string;
-  ownerPhone?: string | null;
   businessName: string;
-  category?: string | null;
-  tone?: string | null;
-  productsServices?: string | null;
-  staffNames?: string[];
-  highlightFacts?: string[];
-  avoidFacts?: string[];
-  sampleResponses?: string[];
-  subscriptionTier: SubscriptionTierValue;
-  website?: string | null;
-  placeId: PlaceIdInput;
 }
 
 /**
@@ -113,11 +93,19 @@ export interface SelfServeBusinessTxInput {
 }
 
 /**
- * Mode discriminator — admin onboarding and self-serve signup differ in two
- * critical ways: users.auth_id (admin=NULL, self_serve=<authId>) and whether
- * an outbox row is INSERTed (admin=yes, self_serve=no — the
- * /api/onboarding/business UPDATE enqueues the initial sync once the owner
- * supplies real business details).
+ * Mode discriminator. The two modes still differ in ways that keep them
+ * separate transactions:
+ *   - users.auth_id — admin=NULL (patched after inviteUserByEmail returns an
+ *     identity), self_serve=<authId> (the owner already authenticated).
+ *   - businesses.name / accounts.display_name — admin writes the real name
+ *     the admin typed, self_serve writes PLACEHOLDER_BUSINESS_NAME.
+ *   - businesses.onboarded_by — admin only; it is the beta-invite marker
+ *     downstream (coupon eligibility, funnel routing).
+ *   - channel_enrollments — admin inserts a verified email row at creation
+ *     (an admin vouches for the address); self_serve defers it to
+ *     /api/auth/verify-otp, post-OTP.
+ * Neither mode INSERTs a job_outbox row any more: the owner's
+ * /api/onboarding/start enqueues validate_place_id once THEY capture a place.
  */
 export type CreateBusinessOptions =
   | { mode: 'admin'; onboardedBy: string }
@@ -145,17 +133,16 @@ export async function createBusinessTx(
  * (`POST /api/admin/businesses`) and self-serve signup (`POST /api/auth/signup`
  * + `POST /api/auth/finish-signup`).
  *
- * Writes accounts + businesses + users + channel_enrollments in a single sql.begin
- * transaction. After migration 034, users.business_id was dropped; the
- * transaction now creates an accounts row and links everything via
- * users.account_id and businesses.account_id.
- * In admin mode, additionally INSERTs a job_outbox row for
- * validate_place_id when a Maps URL is provided (Place ID verified = no
- * enqueue — review ingestion is webhook-driven via Zernio).
- * In self_serve mode, skips the outbox insert entirely and writes the
- * businesses row with placeholder identity-only fields — the
- * /api/onboarding/business handler updates those fields and enqueues
- * validate_place_id once the owner finishes the wizard after Stripe payment.
+ * Writes accounts + businesses + users (+ channel_enrollments in admin mode)
+ * in a single sql.begin transaction. After migration 034, users.business_id
+ * was dropped; the transaction now creates an accounts row and links
+ * everything via users.account_id and businesses.account_id.
+ * Both modes write an identity-only businesses row with NULL place fields,
+ * empty voice arrays and the default tone, and NEITHER enqueues anything: the
+ * owner's /api/onboarding/start (place) and /api/onboarding/business (wizard)
+ * fill those fields in and enqueue validate_place_id when a place arrives.
+ * The only content difference is `name` — real in admin mode,
+ * PLACEHOLDER_BUSINESS_NAME in self_serve.
  *
  * On PG 23505 (unique_violation, typically users.email), throws
  * DuplicateEmailError so the caller can return 409.
@@ -181,18 +168,13 @@ export async function createBusinessTx(
   const onboardedBy = options.mode === 'admin' ? options.onboardedBy : null;
   const priceVariant: PriceVariant = isFoundingWindowOpen() ? 'founding' : 'list';
 
-  const subscriptionTier =
-    options.mode === 'admin'
-      ? (input as AdminBusinessTxInput).subscriptionTier
-      : SubscriptionTier.COPILOT;
-  if (!isSubscriptionTier(subscriptionTier)) {
-    throw new Error(`Unknown WS8 subscription tier: ${String(subscriptionTier)}`);
-  }
-  // Admin provisioning is an authoritative tier choice. Gate it before the
-  // transaction so a closed Autopilot launch performs zero persistence writes.
-  if (options.mode === 'admin') {
-    assertTierPurchasable(subscriptionTier);
-  }
+  // Both modes create on the safe Copilot pending snapshot. Admin
+  // provisioning is no longer an authoritative tier choice — the invited
+  // owner picks their tier at /onboarding/pay like any self-serve owner — so
+  // there is nothing here for `assertTierPurchasable` to gate; that check
+  // lives at the surfaces where a tier is actually chosen (select-plan,
+  // checkout, tier-change).
+  const subscriptionTier: SubscriptionTierValue = SubscriptionTier.COPILOT;
   const billingSnapshot = resolveTierSnapshot(subscriptionTier, priceVariant);
   assertTierPriceConfiguration(subscriptionTier, priceVariant);
 
@@ -261,12 +243,6 @@ async function runAdminTx(
     billingSnapshot,
   } = args;
 
-  const placeId = adminInput.placeId.placeIdVerified
-    ? adminInput.placeId.placeId
-    : adminInput.placeId.placeId ?? null;
-  const googleMapsUrl = adminInput.placeId.googleMapsUrl ?? null;
-  const placeIdVerified = adminInput.placeId.placeIdVerified;
-
   await sql.begin(async (tx) => {
     // Create accounts row (source of truth for subscription state after
     // migration 034). owner_user_id references the users row we create
@@ -291,6 +267,11 @@ async function runAdminTx(
       )
     `;
 
+    // Identity-only row: same shape as the self-serve placeholder (NULL place
+    // fields, empty voice arrays, default tone) except `name` is the real one
+    // the admin typed and `onboarded_by` marks this as an invited account.
+    // place_id_verified is passed as FALSE explicitly so the column INSERT
+    // order matches the self-serve path verbatim.
     await tx`
       INSERT INTO businesses (
         id,
@@ -319,22 +300,22 @@ async function runAdminTx(
         ${accountId}::uuid,
         TRUE,
         ${adminInput.businessName},
-        ${adminInput.category ?? null},
-        ${placeId},
-        ${placeIdVerified},
-        ${googleMapsUrl},
-        ${adminInput.tone ?? 'professional and friendly'},
-        ${adminInput.productsServices ?? null},
-        ${adminInput.staffNames ?? []},
-        ${adminInput.highlightFacts ?? []},
-        ${adminInput.avoidFacts ?? []},
-        ${adminInput.sampleResponses ?? []},
+        ${null},
+        ${null},
+        ${false},
+        ${null},
+        ${'professional and friendly'},
+        ${null},
+        ${[]},
+        ${[]},
+        ${[]},
+        ${[]},
         ${adminInput.ownerName},
         ${ownerEmail},
-        ${adminInput.ownerPhone ?? null},
+        ${null},
         ${billingSnapshot.tier},
         ${SubscriptionStatus.PENDING_PAYMENT},
-        ${adminInput.website ?? null},
+        ${null},
         ${onboardedBy}
       )
     `;
@@ -346,7 +327,7 @@ async function runAdminTx(
         ${null},
         ${adminInput.ownerName},
         ${ownerEmail},
-        ${adminInput.ownerPhone ?? null},
+        ${null},
         'owner',
         ${accountId}::uuid
       )
@@ -358,14 +339,9 @@ async function runAdminTx(
       ON CONFLICT (account_id, channel, COALESCE(location_id, '00000000-0000-0000-0000-000000000000')) WHERE archived_at IS NULL DO NOTHING
     `;
 
-    const correlationId = uuidv7();
-    if (placeIdVerified && placeId) {
-      // No outbox enqueue for the verified path — review ingestion is now
-      // webhook-driven via Zernio. The Zernio connect flow handles backfill
-      // when the owner links their GBP account.
-    } else if (googleMapsUrl) {
-      await enqueueValidatePlaceId(tx, { businessId, googleMapsUrl, correlationId });
-    }
+    // No job_outbox INSERT — there is no place at creation time. The owner's
+    // /api/onboarding/start enqueues validate_place_id when they capture one,
+    // exactly as it does for a self-serve owner.
   });
 }
 

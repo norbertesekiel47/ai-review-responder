@@ -140,9 +140,9 @@ const DEFAULT_SUB_ROW = {
   subscription_status: 'active',
   subscription_tier: 'copilot',
   owner_email: 'owner@test.com',
-  onboarded_by: null,
   place_id_verified: true,
   google_maps_url: 'https://maps.google.com',
+  onboarding_wizard_completed_at: new Date('2025-01-16T00:00:00Z'),
   archived_at: null,
   past_due_at: null,
   trial_ends_at: null,
@@ -328,7 +328,6 @@ describe('GET /api/dashboard', () => {
         name: 'Pending Biz',
         subscription_status: 'pending_payment',
         owner_email: 'owner@pending.com',
-        onboarded_by: null, // self-serve — owner sees the payment CTA
       },
     ]);
 
@@ -339,9 +338,10 @@ describe('GET /api/dashboard', () => {
     expect(body.subscriptionStatus).toBe('pending_payment');
     expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Pending Biz');
-    // The dashboard now redirects to /onboarding/pay instead of a Stripe Payment Link.
-    // The PlanPickerClient on that page creates a Checkout Session.
-    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
+    // The dashboard now redirects into the funnel instead of a Stripe Payment
+    // Link. With the demo flag off that is /onboarding/pay, where the
+    // PlanPickerClient creates a Checkout Session.
+    expect(body.funnelUrl).toBe('/onboarding/pay');
 
     // Minimal shape — full dashboard fields must be absent
     expect(body.business).toBeUndefined();
@@ -355,35 +355,66 @@ describe('GET /api/dashboard', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store, private');
   });
 
-  it('returns paymentUrl pointing to /onboarding/pay for self-serve pending_payment', async () => {
+  it('dashboard pending_payment response returns the server-computed funnelUrl', async () => {
+    // `funnelUrl` REPLACED the hardcoded `paymentUrl`: the destination is
+    // `resolveFunnelEntry`'s, so an owner owed the pre-pay demo gets the demo
+    // lane instead of the paywall — a decision the browser cannot make because
+    // it cannot read ONBOARDING_DEMO_ENABLED (invariant #13).
     mockRequireRole.mockResolvedValue(ownerUser());
 
-    mockSqlResults.length = 0;
-    sqlCallCounter.value = 0;
-
-    // Call 0: preflight row
-    mockSqlResults.push([
+    const cases: Array<{ demo: boolean; row: Record<string, unknown>; expected: string }> = [
+      { demo: false, row: {}, expected: '/onboarding/pay' },
       {
-        ...DEFAULT_SUB_ROW,
-        name: 'Founding Biz',
-        subscription_status: 'pending_payment',
-        owner_email: 'founder@example.com',
-        onboarded_by: null,
+        demo: true,
+        row: { place_id_verified: false, google_maps_url: null },
+        expected: '/onboarding/start',
       },
-    ]);
+      // Place already captured (verified OR Maps-URL) → the demo return point.
+      { demo: true, row: {}, expected: '/onboarding/demo' },
+      {
+        demo: true,
+        row: { place_id_verified: false },
+        expected: '/onboarding/demo',
+      },
+    ];
 
-    const res = await GET(makeRequest());
-    const body = await res.json();
-    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
+    for (const { demo, row, expected } of cases) {
+      if (demo) process.env.ONBOARDING_DEMO_ENABLED = 'true';
+      else delete process.env.ONBOARDING_DEMO_ENABLED;
+
+      mockSqlResults.length = 0;
+      sqlCallCounter.value = 0;
+      mockSqlResults.push([
+        {
+          ...DEFAULT_SUB_ROW,
+          name: 'Founding Biz',
+          subscription_status: 'pending_payment',
+          owner_email: 'founder@example.com',
+          ...row,
+        },
+      ]);
+
+      const res = await GET(makeRequest());
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.funnelUrl).toBe(expected);
+      // The old field is gone, not shadowed.
+      expect(body.paymentUrl).toBeUndefined();
+    }
+    delete process.env.ONBOARDING_DEMO_ENABLED;
   });
 
-  it('returns admin-handoff payload when pending_payment + onboarded_by IS NOT NULL', async () => {
+  it('admin-onboarded pending_payment gets the ordinary pending_payment response', async () => {
+    // Was: a synthetic `pending_payment_admin_handoff` view-state routing the
+    // owner to a screen with no activation mechanism at all. `onboarded_by` is
+    // no longer read here (the route does not even select it) — admin-invited
+    // owners walk the same funnel and activate through the same checkout.
     mockRequireRole.mockResolvedValue(ownerUser());
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
 
-    // Call 0: preflight row (admin-onboarded)
+    // Call 0: preflight row, still carrying the admin marker.
     mockSqlResults.push([
       {
         ...DEFAULT_SUB_ROW,
@@ -398,18 +429,19 @@ describe('GET /api/dashboard', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.subscriptionStatus).toBe('pending_payment_admin_handoff');
+    expect(body.subscriptionStatus).toBe('pending_payment');
     expect(body.locationId).toBe(BUSINESS_ID);
     expect(body.businessName).toBe('Admin Onboarded Biz');
-    // Critical: no paymentUrl in admin-handoff payload (avoids double-charge risk).
-    expect(body.paymentUrl).toBeUndefined();
+    expect(body.funnelUrl).toBe('/onboarding/pay');
 
     // Preflight query only — Promise.all heavy queries skipped.
     expect(sqlCallCounter.value).toBe(1);
   });
 
-  it('returns paymentUrl pointing to /onboarding/pay even when env vars are unset', async () => {
+  it('returns a relative funnelUrl that needs no NEXT_PUBLIC_APP_URL', async () => {
     mockRequireRole.mockResolvedValue(ownerUser());
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
 
     mockSqlResults.length = 0;
     sqlCallCounter.value = 0;
@@ -421,7 +453,6 @@ describe('GET /api/dashboard', () => {
         name: 'No Env Biz',
         subscription_status: 'pending_payment',
         owner_email: 'owner@noenv.com',
-        onboarded_by: null,
       },
     ]);
 
@@ -430,8 +461,9 @@ describe('GET /api/dashboard', () => {
 
     const body = await res.json();
     expect(body.subscriptionStatus).toBe('pending_payment');
-    // Even without Stripe env vars, the dashboard still redirects to /onboarding/pay
-    expect(body.paymentUrl).toMatch(/\/onboarding\/pay$/);
+    // Same-origin by construction — no base URL is interpolated any more.
+    expect(body.funnelUrl).toBe('/onboarding/pay');
+    process.env.NEXT_PUBLIC_APP_URL = appUrl;
   });
 
   // ── active path — existing behaviour preserved ─────────────────────

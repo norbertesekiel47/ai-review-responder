@@ -119,6 +119,12 @@ function queueAccountAndUsage(
       checkout_attempt_locations_paid: 0,
       checkout_attempt_overage_quantity: overageQuantity,
       checkout_attempt_trial_period_days: trialEligible ? 30 : null,
+      // Migration 105. The column is always in createCheckoutSession's SELECT,
+      // so a real row carries `null` (the explicit no-coupon decision) — never
+      // `undefined`. Spelling it here keeps the fixture the shape the driver
+      // actually returns; omitting it made every attempt fail the snapshot
+      // well-formedness check and 409.
+      checkout_attempt_coupon_id: null,
       checkout_attempt_tax_enabled: process.env.STRIPE_TAX_ENABLED === 'true',
       checkout_attempt_customer_email: 'owner@example.com',
       checkout_attempt_success_url:

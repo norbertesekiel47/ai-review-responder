@@ -111,9 +111,40 @@ Assertion source: `worker/config/startup-assert.ts`.
 
 ### `SELF_SERVE_SIGNUP_ENABLED`
 
-Gates owner self-serve signup/login/reset pages + APIs.
+**Re-scoped 2026-08-14 (admin-invite-funnel).** It now means exactly one thing:
+**strangers may mint accounts.** It gates the anonymous account-minting surface
+and nothing else.
+
+**Still gated:** `/signup` + its sub-pages, `POST /api/auth/{signup,finish-signup,resend-confirmation,verify-otp}`,
+the trial-eligibility clause in `POST /api/billing/checkout`, and the marketing
+copy that advertises anonymous signup (the landing CTA and the nav's Log in /
+Sign up pair — a *posture* choice about what we advertise, no longer a
+404-correctness one).
+
+**No longer gated (14 call sites removed):** `/login`, `/forgot-password`,
+`/reset-password` and their APIs are **always on**, and the whole authenticated
+onboarding funnel (`/onboarding/{start,demo,pay,payment-success,business}` +
+their APIs, `GET /api/auth/signup-status`, `GET /api/signup/place-prefill`) now
+enforces its own **authenticated session + `role = 'owner'` + per-route allowed
+state set** instead of the flag. `GET /api/signup/place-prefill` in particular
+was previously unauthenticated-behind-the-flag and gained real auth plus a
+per-auth-id rate limit alongside its existing per-IP one — removing the flag
+without that would have made a SerpAPI-billed endpoint permanently public.
+
 Admin surfaces (`/admin/login`, `/admin/forgot-password`, `/admin/reset-password`)
-are NEVER gated.
+were never gated and still aren't.
+
+**Why it matters operationally:** an admin-invited beta owner reaches login,
+password recovery and the entire funnel with this flag **off**. Turning it off
+(or leaving it off) no longer locks invited owners out of their own accounts —
+it only closes the door to strangers.
+
+**Authoritative per-call-site inventory** — every kept and removed gate with the
+replacement guard for each removal:
+[`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`](../../docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md).
+Read it before adding a new call site. Single reader: `selfServeSignupEnabled()`
+(`src/lib/auth/flags.ts`). Server-authoritative, no `NEXT_PUBLIC_*` companion
+(invariant #13).
 
 **Required when on:**
 - `REDIS_CACHE_URL`
@@ -348,6 +379,57 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 | `STRIPE_PRICE_COPILOT_OVERAGE` | Immutable USD monthly Copilot extra-location Price; exactly 1500 cents |
 | `STRIPE_PRICE_AUTOPILOT_OVERAGE` | Immutable USD monthly Autopilot extra-location Price; exactly 2000 cents |
 | `FOUNDING_DEADLINE` | Exact launch value `2027-01-01T00:00:00Z`. Parsed as strict UTC; founding eligibility is exactly `now() < deadline`. Missing/malformed fails closed to list pricing and emits an operational alert. |
+| `BETA_COMP_COUPON_ID` | **Unset by default.** Server-only (Vercel), **no `NEXT_PUBLIC_*` companion** (inv #13), **not** a worker var — see below. |
+
+### `BETA_COMP_COUPON_ID` — the admin-invite beta comp
+
+> ⚠️ **PENDING OPS — the coupon does not exist yet.** The code shipped
+> 2026-08-14; creating the Stripe Coupon (test mode AND live mode) and setting
+> this variable in Vercel are **provider actions nobody has performed**. Until
+> then every invited tester's Checkout snapshots `NULL` and renders at **full
+> price** — the one failure a beta tester must never see. The consolidated ops
+> list, with the rest of the feature's outstanding steps, is
+> `docs/runbooks/beta-onboarding-cofounder-guide.md` → **Part 12**; the
+> operator-runnable staging proof is `docs/runbooks/beta-production-standup.md`
+> → **Phase F**. Prod is additionally blocked on the WS8 cutover (see the
+> sequencing note at the end of this section).
+
+The Stripe **Coupon** ID (100% off, `duration=repeating`,
+`duration_in_months=3`) applied to an admin-invited beta tester's Checkout
+Session (admin-invite-funnel plan steps 1–2). Create the coupon in Stripe **test
+mode for staging and live mode for prod** — the two IDs differ, and a test-mode
+ID deployed to live fails every invited tester's checkout. Set it on **Vercel,
+staging first**; it is deliberately absent from the worker lane because no
+worker code path reaches `applyTierSnapshot` (verified: the only importers are
+`/api/onboarding/select-plan` and `/api/billing/checkout`).
+
+Eligibility is `businesses.onboarded_by IS NOT NULL` on the account's **primary**
+Business AND this var being set. The decision is taken ONCE inside
+`applyTierSnapshot`'s transaction, under the activation lock, and snapshotted
+into `accounts.checkout_attempt_coupon_id` (**migration 105**);
+`createCheckoutSession` then emits `discounts: [{ coupon }]` plus an explicit
+`payment_method_collection: 'always'` from that snapshot alone. A live read at
+session-creation time is forbidden: every Session parameter is built under a
+per-attempt Stripe idempotency key, so an env flip between an attempt and its
+retry would produce different params under the same key.
+
+**Unsetting it is the kill switch — for NEW attempts only.** An attempt already
+snapshotted keeps its comp; that is the idempotency contract, not a bug. Empty
+or whitespace-only reads as unset (collapsing `optionalVar`), so a blank value
+switches the comp off cleanly instead of sending Stripe a blank coupon.
+Read through `betaCompCouponId()` (`src/lib/payments/flags.ts`) — never a raw
+`process.env` read. Every decision is logged and emitted as the durable
+`checkout_coupon_decision` analytics event (**migration 106** must be applied
+first); a coupon Stripe rejects raises `CheckoutCouponConfigurationError` and a
+Sentry report rather than a generic checkout failure.
+
+**Sequencing (prod).** Setting this variable in production is necessary but not
+sufficient: migration 105 replaces a constraint over columns migration **077**
+added, and 077/078 are deliberately absent in prod until the WS8 tier cutover
+(`docs/runbooks/ws8-tier-cutover.md`; standing exception in `.claude/CLAUDE.md`).
+The whole admin-invite checkout path is therefore **staging-only until that
+cutover runs** — set the staging value now, hold the production value until
+after WS8.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.
@@ -511,7 +593,7 @@ tier mappings and no invented defaults.
 | Flag | Status | Prerequisite |
 |---|---|---|
 | `RANKING_TRACKING_ENABLED` | Off | Enable when ranking worker is ready |
-| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + six Stripe Prices + required deadline/cost configuration |
+| `SELF_SERVE_SIGNUP_ENABLED` | Off | Custom SMTP + six Stripe Prices + required deadline/cost configuration. **Since 2026-08-14 it gates only anonymous account-minting** — beta invitees log in and walk the funnel with it off (see the re-scoped entry under Feature Flags). |
 | `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
@@ -529,7 +611,7 @@ tier mappings and no invented defaults.
 | ~~`PAST_REPLIES_VIEW_ENABLED`~~ | **RETIRED at #678** (2026-08-08) | Gated the read-only history page (404 when off). Deleted rather than flipped: once the **Reviews list** became the consented **Review import**'s only destination, the flag would have let `import_decision='accepted'` coexist with the imported reviews landing on a `notFound()` (spec `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` §6.3a S4). The list now renders unconditionally. Remove the var from Railway + Vercel; it is read nowhere. **Revert note:** `git revert` of #678 restores the flag read, so the var must be re-added to both platforms *before* a reverted build boots or the list 404s. |
 | `EDIT_REPLIES_ENABLED` | Off (code-complete, PR #56, 2026-05-23/27) | Migration 031 applied. **Since #678 this is the sole gate** — the retired `PAST_REPLIES_VIEW_ENABLED` half of the old two-flag check is gone, and `editRepliesEnabled()` (`src/lib/past-replies/flags.ts`) is the single reader. Gates owner editing of already-posted replies: the 7 `/api/dashboard/past-replies/*` edit routes (draft manual/regenerate → PATCH/DELETE → publish, plus `/retry` and `/restore-original` recovery; all return 503 `feature_disabled` when off — `src/app/api/dashboard/past-replies/_shared/edit-reply-request.ts`), the `Regenerate` affordance on the **Reviews list**, AND the publisher's DELETE-then-POST edit branch + failed-hook orphan conversion + the `process-review.ts` stale-marking path (`worker/jobs/publisher/ResponsePublisherWorker.ts`, `failed-hook.ts`, `src/lib/reviews/process-review.ts`). **Read by BOTH Next.js and the worker — set it in both places.** When off, publisher behavior is byte-for-byte the POST-only path. Server-authoritative; no `NEXT_PUBLIC_*` companion. |
 | ~~`EDIT_EXISTING_REPLIES_ENABLED`~~ | **PARKED** on tag `wip/edit-existing-replies-zernio-v1` | Original single-flag for the full edit / regenerate / publish / retry / restore-original feature. NOT shipped on main — superseded by the `EXTERNAL_REPLY_IMPORT_ENABLED` + `PAST_REPLIES_VIEW_ENABLED` + `EDIT_REPLIES_ENABLED` split above (of which only the first and last survive after #678). Resurrect only if direct GBP API timeline blows up beyond ~12 months; otherwise rebuild against GBP's single-PUT model when GBP arrives. |
-| `ONBOARDING_DEMO_ENABLED` | Off (PR #2 default) | Master flag for the pre-pay demo lane on `feat/pre-paywall-demo-pr2`. When ON: `/onboarding/start` (location capture) and `/onboarding/demo` (demo + paywall) become reachable, `/api/onboarding/business` switches to `BusinessOnboardingPostPaySchema` (rejects location fields), and the wizard becomes 2-step (Profile + Voice). When OFF: those routes 404 and the legacy 3-step wizard runs. Migration 032 must be applied either way. |
+| `ONBOARDING_DEMO_ENABLED` | **Off** | Master flag for the pre-pay demo lane. When ON: `/onboarding/start` (location capture) and `/onboarding/demo` (demo + paywall) become reachable, `/api/onboarding/business` switches to `BusinessOnboardingPostPaySchema` (rejects location fields), and the wizard becomes 2-step (Profile + Voice). When OFF: those routes 404 and the legacy 3-step wizard runs. Migration 032 must be applied either way. Accessor `onboardingDemoEnabled()` (`src/lib/onboarding/flags.ts`); no `NEXT_PUBLIC_*` companion (inv #13). **Read path is the Next.js server lane ONLY** — 15 call sites under `src/**`, **zero** under `worker/**`. Set it in **Vercel** and redeploy (Vercel does not pick up env changes without one); a Railway-only flip changes nothing, because the worker's demo job runs whenever it is enqueued and every gate sits at the Next.js entry points. **Coupling added by admin-invite-funnel:** this flag is now also the switch deciding whether an **admin-invited** owner gets place capture and the AI demo at all. `resolveFunnelEntry` (`src/lib/onboarding/funnel-entry.ts`) takes it as an argument — the caller passes `onboardingDemoEnabled()` — and with it OFF the invited journey silently degrades to password → `/onboarding/pay` → legacy 3-step wizard, i.e. **not** the flow the beta design approved (no demo wow-moment on the live call). **Rollout: must be `true` in staging AND production for the admin-invite beta** — a required rollout step, not an optional enhancement. Flip via the `flag-flip` skill. |
 | `ONBOARDING_DEMO_DAILY_CENTS` | `1000` ($10/day) | Global daily cost ceiling for the onboarding demo lane. Override at runtime via Redis key `cost:onboarding-demo:override:cents`. Each demo reserves 20¢ pessimistically; the worker reconciles to actual spend (~3¢). |
 | `ONBOARDING_DEMO_STAFF_EMAILS_CSV` | unset | Phase 3 staff allowlist for soft-launch. Comma-separated owner emails permitted to reach `/onboarding/start` while the flag is on for the rest of the world. Removed at Phase 4 (full GA). |
 | `TRIAL_ENABLED` | **Off** | Card-up-front, Stripe-native 30-day free trial (migration 069). Server-authoritative; **no `NEXT_PUBLIC_*` companion** (inv #13). When `true` AND the account is a self-serve `pending_payment` account (eligibility per the trial spec §0.2), both self-serve checkout entry points (`/api/billing/checkout`, `/api/onboarding/select-plan`) pass `trial: true` to `createCheckoutSession`, which adds `subscription_data.trial_period_days = TRIAL_PERIOD_DAYS`. Stripe charges **$0 now** and the resulting subscription comes back `status='trialing'`, which `checkout.session.completed` projects to the new explicit `'trialing'` account status via the single applier (`worker/ingress/stripe/apply-subscription-state.ts`). `'trialing'` is treated like `'active'` for entitlement everywhere EXCEPT recurring paid ranking tracking (SerpAPI) which stays active-only. Conversion `trialing→active` fires from `customer.subscription.updated` (status='active') only — the $0 trial-start invoice does NOT convert. Cancel-during-trial runs through existing offboarding `cancel_at_period_end`. The landing hero CTA becomes "Start your N-day free trial" only when this AND `SELF_SERVE_SIGNUP_ENABLED` are on. Reconcile poller has scoped corrective authority for stuck trialing rows. Worker startup does not hard-require it (default-off, additive). |

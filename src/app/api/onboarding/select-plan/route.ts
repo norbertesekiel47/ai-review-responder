@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -7,6 +6,7 @@ import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { SelectPlanSchema } from '@/lib/shared/schemas';
 import { getIpKey } from '@/lib/shared/request-ip';
 import {
+  CheckoutCouponConfigurationError,
   CheckoutOffboardingBlockedError,
   CheckoutUnavailableError,
   createCheckoutSession,
@@ -14,6 +14,7 @@ import {
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
+  releaseCouponFaultedAttempt,
   resolveCheckoutContext,
 } from '@/lib/payments/plan-activation';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
@@ -31,16 +32,6 @@ type SelectPlanRequestGate =
 async function validateSelectPlanRequest(
   req: NextRequest,
 ): Promise<SelectPlanRequestGate> {
-  if (!selfServeSignupEnabled()) {
-    return {
-      kind: 'response',
-      response: NextResponse.json(
-        { error: 'not_found' },
-        { status: 404, headers: NO_STORE },
-      ),
-    };
-  }
-
   try {
     assertSameOrigin(req);
   } catch (err) {
@@ -165,7 +156,13 @@ async function validateSelectPlanRequest(
  * Auth: cookie-bound Supabase session. Caller must be the owner of an
  * account in `pending_payment` status. Active / past_due / cancelled
  * are rejected — those states are the dashboard's billing-recovery
- * surface, not a fresh signup.
+ * surface, not a fresh signup. That trio (session, `u.role = 'owner'` at the
+ * SQL boundary below, and the `pending_payment` check `applyTierSnapshot`
+ * makes while holding the activation lock → 409 `subscription_not_pending`)
+ * IS the boundary: this route carries no `SELF_SERVE_SIGNUP_ENABLED` gate,
+ * because the flag now means only "strangers may mint accounts"
+ * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`)
+ * and an admin-invited owner buys through this same route while it is off.
  *
  * Same-origin: yes — this UPDATEs account state, so a CSRF-driven call
  * with a victim's cookies could flip them to a different tier.
@@ -268,6 +265,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   // Create a Stripe Checkout Session instead of a Payment Link URL.
   // The session includes the correct base + overage line items.
+  //
+  // Captured before the try so the coupon-fault branch of the catch can
+  // release the attempt this snapshot COMMITTED without depending on
+  // control-flow narrowing surviving into a catch block.
+  const committedAttemptId = result.attemptId;
   let checkoutUrl: string;
   try {
     const checkout = await createCheckoutSession(
@@ -305,6 +307,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_attempt_conflict' },
         { status: 409, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutCouponConfigurationError) {
+      // A Beta comp coupon fault is a CONFIGURATION problem, not a provider
+      // outage, and it fails every Admin invite identically. Left in the
+      // generic bucket below, it reached the owner as "Unable to connect to
+      // payment provider. Please try again later." — advice wrong in both
+      // halves: nothing is unreachable, and retrying cannot help. Plan step 11b
+      // asked for this mapping and the route never wired it, which is what made
+      // the first staging checkout failure opaque.
+      reportCaughtError('select-plan', err, {
+        reason: 'checkout_coupon_misconfigured',
+        businessId,
+      });
+      // Release the committed `creating` lease. Without this the owner's every
+      // retry reuses this same rejected coupon snapshot and 502s forever —
+      // unsetting BETA_COMP_COUPON_ID cannot rescue them, because their next
+      // attempt is not a new attempt.
+      await releaseCouponFaultedAttempt(sql, ctx.accountId, committedAttemptId);
+      return NextResponse.json(
+        { error: 'checkout_coupon_misconfigured', detail: err.message },
+        { status: 502, headers: NO_STORE },
       );
     }
     reportCaughtError('select-plan', err, { reason: 'checkout_session_creation_failed', businessId });

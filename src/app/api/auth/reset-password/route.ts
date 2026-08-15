@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { sql } from '@/lib/db/server';
 import { checkRateLimit } from '@/lib/shared/rate-limit';
@@ -20,16 +19,18 @@ export const dynamic = 'force-dynamic';
  * bound to this request. We do NOT take a `role` from the body — the session
  * identity + the `users.role` column are the source of truth.
  *
- * Role-based flag gate: owners are gated on `SELF_SERVE_SIGNUP_ENABLED` (the
- * whole self-serve surface hides when the flag is off), but admin callers are
- * never gated — admins need a functional reset flow regardless of rollout
- * state.
+ * No flag gate: `SELF_SERVE_SIGNUP_ENABLED` now means only "strangers may mint
+ * accounts" (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`),
+ * so it must not disable password recovery for owners — under the beta posture
+ * the flag is off and admin-invited owners arrive here from the invite email.
+ * The boundary is the recovery session itself plus the role lookup and the
+ * strict 5/hr per-authId limit below.
  *
  * `redirectTo` is the caller's next location after the password is updated.
  * Owners land on `/login`; admins land on `/admin/login`.
  */
-// Ten sequential security guards (CSRF, session, role lookup, flag gate,
-// rate limit, AAL step-up, body validation, provider write, session
+// Nine sequential security guards (CSRF, session, role lookup, rate limit,
+// AAL step-up, body validation, provider write, session
 // teardown), each a hard-reject branch; the updateError taxonomy already
 // moved out to mapUpdateUserError. Splitting the remaining guards into
 // helper functions would trade one linear, readable sequence for
@@ -116,14 +117,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return response;
   }
 
-  // 4. Role-based flag gate. Admin reset flow must work regardless of the
-  //    self-serve rollout. Only owners 404 when the flag is off.
+  // `isOwner` now only decides the post-write redirect target (step 7) — it is
+  // no longer an entitlement branch.
   const isOwner = row.role === 'owner';
-  if (isOwner && !selfServeSignupEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  }
 
-  // 5. Rate limit per authId (5/hour, strict — Redis down fails closed with
+  // 4. Rate limit per authId (5/hour, strict — Redis down fails closed with
   //    503). A password reset is a one-shot for a legitimate user; 5/hr
   //    covers typo-retries without leaving headroom for brute-force.
   try {
@@ -144,7 +142,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 6. MFA step-up gate. The recovery OTP mints an AAL1 session; GoTrue refuses
+  // 5. MFA step-up gate. The recovery OTP mints an AAL1 session; GoTrue refuses
   //    a password write on it whenever the account has a verified factor.
   //    requireAal2FromSupabase reads the same verified-factor list GoTrue
   //    stamps into the session, so it tracks the provider's refusal without a
@@ -168,7 +166,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: aal.reason }, { status: 403 });
   }
 
-  // 7. Parse + validate body.
+  // 6. Parse + validate body.
   let body: unknown;
   try {
     body = await req.json();
@@ -183,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 8. Build the success response up-front so the signOut call below has a
+  // 7. Build the success response up-front so the signOut call below has a
   //    cookie jar to write cleared session cookies into. Response-backed
   //    adapter: setAll writes to `response.cookies`. We only reach this point
   //    when we're about to mutate the session — any earlier exit branch uses
@@ -208,7 +206,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     },
   );
 
-  // 9. Update password against the session-scoped Supabase client. We keep
+  // 8. Update password against the session-scoped Supabase client. We keep
   //    passing Supabase's raw message through (rather than a generic string)
   //    because it's genuinely useful in server logs and the network tab for
   //    debugging — the client itself renders only curated copy per error code
@@ -228,7 +226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 
-  // 10. Explicitly end the recovery session. Without signOut the browser
+  // 9. Explicitly end the recovery session. Without signOut the browser
   //    cookie still represents the authenticated recovery session and a
   //    subsequent navigation to /dashboard would bypass the fresh-login
   //    requirement. signOut's cookie writes flow into `response` via the

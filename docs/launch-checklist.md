@@ -77,18 +77,36 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
   #11). The coupon keeps the account `active` with normal $0 subscription
   invoices — consistent with the subscription-invoices-only constraint above —
   and never touches a Stripe Price (immutable/grandfathered, invariant #9a).
-  **Mechanics note:** checkout deliberately sets `allow_promotion_codes: false`
-  (`src/lib/payments/create-checkout-session.ts`), and admin-onboarded accounts
-  don't self-pay anyway (`pending_payment_admin_handoff` →
-  `PendingAdminHandoffScreen`) — so the coupon is applied **Stripe-side during
-  the team's out-of-band activation step**, not by the owner at a checkout.
+  **Mechanics note — superseded 2026-08-14 (`admin-invite-funnel`).** The old
+  note said the coupon would be applied Stripe-side during an out-of-band
+  activation step, because admin-onboarded accounts couldn't self-pay (they
+  dead-ended on an admin-handoff screen that no longer exists). **The owner now
+  completes a real Stripe Checkout themselves**, and the comp rides that
+  checkout: eligibility (`onboarded_by IS NOT NULL` on the primary Business, plus
+  `BETA_COMP_COUPON_ID` set) is resolved once inside `applyTierSnapshot` and
+  frozen onto the **Checkout attempt**, and `create-checkout-session.ts` emits it
+  as `discounts` plus an explicit `payment_method_collection: 'always'` so the
+  $0-due session still collects a card. On the coupon path
+  `allow_promotion_codes` is **omitted entirely, not sent as `false`** — Stripe
+  rejects it beside `discounts` **by parameter presence, not by value**, which is
+  the defect that 500'd the first real staging checkout (**D-16**). A full-price
+  session still sends it as `false`. There is
+  no out-of-band activation step any more; "activation" is the owner finishing
+  checkout. Plan of record:
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`. Ops steps still
+  outstanding (creating the coupon in both Stripe modes, setting the env var):
+  `docs/runbooks/beta-onboarding-cofounder-guide.md` → Part 12.
 - **Acquisition: landing-page early-access form → manual invites.** Leads come
   in via `LeadIntakeForm` (`/book-a-demo` + the pricing CTA anchor); onboarding
   is hand-run per account via `/admin/businesses/new` (admin + AAL2). The
   non-technical co-founder playbook for these meetings is
   `docs/runbooks/beta-onboarding-cofounder-guide.md`.
   `SELF_SERVE_SIGNUP_ENABLED` stays **`false`** until public-release readiness
-  is decided — do not flip it for the beta.
+  is decided — do not flip it for the beta. **(2026-08-14)** That is now a
+  cost-free posture: since the flag was re-scoped to gate only anonymous
+  account-minting, an invited beta owner logs in, recovers their password and
+  walks the entire funnel with it off. The flag no longer has to be flipped for
+  any beta invitee, and flipping it off never locks one out.
 
 Pre-invite actions from these decisions:
 
@@ -113,10 +131,38 @@ Pre-invite actions from these decisions:
   missing migration; the first prod worker deploy happens between them.
 - [ ] **Implement + staging-test the beta activation path** — stand-up
   Phase F: server-selected 100% coupon on the leased checkout for
-  admin-onboarded accounts (`allow_promotion_codes` stays `false`). The
-  3-months-free offer has **no supported activation path today**;
+  admin-onboarded accounts (`allow_promotion_codes` **omitted** on that path —
+  Stripe rejects it beside `discounts` by presence, not value; see **D-16**).
+  The 3-months-free offer has **no supported activation path today**;
   dashboard-created subscriptions, raw-SQL binding, and manual invoices are
   forbidden substitutes.
+- [ ] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
+  exists.** The comp's eligibility test is `onboarded_by IS NOT NULL` on the
+  primary Business, and migration **025** backfilled that column on every row
+  that predated it, pointing them all at the oldest admin/sales_partner user.
+  Those rows are genuinely admin-onboarded (self-serve signup shipped in the
+  same commit as the backfill, so there was no self-serve population to
+  mislabel) — but a *legacy* admin-onboarded account still sitting in
+  `pending_payment` would draw a 3-month comp the moment the live coupon exists,
+  which is not who the beta comp is for. Count them and decide each one
+  deliberately; do not create the coupon while this is unresolved:
+  ```sql
+  SELECT b.id, b.name, a.id AS account_id, b.created_at
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+   WHERE b.is_primary = TRUE
+     AND b.archived_at IS NULL
+     AND b.onboarded_by IS NOT NULL
+     AND a.subscription_status = 'pending_payment'
+   ORDER BY b.created_at;
+  ```
+  Expected at beta launch: only the accounts you deliberately invited. Anything
+  older is a legacy row — settle it (activate, offboard, or accept the comp
+  knowingly) before Phase F2. **Do not "fix" this by NULLing `onboarded_by`**:
+  that would hand those accounts trial eligibility they must not have
+  (`plan-activation.ts` gates trials on `onboarded_by IS NULL`) and would strip
+  the `CleanupAbandonedSignupsPoller` reference guard. Raised by the step-7
+  adversarial review; see `docs/reviews/admin-invite-funnel/`.
 - [ ] Create the live-mode beta coupon (100% off, repeating, 3 months —
   verify `repeating` behaves against the pinned Stripe apiVersion) and record
   its ID here: `____` — stand-up Phase F2.

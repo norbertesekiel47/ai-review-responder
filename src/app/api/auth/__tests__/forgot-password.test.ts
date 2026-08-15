@@ -145,16 +145,27 @@ describe('POST /api/auth/forgot-password', () => {
     expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
-  // ── Flag gating ──────────────────────────────────────────────────
+  // ── Flag scope: password recovery is NOT gated ───────────────────
 
-  it('returns 404 when SELF_SERVE_SIGNUP_ENABLED !== "true" AND role=owner', async () => {
+  it('returns 200 + proceeds when flag is OFF AND role=owner (recovery is always-on)', async () => {
+    // The re-scoped flag means only "strangers may mint accounts"; it no longer
+    // hides owner password recovery. Under the beta posture the flag is off and
+    // admin-invited owners still need a reset link.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([{ role: 'owner' }]);
+
     const res = await POST(
       mkReq({ email: 'owner@example.com', role: 'owner' }),
     );
-    expect(res.status).toBe(404);
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
-    expect(mockSupabaseServer.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mockCheckRateLimit).toHaveBeenCalled();
+    expect(mockSupabaseServer.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+      'owner@example.com',
+      {
+        redirectTo:
+          'https://app.example.com/api/auth/callback?flow=owner&next=/reset-password',
+      },
+    );
   });
 
   it('returns 200 + proceeds when flag is OFF AND role=admin (admin never gated)', async () => {

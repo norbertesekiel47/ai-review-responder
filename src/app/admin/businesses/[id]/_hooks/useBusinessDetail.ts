@@ -1,8 +1,9 @@
 'use client';
 
+import { useReducer } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChannelEnrollmentRow, DetailData } from '../types';
+import type { ChannelEnrollmentRow, DetailData, ResendInviteState } from '../types';
 
 export interface UseBusinessDetailResult {
   data: DetailData | undefined;
@@ -16,6 +17,34 @@ export interface UseBusinessDetailResult {
   channelsError: boolean;
   invalidate: () => void;
   clearBounceFlag: () => Promise<void>;
+  /** POSTs the resend-invite action; the server owns every eligibility rule. */
+  resendInvite: () => Promise<void>;
+  resendInviteState: ResendInviteState;
+}
+
+type ResendInviteAction =
+  | { type: 'start' }
+  | { type: 'success'; message: string }
+  | { type: 'error'; error: string };
+
+const initialResendInviteState: ResendInviteState = {
+  submitting: false,
+  message: null,
+  error: null,
+};
+
+function resendInviteReducer(
+  state: ResendInviteState,
+  action: ResendInviteAction,
+): ResendInviteState {
+  switch (action.type) {
+    case 'start':
+      return { submitting: true, message: null, error: null };
+    case 'success':
+      return { submitting: false, message: action.message, error: null };
+    case 'error':
+      return { submitting: false, message: null, error: action.error };
+  }
 }
 
 export interface UseBusinessDetailOptions {
@@ -34,6 +63,10 @@ export function useBusinessDetail(
 ): UseBusinessDetailResult {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [resendInviteState, dispatchResend] = useReducer(
+    resendInviteReducer,
+    initialResendInviteState,
+  );
 
   const { data, isLoading, isError, error } = useQuery<DetailData>({
     queryKey: ['admin-business', businessId],
@@ -107,6 +140,42 @@ export function useBusinessDetail(
     }
   };
 
+  // Resend invite (plan step 9 / T7). No confirm() dialog: the action is
+  // idempotent-ish from the admin's point of view (worst case one duplicate
+  // email), the route caps it per business, and a modal that blocks the whole
+  // tab is a worse guard than a disabled button. Every eligibility rule —
+  // pending_payment AND provider-confirmed never-signed-in — is enforced
+  // server-side; this only renders whatever the server decided.
+  const resendInvite = async () => {
+    dispatchResend({ type: 'start' });
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}/resend-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ownerEmailRedacted?: string;
+      };
+      if (!res.ok) {
+        dispatchResend({ type: 'error', error: json.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      dispatchResend({
+        type: 'success',
+        message: json.ownerEmailRedacted
+          ? `Invite re-sent to ${json.ownerEmailRedacted}.`
+          : 'Invite re-sent.',
+      });
+    } catch (err) {
+      console.error('[useBusinessDetail] resendInvite threw:', err);
+      dispatchResend({
+        type: 'error',
+        error: 'Failed to resend the invite. Check your network connection and try again.',
+      });
+    }
+  };
+
   return {
     data,
     isLoading,
@@ -117,5 +186,7 @@ export function useBusinessDetail(
     channelsError,
     invalidate,
     clearBounceFlag,
+    resendInvite,
+    resendInviteState,
   };
 }

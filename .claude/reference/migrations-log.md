@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **104** — next migration is **105**
+Current head: **106** — next migration is **107**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -981,6 +981,81 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **106** — `checkout_coupon_analytics_event`: registers ONE new
+  `analytics_events.event_name` value, `checkout_coupon_decision`
+  (admin-invite-funnel plan step 11 / ticket T3,
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`). Same shape as
+  046 → 058 → 069 → 089 → 094 → 097 → 102: DROP + re-ADD of
+  `analytics_events_event_name_check` with a list that is a strict superset of
+  102's, in the same order, under `SET lock_timeout = '5s'` (the swap takes a
+  brief ACCESS EXCLUSIVE lock and re-validates existing rows). **Why a
+  migration:** the DB CHECK, not `ANALYTICS_EVENT_NAMES`, is what admits an
+  event name — registering it only in TypeScript raises 23514 at insert, and
+  `ci:analytics-events` cannot catch that (it compares the TS allowlist against
+  `docs/analytics/events.md`, never the database). **Blast radius of an
+  unapplied 106:** still bounded, but by a DIFFERENT mechanism than this entry
+  originally described. The step-7 review moved the emission INSIDE
+  `applyTierSnapshot`'s transaction, through `emitCouponDecisionEvent`'s
+  `tx.savepoint(...)` (`src/lib/payments/plan-activation.ts`) — the earlier
+  post-commit `recordCouponDecision` is gone. A post-commit emitter lost the
+  event in exactly the case it exists for: a crash between COMMIT and the insert
+  left an attempt whose coupon answer nothing recorded. In-transaction, the event
+  commits **iff** the decision does. The un-applied-106 safety that justified
+  post-commit is preserved by the savepoint, not by the ordering: a `23514`
+  rolls back to the savepoint only, is swallowed there (Postgres-coded errors
+  only — a code-less error RETHROWS, which is what catches a handle with no
+  `.savepoint`), and the snapshot still commits. So a rejected insert costs the
+  metric plus a Sentry-reported handled error, never the tier snapshot, the
+  Checkout attempt, or the owner's plan selection. Deploy ordering still stands:
+  STAGING first, then PRODUCTION, in both cases BEFORE the emitting code — the
+  event is the only durable signal that an invited beta tester's comp was
+  silently skipped. **106 does NOT depend on 077**, so unlike 105 it may be
+  applied to production independently of the WS8 cutover. **Constraint-only** (no
+  new relation, column or index; the constraint name has existed since 046) →
+  **no `SchemaRequirement` export, no `assertSchemaReady` entry, no RLS change,
+  no retention-policy row** — 094, 097 and 102 record the same reasoning.
+  Rollback: revert the deploy; the constraint is a superset of the old one and
+  the event simply stops being emitted. **Applied: local + STAGING (verified
+  2026-08-14). Production: NOT YET** — apply before/with the merge of PR #821,
+  since that lands the emitting code on `main`.
+
+- **105** — `checkout_attempt_coupon`: the beta comp coupon on the **Checkout
+  attempt** snapshot (admin-invite-funnel plan step 2 / ticket T1,
+  `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`; the constraint
+  rewrite is that plan's review-log round 2 finding 5). Adds nullable
+  `accounts.checkout_attempt_coupon_id TEXT` (no default) and REPLACES
+  `accounts_checkout_attempt_complete_check` with 077's two branches reproduced
+  byte-for-byte plus exactly ONE addition: the null-at-rest branch gains
+  `AND checkout_attempt_coupon_id IS NULL`. **Why a column instead of a live env
+  read:** every Stripe Session parameter is built from the immutable attempt
+  snapshot under a per-attempt idempotency key, so reading `BETA_COMP_COUPON_ID`
+  at session-creation time would let an env change between attempt creation and
+  a retry produce different params under the SAME key; the decision is taken
+  once, inside `applyTierSnapshot` under the activation lock, and snapshotted
+  here. **Why the null branch and not the active one:** 077's first branch
+  enumerates every attempt column so a cleared attempt is cleared WHOLE (the
+  attempt-completeness invariant) — leaving the new column out would let a row
+  hold no attempt but a live coupon snapshot that no later writer is obliged to
+  overwrite; while in the active branch NULL is not a missing value but the
+  explicit "no coupon" decision recorded for every non-invitee, so a full-price
+  attempt is a COMPLETE attempt and the column stays unconstrained there. New
+  column is NULL on every existing row → the widened branch passes trivially, no
+  preflight; DROP-then-ADD of the named CHECK keeps the file re-runnable and
+  REPAIRS a stale definition (077's own rationale). **No new relation → no RLS
+  change and no retention-policy row.** Schema requirement:
+  `MIGRATION_105_CHECKOUT_ATTEMPT_COUPON` (schema-ready.ts) — the COLUMN only,
+  because the constraint NAME predates this migration and would be a false
+  proof; the definition is asserted directly by
+  `src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts`.
+  **Sequencing:** 105 replaces a constraint over columns 077 added, so it cannot
+  be applied where 077 has not been — and 077/078 are deliberately absent in
+  production until the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`;
+  standing exception in `.claude/CLAUDE.md`). Staging now, production only
+  at/after that cutover. **Applied: local + STAGING (verified 2026-08-14).
+  Production: BLOCKED until the WS8 cutover** — not an oversight, a sequencing
+  constraint. 105's constraint rewrite references columns 077 added, so applying
+  it to a database without 077 fails outright.
 
 - **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
   staleness cap** skips (#738, closing #719 step-7 review A3's accepted

@@ -201,28 +201,108 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 - [ ] **E2. Zernio** → prod worker; live key; verify per §6.2.
 - [ ] Staging endpoints stay pointed at staging; never re-point.
 
-### Phase F — Beta activation path (code work — ride staging, land via PR)
+### Phase F — Beta activation path
 
-> **The 3-months-free offer currently has NO supported activation path.**
-> Admin-onboarded accounts are `pending_payment` with no payment URL; checkout
-> hardcodes `allow_promotion_codes: false` and passes no `discounts`; a
-> dashboard-created subscription has no tested binding to the account. Raw SQL
-> binding and manual invoices are forbidden (ADR 0005 + audit invariants).
+> **Status changed 2026-08-14 — F1 is DONE.** The activation path exists in code
+> and rides the owner's own Stripe Checkout (branch `admin-invite-funnel`, plan
+> `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`). What remains is
+> **provider + environment work**, not code: create the coupon, set the env var,
+> and run the staging smoke below. The consolidated ops list also lives in
+> `docs/runbooks/beta-onboarding-cofounder-guide.md` → Part 12.
 
-- [ ] **F1.** Implement a **server-selected fixed coupon** on the existing
-      leased-checkout path for admin-onboarded beta accounts (server passes
-      `discounts: [{ coupon: BETA_COUPON_ID }]`; `allow_promotion_codes` stays
-      `false`; eligibility = `onboarded_by IS NOT NULL` + explicit admin
-      action). Tests per working rules (billing math, webhook, idempotency).
-- [ ] **F2.** Create the live coupon (100% off, `duration: repeating`,
-      `duration_in_months: 3`) — **verify `repeating` behaves as expected
-      against the pinned Stripe apiVersion first** (deprecation risk flagged in
-      review 2026-08-10; record a fallback plan — e.g. three cycle-scoped 100%
-      promotions — in this box if it fails: `____`). Record coupon ID in
-      `launch-checklist.md`.
-- [ ] **F3.** Prove the full loop **on staging**: admin onboard → activation
-      checkout with coupon → `checkout.session.completed` → account `active`,
-      $0 subscription invoice, correct tier snapshot on `accounts`.
+- [x] **F1.** ~~Implement a server-selected fixed coupon~~ — **shipped
+      2026-08-14.** Eligibility (`onboarded_by IS NOT NULL` on the account's
+      **primary** Business, plus `BETA_COMP_COUPON_ID` set) is resolved once
+      inside `applyTierSnapshot`'s transaction, under the activation lock, and
+      snapshotted onto the **Checkout attempt**
+      (`accounts.checkout_attempt_coupon_id`, migration **105**).
+      `buildCheckoutSessionParams` emits it as `discounts: [{ coupon }]` plus an
+      explicit `payment_method_collection: 'always'` from that snapshot alone —
+      never a live env read, because every Session parameter is built under a
+      per-attempt idempotency key. On that path `allow_promotion_codes` is
+      **omitted, not sent as `false`** — Stripe rejects it beside `discounts`
+      **by parameter presence, not by value**, so `false` fails the whole
+      request; a full-price session still sends it. Asserting the two can
+      coexist is what 500'd the first real staging checkout (**D-16**). The
+      decision is logged and emitted as the
+      durable `checkout_coupon_decision` analytics event (migration **106**).
+      The dead `pending_payment_admin_handoff` screen is deleted; owners now
+      self-activate through the funnel.
+- [ ] **F2.** Create the coupon (100% off, `duration: repeating`,
+      `duration_in_months: 3`) in **BOTH Stripe modes** — test mode for staging,
+      live mode for prod. **The two IDs differ**; a test-mode ID deployed to live
+      fails every invited tester's checkout identically (it raises
+      `CheckoutCouponConfigurationError` + a Sentry report rather than a generic
+      500, so the failure is legible — but it is still a failed checkout in front
+      of a customer). **Verify `repeating` behaves as expected against the pinned
+      Stripe apiVersion first** (deprecation risk flagged in review 2026-08-10;
+      record a fallback plan — e.g. three cycle-scoped 100% promotions — in this
+      box if it fails: `____`). Record both coupon IDs in `launch-checklist.md`.
+- [ ] **F2b.** Set `BETA_COMP_COUPON_ID` on **Vercel, staging first**, and
+      redeploy. Server-only, no `NEXT_PUBLIC_` companion (invariant #13), and
+      deliberately **not** a Railway/worker variable — no worker path reaches
+      `applyTierSnapshot`. Empty/whitespace reads as unset. **Unsetting is the
+      kill switch and affects NEW attempts only**: an attempt that already
+      snapshotted the coupon keeps it, which is the idempotency contract, not a
+      bug. Hold the production value until F4 below.
+- [ ] **F3. Staging smoke — the invited-owner loop end to end.** Run it as an
+      operator, in this order, against staging. Every box is a thing you can
+      actually see.
+      1. **Migrations.** 105 and 106 are applied to the staging Supabase project.
+         (Verify against the schema, not the migration ledger — see the lab note
+         at the top of `.claude/reference/migrations-log.md`.)
+      2. **Create the invite.** `/admin/businesses/new` (admin + AAL2) with three
+         fields: owner email, owner name, business name. Submit → invite email
+         arrives at the owner address.
+      3. **Accept it.** Open the invite link, set a password → you are returned
+         to `/login`. Sign in with the password you just set.
+      4. **Land on the funnel.** With `ONBOARDING_DEMO_ENABLED=true` (it is
+         **off by default** — set it on staging before this run, or the next
+         assertion is wrong) you arrive at `/onboarding/start` with no place
+         captured, **not** at `/onboarding/pay` and **not** on a dashboard dead
+         end. Capture a location, let the AI demo run. With the demo off the
+         correct landing is `/onboarding/pay` and the wizard captures the
+         location instead — verify whichever posture that environment is
+         actually in, and record which you tested.
+      5. **Checkout says $0.** On the Stripe page: **Total due today = $0.00**,
+         with the 3-month 100%-off discount shown. ❌ If it shows the full price,
+         **stop** — the coupon did not attach; check `BETA_COMP_COUPON_ID` on the
+         staging Vercel env and re-read the `checkout_coupon_decision` event
+         (`reason: env_unset` vs `not_invited`) before retrying.
+      6. **A card IS collected.** The card field is present and required. This is
+         the `payment_method_collection: 'always'` assertion — a 100%-off
+         subscription session would otherwise skip card collection and month 4
+         would fail. Complete the checkout with a Stripe test card.
+      7. **Subscription becomes active, carrying the discount.** In the Stripe
+         dashboard: the Subscription is `active`, a **discount is attached** with
+         3 months remaining, and the first invoice is **$0**. In the app: the
+         account is out of `pending_payment` and the owner is in the wizard.
+      8. **Month 4 is full price.** On the Subscription's upcoming-invoice /
+         schedule view, confirm the **4th** billing cycle renders at the full
+         founding rate, not $0. This is the single assertion that proves
+         `duration_in_months: 3` behaved as intended against the pinned
+         apiVersion — do not skip it, it is the whole point of F2's deprecation
+         check.
+      9. **Analytics.** One `checkout_coupon_decision` row exists for the attempt
+         with `decision: applied`. A retry of the same attempt emits nothing
+         further (no new decision was taken) — that is correct, not a gap.
+      10. **Resend invite.** While a *second* test owner has not yet signed in,
+          `POST /api/admin/businesses/[id]/resend-invite` re-sends. Then accept
+          that invite and try again: the resend must be refused cleanly, not
+          duplicated. ⚠️ **This is also the step that validates the provider
+          error mapping in `src/lib/onboarding/resend-invite.ts`, which shipped
+          deliberately staging-unverified** — record the actual Supabase error
+          code/status you observe for the already-accepted case, and reconcile
+          the mapping against it before prod.
+- [ ] **F4. Production is gated on the WS8 cutover — do not run F2b in prod
+      early.** Migration 105 replaces a constraint over columns migration **077**
+      added, and 077/078 are deliberately absent in production until Phase D
+      above (`ws8-tier-cutover.md`). Order for prod: Phase D cutover → apply 105
+      then 106 → set `BETA_COMP_COUPON_ID` (live-mode ID) → re-run the F3 smoke
+      against production with a real card and an immediate cancel, or against a
+      staff account. Until then the invited-owner checkout path is
+      **staging-only**, and `beta-onboarding-cofounder-guide.md` says so at the
+      top.
 
 ### Phase G — Alerting + posture verification
 

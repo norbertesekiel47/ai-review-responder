@@ -5,13 +5,23 @@
 > on Norbert's side, and this guide tells you exactly where that line is.
 >
 > **Status:** written 2026-08-09 for the first beta cohort (10–15 businesses,
-> free for 3 months); recommitted 2026-08-10. Companion docs: the beta decisions
-> live in `docs/launch-checklist.md` ("Beta cohort decisions"); the technical
-> posture is ADR 0005.
+> free for 3 months); recommitted 2026-08-10. **Rewritten 2026-08-14** — the
+> owner now walks the whole journey themselves in the meeting (there is no
+> "message Norbert to activate" step any more). Companion docs: the beta
+> decisions live in `docs/launch-checklist.md` ("Beta cohort decisions"); the
+> technical posture is ADR 0005.
 >
 > **Before your first meeting:** read Parts 1–4 fully, skim the rest, and
 > confirm the **Feature Status Board (Part 3)** is current with Norbert — it is
 > the single list of what you may and may not promise.
+>
+> ⚠️ **Not live in production yet.** The self-checkout path this guide describes
+> depends on billing machinery that is deliberately absent from the production
+> database until the WS8 tier cutover runs
+> (`docs/runbooks/ws8-tier-cutover.md`). It works end-to-end on staging today.
+> Confirm with Norbert that the cutover has run before you book the first real
+> meeting, and see **Part 12 — Pending ops steps** for everything else that is
+> still outstanding.
 
 ---
 
@@ -54,8 +64,10 @@ disconnect Google or cancel at any time.
 
 ## Part 2 — The beta offer (say it exactly like this)
 
-- **Free for 3 months.** Full Copilot product, no payment at onboarding, no
-  invoice during the free period.
+- **Free for 3 months.** Full Copilot product, **$0 charged at onboarding and $0
+  invoiced during the free period.** They do put a card on file at checkout — see
+  "Payment mechanics" below, and say it early rather than letting it surprise
+  them mid-meeting.
 - **After 3 months:** the founding-customer rate — **$19/month** for Copilot
   (regular price $29) — unless they cancel first. They can cancel anytime in
   Settings → Billing with no penalty; canceling keeps access through the paid
@@ -73,12 +85,28 @@ periods, contractual terms beyond the standard ones on the website
 in Part 3. If a prospect needs something special, say *"let me check with the
 team and come back to you tomorrow"* — that is always an acceptable answer.
 
-**Payment mechanics (so you never have to touch them):** the owner pays nothing
-at onboarding and you never handle payment details in a meeting. Billing setup
-happens on our side after the meeting. **Never create or edit anything in the
-Stripe dashboard yourself** — even a well-meant manual invoice can incorrectly
-flag a customer's account as unpaid and interrupt their service. Anything
-billing-shaped goes to Norbert.
+**Payment mechanics — read this carefully, it changed on 2026-08-14.** The owner
+now goes through a **real Stripe checkout during the meeting**, and it will ask
+for a **card**. The total is **$0 due today**: the beta comp coupon (100% off for
+3 months) is applied automatically by our system because the account was created
+from an admin invite — nobody types a promo code, and there is no code to type.
+
+Say it to them plainly, before they see the card field, in roughly these words:
+
+> *"Next screen is our normal checkout. It'll ask for a card, and the total will
+> say $0 — you're not being charged today and you won't be charged for three
+> months. The card is on file so that at month four it just carries on at $19
+> instead of us having to chase you. You can cancel any time before then in
+> Settings and never pay anything."*
+
+Two things that make this safe to say: the total genuinely reads **$0.00 due
+today** on the Stripe page (if it doesn't, **stop and escalate — do not have
+them pay**), and canceling during the free months costs them nothing.
+
+You still never handle their card. They type it themselves on Stripe's own page.
+**Never create or edit anything in the Stripe dashboard yourself** — even a
+well-meant manual invoice can incorrectly flag a customer's account as unpaid and
+interrupt their service. Anything billing-shaped goes to Norbert.
 
 ---
 
@@ -95,11 +123,14 @@ demoed, or hinted at with a date. When an owner asks for one, the line is:
 | Feature (plain name) | Status | Notes for you |
 |---|---|---|
 | Google connect + posting approved replies | **CONFIRM WITH NORBERT** | The core loop. Must be verified live in production before meeting #1. |
-| Email notifications + approval links | Live (once account is activated) | Email is the always-on channel. |
+| Email notifications + approval links | Live (once they finish checkout) | Email is the always-on channel. |
 | AI drafts for every new review | Live | Typically ready within ~15 min of the review appearing. |
 | Edit a draft before approving | Live | On the approval page — textarea, then "Save & post." |
 | Ask for a fresh draft ("regenerate") | Live | On the approval page. |
-| Import of existing/historical reviews | Live | Owner's choice; see Part 5, step 7. |
+| Import of existing/historical reviews | Live | Owner's choice; see Part 5, step 9. |
+| Live AI demo on their real reviews, before payment | **CONFIRM WITH NORBERT** | Part 5, step 4 — the wow moment. Nothing is posted; drafts only. Depends on the pre-pay demo lane being switched **on** in that environment, and it is off by default — confirm before your first meeting. |
+| Owner completes their own $0 checkout in the meeting | Live | Part 5, step 5. Card collected, $0 due today, 3 months comped. **Prod-blocked until the WS8 cutover** — confirm with Norbert. |
+| Resend the invite email yourself | Live | Part 9. Only works while they haven't signed in yet. |
 | Dashboard: review inbox, all-reviews list, analytics | Live | |
 | Weekly Monday digest email | Live | |
 | Voice settings (tone, what to mention/avoid, sample replies) | Live | No "signature/sign-off" field exists — don't promise one. |
@@ -124,7 +155,8 @@ demoed, or hinted at with a date. When an owner asks for one, the line is:
   sets this up — do it days before your first meeting, not the morning of.
 - [ ] You've clicked through the admin onboarding form (`/admin/businesses/new`)
   once against a made-up test business so the meeting isn't your first time
-  seeing it. Ask Norbert to clean up the test afterwards.
+  seeing it. It is **three fields** — owner email, owner name, business name —
+  and nothing else. Ask Norbert to clean up the test afterwards.
 - [ ] You've read a few of the AI's draft replies (ask Norbert to generate
   sample drafts for a real business via the admin demo tool) so you can speak
   to their quality honestly.
@@ -152,15 +184,16 @@ book-a-demo page). Before booking a meeting, confirm:
 ### Booking the meeting
 
 - **45–60 minutes, video call with screen sharing.** The owner will need to be
-  at a computer or comfortable on their phone — they'll click through email and
-  Google sign-in during the call.
-- Tell them in advance to bring: access to their **email inbox** and their
-  **Google sign-in** for the business. Nothing else.
-- **Coordinate with Norbert before scheduling**: he (or whoever runs technical
-  activation that day) should be reachable during the meeting window, because
-  a new account needs a short technical activation step before reviews start
-  flowing (details in Part 5, step 4). Batch meetings on the same day if you
-  can.
+  at a computer or comfortable on their phone — they'll click through email,
+  a checkout page, and Google sign-in during the call.
+- Tell them in advance to bring: access to their **email inbox**, a **credit or
+  debit card** (for a $0 checkout — say why, per Part 2, so it isn't a surprise
+  on the call), and their **Google sign-in** for the business. Nothing else.
+- **No technical activation step exists any more.** The owner activates their
+  own account by completing the $0 checkout in the meeting; nobody on our side
+  has to do anything mid-call. Norbert does **not** need to be on standby, though
+  it is still worth telling him which day you're onboarding so he can watch for
+  anything odd.
 
 ### 24 hours before
 
@@ -176,8 +209,9 @@ book-a-demo page). Before booking a meeting, confirm:
 
 ## Part 5 — The onboarding meeting, step by step
 
-Total ~45 minutes. Steps 4 and 5 have small waits built in — use them for the
-conversation parts.
+Total ~45–60 minutes. Steps 4 and 7 have short waits built in (the AI demo
+generating, reviews syncing after connect) — use them for the conversation
+parts.
 
 ### Step 1 — Frame it (5 min)
 
@@ -194,47 +228,147 @@ Cover, in your own words:
    founders, and we want you to tell us everything that feels confusing."*
 5. If you have pre-generated sample drafts (Part 4) — show them now.
 
-### Step 2 — Create their account (5 min, you drive, screen NOT shared for this part)
+> **The shape of the whole journey**, so you can narrate it before it starts:
+> you create the account (3 fields) → they get an invite email → they set a
+> password → they're returned to the **login page** → from there the system puts
+> them on exactly the right next screen → they confirm their business location →
+> **they watch the AI write replies to their real reviews** → checkout at $0 with
+> a card → a short setup wizard ending in Connect Google → dashboard. (The
+> location + demo pair depends on a switch that is off by default — see the
+> caveat in Step 4, and check with Norbert beforehand.)
+>
+> **You never decide where they go next.** Every time they log in — during this
+> meeting or three days later — the system works out which step they're owed and
+> sends them there. If they drop off mid-way and come back, they resume; they
+> never have to re-do a step or find a link.
+
+### Step 2 — Create their account (2 min, you drive, screen NOT shared for this part)
 
 On **your** screen (don't share it — the admin console shows internal tools),
-open **`/admin/businesses/new`** and fill the four sections:
+open **`/admin/businesses/new`**. It is **three fields**:
 
-1. **Business info** — search their business name/address and pick it from the
-   dropdown (or paste their Google Maps link).
-2. **Owner info** — their name, email (the one they actually read!), phone.
-3. **Voice & context** — do this *with* them, conversationally; it's a great
-   discovery moment (see Step 8 for what each field means). You can keep it
-   light here and refine in Step 8.
-4. **Subscription tier** — select **Copilot**. (Always Copilot for beta.)
+1. **Owner email** — the one they actually read. Everything downstream depends
+   on this being right: the invite, the approval emails, the digest.
+2. **Owner name**.
+3. **Business name**.
 
-Submit. Two things happen: the owner gets an **invitation email**, and the
-account exists in a "pending activation" state.
+That's all. There is deliberately no place/address picker, no voice questions,
+and no tier picker on this form any more — the owner supplies their location
+themselves in Step 4, you do voice together in the wizard (Step 6), and the
+plan is Copilot by default.
 
-### Step 3 — Owner signs in (5 min, owner drives)
+Submit. Two things happen: the owner gets an **invitation email**, and their
+account exists, awaiting their own checkout.
+
+### Step 3 — Owner accepts the invite and sets a password (5 min, owner drives)
 
 Ask the owner to open the invite email (check spam/promotions if it's not there
-within 2 minutes) and click the link. They'll set a password and land on their
-dashboard, which will show **"Account activation pending — your account is
-being set up by your account manager."** That's expected — say so before they
-see it: *"You'll see an 'activation pending' note for a few minutes while our
-system finishes setting you up."*
+within 2 minutes) and click the link. They set a password, and are then returned
+to the **login page** and asked to sign in with the password they just chose.
 
-### Step 4 — Activation (parallel, Norbert's side)
+Warn them about that beforehand — *"it'll bounce you back to a login screen once;
+that's normal, just sign in with the password you literally just set"* — because
+being asked to log in immediately after setting a password reads like a failure
+if you weren't expecting it. (It's deliberate: the password-reset session is
+destroyed the moment the password is written, which is the safe thing to do.)
 
-Message Norbert (or the day's technical contact): **"[Business name] created —
-activate."** He completes billing/account activation on our side — the owner
-pays nothing and sees nothing. Until this step is done, the product is dormant:
-**no notifications go out and nothing can post.** Usually a couple of minutes.
+**If the invite email never arrives**, don't wait it out — you can resend it
+yourself; see Part 9.
 
-While waiting, talk through Part 6 (what week one looks like) or continue the
-voice conversation.
+### Step 4 — Their location, then the AI demo (10 min, owner drives — the wow moment)
 
-### Step 5 — Connect Google (10 min, owner drives — the big moment)
+When they log in, the system puts them on the right screen automatically. For a
+brand-new invited owner that's the **location step**:
 
-Once activated, have the owner (sharing *their* screen now, or just narrating):
+1. They search their business by name/address and pick it from the dropdown (or
+   paste their Google Maps link). This is the same information you used to
+   collect on the admin form — it's better coming from them, because they can
+   confirm it's the right listing on the spot.
+2. RepWorth then pulls a few of their **real, current Google reviews** and
+   **writes draft replies to them live, in front of the owner.** This is the
+   single most convincing moment of the meeting. Let it land — read one out.
+3. Nothing here is posted anywhere. These are demo drafts on their real reviews;
+   the point is "here's what we'd say," not "here's what we said."
 
-1. Go to the dashboard and click **Connect Google Business** (there's a card on
-   the dashboard; also under Settings).
+If they stop the meeting here and come back tomorrow, logging in returns them to
+this same demo — they will not be sent back to re-enter their location.
+
+> ⚠️ **This whole step only exists when the pre-pay demo lane is switched on**
+> (`ONBOARDING_DEMO_ENABLED`). The flag is **off by default**, and the intended
+> beta setting is **`true` in both staging and production** — see Part 12, where
+> it is a DECISION REQUIRED item. With it off, logging in takes the owner
+> **straight to plan selection and checkout (Step 5)** — no location step, no
+> demo — and they enter their location inside the setup wizard instead, which
+> then runs **Location → Profile → Voice** with Connect Google from the dashboard
+> afterwards rather than as a wizard step. Nothing breaks either way, but the
+> meeting loses its best moment.
+>
+> **Before your first meeting, confirm the flag is actually `true` in the
+> environment you are onboarding into.** It degrades silently — there is no error
+> to notice — so the only way to know is to check, or to walk the funnel yourself
+> once.
+
+### Step 5 — Checkout at $0 (5 min, owner drives)
+
+From the demo they continue to plan selection and then **Stripe's checkout page**.
+
+- Plan: **Copilot**. (Autopilot isn't purchasable during the beta — see Part 3.)
+- The checkout page asks for a **card** and shows **$0.00 due today**. Say the
+  Part 2 script out loud *before* they see the card field.
+- **Check the total before they submit.** It must read $0 due today. If it shows
+  $19, $29, or any non-zero amount, **stop — do not have them pay.** That means
+  the beta comp coupon didn't attach; screenshot the page and escalate (Part 9).
+  It is not fixable in the meeting and paying "and we'll refund you" is not an
+  acceptable workaround.
+- They submit. Their subscription becomes active with the discount attached, and
+  they're taken into the setup wizard.
+
+**How to tell the comp actually applied** (you can check any of these, in
+increasing order of how technical they are): the checkout page said $0.00 due
+today; and after checkout, Settings → Billing shows an active subscription with
+no charge. Norbert can confirm from our side that the discount is on the
+subscription and that month 4 is scheduled at the full founding rate. If in any
+doubt, ask him to confirm before you leave the call — it's a two-minute check and
+much cheaper than a surprise charge to a founding customer.
+
+### Step 6 — The setup wizard: Profile, then Voice (5–10 min, together — this determines draft quality)
+
+After checkout the owner lands in a short wizard: **Profile → Voice → Connect
+Google** (or **Location → Profile → Voice** if the demo lane was off — see the
+caveat in Step 4). Profile is quick (business details, mostly pre-filled). Voice is the
+one worth your time — do it *with* them, conversationally; it's a great
+discovery moment and it's what makes the drafts sound like them. Four things,
+in plain terms:
+
+- **Tone** — how replies should sound (e.g. "professional and friendly," or
+  their own description). Ask: *"If your best employee answered a review, how
+  would it sound?"*
+- **Products & services** — what the business wants mentioned or highlighted.
+- **Things to avoid** — topics or claims replies must never touch (e.g. "never
+  promise discounts," "don't mention the old location"). Push on this one — it
+  prevents the awkward drafts.
+- **Sample replies** — 2–3 past replies the owner actually wrote and liked.
+  This is the highest-impact field: the more "them" we have, the more the
+  drafts sound like them. If they've never replied to reviews, have them
+  dictate one on the spot for a real review.
+
+The Voice step is **skippable** and everything here is editable later under
+**Settings → Voice** — so if the meeting is running long, take the tone and the
+things-to-avoid now and book the rest into the week-one check-in.
+
+Note: there is **no automatic signature/sign-off setting** — if they want
+"— Maria, Owner" at the end, it should go in their sample replies so the AI
+picks up the habit, and they can always edit any draft.
+
+### Step 7 — Connect Google (10 min, owner drives — the other big moment)
+
+With the demo lane on, connecting Google is the **last step of the setup
+wizard**, so they arrive at it on their own; with it off, the wizard ends after
+Voice and they connect from the dashboard. Either way, have the owner (sharing
+*their* screen now, or just narrating):
+
+1. Click **Connect Google Business** — on the wizard's final step, or from the
+   card on the dashboard (it's also under Settings).
 2. They'll be sent to a **Google sign-in and consent screen**. **They sign in
    themselves — never ask for, type, or watch them type their Google
    password.** They're granting RepWorth access to read the listing's reviews
@@ -248,14 +382,14 @@ in the dashboard. If the connection fails or hangs, don't debug on the call —
 screenshot it, tell the owner *"our team will have this sorted today,"* and
 escalate (Part 9).
 
-### Step 6 — Notifications check (2 min)
+### Step 8 — Notifications check (2 min)
 
 Confirm the owner knows notifications arrive by **email** for now, from
 RepWorth — have them add us to contacts / check spam once. (If the status board
 says Telegram or WhatsApp are live and the owner prefers one, they can add it
 under Settings → Channels.)
 
-### Step 7 — The import decision (3 min, owner decides)
+### Step 9 — The import decision (3 min, owner decides)
 
 A banner will appear on their dashboard offering to **import their recent
 reviews** — up to the 100 most recent from the past year. Explain it neutrally:
@@ -271,28 +405,7 @@ reviews** — up to the 100 most recent from the past year. Explain it neutrally
 Most owners should accept — it makes the dashboard immediately feel alive. But
 it's genuinely their call; record what they chose in your meeting notes.
 
-### Step 8 — Voice setup (5–10 min, together — this determines draft quality)
-
-Under **Settings → Voice** (or refine what you entered in Step 2). Four things,
-in plain terms:
-
-- **Tone** — how replies should sound (e.g. "professional and friendly," or
-  their own description). Ask: *"If your best employee answered a review, how
-  would it sound?"*
-- **Products & services** — what the business wants mentioned or highlighted.
-- **Things to avoid** — topics or claims replies must never touch (e.g. "never
-  promise discounts," "don't mention the old location"). Push on this one — it
-  prevents the awkward drafts.
-- **Sample replies** — 2–3 past replies the owner actually wrote and liked.
-  This is the highest-impact field: the more "them" we have, the more the
-  drafts sound like them. If they've never replied to reviews, have them
-  dictate one on the spot for a real review.
-
-Note: there is **no automatic signature/sign-off setting** — if they want
-"— Maria, Owner" at the end, it should go in their sample replies so the AI
-picks up the habit, and they can always edit any draft.
-
-### Step 9 — The first approval (5 min — do this live if at all possible)
+### Step 10 — The first approval (5 min — do this live if at all possible)
 
 If any drafts are ready (for a new review, or generate one on demand from an
 unanswered review in the **All Reviews** list):
@@ -312,7 +425,7 @@ lost reply), and an approval link is basically a "post this reply" button —
 **they shouldn't forward those emails** to people they wouldn't let speak for
 their business.
 
-### Step 10 — Wrap (5 min)
+### Step 11 — Wrap (5 min)
 
 - Recap: *"From now on it's automatic — review comes in, you get an email with
   a suggested reply, you tap approve or edit. A couple of minutes a day, most
@@ -384,6 +497,18 @@ Nothing for 3 months. Then $19/month as a founding customer — that rate is
 yours to keep. Cancel anytime before the free period ends and you'll never pay
 anything.
 
+**"Why do you need my card if it's free?"**
+So month four just works instead of us having to chase you for payment details
+right when the product has become part of your routine. Today's total is $0 —
+you'll see that on the checkout page before you enter anything — and nothing is
+charged until the three free months are over. If you cancel before then, in
+Settings, the card is never charged at all.
+
+**"Will I get charged by accident when the free period ends?"**
+No accident about it — at month four it becomes $19/month, the founding rate,
+and you'll have had three months to decide. Cancel any time up to that point in
+Settings → Billing and you pay nothing, ever.
+
 **"Can my manager handle the approvals?"**
 The account has one login for the beta, and approval emails go to its email
 address. Practical workaround: use a shared inbox address for the account.
@@ -423,13 +548,40 @@ confidence; ten minutes of on-call fiddling destroys it.
 
 | Symptom | What you say | What you do |
 |---|---|---|
-| Invite email never arrives | "Let's check spam… no? We'll resend it right after the call." | Verify the email address you entered. Escalate to Norbert. |
+| Invite email never arrives | "Let's check spam… no? I'll resend it right now." | Verify the email address you entered, then use **Resend invite** on the business's admin page (see below). If the resend also fails to arrive, escalate. |
+| **Checkout total is NOT $0** | "Give me one second — I don't want you paying for something that's meant to be free." | **STOP. Do not let them pay.** Screenshot the checkout page, escalate immediately. The beta comp coupon didn't attach; it is not fixable in the meeting. |
+| Checkout page errors or won't load | "That's on us — team will sort it today." | Screenshot (with the address bar), escalate. Do not retry more than once. |
+| They log in and land somewhere unexpected | "Let me look — the system picks the screen for you." | Note exactly what they saw and where they'd got to, and escalate. Don't hand them a URL to type. |
 | Google connect errors or loops | "This is on us, not on you — team will sort it today." | Screenshot (with the address bar), escalate. |
 | Reviews not appearing 30+ min after connect | "Sync can lag; we'll confirm from our side." | Escalate with the business name + connect time. |
 | Owner approved but the reply isn't on Google after ~15 min | "Posting can take a few minutes; we'll verify it landed." | Escalate — this one is time-sensitive. |
 | Owner says a review never produced a draft email | "Some drafts get an extra safety check on our side — let me look into it." | Escalate; may be a held draft (working as intended) — never speculate to the owner. |
 | **A posted reply looks wrong/off-brand** | "Thanks for flagging — we're on it right now." | **Escalate IMMEDIATELY (call, don't text).** A bad public reply is our worst failure mode; minutes matter. |
 | Owner asks for refund/legal/contract things | "Let me get you an answer from the team today." | Escalate. Never improvise terms. |
+
+### Resending the invite email (you can do this yourself)
+
+Open the business in the admin console (`/admin/businesses/[id]`) and use
+**Resend invite**. It sends the same invitation email to the same address.
+
+Two things to know:
+
+- **It only works while the owner has never signed in.** Once they've accepted
+  the invite and set a password, resending is refused on purpose — at that point
+  the fix is a **password reset**, which they can do themselves from the login
+  page ("Forgot password"). Send them there instead of resending.
+- **You get 3 resends per business per hour.** That's deliberate: this is the one
+  button that puts email into someone else's inbox on demand, and a click-loop
+  would damage our sending reputation for everyone. If three didn't land, the
+  problem isn't the button — escalate.
+- **If it fails with an error you don't understand, escalate rather than
+  retrying.** The way this action reports provider failures is
+  **not yet verified against real Supabase behaviour on staging** (it is on the
+  pending-ops list in Part 12), so an unfamiliar error message is a genuine
+  "tell Norbert" moment, not something to click through.
+
+You cannot change the owner's email address from here. If you typed the address
+wrong, that's an escalation — the account has to be recreated.
 
 **Escalation contact:** Norbert — [phone] — plus the shared founders channel.
 When escalating, always include: business name, owner email, what happened,
@@ -488,5 +640,99 @@ from the founder who onboarded them works far better than anything automated.
   services, things to avoid, sample replies.
 - **Escalation / Guardian** — the (upcoming) urgent-alert treatment for
   negative reviews; today negatives flow through the normal approve path.
-- **Activation** — the internal step after account creation that switches the
-  account fully on; owners see "activation pending" until it's done.
+- **Invite** — the email that creates the owner's login. Sent when you submit
+  the 3-field admin form; resendable from the business's admin page until they
+  first sign in.
+- **Activation** — completing the $0 checkout. That is what switches the
+  account fully on. **There is no separate internal activation step any more**
+  and nobody on our side performs one; if you hear "message Norbert to
+  activate," that instruction is out of date.
+- **AI demo** — the pre-payment moment where RepWorth drafts replies to the
+  owner's real Google reviews so they can see the quality before paying.
+  Nothing from it is ever posted.
+- **Setup wizard** — the short post-checkout sequence Profile → Voice → Connect
+  Google that ends on the dashboard.
+- **Beta comp coupon** — the automatic 100%-off-for-3-months applied at checkout
+  because the account came from an admin invite. There is no promo code to type
+  and no code to give out. (Say "beta comp coupon", not "beta discount" or
+  "discount code" — `CONTEXT.md` locks the term and lists those as the phrasings
+  to avoid, because a *code* is something a customer types and this is
+  server-selected.)
+
+---
+
+## Part 12 — Pending ops steps (NOT done by the implementation)
+
+> **Audience: Norbert / whoever owns ops.** This section is not for the meeting.
+> It is the complete list of things the 2026-08-14 code change deliberately did
+> **not** do, because they are provider or environment actions rather than code.
+> **Until every box here is ticked for an environment, the flow in Part 5 does
+> not work in that environment** — most visibly, the checkout will show the full
+> price instead of $0, which is the one failure a beta tester must never see.
+>
+> Sources: plan `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`
+> steps 1 and 9 + "Risks / open questions"; env reference
+> `.claude/reference/env-vars.md` → `BETA_COMP_COUPON_ID`.
+
+- [ ] **Create the Stripe coupon in TEST mode** (for staging): 100% off,
+      `duration: repeating`, `duration_in_months: 3`. Nobody has created it yet.
+      Record the coupon ID.
+- [ ] **Create the Stripe coupon in LIVE mode** (for production), same shape.
+      **It is a different ID from the test-mode one** — a test-mode ID deployed
+      to live fails every invited tester's checkout identically.
+- [ ] **Set `BETA_COMP_COUPON_ID` in Vercel — staging first, then production.**
+      Server-only; there is no `NEXT_PUBLIC_` companion and it is deliberately
+      not a worker variable. Redeploy. **Unset is the kill switch, and it only
+      affects NEW checkout attempts** — an owner whose attempt already
+      snapshotted the coupon keeps it.
+- [ ] **Verify the Supabase re-invite error shapes on staging** before trusting
+      the resend-invite action's error mapping (`src/lib/onboarding/resend-invite.ts`,
+      route `POST /api/admin/businesses/[id]/resend-invite`). The mapping was
+      written **without** that staging verification and is marked
+      staging-verify-before-prod in the module itself. Exercise at least: an
+      owner who has never signed in (expect success), and an owner who has
+      already accepted (expect a clean refusal, not a duplicate invite).
+- [ ] **⚠ DECISION REQUIRED — set `ONBOARDING_DEMO_ENABLED=true` in Vercel for
+      staging AND production.** Not an optional enhancement: it is the switch
+      that decides whether the approved journey exists at all. The flag is **off
+      by default**, and with it off an invited owner goes password →
+      `/onboarding/pay` → the **legacy 3-step wizard** — no location step, **no
+      AI demo**, no wow-moment on the live call. That is a different product from
+      the one this change was designed and reviewed to deliver: "invited owners
+      get the AI demo lane too" is a locked decision in the plan's *Key decisions
+      & tradeoffs*.
+
+      The funnel code is correct either way — `resolveFunnelEntry` routes
+      `pending_payment` → `/onboarding/pay` when the demo is off, and the legacy
+      wizard captures the location itself — so nothing breaks. It degrades
+      **silently**, which is exactly why this is a checklist item and not a
+      runtime error.
+
+      Mechanics (flip via the `flag-flip` skill):
+      - Exact value `true`. The reader accepts that literal string only —
+        `TRUE`, `1`, `yes` all read as off.
+      - **Vercel only, then redeploy.** The flag has 15 read sites under
+        `src/**` and **zero** under `worker/**`, so a Railway-only flip changes
+        nothing: the worker's demo job runs whenever it is enqueued, and every
+        gate lives at the Next.js entry points.
+      - Staging first, smoke it (Phase F), then production.
+      - Cost: each demo reserves 20¢ pessimistically and reconciles to ~3¢,
+        under the existing `ONBOARDING_DEMO_DAILY_CENTS` ceiling ($10/day).
+      - Kill switch: back to `false` returns new owners to the legacy wizard;
+        an owner who already captured a location keeps it, and
+        `resolveFunnelEntry` sends them to `/onboarding/pay` on their next visit.
+- [ ] **Verify the live production value of `SELF_SERVE_SIGNUP_ENABLED`.** The
+      design assumed it has always been `false` in prod; if it was ever flipped
+      on temporarily during an onboarding, some assumptions in the plan's
+      write-up are wrong (the design itself is unaffected). This is a read, not
+      a change.
+- [ ] **Confirm WS8 cutover timing.** Migrations **077 and 078** are
+      deliberately absent in production and apply *inside* the WS8 tier cutover
+      (`docs/runbooks/ws8-tier-cutover.md`); migration **105** replaces a
+      constraint over 077's columns, so it cannot be applied in production
+      before that cutover. **Until WS8 runs in prod, this checkout path is
+      staging-only.** Do not apply 077, 078, or 105 to production out-of-band.
+- [ ] **Run the staging smoke** — the operator checklist is
+      `docs/runbooks/beta-production-standup.md` → **Phase F**. It is the proof
+      that $0-due-today, card-collected, active-with-discount, and
+      full-price-at-month-4 all actually hold.

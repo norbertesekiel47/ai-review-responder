@@ -425,6 +425,29 @@ export const MIGRATION_104_DRIP_LOG_SKIP_RECORD: SchemaRequirement = {
 };
 
 /**
+ * 105 snapshots the beta comp coupon onto the Checkout attempt (#T1 of the
+ * admin-invite-funnel plan). The COLUMN is the whole requirement, and it is a
+ * sound one: 105 is the only migration that adds
+ * `accounts.checkout_attempt_coupon_id`, so its presence proves 105 ran.
+ *
+ * `accounts_checkout_attempt_complete_check` is deliberately NOT listed. The
+ * name has existed since 077, which created it; 105 REPLACES the definition.
+ * A `constraints` entry checks presence by name only, so it would pass on a
+ * container provisioned before 105 and prove nothing — the false-proof hazard
+ * the `AnalyticsEventNameRequirement` note below describes, arriving through
+ * the constraint door instead of the event-name one. The only evidence that
+ * matters is the DEFINITION, which a `SchemaRequirement` structurally cannot
+ * carry, so the shape suite asserts it directly (`pg_get_constraintdef`, in
+ * `migration-105-checkout-attempt-coupon.integration.test.ts`) — and a
+ * container that has the column but a stale CHECK fails there, loudly, on the
+ * definition itself.
+ */
+export const MIGRATION_105_CHECKOUT_ATTEMPT_COUPON: SchemaRequirement = {
+  migration: '105_checkout_attempt_coupon',
+  columns: ['accounts.checkout_attempt_coupon_id'],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,

@@ -415,8 +415,8 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
 
   it('honors the allowlist line-precisely (allowlisted line passes; same file, other line fails)', () => {
     const literal = "  subscriptionStatus: 'past_due';";
-    // dashboard/types.ts:176 is an allowlisted type-discriminant — land the literal on line 176.
-    const onAllowlistedLine = Array(175).fill('').join('\n') + '\n' + literal;
+    // dashboard/types.ts:177 is an allowlisted type-discriminant — land the literal on line 177.
+    const onAllowlistedLine = Array(176).fill('').join('\n') + '\n' + literal;
     expect(scanFile('src/lib/dashboard/types.ts', onAllowlistedLine)).toHaveLength(0);
     // Same file, line 1 (NOT allowlisted) — the carve-out is line-precise, not file-wide.
     expect(scanFile('src/lib/dashboard/types.ts', literal)).toHaveLength(1);
@@ -430,9 +430,13 @@ describe('scanFile — subscription-status bare literal (deep-scan §7.1; repwor
     // one moved :112 → :137 → :147 inside #677 alone: first when
     // `maybeEnqueueBackfillResume` gained a `sql.begin` + businesses row lock
     // (round-2 F107), then when round-1 O3 replaced its copied payload/enqueue
-    // block with the shared `enqueueInitialImport`.
+    // block with the shared `enqueueInitialImport`. The dashboard sample moved
+    // :176 → :186 → :177 across admin-invite-funnel: T5 deleted
+    // `DashboardDataPendingAdminHandoff` and documented `funnelUrl` above it
+    // (pushing it down), then D-11 removed the `paymentUrl` tombstone that
+    // deletion had stranded (pulling it back up).
     expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('worker/ingress/stripe/shared.ts:147')).toBe(true);
-    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:176')).toBe(true);
+    expect(SUBSCRIPTION_STATUS_LITERAL_ALLOWLIST.has('src/lib/dashboard/types.ts:177')).toBe(true);
   });
 });
 

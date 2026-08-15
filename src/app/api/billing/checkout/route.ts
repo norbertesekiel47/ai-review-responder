@@ -14,6 +14,7 @@ import { sql } from '@/lib/db/server';
 import { SubscriptionTier } from '@/lib/accounts/tier-config';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
+  CheckoutCouponConfigurationError,
   CheckoutOffboardingBlockedError,
   CheckoutUnavailableError,
   createCheckoutSession,
@@ -21,6 +22,7 @@ import {
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
+  releaseCouponFaultedAttempt,
 } from '@/lib/payments/plan-activation';
 import { trialEnabled } from '@/lib/payments/flags';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
@@ -160,6 +162,11 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
   // Create the Checkout Session via the shared module
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
   // (network timeout, rate limit, invalid key, Stripe 500).
+  //
+  // Hoisted out of the try because the coupon-fault branch of the catch has to
+  // release the attempt this snapshot COMMITTED, and a `const` inside the try
+  // is not in scope there.
+  let committedAttemptId: string | null = null;
   try {
     const snapshotResult = await applyTierSnapshot(sql, {
       accountId,
@@ -189,6 +196,8 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
         { status: 403, headers: NO_STORE },
       );
     }
+
+    committedAttemptId = snapshotResult.attemptId;
 
     const result = await createCheckoutSession(
       sql,
@@ -227,6 +236,29 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: 'checkout_attempt_conflict' },
         { status: 409, headers: NO_STORE },
+      );
+    }
+    if (err instanceof CheckoutCouponConfigurationError) {
+      // The SECOND createCheckoutSession consumer. `select-plan` maps this
+      // and this route did not, so a Beta comp coupon fault here still
+      // reached the owner as "Unable to connect to payment provider" and
+      // filed Sentry under `reason: 'stripe_error'` — advice wrong in both
+      // halves (nothing is unreachable; retrying cannot help) and the
+      // misfiled reason is what made D-16's staging failure opaque.
+      // `intake.observability[3]` asks for this mapping on the coupon path,
+      // not on one of its two routes.
+      reportCaughtError('billing/checkout', err, {
+        reason: 'checkout_coupon_misconfigured',
+        accountId,
+      });
+      // Release the committed `creating` lease, or the owner's every retry
+      // reuses this same rejected snapshot and 502s forever.
+      if (committedAttemptId !== null) {
+        await releaseCouponFaultedAttempt(sql, accountId, committedAttemptId);
+      }
+      return NextResponse.json(
+        { error: 'checkout_coupon_misconfigured', detail: err.message },
+        { status: 502, headers: NO_STORE },
       );
     }
     reportCaughtError('billing/checkout', err, { reason: 'stripe_error', accountId });

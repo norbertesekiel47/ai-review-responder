@@ -9,6 +9,7 @@ const {
   mockCreateCheckoutSession,
   mockApplyTierSnapshot,
   mockResolveCheckoutContext,
+  mockReleaseCouponFaultedAttempt,
   mockSql,
 } = vi.hoisted(() => ({
   mockCheckRateLimit: vi.fn(),
@@ -17,6 +18,7 @@ const {
   mockCreateCheckoutSession: vi.fn(),
   mockApplyTierSnapshot: vi.fn(),
   mockResolveCheckoutContext: vi.fn(),
+  mockReleaseCouponFaultedAttempt: vi.fn(),
   mockSql: vi.fn(),
 }));
 
@@ -29,12 +31,21 @@ vi.mock('@/lib/payments/plan-activation', () => {
     CheckoutAttemptConflictError,
     applyTierSnapshot: mockApplyTierSnapshot,
     resolveCheckoutContext: mockResolveCheckoutContext,
+    releaseCouponFaultedAttempt: mockReleaseCouponFaultedAttempt,
   };
 });
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   class CheckoutOffboardingBlockedError extends Error {}
+  // Mirrors the real 2-arg constructor (couponId, cause) so the message the
+  // route forwards is shaped like production's.
+  class CheckoutCouponConfigurationError extends Error {
+    constructor(couponId: string, cause: string) {
+      super(`Stripe rejected the beta comp coupon "${couponId}" (${cause})`);
+    }
+  }
   return {
+    CheckoutCouponConfigurationError,
     CheckoutOffboardingBlockedError,
     CheckoutUnavailableError,
     createCheckoutSession: mockCreateCheckoutSession,
@@ -116,14 +127,49 @@ beforeEach(() => {
 });
 
 describe('POST /api/onboarding/select-plan', () => {
-  it('returns a private no-store 404 when self-serve signup is disabled', async () => {
+  it('creates a Session for an owner when self-serve signup is disabled', async () => {
+    // The re-scoped flag gates anonymous account-minting only; an
+    // admin-invited owner buys through this same route while it is off. The
+    // boundary is session + `u.role = 'owner'` + the pending_payment check
+    // applyTierSnapshot makes under the activation lock.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
     resetServerConfigForTests();
     const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      paymentUrl: 'https://checkout.stripe.test/session',
+    });
+    expect(mockApplyTierSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('select-plan rejects a non-pending_payment account', async () => {
+    // The state gate that replaced the flag: applyTierSnapshot re-reads the
+    // status while holding the activation lock and refuses anything but
+    // pending_payment, so an already-active owner cannot double-subscribe.
+    mockApplyTierSnapshot.mockResolvedValueOnce({
+      kind: 'wrong_status',
+      status: 'active',
+    });
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(409);
     expectPrivateNoStore(res);
-    expect(mockCreateServerClient).not.toHaveBeenCalled();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({
+      error: 'subscription_not_pending',
+      subscriptionStatus: 'active',
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('scopes the business lookup to an owner role at the SQL boundary', async () => {
+    // Proxy does not gate /api/onboarding/* on role, so the filter here is the
+    // authorization invariant — not a convenience.
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    const callArgs = mockSql.mock.calls[0] as unknown[];
+    const query = (callArgs[0] as TemplateStringsArray).join('?');
+    expect(query).toContain("u.role = 'owner'");
   });
 
   it('returns a private no-store 400 for invalid JSON before auth', async () => {
@@ -361,5 +407,62 @@ describe('POST /api/onboarding/select-plan', () => {
       error: 'checkout_error',
       detail: 'Unable to connect to payment provider. Please try again later.',
     });
+  });
+
+  it('maps a Beta comp coupon misconfiguration to its own error, not checkout_error', async () => {
+    // Regression guard for the first staging checkout failure. A coupon fault
+    // is a CONFIGURATION problem: it fails every Admin invite identically and
+    // retrying cannot help. Collapsed into `checkout_error` it told the owner
+    // "Unable to connect to payment provider. Please try again later." — wrong
+    // in both halves, and it cost a staging debugging round to see past.
+    const { CheckoutCouponConfigurationError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutCouponConfigurationError('beta_comp_3mo', 'No such coupon'),
+    );
+
+    const res = await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(res.status).toBe(502);
+    expectPrivateNoStore(res);
+    const body = await res.json();
+    expect(body.error).toBe('checkout_coupon_misconfigured');
+    expect(body.detail).toContain('beta_comp_3mo');
+  });
+
+  it('releases the coupon-faulted attempt so the owner is not permanently bricked', async () => {
+    // applyTierSnapshot has already COMMITTED the bad coupon into a `creating`
+    // attempt, and prepareCheckoutAttempt REUSES a `creating` attempt for the
+    // same selection. Without the release every retry rebuilds the identical
+    // rejected Stripe params and 502s forever — and unsetting BETA_COMP_COUPON_ID
+    // cannot rescue this owner, because their next attempt is not a new attempt.
+    // Step-7 spec review, and the half of the rollback plan that was untrue.
+    const { CheckoutCouponConfigurationError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutCouponConfigurationError('beta_comp_3mo', 'No such coupon'),
+    );
+
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(mockReleaseCouponFaultedAttempt).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT release the attempt on a non-coupon checkout failure', async () => {
+    // A provider outage leaves a legitimately reusable lease. Clearing it there
+    // would discard a valid attempt and re-mint one on every transient Stripe
+    // blip — the opposite of what the per-attempt idempotency key exists for.
+    const { CheckoutUnavailableError } = await import(
+      '@/lib/payments/create-checkout-session'
+    );
+    mockCreateCheckoutSession.mockRejectedValueOnce(
+      new CheckoutUnavailableError('missing selected Price'),
+    );
+
+    await POST(request({ tier: SubscriptionTier.COPILOT }));
+
+    expect(mockReleaseCouponFaultedAttempt).not.toHaveBeenCalled();
   });
 });

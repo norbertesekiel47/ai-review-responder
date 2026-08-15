@@ -9,7 +9,7 @@ export default async function AdminNewBusinessPage() {
   // Defense-in-depth behind src/proxy.ts's /admin gate. No read data — this page
   // is a form, so "server-first" means the chrome renders in the RSC payload.
   // aal2: the POST this form submits to (api/admin/businesses) is gated by
-  // requireAdminWithAal2, so step up BEFORE the admin fills six sections —
+  // requireAdminWithAal2, so step up BEFORE the admin fills the form —
   // otherwise the only feedback is a bare `mfa_required` banner on submit.
   await requireAdminPage(sql, { from: '/admin/businesses/new', aal2: true });
 
@@ -17,7 +17,7 @@ export default async function AdminNewBusinessPage() {
     <AdminPage
       group="Businesses"
       title="Onboard new business"
-      description="Create a location, its owner, and the initial sync"
+      description="Invite an owner — they set their password, capture their location, pick a plan, and finish setup themselves"
     >
       <NewBusinessClient />
     </AdminPage>

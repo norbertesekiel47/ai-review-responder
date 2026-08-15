@@ -3609,3 +3609,129 @@ manufacturing one requires provoking the pipelining pathology on shared staging.
 - Unit suite verified **red 7/9** with the gate disabled; live-DB suite red 3/4.
 - The 4 pre-existing local integration failures (`ECONNREFUSED 127.0.0.1:5432`, suites
   assuming the default port) were confirmed identical on the unmodified base.
+
+## 2026-08-14 — Admin invite funnel: staff onboarding collapsed into the self-serve funnel (PR #821)
+
+Consolidates staff onboarding into **three facts** (owner email, owner name, business
+name) and routes the invited owner through the *same* funnel a self-serve owner walks,
+paying $0 via a server-selected Stripe coupon. Plan of record:
+`docs/superpowers/plans/2026-08-14-admin-invite-funnel.md` (12 steps → 8 tickets, four
+adversarial plan-review rounds before a line was written).
+
+### What shipped
+
+- **Migration 105** — `accounts.checkout_attempt_coupon_id` (nullable) plus a rewrite of
+  `accounts_checkout_attempt_complete_check`. The cleared branch enumerates all 19
+  attempt columns, so a cleared attempt cannot retain a coupon snapshot; the active
+  branch leaves the coupon nullable, because NULL there is not a missing value but the
+  explicit *no-coupon decision* recorded for every non-invitee.
+- **Migration 106** — registers the `checkout_coupon_decision` analytics event name
+  (same DROP + re-ADD shape as 046 → 058 → 069 → 089 → 094 → 097 → 102).
+- **`resolveFunnelEntry`** (`src/lib/onboarding/funnel-entry.ts`) — one pure owner of the
+  funnel destination, replacing three disagreeing sites: `loginDestination.ts`'s
+  demo-blind `pending_payment → /onboarding/pay`, `verify-otp`'s private start-vs-pay
+  branch, and `/api/dashboard`'s hardcoded `paymentUrl`. `paymentUrl` was **deleted, not
+  renamed** — a field of that name holding `/onboarding/demo` is a lie.
+- **Beta comp coupon** resolved once inside `applyTierSnapshot`'s transaction under the
+  activation lock, snapshotted onto the attempt, and emitted to Stripe from that snapshot
+  alone. Eligibility reads `onboarded_by` from the **primary** business via a scalar
+  subquery — deliberately not a join predicate, which would have collapsed
+  `COUNT(b.id) AS active_locations` to 1 and mis-priced every multi-location attempt.
+- **3-field admin form**; the dead-end handoff screen deleted
+  (`pending_payment_admin_handoff` and `PendingAdminHandoffScreen` are gone); **resend
+  invite** with a code-keyed provider error map; and `SELF_SERVE_SIGNUP_ENABLED`
+  re-scoped to gate only anonymous account-minting.
+
+### The four defects mocked tests could not catch
+
+Recorded in full in `docs/superpowers/plans/admin-invite-funnel-deviations.md`.
+
+1. **D-16 — `allow_promotion_codes` + `discounts` are mutually exclusive by parameter
+   PRESENCE, not value.** The plan asserted the opposite and carried its own
+   "(verified)". The claim survived four adversarial review rounds *and* a unit test
+   asserting `expect(params.allow_promotion_codes).toBe(false)` on the coupon path — a
+   test that passed while asserting the bug. Falsified by the first real Stripe call from
+   staging. Fixed by omitting the key on the coupon path.
+2. **D-15 — a migration that alters a table's column set needs the FULL integration
+   sweep.** The local gate runs live-DB suites only for *changed* integration files, so
+   105's new column broke migration 077's shape suite and only CI saw it.
+3. **Step-7: the prefill guard 403'd the post-payment wizard.** The new
+   `pending_payment`-only check rejected `StepLocation`, which had already been calling
+   that route before this branch and soft-swallows `!res.ok`. Category/website prefill
+   died **silently** in the production wizard shape and for every card-up-front trial.
+   Blast-radius analysis surfaced it; no test covered that caller.
+4. **Step-7: a coupon fault bricked the owner permanently.** `applyTierSnapshot` commits
+   the bad snapshot into a `creating` attempt, `prepareCheckoutAttempt` reuses it on
+   every retry, and there is no expiry column and no reaper — so the rollback plan's
+   stated kill switch ("unset `BETA_COMP_COUPON_ID`") could not reach an affected owner,
+   because their next attempt is not a new attempt. Closed with
+   `releaseCouponFaultedAttempt`.
+
+Also fixed at step 7: the aggregate dashboard's primary-business join omitted
+`archived_at IS NULL` (034's uniqueness is a *partial* index, so archived ex-primaries
+coexist with the live one and the join fans out); `billing/checkout` never mapped
+`CheckoutCouponConfigurationError`, which was D-16's own recorded second finding still
+open on the other consumer; and the coupon-decision event moved inside the transaction
+via `tx.savepoint`, because a post-commit emitter loses the only durable signal that a
+comp was silently skipped exactly when it matters — the savepoint keeps the
+un-migrated-106 safety that originally justified post-commit, so nothing is traded away.
+
+**Four live docs asserted the D-16 bug**, three of them written by this branch *after*
+the fix. `CONTEXT.md`'s locked glossary was instructing the next reader to restore the
+parameter that 500'd staging.
+
+### One review finding rejected on evidence
+
+Codex argued `onboarded_by IS NOT NULL` misclassifies historical self-serve accounts as
+invited, because migration 025 backfilled every null. The backfill is real; the premise
+is not. Self-serve signup shipped in the **same commit** as that backfill (`d0f3d9fa`,
+#7), and the spec records that admin onboarding never populated `onboarded_by` before
+then — so every row 025 touched was genuinely admin-onboarded and there was no
+self-serve population to mislabel. A migration NULLing those rows was drafted,
+owner-approved, then **withdrawn** on that evidence: it would have granted those
+accounts trial eligibility they must not have and stripped a
+`CleanupAbandonedSignupsPoller` reference guard. The genuine residue — a *legacy*
+admin-onboarded account still in `pending_payment` drawing a comp — became a blocking
+pre-flight audit in `docs/launch-checklist.md` instead.
+
+### D-13 resolved: the provider contract was probed, not assumed
+
+`INVITE_ERROR_CODE_MAP` shipped with a `CONTRACT NOT YET VERIFIED` header. Probed
+against staging Supabase (`@supabase/supabase-js` 2.106.2), twice — raw HTTP to see the
+wire body, then through the real client. Re-invite while pending returns 200 and
+re-sends; an accepted user returns `AuthApiError { code: 'email_exists', status: 422 }`,
+already in the table; and `last_sign_in_at` is null until a **real** sign-in and is not
+populated by an admin `updateUserById({ password, email_confirm })`, so the eligibility
+premise holds. The UI half was then clicked on staging by the owner and returned the
+expected refusal with no duplicate email.
+
+**The catch only a real call could show:** the wire body carries BOTH a numeric
+`code: 422` and `error_code: 'email_exists'`. `mapInviteProviderError` keys on
+`error.code` typed `string`, so the entire table's reachability rests on the client
+surfacing the string. Had it passed the number through, every branch would have been
+dead code and every invite error would have fallen to the 502 fallback *silently*. Now
+pinned by a regression test.
+
+### Verification
+
+- Local gate **GREEN**, 29/29 checks. Full suite **11,996 passed**. The `reclassify` row
+  is WARN and stays WARN: production churn ran 4.1× the estimate because deletion was a
+  first-class deliverable here (D-11, owner-approved).
+- Step 7 ran three axes in parallel (spec & correctness · standards & maintainability ·
+  Codex adversarial approach) → 20 findings, every high/major independently verified
+  against the code before triage. Reports + per-finding verdicts committed under
+  `docs/reviews/admin-invite-funnel/`.
+- Rode staging twice: the full owner journey (admin invite → $0 checkout with a card
+  collected → dashboard, Account `active`) before review, and the step-7 fixes after.
+
+### Deliberately not done
+
+Deferred to `docs/future-plans/2026-08-14-unify-create-business-insert-paths.md`:
+`create-business.ts`'s two ~115-line near-duplicate insert paths, whose 21-column order
+is kept in sync only by a comment. Deferred by owner decision — it is the highest-risk
+file on the branch and already staging-proven, so a no-behaviour-change restructure
+would have voided that proof.
+
+**Production is gated.** 105 cannot be applied where 077 has not been, and 077/078 are
+absent in prod until the WS8 cutover. No live-mode coupon exists; `BETA_COMP_COUPON_ID`
+and `ONBOARDING_DEMO_ENABLED` are unset in prod. All owner-timed.

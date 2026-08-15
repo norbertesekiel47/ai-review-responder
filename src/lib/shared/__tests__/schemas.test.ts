@@ -58,87 +58,64 @@ describe('websiteUrlSchema', () => {
   });
 });
 
-// B25 — admin OnboardBusinessSchema's googlePlaceId now validates with
-// isPlaceId() at the schema layer, mirroring BusinessOnboardingSchema (owner).
-// Pre-fix it was z.string().min(1).optional() — any non-empty string passed.
-// The route still has its own isPlaceId check as belt-and-suspenders, but
-// pinning the schema-level validation keeps the two onboarding contracts
-// in lockstep + protects future callers of OnboardBusinessSchema.parse().
-describe('OnboardBusinessSchema — googlePlaceId validation', () => {
+// Admin onboarding is invite-only identity capture. The place / voice / tier
+// fields the admin used to send — and with them the googlePlaceId isPlaceId
+// refine and the googlePlaceId-vs-googleMapsUrl XOR — moved to the OWNER's
+// funnel, so all that remains is a three-field contract. These pin that
+// contract at the schema layer; the persistence consequence of stripping is
+// pinned in src/app/api/admin/businesses/__tests__/route.test.ts.
+describe('OnboardBusinessSchema — admin invite contract', () => {
   function validBaseBody(overrides: Record<string, unknown> = {}) {
     return {
       name: 'Acme Cafe',
       ownerName: 'Jane Smith',
       ownerEmail: 'jane@acme.example',
-      subscriptionTier: 'copilot',
       ...overrides,
     };
   }
 
-  it('accepts a real Place ID (ChIJ-prefixed, 27 chars)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: 'ChIJgUbEo8cfqokR5lP9Wh_DaM' }),
-    );
+  it('accepts exactly owner email, owner name and business name', () => {
+    const result = OnboardBusinessSchema.safeParse(validBaseBody());
     expect(result.success).toBe(true);
-  });
-
-  it('accepts a real Place ID (non-ChIJ prefix — GhIJ, Eic, etc.)', () => {
-    // Real Google Place IDs use multiple prefixes, not just ChIJ.
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: 'GhIJabc1234567890ABC' }),
-    );
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects a hex CID (worker requires resolution to canonical Place ID first)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: '0x1234abcd:0x5678efab' }),
-    );
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects too-short string (< 20 chars)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: 'ChIJtoo_short' }),
-    );
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects bare slug "abc" (the original bug — any non-empty string used to pass)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: 'abc' }),
-    );
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]?.message).toMatch(/Invalid Google Place ID/i);
+    if (result.success) {
+      expect(Object.keys(result.data).sort()).toEqual(
+        ['name', 'ownerEmail', 'ownerName'].sort(),
+      );
     }
   });
 
-  it('rejects entries starting with a digit (Place IDs always start with a letter)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({ googlePlaceId: '1bIJgUbEo8cfqokR5lP9Wh_DaM' }),
-    );
-    expect(result.success).toBe(false);
+  it.each(['name', 'ownerName', 'ownerEmail'])('requires %s', (field) => {
+    const body = validBaseBody();
+    delete (body as Record<string, unknown>)[field];
+    expect(OnboardBusinessSchema.safeParse(body).success).toBe(false);
   });
 
-  it('accepts the schema when googleMapsUrl is provided instead (XOR — googlePlaceId omitted)', () => {
-    const result = OnboardBusinessSchema.safeParse(
-      validBaseBody({
-        googleMapsUrl:
-          'https://www.google.com/maps/place/Acme+Cafe/@40.7,-74.0,15z',
-      }),
-    );
-    expect(result.success).toBe(true);
+  it('rejects a malformed owner email', () => {
+    expect(
+      OnboardBusinessSchema.safeParse(validBaseBody({ ownerEmail: 'nope' })).success,
+    ).toBe(false);
   });
 
-  it('rejects when both googlePlaceId AND googleMapsUrl are provided (XOR refine)', () => {
+  // Zod's object default. Deliberate: a stale admin bundle POSTing the old
+  // 15-field payload still onboards its owner instead of 400-ing mid-deploy,
+  // and stripping is what guarantees the removed fields cannot reach the
+  // createBusinessTx write.
+  it('strips place, voice and tier fields instead of rejecting them', () => {
     const result = OnboardBusinessSchema.safeParse(
       validBaseBody({
         googlePlaceId: 'ChIJgUbEo8cfqokR5lP9Wh_DaM',
-        googleMapsUrl:
-          'https://www.google.com/maps/place/Acme+Cafe/@40.7,-74.0,15z',
+        googleMapsUrl: 'https://www.google.com/maps/place/Acme+Cafe/@40.7,-74.0,15z',
+        tone: 'contraband',
+        staffNames: 'Carol',
+        subscriptionTier: 'autopilot',
+        ownerPhone: '+1 555 000 0000',
       }),
     );
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(Object.keys(result.data).sort()).toEqual(
+        ['name', 'ownerEmail', 'ownerName'].sort(),
+      );
+    }
   });
 });

@@ -64,6 +64,22 @@ const serverSchema = z.object({
   // exact and therefore rejects any configured value except true/false.
   FOUNDING_DEADLINE: rawOpt,
   AUTOPILOT_PURCHASABLE: exactOptionalBoolean,
+  // admin-invite-funnel step 1/2: the Stripe Coupon ID comped onto an
+  // admin-invited beta tester's Checkout Session (100% off, repeating, 3
+  // months). NEW optional config, so the COLLAPSING `opt`: an empty or
+  // whitespace-only value is not a coupon id, and "unset" must reach
+  // betaCompCouponId() (src/lib/payments/flags.ts) as undefined — that IS the
+  // kill switch, and it must switch cleanly rather than sending Stripe a blank
+  // `discounts[0][coupon]` that fails session creation. Unsetting it stops NEW
+  // attempts from being comped; an attempt already snapshotted keeps its
+  // decision, which is the per-attempt idempotency contract (migration 105).
+  // SERVER lane only — the only readers are the two Next checkout routes'
+  // call chain (applyTierSnapshot → createCheckoutSession); NO worker code path
+  // reaches applyTierSnapshot (verified: the only importers are
+  // src/app/api/onboarding/select-plan and src/app/api/billing/checkout), so a
+  // worker.ts declaration would be a second declaration with no reader.
+  // Server-only, NO NEXT_PUBLIC_* companion (invariant #13).
+  BETA_COMP_COUPON_ID: opt,
   RESEND_API_KEY: rawOpt, // migrated raw read (client.ts Resend(...), contact-notify emailConfigured) — #7
   // Migrated raw read (Stage-3 serpapi-redis batch): serpapi-prefill.ts does
   // `const apiKey = getServerConfig().SERPAPI_API_KEY; if (!apiKey)` on the RAW

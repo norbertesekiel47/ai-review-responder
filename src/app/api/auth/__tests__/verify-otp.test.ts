@@ -67,6 +67,24 @@ const validBody = {
   token: '123456',
 };
 
+/**
+ * The step-6 lookup row. Defaults describe the ordinary just-verified owner:
+ * pending_payment, no place captured yet, wizard not run.
+ */
+function ownerRow(overrides: Record<string, unknown> = {}) {
+  return {
+    role: 'owner',
+    account_id: 'acct-1',
+    business_id: 'biz-1',
+    user_id: 'user-1',
+    subscription_status: 'pending_payment',
+    place_id_verified: false,
+    google_maps_url: null,
+    onboarding_wizard_completed_at: null,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   mockCheckRateLimit.mockReset();
   mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 7 });
@@ -81,10 +99,12 @@ beforeEach(() => {
   mockSignOut.mockResolvedValue({ error: null });
 
   mockSql.mockReset();
-  // Default: SELECT users → owner role + account_id; subsequent calls
-  // (the channel_enrollments INSERT) also resolve to []. Tests that need
-  // a different first response use `mockResolvedValueOnce`.
-  mockSql.mockResolvedValue([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1', user_id: 'user-1' }]);
+  // Default: SELECT users → owner role + account_id + the funnel-entry columns
+  // (`resolveFunnelEntry` reads the account's status/wizard stamp and the
+  // primary business's place columns); subsequent calls (the
+  // channel_enrollments INSERT) also resolve to []. Tests that need a different
+  // first response use `mockResolvedValueOnce`.
+  mockSql.mockResolvedValue([ownerRow()]);
 
   mockCreateServerClient.mockReset();
   mockCreateServerClient.mockImplementation(() => ({
@@ -96,6 +116,7 @@ beforeEach(() => {
   mockEnqueueAnalyticsEvent.mockReset();
 
   process.env.SELF_SERVE_SIGNUP_ENABLED = 'true';
+  delete process.env.ONBOARDING_DEMO_ENABLED;
 });
 
 describe('POST /api/auth/verify-otp', () => {
@@ -198,6 +219,57 @@ describe('POST /api/auth/verify-otp', () => {
     expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
+  it('verify-otp returns the resolveFunnelEntry destination', async () => {
+    // The route no longer owns a start-vs-pay branch: it hands owner state to
+    // `resolveFunnelEntry` and returns whatever comes back. Each row below is
+    // one matrix state, so a regression that re-hardcodes a destination (or
+    // drops a column from the lookup) fails here.
+    const cases: Array<{
+      demo: boolean;
+      row: Record<string, unknown>;
+      expected: string;
+    }> = [
+      // demo off → the paywall, regardless of captured place
+      { demo: false, row: {}, expected: '/onboarding/pay' },
+      { demo: false, row: { place_id_verified: true }, expected: '/onboarding/pay' },
+      // demo on, nothing captured → location picker
+      { demo: true, row: {}, expected: '/onboarding/start' },
+      // demo on, place already captured (verified OR Maps-URL) → the demo itself
+      { demo: true, row: { place_id_verified: true }, expected: '/onboarding/demo' },
+      {
+        demo: true,
+        row: { google_maps_url: 'https://maps.google.com/x' },
+        expected: '/onboarding/demo',
+      },
+      // post-payment leftovers: wizard incomplete → wizard, complete → dashboard
+      {
+        demo: true,
+        row: { subscription_status: 'active', place_id_verified: true },
+        expected: '/onboarding/business',
+      },
+      {
+        demo: true,
+        row: {
+          subscription_status: 'trialing',
+          place_id_verified: true,
+          onboarding_wizard_completed_at: new Date('2026-08-01T00:00:00Z'),
+        },
+        expected: '/dashboard',
+      },
+    ];
+
+    for (const { demo, row, expected } of cases) {
+      if (demo) process.env.ONBOARDING_DEMO_ENABLED = 'true';
+      else delete process.env.ONBOARDING_DEMO_ENABLED;
+      mockSql.mockResolvedValueOnce([ownerRow(row)]);
+
+      const res = await POST(mkReq(validBody));
+      expect(res.status).toBe(200);
+      expect((await res.json()).redirectTo).toBe(expected);
+    }
+    delete process.env.ONBOARDING_DEMO_ENABLED;
+  });
+
   it('returns 200 with /onboarding/pay redirect on owner success', async () => {
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(200);
@@ -260,7 +332,7 @@ describe('POST /api/auth/verify-otp', () => {
 
   it('does NOT insert channel_enrollments when role is not owner', async () => {
     mockSql.mockReset();
-    mockSql.mockResolvedValue([{ role: 'admin', account_id: 'acct-1', business_id: 'biz-1', user_id: 'user-1' }]);
+    mockSql.mockResolvedValue([ownerRow({ role: 'admin' })]);
     const res = await POST(mkReq(validBody));
     expect(res.status).toBe(500);
     const enrollCall = mockSql.mock.calls.find((c: unknown[]) =>
@@ -273,7 +345,7 @@ describe('POST /api/auth/verify-otp', () => {
     // First call (SELECT) succeeds with role+account_id+business_id. Second call (INSERT) throws.
     mockSql.mockReset();
     mockSql
-      .mockResolvedValueOnce([{ role: 'owner', account_id: 'acct-1', business_id: 'biz-1' }])
+      .mockResolvedValueOnce([ownerRow()])
       .mockRejectedValueOnce(new Error('db transient'));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(mkReq(validBody));

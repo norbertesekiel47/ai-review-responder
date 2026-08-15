@@ -7,21 +7,21 @@
 export const inputClass =
   'rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900';
 
-export const textareaClass = `${inputClass} resize-y min-h-[80px]`;
+// `textareaClass` and Field's `hint` slot went with the Voice & Context
+// section and the SerpAPI prefill respectively — the three-field invite form
+// has no multi-line input and nothing async to narrate.
 
 interface FieldProps {
   label: string;
   error?: string;
   children: React.ReactNode;
-  hint?: string;
 }
 
-export function Field({ label, error, children, hint }: FieldProps) {
+export function Field({ label, error, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1">
       <label className="text-sm font-medium text-gray-700">{label}</label>
       {children}
-      {hint && !error && <p className="text-xs text-gray-500">{hint}</p>}
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );

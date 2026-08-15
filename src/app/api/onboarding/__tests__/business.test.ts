@@ -104,12 +104,27 @@ beforeEach(() => {
 });
 
 describe('POST /api/onboarding/business', () => {
-  it('returns 404 when SELF_SERVE_SIGNUP_ENABLED !== "true"', async () => {
+  it('completes for an entitled owner when SELF_SERVE_SIGNUP_ENABLED is off', async () => {
+    // The re-scoped flag gates anonymous account-minting only; an
+    // admin-invited owner finishes this same post-payment wizard while it is
+    // off. The boundary is same-origin + session + `u.role = 'owner'` +
+    // subscriptionGrantsFullAccess + the wizard-state guard.
     process.env.SELF_SERVE_SIGNUP_ENABLED = 'false';
+    mockSql.mockResolvedValueOnce([activeBizRow]);
+
     const res = await POST(mkReq(validBody));
-    expect(res.status).toBe(404);
-    expect(mockGetUser).not.toHaveBeenCalled();
-    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).redirectTo).toBe('/dashboard');
+  });
+
+  it('returns 409 when the account is not entitled (subscription gate replaced the flag)', async () => {
+    mockSql.mockResolvedValueOnce([
+      { ...activeBizRow, subscription_status: 'pending_payment' },
+    ]);
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('subscription_inactive');
   });
 
   it('returns 403 when Origin header mismatches NEXT_PUBLIC_APP_URL', async () => {
@@ -254,6 +269,37 @@ describe('POST /api/onboarding/business', () => {
 
     expect(res.status).toBe(200);
     expect(txCalls.some((text) => text.includes('UPDATE accounts'))).toBe(true);
+  });
+
+  it('onboarding business syncs accounts.display_name while pending_payment', async () => {
+    // An admin-invited account is born holding the real business name the admin
+    // typed, never the '(pending setup)' placeholder — so a placeholder-only
+    // predicate would never fire and a rename here would leave Account and
+    // Business divergent. The predicate must fire while the account is
+    // pre-activation OR still holds the placeholder, spelled identically to
+    // /api/onboarding/start's.
+    mockSql.mockResolvedValueOnce([activeBizRow]);
+
+    const txCalls: string[] = [];
+    mockSql.begin = vi.fn(async (cb: any) => {
+      const tx: any = vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        txCalls.push(text);
+        if (text.includes('FOR UPDATE')) return [activeBizRow];
+        return [];
+      });
+      return cb(tx);
+    });
+
+    const res = await POST(mkReq(validBody));
+    expect(res.status).toBe(200);
+
+    const displayNameUpdate = txCalls.find(
+      (text) => text.includes('UPDATE accounts') && text.includes('display_name'),
+    );
+    expect(displayNameUpdate).toBeDefined();
+    expect(displayNameUpdate).toContain("subscription_status = 'pending_payment'");
+    expect(displayNameUpdate).toContain('OR display_name =');
   });
 
   it('returns 200 + INSERTs validate_place_id outbox on googleMapsUrl path', async () => {

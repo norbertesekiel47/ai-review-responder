@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { redirect, notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { isPriceVariant } from '@/lib/accounts/tier-config';
 import {
@@ -24,11 +23,12 @@ export default async function OnboardingPayPage({
 }: {
   searchParams: Promise<{ cancelled?: string }>;
 }) {
-  // Self-serve signup must hide the entire onboarding flow when the flag is
-  // off — including this server-rendered page. Otherwise a leaked URL could
-  // probe whether self-serve was on.
-  if (!selfServeSignupEnabled()) notFound();
-
+  // Guard: authenticated session + `u.role = 'owner'` (in the query below) +
+  // `pending_payment` (the redirects below). No `SELF_SERVE_SIGNUP_ENABLED`
+  // check — the flag now means only "strangers may mint accounts"
+  // (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`)
+  // and an admin-invited owner picks a plan here while it is off.
+  //
   // Use `await cookies()` for forward-compat with Next.js 15 (where it
   // returns a Promise). On Next 14 the await unwraps a non-Promise to
   // itself — a runtime no-op — but matches the existing pattern in
@@ -73,8 +73,14 @@ export default async function OnboardingPayPage({
     JOIN accounts a ON a.id = u.account_id
     JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE
     WHERE u.auth_id = ${user.id}
+      AND u.role = 'owner'
     LIMIT 1
   `;
+  // Owner-only filter at the SQL boundary. Proxy gates /onboarding/* PAGES on
+  // role, but this page must not depend on that: without the filter an
+  // admin/sales_partner session read whichever business their account happens to
+  // point at and was offered a plan picker for it. A non-owner session now gets
+  // exactly the missing-row treatment — one branch, no separate role code path.
   if (!row) redirect('/signup');
 
   if (!user.email_confirmed_at) {

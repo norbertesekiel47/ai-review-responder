@@ -27,6 +27,7 @@ export const ANALYTICS_EVENT_NAMES = [
   'solicitation_suppressed_at_dispatch',
   'import_offer_created',
   'import_decision_recorded',
+  'checkout_coupon_decision',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

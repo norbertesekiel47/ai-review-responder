@@ -310,9 +310,13 @@ contract. Binding across all of them:
   numbers, postal addresses, or social accounts exist. The footer omits the
   social row rather than linking `#`. `support@repworth.net` is real — it is the
   contact of record in `src/lib/legal/content.ts`.
-- **Nav auth is flag-gated because both routes 404 without it.** `/login` and
-  `/signup` each call `notFound()` when `SELF_SERVE_SIGNUP_ENABLED` is off, so
-  hiding the links is correctness, not cosmetics.
+- **Nav auth is flag-gated as marketing posture** (revised 2026-08-14). It used
+  to be correctness: both `/login` and `/signup` called `notFound()` when
+  `SELF_SERVE_SIGNUP_ENABLED` was off. Since the flag was re-scoped to mean only
+  *strangers may mint accounts*, **`/login` is always on** — only `/signup` still
+  404s without it. The nav pair stays gated deliberately: with self-serve off
+  there is nothing for an anonymous visitor to sign up for, and admin-invited
+  owners reach `/login` from their invite email rather than from this nav.
 
 ---
 

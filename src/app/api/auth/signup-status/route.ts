@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { createServerClient } from '@supabase/ssr';
 import { v7 as uuidv7 } from 'uuid';
 import { sql, jsonb } from '@/lib/db/server';
@@ -11,6 +10,7 @@ import {
 } from '@/lib/shared/subscription-status';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,13 +77,20 @@ async function enqueueCheckoutSessionReconciliation(
   });
 }
 
+/**
+ * GET /api/auth/signup-status
+ *
+ * Guard: authenticated session + `u.role = 'owner'` at the SQL boundary (step
+ * 3). Deliberately NO subscription-state gate — this poller is what carries an
+ * owner ACROSS the payment transition, so it must answer in `pending_payment`
+ * and in every post-payment state alike. Narrowing it to one state would 403
+ * the `/onboarding/payment-success` poller in exactly the window where the
+ * Stripe projection has not landed yet. It replaced a
+ * `SELF_SERVE_SIGNUP_ENABLED` gate, which now means only "strangers may mint
+ * accounts" (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`).
+ */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // 1. Feature flag — hide the route entirely when off.
-  if (!selfServeSignupEnabled()) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  }
-
-  // 2. Read session via cookie-bound anon client. setAll is a no-op — this
+  // 1. Read session via cookie-bound anon client. setAll is a no-op — this
   //    is a read-only polling endpoint and never rewrites session cookies.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -107,7 +114,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // 3. Non-strict rate limit. Normal client polls every 2-30s, well under 30/min.
+  // 2. Non-strict rate limit. Normal client polls every 2-30s, well under 30/min.
   //    Only pathological runaway loops get 429'd. Soft-fail if Redis is down so
   //    a cache outage doesn't break the payment-success poller.
   const rl = await checkRateLimit(
@@ -119,7 +126,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
   }
 
-  // 4. Service-role sql query — join users + businesses by auth_id and
+  // 3. Service-role sql query — join users + businesses by auth_id and
   //    require owner role before returning owner self-service state.
   //    Explicit auth_id scoping: there is no owner-scoped RLS on businesses,
   //    so we enforce the scope in the WHERE clause.
@@ -181,7 +188,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // 5. Compute business_onboarded based on the active flow. Done in JS
+  // 4. Compute business_onboarded based on the active flow. Done in JS
   //    rather than a SQL CASE so the test mocks (single tagged-template
   //    call, plain row return) stay simple — and the branch logic is easier
   //    to reason about co-located with the comment above.
@@ -190,15 +197,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       && row.onboarding_wizard_completed_at !== null
     : row.place_id_verified || row.google_maps_url !== null;
 
-  // 6. Return subscription status + role + businessOnboarded. The
+  // 5. The funnel destination, computed SERVER-side. This is how the browser
+  //    learns flag state without a `NEXT_PUBLIC_*` companion (invariant #13):
+  //    `onboardingDemoEnabled()` is read here, folded into a URL, and only the
+  //    URL crosses the wire. `loginDestination.applySubscriptionGuard` consumes
+  //    it instead of re-deciding client-side (where it was demo-blind and sent
+  //    every pending_payment owner to /onboarding/pay).
+  const funnelUrl = resolveFunnelEntry({
+    subscriptionStatus,
+    demoEnabled: demoFlowEnabled,
+    hasPlace: row.place_id_verified || row.google_maps_url !== null,
+    wizardCompleted: row.onboarding_wizard_completed_at !== null,
+  });
+
+  // 6. Return subscription status + role + businessOnboarded + funnelUrl. The
   //    /onboarding/payment-success page polls with exponential backoff
   //    (2s → 30s, up to 5 min) and redirects to /onboarding/business when
   //    status === 'active' && !businessOnboarded, otherwise to /dashboard.
+  //    `subscriptionStatus`/`role`/`businessOnboarded` keep their existing
+  //    meaning — other callers read them.
   return NextResponse.json(
     {
       subscriptionStatus,
       role: row.role,
       businessOnboarded,
+      funnelUrl,
     },
     {
       status: 200,
