@@ -3,36 +3,26 @@
 // POST /api/admin/channels/whatsapp/start — admin generates a one-time WhatsApp
 // verification deep link + QR for owner scan via wa.me click-to-chat.
 //
-// The full handler (flag/env → admin auth → businessId → active-subscription
-// account → advisory-locked enrollment upsert → QR response) lives in the
-// shared runAdminChannelStart; this route supplies the WhatsApp bindings.
-// State machine logic lives in src/lib/channels/mobile-enrollment.ts.
+// The full handler lives in the shared runChannelStart
+// (@/app/api/_shared/channels/start); this route supplies only the WhatsApp +
+// admin bindings.
 //
-// Subscription gate: strict 'active' status. Dispatcher honors past_due grace at
-// send time; admin enrollment mutations during grace require explicit active.
+// Subscription gate: strict full-access status. Dispatcher honors past_due grace
+// at send time; admin enrollment mutations during grace require explicit active.
 
 import { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';
-import { getServerConfig } from '@/lib/config/server';
-
-function buildWhatsAppDeepLink(rawToken: string): string {
-  // wa.me requires digits only (no +, no whatsapp:) per WhatsApp click-to-chat.
-  const digits = getServerConfig().TWILIO_WHATSAPP_NUMBER!.replace(/^whatsapp:\+?/, '');
-  const prefilled = encodeURIComponent(`start-${rawToken}`);
-  return `https://wa.me/${digits}?text=${prefilled}`;
-}
+import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
+import { assertWhatsAppEnvReady } from '@/lib/notifications/channels/whatsapp-env';
+import { runChannelStart } from '@/app/api/_shared/channels/start';
+import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
 
 export const POST = withSameOrigin()((req: NextRequest) =>
-  runAdminChannelStart(sql, req, {
+  runChannelStart(sql, req, {
     channel: 'whatsapp',
-    isEnabled: isWhatsAppEnabled,
-    flagOff,
+    isEnabled: channelsWhatsappEnabled,
     assertEnvReady: assertWhatsAppEnvReady,
-    buildDeepLink: buildWhatsAppDeepLink,
-    cacheLabel: 'admin.whatsapp.start',
-    endpoint: 'whatsapp/start',
+    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),
   }),
 );

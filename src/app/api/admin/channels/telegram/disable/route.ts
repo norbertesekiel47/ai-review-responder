@@ -1,21 +1,23 @@
 // src/app/api/admin/channels/telegram/disable/route.ts
 //
-// POST /api/admin/channels/telegram/disable — admin disables a verified
-// Telegram enrollment (404 when there's nothing to disable). The full handler
-// lives in the shared runAdminChannelDisable; this route supplies the Telegram
-// bindings. The disable cascade itself is owned by disconnectChannel.
+// POST /api/admin/channels/telegram/disable — admin disables an active Telegram
+// enrollment. Handler: runChannelDisable (@/app/api/_shared/channels/action).
 
 import { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
-import { isTelegramEnabled, flagOff, assertTelegramEnvReady } from '../_shared';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
-import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';
+import { channelsTelegramEnabled } from '@/lib/notifications/channels/flags';
+import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
+import { runChannelDisable } from '@/app/api/_shared/channels/action';
+import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';
 
 export const POST = withSameOrigin()((req: NextRequest) =>
-  runAdminChannelDisable(sql, req, {
+  runChannelDisable(sql, req, {
     channel: 'telegram',
-    isEnabled: isTelegramEnabled,
-    flagOff,
+    isEnabled: channelsTelegramEnabled,
     assertEnvReady: assertTelegramEnvReady,
+    // No subscription gate: an admin must be able to tear down an enrollment on
+    // a lapsed account (§4.2).
+    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),
   }),
 );

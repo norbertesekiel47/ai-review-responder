@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { scanRouteFile } from '../admin-aal2-audit';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { scanRouteFile, collectRouteFiles } from '../admin-aal2-audit';
 
 describe('scanRouteFile — admin AAL2 gate audit', () => {
   const adminPath = 'src/app/api/admin/businesses/route.ts';
@@ -99,39 +102,212 @@ describe('scanRouteFile — admin AAL2 gate audit', () => {
     expect(findings[0]).toContain('[admin-aal2]');
   });
 
-  it('(h) thin delegator calling runAdminChannelStart → no finding (gated by helper)', () => {
+  it('(h) thin delegator binding resolveAdminActor to the start runner → no finding (gated by resolver)', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
     const text = [
-      "import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';",
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelStart(req, { channel: "telegram" }),',
+      '  runChannelStart(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
   });
 
-  it('(i) thin delegator calling runAdminChannelCancel → no finding', () => {
+  it('(i) thin delegator binding resolveAdminActor to the cancel runner → no finding', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
     const text = [
-      "import { runAdminChannelCancel } from '@/app/api/admin/channels/_shared/action';",
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelCancel(req, { channel: "telegram" }),',
+      '  runChannelCancel(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
   });
 
-  it('(j) thin delegator calling runAdminChannelDisable → no finding', () => {
+  it('(j) thin delegator binding resolveAdminActor to the disable runner → no finding', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/disable/route.ts';
     const text = [
-      "import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';",
+      "import { runChannelDisable } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelDisable(req, { channel: "telegram" }),',
+      '  runChannelDisable(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
+  it('(k) admin route binding resolveOwnerActor to a shared runner → FINDING (the runner is not itself a gate)', () => {
+    // The regression this audit's helper list exists to prevent, and the reason
+    // it names the RESOLVER rather than the runners. runChannelStart is
+    // portal-agnostic: it calls whatever resolveActor it is handed. An admin
+    // route that bound the OWNER resolver would run under the owner role gate
+    // with no MFA step-up. Listing runChannelStart as a gated helper — the
+    // naive successor to the three admin-only names this replaced — would let
+    // exactly this file through.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    const findings = scanRouteFile(channelPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('[admin-aal2]');
+  });
+
+  it('(l) admin route that MENTIONS resolveAdminActor but BINDS resolveOwnerActor → FINDING', () => {
+    // Case (k) passes only because its fixture never names the admin resolver.
+    // The allowlist clearance is a substring test over the whole file, so any
+    // mention of resolveAdminActor satisfies it — and every real channel route
+    // carries a header comment naming its handler. Without the deny rule this
+    // file is an admin mutation running under the owner role gate with no MFA
+    // step-up, and CI is green. Reported by the step-7 adversarial review.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      '// POST /api/admin/channels/telegram/start — resolves via resolveAdminActor.',
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    const findings = scanRouteFile(channelPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('must not reference resolveOwnerActor');
+  });
+
+  it('(m) admin route importing BOTH resolvers is still a FINDING', () => {
+    // The deny rule outranks the allowlist deliberately: an admin route with a
+    // live resolveAdminActor import is exactly the shape a half-finished edit
+    // leaves behind, and "it also mentions the right one" must not clear it.
+    const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
+    const text = [
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor, resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelCancel(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(1);
+  });
+
+  it('(n) admin route binding resolveAdminActor is still clean (no false positive)', () => {
+    // The deny rule must not flag the shipped shape: the 6 real admin channel
+    // routes name only resolveAdminActor and must stay green.
+    const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
+    const text = [
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelCancel(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
+  it('(o) admin route whose COMMENT mentions resolveOwnerActor but binds resolveAdminActor is clean', () => {
+    // The false positive the deny rule produced on its first run, caught by the
+    // gate: the real admin telegram start route documents its owner counterpart
+    // ("The owner equivalent ... binds the same runner with resolveOwnerActor")
+    // while binding the admin resolver. A whole-file substring test is wrong in
+    // BOTH directions, which is why the scan reads comment-stripped code — a
+    // mention must neither clear the allowlist nor trip the deny rule.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      '// POST /api/admin/channels/telegram/start — admin generates a deep link.',
+      '//',
+      '// The owner equivalent at /api/dashboard/channels/telegram/start binds the',
+      '// same runner with resolveOwnerActor.',
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),',
+      '  }),',
+      ');',
+    ].join('\n');
+    expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
+});
+
+// collectRouteFiles decides WHICH files scanRouteFile ever sees. An under-walk
+// makes the whole audit pass vacuously — every case above proves nothing about a
+// route the walker never handed over — so its scope rules are pinned here.
+describe('collectRouteFiles — audit scope', () => {
+  let root: string;
+
+  beforeAll(() => {
+    // realpath: on macOS $TMPDIR is /var/folders/... symlinked to /private/var/...,
+    // and `relative()` against the unresolved root would yield ../.. paths.
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-scope-')));
+
+    const admin = join(root, 'src', 'app', 'api', 'admin');
+    mkdirSync(join(admin, 'businesses'), { recursive: true });
+    mkdirSync(join(admin, 'channels', 'telegram', 'start'), { recursive: true });
+    mkdirSync(join(admin, 'channels', 'telegram', '__tests__'), { recursive: true });
+
+    writeFileSync(join(admin, 'businesses', 'route.ts'), 'export const POST = 1;');
+    writeFileSync(join(admin, 'channels', 'telegram', 'start', 'route.ts'), 'export const POST = 1;');
+    // Must be ignored: not named route.ts.
+    writeFileSync(join(admin, 'businesses', 'helpers.ts'), 'export const x = 1;');
+    // Must be ignored: test directories are deliberately out of scope, and their
+    // fixtures contain route-shaped strings that would produce phantom findings.
+    writeFileSync(join(admin, 'channels', 'telegram', '__tests__', 'route.ts'), 'export const POST = 1;');
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('collects every route.ts under the tree, relative to root', async () => {
+    const out: string[] = [];
+    await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
+
+    expect(out.sort()).toEqual([
+      join('src', 'app', 'api', 'admin', 'businesses', 'route.ts'),
+      join('src', 'app', 'api', 'admin', 'channels', 'telegram', 'start', 'route.ts'),
+    ]);
+  });
+
+  it('skips __tests__ directories and non-route.ts files', async () => {
+    const out: string[] = [];
+    await collectRouteFiles(join(root, 'src', 'app', 'api', 'admin'), root, out);
+
+    expect(out.some((p) => p.includes('__tests__'))).toBe(false);
+    expect(out.some((p) => p.endsWith('helpers.ts'))).toBe(false);
+  });
+
+  it('returns quietly for a directory that does not exist', async () => {
+    // A permissions or missing-path error must not fail the build. Pinned because
+    // the swallow is deliberate and would otherwise read as a missing catch.
+    const out: string[] = [];
+    await expect(collectRouteFiles(join(root, 'no', 'such', 'dir'), root, out)).resolves.toBeUndefined();
+    expect(out).toEqual([]);
   });
 });

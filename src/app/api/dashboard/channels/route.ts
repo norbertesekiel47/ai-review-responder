@@ -10,9 +10,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401, errorResponse } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
-import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
-import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
+import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
+import { whatsappEnvReady } from '@/lib/notifications/channels/whatsapp-env';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 import { maskChannelHandle } from '@/lib/notifications/mask-handle';
 
@@ -25,7 +25,7 @@ function whatsappAvailable(): boolean {
 }
 
 function telegramAvailable(): boolean {
-  if (!isTelegramEnabled()) return false;
+  if (!channelsTelegramEnabled()) return false;
   return assertTelegramEnvReady() === null;
 }
 

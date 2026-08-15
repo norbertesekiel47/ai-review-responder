@@ -1,26 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { isWhatsAppEnabled, flagOff, assertWhatsAppEnvReady, whatsappEnvReady, missingWhatsAppEnv } from '../_shared';
+import { assertWhatsAppEnvReady, whatsappEnvReady, missingWhatsAppEnv } from '../whatsapp-env';
 
-describe('isWhatsAppEnabled', () => {
-  it('returns false when env unset', () => {
-    delete process.env.CHANNELS_WHATSAPP_ENABLED;
-    expect(isWhatsAppEnabled()).toBe(false);
-  });
-  it('returns true when env is "true"', () => {
-    process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    expect(isWhatsAppEnabled()).toBe(true);
-  });
-});
-
-describe('flagOff', () => {
-  it('returns 404 not_found', async () => {
-    const res = flagOff();
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe('not_found');
-  });
-});
-
+// flagOff() is covered beside the module it lives in
+// (src/app/api/_shared/channels/__tests__/flag-off.test.ts). Its copy here — and
+// the identical one in telegram-env.test.ts — were the only two
+// `src/lib → src/app` imports in the repo, on the branch whose whole purpose is
+// removing a backwards dependency between those trees.
 describe('assertWhatsAppEnvReady', () => {
   const KEYS = [
     'MOCK_EXTERNAL_APIS',

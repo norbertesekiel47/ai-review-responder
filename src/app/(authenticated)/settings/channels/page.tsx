@@ -17,9 +17,9 @@ import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
-import { isTelegramEnabled, assertTelegramEnvReady } from '@/app/api/admin/channels/telegram/_shared';
-import { whatsappEnvReady } from '@/app/api/admin/channels/whatsapp/_shared';
-import { channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
+import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
+import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
+import { whatsappEnvReady } from '@/lib/notifications/channels/whatsapp-env';
 import { getChannelOverridesView } from '@/lib/channels/overrides-view';
 import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
 import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
@@ -35,7 +35,7 @@ function whatsappAvailable(): boolean {
 }
 
 function telegramAvailable(): boolean {
-  if (!isTelegramEnabled()) return false;
+  if (!channelsTelegramEnabled()) return false;
   return assertTelegramEnvReady() === null;
 }
 

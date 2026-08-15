@@ -165,7 +165,7 @@ Underscore-prefixed folders are excluded from App Router routing.
 
 | Module | Owns |
 |---|---|
-| `resolve-actor.ts` | `ChannelActor = { businessId, accountId, actorUserId, surface }`; `resolveAdminActor`; `resolveOwnerActor` |
+| `resolve-actor.ts` | `ChannelActor = { businessId, accountId, actorUserId, surface: 'admin' \| 'dashboard' }`; `resolveAdminActor`; `resolveOwnerActor` |
 | `start.ts` | `runChannelStart` — token → advisory lock → `startMobileEnrollment` → cache invalidate → QR/deep-link response |
 | `action.ts` | `runChannelCancel`, `runChannelDisable` |
 
@@ -177,9 +177,36 @@ resolver is the only axis that varies.
 - `resolveOwnerActor`: `requireRoleOr401(req, 'owner')` → `locationId` from
   session, never body → `resolveWritableAccountForLocation`.
 
-`surface` (`'admin' | 'owner'`) drives the `disconnectChannel` audit tag and the
+`surface` (`'admin' | 'dashboard'`) drives the `disconnectChannel` audit tag and the
 `safeInvalidateChannelCache` label, so `admin.telegram.cancel` and
-`dashboard.telegram.cancel` remain distinct.
+`dashboard.telegram.cancel` remain distinct. The union deliberately reuses
+`disconnectChannel`'s existing two values (`src/lib/channels/disable-enrollment.ts:24`)
+rather than `'admin' | 'owner'` as first drafted: an `'owner'` value would need a
+translation step to `'dashboard'` at every audit and cache-label site, for no
+behavioural gain.
+
+`resolveAdminActor` takes a `requireFullAccess` flag, because §4.2's asymmetry is
+real: `start` needs the strict `subscriptionGrantsFullAccess` gate and
+`cancel`/`disable` must not gain one. It is one query — the accounts join — with
+the gate applied only when the caller asks for it. Admin `cancel`/`disable` move
+from `SELECT account_id FROM businesses` to that join; this adds no gate and no
+second query.
+
+The per-channel flag/env modules move too. `admin/channels/telegram/_shared.ts`
+and `admin/channels/whatsapp/_shared.ts` become
+`src/lib/notifications/channels/{telegram,whatsapp}-env.ts`, beside the
+`flags.ts` they already wrap. Their consumers are not only routes:
+`src/app/(authenticated)/settings/channels/page.tsx` and
+`src/app/api/dashboard/channels/route.ts` call `whatsappEnvReady()` for UI
+availability, so an `api/_shared/` home would leave a *page* importing from an
+API route folder. The pass-throughs `isTelegramEnabled()` / `isWhatsAppEnabled()`
+are deleted — both are one-line wrappers over `channelsTelegramEnabled()` /
+`channelsWhatsappEnabled()`, which those same two files already import directly
+for WhatsApp.
+
+Deep-link construction moves to `src/lib/notifications/channels/deep-links.ts` as
+one exhaustive `buildMobileDeepLink(channel, rawToken)`, so a builder cannot be
+spelled twice.
 
 ### 4.2 Subscription policy is preserved, not merged
 
@@ -204,22 +231,69 @@ explicitly rather than absorbed silently.
 
 ### 4.4 What this closes structurally
 
-- the owner→admin `_shared` import (an owner surface depending on an admin route
-  module)
-- the `??` / `||` deep-link divergence — after PR 1 patches it, PR 2 makes it
-  unspellable twice
+- the owner→admin `_shared` import — **both halves**. The runner import in the 6
+  owner routes, and the flag/env import in 8 owner-side sites (those 6 routes,
+  `api/dashboard/channels/route.ts`, and `(authenticated)/settings/channels/page.tsx`).
+  Moving only the runners, as §4.1 first read, would have left the second half
+  live and this claim only half-true.
+- the Telegram `??` / `||` deep-link divergence — after PR 1 patches it, PR 2 makes
+  it unspellable twice
+- a **second, unreported deep-link divergence**: admin `whatsapp/start` stripped
+  `/^whatsapp:\+?/` while owner `whatsapp/start` stripped `/\D/g`. A
+  `TWILIO_WHATSAPP_NUMBER` carrying spaces, dashes or parens produced a broken
+  `wa.me` link on the admin side only. The owner's `/\D/g` form wins.
 - the `no_account` 404/403 split
+- the error-response header split: admin's 400/403/404 lacked the
+  `Cache-Control: no-store, private` that owner's `errorResponse()` always sets.
+  Unified on always-no-store.
 
 ### 4.5 Testing
 
-- The 8 existing admin channel test files are the regression net. They must pass
-  **unmodified except for import paths** — any behavioural edit to them is a
-  signal the refactor changed admin semantics and must be justified.
+- The 6 admin route test files (`{telegram,whatsapp}/__tests__/{start,cancel,disable}.test.ts`)
+  are the regression net. They mock only `@/lib/db/server`, `@/lib/db/auth`,
+  `@supabase/ssr`, `@/lib/auth/mfa` and `qrcode` — they contain **zero** references
+  to the `_shared` paths — so they must pass **byte-for-byte unmodified**, which is
+  stronger than "unmodified except for import paths". A gate command asserts this
+  with `git diff --quiet`; any edit is a signal the refactor changed admin semantics.
+
+  **As built, that signal fired once and the break was taken deliberately.** Four
+  of the six suites seeded the resolver's row as `{ account_id: 'acct-1' }` — the
+  projection of the pre-refactor `SELECT account_id FROM businesses` resolver.
+  `resolveAdminActor` uses the accounts join this spec authorises above and reads
+  `.id`, so those 6 fixture sites yielded `undefined`. Only ONE failed loudly; the
+  other five passed **vacuously**, with `undefined` flowing into the advisory-lock
+  key and the cache label unobserved — neutering, among others, a guard whose own
+  comment reads "Reverting to `business_id` fails here". All 6 sites were updated
+  to `{ id: 'acct-1', subscription_status: 'active' }`, matching what the four
+  `start` suites already seed. Production is unaffected either way: the join
+  predicate is `b.account_id = a.id`, so both projections return the same value
+  and only the mock's column name changed. Rationale and approval:
+  `docs/superpowers/plans/refactor-channel-route-unification-deviations.md`
+  → Task 6 verdict.
+- The 2 admin `_shared.test.ts` files are NOT part of that net — they test the
+  flag/env modules and move with them to
+  `src/lib/notifications/channels/__tests__/{telegram,whatsapp}-env.test.ts`,
+  dropping the `isTelegramEnabled` / `isWhatsAppEnabled` cases that
+  `src/lib/notifications/channels/__tests__/flags.test.ts` already table-tests.
+- There are no existing owner `cancel`/`disable` tests for the `no_account`
+  condition, so §4.3's change is covered by **new** tests, not updated ones.
 - Backfill the missing `api/dashboard/channels/telegram/cancel` test (WhatsApp
   has one; Telegram does not).
 - New unit tests for `resolveAdminActor` and `resolveOwnerActor` covering: auth
   failure, missing/invalid scope, blocked subscription, success.
-- Update the owner `cancel`/`disable` tests for the 404 change (§4.3).
+- New tests for the runner **transaction protocol**, which nothing in the repo
+  pins today: the admin start suites push `sqlQueue.push([]) // advisory lock` as
+  a comment, never an assertion, and their `begin` shares one queue with the bare
+  `sql` calls, so the lock is indistinguishable from any other statement.
+  Token-minted-outside-the-tx, the `mobile_enroll:<accountId>` key, and
+  lock-before-`startMobileEnrollment` all need pinning before the runners are
+  rewritten.
+- New tests that the six admin shims BIND the right §4.2 posture. The resolver
+  unit tests prove `requireFullAccess` works in isolation; only a route-level
+  test proves each shim passes the right value, which is what stops admin
+  `cancel` from silently gaining a billing gate. Admin Telegram `start` also has
+  no existing inactive-subscription test today (WhatsApp `start` does), so it can
+  silently LOSE its gate.
 
 ## 5. PR 3 — Overview spec-alignment
 
