@@ -1,7 +1,7 @@
 # Handoff — `refactor-channel-route-unification`
 
-**Current step:** 3 → 4 boundary. Plan locked pending the owner's round-3 call
-(see "Open decision" below). Next action is step 4 (EXECUTE).
+**Current step:** 7 complete (review round 1, all axes triaged and committed).
+**Next action is step 8 (SHIP).** Phase record: `.feature/state.json` → `reviewed`.
 
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/refactor-channel-route-unification`
 **Branch:** `refactor-channel-route-unification` (forked from `main` @ `682681ab`)
@@ -10,106 +10,90 @@
 
 | What | Path |
 |---|---|
-| Design of record | `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md` §4 (Task 1 amends it in-branch) |
-| Intake contract (drift detector) | `docs/superpowers/plans/refactor-channel-route-unification-intake.json` |
+| Design of record | `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md` §4 |
+| Intake contract (drift detector) | `.feature/intake.json` + committed copy in `docs/superpowers/plans/` |
 | Implementation plan | `docs/superpowers/plans/2026-08-15-channel-route-unification.md` |
-| Plan review round 1 | `docs/reviews/refactor-channel-route-unification/plan-review-round-1.md` |
-| Plan review round 2 | `docs/reviews/refactor-channel-route-unification/plan-review-round-2.md` |
-| Glossary term coined | `CONTEXT.md` → **Channel actor** (written by Task 1, not yet on disk) |
+| Deviations, all triaged | `docs/superpowers/plans/refactor-channel-route-unification-deviations.md` |
+| Step-7 reports + verdicts | `docs/reviews/refactor-channel-route-unification/{spec-correctness,standards-maintainability,adversarial-approach-codex}.md` |
+| Blast radius | `docs/reviews/refactor-channel-route-unification/blast-radius.md` |
+| Glossary term | `CONTEXT.md` → **Channel actor** |
 
-## Lane
+## Lane — read this before step 8
 
 `classification: high` · `surface: backend` · `db_touching: false`
 
 **Ship lane is deliberately NOT the RISK=high default.** Owner's call: run the
 high-lane *controls* (adversarial plan review, third review axis at step 7) but
-ship via the normal lane — PR straight to `main`, no staging ride — per spec §2,
-which reasons that no worker, webhook, migration or billing surface is touched.
-Step 8 must follow the RISK=normal path with the addition of a merge-approval
-pause.
+ship via the **normal lane** — PR straight to `main`, **no staging ride** — per
+spec §2, which reasons that no worker, webhook, migration or billing surface is
+touched. Step 8 follows the RISK=normal path **plus a merge-approval pause**.
 
-## Decisions locked during grilling (do not re-litigate)
+Do not "promote" this to a staging ride on the strength of the `high`
+classification alone; that decision was made once, deliberately, and is recorded
+here and in spec §2.
 
-1. **Flag/env modules move to `src/lib/notifications/channels/`**, not
-   `api/_shared/channels/`. Reason: `whatsappEnvReady()` is consumed by
-   `src/app/(authenticated)/settings/channels/page.tsx` — a *page* — so an
-   `api/` home would recreate the same category error. The pure pass-throughs
-   `isTelegramEnabled`/`isWhatsAppEnabled` are deleted in favour of
-   `channelsTelegramEnabled`/`channelsWhatsappEnabled`, which those same files
-   already import directly for WhatsApp.
-2. **WhatsApp deep link: the owner's `/\D/g` strip wins.** The admin's
-   `/^whatsapp:\+?/` left spaces/parens in the `wa.me` path — a second,
-   unreported divergence beyond the §1 findings table.
-3. **`ChannelActor.surface` is `'admin' | 'dashboard'`**, not the spec's
-   `'admin' | 'owner'` — reuses `disconnectChannel`'s existing union so no
-   translation layer is needed for the audit tag or cache label.
-4. **`buildDeepLink`, `cacheLabel`, `endpoint` and `flagOff` are NOT config
-   fields.** All four are derivable from `surface` + `channel` + action, leaving
-   one 4-field `ChannelRouteConfig` shared by all three runners. A fifth field
-   means the seam is wrong — re-plan rather than widen.
+## Counters and budgets (cumulative — do NOT restart)
 
-## Plan review history
+- `planReviewRounds`: **3** (capped; round 3 produced no verdict, self-verified —
+  see the plan's review appendix)
+- `branchReviewRounds`: **1** of 3. Round 1 was the full parallel wave. Any
+  further round is **verification-only** and must `incr-round branch` first.
+- `allowed_edit_surface` amendments: **1 of 2** used (step-5 gate, `scripts/ci/**`).
+  **A second amendment trips the abort criteria** — this is why three stale
+  cross-references were deferred to step 8 rather than fixed in place.
 
-Rounds 1 and 2 ran via `codex exec` (sandbox `read-only` / `workspace-write`).
-**14 findings across both rounds, all accepted and fixed.** Round 1 returned
-`VERDICT: REVISE` with 4 High + 6 Medium — every one an "eval can be green while
-the feature is wrong" finding, which produced Task 2b. Round 2 returned
-`VERDICT: REVISE`, confirming 8 of 10 closed but correctly rejecting two and
-finding two defects the round-1 fixes had introduced (see the "Round-2
-verification" block in the plan's Self-review section).
+## Step 7 outcome
 
-**Round 3 did not render a verdict** — the `codex exec` run hit the 10-minute
-command cap without writing its report. Its six questions were factual rather
-than judgment calls, so they were self-verified instead:
+Three axes, 16 findings: **6 fixed, 4 rejected with reasoning, 3 deferred to the
+step-8 `document-feature` sweep, 3 noted.** Per-finding verdicts live at the foot
+of each report. Gate re-run GREEN after the fixes (26/26 incl. `diff-coverage`).
 
-| Question | Result |
-|---|---|
-| `LOCK_STATEMENT` raw text under `strings.join('?')` | Correct — `SELECT pg_advisory_xact_lock(hashtextextended(?, 0))` |
-| `expect(log).toEqual([lockedTx()])` exhaustive? | Correct — helpers are mocked, so the lock is the runner's only statement |
-| `txState.depth` scoping (module-level, per-test `mkSql`) | Correct — reset in `beforeEach`, suites run sequentially in-file |
-| Same `accountRow` returned for every query in `bindings.test.ts` | Harmless — only the accounts join's result is read |
-| `disconnectChannel` mocked before `runChannelDisable` reaches it | Correct — module-level `vi.mock` |
-| `vi.mock('node:crypto')` interception | **UNPROVEN — no precedent in this repo for mocking a `node:` builtin.** Mitigated: a wiring-guard test runs first, and a precedent-free fallback is documented in Task 2b Step 1. Failure mode is loud, not silent. |
+Two findings worth carrying into the PR description:
 
-**Codex session ids were not captured** — the round-1 JSONL carried no
-`session.created` record and rounds 2–3 ran in text mode. Re-dispatch fresh
-rather than attempting to resume a session.
+1. **`TWILIO_WHATSAPP_NUMBER!`** — a non-null assertion on a `rawOpt` var that
+   `MOCK_EXTERNAL_APIS=true` leaves unset, dereferenced *after* the enrollment
+   commit, stranding a `pending_verification` row on the migration-027 unique
+   slot. Fixed on both axes (throw with context; build the link before the write).
+2. **The `admin-aal2` audit read prose, not code.** A header comment satisfied its
+   substring clearance, so an admin route could bind `resolveOwnerActor`, skip MFA
+   step-up, and stay green. The first narrow fix false-positived on a real route
+   that merely documents its owner counterpart — the instrument was wrong in both
+   directions, and now reads comment-stripped code.
 
-## Open decision (blocks nothing; surfaced per the round-3 stop rule)
+**Rejected, with both positions recorded** (surface these in the PR body, per the
+RISK=normal round rule): codex's recommended remedy for the rebindable trust
+boundary — branded actor capabilities / portal-specific config factories — was
+declined as a seam redesign that the plan's own tripwire routes back to step 3,
+not a review-round patch. The narrow guard fix was taken instead.
 
-Round 3 produced no verdict. The owner's options are (a) accept the plan as-is on
-the strength of rounds 1–2 plus the self-verification table above, (b) re-run
-round 3 in the background before executing, or (c) drop the `node:crypto` spy in
-favour of the documented fallback up front. Recorded as: **no reviewer
-disagreement is outstanding** — only an unfinished confirmation.
+## Step 8 checklist (RISK=normal + merge-approval pause)
 
-## Task graph for step 4
+1. Push, open PR to `main`. Carry into the PR body: the two findings above, the
+   rejected-remedy position pair, the deliberate frozen-fixture break (6 sites /
+   4 files, argued in the deviations log), and `.feature/deps-justification.md`
+   content — **there is none; `dependencies_added` is empty.**
+2. Confirm all GitHub CI checks green (incl. fallow). React Doctor does **not**
+   apply — `surface: backend`.
+3. **PAUSE for explicit merge approval** (the owner added this to the normal lane).
+4. After merge: `git pull --ff-only` on local `main`; realign `staging` per
+   `deployment-guide.md` §"Re-sync staging" (expect divergence after a squash
+   merge → `reset --hard` + `--force-with-lease`, NOT a sync merge).
+5. `bash scripts/feature-cleanup.sh` (dry run first) from the main checkout.
+6. **Deviations promotion** — three durable lessons are already marked in the
+   deviations file: the mock-mode-bypass/`!` rule, the class-field `AuthError`
+   trap, and the `vi.mock('node:crypto')` precedent this branch established.
+   Add the `admin-aal2` audit's floor (text scan over stripped code; aliased
+   imports still clear it).
+7. `document-feature` sweep — **must** clean the three deferred stale references
+   listed in the deviations file (`docs/currents.md:1740`,
+   `ChannelsPanel.tsx:34`, `src/lib/config/server.ts:221,224`).
+8. Domain sweep (`domain-modeling`) + entropy counter in
+   `.claude/reference/arch-review-log.md`.
 
-```
-T1 (docs+glossary) ──┐
-T2  (eval: route + resolver tests) ──┤
-T2b (eval: runner protocol + admin bindings) ──┤
-                                     └─> T3 (flag/env + deep-links move)  [ALONE — enforcement spot check]
-                                          └─> T4 (resolve-actor)
-                                               └─> T5 (runners)
-                                                    ├─> T6 (admin shims)   ┐
-                                                    ├─> T7 (owner shims)   ├ parallel
-                                                    └─> T8 (consumers+docs)┘
-                                                         └─> T9 (full gate)
-```
+## Follow-up ticket to file (deliberately not on this branch)
 
-T1, T2, T2b are mutually independent. T3 blocks on all three — the eval must be
-complete and red before implementation starts. T6/T7/T8 are file-disjoint.
-
-## Non-negotiables for the executing agent
-
-- The 6 admin route test files
-  (`src/app/api/admin/channels/{telegram,whatsapp}/__tests__/{start,cancel,disable}.test.ts`)
-  must stay **byte-for-byte unmodified**. New admin coverage goes in the sibling
-  `src/app/api/admin/channels/__tests__/bindings.test.ts`. A gate command
-  enforces this with `git diff --quiet`.
-- Every Write/Edit path targets the worktree root, never the parent checkout.
-- Prefix every Bash call with `cd <worktree-root> &&` — the shell cwd resets
-  between calls in this harness.
-- `pnpm test src/app/api/dashboard/channels/whatsapp/__tests__/enroll-e2e.integration.test.ts`
-  must RUN, not SKIP, with `TEST_DATABASE_POOL_URL` set before the PR (spec §7).
+`reportCaughtError('telegram-admin', …)` / `('whatsapp-admin', …)` in the moved
+env modules are now misleading — the modules serve both portals. The plan locked
+the value verbatim, it is pre-existing, and changing a Sentry endpoint tag
+re-groups live issues and any alerting keyed to them. Reasoning in the deviations
+log's step-7 section.
