@@ -541,6 +541,7 @@ export async function loadRivalPickerViews(
 ): Promise<RivalPickerView[]> {
   const views: RivalPickerView[] = [];
   for (const businessId of businessIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- serial is deliberate (#773): each iteration is a 3-query chain, so parallelising puts N chains in flight against a 3-connection pool. Slow is the accepted cost; see the trade-off note above.
     views.push(await loadRivalPickerView(db, { accountId, businessId }));
   }
   return views;

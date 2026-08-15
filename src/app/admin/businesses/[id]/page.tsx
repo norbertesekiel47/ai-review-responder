@@ -29,6 +29,7 @@ export default async function AdminBusinessDetailPage({
   // 3-connection pool — the fan-out width #773 measured wedging a pool of 3.
   // Mirrors admin/costs/page.tsx and admin/overview/page.tsx.
   const detail = await getBusinessDetail(sql, businessId);
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the awaits ARE independent; that is the point. Parallelising them is the #773 fan-out this change removes, not an optimisation.
   const channels = await getBusinessChannelEnrollments(sql, businessId);
 
   // A missing business now renders the Next.js 404 instead of a full-screen
