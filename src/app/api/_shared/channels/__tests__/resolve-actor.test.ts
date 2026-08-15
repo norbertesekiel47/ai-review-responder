@@ -17,6 +17,11 @@ vi.mock('@/lib/shared/writable-subscription', () => ({
   resolveWritableAccountForLocation: (...a: unknown[]) => resolveWritableMock(...(a as [])),
 }));
 
+// The MOCKED AuthError (from the factory above), not a local look-alike:
+// requireRoleOr401 branches on `err instanceof AuthError` and deliberately
+// re-throws anything else, so a structurally-identical stub class would surface
+// as a 5xx instead of the role-gate response this suite is pinning.
+import { AuthError } from '@/lib/db/auth';
 import { resolveAdminActor, resolveOwnerActor } from '../resolve-actor';
 
 /** Queue-backed sql double: each push is consumed by the next query, in order. */
@@ -123,8 +128,7 @@ describe('resolveAdminActor', () => {
 
 describe('resolveOwnerActor', () => {
   it('resolveOwnerActor returns the role gate response when requireRoleOr401 fails', async () => {
-    class AuthErrorStub extends Error { statusCode = 401; }
-    requireRoleMock.mockRejectedValue(new AuthErrorStub('Unauthorized'));
+    requireRoleMock.mockRejectedValue(new AuthError('Unauthorized', 401));
     const { sql } = mkSql([]);
 
     const result = await resolveOwnerActor(sql, mkReq({}));

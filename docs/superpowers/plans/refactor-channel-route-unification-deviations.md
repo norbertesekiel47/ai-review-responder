@@ -234,3 +234,52 @@ set regressed. No compatibility re-export shim was left behind for the deleted
 `_shared.ts` modules. `pnpm ci:static-policy`, `pnpm ci:db-imports` and
 `pnpm ci:live-db-suites` all pass, and `npx eslint` is clean on all six touched
 files.
+
+## Task 4 — a fourth harness defect in the Task 2 eval: the role-gate test rejected with a look-alike class
+
+`resolve-actor.ts` was written **verbatim** from the plan; no character deviates,
+and `git rm src/app/api/admin/channels/_shared/account.ts` ran as specified.
+Step 3 came back **10 green / 1 red**, not 11 green. The single red is a defect in
+the committed eval, not in the plan's resolver.
+
+`resolveOwnerActor returns the role gate response when requireRoleOr401 fails`
+declared its own throwable inline:
+
+```ts
+class AuthErrorStub extends Error { statusCode = 401; }
+requireRoleMock.mockRejectedValue(new AuthErrorStub('Unauthorized'));
+```
+
+`requireRoleOr401` (`src/lib/auth/route-helpers.ts`) branches on
+`err instanceof AuthError` and **deliberately re-throws** anything else — the
+documented "an unexpected (non-auth) failure must not be masked as a 401" rule
+that spans ~40 routes. A structurally identical stub is not an instance of the
+suite's own mocked `AuthError`, so the rejection took the re-throw path and the
+test died on `Error: Unauthorized` instead of receiving a 401 response. The
+resolver never had a chance to be wrong here; the harness could not reach it.
+
+Fix (two lines, in `__tests__/resolve-actor.test.ts` — which is neither one of the
+six frozen admin route suites nor `bindings.test.ts`): import `AuthError` from the
+already-mocked `@/lib/db/auth` and reject with `new AuthError('Unauthorized', 401)`.
+That is the convention in every other suite that mocks this module — e.g.
+`src/lib/auth/__tests__/route-helpers.test.ts:298` and
+`src/app/api/settings/channels/override/__tests__/route.test.ts:82` both do
+exactly this. No test title, assertion, mock target, or expectation shape changed;
+the test still pins the same contract, and it now actually executes the branch it
+names. A comment records why the local look-alike cannot come back.
+
+Result: **11 / 11 green.** The six frozen admin route suites are byte-identical
+(`git diff --quiet` verified). `bindings.test.ts` is untouched and still fails at
+**suite collection** — `Cannot find module '../_shared'` from
+`admin/channels/telegram/start/route.ts`, whose imports Tasks 6–8 repair — so its
+split is 0 green / 15 uncollected rather than the partial split Task 4's brief
+anticipated; this is the Task 3 typecheck-RED surface, not a new regression.
+`npx eslint`, `pnpm ci:db-imports` and `pnpm ci:static-policy` are clean.
+
+**Carry-forward:** one latent trap left in place deliberately. The suite's mock
+factory is `AuthError: class extends Error { statusCode = 401; }` — a class *field*,
+so the constructor's second argument is ignored at runtime and every instance is a
+401 regardless. That is correct for the one auth-failure case this suite has, but a
+future 403 case added here would silently assert 401. Give the factory a real
+`constructor(message, statusCode)` (as the two precedent suites above do) at the
+moment a second status is needed, not before.
