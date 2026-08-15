@@ -25,7 +25,7 @@ So the threshold labels go in `types.ts` and no new file is created, per
 CLAUDE.md's "default is no new file". Surface amended: `labels.ts` →
 `types.ts`, both intake copies updated.
 
-**Verdict:** _pending step 6_
+**Verdict: ACCEPT.** using existing `types.ts` instead of a new `labels.ts` is the repo's stated default and the file was already a client-safe home for runtime constants. Surface amendment #1, substantively a narrowing.
 
 ---
 
@@ -48,7 +48,7 @@ Extracting `loadRivalPickerViews(sql, { accountId, businessIds })` into
 satisfies invariant #15, and makes the sequential behaviour unit-testable in the
 existing `named-rival.test.ts`. Projected aggregate coverage ~91%.
 
-**Verdict:** _pending step 6_
+**Verdict: ACCEPT.** the extraction follows a named precedent (`loadLocationsSettingsView`), satisfies invariant #15, and is what makes the sequencing testable at all. Not a surface amendment.
 
 ---
 
@@ -122,7 +122,7 @@ dynamic segment in this repo hits the same wall — `[reviewId]`, `[token]`,
 `[businessId]`. Keeping it out of this branch preserves the small-diff bias and
 keeps a tooling fix from riding inside a correctness PR.
 
-**Verdict:** _pending step 6_
+**Verdict: ACCEPT.** the guard bug is real and confirmed under bash. The local `?id?` unblock changes spelling, not reach, so it is not a surface amendment. Durable guard fix deliberately deferred to its own change.
 
 ---
 
@@ -149,4 +149,36 @@ The duplicated 4-line `stripComments` helper is deliberate: a shared helper
 would need a home outside both `__tests__` directories (and outside the declared
 surface), which is not worth it for two call sites.
 
-**Verdict:** _pending step 6_
+**Verdict: ACCEPT.** my own plan defect, caught by running the test. The corrected assertion is strictly stronger: it now *requires* the explanatory comment rather than forbidding it.
+
+---
+
+## D5 — `reclassify` WARN fired on a miscount; step 0 re-run confirms the lane
+
+The gate reported `production 481 > 2x estimated_prod_lines (70)`, which is a
+mandatory stop-and-re-classify trigger. Re-measuring the diff against the fork
+point by bucket:
+
+| Bucket | Estimate | Actual | Ratio |
+|---|---|---|---|
+| Production | 70 | **84** | 1.2× |
+| Test | 180 | **263** | 1.46× |
+| Spec doc (`docs/superpowers/specs/`) | — | 362 | — |
+| Workflow docs (`docs/superpowers/plans/`) | — | 985 | excluded by gate |
+
+Both real buckets are inside the 2× trigger. The 481 figure counts the
+**362-line spec document** as production: the gate excludes
+`docs/superpowers/plans/**` and `docs/reviews/**`, but not
+`docs/superpowers/specs/**`, and this branch carries the spec commit because the
+worktree was based on `docs/portal-audit-remediation-spec` so the spec would
+ship with the first PR that implements it.
+
+Step 0 was re-run with the true numbers. Classification is unchanged:
+**RISK = normal · SURFACE = mixed · SIZE = normal**. The trigger was obeyed, not
+waived — it simply did not survive contact with the real measurement.
+
+**Follow-up (not in this PR):** add `docs/superpowers/specs/**` to the gate's
+workflow-artifact exclusion alongside `plans/**` and `reviews/**`. Any feature
+that carries its own spec on the branch will otherwise trip this trigger.
+
+**Verdict: ACCEPT.** trigger obeyed; step 0 re-run on true numbers (84 prod / 263 test) confirms the same lane. No re-plan warranted.
