@@ -1,0 +1,87 @@
+{
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Close the owner sign-out dead end, the Telegram blank-username deep-link divergence, the two self-contradicting DB fan-outs, and the duplicated auto-approval threshold labels, per PR 1 of the portal audit remediation spec.",
+  "non_goals": [
+    "Changing the /admin/login redirect targets in require-owner-access.ts or (authenticated)/layout.tsx — deliberate and test-pinned",
+    "Unifying the admin and owner channel route chains — that is PR 2",
+    "Reshaping /admin/overview or /admin/businesses — that is PR 3",
+    "Collapsing the two AutoApprovalReadinessBlockReason maps — deliberately different registers",
+    "Sequentialising the three fixed-width fan-outs in spec section 3.6 — comment only",
+    "Adding any new env var, feature flag, or dependency"
+  ],
+  "user_visible_behavior": [
+    "An owner who signs out of the portal lands on /login and can sign back in, instead of landing on /admin/login which rejects owner credentials",
+    "Admin Telegram enrollment produces a working t.me deep link when TELEGRAM_BOT_USERNAME is set but blank or whitespace, instead of https://t.me/?start=<token>",
+    "No other observable behaviour changes: the two fan-out fixes and the label extraction are behaviour-preserving"
+  ],
+  "invariants": [
+    "Invariant #1: no runtime openai/@anthropic-ai/sdk/bullmq/postgres imports added under src/app/** or src/components/**",
+    "Invariant #13: no NEXT_PUBLIC_* companion introduced; flag state stays server-authoritative",
+    "Invariant #15: src/lib/competitors/named-rival.ts and src/lib/auto-approval/labels.ts never import @/lib/db/server; sql arrives as an explicit parameter",
+    "#773: at most one query in flight per request chain on the modified pages",
+    "The owner sign-out error branch still sets the error state and performs no navigation"
+  ],
+  "edge_cases": [
+    "TELEGRAM_BOT_USERNAME unset, empty string, and whitespace-only all fall back to RepWorthBot",
+    "supabase.auth.signOut() returning an error must not navigate",
+    "supabase.auth.signOut() throwing must not navigate",
+    "An account with zero active locations renders the competitors page without issuing per-location queries",
+    "An account with many active locations issues its rival-view queries sequentially, never N-wide",
+    "Every AutoApprovalThreshold value maps to a label; null maps to Off"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/locations/settings-view.ts loadLocationsSettingsView — the loader owns every query and runs them sequentially; the page is a one-line call. loadRivalPickerViews follows this exactly.",
+    "src/app/admin/autonomy/__tests__/page-source.test.ts — source-text assertion is this repo's convention for server-component pages; there is no executing server-page test precedent.",
+    "src/app/admin/costs/page.tsx and src/app/(authenticated)/settings/locations/page.tsx — the SEQUENTIAL comment idiom the businesses/[id] page comment must match.",
+    "src/app/api/dashboard/channels/telegram/start/route.ts line 73 — the correct blank-username fallback the admin route is being aligned to.",
+    "src/lib/competitors/__tests__/named-rival.test.ts — existing unit test file the sequential-loading test joins."
+  ],
+  "allowed_edit_surface": [
+    "src/components/dashboard/shell/Sidebar.tsx",
+    "src/components/dashboard/shell/__tests__/**",
+    "src/app/api/admin/channels/telegram/start/route.ts",
+    "src/app/api/admin/channels/telegram/__tests__/**",
+    "src/app/admin/businesses/[id]/page.tsx",
+    "src/app/admin/businesses/[id]/__tests__/**",
+    "src/app/admin/businesses/[id]/_components/AutoApprovalDiagnosticsPanel.tsx",
+    "src/app/(authenticated)/settings/competitors/page.tsx",
+    "src/app/(authenticated)/settings/competitors/__tests__/**",
+    "src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx",
+    "src/app/(authenticated)/settings/auto-approval/__tests__/**",
+    "src/app/(authenticated)/dashboard/add-location/page.tsx",
+    "src/app/api/account/settings/route.ts",
+    "src/app/api/locations/add/route.ts",
+    "src/lib/auto-approval/labels.ts",
+    "src/lib/auto-approval/__tests__/**",
+    "src/lib/competitors/named-rival.ts",
+    "src/lib/competitors/__tests__/**",
+    "docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "pushes /login after a successful sign out",
+    "does not navigate when sign out fails",
+    "does not navigate when sign out throws",
+    "falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is blank",
+    "falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is whitespace only",
+    "loads each location rival view sequentially",
+    "issues no rival-view queries when the account has no active locations",
+    "keeps the admin business detail page free of Promise.all fan-out",
+    "keeps the competitors settings page free of Promise.all fan-out",
+    "maps every auto-approval threshold to its label"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "70",
+  "estimated_test_lines": "180",
+  "dependencies_added": [],
+  "rollback_plan": "Not DB-touching. Revert the squash commit; no migration, flag, or data change to unwind.",
+  "observability": [
+    "No new telemetry: these are UI-path and route-constant fixes with no server-side signal of their own. The regression guard is the ten tests above, not a dashboard.",
+    "Existing Sentry coverage on api/admin/channels/telegram/start is unchanged and still reports EnrollmentDatabaseError via reportCaughtError.",
+    "Prod confirmation for the sign-out fix is manual: sign out of the owner portal and confirm the /login form accepts owner credentials."
+  ],
+  "open_questions": []
+}
