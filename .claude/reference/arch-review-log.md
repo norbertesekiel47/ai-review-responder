@@ -6,7 +6,37 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3.**
+**Merges since last architecture pass: 4.**
+
+- **PR #827** — portal audit PR 1, correctness (2026-08-15). **Low entropy:
+  read-path and route-constant fixes only.** No migration, flag, env var,
+  dependency, or new file; 84 production / 263 test lines. Owner sign-out
+  redirect corrected (`/admin/login` → `/login`, the first test that path has
+  ever had); admin Telegram blank-username fallback aligned with the owner
+  route; two DB fan-outs sequentialised (`admin/businesses/[id]/page.tsx`, and
+  the competitors page via a new `loadRivalPickerViews` in
+  `src/lib/competitors/named-rival.ts`); auto-approval threshold labels given
+  one owner in `src/lib/auto-approval/types.ts` — the two
+  `AutoApprovalReadinessBlockReason` maps deliberately NOT merged (different
+  registers, both exhaustive over one union). Three fixed-width fan-outs
+  annotated as deliberately left alone (spec §3.6). **Entropy-negative on
+  duplication**, but it is PR 1 of 3 from one spec
+  (`docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md`) — PR 2
+  (channel-route unification, 12 routes) and PR 3 (Overview spec-alignment) carry
+  the real structural weight and should be weighed together when the pass runs.
+  **Two workflow-layer defects surfaced and were fixed/recorded, not absorbed:**
+  the edit-surface guard could not match ANY Next.js dynamic route segment (bash
+  `[[ == $glob ]]` read `[id]` as a character class) — fixed in **PR #828** with
+  lockstep tests against its `feature-surface-audit.ts` mirror; and
+  `verify-gate`'s `reclassify` row counts `docs/superpowers/specs/**` as
+  production, tripping the re-classification trigger on a branch carrying its own
+  spec (reported 481 production lines against a real 84) — **still open**.
+  **One finding deliberately deferred to PR 2:** `src/lib/config/server.ts:224`
+  still documents the `??` vs `||` divergence this PR closed; the file was
+  outside the locked surface and PR 2 removes the divergence structurally. This
+  is the same "prescribed fix falls outside the discovering feature's surface"
+  class the 2026-08-10 pass flagged for `.claude/skills/**` — **second
+  instance**, worth the pass's attention.
 
 - **PR #821** — admin invite funnel (2026-08-14). **Heavy entropy: schema +
   billing + auth in one branch.** Two migrations (**105**

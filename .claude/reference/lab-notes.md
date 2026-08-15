@@ -2552,3 +2552,59 @@ same name is *present* in both environments while differing in content — compa
   untouched schema is not shared with a path that recreates it. And a permission
   bug that surfaces as "does not exist" will be misread as absence every time —
   check `has_schema_privilege(role, schema, 'USAGE')` before believing a `42P01`.
+
+## 2026-08-15 — #827 portal-audit PR1: four tooling traps around a 5-fix branch
+
+Five small correctness fixes (owner sign-out, Telegram deep link, two DB
+fan-outs, duplicated labels). The code was trivial; the tooling around it was
+where the time went. All four below cost a real detour and will recur.
+
+- **[2026-08-15] The edit-surface guard blocked writes to paths the intake
+  explicitly declared → bash `[[ "$p" == $GLOB ]]` reads `[id]` in the glob as a
+  CHARACTER CLASS matching one char → escape `[`/`]` before matching; keep `*`
+  and `?` as wildcards.** Affects every Next.js dynamic segment in the repo
+  (`[id]`, `[reviewId]`, `[token]`, `[responseId]`, `[sessionId]`,
+  `[offboardingId]`, `[escalationId]`, `[businessId]`). Fixed in #828.
+  `scripts/ci/feature-surface-audit.ts` — the merge-time mirror — was already
+  correct and its header already said "character classes are NOT supported", so
+  the hook was violating its own documented lockstep. **When two matchers claim
+  lockstep, pin both to ONE shared test table**; the claim in a comment is not
+  the same as a test. A previous session's escaped-bracket attempt failed on
+  double-escaping: escape at MATCH time in-memory, never inside the intake JSON.
+
+- **[2026-08-15] React Doctor flagged the correct fix as a defect, twice → its
+  `server-sequential-independent-await` and `async-await-in-loop` rules argue for
+  exactly the fan-out #773 forbids → suppress with
+  `// react-doctor-disable-next-line react-doctor/<rule> -- <why>`.** It reports
+  only issues NEW vs `main`, so existing sequential code is invisible and every
+  future sequentialisation PR gets flagged afresh. A reviewer trusting the bot
+  reintroduces the pool wedge. Convention already existed in
+  `src/lib/channels/disable-enrollment.ts`, `worker/jobs/response-generation/persist.ts`,
+  `auto-approval.ts`, and the offboarding workers — follow it, don't re-derive it.
+
+- **[2026-08-15] A source-text test that forbids a string forbade the comment
+  explaining the invariant → the house idiom for "no fan-out here" literally
+  contains `Promise.all` → strip comments before asserting, and assert the
+  explanatory comment IS present.** A naive `expect(source).not.toContain('Promise.all')`
+  passes only if you delete the comment that stops the next reader
+  re-introducing the bug. Applies to every `page-source.test.ts`.
+
+- **[2026-08-15] Server-page changes can sink `diff-coverage` below its gate →
+  this repo has NO executing server-page test precedent (the convention is
+  source-text assertion, which yields 0% line coverage) and `diff-coverage` is an
+  AGGREGATE over added instrumented lines → put the logic in a `src/lib/**`
+  module the page calls in one line.** Projected 76% (fail) inline vs ~91%
+  extracted. `loadLocationsSettingsView` is the precedent — but note it batches
+  with one `ANY(...)` read rather than looping, so citing it for a per-location
+  loop is only half right; a loop trades N-wide concurrency for O(N) latency.
+
+**Also:** `verify-gate`'s `reclassify` row excludes `docs/superpowers/plans/**`
+and `docs/reviews/**` but NOT `docs/superpowers/specs/**`, so a branch carrying
+its own spec trips the re-classification trigger on a miscount (reported 481
+production lines against a real 84). Re-measure per bucket before obeying it.
+
+**Test gotcha:** on macOS `$TMPDIR` is `/var/folders/…` symlinked to
+`/private/var/…`, and `git rev-parse --show-toplevel` returns the RESOLVED path.
+A test that builds a temp git repo and expects a path-prefix strip must
+`realpathSync` the temp dir, or every case fails in a way that looks exactly
+like the bug under test.
