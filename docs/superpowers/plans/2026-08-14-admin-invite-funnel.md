@@ -12,7 +12,9 @@ Collapse the two onboarding journeys into one. Today the admin fills a 4-section
 
 ## Sequencing dependency (prod)
 
-The checkout-attempt machinery (`checkout_attempt_*` columns) ships in migration **077**, which is deliberately absent in prod until the WS8 tier cutover (`docs/runbooks/ws8-tier-cutover.md`; standing exception in CLAUDE.md). This plan therefore **lands on `staging` now but goes live in prod only at/after the WS8 cutover**. The new migration is **105** (head at fork was 104), staging first, prod in the normal lockstep once 077/078 exist there.
+The checkout-attempt machinery (`checkout_attempt_*` columns) ships in migration **077**. This plan **lands on `staging` now but goes live in prod only at/after the WS8 cutover**. The new migration is **105** (head at fork was 104), staging first, prod in the normal lockstep.
+
+> **Superseded 2026-08-14 (#825).** This section originally said 077 "is deliberately absent in prod until the WS8 tier cutover". The migration lockstep audit found 077 **already applied in prod** — it landed unrecorded after the 2026-07-17 cutover pause — and 105 was then applied there too, once its only blocker proved satisfied. **078 is now the sole migration absent in prod.** The plan's own sequencing logic is unchanged (105 still depends on 077's columns); only the claim about prod's state was wrong. Current state always: `.claude/CLAUDE.md` standing exception.
 
 ## Approach (the 12 locked steps)
 

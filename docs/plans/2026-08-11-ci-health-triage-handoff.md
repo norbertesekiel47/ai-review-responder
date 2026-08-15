@@ -208,7 +208,8 @@ to `latest` to make it green.
   it in either direction. Reproduce with `pnpm test:coverage && pnpm ci:fallow:coverage`.
 - Anything touching the worker, a webhook, a migration, or billing rides `staging` first.
   The `next` bump in Issue 1 is app-wide and should follow that path.
-- Migrations 077 and 078 are deliberately absent in prod — do not apply out-of-band.
+- Migration 078 — and only 078 — is absent in prod; do not apply it out-of-band.
+  (Corrected 2026-08-14: 077 and 105 turned out to be applied there already, #825.)
 
 ## Useful commands
 
