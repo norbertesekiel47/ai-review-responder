@@ -108,7 +108,7 @@ const STEPS = [
     tick: 'T + 1:47',
     kicker: 'Judge',
     title: 'Every auto-post gets a second opinion.',
-    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against a fixed safety rubric: no unauthorized promises, no personal details, no hostile or unprofessional tone. Verdicts feed the Governor: if trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against a fixed safety rubric: no unauthorized promises, no personal details, no hostile or unprofessional tone. Verdicts feed the Governor. If trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
     bullets: [
       '100% of auto-posted replies are reviewed',
       'The Governor can suspend autonomy per account',
@@ -161,11 +161,11 @@ const GUARANTEES = [
 
 const FAQ_ITEMS = [
   { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy, and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
-  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post: the review simply stays unanswered on your end.' },
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post. The review simply stays unanswered on your end.' },
   { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted), and the tone defaults to acknowledging the issue and offering a path forward.' },
-  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the edits you make. As you tweak drafts it picks up your tone, length, and phrasing: the more you edit, the more it sounds like you.' },
-  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap: if it can't review, pending auto-approved replies fall back to your normal approval queue." },
-  { q: 'Which review platforms do you support?', a: "Today, Google only: that's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
+  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the edits you make. As you tweak drafts it picks up your tone, length, and phrasing. The more you edit, the more it sounds like you.' },
+  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap. If it can't review, pending auto-approved replies fall back to your normal approval queue." },
+  { q: 'Which review platforms do you support?', a: "Today, Google only. That's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
 ];
 
 const OVERVIEW = [

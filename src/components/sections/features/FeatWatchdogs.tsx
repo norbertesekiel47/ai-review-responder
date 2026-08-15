@@ -41,7 +41,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             Every reply that posts without your tap is reviewed by the Judge: an independent AI
             check on 100% of Autopilot&apos;s public actions. If the Judge is unavailable,
             auto-posting stops on its own. And if verdicts slip, the Governor suspends that
-            account&apos;s autonomy and tells you. Trust is earned per account, never assumed.
+            account&apos;s autonomy and tells you.
           </p>
         </div>
 

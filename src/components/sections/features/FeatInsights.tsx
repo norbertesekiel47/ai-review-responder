@@ -30,9 +30,9 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
             A brief you&apos;ll <span className="rw-display-serif text-rw-teal-strong">actually</span> read.
           </h2>
           <p className="text-rw-ink-soft max-w-md leading-relaxed mb-6">
-            Insights is the reporting agent. Not a dashboard, not a chart dump: a short, plain-language
-            summary of what customers said this week: what they loved, what they complained about, and
-            one thing worth looking at on the ops side.
+            Insights is the reporting agent. It sends a short, plain-language summary of what
+            customers said this week: what they loved, what they complained about, and one thing
+            worth looking at on the ops side.
           </p>
           <ul className="space-y-3 text-sm">
             {[
