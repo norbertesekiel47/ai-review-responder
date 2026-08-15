@@ -379,3 +379,124 @@ location has no billing account` are green, as is the backfilled
 `telegram/cancel` suite (3 tests). `npx tsc --noEmit -p tsconfig.json` filtered to
 `dashboard/channels/(telegram|whatsapp)` → **no output**. `npx eslint` on both
 owner channel dirs → clean.
+
+## Task 8 — executed as written; one arrangement choice in `directory.md`
+
+Steps 1 and 2 were applied verbatim: both non-route consumers now import
+`channelsTelegramEnabled` + `channelsWhatsappEnabled` from
+`@/lib/notifications/channels/flags`, `assertTelegramEnvReady` from
+`telegram-env`, and `whatsappEnvReady` from `whatsapp-env`. The inconsistency the
+brief flagged is gone — inside each file both channels now read their flag through
+the same module and the same call shape, where previously WhatsApp read
+`flags.ts` directly while Telegram went through the deleted `_shared` wrapper.
+The reason these two consumers pinned the module location is preserved:
+`whatsappEnvReady()` is read by a **server component page** and by the owner
+status GET, so an `api/_shared` home would have left a page importing out of an
+API route folder — the same category error §4.4 exists to remove.
+
+**Addition 1 (stale describe title).** `telegram-env.test.ts` opened with
+`describe('admin telegram _shared', …)`, naming a deleted file in a directory that
+is no longer under `admin/`; renamed to `describe('telegram-env', …)`. Only the
+describe string changed — no `it` title, assertion, import or mock was touched.
+`whatsapp-env.test.ts` needed no change, confirming the Task 3 agent's read: its
+three describes (`flagOff`, `assertWhatsAppEnvReady`,
+`whatsappEnvReady / missingWhatsAppEnv`) are named after the functions under test,
+not after the old file.
+
+**Step 3 — `directory.md`.** Both stale rows (`channels/telegram/_shared.ts`,
+`channels/whatsapp/_shared.ts`) deleted from the `#### admin/` table. The
+`_shared/channels/` block was added with **`#### `** rather than the plan's
+`### `, and titled `` `_shared/channels/` `` rather than
+`` `src/app/api/_shared/channels/` ``, to match the section's existing convention —
+every child of `### api/` is a `####` heading carrying a path relative to `api/`
+(`#### `u/``, `#### `auth/``, `#### `dashboard/``, `#### `admin/``). It sits first
+in the `api/` section, ahead of both portals that consume it and mirroring how an
+underscore-prefixed directory sorts on disk. Its table header is `| File |
+Purpose |` exactly as the plan writes it (the neighbouring route tables use
+`| Route | What it does |`, which would be wrong for a non-route module block).
+The three `src/lib/notifications/channels/` rows are **verbatim** but were placed
+per-channel rather than as one contiguous block, since that table is ordered by
+channel family: `telegram-env.ts` follows `telegram-body.ts`, `whatsapp-env.ts`
+follows `whatsapp-body.ts`, and `deep-links.ts` (channel-agnostic) follows those,
+immediately before `enrollment-reducer.ts`. Every row carries the `channels/`
+path prefix the rest of that table uses. No untouched row was reflowed.
+
+The repo's delete-a-doc-entry rule was applied: `rg -n '_shared' docs/directory.md`
+now returns only three unrelated hits — `businesses/new/_components/_shared.tsx`,
+`past-replies/_shared/edit-reply-request.ts`, and the new block's own heading and
+prose. No stale channel `_shared` reference survives in that file.
+
+**Verification (scoped).** `pnpm test src/lib/notifications/channels` → **15 files
+/ 192 tests, all green** (unchanged count — the rename touched no case).
+`npx tsc --noEmit -p tsconfig.json` filtered to
+`dashboard/channels/route|settings/channels/page` → **no output**. `npx eslint` on
+the three touched source/test files → clean. Step 4's mechanical check printed
+`PASS: no owner->admin channel import remains`, which is the §4.4 headline claim
+proven mechanically across `src/app/api/dashboard`, `src/lib`, and
+`src/app/(authenticated)`. Note it passed only because T6 and T7 had already
+landed their route repairs in the shared worktree; run in isolation against an
+unrepaired tree it would have failed on files this task does not own. Only the
+five owned files were staged — the six in-flight `api/admin/channels/**` files
+belonging to T6 were left unstaged.
+
+---
+
+## Task 6 — Rebind the 6 admin routes
+
+**Code deviation: none.** All six admin routes are the plan's Task 6 code
+verbatim — Steps 1–3 literally, and the three WhatsApp files via the Step 4
+substitution table (`telegram`→`whatsapp`, `channelsTelegramEnabled`→
+`channelsWhatsappEnabled`, `assertTelegramEnvReady`→`assertWhatsAppEnvReady`,
+`telegram-env`→`whatsapp-env`). The §4.2 asymmetry is bound as specified:
+`requireFullAccess: true` on both `start` routes, `false` on all four
+`cancel`/`disable` routes. `ChannelRouteConfig` needed no fifth field; the old
+per-route `buildTelegramDeepLink`/`buildWhatsAppDeepLink`, `cacheLabel` and
+`endpoint` bindings are deleted, not relocated.
+
+**Verification (scoped, per the T6 brief).** `pnpm test src/app/api/admin/channels`
+→ **7 files, 52 tests: 51 passed, 1 failed**. The failure is
+`whatsapp/__tests__/disable.test.ts:103`, analysed below. The frozen-six non-diff
+holds: `git diff --quiet HEAD -- src/app/api/admin/channels/{telegram,whatsapp}/__tests__`
+exits 0. `npx tsc --noEmit -p tsconfig.json` filtered to `admin/channels` → no
+output.
+
+### PLAN DEFECT (not a Task 6 binding defect): the frozen-six promise is falsified by one assertion
+
+`src/app/api/admin/channels/whatsapp/__tests__/disable.test.ts` fails at line 103,
+`expect(disableUpdate!.values).toContain('acct-1')`, with
+`expected [ undefined, 'whatsapp' ] to include 'acct-1'`. **The test was left
+untouched** per the brief. The argument that it cannot be satisfied from inside
+`src/app/api/admin/channels/`:
+
+1. The suite's fixture (line 86) seeds the resolver's first query result as
+   `[{ account_id: 'acct-1' }]`. That column name is the projection of the
+   **pre-refactor** admin resolver, `resolveAdminChannelAccount`
+   (`src/app/api/admin/channels/_shared/account.ts` at merge-base `682681ab`),
+   which ran `SELECT account_id FROM businesses WHERE id = ${businessId}` and
+   read `acctRow.account_id`.
+2. The plan's own §4.1 amendment (Task 1) moves admin `cancel`/`disable` off that
+   query onto the accounts join, and Task 4's `resolveAdminActor`
+   (`src/app/api/_shared/channels/resolve-actor.ts:84`) projects
+   `SELECT a.id, a.subscription_status FROM accounts a JOIN businesses b ON
+   b.account_id = a.id`, reading `accountRow.id`. Against a fixture row carrying
+   only `account_id`, `accountRow.id` is `undefined`, so the disable UPDATE binds
+   `undefined` as its account parameter.
+3. **Production semantics are unchanged.** The join predicate is
+   `b.account_id = a.id`, so a real database returns the same account id under
+   either projection. Only the mock's column name — an artefact of the old query,
+   not an assertion about behaviour — differs. Every behavioural assertion in the
+   suite (404 flag-off, 403 AAL2, account-scoped `account_id = ` /
+   `location_id IS NULL` / no `business_id = ` UPDATE shape, 404 no-match, 404
+   unknown business) passes.
+4. **No in-scope fix exists.** The row is destructured inside `resolveAdminActor`,
+   not in any route. The only repairs are (a) rename the resolver's projection to
+   `a.id AS account_id`, which would break the three non-frozen suites that seed
+   `{ id, subscription_status }` (`admin/channels/__tests__/bindings.test.ts`,
+   `_shared/channels/__tests__/{resolve-actor,runners}.test.ts`), or (b) amend
+   this one fixture line to `[{ id: 'acct-1', subscription_status: 'active' }]`,
+   matching what the other five frozen suites' `start` fixtures already seed. (b)
+   is the coherent fix and is a **one-line plan amendment**, but it is explicitly
+   outside Task 6's authority, so Task 6 stops here and reports rather than
+   editing a frozen file. The three sibling suites that seed the same stale
+   `{ account_id: 'acct-1' }` row (`telegram/disable`, `telegram/cancel`,
+   `whatsapp/cancel`) pass only because none of them asserts the bound value.
