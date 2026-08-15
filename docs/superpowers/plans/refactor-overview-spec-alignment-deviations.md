@@ -109,3 +109,21 @@ queries. The audit's actual demand:
   every query until T4.
 
 `ALLOWLIST_BASELINE` 400 → 403. `pnpm ci:tenant-scope` green.
+
+## T3 — `HealthBadge` was imported, not lifted
+
+The T3 ticket says to lift three things from `OverviewClient.tsx:51-109`:
+`HealthBadge`, `formatRelative`, and the reconnect badge ladder. Only two were
+lifted. `HealthBadge` had already been extracted to
+`src/components/admin/ui/HealthBadge.tsx` (a peer of `StatusBadge`) before T3
+started, so `BusinessesClient.tsx` **imports** it. That is the stronger form of
+the ticket's own stated goal — "so the two pages cannot disagree on how a level
+… looks" — since one component now serves both surfaces rather than two copies
+of the same JSX.
+
+`formatRelative` and the reconnect ladder were copied as the ticket describes.
+Neither leaves a second live copy behind: T4 deletes Overview's metric columns
+in the same PR, so this is a move, not a duplication.
+
+Reviewers checking the ticket line-by-line should expect an import for the
+first item and copied source for the other two.

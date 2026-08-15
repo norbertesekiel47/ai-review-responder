@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { BusinessSummariesResult } from '@/lib/admin/business-summary';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { StatusBadge } from '@/components/admin/ui/StatusBadge';
+import { HealthBadge } from '@/components/admin/ui/HealthBadge';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminDate } from '@/components/admin/ui/format';
 
@@ -24,40 +25,102 @@ type BusinessRow = BusinessListData['businesses'][number];
 
 import { BUSINESSES_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
 
-const columns: DataTableColumn<BusinessRow>[] = [
-  {
-    key: 'name',
-    header: 'Name',
-    render: (b) => <span className="font-medium">{b.name}</span>,
-    sortValue: (b) => b.name,
-  },
-  {
-    key: 'category',
-    header: 'Category',
-    render: (b) => b.category ?? <span className="text-gray-400">{'—'}</span>,
-  },
-  {
-    key: 'status',
-    header: 'Status',
-    render: (b) => <StatusBadge status={b.subscriptionStatus} />,
-  },
-  // Header carries the zone: `formatAdminDate` deliberately does not self-label
-  // (see src/components/admin/ui/format.ts), and repeating "UTC" per row would
-  // be noise in a date-only column.
-  { key: 'lastSync', header: 'Last Sync (UTC)', render: (b) => formatAdminDate(b.lastSyncAt, 'Never') },
-  {
-    key: 'pending',
-    header: 'Pending',
-    render: (b) =>
-      b.pendingApprovalCount > 0 ? (
-        <span className="inline-block rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-          {b.pendingApprovalCount}
+// Coarse "how long ago" for the Last activity column. Absorbed from
+// OverviewClient with the metric columns (spec §5.4) — the admin console has
+// one spelling of a relative timestamp, and unlike `formatAdminDate` it is
+// deliberately zone-free (a relative age needs no zone label).
+function formatRelative(isoString: string | null): string {
+  if (!isoString) return '—';
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+// A function, not a module constant: the two window-labelled headers derive
+// their `N` from BusinessSummariesResult.responseMetricsWindowDays (single
+// owner: src/lib/admin/business-summary.ts), which is only known at render.
+function buildColumns(windowDays: number): DataTableColumn<BusinessRow>[] {
+  return [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (b) => <span className="font-medium">{b.name}</span>,
+      sortValue: (b) => b.name,
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (b) => b.category ?? <span className="text-gray-400">{'—'}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (b) => <StatusBadge status={b.subscriptionStatus} />,
+    },
+    // Header carries the zone: `formatAdminDate` deliberately does not self-label
+    // (see src/components/admin/ui/format.ts), and repeating "UTC" per row would
+    // be noise in a date-only column.
+    { key: 'lastSync', header: 'Last Sync (UTC)', render: (b) => formatAdminDate(b.lastSyncAt, 'Never') },
+    {
+      key: 'pending',
+      header: 'Pending',
+      render: (b) =>
+        b.pendingApprovalCount > 0 ? (
+          <span className="inline-block rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
+            {b.pendingApprovalCount}
+          </span>
+        ) : (
+          <span className="text-gray-400">0</span>
+        ),
+    },
+    {
+      key: 'reconnect',
+      header: 'Reconnect',
+      render: (b) =>
+        b.pendingReconnectCount >= 3 ? (
+          <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+            {b.pendingReconnectCount}
+          </span>
+        ) : b.pendingReconnectCount > 0 ? (
+          <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+            {b.pendingReconnectCount}
+          </span>
+        ) : (
+          <span className="text-gray-400">{'—'}</span>
+        ),
+    },
+    {
+      key: 'responseRate',
+      header: `Response rate (${windowDays}d)`,
+      render: (b) => <span className="text-gray-700">{b.responseRate}%</span>,
+      sortValue: (b) => b.responseRate,
+    },
+    {
+      key: 'avgTime',
+      header: `Avg time (${windowDays}d)`,
+      render: (b) => (
+        <span className="text-gray-700">
+          {b.avgResponseTimeHours !== null ? `${b.avgResponseTimeHours}h` : '—'}
         </span>
-      ) : (
-        <span className="text-gray-400">0</span>
       ),
-  },
-];
+    },
+    {
+      key: 'lastActivity',
+      header: 'Last activity',
+      render: (b) => <span className="text-gray-500">{formatRelative(b.lastActivity)}</span>,
+    },
+    {
+      key: 'health',
+      header: 'Health',
+      render: (b) => <HealthBadge level={b.churnScore.level} score={b.churnScore.score} />,
+    },
+  ];
+}
 
 export function BusinessesClient({ initialData }: { initialData: BusinessListData }) {
   const [page, setPage] = useState(0);
@@ -99,7 +162,7 @@ export function BusinessesClient({ initialData }: { initialData: BusinessListDat
         </div>
       )}
       <DataTable
-        columns={columns}
+        columns={buildColumns(data.responseMetricsWindowDays)}
         rows={data.businesses}
         rowKey={(b) => b.id}
         rowHref={(b) => `/admin/businesses/${b.id}`}
