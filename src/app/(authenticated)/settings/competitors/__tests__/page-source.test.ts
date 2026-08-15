@@ -21,5 +21,8 @@ describe('competitors settings page source', () => {
 
     expect(code).not.toContain('Promise.all');
     expect(code).toContain('loadRivalPickerViews');
+    // Symmetry with the admin sibling: the loader owns the sequencing, so the
+    // page must keep pointing at it rather than growing its own loop back.
+    expect(code).not.toMatch(/locations\.map\s*\(\s*\(?\s*location\s*\)?\s*=>\s*loadRivalPickerView\b/);
   });
 });

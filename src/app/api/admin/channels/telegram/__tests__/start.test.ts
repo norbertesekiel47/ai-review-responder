@@ -73,9 +73,15 @@ function mkReq(body: unknown, opts: { origin?: string | null } = {}) {
  * `TELEGRAM_BOT_USERNAME` is declared `rawOpt`, so ''/'   ' survive the parse
  * byte-for-byte and reach `buildTelegramDeepLink` intact.
  */
-async function startWithBotUsername(botUsername: string) {
+async function startWithBotUsername(botUsername: string | undefined) {
   process.env.CHANNELS_TELEGRAM_ENABLED = 'true';
-  process.env.TELEGRAM_BOT_USERNAME = botUsername;
+  // `delete`, never `= undefined` — assigning undefined to a process.env key
+  // stores the literal string "undefined", which would test the wrong thing.
+  if (botUsername === undefined) {
+    delete process.env.TELEGRAM_BOT_USERNAME;
+  } else {
+    process.env.TELEGRAM_BOT_USERNAME = botUsername;
+  }
   resetServerConfigForTests();
   sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]); // subscription check
   sqlQueue.push([]); // advisory lock
@@ -168,6 +174,15 @@ describe('POST /api/admin/channels/telegram/start', () => {
 
   it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is whitespace only', async () => {
     const body = await startWithBotUsername('   ');
+    expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
+  });
+
+  // Third input named by the same edge case, mirroring the owner suite's unset
+  // case in api/dashboard/channels/telegram/__tests__/start.test.ts. Correct by
+  // inspection (`undefined?.trim()` -> undefined -> fallback), but the admin
+  // mirror should not be the copy that leaves it unexercised.
+  it('falls back to RepWorthBot when TELEGRAM_BOT_USERNAME is unset', async () => {
+    const body = await startWithBotUsername(undefined);
     expect(body.deepLink).toMatch(/^https:\/\/t\.me\/RepWorthBot\?start=/);
   });
 });

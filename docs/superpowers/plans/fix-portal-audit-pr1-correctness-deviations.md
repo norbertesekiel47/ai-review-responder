@@ -146,9 +146,13 @@ Fixed by stripping comments before asserting, in both
 The admin one additionally asserts the word `SEQUENTIAL` **is** present, so the
 explanatory comment is now required rather than forbidden.
 
-The duplicated 4-line `stripComments` helper is deliberate: a shared helper
-would need a home outside both `__tests__` directories (and outside the declared
-surface), which is not worth it for two call sites.
+The duplicated 4-line `stripComments` helper is deliberate: not worth a shared
+file for 4 lines across two call sites.
+
+**Correction (review round 1):** the original wording here claimed a shared
+helper "would need a home outside both `__tests__` directories (and outside the
+declared surface)". That justification was wrong — `src/__tests__/helpers/`
+already exists. The conclusion stands on the size argument alone.
 
 **Verdict: ACCEPT.** my own plan defect, caught by running the test. The corrected assertion is strictly stronger: it now *requires* the explanatory comment rather than forbidding it.
 
