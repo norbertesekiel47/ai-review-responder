@@ -120,7 +120,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Gather pre-transaction data needed by addLocationTransaction
+  // Gather pre-transaction data needed by addLocationTransaction.
+  // Fixed width 3 on a customer-visible WRITE path — deliberately NOT
+  // sequentialised (spec 2026-08-15-portal-audit-remediation-design.md §3.6):
+  // serialising it adds latency to a write for no safety gain.
   const [activeLocations, account, actorUserId] = await Promise.all([
     getActiveLocationCount(sql, accountId),
     getAccountById(sql, accountId),

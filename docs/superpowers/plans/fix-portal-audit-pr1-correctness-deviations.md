@@ -89,4 +89,64 @@ Two candidate fixes for the user to choose between:
    `src/app/admin/businesses/?id?/__tests__/*`,
    `src/app/admin/businesses/?id?/_components/AutoApprovalDiagnosticsPanel.tsx`.
 
+### Resolution (owner decision, 2026-08-15): option 2 now, option 1 as a follow-up
+
+The three `?id?` siblings were appended to `.feature/intake.json` only. The
+tracked intake keeps its `[id]` spelling, so the audit copy still records the
+surface as declared and reviewed.
+
+**This is NOT a surface amendment and does not count toward the abort budget.**
+The set of reachable files is identical before and after — the same three paths
+were already declared. Only the spelling changed, so a buggy matcher can read
+what the contract already said. `?id?` cannot over-match here either:
+`src/app/admin/businesses/` contains only `[id]`, `new`, `__tests__`,
+`page.tsx`, and `BusinessesClient.tsx`, and `?id?` matches none of those but
+`[id]`.
+
+Verified under **bash** (the guard's interpreter — `#!/usr/bin/env bash`), not
+the interactive zsh:
+
+```
+[id]  globs  -> NO MATCH   (blocker confirmed)
+?id?  globs  -> all three target paths match
+```
+
+Note for anyone re-checking this: verifying in zsh gives the right verdict for
+the wrong reason — zsh's `?` did not match `[` in the same expression where
+bash's does. Re-run any glob check with `bash -c`.
+
+**Follow-up filed (not in this PR):** `.claude/hooks/edit-surface-guard.sh:122`
+should match literally rather than through bash pattern expansion. Every Next.js
+dynamic segment in this repo hits the same wall — `[reviewId]`, `[token]`,
+`[responseId]`, `[sessionId]`, `[offboardingId]`, `[escalationId]`,
+`[businessId]`. Keeping it out of this branch preserves the small-diff bias and
+keeps a tooling fix from riding inside a correctness PR.
+
+**Verdict:** _pending step 6_
+
+---
+
+## D4 — the plan's page-source tests forbade the string they should have required
+
+A flaw in the plan (my own), caught by running the test rather than by review.
+
+Both page-source tests were specified as `expect(source).not.toContain('Promise.all')`
+against the raw file. But the house idiom for this exact invariant — used
+verbatim in `admin/costs/page.tsx` and `admin/overview/page.tsx` — is the
+comment *"do NOT re-introduce a Promise.all here"*. So the naive assertion
+fails on the **correct** implementation, and the only way to make it pass is to
+delete the comment explaining why the code is shaped that way. The test would
+have actively removed the thing that stops the next reader re-introducing the
+fan-out.
+
+Fixed by stripping comments before asserting, in both
+`src/app/admin/businesses/[id]/__tests__/page-source.test.ts` and
+`src/app/(authenticated)/settings/competitors/__tests__/page-source.test.ts`.
+The admin one additionally asserts the word `SEQUENTIAL` **is** present, so the
+explanatory comment is now required rather than forbidden.
+
+The duplicated 4-line `stripComments` helper is deliberate: a shared helper
+would need a home outside both `__tests__` directories (and outside the declared
+surface), which is not worth it for two call sites.
+
 **Verdict:** _pending step 6_

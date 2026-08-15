@@ -32,7 +32,9 @@ export default async function AddLocationPage() {
 
   const access = await requireOwnerAccess(sql);
 
-  // Fetch billing snapshot for the confirm-and-pay step
+  // Fetch billing snapshot for the confirm-and-pay step.
+  // Fixed width 2 on a read path — deliberately NOT sequentialised (spec
+  // 2026-08-15-portal-audit-remediation-design.md §3.6).
   const [billingSnapshot, activeLocationCount] = await Promise.all([
     currentBillingSnapshot(sql, access.accountId),
     getActiveLocationCount(sql, access.accountId),
