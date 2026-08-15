@@ -208,8 +208,8 @@ describe('runChannelStart transaction protocol', () => {
     const { sql, log } = mkSql();
     await runChannelStart(sql, mkReq(), cfg());
 
-    const [, channel, businessId, accountId, tokenHash] = startEnrollmentMock.mock.calls[0];
-    expect(log[0].values).toEqual([`mobile_enroll:${accountId}`]);
+    const [, channel, businessId, accountId, tokenHash] = startEnrollmentMock.mock.calls[0]!;
+    expect(log[0]!.values).toEqual([`mobile_enroll:${accountId}`]);
     expect(channel).toBe('telegram');
     expect(businessId).toBe('biz-1');
     expect(accountId).toBe('acct-1');
@@ -320,7 +320,7 @@ describe('runner actor pass-through', () => {
 describe('runChannelStart error mapping', () => {
   it('runChannelStart maps EnrollmentDatabaseError to a no-store 500 internal', async () => {
     const { EnrollmentDatabaseError } = await import('@/lib/channels/unique-violation');
-    startEnrollmentMock.mockRejectedValue(new EnrollmentDatabaseError('boom'));
+    startEnrollmentMock.mockRejectedValue(new EnrollmentDatabaseError());
     const { sql } = mkSql();
 
     const res = await runChannelStart(sql, mkReq(), cfg());
@@ -332,7 +332,7 @@ describe('runChannelStart error mapping', () => {
 
   it('the EnrollmentDatabaseError report carries no raw token or token hash', async () => {
     const { EnrollmentDatabaseError } = await import('@/lib/channels/unique-violation');
-    startEnrollmentMock.mockRejectedValue(new EnrollmentDatabaseError('boom'));
+    startEnrollmentMock.mockRejectedValue(new EnrollmentDatabaseError());
     const { sql } = mkSql();
 
     await runChannelStart(sql, mkReq(), cfg());
@@ -348,7 +348,7 @@ describe('runChannelStart error mapping', () => {
 
   it('runChannelStart maps MultipleMobileChannelsError to a no-store 409', async () => {
     const { MultipleMobileChannelsError } = await import('@/lib/channels/unique-violation');
-    startEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError('boom'));
+    startEnrollmentMock.mockRejectedValue(new MultipleMobileChannelsError());
     const { sql } = mkSql();
 
     const res = await runChannelStart(sql, mkReq(), cfg());

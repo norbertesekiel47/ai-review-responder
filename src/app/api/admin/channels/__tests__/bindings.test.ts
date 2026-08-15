@@ -176,7 +176,7 @@ describe('admin routes issue exactly one query before their mutation', () => {
     // query in flight per request chain, and never a second account lookup.
     const accountJoins = sqlLog.filter((s) => s.raw.includes('FROM accounts a'));
     expect(accountJoins).toHaveLength(1);
-    expect(accountJoins[0].values).toEqual(['biz-1']);
+    expect(accountJoins[0]!.values).toEqual(['biz-1']);
   });
 });
 

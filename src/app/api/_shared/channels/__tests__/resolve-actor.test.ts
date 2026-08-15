@@ -121,8 +121,8 @@ describe('resolveAdminActor', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('unreachable');
     expect(result.actor.businessId).toBe('body-biz');
-    expect(calls[0].values).toContain('body-biz');
-    expect(calls[0].values).not.toContain('session-biz');
+    expect(calls[0]!.values).toContain('body-biz');
+    expect(calls[0]!.values).not.toContain('session-biz');
   });
 });
 
