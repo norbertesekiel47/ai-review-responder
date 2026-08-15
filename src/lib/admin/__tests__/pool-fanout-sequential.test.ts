@@ -31,6 +31,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Sql } from 'postgres';
 import { getAdminOverview } from '../overview-service';
+import { getBusinessSummaries } from '../business-summary';
 import {
   fetchBusinessDetailBatch1,
   fetchBusinessDetailBatch2,
@@ -104,6 +105,16 @@ describe('#505 sequential execution — Vercel admin read paths (pool = DB_POOL_
       'b1000000-0000-4000-8000-000000000001',
       'a1000000-0000-4000-8000-000000000001',
     );
+
+    expect(getMaxConcurrency()).toBe(1);
+  });
+
+  it('getBusinessSummaries runs its paginated bundle one query at a time', async () => {
+    // RED until T2 lands the queries (the stub throws), then green with no edit
+    // to this body: rows → COUNT → metrics, sequential, peak 1.
+    const { sql, getMaxConcurrency } = makeConcurrencyTrackingSql();
+
+    await getBusinessSummaries(sql, { limit: 20, offset: 0 });
 
     expect(getMaxConcurrency()).toBe(1);
   });
