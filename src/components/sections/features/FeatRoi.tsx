@@ -23,8 +23,11 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             Numbers to show your <span className="rw-display-serif text-rw-teal-strong">accountant</span>.
           </h2>
           <p className="text-rw-ink-soft mt-4 leading-relaxed">
-            Response rate before and after. Average time to respond. Where you sit in local search.
-            The kind of numbers that justify the line item.
+            Response rate before and after. Your average rating over time. Where you sit in local
+            search. The kind of numbers that justify the line item.
+          </p>
+          <p className="text-[10px] italic text-rw-ink-soft mt-2">
+            Sample dashboard with illustrative numbers — yours shows your own.
           </p>
         </div>
       </div>
@@ -46,24 +49,24 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
         </div>
 
         <div className="md:col-span-4 bg-white rounded-3xl p-6 border border-rw-teal/15">
-          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Avg response time</p>
+          <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-4">Avg rating</p>
           <div className="flex items-baseline gap-3">
-            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">4 days</span>
+            <span className="rw-num-tag text-lg line-through text-rw-ink-soft/60">4.1</span>
             <svg className="size-4 text-rw-teal-strong" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
             </svg>
-            <span className="rw-num-tag text-4xl text-rw-ink">58<span className="text-lg">min</span></span>
+            <span className="rw-num-tag text-4xl text-rw-ink">4.6<span className="text-lg">★</span></span>
           </div>
           <svg className="mt-4 w-full h-8" viewBox="0 0 200 32" preserveAspectRatio="none" aria-hidden>
             <path
-              d="M0,4 L30,8 L60,14 L90,18 L120,22 L150,26 L180,28 L200,29"
+              d="M0,28 L30,27 L60,24 L90,21 L120,16 L150,11 L180,7 L200,5"
               stroke="#97B3AE"
               strokeWidth="2"
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <circle cx="200" cy="29" r="3" fill="#97B3AE" />
+            <circle cx="200" cy="5" r="3" fill="#97B3AE" />
           </svg>
         </div>
 
@@ -92,8 +95,8 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
         <div className="md:col-span-12 bg-rw-ink text-white rounded-3xl p-8 relative overflow-hidden">
           <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
             <div>
-              <p className="rw-label-mono text-xs uppercase text-rw-peach mb-2">Google map position: 90 days</p>
-              <p className="rw-display-serif text-2xl">From #14 to top 3 in the neighborhood.</p>
+              <p className="rw-label-mono text-xs uppercase text-rw-peach mb-2">Google map position · sample</p>
+              <p className="rw-display-serif text-2xl">Watch where you stand in the neighborhood.</p>
             </div>
             <div className="text-right">
               <p className="rw-label-mono text-[10px] text-white/50">SEARCH: &ldquo;taqueria near me&rdquo;</p>

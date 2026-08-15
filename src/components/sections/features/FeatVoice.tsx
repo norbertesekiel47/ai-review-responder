@@ -42,14 +42,14 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
             Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
-            the way you handle a complaint. By week 8, most owners approve drafts untouched.
+            the way you handle a complaint. The aim: drafts you approve untouched.
           </p>
         </div>
 
         <div ref={chartRef} className={`rw-reveal md:col-span-7 ${chartSeen ? 'in' : ''}`}>
           <div className="flex items-baseline justify-between mb-5">
             <p className="rw-label-mono text-xs uppercase text-white/50">% of drafts edited by owner</p>
-            <p className="rw-label-mono text-xs text-rw-peach">↓ 86% over 8 weeks</p>
+            <p className="rw-label-mono text-xs text-rw-peach">the curve we aim for</p>
           </div>
           <div className="relative h-48">
             <div className="absolute inset-0 flex flex-col justify-between">
@@ -71,7 +71,7 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
                 >
                   {b.anno && (
                     <div className="rw-voice-anno absolute -top-10 left-1/2 -translate-x-1/2 bg-rw-peach text-rw-ink rounded-lg px-2 py-1 rw-label-mono text-[10px] whitespace-nowrap">
-                      most owners: hands-off
+                      the goal: hands-off
                     </div>
                   )}
                 </div>
@@ -83,6 +83,9 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
               <span key={w}>{w}</span>
             ))}
           </div>
+          <p className="mt-3 text-[10px] italic text-white/50">
+            Illustrative target, not live performance data.
+          </p>
         </div>
       </div>
     </section>

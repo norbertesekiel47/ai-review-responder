@@ -15,6 +15,12 @@
  * PRODUCT.md flags this as a naming error that has already appeared in one
  * internal doc. Guardian is a persona, not a watchdog, and belongs in the
  * previous section.
+ *
+ * Do NOT call the Judge "a second model": every LLM task shares the same
+ * pinned model roster (src/lib/llm/tasks.ts), so the judge usually runs on
+ * the same model that wrote the reply. What IS true: it is a separate check,
+ * with its own prompt and rubric, that never sees the generation context —
+ * "had no hand in writing it" is the claim we can stand behind.
  */
 
 export interface Watchdog {
@@ -32,7 +38,7 @@ export const WATCHDOGS: readonly Watchdog[] = [
     id: 'judge',
     name: 'Judge',
     tagline: 'Reviews the machine’s work, not yours.',
-    body: 'Every reply that posts without you is independently assessed afterwards by a second model that had no hand in writing it. Verdicts are recorded, and a run of poor ones is what the Governor watches for.',
+    body: 'Every reply that posts without you is independently assessed afterwards by a separate AI check that had no hand in writing it. Verdicts are recorded, and a run of poor ones is what the Governor watches for.',
     rule: 'Reviews 100% of auto-posts',
   },
   {
@@ -59,10 +65,12 @@ export const LEAD_IN =
  * Phrased as a precondition because that is what it is in code: judge
  * availability gates auto-posting (invariant #3). Do not soften "stops" into
  * "pauses" or "may be delayed" — the whole force of the claim is that it is
- * absolute.
+ * absolute. "On its own" is scope, not softening: owner-approved replies still
+ * post when the judge is down, so the bare "nothing posts" overclaimed. It
+ * mirrors fleet-copy's deliberate "posts on its own" phrasing.
  */
 export const STATEMENT_LEAD = 'If the supervisor is down,';
-export const STATEMENT_ACCENT = 'nothing posts.';
+export const STATEMENT_ACCENT = 'nothing posts on its own.';
 export const STATEMENT_FOOTNOTE =
   'Judge availability is a precondition for posting without you, not a nice-to-have. When it cannot run, replies wait for your approval instead.';
 

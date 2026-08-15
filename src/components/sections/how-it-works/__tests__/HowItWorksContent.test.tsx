@@ -28,9 +28,26 @@ describe('HowItWorksContent', () => {
     expect(html).not.toContain('voice model v3');
     expect(html).not.toContain('Matches you');
     expect(html).not.toContain('out of the box');
+    // voice learning is edit-driven: plain approvals and pre-existing Google
+    // replies never enter the corpus (voice-learning.ts: edited_text IS NOT NULL)
+    expect(html).not.toContain('approve and edit');
+    expect(html).not.toContain('learns from your existing replies');
+    // triage severity vocabulary is low/medium/high (triage-schema.ts), and the
+    // escalation trigger is Guardian's suggested_action, not a severity level
+    expect(html).not.toContain('routine, elevated, or critical');
+    expect(html).not.toContain('critical ones escalate');
+    // the Judge evaluates a fixed platform safety rubric — it receives neither
+    // the owner's policy row nor any brand-voice context (judge.ts)
+    expect(html).not.toContain('your policy and your brand');
+    // Telegram and WhatsApp are off in production — email is the only live
+    // approval channel; do not name the others until their flags are on
+    expect(html).not.toContain('Telegram');
+    expect(html).not.toContain('WhatsApp');
 
     // present, corrected claims
-    expect(html).toContain('approve and edit');
+    expect(html).toContain('edits you make');
+    expect(html).toContain('low, medium, or high');
+    expect(html).toContain('fixed safety rubric');
     expect(html).toContain('Multi-location supported on Copilot and Autopilot');
 
     // new pipeline claims
