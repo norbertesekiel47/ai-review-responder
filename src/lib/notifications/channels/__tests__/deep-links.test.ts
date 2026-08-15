@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { resetServerConfigForTests } from '@/lib/config/server';
 import { buildMobileDeepLink } from '../deep-links';
 
 const ORIGINAL = { ...process.env };
@@ -6,10 +7,18 @@ const ORIGINAL = { ...process.env };
 beforeEach(() => {
   process.env.TWILIO_WHATSAPP_NUMBER = 'whatsapp:+15551234567';
   process.env.TELEGRAM_BOT_USERNAME = 'RepWorthStagingBot';
+  // getServerConfig() memoizes process.env on first read, so without this reset
+  // the first test to call the builder freezes the snapshot every later test
+  // reads — and a test that sets its own env value would silently assert against
+  // the beforeEach value instead. That produced a vacuously-green wa.me case in
+  // the sibling admin bindings suite. Do NOT remove this to make a future
+  // failure go away; the failure would be real.
+  resetServerConfigForTests();
 });
 
 afterEach(() => {
   process.env = { ...ORIGINAL };
+  resetServerConfigForTests();
 });
 
 describe('buildMobileDeepLink', () => {
