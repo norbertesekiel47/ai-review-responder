@@ -29,6 +29,22 @@ describe('globToRegExp', () => {
     expect(globToRegExp('src/a.ts').test('other/src/a.ts')).toBe(false);
     expect(globToRegExp('src/a.ts').test('src/a.ts.bak')).toBe(false);
   });
+
+  // Lockstep with the bash hook — see scripts/ci/__tests__/edit-surface-guard.test.ts,
+  // which pins the same table against .claude/hooks/edit-surface-guard.sh. This
+  // side was already correct; the hook read '[id]' as a character class and so
+  // blocked writes to declared Next.js dynamic route segments.
+  it('treats a Next.js dynamic route segment literally, not as a character class', () => {
+    const glob = 'src/app/admin/businesses/[id]/page.tsx';
+    expect(globToRegExp(glob).test('src/app/admin/businesses/[id]/page.tsx')).toBe(true);
+    expect(globToRegExp(glob).test('src/app/admin/businesses/i/page.tsx')).toBe(false);
+    expect(globToRegExp(glob).test('src/app/admin/businesses/d/page.tsx')).toBe(false);
+    expect(
+      globToRegExp('src/app/admin/businesses/[id]/**').test(
+        'src/app/admin/businesses/[id]/__tests__/page-source.test.ts',
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('auditSurface', () => {
