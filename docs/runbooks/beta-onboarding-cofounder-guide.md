@@ -726,12 +726,14 @@ from the founder who onboarded them works far better than anything automated.
       on temporarily during an onboarding, some assumptions in the plan's
       write-up are wrong (the design itself is unaffected). This is a read, not
       a change.
-- [ ] **Confirm WS8 cutover timing.** Migrations **077 and 078** are
-      deliberately absent in production and apply *inside* the WS8 tier cutover
-      (`docs/runbooks/ws8-tier-cutover.md`); migration **105** replaces a
-      constraint over 077's columns, so it cannot be applied in production
-      before that cutover. **Until WS8 runs in prod, this checkout path is
-      staging-only.** Do not apply 077, 078, or 105 to production out-of-band.
+- [ ] **Confirm WS8 cutover timing.** As of 2026-08-14, migration **078** is
+      the only one still absent in production; it applies *inside* the WS8 tier
+      cutover (`docs/runbooks/ws8-tier-cutover.md` §7). **077 and 105 are
+      already applied there** — 077 unrecorded after the 2026-07-17 cutover
+      pause, 105 deliberately on 2026-08-14 once the audit showed its 077
+      dependency was satisfied. **Until WS8 runs in prod, this checkout path is
+      staging-only** — the remaining gate is the strict-code deploy plus 078,
+      not the schema. Do not apply 078 to production out-of-band.
 - [ ] **Run the staging smoke** — the operator checklist is
       `docs/runbooks/beta-production-standup.md` → **Phase F**. It is the proof
       that $0-due-today, card-collected, active-with-discount, and

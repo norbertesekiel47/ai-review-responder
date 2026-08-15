@@ -8,7 +8,7 @@ Check the relevant section before implementing anything in these areas.
 Jump to the dated entries by subsystem (search the anchors below):
 
 - **Postgres.js / JSONB / PgBouncer** — JSONB string-wrapping, v3 double-encoding, statement_timeout, FOR UPDATE under PgBouncer; the AUTHORITATIVE production JSONB parse-site allowlist (2026-08-03); every error class reachable from a query carries a STRING `code` (`PostgresError`, `57014`, `CONNECTION_*`, Node `ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`) — narrow a swallow-catch on that shape, NEVER on `instanceof PostgresError`, which rethrows transient blips into the caller (#679, 2026-08-08)
-- **Indexes / migrations** — STABLE-in-predicate, ON CONFLICT byte-for-byte, column-level REVOKE, pg_constraint relation scoping, CHECK passes NULL (pair NOT NULL + NULL-safe preflights), hung ALTER TABLE = lock queue behind a long-lived Supavisor session (cancel stalled backend, verify clean, retry); a hash column's invariant asserted only in a COMMENT is unenforced — pair it with a format CHECK (`token_hash ~ '^[a-f0-9]{64}$'`, migration 056's pattern) and mutation-verify it; `migration-immutability-guard.sh` keys on the migrations-log HEAD rather than "applied", so amending a local-only migration after the log bump is a guaranteed false positive (escape hatch `MIGRATION_GUARD_DISABLE=1` is launch-time only); a `CROSS JOIN LATERAL (SELECT EXISTS (…))` consumed by two `COUNT(*) FILTER`s does NOT share one evaluation — Postgres pulls the single-row LATERAL up and plans one correlated SubPlan per reference (~81–261× planner cost, ~137× buffers vs `LEFT JOIN … AND status='posted'` + `FILTER (WHERE p.review_id IS NULL / IS NOT NULL)`, which is the shape that ships), and never justify a SQL shape with an unverified planner claim in a comment (#731, 2026-08-09)
+- **Indexes / migrations** — **"Migration lockstep audit" (2026-08-14) is the entry point for "is migration N applied in env X?"** — there is no ledger, three docs asserted the opposite of reality for 077, migration 005 sat unapplied in prod for ~4 months undetected, and `ci:rls-audit` is a floor that cannot see unrequested RLS (prod's `ensure_rls` trigger, removed by 107); it also carries the re-runnable introspection method and its two traps (`DO $$` bodies hide DDL from parsers; a re-ADDed CHECK exists in both envs while differing in content). Also: STABLE-in-predicate, ON CONFLICT byte-for-byte, column-level REVOKE, pg_constraint relation scoping, CHECK passes NULL (pair NOT NULL + NULL-safe preflights), hung ALTER TABLE = lock queue behind a long-lived Supavisor session (cancel stalled backend, verify clean, retry); a hash column's invariant asserted only in a COMMENT is unenforced — pair it with a format CHECK (`token_hash ~ '^[a-f0-9]{64}$'`, migration 056's pattern) and mutation-verify it; `migration-immutability-guard.sh` keys on the migrations-log HEAD rather than "applied", so amending a local-only migration after the log bump is a guaranteed false positive (escape hatch `MIGRATION_GUARD_DISABLE=1` is launch-time only); a `CROSS JOIN LATERAL (SELECT EXISTS (…))` consumed by two `COUNT(*) FILTER`s does NOT share one evaluation — Postgres pulls the single-row LATERAL up and plans one correlated SubPlan per reference (~81–261× planner cost, ~137× buffers vs `LEFT JOIN … AND status='posted'` + `FILTER (WHERE p.review_id IS NULL / IS NOT NULL)`, which is the shape that ships), and never justify a SQL shape with an unverified planner claim in a comment (#731, 2026-08-09)
 - **Zernio** — nested `account.id`, MOCK_EXTERNAL_APIS real-path tests, reviewReply normalization; the sandbox feed is non-descending in practice — the consented import's dirty-ordering WARN + page-to-feed-end is the NORM on staging, not an incident (#675, 2026-08-06)
 - **Stripe** — inbound_events payload shape, overage idempotency, billing reconciliation from stored quota; `maxNetworkRetries: 0` still retries ONCE on ECONNRESET/EPIPE (stripe-node 22.2.0 `_shouldRetry` — under-lock worst case ≈ 2× the per-call timeout, #514)
 - **Supabase auth** — implicit-flow OTP, identities:[] for existing emails, auth_id vs users.id, SMTP rate limit, a client-wide fetch timeout also bounds identity MUTATIONS → split bounded/unbounded clients (#508)
@@ -2456,3 +2456,66 @@ the caller's client as a union — `SubscriptionSql` in
   reads like a missing migration. Note the shared harness
   `worker/__tests__/helpers/mock-sql.ts` does **not** model `savepoint`, so a suite
   exercising savepoint code must stub it or it fails with exactly that `TypeError`.
+
+## 2026-08-14 — migration lockstep audit: staging vs prod
+
+### Migration lockstep audit
+
+Triggered by sessions repeatedly contradicting each other on "is 077 applied in
+prod?". Full probe of both Supabase projects (staging `kubdiqdhqbhwmqfditeg`,
+prod `udeyaqnvpojbwgoaxwdg`) against all 107 migration files. Result: staging at
+head; prod missing **005** (unknown drift), **078** (by design), **105** (held on
+a premise that had already expired).
+
+- **[2026-08-14] Three docs asserted 077 was absent from prod → it had been
+  applied for weeks, unrecorded → never state an environment's schema state from
+  a doc; introspect it.** The prod WS8 cutover paused 2026-07-17 with §5 (apply
+  077) pending; 077 landed after that with no evidence file, so
+  `.claude/CLAUDE.md`, `migrations-log.md` and `ws8-tier-cutover.md` §5 all kept
+  saying "deliberately absent". Every session that trusted them inherited a false
+  premise, and every session that checked the DB disagreed — that oscillation was
+  the reported symptom, not a memory bug. **The prod cutover is partially executed
+  through §5; resume at §6.**
+
+- **[2026-08-14] Migration 005 was never applied to prod and nothing detected it
+  for ~4 months → there is no migration ledger here, and no CI check compares the
+  two databases → the only proof of application is schema introspection, and
+  nothing runs it on a schedule.** `review_exceptions.review_id` was still
+  `NOT NULL` and `idx_review_exceptions_collision_dedup` absent. That index is the
+  exact `ON CONFLICT` target in `worker/jobs/zernio/zernio-ingest-shared.ts` and
+  `ingest-failed-hook.ts`, so the Zernio ingest exception path would have failed
+  in prod twice over — `42P10` (no index matching the conflict target) and
+  `23502` (NOT NULL). It never fired only because the prod worker has never been
+  deployed and the table holds 0 rows. **A migration whose objects no later
+  migration touches is invisible to every existing gate; only a full catalog diff
+  finds it.**
+
+- **[2026-08-14] Prod auto-enabled RLS on every new table for four months and no
+  audit could see it → `ci:rls-audit` enforces a FLOOR, not equality → a checker
+  that only asserts "required tables HAVE RLS" can never fail on RLS nobody
+  asked for.** Prod carried a Supabase-template DDL event trigger `ensure_rls` →
+  `public.rls_auto_enable()` firing `ENABLE ROW LEVEL SECURITY` after every
+  `CREATE TABLE` in `public`; the staging project, created 8 weeks later, never
+  had it. Removed by **migration 107**. Its only surviving output, `job_outbox`
+  RLS-on-with-zero-policies in prod, was deliberately left alone (inert — owner
+  connection + `service_role` BYPASSRLS; disabling it is a security-loosening
+  change that deserves its own migration). **Neither object appeared in any
+  migration file, so nothing in the repo explained the difference.**
+
+**Method, if you need to re-run it.** There is no usable ledger — `list_migrations`
+does not track the `0xx` series (see the `new-migration` skill). Parse every
+migration, replay them in order to compute which objects each one *still owns at
+head* (an object a later migration drops or recreates cannot prove its original
+author ran), then diff that against a full `pg_class`/`pg_attribute`/`pg_index`/
+`pg_constraint`/`pg_proc`/`pg_policy` dump from each database. Migrations with no
+surviving structural probe — data backfills, comment-only, `DO $$` bodies, and the
+seven successive rewrites of `analytics_events_event_name_check` — need
+hand-written probes against constraint *definitions*, column nullability, column
+ACLs and row counts. Two traps: a `DO $$ … $$` body hides every DDL statement from
+a naive parser (this is why 077/078/105 all read as INDETERMINATE on the first
+pass), and a CHECK constraint that is repeatedly DROPped and re-ADDed under the
+same name is *present* in both environments while differing in content — compare
+`pg_get_constraintdef`, never mere existence.
+
+**Gotcha:** `psql` rejects `?pgbouncer=true`; strip the query string from
+`DATABASE_POOL_URL` / `STAGING_DATABASE_POOL_URL` before passing it.

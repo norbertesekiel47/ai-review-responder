@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **106** — next migration is **107**
+Current head: **107** — next migration is **108**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -951,6 +951,30 @@ Revisit triggers:
   blockers; apply staging first, then production, both projects in lockstep.
   Exact operator sequence and rollback boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
+  > **Applied: local + STAGING + PRODUCTION.** Corrected 2026-08-14 by the
+  > migration lockstep audit. This entry — and the standing exception in
+  > `.claude/CLAUDE.md` — previously stated 077 was deliberately absent in prod;
+  > it is **not**, and has not been for some time. Prod carries the complete
+  > 077 artifact set: all 17 `checkout_attempt_*` columns, `checkout_session_id`,
+  > `price_variant` (NOT NULL, default `'list'`), the `'copilot'` tier defaults
+  > on both tables, `base_price_cents` default 2900,
+  > `accounts_price_variant_check`, `accounts_checkout_attempt_complete_check`,
+  > `accounts_checkout_session_id_uniq`,
+  > `reject_accounts_price_variant_mutation()` and its
+  > `accounts_price_variant_immutable` trigger.
+  >
+  > **When it landed is not recorded.** The prod cutover evidence
+  > (`docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md`) verified
+  > `price_variant` **absent** at 2026-07-17T01:11:05Z and paused with "Phase 5
+  > 077 (owner pastes via SQL editor)" listed as pending; no later evidence file
+  > records the apply. So the prod WS8 cutover is **partially executed through
+  > §5**, not unstarted — resume from §6, not §5.
+  >
+  > **The "After 077" rollback boundary has therefore already been crossed in
+  > prod, but is inert:** prod was truncated to zero tenant rows on 2026-07-16
+  > and still holds 0 accounts / 0 businesses, so 077's first-apply
+  > normalization UPDATE touched no rows and there are no normalized
+  > Copilot/list rows for an old binary to fail on.
 
 - **078** — WS8 Copilot/Autopilot strict tier contract (spec
   `docs/superpowers/specs/2026-07-14-ws8-tier-wiring-design.md` §7.4). Runs
@@ -981,6 +1005,32 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **107** — `drop_legacy_ensure_rls_event_trigger`: removes the DDL event
+  trigger `ensure_rls` and its function `public.rls_auto_enable()`, which
+  issued `ALTER TABLE … ENABLE ROW LEVEL SECURITY` after **every**
+  `CREATE TABLE` in schema `public`. Neither object came from a migration —
+  both shipped in the Supabase project template that provisioned the
+  **production** project (created 2026-04-05); **staging** (created 2026-05-30)
+  was provisioned after Supabase dropped it and never had them. Found by the
+  2026-08-14 migration lockstep audit. The trigger silently overrode the
+  per-table RLS posture every migration is required to choose explicitly (the
+  `new-migration` skill), in exactly one environment — so every table-creating
+  migration produced a prod-only RLS posture its own file never asked for.
+  `ci:rls-audit` cannot catch this class: it enforces a **floor** (required
+  tenant tables must HAVE RLS) and never fails on unrequested extra RLS.
+  **Scope is the generator, not its output** — `job_outbox` (RLS on in prod
+  with ZERO policies, off in staging) is deliberately LEFT AS IS: inert today
+  because the worker connects as the table owner and `service_role` carries
+  `BYPASSRLS`, and disabling RLS on a live prod table is a security-loosening
+  change that belongs in its own reviewed migration. That one relation is the
+  **entire** remaining staging↔prod catalog difference apart from 078's two
+  tier CHECKs. Both statements are `IF EXISTS` → **no-op on staging and on the
+  local test container** (confirmed by `NOTICE … does not exist, skipping` on
+  staging). No new relation → no RLS change of its own, no retention-policy
+  row, no schema-ready requirement (that helper asserts presence only).
+  **Applied: STAGING (no-op) + PRODUCTION, 2026-08-14, verified by
+  introspection — `pg_event_trigger` and `pg_proc` both empty for these names.**
 
 - **106** — `checkout_coupon_analytics_event`: registers ONE new
   `analytics_events.event_name` value, `checkout_coupon_decision`
@@ -1050,17 +1100,21 @@ Revisit triggers:
   proof; the definition is asserted directly by
   `src/lib/shared/__tests__/migration-105-checkout-attempt-coupon.integration.test.ts`.
   **Sequencing:** 105 replaces a constraint over columns 077 added, so it cannot
-  be applied where 077 has not been — and 077/078 are deliberately absent in
-  production until the WS8 cutover (`docs/runbooks/ws8-tier-cutover.md`;
-  standing exception in `.claude/CLAUDE.md`). Staging now, production only
-  at/after that cutover — specifically **section 8** of that runbook, which
-  exists because the runbook previously ended at 078 and 105 would have been
-  missed. **Applied: local + STAGING (verified 2026-08-14). Production: BLOCKED
-  until the WS8 cutover** — not an oversight, a sequencing constraint. 105's
-  constraint rewrite references columns 077 added, so applying it to a database
-  without 077 fails outright; and the strict code deployed mid-cutover writes
-  `checkout_attempt_coupon_id`, so stopping the cutover at 078 fails **every**
-  checkout, not only admin-invited ones.
+  be applied where 077 has not been. **Applied: local + STAGING (verified
+  2026-08-14) + PRODUCTION (applied 2026-08-14, verified by introspection —
+  `checkout_attempt_coupon_id` nullable and the CHECK's cleared branch contains
+  `checkout_attempt_coupon_id IS NULL`).**
+  > **Superseded hold (2026-08-14).** This entry previously read "Production:
+  > BLOCKED until the WS8 cutover". That hold rested on 077 being absent in
+  > prod — and the migration lockstep audit found 077 **already fully applied
+  > there** (see the 077 entry). With the dependency satisfied, 105 is a nullable
+  > column plus a CHECK branch that passes trivially on NULL, against a table
+  > with zero rows, so it was applied out of band to restore lockstep and shrink
+  > the standing exception to 078 alone. **WS8 runbook §8 is now a VERIFY step,
+  > not an apply step.** The other half of §8's warning still stands and is not
+  > weakened by this: the strict code deployed mid-cutover writes
+  > `checkout_attempt_coupon_id`, so a database reaching that deploy without 105
+  > fails **every** checkout, not only admin-invited ones.
 
 - **104** — `drip_log_skip_record`: durable record for SCHEDULER-side **Drip
   staleness cap** skips (#738, closing #719 step-7 review A3's accepted

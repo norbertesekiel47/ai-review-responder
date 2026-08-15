@@ -424,12 +424,16 @@ first); a coupon Stripe rejects raises `CheckoutCouponConfigurationError` and a
 Sentry report rather than a generic checkout failure.
 
 **Sequencing (prod).** Setting this variable in production is necessary but not
-sufficient: migration 105 replaces a constraint over columns migration **077**
-added, and 077/078 are deliberately absent in prod until the WS8 tier cutover
-(`docs/runbooks/ws8-tier-cutover.md`; standing exception in `.claude/CLAUDE.md`).
-The whole admin-invite checkout path is therefore **staging-only until that
-cutover runs** — set the staging value now, hold the production value until
-after WS8.
+sufficient. The **schema** prerequisites are now met in prod: migrations 077,
+105 and 106 are all applied there (105 and the 077 correction landed 2026-08-14
+via the migration lockstep audit — see the standing exception in
+`.claude/CLAUDE.md`). What still gates the live coupon is **not** the schema:
+migration **078** and the strict-code deploy remain pending until the WS8 tier
+cutover (`docs/runbooks/ws8-tier-cutover.md`), and the coupon additionally needs
+its own prerequisites — a live-mode Stripe coupon, this variable set, and the
+blocking legacy-`onboarded_by` audit cleared in `docs/launch-checklist.md`
+(`docs/runbooks/beta-production-standup.md` Phase F). Set the staging value now;
+hold the production value until WS8 completes and those prerequisites are met.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.

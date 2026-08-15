@@ -3735,3 +3735,58 @@ would have voided that proof.
 **Production is gated.** 105 cannot be applied where 077 has not been, and 077/078 are
 absent in prod until the WS8 cutover. No live-mode coupon exists; `BETA_COMP_COUPON_ID`
 and `ONBOARDING_DEMO_ENABLED` are unset in prod. All owner-timed.
+
+---
+
+## Migration lockstep audit + prod drift repair (2026-08-14, branch `fix/prod-migration-lockstep-drift`)
+
+**Why:** sessions kept contradicting each other about whether migration 077 was applied in
+production. The disagreement was real and the docs were the cause, so both databases were
+probed directly rather than argued about.
+
+**Method.** There is no usable ledger — `list_migrations` does not track the `0xx` series.
+All 107 migration files were parsed and replayed in order to compute which objects each
+migration *still owns at head*, then diffed against a full catalog dump
+(`pg_class`/`pg_attribute`/`pg_index`/`pg_constraint`/`pg_proc`/`pg_policy`) from staging
+`kubdiqdhqbhwmqfditeg` and prod `udeyaqnvpojbwgoaxwdg`. Migrations with no surviving
+structural probe (data backfills, comment-only, `DO $$` bodies, the seven successive
+rewrites of `analytics_events_event_name_check`) were resolved with hand-written probes
+against constraint *definitions*, column nullability, column ACLs and row counts.
+
+**Found:** staging at head; prod at 103/106 — missing **005** (undetected drift, ~4 months),
+**078** (by design) and **105** (held on a premise that had expired). Prod also carried a
+Supabase-template DDL event trigger `ensure_rls` that staging never had.
+
+**What was done:**
+
+1. **Migration 005 applied to prod.** `review_exceptions.review_id` was still `NOT NULL` and
+   `idx_review_exceptions_collision_dedup` absent — and that index is the exact `ON CONFLICT`
+   target in `zernio-ingest-shared.ts` and `ingest-failed-hook.ts`, so the Zernio ingest
+   exception path would have failed twice over (`42P10` + `23502`) the first time the prod
+   worker ran. Never fired only because that worker has never been deployed and the table
+   holds 0 rows.
+2. **Migration 105 applied to prod** (owner decision). Its sole blocker was the 077
+   dependency, which prod already satisfied; nullable column + a CHECK branch that passes
+   trivially on NULL, against a table with 0 rows. WS8 runbook §8 is now a **verify** step.
+3. **Migration 107 added and applied** — drops the `ensure_rls` event trigger and
+   `rls_auto_enable()`. `IF EXISTS`, so a confirmed no-op on staging and the local container.
+   `job_outbox`'s already-enabled RLS is deliberately left alone (inert; loosening it deserves
+   its own reviewed migration) and is now the *entire* remaining catalog difference apart from
+   078's two tier CHECKs.
+4. **Docs corrected in six places** — the standing exception in `.claude/CLAUDE.md` now reads
+   **078 and only 078**; `migrations-log.md` 077/105 entries; `env-vars.md` coupon sequencing;
+   `ws8-tier-cutover.md` header/§5/§8/rollback boundaries; `beta-production-standup.md`;
+   `beta-onboarding-cofounder-guide.md`. Lab-notes gained "Migration lockstep audit" with the
+   re-runnable method and its traps.
+
+**Prod is now 106 of 107 — only 078 outstanding.** The prod WS8 cutover is **partially
+executed through §5** (077 landed unrecorded after the 2026-07-17 pause); resume at **§6**.
+
+### Deliberately not done
+
+`scripts/ci/test-db-bootstrap.sql` never grants `USAGE ON SCHEMA public`, while
+`test-db-setup.sh` drops and recreates that schema — so the local and CI provisioning paths
+diverge despite the composite action claiming "one owner", and two assertions in
+`migration-056-account-offboarding.integration.test.ts` fail locally with `42P01` where they
+expect `42501`. Pre-existing (reproduced at head 106 with 107 removed), CI-green, and
+unrelated to this change — left for its own PR.
