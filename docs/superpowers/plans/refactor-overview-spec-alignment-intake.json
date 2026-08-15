@@ -1,0 +1,109 @@
+{
+  "classification": "normal",
+  "surface": "mixed",
+  "db_touching": false,
+  "goal": "Close spec 2026-08-15-portal-audit-remediation §5: make src/lib/admin/business-summary.ts the single owner of the admin business base query, metrics follow-up and buildBusinessSummary; Overview renders a filtered-then-capped at-risk list of at most OVERVIEW_AT_RISK_LIMIT businesses; Businesses becomes the single inventory owner and fetches metrics for its current page's ids only.",
+  "non_goals": [
+    "Replacing Overview's read-every-business query with a SQL-ranked attention proxy — §5.1 records that limitation and its rejected alternative deliberately",
+    "Turning the churn ranking into ORDER BY … LIMIT — computeChurnRiskScore stays TypeScript",
+    "Any nav or IA change — both /admin/overview and /admin/businesses stay in their existing groups",
+    "Touching the churn model itself (src/lib/shared/churn-score.ts) or its thresholds",
+    "Any backwards-compatible `businesses[]` field on GET /api/admin/overview — internal admin API, no external consumers",
+    "The three fixed-width fan-outs in §3.6 and the §4.2 subscription-gate unification"
+  ],
+  "user_visible_behavior": [
+    "/admin/overview replaces its paginated business table with an unpaginated at-risk list: heading 'At risk (N of M)' where N is the eligible count and M is totalBusinesses, a 'View all →' link to /admin/businesses, and at most 5 rows showing name, health level and score, each linking to /admin/businesses/<id>",
+    "Only businesses whose churnScore.level is not 'healthy' appear in that list; an all-healthy account renders the existing EmptyState instead of any rows",
+    "/admin/overview loses its business-table pagination footer entirely",
+    "/admin/businesses gains Reconnect, Response rate (30d), Avg time (30d), Last activity and Health columns alongside its existing Name, Category, Status, Last Sync and Pending columns",
+    "Health tiles, the needs-attention strip, and both pages' ErrorState/refresh behaviour are unchanged"
+  ],
+  "invariants": [
+    "#773 — every path keeps at most one query in flight: rows query, then (paginated only) count query, then metrics query, strictly sequential; no Promise.all over sql anywhere in the changed surface",
+    "#15 — business-summary.ts receives `sql` as an explicit parameter and never imports @/lib/db/server; only the server pages and route handlers import the singleton",
+    "#1 — no runtime openai/@anthropic-ai/sdk/bullmq/postgres import added to src/app/** or src/components/**",
+    "#13 — no NEXT_PUBLIC_* companion introduced",
+    "Server-safe constants rule — OVERVIEW_AT_RISK_LIMIT lives in src/app/admin/page-sizes.ts (no 'use client' module), never exported from a client component",
+    "buildBusinessSummary relocates carrying its `fallow-ignore-next-line complexity` comment verbatim",
+    "The at-risk list is FILTERED first (level !== 'healthy'), THEN capped at OVERVIEW_AT_RISK_LIMIT — never capped-then-filtered",
+    "The existing 4-level comparator is preserved: churn score desc, pendingApprovalCount desc, name asc, id asc — §5.1's 'ties break on name ascending' is the stability requirement, not a mandate to drop the pending-count tier"
+  ],
+  "edge_cases": [
+    "Every business healthy → atRisk is [] and the client renders EmptyState, not five healthy rows",
+    "Fewer than 5 non-healthy businesses → the list is short, not padded",
+    "More than 5 non-healthy businesses → exactly 5, highest score first",
+    "Two businesses with identical score AND identical pendingApprovalCount → ordered by name ascending",
+    "Zero businesses in the account → metrics query is skipped entirely (no empty UNNEST), totalBusinesses is 0, EmptyState renders",
+    "Businesses page beyond the last page → empty page rows, metrics query skipped, total still reflects the unfiltered COUNT",
+    "A business row with no matching metrics row → buildBusinessSummary's null-coalescing defaults apply unchanged",
+    "null last_sync_at / last_activity map to null, not a crash"
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/admin/overview-service.ts — the sequential-await comment block and the #505/#773 rationale style the new module inherits",
+    "src/lib/admin/businesses-list-service.ts — the born-injected `sql`-as-parameter service shape and the 'why not a window COUNT(*) OVER ()' comment that must survive the move",
+    "src/app/admin/businesses/[id]/page.tsx:32 — the house React Doctor suppression idiom: `// react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- <reason>`",
+    "src/app/admin/page-sizes.ts — the server-safe constants module and its client/server-boundary header comment",
+    "src/lib/admin/__tests__/overview-service.test.ts — the createMockSql FIFO harness, real (unmocked) computeChurnRiskScore fixtures, and the query-order header comment",
+    "src/lib/admin/__tests__/pool-fanout-sequential.test.ts — the max-concurrency===1 proxy assertion for #505/#773",
+    "src/app/admin/businesses/__tests__/BusinessesClient.test.tsx — the QueryClientProvider render harness for admin client islands",
+    "scripts/ci/tenant-scope-allowlist.ts — file-keyed allowlist entries that must be re-keyed when a query moves module"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/admin/business-summary.ts",
+    "src/lib/admin/overview-service.ts",
+    "src/lib/admin/businesses-list-service.ts",
+    "src/lib/admin/__tests__/**",
+    "src/app/admin/page-sizes.ts",
+    "src/app/admin/__tests__/**",
+    "src/app/admin/overview/**",
+    "src/app/admin/businesses/page.tsx",
+    "src/app/admin/businesses/BusinessesClient.tsx",
+    "src/app/admin/businesses/__tests__/**",
+    "src/app/api/admin/overview/route.ts",
+    "src/app/api/admin/businesses/route.ts",
+    "src/app/api/admin/businesses/__tests__/**",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "doctor.config.json",
+    "docs/directory.md",
+    "CONTEXT.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "excludes every healthy business from the at-risk list",
+    "orders the at-risk list by churn score descending",
+    "breaks a score-and-pending tie on business name ascending",
+    "caps the at-risk list at OVERVIEW_AT_RISK_LIMIT even when more businesses qualify",
+    "returns an empty at-risk list when every business is healthy",
+    "reports totalBusinesses as the number of rows read, not a separate count query",
+    "requests metrics only for the ids on the current page",
+    "requests metrics for every row when called unpaginated",
+    "skips the metrics query entirely when the page has no rows",
+    "getBusinessSummaries runs its paginated bundle one query at a time",
+    "renders the at-risk heading with the eligible count and the total",
+    "renders the EmptyState when no business is at risk",
+    "renders the metric columns absorbed from Overview"
+  ],
+  "verification_commands": [
+    "pnpm doctor",
+    "pnpm test:coverage && pnpm ci:fallow:coverage"
+  ],
+  "estimated_prod_lines": "480",
+  "estimated_test_lines": "420",
+  "dependencies_added": [],
+  "rollback_plan": "Not DB-touching. Revert the squash commit on main; no migration, no flag, no data change.",
+  "observability": [
+    "No new log line or metric — both surfaces are admin-only synchronous reads. Failure signal is unchanged: reportCaughtError('api/admin/overview') / ('api/admin/businesses GET') raise the existing Sentry issue, and the client islands render ErrorState. A regression in the bounded-fetch property surfaces as pg_stat_activity growth on the /admin/businesses path, which is exactly what the pinned page-ids test exists to prevent."
+  ],
+  "open_questions": [],
+  "locked_decisions": [
+    "Trap 3 reading (owner-confirmed): buildBusinessSummary's row→DTO mapping assertions move into business-summary.test.ts with assertion bodies unchanged. The six getAdminOverview-level tests whose subject §5 deletes (both `— pagination` tests, 2 of 3 `— shape`, `— empty businessRows path`, `— churn-descending sort`) are rewritten, each logged in the deviations file citing the mandating spec line.",
+    "Module shape (owner-confirmed): src/lib/admin/businesses-list-service.ts is DELETED. business-summary.ts exports ONE function, getBusinessSummaries(sql, opts?: { limit, offset }), returning { businesses: BusinessSummary[]; total: number; responseMetricsWindowDays: number } — total is rows.length when unpaginated and an unfiltered COUNT query when paginated. Its tenant-scope allowlist entries are re-keyed to the new file.",
+    "At-risk UI (owner-confirmed): heading 'At risk (N of M)' + 'View all →' link; EmptyState when N is 0.",
+    "getAdminOverview drops its { limit, offset } parameter; OverviewData drops `limit`/`offset` and renames `businesses` → `atRisk`; GET /api/admin/overview drops its limit/offset clamping. No shim — internal admin API, no external consumers.",
+    "OVERVIEW_PAGE_SIZE is deleted from page-sizes.ts (unused once Overview stops paginating); OVERVIEW_AT_RISK_LIMIT = 5 is added beside the remaining page sizes.",
+    "The unified base query is the superset: it adds b.category (Businesses needs it) to the Overview column set and GROUP BY, and keeps ORDER BY b.name ASC.",
+    "AdminBusinessesList gains responseMetricsWindowDays so the Businesses page's 'Response rate (30d)' / 'Avg time (30d)' headers derive from the same single owner as Overview's did.",
+    "atRisk carries the full BusinessSummary DTO — no second narrower DTO invented for a single caller."
+  ]
+}
