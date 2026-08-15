@@ -1,0 +1,45 @@
+-- Migration 107: drop the legacy Supabase `ensure_rls` event trigger
+--
+-- Driven by the 2026-08-14 staging/prod migration lockstep audit.
+--
+-- WHAT THIS REMOVES
+-- `ensure_rls` is a DDL event trigger (`ddl_command_end`) that runs
+-- `public.rls_auto_enable()`, which issues
+--   ALTER TABLE <new table> ENABLE ROW LEVEL SECURITY
+-- after EVERY `CREATE TABLE` in schema `public`. Neither object was created by
+-- any migration in this repo — both shipped in the Supabase project template
+-- that provisioned the PRODUCTION project (`udeyaqnvpojbwgoaxwdg`, created
+-- 2026-04-05). The STAGING project (`kubdiqdhqbhwmqfditeg`, created 2026-05-30)
+-- was provisioned after Supabase dropped it from the template and never had it.
+--
+-- WHY IT HAS TO GO
+-- It silently overrides the per-table RLS posture each migration chooses (the
+-- `new-migration` skill requires that choice to be explicit), and it does so in
+-- exactly one environment. Every table-creating migration therefore produces a
+-- prod-only RLS posture that the migration file never asked for. `ci:rls-audit`
+-- cannot catch this: it enforces a FLOOR (required tenant tables must HAVE RLS)
+-- and never fails on unrequested extra RLS. The observable symptom at the time
+-- of the audit was `job_outbox` — RLS enabled in prod with ZERO policies,
+-- disabled in staging — a difference no migration explains.
+--
+-- SCOPE — this migration removes the GENERATOR, not its past output.
+-- `job_outbox`'s already-enabled RLS is deliberately LEFT AS IS. It is inert
+-- today (the worker connects as the table owner and `service_role` carries
+-- BYPASSRLS, so nothing is actually denied), and turning RLS off on a live
+-- production table is a security-loosening change that belongs in its own
+-- reviewed migration, not bundled into a drift repair. Recorded so the next
+-- reader does not mistake the remaining difference for a fresh regression.
+--
+-- IDEMPOTENT / LOCKSTEP
+-- Both statements are `IF EXISTS`, so this is a NO-OP on staging and on the
+-- local test database, which never had either object. Applied staging-first per
+-- the lockstep rule regardless, so the two projects stay on the same head.
+--
+-- Order matters: the event trigger depends on the function, so the trigger goes
+-- first. `ensure_rls` is the only referent of `rls_auto_enable()` (verified via
+-- `pg_event_trigger.evtfoid` before writing this file); dropping the function
+-- without CASCADE would fail loudly rather than silently if that ever changes.
+
+DROP EVENT TRIGGER IF EXISTS ensure_rls;
+
+DROP FUNCTION IF EXISTS public.rls_auto_enable();

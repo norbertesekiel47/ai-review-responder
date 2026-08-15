@@ -74,8 +74,11 @@ gate, and `last_sign_in_at` genuinely does prove acceptance.
 | Resend invite + provider error map | `src/lib/onboarding/resend-invite.ts`, `src/app/api/admin/businesses/[id]/resend-invite/` |
 | Schema | migrations **105** (`checkout_attempt_coupon_id`), **106** (analytics event name) |
 
-**Not live in production.** 105 depends on 077's columns, and 077/078 are deliberately
-absent in prod until the WS8 cutover. No live-mode coupon exists and
+**Not live in production — but no longer for schema reasons.** As of 2026-08-14 migrations
+077, 105 and 106 are all applied in prod (the migration lockstep audit found 077 already
+there and applied 105 once its only dependency proved satisfied); **078** is the one
+remaining migration, and it applies inside the WS8 cutover. The live gate is now the
+strict-code deploy plus 078. No live-mode coupon exists and
 `ONBOARDING_DEMO_ENABLED` is off in prod. Before that coupon is created there is a
 **blocking pre-flight audit** in `docs/launch-checklist.md`: migration 025 backfilled
 `onboarded_by` on every pre-April-2026 business, so a legacy admin-onboarded account
@@ -1465,9 +1468,11 @@ to launch-day items. What is true now:
   automated posting permitted, **no rate limits, pay-per-use per account** — so
   all pacing is ours (caps/veto-window/jitter are mandatory, never removable),
   and Zernio API volume is a COGS line (pricing unit still to pin down).
-- **Prod schema verified by introspection:** 071–077 + 079–083 present; **078
-  deliberately absent** until the prod WS8 cutover (0 rows in prod
-  `accounts`/`businesses`). **Production stack intentionally not stood up** —
+- **Prod schema verified by introspection:** full audit 2026-08-14 — **106 of 107
+  migrations applied; 078 is the only one outstanding**, until the prod WS8
+  cutover (0 rows in prod `accounts`/`businesses`). That audit also applied 005
+  (undetected drift), 105 and 107; the prod cutover is **partially executed
+  through §5**, so resume at §6. **Production stack intentionally not stood up** —
   build-first strategy; one bring-up session at launch (worker + Redis + env
   matrix + webhooks + Stripe Prices + 078 + smoke).
 - **The audit trail is in `main`:** design doc **§8 "As-built status"** is the
