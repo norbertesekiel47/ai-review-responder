@@ -21,14 +21,23 @@ const MUTATION_VERB_RE =
 const GATE_TOKEN = 'requireAdminWithAal2';
 
 // Thin route files that delegate entirely to a shared helper which itself
-// calls requireAdminWithAal2. The helper names are stable; their gating is
-// verified by Task 5 tests. Calling any of these is equivalent to calling
+// calls requireAdminWithAal2. Naming one of these is equivalent to calling
 // requireAdminWithAal2 directly from the route's perspective.
-const GATED_SHARED_HELPERS = [
-  'runAdminChannelStart',
-  'runAdminChannelCancel',
-  'runAdminChannelDisable',
-] as const;
+//
+// This list names the RESOLVER, not the runners, and that distinction is
+// load-bearing. Before the channel-route unification it named
+// runAdminChannelStart/Cancel/Disable — admin-only helpers that called
+// requireAdminWithAal2 unconditionally. Their successors
+// (runChannelStart/Cancel/Disable, src/app/api/_shared/channels/) are
+// PORTAL-AGNOSTIC: they call `config.resolveActor`, which is resolveAdminActor
+// on an admin route and resolveOwnerActor on an owner route. Listing a runner
+// here would therefore pass an admin route that bound resolveOwnerActor,
+// silently exempting an admin mutation from MFA step-up.
+//
+// resolveAdminActor (src/app/api/_shared/channels/resolve-actor.ts) is the
+// function that actually calls the gate, so it is the only safe token — and
+// this is strictly stronger than the three names it replaces.
+const GATED_SHARED_HELPERS = ['resolveAdminActor'] as const;
 
 /**
  * Pure scan function — no FS access. Returns a list of finding messages

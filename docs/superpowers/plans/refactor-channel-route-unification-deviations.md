@@ -500,3 +500,65 @@ untouched** per the brief. The argument that it cannot be satisfied from inside
    editing a frozen file. The three sibling suites that seed the same stale
    `{ account_id: 'acct-1' }` row (`telegram/disable`, `telegram/cancel`,
    `whatsapp/cancel`) pass only because none of them asserts the bound value.
+
+**VERDICT: ACCEPT — with a wider fix than Task 6 proposed. Owner-approved
+2026-08-15 at the step-5 gate.**
+
+Task 6 was right to stop and right about the root cause, but the blast radius is
+**6 sites across 4 of the 6 frozen suites**, not one: `whatsapp/disable` ×2,
+`telegram/disable` ×2, `telegram/cancel` ×1, `whatsapp/cancel` ×1. Only ONE fails
+loudly. The other five now pass **vacuously** — `accountId` is `undefined`, which
+flows into the advisory-lock key (`mobile_enroll:undefined`) and the cache label,
+and no assertion in those five observes it.
+
+That is what settled it. Fixing only the red line would have left five tests green
+while asserting nothing about account scoping — including the guard whose own
+comment reads "the disable UPDATE must key by account_id (acct-1) … Reverting to
+business_id fails here". That guard would have been silently neutered by this
+refactor. Same false-green class as the `getServerConfig()` memoization defect
+found in Task 2b, reached by a different route.
+
+All 6 sites now seed `{ id: 'acct-1', subscription_status: 'active' }` — exactly
+what the four `start` suites already seed for the same lookup — each with a
+comment recording why. Production behaviour is identical either way: the join
+predicate is `b.account_id = a.id`, so both projections return the same value;
+only the column NAME the mock must supply changed, and the spec explicitly
+authorised that query change (§4.1, as amended by Task 1).
+
+**The frozen-six non-diff is therefore broken deliberately, once, in 4 files.**
+§4.5's "byte-for-byte unmodified" claim is amended to record it rather than left
+standing as a false statement. The rule did its job: it forced the change to be
+argued and approved instead of absorbed silently by an agent mid-refactor.
+
+## Step-5 gate — four failures fixed by the orchestrator, one surface amendment
+
+1. **`admin-aal2` audit FAILED on all six admin routes.** Its
+   `GATED_SHARED_HELPERS` allowlist named `runAdminChannelStart/Cancel/Disable`,
+   which this refactor renamed. **The naive fix — swapping in the new runner
+   names — would have silently weakened the audit.** The old helpers were
+   admin-only and called `requireAdminWithAal2` unconditionally; the new runners
+   are portal-agnostic and call `config.resolveActor`, so an admin route that
+   bound `resolveOwnerActor` would pass the audit while skipping MFA step-up
+   entirely. The list now names **`resolveAdminActor`** — the function that
+   actually calls the gate — which is strictly stronger than the three names it
+   replaces. New test case `(k)` pins exactly that regression: an admin route
+   binding `resolveOwnerActor` to a shared runner MUST be flagged.
+2. **`process-env` ratchet FAILED** — 2 stale entries + 2 unbaselined new files.
+   Resolved as a path MOVE (2 out, the same 2 in), preserving the ratchet's size
+   and the original grandfathering rationale verbatim. Deliberately NOT a Stage-3
+   migration: these are presence sweeps over a dynamic var-name list
+   (`process.env[k]`), which the baseline comment already records as not fitting
+   `getServerConfig()`.
+3. **`typecheck` FAILED** on `runners.test.ts:340` — one more
+   `noUncheckedIndexedAccess` site missed in the earlier sweep.
+4. **My own `verification_commands` entry was wrong.** The frozen-six guard used
+   the directory path `src/app/api/admin/channels/telegram/__tests__`, which also
+   contains `_shared.test.ts` — a file Task 3 deliberately MOVED. The guard
+   therefore reported a break that was by design. Corrected to name the six route
+   suites explicitly. A `verification_commands` correction is a deviations entry,
+   not an amendment (workflow step 5).
+
+**AMENDMENT 1 of 2** (owner-approved): `allowed_edit_surface` gained
+`scripts/ci/admin-aal2-audit.ts`, `scripts/ci/__tests__/admin-aal2-audit.test.ts`
+and `scripts/ci/process-env-baseline.ts`. A second amendment triggers the abort
+criteria.

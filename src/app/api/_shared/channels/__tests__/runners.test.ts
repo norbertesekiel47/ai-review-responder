@@ -337,7 +337,7 @@ describe('runChannelStart error mapping', () => {
 
     await runChannelStart(sql, mkReq(), cfg());
 
-    const [, , context] = reportMock.mock.calls[0];
+    const [, , context] = reportMock.mock.calls[0]!;
     const serialized = JSON.stringify(context);
     // Invariant #5 applied to enrollment tokens: neither the raw uuid nor its
     // sha256 hash may reach a log sink.

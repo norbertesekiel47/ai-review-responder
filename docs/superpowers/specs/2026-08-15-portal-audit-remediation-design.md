@@ -255,6 +255,21 @@ explicitly rather than absorbed silently.
   to the `_shared` paths — so they must pass **byte-for-byte unmodified**, which is
   stronger than "unmodified except for import paths". A gate command asserts this
   with `git diff --quiet`; any edit is a signal the refactor changed admin semantics.
+
+  **As built, that signal fired once and the break was taken deliberately.** Four
+  of the six suites seeded the resolver's row as `{ account_id: 'acct-1' }` — the
+  projection of the pre-refactor `SELECT account_id FROM businesses` resolver.
+  `resolveAdminActor` uses the accounts join this spec authorises above and reads
+  `.id`, so those 6 fixture sites yielded `undefined`. Only ONE failed loudly; the
+  other five passed **vacuously**, with `undefined` flowing into the advisory-lock
+  key and the cache label unobserved — neutering, among others, a guard whose own
+  comment reads "Reverting to `business_id` fails here". All 6 sites were updated
+  to `{ id: 'acct-1', subscription_status: 'active' }`, matching what the four
+  `start` suites already seed. Production is unaffected either way: the join
+  predicate is `b.account_id = a.id`, so both projections return the same value
+  and only the mock's column name changed. Rationale and approval:
+  `docs/superpowers/plans/refactor-channel-route-unification-deviations.md`
+  → Task 6 verdict.
 - The 2 admin `_shared.test.ts` files are NOT part of that net — they test the
   flag/env modules and move with them to
   `src/lib/notifications/channels/__tests__/{telegram,whatsapp}-env.test.ts`,

@@ -148,8 +148,17 @@ export const PROCESS_ENV_BASELINE: ReadonlySet<string> = new Set<string>([
   // not fit the getServerConfig() shape (typed fields, not a presence sweep), so
   // it is grandfathered here rather than migrated (migration is out of scope for
   // this CI-tooling task).
-  'src/app/api/admin/channels/telegram/_shared.ts',
-  'src/app/api/admin/channels/whatsapp/_shared.ts',
+  //
+  // MOVED, not added, by the channel-route unification: these two modules are
+  // byte-identical presence sweeps that relocated from
+  // src/app/api/admin/channels/{telegram,whatsapp}/_shared.ts to src/lib, beside
+  // the flags.ts they pair with, so an owner surface (the settings page and the
+  // channel-status route) no longer imports from an admin route folder. The
+  // ratchet is unchanged in size — 2 entries out, the same 2 entries in — and
+  // the grandfathering rationale above still applies verbatim: they are
+  // presence sweeps over a dynamic var-name list, not typed subsystem config.
+  'src/lib/notifications/channels/telegram-env.ts',
+  'src/lib/notifications/channels/whatsapp-env.ts',
   // Stage-3 serpapi-redis batch MIGRATED (removed): reviews/place-id-resolver.ts
   // (worker-only → getWorkerConfig()), reviews/serpapi-prefill.ts (Next-only) +
   // shared/rate-limit.ts (dual Next+worker) → getServerConfig(). All 3 fully

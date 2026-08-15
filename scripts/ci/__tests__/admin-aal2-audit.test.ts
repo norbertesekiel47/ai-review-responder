@@ -99,39 +99,73 @@ describe('scanRouteFile — admin AAL2 gate audit', () => {
     expect(findings[0]).toContain('[admin-aal2]');
   });
 
-  it('(h) thin delegator calling runAdminChannelStart → no finding (gated by helper)', () => {
+  it('(h) thin delegator binding resolveAdminActor to the start runner → no finding (gated by resolver)', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
     const text = [
-      "import { runAdminChannelStart } from '@/app/api/admin/channels/_shared/start';",
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelStart(req, { channel: "telegram" }),',
+      '  runChannelStart(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: true }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
   });
 
-  it('(i) thin delegator calling runAdminChannelCancel → no finding', () => {
+  it('(i) thin delegator binding resolveAdminActor to the cancel runner → no finding', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/cancel/route.ts';
     const text = [
-      "import { runAdminChannelCancel } from '@/app/api/admin/channels/_shared/action';",
+      "import { runChannelCancel } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelCancel(req, { channel: "telegram" }),',
+      '  runChannelCancel(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
   });
 
-  it('(j) thin delegator calling runAdminChannelDisable → no finding', () => {
+  it('(j) thin delegator binding resolveAdminActor to the disable runner → no finding', () => {
     const channelPath = 'src/app/api/admin/channels/telegram/disable/route.ts';
     const text = [
-      "import { runAdminChannelDisable } from '@/app/api/admin/channels/_shared/action';",
+      "import { runChannelDisable } from '@/app/api/_shared/channels/action';",
+      "import { resolveAdminActor } from '@/app/api/_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
-      '  runAdminChannelDisable(req, { channel: "telegram" }),',
+      '  runChannelDisable(sql, req, {',
+      '    channel: "telegram",',
+      '    resolveActor: (db, request) => resolveAdminActor(db, request, { requireFullAccess: false }),',
+      '  }),',
       ');',
     ].join('\n');
     expect(scanRouteFile(channelPath, text)).toHaveLength(0);
+  });
+
+  it('(k) admin route binding resolveOwnerActor to a shared runner → FINDING (the runner is not itself a gate)', () => {
+    // The regression this audit's helper list exists to prevent, and the reason
+    // it names the RESOLVER rather than the runners. runChannelStart is
+    // portal-agnostic: it calls whatever resolveActor it is handed. An admin
+    // route that bound the OWNER resolver would run under the owner role gate
+    // with no MFA step-up. Listing runChannelStart as a gated helper — the
+    // naive successor to the three admin-only names this replaced — would let
+    // exactly this file through.
+    const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
+    const text = [
+      "import { runChannelStart } from '@/app/api/_shared/channels/start';",
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = withSameOrigin()((req: NextRequest) =>',
+      '  runChannelStart(sql, req, { channel: "telegram", resolveActor: resolveOwnerActor }),',
+      ');',
+    ].join('\n');
+    const findings = scanRouteFile(channelPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('[admin-aal2]');
   });
 });

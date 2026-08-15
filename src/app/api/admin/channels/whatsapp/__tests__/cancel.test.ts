@@ -80,7 +80,17 @@ describe('POST /api/admin/channels/whatsapp/cancel', () => {
 
   it('clears verification hash + expiry on pending row and returns 200', async () => {
     process.env.CHANNELS_WHATSAPP_ENABLED = 'true';
-    sqlQueue.push([{ account_id: 'acct-1' }]); // SELECT account_id FROM businesses
+    // Seeds the accounts join (SELECT a.id, a.subscription_status FROM accounts a
+
+    // JOIN businesses b ...) that resolveAdminActor issues. Before the channel-route
+
+    // unification the resolver was SELECT account_id FROM businesses, so this row
+
+    // read `account_id`. Same value in prod either way (b.account_id = a.id); only
+
+    // the projected column name changed. Matches what the start suites already seed.
+
+    sqlQueue.push([{ id: 'acct-1', subscription_status: 'active' }]);
     // sql.begin callback fires: advisory lock SELECT + UPDATE
     sqlQueue.push([]); // pg_advisory_xact_lock
     sqlQueue.push([]); // UPDATE ... WHERE status='pending_verification'
