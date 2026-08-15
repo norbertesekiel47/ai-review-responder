@@ -266,7 +266,19 @@ explicitly rather than absorbed silently.
   has one; Telegram does not).
 - New unit tests for `resolveAdminActor` and `resolveOwnerActor` covering: auth
   failure, missing/invalid scope, blocked subscription, success.
-- Update the owner `cancel`/`disable` tests for the 404 change (§4.3).
+- New tests for the runner **transaction protocol**, which nothing in the repo
+  pins today: the admin start suites push `sqlQueue.push([]) // advisory lock` as
+  a comment, never an assertion, and their `begin` shares one queue with the bare
+  `sql` calls, so the lock is indistinguishable from any other statement.
+  Token-minted-outside-the-tx, the `mobile_enroll:<accountId>` key, and
+  lock-before-`startMobileEnrollment` all need pinning before the runners are
+  rewritten.
+- New tests that the six admin shims BIND the right §4.2 posture. The resolver
+  unit tests prove `requireFullAccess` works in isolation; only a route-level
+  test proves each shim passes the right value, which is what stops admin
+  `cancel` from silently gaining a billing gate. Admin Telegram `start` also has
+  no existing inactive-subscription test today (WhatsApp `start` does), so it can
+  silently LOSE its gate.
 
 ## 5. PR 3 — Overview spec-alignment
 
