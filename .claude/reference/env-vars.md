@@ -193,7 +193,7 @@ AND owner self-service routes (`/api/dashboard/channels/whatsapp/{start,cancel,d
 **Set on BOTH platforms.** Next.js routes + the `/settings/channels` UI run on
 **Vercel**; the worker runs on **Railway**. The flag + all WhatsApp env vars must
 be set on both, or the owner UI stays hidden/404/503 while the worker is otherwise
-ready. The single shared `whatsappEnvReady()` predicate (`src/app/api/admin/channels/whatsapp/_shared.ts`)
+ready. The single shared `whatsappEnvReady()` predicate (`src/lib/notifications/channels/whatsapp-env.ts`; moved out of the admin route folder by #831)
 backs both the route guard and the UI `whatsappAvailable()` checks, so they can't
 disagree on which env vars count (all 5, incl. `WHATSAPP_APPROVAL_URL_BASE`).
 
@@ -375,7 +375,7 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 - `ZERNIO_INGEST_MAX_PAGES` (default: `4`, = 200 reviews) — caps `ZernioReviewIngestWorker`'s `listReviews` walk. Hitting cap with `nextPageToken` set → `review_exceptions type='zernio_pagination_cap_exhausted'` (distinct from durable `zernio_review_not_found`)
 - `ZERNIO_IMPORT_MAX_PAGES` (default: `6`) — worker-only page cap for the consented Review import's until-target fetch (`ZernioBackfillWorker`, #675); cap exhaustion with target unmet raises `ZernioImportPaginationCapExhaustedError` (never truncates silently); bump + admin re-enqueue (consent permitting) is the ops remedy
 
-**Prod checklist:** Subscribe to Zernio Accelerate + Inbox add-on → set `ZERNIO_API_KEY` + `ZERNIO_WEBHOOK_SECRET` + `WORKER_PUBLIC_URL` → run migrations 026+028+029+030 in prod Supabase → configure webhook URL in Zernio dashboard pointing at `${WORKER_PUBLIC_URL}/ingress/zernio` → fire test webhook → flip flag → onboard pilot per `docs/zernio-launch-runbook.md`.
+**Prod checklist:** Subscribe to Zernio Accelerate + Inbox add-on → set `ZERNIO_API_KEY` + `ZERNIO_WEBHOOK_SECRET` + `WORKER_PUBLIC_URL` → run migrations 026+028+029+030 in prod Supabase → configure webhook URL in Zernio dashboard pointing at `${WORKER_PUBLIC_URL}/ingress/zernio` → fire test webhook → flip flag → onboard pilot per `docs/runbooks/completed_runbooks/zernio-launch-runbook.md`.
 
 ---
 

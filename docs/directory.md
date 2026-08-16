@@ -335,8 +335,8 @@ Handles the Zernio OAuth connect flow for GBP auto-posting. All routes gated by 
 | Route | What it does |
 |-------|--------------|
 | `start/route.ts` | Initiates the Zernio OAuth flow; creates a Zernio profile, sets a signed connect-session cookie, and redirects the owner to Zernio. |
-| `callback/route.ts` | Receives the OAuth callback from Zernio; creates a `zernio_connections` row and redirects to `select-location`. |
-| `select-location/route.ts` | POST: finalises connection by selecting a GBP location; updates `zernio_connections` to `active`. |
+| `callback/route.ts` | Receives the OAuth callback from Zernio: claims the single-use connect state (Redis GETDEL), calls `zernioClient.listLocations` (ADR 0001 sanctioned sync call), stashes the locations in Redis for 15 min, sets the signed connect-session cookie and 302s to `select-location`. Writes NO DB row — `zernio_connections` first exists inside `finalizeConnectionTx`. |
+| `select-location/route.ts` | POST: finalises the connection — `zernioClient.selectLocation` → `accountId`, then `finalizeConnectionTx` (one `sql.begin`: `zernio_connections` upsert to `active`, `drain_pending_owner_connect` outbox row, `gbp_connected` analytics event, and — only on `import_decision='accepted'` — `enqueueInitialImport`). |
 | `cancel/route.ts` | POST: cancels an in-progress OAuth flow; cleans up pending DB + Redis state. |
 
 #### `zernio/disconnect/route.ts`
@@ -748,7 +748,7 @@ Everything about fetching and normalising Google reviews.
 | `zernio-field-match.ts` | Canonical field-match for "is this Zernio review the same as a local `serpapi_poll` row": `fromZernioReview` → `ZernioFieldMatchTarget` (name, rating, trimmed text, epoch ms) and `matchesLocalRow` (±24h `MATCH_WINDOW_MS`). Must stay in sync with the SQL fragment in `zernio-ingest-shared.ts`; a unit test runs both on one corpus. |
 | `zernio-normalize.ts` | Zernio → `NormalizedReview` / `MonitoredReview`: `zernioReviewToNormalized` (per-review `ZernioReviewNormalizationError`), `buildZernioMonitoredReview` (identity `zernio_id`), `zernioProviderReviewName` / `zernioProviderLocationName` — the ONLY spelling of the synthetic `zernio://` names (**#764**) — `extractLocationFromReviewName` (null = fail closed), `normalizeGoogleReviewName`. |
 
-**Connection:** live ingestion is Zernio-only — `worker/ingress/zernio/zernio.ts` (webhook fan-out) and `ZernioRecentReviewPoller` enqueue `ingest_zernio_review`; `worker/jobs/zernio/ZernioReviewIngestWorker.ts` calls `process-review.ts` per review and enqueues `generate-response` via outbox. `SerpApiSource` serves only the demo/prefill lane (`src/lib/demos/fetch-reviews.ts`, `serpapi-prefill.ts`); the legacy `ReviewSyncWorker`/`SerpApiMonitor` path was deleted.
+**Connection:** live ingestion is Zernio-only — `worker/ingress/zernio/zernio.ts` fans out one `ingest_zernio_review` outbox row per active connection and `worker/jobs/zernio/ZernioReviewIngestWorker.ts` calls `process-review.ts` per review, which enqueues `generate_response`; `ZernioRecentReviewPoller` is the second entry into `process-review.ts` (in-process, no outbox row). `SerpApiSource` serves only the demo/prefill lane (`src/lib/demos/fetch-reviews.ts`, `serpapi-prefill.ts`); the legacy `ReviewSyncWorker`/`SerpApiMonitor` path was deleted.
 
 ### `past-replies/`
 
@@ -1072,7 +1072,7 @@ All Zernio API client code and shared connect-flow state.
 | `errors.ts` | Typed error classes: `ZernioAuthError`, `ZernioValidationError`, `ZernioTransientError`, `ZernioPermanentError`, `ZernioReviewNotFoundError`, `ZernioReplyAlreadyExistsError`, `ZernioReplyAlreadyDeletedError`, `ZernioReplyVerificationIndeterminateError`, `ZernioRateLimitError`, plus the `inbox_addon_required` validation classification. |
 | `parse-review-webhook.ts` | Parses Zernio `review.new` / `review.updated` webhook bodies. Extracts nested `account.id` per spec §5.4 (NOT flat `accountId` — common gotcha). Returns the normalized review payload used for outbox fan-out. |
 | `canonicalize-reply.ts` | Normalizes reply text for comparison — strips trailing whitespace, normalizes line endings. Used by the edit-publisher to detect whether owner edits actually changed anything before calling Zernio (skips no-op writes). |
-| `auth-error-fallback.ts` | `applyTransientExhaustionFallback()` — single Postgres tx that flips `zernio_connections.status='disconnected'`, transitions the response to `awaiting_owner_connect`, and enqueues `owner-email` (connection_lost). Triggered when Zernio auth/transient errors exhaust retries. |
+| `auth-error-fallback.ts` | `applyTransientExhaustionFallback()` — single Postgres tx that flips `zernio_connections.status='disconnected'`, transitions the response to `awaiting_owner_connect`, and enqueues `send_owner_email` (connection_lost). Triggered when Zernio auth/transient errors exhaust retries. |
 | `types.ts` | `EndpointKind`, `ZernioConnectionStatus`, `ZernioConnectionRow`, `ZernioReview`, `ZernioLocationOption`, `ConnectPendingMarker`. |
 | `client/diagnostics.ts` | `summarizeShape(raw)` — JSON-safe key/type summary of an unknown response (never values) for `UNRECOGNIZED RESPONSE SHAPE` logs, so OAuth/connect tokens and account IDs cannot leak into worker logs. |
 | `client/error-classifier.ts` | `classifyAndParse(res, endpointKind)` — maps a Zernio HTTP response to the typed errors: 401/403 → `ZernioAuthError`; `publish_reply` 409 → `ZernioReplyAlreadyExistsError` only for allowlisted codes (unknown 409 → transient), 404 → `ZernioReviewNotFoundError`; `select_location` 400 → `ZernioValidationError` only for `PRE_MUTATION_400_CODES`; other 4xx permanent (408/429 transient); 5xx transient. Handles the no-body endpoint set. |
@@ -1185,26 +1185,26 @@ Each file exports a single `handle*` function that a BullMQ `Worker` calls per j
 
 | File | Queue | What it does |
 |------|-------|--------------|
-| `zernio/ZernioReviewIngestWorker.ts` | `ingest-zernio-review` | Zernio webhook → outbox → this handler. Per-location `listReviews` call, dedups by Zernio's canonical `provider_review_id`, upserts into `reviews`, creates a `responses` row (`status='pending_approval'`), and enqueues `generate-response` via outbox. Migration 030's partial unique index on `(business_id, zernio_review_id)` keeps in-flight rows from duplicating during webhook retries. Maps `ZernioReviewNotFoundError` to a `review_exceptions` row + admin alert. |
-| `zernio/ZernioBackfillWorker.ts` | `zernio-initial-backfill` | **(#675)** Consented Review import executor — NOT an answering backfill. Pure `selectImportWindow`: newest 100 reviews with `createTime ∈ [now − 12 months, live-ingest cutoff)` (CONTEXT.md glossary; upper bound keeps lane ownership disjoint from the live lane). Pages `listReviews` up to `ZERNIO_IMPORT_MAX_PAGES` (default 6); cap-out with target unmet is TERMINAL (`ZernioImportPaginationCapExhaustedError`, failed outbox row + Sentry, `completed_at` NULL for ops re-enqueue); non-descending pages disable both early stops (best-effort to feed end). **(#679)** Runs `guardImportConsent` FIRST — before `guardZernioJobEligibility` and before the run-row INSERT — so a job for a non-`accepted` business no-op-completes and mints no run row. Unanswered → `importReview` (zero `job_outbox` writes); answered → `reconcileExternallyAnsweredReview({consentedImport:true})`. Writes ONLY collapsed `imported_count`/`skipped_count` on `zernio_backfill_runs` — the four legacy gap/historical counters freeze at DEFAULT 0, DROP at #680 after a reconciliation preflight. Concurrency 1 (heavy). Subscription-guarded. |
-| `ResponseGeneratorWorker.ts` | `generate-response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. **(WS5)** terminal draft failures close the matching outbox attempt and complete the active review run as failed in one reviews-first transaction. **(#728, ADR 0017)** `persistResponseAndNotify` (`response-generation/persist.ts`) runs the lane-independent **content-freshness gate** before the lane split: under the review `FOR UPDATE` lock (the tx's first statement) it re-reads `review_content_hash`; both hashes non-null and different → skip-the-INSERT, and the handler completes the job with `markOutboxCompletedWithReason(…, STALE_REVIEW_CONTENT, …)` — nothing written, the `(review_id, version)` slot stays free for the colliding fresh job. Null on either side passes. |
-| `notification/NotificationWorker.ts` | `send-notification` | Orchestrates the notification send loop. Delegates context loading to `notification/context.ts`, eligibility filtering to `notification/eligibility.ts`, and per-channel dispatch to `notification/dispatch.ts`. Skips `pending_payment` and `cancelled`. |
+| `zernio/ZernioReviewIngestWorker.ts` | `ingest_zernio_review` | Zernio webhook → outbox → this handler. Per-location `listReviews` call, runs `guardZernioJobEligibility` + the PHI gate, then `processReview` — dedup on `(provider, provider_review_name)`, INSERT `reviews`, start the run spine, enqueue `generate_response` via outbox (the `responses` row is created later by `ResponseGeneratorWorker`). Migration 030's partial unique index on `(business_id, zernio_review_id)` keeps in-flight rows from duplicating during webhook retries. Maps `ZernioReviewNotFoundError` to a `review_exceptions` row + admin alert. |
+| `zernio/ZernioBackfillWorker.ts` | `zernio_initial_backfill` | **(#675)** Consented Review import executor — NOT an answering backfill. Pure `selectImportWindow`: newest 100 reviews with `createTime ∈ [now − 12 months, live-ingest cutoff)` (CONTEXT.md glossary; upper bound keeps lane ownership disjoint from the live lane). Pages `listReviews` up to `ZERNIO_IMPORT_MAX_PAGES` (default 6); cap-out with target unmet is TERMINAL (`ZernioImportPaginationCapExhaustedError`, failed outbox row + Sentry, `completed_at` NULL for ops re-enqueue); non-descending pages disable both early stops (best-effort to feed end). **(#679)** Runs `guardImportConsent` FIRST — before `guardZernioJobEligibility` and before the run-row INSERT — so a job for a non-`accepted` business no-op-completes and mints no run row. Unanswered → `importReview` (zero `job_outbox` writes); answered → `reconcileExternallyAnsweredReview({consentedImport:true})`. Writes ONLY collapsed `imported_count`/`skipped_count` on `zernio_backfill_runs` — the four legacy gap/historical counters freeze at DEFAULT 0, DROP at #680 after a reconciliation preflight. Concurrency 1 (heavy). Subscription-guarded. |
+| `ResponseGeneratorWorker.ts` | `generate_response` | Loads review + business context, calls `generateResponse()`, saves draft, enqueues notification via outbox. **(WS5)** terminal draft failures close the matching outbox attempt and complete the active review run as failed in one reviews-first transaction. **(#728, ADR 0017)** `persistResponseAndNotify` (`response-generation/persist.ts`) runs the lane-independent **content-freshness gate** before the lane split: under the review `FOR UPDATE` lock (the tx's first statement) it re-reads `review_content_hash`; both hashes non-null and different → skip-the-INSERT, and the handler completes the job with `markOutboxCompletedWithReason(…, STALE_REVIEW_CONTENT, …)` — nothing written, the `(review_id, version)` slot stays free for the colliding fresh job. Null on either side passes. |
+| `notification/NotificationWorker.ts` | `send_notification` | Orchestrates the notification send loop. Delegates context loading to `notification/context.ts`, eligibility filtering to `notification/eligibility.ts`, and per-channel dispatch to `notification/dispatch.ts`. Skips `pending_payment` and `cancelled`. |
 | `escalation-notice/EscalationNoticeWorker.ts` | `escalation_notice` | **(WS3)** Sends the Guardian escalation notice to the owner's channels. Re-checks `ESCALATION_ENABLED` at SEND time (kill switch stops outbound notices without hiding raised escalations), reuses the approval worker's eligibility primitive, then hands off to `escalation-notice/dispatch.ts`. Afterwards records the `escalation_sent` step BEST-EFFORT (log-and-swallow — `notification_deliveries` is the authoritative per-channel record). |
 | `auto-post-notice/AutoPostNoticeWorker.ts` | `auto_post_notice` | Sends the auto-approved post FYI ("your reply was posted") to the owner's channels after an `auto_policy` publish. Reuses the approval worker's eligibility primitive, then hands off to `auto-post-notice/dispatch.ts`. NEVER mutates the already-posted response — a send failure retries on this job alone. |
 | `pending-post-notice/PendingPostNoticeWorker.ts` | `pending_post_notice` | **(WS4)** Sends the veto-window "your reply will post automatically" notice. Re-checks `AUTO_APPROVAL_ENABLED` at SEND time (spec §2.12; flag off ⇒ complete without sending — the publisher's downgrade backstop owns the record), loads the still-scheduled `auto_policy` response via `pending-post-notice/context.ts` freshness guards, reuses the approval worker's eligibility primitive, then hands off to `pending-post-notice/dispatch.ts`. NEVER mutates the response; the delayed publish outbox row is independent and fires at the deadline regardless. |
 | `AutonomyAdminAlertWorker.ts` | `autonomy_admin_alert` | **(WS6)** Renders an internal account-suspension alert from bounded trigger/evidence facts, sends it to `ADMIN_NOTIFICATION_EMAIL`, then independently attempts Sentry warning telemetry so observability cannot poison a successful email path. |
 | `billing/StripeSubscriptionMirrorSyncWorker.ts` | `stripe_subscription_mirror_sync` | **(WS8)** Converges deprecated business subscription status/activation from canonical account state. Locks business rows in id order, then entitlement, reads the account without a row lock, updates the mirror, and completes the originating outbox entry in one transaction. |
-| `publisher/ResponsePublisherWorker.ts` | `publish-response` | POST-only flow. Checks `zernio_connections` for the business. **WS6:** every unposted `auto_policy` response first passes the judge flag/health gate; disabled or unhealthy downgrades to owner review under a durable audit action, while query failures retry. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `owner-email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
-| `DrainOwnerConnectWorker.ts` | `drain-owner-connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
-| `OwnerEmailWorker.ts` | `owner-email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
-| `AdminExceptionWorker.ts` | `notify-admin-exception` | Sends an internal alert email when a review processing failure requires human review. |
-| `WeeklySummaryWorker.ts` | `weekly-summary` | Queries 7-day metrics and sends the Insights-labeled weekly report via Resend. **(WS5)** a newly claimed send first records and completes a `weekly_insights` run with a `digest_sent` step/outcome in the same transaction as the `sent_at` flip; replayed claims emit neither spine rows nor email. |
-| `PlaceIdValidationWorker.ts` | `validate-place-id` | Verifies a Place ID is still accessible via SerpAPI; updates `place_id_verified` flag. |
-| `MonthlyImpactWorker.ts` | `monthly-impact` | Generates monthly impact report email. |
-| `EngagementAlertWorker.ts` | `engagement-alert` | Checks engagement thresholds, sends alert if below floor. |
-| `RankingTrackingWorker.ts` | `track-ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
-| `OnboardingDripWorker.ts` | `onboarding-drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
-| `DemoGenerationWorker.ts` | `generate-demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
+| `publisher/ResponsePublisherWorker.ts` | `publish_response` | POST-only flow. Checks `zernio_connections` for the business. **WS6:** every unposted `auto_policy` response first passes the judge flag/health gate; disabled or unhealthy downgrades to owner review under a durable audit action, while query failures retry. Active Zernio → resolves review ID + posts via `zernio-publisher.ts`, marking `posted`. Connection required but absent → transitions to `awaiting_owner_connect` + enqueues `send_owner_email` (reconnect_required). Uses `publisher-error-handlers.ts` for error classification. The DELETE+POST edit branch (`runEditPublisherIfApplicable`) is parked on tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API. |
+| `DrainOwnerConnectWorker.ts` | `drain_pending_owner_connect` | Re-enqueues stuck `publish_response` outbox rows when an owner (re)connects Zernio. Inserts fresh outbox entries for all `awaiting_owner_connect` responses, with three layers of idempotency (partial unique index, NOT EXISTS guard, ResponsePublisher early-exit). |
+| `OwnerEmailWorker.ts` | `send_owner_email` | Discriminated payload router for owner-directed Zernio emails. `reconnect_required` → owner needs to reconnect Zernio so the queued reply can be published. `connection_lost` → Zernio reported GBP connection went offline. Both handlers apply subscription guard + bounce check + claim-before-send deduplication. |
+| `AdminExceptionWorker.ts` | `notify_admin_review_exception` | Sends an internal alert email when a review processing failure requires human review. |
+| `WeeklySummaryWorker.ts` | `weekly_summary` | Queries 7-day metrics and sends the Insights-labeled weekly report via Resend. **(WS5)** a newly claimed send first records and completes a `weekly_insights` run with a `digest_sent` step/outcome in the same transaction as the `sent_at` flip; replayed claims emit neither spine rows nor email. |
+| `PlaceIdValidationWorker.ts` | `validate_place_id` | Verifies a Place ID is still accessible via SerpAPI; updates `place_id_verified` flag. |
+| `MonthlyImpactWorker.ts` | `send_monthly_impact` | Generates monthly impact report email. |
+| `EngagementAlertWorker.ts` | `engagement_alert` | Checks engagement thresholds, sends alert if below floor. |
+| `RankingTrackingWorker.ts` | `track_ranking` | Calls SerpAPI for each keyword, saves ranking snapshots. |
+| `OnboardingDripWorker.ts` | `onboarding_drip` | Sends onboarding email at the configured step (day 1 / 7 / 30). |
+| `DemoGenerationWorker.ts` | `generate_demo` | Fetches SerpAPI reviews for a prospect, calls `generateResponse()` in `demo` mode, saves to `prospect_demos`. |
 | `csv-ingest/index.ts` | `csv_ingest` | **(#541)** Contacts/visits CSV ingest (`handleCsvIngest`). Subscription gate derived from the upload row's business→account join (`subscriptionGrantsFullAccess`, invariant #11 — gated accounts leave the upload `pending`); delegates all match/merge/upsert + report behavior to `src/lib/solicitation/ingest.ts`. PII contract: logs counts/ids only — never names, handles, notes, or raw CSV. |
 | `live-draft-guard.ts` | — (helper) | **(WS5)** `hasLiveOwnerActionableResponse(tx, reviewId)` — shared by `ResponseGeneratorWorker` and `publisher/failed-hook` terminal checkpoints; a run is never completed `failed` while an owner-actionable draft (non-terminal status) exists for the review. |
 | `OnboardingDemoWorker.ts` | `onboarding_demo_response` | `handleOnboardingDemo` — pre-pay onboarding demo. Mock-leak guard on production-config lanes **(#611)**, inverted subscription guard (account no longer `pending_payment` → `failDemo`), `claimDemo` → resolve place → build source (SerpAPI or curated fallback) → `completeDemo`. Reconciles the 20¢ cost-guard reservation via `finalizeOnboardingDemoCost`; threshold check + Sentry are best-effort. Helpers in `onboarding-demo/`. |
@@ -1489,7 +1489,7 @@ opt-out. Do not "fix" it to match the table above.
 | `telegram/telegram-callback.ts` | *(called by telegram.ts)* | Handles `callback_query` (Approve / Regenerate button taps). Model A ack ordering: validate → `answerCallbackQuery` → approval tx → `editMessageText`. Permanent link-state errors edit message in place; unexpected errors return 503 for retry. |
 | `telegram/telegram-shared.ts` | *(utility)* | Narrow Telegram update DTO type, link-state error classifier, and small helpers shared by `telegram-enrollment.ts` and `telegram-callback.ts`. |
 | `telegram/telegram-verify.ts` | *(utility)* | Constant-time comparison of `X-Telegram-Bot-Api-Secret-Token` header against `TELEGRAM_WEBHOOK_SECRET`. |
-| `zernio/zernio.ts` | `POST /ingress/zernio` | Zernio event webhook handler. HMAC-SHA256 verification (via `zernio-verify.ts`). Routes: `account.disconnected` → marks `zernio_connections` disconnected + enqueues `owner-email` (connection_lost). Reads nested `body.account.id` per spec §5.4. |
+| `zernio/zernio.ts` | `POST /ingress/zernio` | Zernio event webhook handler. HMAC-SHA256 verification (via `zernio-verify.ts`). Routes: `account.disconnected` → marks `zernio_connections` disconnected + enqueues `send_owner_email` (connection_lost). Reads nested `body.account.id` per spec §5.4. |
 | `zernio/zernio-verify.ts` | *(utility)* | `verifyZernioSignature()` — HMAC-SHA256 verification using `ZERNIO_WEBHOOK_SECRET`. |
 | `conversational-seam.ts` | *(utility)* | Future-agent seam (ADR 0003) — deliberately a NO-OP today: `handleConversationalMessage({channel, senderHandle})` logs an acknowledgement and sends no reply. `isAuthorizedConversationalSender` is the auth boundary any future reply must sit behind: a `verified`, non-archived `channel_enrollments` row on an account `checkSubscription` still allows (past_due honours the grace window). Called by `telegram.ts` and `twilio-whatsapp-inbound.ts` for free text. |
 | `rate-limit.ts` | *(`onRequest` hook on every `/ingress/*`)* | Best-effort per-IP backstop (120/min via `checkRateLimit`, fails open). `registerIngressRateLimitHook(app)` runs before body parsing and signature verify, matching on BOTH `routeOptions.url` (absolute-form request lines) AND the percent-DECODED raw path (unmatched 404s, `/%69ngress/`); routes opt out only via resolved config `skipIngressRateLimit` (unsubscribe, §9.2). `ingressClientIp` reads the XFF first hop — spoofable by design; signatures are the real gate. |
@@ -1519,89 +1519,139 @@ Per-event handlers `stripe.ts` dispatches to after signature verification and de
 ### Owner signup (self-serve)
 
 ```
-SignupFormClient → POST /api/auth/signup
-  → createBusinessTx (users + businesses + email enrollment in one tx)
-  → Supabase sends OTP confirmation email
-/signup/check-email polls /api/auth/signup-status
-  → POST /api/auth/verify-otp → email confirmed
-  → /onboarding/pay → Stripe checkout → stripe.ts ingress webhook
-  → subscription_status = 'active'
-  → owner connects Zernio (/api/zernio/connect) → Zernio webhook (worker/ingress/zernio) → outbox row (ingest_zernio_review)
-  → OutboxPoller → ZernioReviewIngestWorker → process-review → outbox row (generate-response)
-  → OutboxPoller → ResponseGeneratorWorker → generateResponse() → outbox row (send-notification)
+AuthIslandClient (SignupForm) → POST /api/auth/signup
+  → provisionAuthUser (supabase.auth.signUp → Supabase sends the OTP confirmation email)
+  → createBusinessTx (accounts + businesses + users in one tx; subscription_status pending_payment)
+/signup/check-email (OTP entry) → POST /api/auth/verify-otp → email confirmed
+  → enrollOwnerEmailChannel (email channel_enrollments row) → resolveFunnelEntry
+  → /onboarding/pay (when ONBOARDING_DEMO_ENABLED: /onboarding/start → /onboarding/demo → /onboarding/pay)
+  → POST /api/onboarding/select-plan → createCheckoutSession → Stripe Checkout
+  → checkout.session.completed → worker/ingress/stripe.ts → stripe/checkout-completed.ts
+  → subscription_status = 'active' ('trialing' when TRIAL_ENABLED)
+  → /onboarding/payment-success polls /api/auth/signup-status → /onboarding/business wizard → /dashboard
+  → owner connects Zernio: POST /api/zernio/connect/start → GET …/callback → POST …/select-location
+      → finalizeConnectionTx (zernio_connections 'active' + drain_pending_owner_connect + createImportOffer)
+    ├→ [Import offer accepted] POST /api/dashboard/import-offer → enqueueInitialImport
+    │     → outbox row (zernio_initial_backfill) → ZernioBackfillWorker → importReview (stored, NO draft)
+    └→ [live] Zernio webhook review.new (worker/ingress/zernio/zernio.ts) → outbox row (ingest_zernio_review)
+  → OutboxPoller → ZernioReviewIngestWorker → processReview → outbox row (generate_response)
+  → OutboxPoller → ResponseGeneratorWorker → runTriagePhase → generateResponse() → moderateResponse → outbox row (send_notification)
   → OutboxPoller → NotificationWorker → approval email sent
 ```
 
+The email `channel_enrollments` row is written at verify-otp, not inside `createBusinessTx` — an owner who never verifies has
+no notification channel. Post-OTP and post-login destinations are ONE pure decision, `resolveFunnelEntry`
+(`src/lib/onboarding/funnel-entry.ts`); every Stripe Session parameter comes from the `accounts.checkout_attempt_*` snapshot.
+Historical reviews arrive only via the consented Review import (`zernio_initial_backfill`, fail-closed `guardImportConsent`)
+and are stored draft-less; the first *drafted* reply comes from the live `review.new` lane. Downstream code gates on
+`subscriptionGrantsFullAccess`, never `=== 'active'`.
 ### Owner approves via email
 
 ```
-Email link → /approve/[token] (page loads, binds device cookie via /session)
-  → POST /api/approve/[token]/approve
-  → ApprovalService.approve() → response status = 'approved'
-  → job_outbox row (publish-response)
+Email link → /approve/[token] (page loads → GET /api/approve/[token] sets __device/__csrf cookies
+                                → POST /api/approve/[token]/session binds the device)
+  → POST /api/approve/[token]/approve  (rate limit → CSRF → device HMAC → one sql.begin)
+  → approve() (src/lib/approval/token-mode.ts) → lockValidLink + verifyDevice → response status = 'approved',
+      approval_method = 'owner', approval_audit_log 'approve', run-spine owner-decision outcome
+  → job_outbox row (publish_response)
   → OutboxPoller → ResponsePublisherWorker
-      → if Zernio active: resolveZernioReviewId + publishReply → status = 'posted'
-      → if Zernio absent: status = 'awaiting_owner_connect' + owner-email (reconnect_required)
-      → if no Zernio flag: status = 'awaiting_manual_post'
+      → if Zernio active: resolveTarget (ReviewPublisher seam) + publishReply + verifyOwnReplyAttached → status = 'posted'
+      → if Zernio absent: status = 'awaiting_owner_connect' + job_outbox (notify_owner_reconnect → OwnerEmailWorker, reconnect_required)
 ```
 
+No `ApprovalService` class exists — `src/lib/approval/service.ts` is a barrel over `token-mode.ts` (`approve`/`edit`).
+The publisher never reads `ZERNIO_PUBLISHING_ENABLED`; its only inputs are the `zernio_connections` active row and
+provider errors. `awaiting_manual_post` is dead for `responses` since migration 029 (with the flag off there is no
+active connection, so the row parks as `awaiting_owner_connect` and the connect finalize tx re-drives it via
+`drain_pending_owner_connect`). Owner-approved posts get no `auto_post_notice` FYI.
 ### Zernio (re)connect — drain parked responses
 
 ```
 Owner visits /dashboard/connect → /api/zernio/connect/start
-  → ZernioClient.createProfile + startConnect → OAuth redirect to Zernio
+  → zernioClient.createProfile + startConnect → { authUrl } → browser redirects to Zernio
   → Zernio redirects back → /api/zernio/connect/callback
-  → zernio_connections row created (pending)
+  → zernioClient.listLocations → locations stashed in Redis + signed session cookie (no DB row yet)
   → /dashboard/connect/select-location → owner picks location
-  → POST /api/zernio/connect/select-location → zernio_connections status = 'active'
-  → job_outbox row (drain-owner-connect)
+  → POST /api/zernio/connect/select-location → zernioClient.selectLocation → accountId
+  → finalizeConnectionTx (one sql.begin): zernio_connections upsert status = 'active'
+  → job_outbox row (drain_pending_owner_connect)
   → OutboxPoller → DrainOwnerConnectWorker
   → inserts publish_response outbox rows for all awaiting_owner_connect responses
   → OutboxPoller → ResponsePublisherWorker → status = 'posted'
 ```
 
+The callback writes no DB row: `zernio_connections` first exists — already `'active'` — inside
+`finalizeConnectionTx` (`src/app/api/zernio/connect/_shared/finalize/finalize-tx.ts`). The same tx also
+enqueues the `gbp_connected` analytics event and, only when `import_decision = 'accepted'`, the consented
+Review import via `enqueueInitialImport` (`src/lib/reviews/import-consent.ts`) — conditional, so not drawn.
+`listLocations` (callback) and `selectLocation` (select-location) are ADR 0001's two sanctioned synchronous
+Zernio calls on Vercel; every step from `/start` on is gated by `ZERNIO_PUBLISHING_ENABLED`.
 ### Telegram / WhatsApp button tap
 
 ```
-Owner taps "Approve" button in Telegram / WhatsApp
-  → telegram.ts / twilio-whatsapp-inbound.ts ingress
-  → claimInboundEvent (dedup)
-  → approveViaCallback(token, channel, auditContext)
-  → same approval path as email flow
-  → editMessageText / answerCallbackQuery confirms in-chat
+Owner taps "Approve" (or "Regenerate") button in Telegram / WhatsApp
+  → POST /ingress/telegram (telegram.ts) / POST /ingress/twilio/whatsapp-inbound (twilio-whatsapp-inbound.ts)
+  → verifyTelegramSecret / verifyTwilioSignature (401 on miss)
+  → claimInboundEvent (dedup on inbound_events)
+  → telegram.ts → telegram-callback.ts (callback_query) / handleButtonTap (ButtonPayload)
+  → validate: approval_links live for this channel + sender is a verified channel_enrollments row
+  → Telegram only: answerCallbackQuery (pre-tx toast)
+  → approveViaCallback(sql, { approvalLinkId, chatHandle, viaChannel, audit })   [or regenerateViaCallback]
+  → same approval path as email flow (lock → consume link → approved/owner → revoke siblings → publish_response outbox → audit)
+  → editMessageText (Telegram) / sendFreeform Twilio message (WhatsApp) confirms in-chat
+  → markInboundEventProcessed → 200
 ```
 
+The button carries `a:<approval_links.id>` / `r:<id>`, never a raw token; the link is locked by id + channel
+(`lockLinkByIdForCallback`), so a Telegram link cannot be approved from WhatsApp. Callback mode runs no
+`verifyDevice` — authorization is the provider signature plus the sender-handle ↔ verified enrollment check.
+Both service functions live in `src/lib/approval/callback-mode.ts`.
 ### Demo generation (admin-triggered)
 
 ```
-Admin submits demo form → POST /api/admin/demos
-  → INSERT prospect_demos + job_outbox (generate-demo) in one tx
-  → OutboxPoller → DemoGenerationWorker
-  → SerpApiSource (real) + generateResponse (demo mode, no cost guard)
-  → prospect_demos status = 'completed'
+Admin submits demo form → POST /api/admin/demos/generate (AAL2 + fail-closed rate limits)
+  → INSERT prospect_demos (generation_status='queued') + job_outbox (generate_demo) in one tx
+  → OutboxPoller → DemoGenerationWorker (claimDemo: queued → running)
+  → generateDemo: fetchSerpApiReviews (SerpApiSource, real) + generateResponsesForReviews → generateResponse (demo mode, no cost guard)
+  → prospect_demos generation_status = 'completed' (+ outbox completed, same tx)
   → /demo/[slug] public page shows results
 ```
 
+`GET /api/admin/demos` is the list endpoint; the write is `/generate`, whose three `strict:true` rate limits are
+a deliberate exception to the fail-open API-limiter rule (this LLM path has no worker cost reservation).
+Distinct lane, do not merge: the PRE-pay **onboarding demo** — `POST /api/onboarding/start` → topic
+`onboarding_demo_response` → `worker/jobs/OnboardingDemoWorker.ts` → table `onboarding_demos` — carries a 20¢
+cost reservation and a 3-review cap; it shares only `src/lib/demos/lifecycle.ts` with this flow.
 ### Zernio webhook ingestion (live)
 
 ```
 Zernio fires review.new / review.updated → POST /ingress/zernio
-  → verifyZernioSignature (HMAC-SHA256)
+  → zernioPublishingEnabled() gate → verifyZernioSignature (HMAC-SHA256)
   → claimInboundEvent (dedup by event ID)
-  → parseReviewWebhook (extracts nested account.id)
-  → fan-out: one job_outbox row per active zernio_connection on this account
-    (topic='ingest-zernio-review', dedup'd by migration 030 partial index)
+  → parseZernioReviewWebhook (extracts nested account.id + review id + location)
+  → fan-out: one job_outbox row per active zernio_connection on this account/location
+    (topic='ingest_zernio_review', dedup'd by migration 030 partial index)
   → OutboxPoller → ZernioReviewIngestWorker
-  → listReviews → processReview (dedup by provider_review_id)
-  → INSERT reviews + INSERT responses (pending_approval) + outbox (generate-response)
-  → ResponseGeneratorWorker → NotificationWorker → owner email
+  → guardZernioJobEligibility (archived-location / subscription) → connection still active
+  → listReviews → location match → external-reply reconcile → PHI gate (screenPhiOrOpenException)
+  → processReview (dedup by (provider, provider_review_name))
+  → INSERT reviews + run spine (review_ingested) + outbox (generate_response)
+  → ResponseGeneratorWorker (load-context → triage → generateDraft → moderateResponse
+      → INSERT responses (pending_approval) + moderation hold + auto-approval gate)
+  → outbox (send_notification) → NotificationWorker → owner notification (email / Telegram / WhatsApp)
 ```
 
+No `responses` row is written at ingest — `ResponseGeneratorWorker` inserts it (`response-generation/persist.ts`).
+Auto-policy branch (not the happy path): when `AUTO_APPROVAL_ENABLED` + policy/trust-dial/tier gates pass, `persist.ts`
+flips the row to `approved`/`auto_policy` and enqueues `publish_response` delayed to the veto deadline plus
+`pending_post_notice` INSTEAD of `send_notification`; a high-severity moderation flag holds the draft and skips both
+(invariant #4). `ZernioRecentReviewPoller` is a second entry into `processReview` (in-process, 5-min poll, own
+reconcile + PHI gates) — it does NOT enqueue `ingest_zernio_review`; the ingress fan-out is that topic's only producer.
 ### Reviews list — every review for the location, unanswered first (#678)
 
 ```
-Owner navigates to /dashboard/reviews → "All Reviews" tab (no flag; renders always)
-  → server component reads reviews LEFT JOIN responses (+ draft / orphan LATERALs)
+Owner navigates to /dashboard/reviews → "All Reviews" tab → /dashboard/reviews/history (no flag; renders always)
+  → server component reads reviews LEFT JOIN responses (+ draft / pending_gen / orphan LATERALs)
   → grouped "Unanswered" then "Answered", newest-first within each, PAGE_SIZE 50
   → deriveAxes() per row: reply_state (none|posted|orphan) × draft_state
                           (none|generating|ready|held — server-internal, #727)
@@ -1609,8 +1659,9 @@ Owner navigates to /dashboard/reviews → "All Reviews" tab (no flag; renders al
                        the wire carries reply_state + row_action only (ADR 0018)
   → provenanceBadge() per answered row (replaces the dead gap/historical split)
   → renders PastReplyCard rows
-  → Generate  → InlineGeneratePanel → POST reviews/:id/generate (on_demand_generate)
+  → Generate  → InlineGeneratePanel → POST reviews/:id/generate (generate_response row, origin lane on_demand_generate)
                                     → GET  reviews/:id/draft-status (poll)
+                                    → Approve & post → POST reviews/:id/approve (or /edit)
   → Regenerate → EditReplyDrawer → the past-replies edit routes  [EDIT_REPLIES_ENABLED]
   → Copilot and Autopilot receive the same paid history/edit entitlement
 ```
@@ -1618,12 +1669,17 @@ Owner navigates to /dashboard/reviews → "All Reviews" tab (no flag; renders al
 Imported replies arrive via the `EXTERNAL_REPLY_IMPORT_ENABLED` ingest path
 inside `reconcileExternallyAnsweredReview` (see `worker/jobs/zernio/zernio-ingest-shared.ts`).
 
-Edit / regenerate / publish / retry / restore-original flows are parked on
-tag `wip/edit-existing-replies-zernio-v1` pending direct GBP API approval.
-When GBP arrives, the parked branch's structural patterns (route shapes,
-drawer state machine minus the recovery state, optimistic-concurrency
-snapshot) can be cherry-picked; the orphan-marker / DELETE+POST locked-tx /
-verify409InTx machinery gets dropped (GBP's single PUT makes them moot).
+Edit / regenerate / publish / retry / restore-original flows are ON `main` behind
+`EDIT_REPLIES_ENABLED` (off in every env) — revived from tag
+`wip/edit-existing-replies-zernio-v1` by #56 (Phase A, flag off); the tag survives
+only as the pre-split single-flag (`EDIT_EXISTING_REPLIES_ENABLED`) snapshot. The
+flag stays off pending direct GBP API approval. When GBP arrives, the in-tree
+structural patterns (route shapes, drawer state machine minus the recovery state,
+optimistic-concurrency snapshot) carry over; the orphan-marker / DELETE+POST
+locked-tx / `verify409InTx` machinery (`worker/jobs/publisher/{edit-publish,
+publisher-error-handlers}.ts`, `src/lib/publishing/orphan-markers.ts`) gets dropped
+(GBP's single PUT makes them moot). `EDIT_REPLIES_ENABLED` is read by BOTH Next.js
+and the worker — set it in both places.
 
 ---
 
