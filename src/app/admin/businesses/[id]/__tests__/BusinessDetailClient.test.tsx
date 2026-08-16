@@ -10,6 +10,25 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
 }));
 
+// Health presentation has ONE owner (src/components/admin/ui/HealthBadge.tsx).
+// This spy delegates to the real component, so every other test in this file is
+// unaffected — it exists so the two tests at the bottom can assert that the
+// detail page RENDERS THROUGH that owner rather than through a private copy.
+// A private copy is invisible to a rendering assertion (the markup is
+// identical until the day the two diverge), which is exactly how the copy
+// deleted in the 2026-08-15 Pathfinder pass (§A1) survived review.
+const { healthBadgeProps } = vi.hoisted(() => ({ healthBadgeProps: vi.fn() }));
+vi.mock('@/components/admin/ui/HealthBadge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/admin/ui/HealthBadge')>();
+  return {
+    HealthBadge: (props: Parameters<typeof actual.HealthBadge>[0]) => {
+      healthBadgeProps(props);
+      return actual.HealthBadge(props);
+    },
+  };
+});
+
+import type { ChurnScore } from '@/lib/shared/churn-score';
 import { BusinessDetailClient } from '../BusinessDetailClient';
 import type { ChannelEnrollmentRow, DetailData } from '../types';
 
@@ -257,5 +276,52 @@ describe('BusinessDetailClient', () => {
         'This owner has already signed in, so the invite was accepted.',
       ),
     ).toBeInTheDocument();
+  });
+
+  // ── Health presentation has ONE owner ───────────────────────────────
+  //
+  // Both surfaces on this page (the meta row and the Engagement section) must
+  // render through src/components/admin/ui/HealthBadge.tsx, the component
+  // /admin/businesses' Health column and /admin/overview's at-risk list already
+  // use. Spec §5.1 names "would disagree with the Health column on
+  // /admin/businesses" as a real failure mode.
+
+  it('renders both health badges through the shared HealthBadge owner', () => {
+    healthBadgeProps.mockClear();
+
+    renderClient(detail());
+
+    // A private copy would render identical markup and satisfy every
+    // label/class assertion — only the module boundary catches it.
+    expect(healthBadgeProps.mock.calls.map(([props]) => props)).toEqual([
+      { level: 'healthy', score: 12 },
+      { level: 'healthy', score: 12 },
+    ]);
+  });
+
+  it('does not paint an unrecognised churn level in the healthy green', () => {
+    // The deleted private copy was keyed `Record<string, string>` and fell back
+    // with `?? HEALTH_BADGE_STYLES.healthy`, so a level the UI did not know
+    // rendered in confident green — the worst possible default for a churn
+    // signal, and worse still because the label fell back to the raw level, so
+    // the pill LOOKED deliberate. The shared owner is keyed on
+    // ChurnScore['level'], which makes a new level a COMPILE error upstream;
+    // the cast below is this test standing in for data the type system forbids.
+    const data = detail();
+    data.business.churnScore = {
+      score: 91,
+      level: 'imploding' as unknown as ChurnScore['level'],
+      breakdown: [],
+    };
+
+    renderClient(data);
+
+    // Two badges (meta row + Engagement), each `<span class="…"><span>91</span></span>`.
+    const pills = screen.getAllByText('91').map((el) => el.parentElement!);
+    expect(pills).toHaveLength(2);
+    for (const pill of pills) {
+      expect(pill.className).not.toContain('bg-green-100');
+      expect(pill.textContent).not.toContain('Healthy');
+    }
   });
 });

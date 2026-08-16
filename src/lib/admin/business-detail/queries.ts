@@ -1,11 +1,12 @@
 // src/lib/admin/business-detail/queries.ts
 //
 // SQL fetchers for the admin business-detail page.
-// Extracted verbatim from business-detail-service.ts; only export/import
-// wiring changed. No edits to SQL, column names, or result shapes.
+// Originally extracted verbatim from business-detail-service.ts. Every
+// statement below is still this module's own — except the churn-signal metrics
+// query, which belongs to ../business-summary.ts and is CALLED here.
 
 import type { Sql } from 'postgres';
-import { HANDLED_STATUSES } from '@/lib/shared/response-status';
+import { churnMetricsQuery, type BusinessChurnMetricsRow } from '../business-summary';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
 import {
   POLICY_ACTION_POSTING,
@@ -22,16 +23,6 @@ import type {
 } from '../business-detail-types';
 
 // ── Batch-2 row types (promoted from inline) ──────────────────────────────
-
-export interface BusinessMetricsRow {
-  approval_rate: number | null;
-  notified_count: number;
-  pending_count: number;
-  days_since_approval: number | null;
-  account_age_days: number;
-  avg_hours_current: number | null;
-  avg_hours_prev: number | null;
-}
 
 export interface AccountLocationRow {
   id: string;
@@ -198,7 +189,7 @@ export async function fetchBusinessDetailBatch1(
 // ── Batch 2 ───────────────────────────────────────────────────────────────
 
 export interface BusinessDetailBatch2 {
-  metricsRows: BusinessMetricsRow[];
+  metricsRows: BusinessChurnMetricsRow[];
   accountLocationRows: AccountLocationRow[];
   approvalAuditRows: ApprovalAuditRow[];
   accountAuditRows: AccountAuditRow[];
@@ -215,48 +206,13 @@ export async function fetchBusinessDetailBatch2(
   // of these queries here (#505). 6-query fan-out on the SHARED `sql` client,
   // pool = `DB_POOL_MAX` = 3 on Vercel. Same permanent Connection wedge as the
   // batch-1 site above; see that guard for the full mechanism.
-  const metricsRows = await sql<BusinessMetricsRow[]>`
-      WITH notif AS (
-        SELECT
-          COUNT(DISTINCT nd.response_id)::int AS notified_count,
-          COUNT(DISTINCT nd.response_id) FILTER (
-            WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
-          )::int AS approved_count
-        FROM notification_deliveries nd
-        JOIN responses r ON r.id = nd.response_id
-        WHERE nd.business_id = ${businessId}
-          AND nd.template = 'approval_request'
-          AND nd.sent_at IS NOT NULL
-          AND nd.sent_at >= CURRENT_DATE - 30
-      ),
-      resp AS (
-        SELECT
-          COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count,
-          EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at)
-            FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]))
-          )::int AS days_since_approval,
-          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
-            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current,
-          AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0)
-            FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev
-        FROM responses rp
-        WHERE rp.business_id = ${businessId}
-      )
-      SELECT
-        CASE WHEN COALESCE(n.notified_count, 0) >= 3
-             THEN n.approved_count::float / NULLIF(n.notified_count, 0)
-             ELSE NULL END AS approval_rate,
-        COALESCE(n.notified_count, 0)::int AS notified_count,
-        COALESCE(r.pending_count, 0)::int AS pending_count,
-        r.days_since_approval,
-        EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days,
-        r.avg_hours_current,
-        r.avg_hours_prev
-      FROM businesses b
-      CROSS JOIN notif n
-      CROSS JOIN resp r
-      WHERE b.id = ${businessId}
-    `;
+  // The churn-signal CTE is NOT spelled here — `churnMetricsQuery` in
+  // ../business-summary.ts is its single owner, and this page passes the one id
+  // it is rendering. Until the 2026-08-15 Pathfinder pass (§A2) this file held a
+  // second spelling in the single-id shape (CROSS JOIN over ungrouped
+  // aggregates): same predicates, same windows, same ≥3-notification rule, and
+  // therefore the same score right up until the day one of them was edited.
+  const metricsRows = await churnMetricsQuery(sql, [businessId]);
   // Account locations — all locations under the same account (VAL-ADMIN-001)
   // Uses idx_businesses_account partial index on (account_id) WHERE archived_at IS NULL.
   // Also includes archived locations for admin visibility.

@@ -8,13 +8,28 @@ import type {
 } from '@/lib/admin/business-detail-types';
 import type { ChurnScore } from '@/lib/shared/churn-score';
 
-export type BusinessDetail = Omit<
-  BusinessDetailResponse['business'],
-  'tone' | 'ownerName' | 'ownerEmail' | 'churnScore'
-> & {
-  tone: string;
-  ownerName: string;
-  ownerEmail: string;
+/**
+ * The page-level shape of the business object.
+ *
+ * DERIVED from the API contract, never re-declared: every field but
+ * `churnScore` is exactly `BusinessDetailResponse['business']`'s, so a change
+ * on the server side is a compile error here rather than a silent divergence.
+ * `churnScore` is WIDENED to optional — the client guards on it and react-query
+ * may hold a payload from an older render — which is a safe direction: the
+ * server's non-optional value is assignable to it, so
+ * `BusinessDetailResponse` flows into `DetailData` with NO cast at the server
+ * page seam.
+ *
+ * It previously also NARROWED `tone`/`ownerName`/`ownerEmail` from
+ * `string | null` to `string`. Those columns are genuinely nullable, so that
+ * was a lie, and the `as unknown as DetailData` cast in page.tsx existed to
+ * hide it. That cast was the only seam where a drift in the server's DTO —
+ * `churnScore.level` included — would have been caught, which is the context in
+ * which BusinessDetailClient kept its own `Record<string, string>`-keyed
+ * HealthBadge copy for as long as it did (Pathfinder §A1). Do not reintroduce
+ * either the narrowing or the cast.
+ */
+export type BusinessDetail = Omit<BusinessDetailResponse['business'], 'churnScore'> & {
   churnScore?: ChurnScore;
 };
 
