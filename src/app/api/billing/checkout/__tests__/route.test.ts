@@ -12,6 +12,7 @@ const {
   mockSql,
   mockApplyTierSnapshot,
   mockCreateCheckoutSession,
+  mockPrimaryOnboardedBySql,
   mockReleaseCouponFaultedAttempt,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
@@ -19,6 +20,13 @@ const {
   mockSql: vi.fn(),
   mockApplyTierSnapshot: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
+  // Lazy in production: composing the fragment issues no statement. A bare
+  // `vi.fn()` `sql` cannot model that and would swallow this suite's
+  // `mockResolvedValueOnce` rows, so the fragment is stubbed to a sentinel.
+  // Its SQL text and `is_primary`/`archived_at` scoping are pinned at the
+  // fragment's owner (plan-activation.test.ts); what this suite proves is that
+  // the route asks for it with the owner-verified account id.
+  mockPrimaryOnboardedBySql: vi.fn(() => 'PRIMARY_ONBOARDED_BY_SQL'),
   mockReleaseCouponFaultedAttempt: vi.fn(),
 }));
 
@@ -39,6 +47,7 @@ vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => ({
 vi.mock('@/lib/payments/plan-activation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/payments/plan-activation')>()),
   applyTierSnapshot: mockApplyTierSnapshot,
+  primaryOnboardedBySql: mockPrimaryOnboardedBySql,
   releaseCouponFaultedAttempt: mockReleaseCouponFaultedAttempt,
 }));
 vi.mock('@/lib/payments/create-checkout-session', () => {
@@ -94,7 +103,7 @@ function account(
     id: ACCOUNT_ID,
     subscription_status: status,
     owner_email: 'owner@example.com',
-    onboarded_by: onboardedBy,
+    primary_onboarded_by: onboardedBy,
   };
 }
 

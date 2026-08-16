@@ -7,8 +7,10 @@
 //      a pending_payment account into the chosen tier (VAL-BILLING-065
 //      quota/price snapshot), mirroring the tier-change snapshot in
 //      src/lib/accounts/tier-change.ts.
-//   2. resolveCheckoutContext — the self-serve trial-eligibility policy for
-//      the Checkout Session the route creates immediately after.
+//   2. isTrialEligible + primaryOnboardedBySql — the trial-eligibility policy
+//      and the primary-scoped `onboarded_by` read, each with exactly one owner
+//      and both consumed by BOTH checkout entry points (select-plan and
+//      billing/checkout); resolveCheckoutContext is the funnel's caller of them.
 // The route keeps its guard stack (feature flag, CSRF, auth, rate limits,
 // body parse, tier validation), maps each result to HTTP, and calls
 // createCheckoutSession itself.
@@ -50,9 +52,112 @@ import {
   type CheckoutAttemptLeaseColumns,
   type CheckoutCouponDecisionReason,
 } from './checkout-attempt';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { betaCompCouponId, stripeTaxEnabled, trialEnabled } from './flags';
 
 const LOG_PREFIX = '[checkout-attempt]';
+
+type SqlExecutor = Sql | TransactionSql;
+
+// ── onboarded_by, read once; trial eligibility, decided once ─────────────
+
+/**
+ * The Account's PRIMARY Business's `onboarded_by`, as a scalar subquery.
+ *
+ * SINGLE OWNER of this spelling. It was written three times before #H2 — twice
+ * primary-scoped (here and in `billing/checkout/route.ts`) and once NOT scoped
+ * by `is_primary` at all (`resolveCheckoutContext`), which read the field off
+ * whichever Business the caller happened to pass. `onboarded_by` is the ONLY
+ * eligibility marker for both the Beta comp coupon and the self-serve trial
+ * (CONTEXT.md "Beta comp coupon"), and it lives per-Business while both
+ * decisions are per-Account — so "which Business" is the whole question, and it
+ * has exactly one right answer: the primary, un-archived one.
+ *
+ * A SCALAR SUBQUERY on purpose, never a JOIN predicate. At the
+ * `applyTierSnapshot` call site the `businesses` LEFT JOIN feeds
+ * `COUNT(b.id) AS active_locations`; an `AND b.is_primary = TRUE` there would
+ * silently collapse the location count to 1 and mis-price every multi-location
+ * attempt (admin-invite-funnel review-log round 3 finding 3).
+ *
+ * Takes the account id as a VALUE rather than correlating to an outer alias, so
+ * the fragment carries its own tenant predicate and every composed statement
+ * stays scoped on its face. Callers that hold only a business id resolve the
+ * account first — see `resolveCheckoutContext`.
+ *
+ * THE CALLER SUPPLIES THE PARENTHESES:
+ *
+ *     (${primaryOnboardedBySql(sql, accountId)}) AS primary_onboarded_by
+ *
+ * Wrapping them in here instead would make the whole fragment a parenthesized
+ * subquery, and `ci:tenant-scope` strips those before reading predicates — the
+ * tenant predicate would go invisible to the audit and need a suppression entry
+ * saying "it really is scoped, the scanner just cannot see it". Keeping the
+ * SELECT top-level keeps the scope provable. A call site that omits the
+ * parentheses is a Postgres syntax error, so the failure mode is loud.
+ *
+ * Do NOT widen this into a "business lookup" helper: it answers one question.
+ */
+export function primaryOnboardedBySql(sql: SqlExecutor, accountId: string) {
+  return sql`
+    SELECT pb.onboarded_by
+      FROM businesses pb
+     WHERE pb.account_id = ${accountId}::uuid
+       AND pb.is_primary = TRUE
+       AND pb.archived_at IS NULL
+     LIMIT 1
+  `;
+}
+
+/** The Account facts the trial decision is made from. Nothing else feeds it. */
+export interface TrialEligibilityFacts {
+  /** `accounts.subscription_status` as stored. */
+  subscriptionStatus: string;
+  /** `onboarded_by` of the PRIMARY Business — read via {@link primaryOnboardedBySql}. */
+  primaryOnboardedBy: string | null;
+}
+
+/**
+ * SINGLE OWNER of "is this Account eligible for the card-up-front trial".
+ *
+ * The two checkout entry points — `POST /api/onboarding/select-plan` (the
+ * funnel) and `POST /api/billing/checkout` (owner-authenticated, and the
+ * reactivation target: `account-offboarding/reactivate.ts`) — spelled this
+ * independently and DISAGREED: the funnel's copy carried only the first and
+ * last term. Both now call this. The stricter reading won, term by term:
+ *
+ *  - `trialEnabled()` — the trial kill switch. Off everywhere today.
+ *  - `selfServeSignupEnabled()` — trials are the self-serve funnel's offer, so
+ *    while anonymous signup is CLOSED we do not hand out self-serve trials.
+ *    #821 re-scoped this flag to "strangers may mint accounts", and this
+ *    remains its one sanctioned clause outside the minting surface
+ *    (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`,
+ *    `src/lib/auth/flags.ts`). It is NOT a per-account gate and cannot stand in
+ *    for one — that job is the last term's, which is why both are here. It also
+ *    costs an admin-invited owner nothing: they are already denied by
+ *    `primaryOnboardedBy !== null`, whichever way this flag sits.
+ *  - `pending_payment` — a trial is the FIRST subscription, never a second one.
+ *    Load-bearing, not defence-in-depth: reactivation of a `cancelled` account
+ *    posts to `/api/billing/checkout`, and without this term a self-serve
+ *    account could take a free trial once per cancellation.
+ *  - `primaryOnboardedBy === null` — the per-account self-serve marker. An
+ *    admin/partner-onboarded Account must never obtain a $0 trial by direct
+ *    POST; it falls back to a normal paid checkout.
+ *
+ * Reads its two flags itself rather than taking them as arguments: they are
+ * server-authoritative (invariant #13) and this function is the policy, not a
+ * pure mapping over caller-supplied config.
+ */
+export function isTrialEligible({
+  subscriptionStatus,
+  primaryOnboardedBy,
+}: TrialEligibilityFacts): boolean {
+  return (
+    trialEnabled() &&
+    selfServeSignupEnabled() &&
+    subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT &&
+    primaryOnboardedBy === null
+  );
+}
 
 // ── applyTierSnapshot ────────────────────────────────────────────────────
 
@@ -389,19 +494,9 @@ export async function applyTierSnapshot(
         a.checkout_attempt_overage_quantity,
         a.checkout_attempt_trial_period_days,
         -- Beta comp eligibility, scoped to the Account's PRIMARY Business.
-        -- Deliberately a SCALAR SUBQUERY and not an extra predicate on the
-        -- LEFT JOIN below: that join feeds COUNT(b.id) AS active_locations, so
-        -- an AND b.is_primary = TRUE there would silently collapse the location
-        -- count to 1 and mis-price every multi-location attempt. An unscoped
-        -- read of onboarded_by would be just as wrong the other way -- the
-        -- coupon decision would depend on an arbitrary location
-        -- (admin-invite-funnel review-log round 3 finding 3).
-        (SELECT pb.onboarded_by
-           FROM businesses pb
-          WHERE pb.account_id = a.id
-            AND pb.is_primary = TRUE
-            AND pb.archived_at IS NULL
-          LIMIT 1) AS primary_onboarded_by,
+        -- Both the scoping and the reason it may not be a predicate on the
+        -- LEFT JOIN below live with the fragment (primaryOnboardedBySql).
+        (${primaryOnboardedBySql(tx, accountId)}) AS primary_onboarded_by,
         ao.id AS offboarding_id,
         ao.account_id AS offboarding_account_id,
         ao.mode AS offboarding_mode,
@@ -748,10 +843,24 @@ export interface CheckoutContext {
  * Session that follows a successful applyTierSnapshot. Returns `null` when
  * the business row is missing (route maps that to 404 account_incomplete).
  *
- * Trial eligibility (PLAN.md §0.2): TRIAL_ENABLED on AND the business is
- * self-serve (`onboarded_by IS NULL`) — an admin/partner-onboarded business
- * must never receive a $0 trial via direct POST; it falls back to a normal
- * paid checkout.
+ * Trial eligibility is NOT decided here — {@link isTrialEligible} owns it, and
+ * this function's job is to hand it the two Account facts it needs. Until #H2
+ * it spelled a second, laxer predicate of its own and read `onboarded_by`
+ * straight off the Business it was handed, un-scoped by `is_primary`: correct
+ * only because `select-plan` happens to pass the primary and a `pending_payment`
+ * Account cannot yet hold a second location (`canAddLocationForAccount` →
+ * `subscriptionGrantsFullAccess`). That is a precondition enforced two modules
+ * away; a second call site, or pre-payment locations, breaks it silently and in
+ * the direction that GRANTS a trial.
+ *
+ * TWO statements, deliberately. The account id is not known until the first
+ * returns, and {@link primaryOnboardedBySql} takes it as a bound value so every
+ * composed statement carries its own tenant predicate rather than correlating
+ * to an outer alias. The alternative — one query correlating the subquery to
+ * `businesses.account_id` — would be a fourth spelling of the thing this change
+ * exists to give one owner. Both are indexed single-row lookups on a one-click
+ * path, and they run sequentially (never a fan-out: one admission slot at a
+ * time, per the #773 chokepoint).
  *
  * @param sql  Postgres.js client (composition root supplies the singleton —
  *   this module never imports @/lib/db/server).
@@ -760,17 +869,32 @@ export async function resolveCheckoutContext(
   sql: Sql,
   businessId: string,
 ): Promise<CheckoutContext | null> {
-  // Resolve the account_id for this owner, plus onboarded_by (the self-serve
-  // discriminator: NULL = self-serve, non-null = admin/partner handoff).
-  const [accountRow] = await sql<{ account_id: string; onboarded_by: string | null }[]>`
-    SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid
+  const [businessRow] = await sql<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${businessId}::uuid
+  `;
+  if (!businessRow) {
+    return null;
+  }
+  const accountId = businessRow.account_id;
+
+  const [accountRow] = await sql<{
+    subscription_status: string;
+    primary_onboarded_by: string | null;
+  }[]>`
+    SELECT a.subscription_status,
+           (${primaryOnboardedBySql(sql, accountId)}) AS primary_onboarded_by
+      FROM accounts a
+     WHERE a.id = ${accountId}::uuid
   `;
   if (!accountRow) {
     return null;
   }
 
   return {
-    accountId: accountRow.account_id,
-    trialEligible: trialEnabled() && accountRow.onboarded_by === null,
+    accountId,
+    trialEligible: isTrialEligible({
+      subscriptionStatus: accountRow.subscription_status,
+      primaryOnboardedBy: accountRow.primary_onboarded_by,
+    }),
   };
 }
