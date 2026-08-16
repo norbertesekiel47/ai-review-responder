@@ -1,11 +1,12 @@
 # Design system docs & tokens — three-tier arrangement
 
 _Status: **ACCEPTED 2026-08-16** (all §6 recommendations taken: D1 delete + tag,
-D2 option A, D3 option A, D4 deferred, D5 subdirs; PR 3 deferred) · Owner: Norbert + Claude_
+D2 option A, D3 option A, D4 deferred then **taken in PR 3a**, D5 subdirs) · Owner: Norbert + Claude_
 _Supersedes the ad-hoc layout of `docs/design/`, root `DESIGN.md`, and the
 `repworth-brand-design` skill. Nothing here changes what the product looks
 like; it changes where each look is **owned**. Landed as PR 1 (docs) + PR 2
-(code + guards) — see §5._
+(code + guards) + PR 3a (D4 scope hardening) + PR 3b (`globals.css`
+extraction) — see §5._
 
 ## 0. Summary
 
@@ -242,9 +243,11 @@ Required (PR 2):
    > assumed. The one Console consumer WITHOUT that follow-up line is the inline
    > `HEADING` const in `dashboard/connect/page.tsx`; its `<h1>`s therefore change
    > from the unresolvable `'Plus Jakarta Sans'` literal (which fell back to
-   > `ui-sans-serif`) to the real self-hosted Plus Jakarta. Left as-is
-   > deliberately: making it Young Serif like every other Console page title is a
-   > real fix but a visual change, and belongs in its own PR.
+   > `ui-sans-serif`) to the real self-hosted Plus Jakarta. **Done in PR 3a**
+   > (#845): moving the tokens to `.rw-console` makes the composite resolve to
+   > Young Serif by substitution, and the const now restates
+   > `fontFamily: var(--rw-font-display)` the way `.page-title` does — the
+   > approved visual change that own PR was for.
 3. **Delete the nine dead `--rw-mkt-*` tokens** from `tokens.css` (0 consumers).
    If a marketing type-role scale is wanted later it belongs to Island.
 4. **Delete `tailwind.config.mjs` and the `@config` line** — verify `pnpm build`
@@ -258,6 +261,48 @@ layout, but `:root` declarations leak if the chunk survives a client navigation
 component rendered through a portal **outside** the `.rw-console` div (Radix
 dialogs/toasts mounted on `body`) would lose its tokens. Needs a portal audit
 first; not required for independence.
+
+> **As built (PR 3a, #845).** The portal audit came back empty, so the move
+> shipped: `tokens.css` is one `.rw-console { … }` block and opens no `:root`.
+> What was checked — 0 `createPortal` under `src/app/(authenticated)/**` or
+> `src/components/dashboard/**`; no Radix / sonner / react-hot-toast /
+> react-toastify / headlessui dependency; the only overlays are native
+> `<dialog>` + `showModal()` (`SettingsModal`, `EditReplyDrawer`,
+> `PastDueModal`), promoted to the top layer but left in their DOM position and
+> therefore still inheriting the scope; both return paths of
+> `(authenticated)/layout.tsx` render everything inside the `.rw-console` div,
+> the route group has no `template.tsx` / `not-found.tsx`, its `error.tsx`
+> boundaries render as children of that layout, and the root `global-error.tsx`
+> (which does replace the layout) consumes zero `--rw-*`; no
+> `var(--rw-<console token>)` and no Console Tailwind utility is referenced
+> outside the Console scope, across all 126 declared tokens; and `tokens.css`
+> is imported only by `(authenticated)/layout.tsx` and `console.css`.
+>
+> **It also fixed the PR 2 gotcha above rather than working around it.** The
+> composites are now declared on the same element that carries the `localFont`
+> `--rw-font-display` / `--rw-font-body` variables, so `var()` substitution at
+> declaration time yields Young Serif: `font: var(--rw-app-hN)` alone is enough
+> inside the Console. The explicit `font-family: var(--rw-font-display)`
+> follow-up lines in `console.css` are now redundant — harmless, and left in
+> place.
+>
+> The dead `.rw-app` element-style block at the end of `tokens.css` went with
+> it — the class was applied nowhere in `src/`; the `--rw-app-*` composite
+> TOKENS are unrelated and stay.
+>
+> **One follow-up this uncovered, deliberately NOT taken here.** `::selection`
+> in `console.css` is the one rule in that file whose selector matches elements
+> OUTSIDE the Console, so in the stale-chunk scenario the file's own header
+> comment names it applies to public pages. That used to leak a Console
+> selection color; with the tokens scoped it is instead an unresolvable `var()`,
+> i.e. a transparent (invisible) selection highlight. Scoping it to
+> `.rw-console` is the fix and was written, then reverted: any edit to
+> `console.css` pulls two pre-existing clone groups
+> (`console.css:482-495` ↔ `settings.css:183-195`, and a self-clone at
+> `console.css:988-996` ↔ `1132-1136`) into `fallow --gate new-only`'s
+> changed-file scope, and silencing a whole 2,269-line stylesheet in
+> `duplicates.ignore` to land a cosmetic hardening is the worse trade. Do it
+> together with those clones, or with the next real `console.css` change.
 
 Optional, larger (PR 3): extract the ~2,400 lines of landing-island /
 features / how-it-works / pricing page CSS out of `globals.css` into colocated
@@ -439,8 +484,11 @@ selectors). Nothing else in the repo needs to know a redesign happened.
 |---|---|---|
 | **1 — docs** (#843) | §2.2 tree, three `DESIGN.md`, `landing/measurements.md`, router README, thin root `DESIGN.md`, router skill, mockup delete + tag, full cross-ref sweep (§3) | Docs-only → `changes` short-circuits the heavy CI jobs. Content is a **restructure**, not a rewrite: every rule in the current docs survives, just under the template's headings. Landed 2026-08-16. |
 | **2 — code, small** (#844) | §2.4 items 1–4 + the four guards in §2.7 | Zero visual change; the guards are the proof. Runs full CI. Guards shipped as `design-scope-purity.test.ts` (Landing scope + Island `@theme` purity), an extension of `design-token-single-source.test.ts` (Console purity, colors **and** font families, + `theme.css` references), and `design-doc-token-pin.test.ts` (D2 option A). |
-| **3 — optional** | D4 `.rw-console` scoping after a portal audit | Separate decisions, separate PRs. |
+| **3a — Console scope hardening** (#845) | D4 `.rw-console` scoping after the portal audit; the dead `.rw-app` element-style block; the connect `<h1>` on the display face | Audit came back empty — §2.4 "As built (PR 3a)" lists what was checked. One deliberate visual change (eight connect-flow headings become Young Serif). New guard: `tokens.css` may open no `:root` block. |
 | **3b — globals.css extraction** (#846) | page CSS → `(public)/_styles/`; two new guards; four marketing tests retargeted | zero-change proof: rule sequence identical on all 24 prerendered routes (in fact all 10 CSS chunks byte-identical) + 9 routes × 2 viewports pixel-identical |
+
+The "3 — optional" placeholder is gone: both of its items shipped as 3a and 3b, so
+nothing from this spec is outstanding.
 
 ---
 
@@ -451,11 +499,14 @@ selectors). Nothing else in the repo needs to know a redesign happened.
 | D1 | Console HTML mockups: **delete** (git tag) vs archive under `docs/progress-archive/` | Delete. They encode the superseded IA; the visual system is fully captured in `console/DESIGN.md` + `tokens.css`; the live app is the specimen. |
 | D2 | Doc↔code drift: **A** hand-maintained tables + pin test vs **B** generated tables between markers via a script + freshness check | A now (small, matches the existing test style). Promote to B only if the tables churn enough to annoy. |
 | D3 | Root `DESIGN.md`: **thin index (A)** vs delete (C) | A — keeps impeccable useful without a fourth source of truth. |
-| D4 | Console `:root` → `.rw-console` scoping | Defer to PR 3 behind a portal audit; not needed for independence. |
+| D4 | Console `:root` → `.rw-console` scoping | Deferred behind a portal audit; **taken in PR 3a (#845)** once the audit found no portal, no portal-capable dependency, and no consumer outside the scope. See §2.4. |
 | D5 | Docs layout: `<system>/DESIGN.md` subdirs vs flat files | Subdirs (room for `measurements.md` and future per-system specimens). |
 
 ## 7. Non-goals
 
 - No visual change to any surface. No token renames beyond deleting dead/duplicate declarations.
+  (One exception, taken knowingly in PR 3a and recorded in §2.4: the eight
+  `/dashboard/connect` headings move onto the Console display face, which is what every
+  other Console page title already used.)
 - No change to which surfaces belong to which system (admin stays Island-palette; `/` stays unlocked).
 - No new top-level directories; no generator script unless D2 flips to B.

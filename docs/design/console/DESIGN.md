@@ -1,6 +1,6 @@
 # RepWorth Console — Style Reference
 
-> **Scope:** `.rw-console` · **Tokens:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css) ·
+> **Scope:** `.rw-console` · **Tokens:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css) — declared on `.rw-console`, never `:root` ·
 > **Utilities:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css) ·
 > **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) (Console purity + contrast floors) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
 > Which system am I in? → [`docs/design/README.md`](../README.md)
@@ -146,9 +146,22 @@ Console and to Plus Jakarta everywhere else. Young Serif is self-hosted for the 
 reason as the root-layout faces — any `next/font/google` import re-introduces a
 compile-time fetch.
 
+**And it reaches the composite roles, because of where they are declared.** A `var()`
+inside a custom property is substituted where that property is **declared**, not where
+it is used. The `--rw-app-h1…--rw-app-micro` shorthands below are declared on
+`.rw-console` — the same element that carries the `localFont` variables — so
+`var(--rw-font-display)` inside them resolves to Young Serif at declaration time.
+`font: var(--rw-app-h1)` **alone** therefore renders Young Serif anywhere in the
+Console. While the tokens sat on `:root` it substituted the root display family
+instead, which is why the `font: var(--rw-app-hN)` sites in `console.css` are each
+followed by an explicit `font-family: var(--rw-font-display)`. Those lines are now
+redundant; they are harmless and were left in place. Do not read them as a requirement
+for new code.
+
 ### Role tokens
 
-Composite `font:` shorthands declared in `tokens.css` and consumed via `.rw-app`:
+Composite `font:` shorthands declared in `tokens.css` and consumed from `console.css`
+(`.page-title`, section and card headings, `.stat` numerals, form labels):
 
 | Role | Value | Token |
 |---|---|---|
@@ -159,6 +172,10 @@ Composite `font:` shorthands declared in `tokens.css` and consumed via `.rw-app`
 | Form label | `500 0.875rem/1.3 var(--rw-font-body)` | `--rw-app-label` |
 | Body | `400 0.875rem/1.5 var(--rw-font-body)` | `--rw-app-body` |
 | Badge / micro | `500 0.75rem/1.3 var(--rw-font-body)` | `--rw-app-micro` |
+
+Every Console page title is on the display face, `/dashboard/connect` included — its
+eight flow headings used the composite without the display family and rendered in the
+brand sans until PR 3a.
 
 ### The shipped hierarchy
 
@@ -460,7 +477,11 @@ stack an unrelated border, shadow, and glow to manufacture depth.
 ## Exports
 
 - **CSS variables:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css)
-  — the `:root` block IS the export; do not copy it here.
+  — the `.rw-console` block IS the export; do not copy it here. The file opens no
+  `:root` block, so nothing it declares can reach a surface outside the Console even
+  if the chunk survives a client navigation
+  ([`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts)
+  fails if one comes back).
 - **Tailwind v4:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css)
   — the `@theme inline` block IS the export. It is `@import`ed from
   [`src/app/globals.css`](../../../src/app/globals.css) (Tailwind v4 bundles local
