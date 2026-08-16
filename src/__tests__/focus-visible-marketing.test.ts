@@ -10,7 +10,12 @@ import { describe, expect, it } from 'vitest';
 // unlocks `/` from the Island system), where `--rw-teal-strong` (#557069) would
 // be nearly invisible against the ink — it rings in `--rw-lp-accent` instead.
 // Do NOT "fix" the landing rows back to the teal token; that regresses them.
-const CSS = readFileSync(resolve(process.cwd(), 'src/app/globals.css'), 'utf-8');
+// The two Island rows below are pricing-page rules; PR 3b moved the marketing
+// page CSS out of globals.css (now the Island TOKEN file) into (public)/_styles.
+const PRICING_CSS = readFileSync(
+  resolve(process.cwd(), 'src/app/(public)/_styles/pricing.css'),
+  'utf-8',
+);
 const LANDING_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/landing-experience.css'),
   'utf-8',
@@ -63,8 +68,8 @@ const FOCUS_RULES = [
   { css: HERO_CSS, selector: '.rw-lp-hero-cta:focus-visible', token: '--rw-lp-hero-accent', offset: '6px' },
   { css: FUTURE_CSS, selector: '.rw-lp-future-flip:focus-visible', token: '--rw-lp-accent', offset: '5px' },
   { css: CTA_CSS, selector: '.rw-lp-cta-action:focus-visible', token: '--rw-lp-cta-accent', offset: '6px' },
-  { css: CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-teal-strong', offset: '3px' },
-  { css: CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-teal-strong', offset: '2px' },
+  { css: PRICING_CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-teal-strong', offset: '3px' },
+  { css: PRICING_CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-teal-strong', offset: '2px' },
 ] as const;
 
 function ruleBody(css: string, selector: string): string {

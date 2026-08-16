@@ -11,7 +11,8 @@ describe('44×44 tap targets (P2 #27)', () => {
     expect(css).toMatch(/\.mtab\s*\{[\s\S]*?min-height:\s*44px[\s\S]*?\}/);
   });
   it('marketing .rw-dot-nav button has a 44px transparent hit area (::after)', () => {
-    const css = read('src/app/globals.css');
+    // Island chrome moved out of globals.css into (public)/_styles by PR 3b.
+    const css = read('src/app/(public)/_styles/island.css');
     expect(css).toMatch(/\.rw-dot-nav button::after\s*\{[\s\S]*?(min-width|width):\s*44px[\s\S]*?\}/);
   });
   it('PageShell dot-nav button expands its hit area to 44px', () => {

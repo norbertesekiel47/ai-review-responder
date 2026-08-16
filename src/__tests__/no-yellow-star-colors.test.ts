@@ -35,9 +35,11 @@ describe('review stars use the brand glyph color, never garish yellow (P2 #28)',
     const checks: [string, RegExp][] = [
       ['src/app/(authenticated)/_styles/console.css', /\.stars\s*\{[^}]*var\(--rw-star\)/],
       ['src/app/(authenticated)/_styles/past-replies.css', /\.pr-chip-stars\s*\{[^}]*var\(--rw-star\)/],
-      ['src/app/globals.css', /\.rw-demo-stars\s*\{[^}]*#97B3AE/i],
-      ['src/app/globals.css', /\.hiw-feed-stars\s*\{[^}]*#97B3AE/i],
-      ['src/app/globals.css', /\.rw-bg-stars\s*\{[^}]*#97B3AE/i],
+      // Marketing page CSS moved out of globals.css into (public)/_styles by
+      // PR 3b; globals.css is the Island TOKEN file now.
+      ['src/app/(public)/_styles/island.css', /\.rw-demo-stars\s*\{[^}]*#97B3AE/i],
+      ['src/app/(public)/_styles/how-it-works.css', /\.hiw-feed-stars\s*\{[^}]*#97B3AE/i],
+      ['src/app/(public)/_styles/island.css', /\.rw-bg-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-pcard-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-review-stars\s*\{[^}]*#97B3AE/i],
     ];

@@ -2,6 +2,7 @@
 
 > **Scope:** `:root` (loads on every route) · **Tokens:** [`src/app/globals.css`](../../../src/app/globals.css) `:root` ·
 > **Utilities:** `src/app/globals.css` `@theme inline` (Island entries) ·
+> **Page CSS:** [`src/app/(public)/_styles/*.css`](../../../src/app/(public)/_styles) (`@import`ed from `globals.css`, order = cascade) ·
 > **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) · [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) (the `@theme` block may name no Console token) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
 > Which system am I in? → [`docs/design/README.md`](../README.md)
 
@@ -468,7 +469,8 @@ copy plus white-pill actions; a band that must carry **white** copy darkens to
 
 ### The marquee field
 
-`src/components/ui/MarqueeBackground.tsx` (`.rw-marquee-field` in `globals.css`) is the
+`src/components/ui/MarqueeBackground.tsx` (`.rw-marquee-field` in
+`src/app/(public)/_styles/island.css`) is the
 reusable atmosphere layer: four rows of translucent review cards drifting at different
 speeds under a radial sage vignette, with an `animation: none` branch under
 `prefers-reduced-motion`.
@@ -541,3 +543,10 @@ robot/brain/sparkle imagery, no decorative network graphs. Decorative wrappers c
   Island entries — the block IS the export. `@theme inline` means each utility emits
   `var(--rw-*)` (a reference, not a copied hex), so the `:root` declarations stay the
   single source of truth.
+- **Page CSS:** [`src/app/(public)/_styles/`](../../../src/app/(public)/_styles) — four
+  files, `island.css` (the shared island chrome + the marquee atmosphere),
+  `features.css`, `how-it-works.css`, `pricing.css`. `globals.css` `@import`s them in that
+  order, at the bottom of the file, and the order is the cascade: it is the sequence those
+  blocks had inside `globals.css` before they were split out. They consume `var(--rw-*)`
+  and declare no tokens — `globals.css` owns those. Guard:
+  [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts).

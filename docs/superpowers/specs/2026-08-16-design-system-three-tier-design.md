@@ -265,6 +265,73 @@ section files (as `sections/landing/**` already does), leaving `globals.css` as
 a ~200-line token + base + `@theme` file. Pure mechanical move; makes the
 Island token file readable but is not needed for the three-way independence.
 
+> **As built (PR 3b, #846).** Done, as a directory rather than per-section
+> colocation: `src/app/(public)/_styles/{island,features,how-it-works,pricing}.css`,
+> mirroring `(authenticated)/_styles/`. `globals.css` went 2,604 → 154 lines
+> (`@import 'tailwindcss'`, the Console `theme.css` import, the Island
+> `@theme inline` block, the Island `:root` tokens, and the four page-CSS
+> `@import`s). Line ranges: 117–1124 → `island.css` (the `.rw-marquee-field`
+> atmosphere leads the file, then the original landing chrome), 1125–1350 →
+> `features.css`, 1351–2001 → `how-it-works.css`, 2002–2604 → `pricing.css`.
+> Text is verbatim apart from each file's new header comment; no rule was
+> renamed, reordered or deleted.
+>
+> **The ordering argument, and the one place the obvious mechanism is wrong.**
+> The plan of record was four `import` statements in `src/app/layout.tsx` right
+> after `import './globals.css'` — Next orders CSS by import order
+> (`node_modules/next/dist/docs/01-app/01-getting-started/11-css.md` →
+> "Ordering and Merging"), so the cascade would be identical. It is not: a file
+> imported from `layout.tsx` is a separate stylesheet that
+> `@tailwindcss/postcss` skips (no Tailwind directives → early bail), so it
+> never gets the Lightning CSS pass the rest of `globals.css` gets. Measured on
+> `/features`: **47 of the 158 `@supports (color: color-mix(…))` fallbacks
+> stopped being emitted**, silently dropping the flat-colour fallback for
+> browsers without `color-mix()`, and the emitted chunks changed
+> (175,119 B → 110,073 + 59,982 B, 1,935 → 1,866 rules). The shipped mechanism
+> is four CSS `@import`s at the **bottom** of `globals.css` — the same thing
+> line 2 already does for `theme.css`, and Tailwind v4 inlines each file where
+> its `@import` sits, so the page CSS stays inside the Tailwind entry AND lands
+> exactly where it used to. Bottom placement is load-bearing: hoisting the
+> `@import`s would move 2,400 lines of page CSS ahead of the token and `@theme`
+> blocks. Guarded by `design-scope-purity.test.ts`, which pins the four names,
+> their order, their position after `:root`, and the absence of a `layout.tsx`
+> import.
+>
+> **Proof (zero change).** (a) *Rule-sequence identity*: for each of the 24
+> prerendered routes, the ordered `<link>` chunk list was concatenated and
+> flattened into a `selector{declarations}` sequence before and after — all 24
+> identical (1,956 rules each; 2,136 on `/login` and `/signup`). (b) Stronger:
+> **all 10 emitted `.css` chunks are byte-identical**, same content-hashed
+> filenames, same sizes, same SHA-256. (c) *Screenshots*: `next start` on each
+> build, Playwright at 1280×900 and 390×844, `reducedMotion: 'reduce'` +
+> `animations: 'disabled'`, full-page, on `/`, `/features`, `/how-it-works`,
+> `/pricing`, `/login`, `/signup`, `/help/contact`, `/book-a-demo`,
+> `/legal/privacy` — 18/18 PNGs byte-identical, 0 differing pixels, no route
+> skipped.
+>
+> **Later optimization, deliberately not taken here:** loading each page's CSS
+> per-route (importing `features.css` from `FeaturesContent`, etc.) so `/pricing`
+> stops shipping the how-it-works rules. That is a real behaviour change — CSS
+> would stop loading on every route — and it needs its own before/after, so it
+> is not part of a move whose whole claim is "nothing changed".
+>
+> **Dead-rule candidates (reported, not deleted).** `island.css`: 83 of its 103
+> classes have no `.tsx`/`.ts` mention anywhere in `src/` or `e2e/`, and none
+> appears even as a substring — the old ticker (`rw-tk-*`), voice
+> (`rw-voice-*`, `rw-vv-*`), timeline (`rw-timeline-*`), inline demo
+> (`rw-demo-*` except `rw-demo-stars`), old hero/feature-card chrome
+> (`rw-hero`, `rw-hero-{ctas,demo,split}`, `rw-feat-{card,eyebrow,vis*}`,
+> `rw-features*`), the clock/badge glyphs (`rw-clock-*`, `rw-cl-dot`,
+> `rw-br-*`, `rw-ta-*`), `rw-btn-{ghost,pill}`, `rw-cta`, `rw-eyebrow`,
+> `rw-lead`, `rw-line`, `rw-reply*`, `rw-src*`, `rw-sec-inner`, `rw-tick`,
+> `rw-caret`, `rw-f-accent`, `rw-float-stat`, `sep`, `tone-{sage,teal,peach,beige}`.
+> The live `/` renders `sections/landing/**` instead, which is why. `pricing.css`:
+> 17 — `hl` and the unused video-hero block (`rw-video-hero`,
+> `rw-has-video-hero`, 14 × `rw-vh-*`, which is also where the local
+> `--rw-vh-night` is declared). `features.css` and `how-it-works.css`: zero.
+> `is-copilot` / `is-autopilot` look dead to a literal grep but are **alive** —
+> `PricingContent.tsx` composes them as `` `pr-plan-swatch is-${plan.icon}` ``.
+
 ### 2.5 Root `DESIGN.md` + `PRODUCT.md` (the impeccable skill)
 
 Verified: `~/.claude/skills/impeccable/scripts/context.mjs` resolves exactly
@@ -372,7 +439,8 @@ selectors). Nothing else in the repo needs to know a redesign happened.
 |---|---|---|
 | **1 — docs** (#843) | §2.2 tree, three `DESIGN.md`, `landing/measurements.md`, router README, thin root `DESIGN.md`, router skill, mockup delete + tag, full cross-ref sweep (§3) | Docs-only → `changes` short-circuits the heavy CI jobs. Content is a **restructure**, not a rewrite: every rule in the current docs survives, just under the template's headings. Landed 2026-08-16. |
 | **2 — code, small** (#844) | §2.4 items 1–4 + the four guards in §2.7 | Zero visual change; the guards are the proof. Runs full CI. Guards shipped as `design-scope-purity.test.ts` (Landing scope + Island `@theme` purity), an extension of `design-token-single-source.test.ts` (Console purity, colors **and** font families, + `theme.css` references), and `design-doc-token-pin.test.ts` (D2 option A). |
-| **3 — optional** | `globals.css` page-CSS extraction; D4 `.rw-console` scoping after a portal audit | Separate decisions, separate PRs. |
+| **3 — optional** | D4 `.rw-console` scoping after a portal audit | Separate decisions, separate PRs. |
+| **3b — globals.css extraction** (#846) | page CSS → `(public)/_styles/`; two new guards; four marketing tests retargeted | zero-change proof: rule sequence identical on all 24 prerendered routes (in fact all 10 CSS chunks byte-identical) + 9 routes × 2 viewports pixel-identical |
 
 ---
 

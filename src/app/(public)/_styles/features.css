@@ -1,0 +1,247 @@
+/* ========================================================================
+   RepWorth Island — /features page CSS (`rw-feat-*`, `rw-hero-*`).
+
+   Consumed by: src/app/(public)/features/** and
+   src/components/sections/features/** (FeaturesContent, FeatReply, FeatGuardian,
+   FeatInsights, FeatWatchdogs, FeatAutopilot, FeatGate, FeatLang, FeatRoi,
+   FeatVoice, RoadmapBand), rendered inside SiteShell's island chrome.
+
+   System: ISLAND (marketing / public). Style Reference: docs/design/island/DESIGN.md
+   TOKENS LIVE IN src/app/globals.css — this file CONSUMES `var(--rw-*)` and must
+   not declare Island tokens. Guard: src/__tests__/design-scope-purity.test.ts
+
+   Load order is owned by the four `@import`s at the BOTTOM of globals.css,
+   which pull in island.css, features.css, how-it-works.css, pricing.css in
+   that order — the exact order these blocks had inside globals.css before PR 3b
+   split them out. They are CSS `@import`s, not layout.tsx `import`s, so these
+   files stay inside the Tailwind entry and keep the Lightning CSS pass that
+   generates the `@supports (color: color-mix(…))` fallbacks; globals.css's
+   closing comment has the measurement. Adding, reordering or dropping one of
+   them changes the cascade; the guard pins the order.
+   ======================================================================== */
+
+/* ========================================================================
+   Features page
+   ======================================================================== */
+.rw-feat-page {
+  min-height: 100vh;
+  background: var(--rw-sage);
+  color: var(--rw-ink);
+  font-family: var(--rw-font-body);
+  position: relative;
+}
+.rw-display-serif { font-family: var(--rw-font-serif); font-style: italic; font-weight: 400; }
+.rw-label-mono { font-family: var(--rw-font-mono); letter-spacing: 0.04em; }
+.rw-num-tag { font-family: var(--rw-font-serif); font-feature-settings: 'ss01'; }
+
+/* Reveal */
+.rw-reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.9s cubic-bezier(.2,.8,.2,1), transform 0.9s cubic-bezier(.2,.8,.2,1), filter 1s ease;
+  transition-delay: var(--rv-delay, 0ms);
+}
+.rw-reveal.from-left  { transform: translate3d(-48px, 0, 0); }
+.rw-reveal.from-right { transform: translate3d(48px, 0, 0); }
+.rw-reveal.scale-in   { transform: scale(0.94); }
+.rw-reveal.in { opacity: 1; transform: none; filter: none; }
+
+/* Hero word reveal */
+.rw-hero-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.16em;
+}
+.rw-hero-word {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.7s ease, transform 0.9s cubic-bezier(.2,.8,.2,1);
+  transition-delay: var(--word-delay, 0ms);
+}
+.rw-hero-word.in { opacity: 1; transform: none; }
+
+/* Hero kicker line */
+.rw-hero-kicker { opacity: 0; transition: opacity 0.8s ease 0.4s; }
+.rw-hero-kicker.in { opacity: 1; }
+/* Reveals on transform, not width: width animation relayouts the flex row on
+   every frame. scaleX from a left origin is compositor-only and pixel-identical
+   for a flat 1px rule. */
+.rw-hero-kicker .line {
+  display: inline-block;
+  width: 2.5rem;
+  height: 1px;
+  background: var(--rw-teal);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.9s cubic-bezier(.2,.8,.2,1) 0.5s;
+}
+.rw-hero-kicker.in .line { transform: scaleX(1); }
+
+/* Hero lede */
+.rw-hero-lede {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.8s ease 1.1s, transform 0.8s cubic-bezier(.2,.8,.2,1) 1.1s;
+}
+.rw-hero-lede.in { opacity: 1; transform: none; }
+
+/* Hero metrics */
+.rw-hero-metric { opacity: 0; transition: opacity 0.7s ease var(--m-delay, 0.9s); }
+.rw-hero-metric.in { opacity: 1; }
+.rw-hero-metric-underline {
+  position: absolute; left: 0; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, var(--rw-teal), transparent);
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1.2s cubic-bezier(.2,.8,.2,1) var(--u-delay, 1s);
+}
+.rw-hero-metric.in .rw-hero-metric-underline { transform: scaleX(1); }
+
+/* Hero review marquee */
+.rw-feat-marquee-mask {
+  /* Clip the w-max track to the marquee window. mask-image only fades the
+     painted edges — it does NOT clip layout, so without this the oversized
+     animated track spills past the page and creates a horizontal scrollbar. */
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+.rw-feat-marquee-track {
+  animation: rw-feat-marquee 60s linear infinite;
+}
+.rw-feat-marquee-track:hover { animation-play-state: paused; }
+@keyframes rw-feat-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* TOC chips */
+.rw-toc-chip {
+  opacity: 0;
+  transform: translateY(14px) scale(0.96);
+  transition: opacity 0.55s ease, transform 0.6s cubic-bezier(.2,.8,.2,1), background-color 0.3s, border-color 0.3s;
+  transition-delay: var(--chip-delay, 0ms);
+}
+.rw-toc-chip.in { opacity: 1; transform: none; }
+.rw-toc-chip:hover { transform: translateY(-3px) scale(1.02); }
+
+/* Phone mock float */
+@keyframes rw-phone-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%      { transform: translateY(-10px) rotate(-2deg); }
+}
+.rw-phone-float { animation: rw-phone-float 6s ease-in-out infinite; }
+
+/* Phone item stagger reveal */
+.rw-phone-item {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.5s ease var(--pi-d, 0ms), transform 0.5s cubic-bezier(.2,.8,.2,1) var(--pi-d, 0ms);
+}
+.rw-reveal.in .rw-phone-item { opacity: 1; transform: none; }
+
+/* Approval timeline steps */
+.rw-t-step {
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity 0.6s ease var(--step-d, 0ms), transform 0.6s cubic-bezier(.2,.8,.2,1) var(--step-d, 0ms);
+}
+.rw-reveal.in .rw-t-step { opacity: 1; transform: none; }
+
+/* Voice bars */
+.rw-voice-bar {
+  transform-origin: bottom;
+  transform: scaleY(0);
+  transition: transform 0.9s cubic-bezier(.2,.8,.2,1) var(--bar-d, 0ms);
+}
+.rw-reveal.in .rw-voice-bar { transform: scaleY(1); }
+.rw-voice-anno {
+  opacity: 0;
+  transition: opacity 0.5s ease 1.2s;
+}
+.rw-reveal.in .rw-voice-anno { opacity: 1; }
+
+/* Language chips bounce */
+@keyframes rw-chip-pop {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.9); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.03); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.rw-reveal.in .rw-lang-chip {
+  animation: rw-chip-pop 0.7s cubic-bezier(.2,.8,.2,1) both;
+  animation-delay: var(--chip-d, 0ms);
+}
+.rw-lang-chip { opacity: 0; }
+
+/* Brief bar fills. --fill-r is a unitless RATIO (0-1), not a percentage, because
+   scaleX takes a number; the track is the parent, so the bar is full-width and
+   scaled rather than relaid out each frame. */
+.rw-brief-bar-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1s cubic-bezier(.2,.8,.2,1) var(--fill-d, 0ms);
+}
+.rw-reveal.in .rw-brief-bar-fill { transform: scaleX(var(--fill-r, 0.5)); }
+
+/* ROI sparkline */
+.rw-sparkline-path {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  transition: stroke-dashoffset 1.6s cubic-bezier(.2,.8,.2,1) 0.3s;
+}
+.rw-reveal.in .rw-sparkline-path { stroke-dashoffset: 0; }
+
+/* Competitor rows */
+.rw-comp-row {
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.5s ease var(--cr-d, 0ms), transform 0.5s cubic-bezier(.2,.8,.2,1) var(--cr-d, 0ms);
+}
+.rw-reveal.in .rw-comp-row { opacity: 1; transform: none; }
+
+/* Pulse dot for active dot-nav */
+@keyframes rw-pulse-dot {
+  0%, 100% { transform: scale(1.6); opacity: 1; }
+  50%      { transform: scale(2); opacity: 0.6; }
+}
+.rw-pulse-dot { animation: rw-pulse-dot 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-feat-marquee-track,
+  .rw-phone-float,
+  .rw-pulse-dot {
+    animation: none !important;
+  }
+  .rw-reveal,
+  .rw-hero-word,
+  .rw-hero-kicker,
+  .rw-hero-lede,
+  .rw-hero-metric,
+  .rw-toc-chip,
+  /* These are revealed only via a keyframe/animation (not a transition), so the
+     blanket .rw-reveal reset above does not cover them — list them explicitly or
+     they stay invisible under reduced motion (content loss). */
+  .rw-lang-chip,
+  .rw-voice-bar,
+  .rw-comp-row,
+  .rw-sparkline-path {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
+  /* Deliberately NOT in the blanket reset above: this bar encodes a value in its
+     scaleX, so `transform: none` would render every bar full and misstate the
+     data. Pin it to its true ratio instead and drop only the motion. */
+  .rw-brief-bar-fill {
+    opacity: 1 !important;
+    transform: scaleX(var(--fill-r, 0.5)) !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
