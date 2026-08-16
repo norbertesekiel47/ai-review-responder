@@ -6,7 +6,39 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4.**
+**Merges since last architecture pass: 5 — AT THRESHOLD. An architecture pass is
+due; the reminder is the orchestrator's, the decision is the owner's.**
+
+- **PR #831** — portal audit PR 2, channel-route unification (2026-08-15).
+  **Entropy-negative on duplication, entropy-positive on one guard.** No
+  migration, flag, env var, dependency; net **−15 production lines** (+685/−700)
+  against +1160/−52 test. Twelve mobile-channel enrollment routes (2 portals × 2
+  channels × 3 actions) collapsed onto 3 shared runners
+  (`src/app/api/_shared/channels/{start,action}.ts`) + 2 portal-specific
+  **Channel actor** resolvers (`resolve-actor.ts`, term coined in `CONTEXT.md`);
+  six owner routes went from 39–84 lines each to ~22-line shims. Closes the
+  owner→admin module dependency completely (mechanically re-proven every gate
+  run), and gives the WhatsApp deep link + the two flag/env modules one owner
+  each in `src/lib/notifications/channels/`.
+  **The one item a pass should weigh:** the admin MFA gate moved from
+  *structural* to *configuration*. Before, `runAdminChannelStart/Cancel/Disable`
+  were admin-only helpers calling `requireAdminWithAal2` unconditionally, so an
+  admin route could not skip step-up. Now the runners are portal-agnostic and
+  call `config.resolveActor` — a per-route value — so `tsc` cannot reject a
+  mis-binding, and the compensating control is `ci:admin-aal2`, a text scan.
+  Hardened here (reads comment-stripped code; denies `resolveOwnerActor` in
+  admin routes; cases (m)/(n)/(o)) but its floor is real: an aliased import
+  still clears it. The adversarial reviewer's structural remedy (branded actor
+  capabilities / portal config factories) was **rejected as out-of-scope for a
+  review round**, deliberately and on the record —
+  `docs/reviews/refactor-channel-route-unification/adversarial-approach-codex.md`.
+  **This is the class of decision an architecture pass exists to re-open.**
+  PR 3 of the same spec (Overview spec-alignment, §5) is **not built** — its
+  duplication is still live in `overview-service.ts` + `businesses-list-service.ts`
+  — so the three-PR set should be weighed together, as #827's entry asked.
+  **Not counted: PR #830** (marketing copy deslop, 2026-08-15) — runtime `.tsx`
+  and copy-constant edits only, no structural surface, same reasoning as #700.
+  Flagged rather than absorbed so the pass can disagree.
 
 - **PR #827** — portal audit PR 1, correctness (2026-08-15). **Low entropy:
   read-path and route-constant fixes only.** No migration, flag, env var,

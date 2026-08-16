@@ -30,8 +30,11 @@ function ChannelEnrollmentBadge({ status }: { status: ChannelEnrollmentRow['stat
 
 // Channel enrollment is available to entitled accounts (active or trialing) —
 // approval delivery is core to the trial. Gated with the shared
-// `subscriptionGrantsFullAccess` predicate, mirroring the API gate at
-// admin/channels/_shared/start.ts.
+// `subscriptionGrantsFullAccess` predicate, mirroring the API gate in
+// `resolveAdminActor` (src/app/api/_shared/channels/resolve-actor.ts), which
+// applies it on admin `start` only — `cancel`/`disable` deliberately carry no
+// subscription gate (spec §4.2). #831 moved that gate out of the deleted
+// admin/channels/_shared/start.ts into the Channel actor resolver.
 
 interface ChannelsPanelProps {
   business: BusinessDetail;

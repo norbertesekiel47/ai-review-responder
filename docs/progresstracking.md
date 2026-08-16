@@ -3831,3 +3831,87 @@ Supabase's shape, `has_schema_privilege('authenticated','public','USAGE')` is tr
 previously-failing suite passes 10/10, and all 91 live-DB integration files (748 tests) pass.
 CI's path re-proved independently on a fresh database — bootstrap applied to a pristine schema
 exits 0, produces the same ACL, and is idempotent across two consecutive runs.
+
+## 2026-08-15 — Channel-route unification: 12 enrollment routes onto 3 runners + 2 Channel actor resolvers (PR #831)
+
+PR **2 of 3** from `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md`
+(§4). PR 1 was #827; **PR 3 (§5, Overview spec-alignment) is not built.** Squash
+`239dbdb7`. No migration, no feature flag, no env var, no dependency.
+
+**The problem.** 2 portals × 2 channels × 3 actions = 12 enrollment routes, each
+carrying its own copy of one chain (flag gate → env gate → resolve actor → token
+mint → advisory-locked write → cache invalidate → respond). The copies drifted:
+WhatsApp's deep link stripped `/^whatsapp:\+?/` on admin (leaving spaces and
+parentheses in the `wa.me` path — a broken link) and `/\D/g` on owner. The owner
+portal also imported modules from `src/app/api/admin/**`.
+
+**What shipped.**
+
+1. **Three shared runners** — `src/app/api/_shared/channels/start.ts`
+   (`runChannelStart`) and `action.ts` (`runChannelCancel`, `runChannelDisable`),
+   driven by a deliberately 4-field `ChannelRouteConfig` (`channel`, `isEnabled`,
+   `assertEnvReady`, `resolveActor`). The plan's tripwire — "a fifth field means
+   the seam is wrong; re-plan rather than widen" — never fired.
+2. **Two Channel actor resolvers** — `resolve-actor.ts`. Deliberately two
+   functions, not one with a source parameter: `resolveAdminActor` reads
+   `businessId` from the request BODY behind `requireAdminWithAal2`;
+   `resolveOwnerActor` reads `locationId` from the SESSION behind
+   `requireRoleOr401` and never from the body. Each owns its portal's
+   subscription policy (§4.2): admin `start` applies `subscriptionGrantsFullAccess`,
+   admin `cancel`/`disable` deliberately apply none, owner applies
+   `resolveWritableAccountForLocation` on all three.
+3. **Single owners extracted** — `src/lib/notifications/channels/deep-links.ts`
+   (both channels, both portals, `Record<MobileChannel, …>` so a third channel
+   forces a decision at one site); `telegram-env.ts` / `whatsapp-env.ts` moved out
+   of `admin/channels/*/_shared.ts`; `flag-off.ts` moved beside the runners and no
+   longer re-exported per channel.
+4. **Twelve thin shims** — each route names its channel, binds its resolver, calls
+   its runner. Owner routes went 39–84 lines → ~22. Net production diff **−15**
+   (+685/−700); tests +1160/−52.
+5. **`ci:admin-aal2` hardened** — its allowlist now names `resolveAdminActor` (the
+   function that calls the gate) rather than the runners (which are
+   portal-agnostic and would have exempted a mis-bound admin route), and every
+   check reads comment-stripped CODE.
+
+**Behaviour change (owner-visible).** Owner `cancel`/`disable` return **404** (was
+403) when the session's location has no billing account. Consequence recorded in
+the deviations log: the owner banner copy shifts from "Session expired — please
+sign in again." to "This channel is currently unavailable." for that rare state.
+
+**Deliberate rule-break, argued and approved.** The 6 admin route suites were
+declared byte-for-byte frozen; that was broken once, in 4 of them (6 fixture
+sites). The fixtures seeded `{ account_id: 'acct-1' }` — the pre-refactor
+projection — while `resolveAdminActor` projects `a.id`. Only ONE site failed
+loudly; the other five passed **vacuously** with `accountId === undefined` flowing
+into the advisory-lock key (`mobile_enroll:undefined`) and the cache label,
+silently neutering a guard whose own comment read "Reverting to `business_id`
+fails here". Production behaviour is identical either way (`b.account_id = a.id`).
+
+**Gotchas found in execution — all four were green tests proving nothing.** A
+memoized `getServerConfig()` made a wa.me test assert the `beforeEach` value; a
+test-local look-alike `AuthError` took `requireRoleOr401`'s deliberate re-throw
+path; the stale fixtures above; and `ci:admin-aal2` clearing routes on a
+whole-file substring a header comment satisfied. Full write-ups in lab-notes
+"#831 portal-audit PR2: four ways a green test proved nothing".
+
+**Also fixed at step-7 review.** `TWILIO_WHATSAPP_NUMBER!` was a non-null
+assertion on a `rawOpt` var that `MOCK_EXTERNAL_APIS=true` leaves unset, evaluated
+AFTER the enrollment commit — so a mock-mode 500 stranded a `pending_verification`
+row on the migration-027 unique slot. The builder now throws with context and the
+link is built before the write. Also: the repo's only two `src/lib → src/app`
+imports removed, six hand-written `NextResponse.json` calls moved onto the
+canonical `errorResponse()`/`jsonResponse()`, and a tautological deep-link test
+made to assert something.
+
+**Rejected on the record.** The adversarial reviewer rated the now-rebindable
+portal trust boundary ship-blocking and recommended branded actor capabilities or
+portal-specific config factories. Declined as a seam redesign the plan routes back
+to step 3, not a review-round patch; the narrow guard fix was taken instead. Both
+positions in `docs/reviews/refactor-channel-route-unification/adversarial-approach-codex.md`.
+
+**Verification.** Gate green 26/26 including `promised-tests` (44 titles verbatim)
+and `diff-coverage`; the WhatsApp enroll E2E integration suite RAN (not skipped);
+all 13 CI checks green. One CI round was spent on `fallow`, which flagged
+`collectRouteFiles` at CRAP 56 once the audit file entered its changed-file scope —
+covered rather than suppressed, since that function decides the audit's scope and
+an under-walk would make every one of its cases vacuous.

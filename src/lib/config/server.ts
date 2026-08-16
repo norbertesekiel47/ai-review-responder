@@ -218,10 +218,15 @@ const serverSchema = z.object({
   // (getServerConfig is shape-only, never throws); these are Next server reads,
   // NONE NEXT_PUBLIC_*, so no build-inlining concern.
   //  - ZERNIO_PROFILE_ID_PREFIX: zernio/connect/start `?? 'repworth-prod-'`.
-  //  - TWILIO_WHATSAPP_NUMBER: admin+dashboard whatsapp/start `!`.replace(...) — also
+  //  - TWILIO_WHATSAPP_NUMBER: read ONLY by the shared deep-link builder
+  //    (src/lib/notifications/channels/deep-links.ts) since #831 unified the four
+  //    start routes; it throws with context when unset rather than asserting `!`,
+  //    because MOCK_EXTERNAL_APIS=true clears the env gate without the var. Also
   //    declared in worker.ts (worker WhatsApp batch); a var may live in BOTH schemas
   //    (like RESEND_FROM_EMAIL), which is fine — both lanes read the same env.
-  //  - TELEGRAM_BOT_USERNAME: admin `?? 'RepWorthBot'`, dashboard `?.trim() || 'RepWorthBot'`.
+  //  - TELEGRAM_BOT_USERNAME: same builder, `?.trim() || 'RepWorthBot'` for both
+  //    portals. (Was admin `?? …` vs dashboard `?.trim() || …` — the divergence
+  //    #827 patched and #831 made unspellable by deleting the second copy.)
   //  - REDIS_QUEUE_URL / REDIS_QUEUE_TOKEN: admin/jobs queue-health probe (`if (!url)`
   //    gate + ioredis `password`). (REDIS_CACHE_URL — admin/demos/generate gate — and
   //    TRIAL_PERIOD_DAYS — (public)/page.tsx — are REUSED from prior batches.)
