@@ -158,6 +158,8 @@ jobs:
         run: pnpm ci:agent-config
       - name: Run dropped-columns SQL reference audit
         run: pnpm ci:dropped-columns
+      - name: Run directory-map completeness audit (docs/directory.md vs worker/ + src/lib/)
+        run: pnpm ci:directory-map
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)

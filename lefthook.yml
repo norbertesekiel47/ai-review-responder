@@ -63,5 +63,7 @@ pre-push:
       run: pnpm ci:agent-config
     dropped-columns:
       run: pnpm ci:dropped-columns
+    directory-map:
+      run: pnpm ci:directory-map
     db-imports:
       run: pnpm ci:db-imports
