@@ -2,125 +2,17 @@
 
 // Auth: Supabase session checked by src/proxy.ts (admin role required)
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { OverviewData } from '@/lib/admin/overview-service';
 import { navCountsQueryOptions } from '@/components/admin/nav-counts-query';
 import { StatTile } from '@/components/admin/ui/StatTile';
-import { StatusBadge } from '@/components/admin/ui/StatusBadge';
-import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
+import { HealthBadge } from '@/components/admin/ui/HealthBadge';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/states';
 import { formatAdminCount } from '@/components/admin/ui/format';
 
-import { OVERVIEW_PAGE_SIZE as PAGE_SIZE } from '../page-sizes';
-
-type BusinessRow = OverviewData['businesses'][number];
-
-function formatRelative(isoString: string | null): string {
-  if (!isoString) return '—';
-  const diffMs = Date.now() - new Date(isoString).getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
-}
-
-const HEALTH_BADGE_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  watch: 'bg-gray-100 text-gray-700',
-  at_risk: 'bg-red-100 text-red-800',
-};
-const HEALTH_BADGE_LABELS: Record<string, string> = {
-  healthy: 'Healthy',
-  watch: 'Watch',
-  at_risk: 'At Risk',
-};
-
-function HealthBadge({ level, score }: { level: string; score: number }) {
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
-      {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
-    </span>
-  );
-}
-
-function buildColumns(windowDays: number): DataTableColumn<BusinessRow>[] {
-  return [
-    { key: 'name', header: 'Name', render: (b) => <span className="font-medium">{b.name}</span>, sortValue: (b) => b.name },
-    { key: 'status', header: 'Status', render: (b) => <StatusBadge status={b.subscriptionStatus} /> },
-    {
-      key: 'pending',
-      header: 'Pending',
-      render: (b) =>
-        b.pendingApprovalCount > 0 ? (
-          <span className="inline-block rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-            {b.pendingApprovalCount}
-          </span>
-        ) : (
-          <span className="text-gray-400">0</span>
-        ),
-      sortValue: (b) => b.pendingApprovalCount,
-    },
-    {
-      key: 'reconnect',
-      header: 'Reconnect',
-      render: (b) =>
-        b.pendingReconnectCount >= 3 ? (
-          <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-            {b.pendingReconnectCount}
-          </span>
-        ) : b.pendingReconnectCount > 0 ? (
-          <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-            {b.pendingReconnectCount}
-          </span>
-        ) : (
-          <span className="text-gray-400">{'—'}</span>
-        ),
-    },
-    {
-      key: 'responseRate',
-      header: `Response rate (${windowDays}d)`,
-      render: (b) => <span className="text-gray-700">{b.responseRate}%</span>,
-      sortValue: (b) => b.responseRate,
-    },
-    {
-      key: 'avgTime',
-      header: `Avg time (${windowDays}d)`,
-      render: (b) => (
-        <span className="text-gray-700">
-          {b.avgResponseTimeHours !== null ? `${b.avgResponseTimeHours}h` : '—'}
-        </span>
-      ),
-    },
-    {
-      key: 'lastActivity',
-      header: 'Last activity',
-      render: (b) => <span className="text-gray-500">{formatRelative(b.lastActivity)}</span>,
-    },
-    {
-      key: 'health',
-      header: 'Health',
-      render: (b) => <HealthBadge level={b.churnScore.level} score={b.churnScore.score} />,
-    },
-  ];
-}
-
-function OverviewContent({
-  data,
-  flaggedOpen,
-  page,
-  onPageChange,
-}: {
-  data: OverviewData;
-  flaggedOpen: number;
-  page: number;
-  onPageChange: (page: number) => void;
-}) {
-  const { systemHealth, responseMetricsWindowDays } = data;
+function OverviewContent({ data, flaggedOpen }: { data: OverviewData; flaggedOpen: number }) {
+  const { systemHealth, atRisk } = data;
 
   const attention = [
     systemHealth.failedJobs > 0 && {
@@ -189,24 +81,46 @@ function OverviewContent({
         </div>
       )}
 
+      {/* At-risk list (spec §5.1/§5.3): the eligible count N is what the service
+          FILTERED to `churnScore.level !== 'healthy'` and then capped, while M is
+          the unfiltered business total — so "3 of 128" reads as "3 of your 128
+          businesses need a look", and "View all →" is the way to the inventory. */}
       <div className="mt-8">
-        <h2 className="text-lg font-semibold text-gray-800">
-          Businesses ({formatAdminCount(data.totalBusinesses)})
-        </h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="text-lg font-semibold text-gray-800">
+            At risk ({formatAdminCount(atRisk.length)} of {formatAdminCount(data.totalBusinesses)})
+          </h2>
+          <Link
+            href="/admin/businesses"
+            className="text-sm font-medium text-gray-600 underline hover:text-gray-900"
+          >
+            View all →
+          </Link>
+        </div>
         <div className="mt-3">
-          <DataTable
-            columns={buildColumns(responseMetricsWindowDays)}
-            rows={data.businesses}
-            rowKey={(b) => b.id}
-            rowHref={(b) => `/admin/businesses/${b.id}`}
-            serverPagination={{
-              page,
-              pageSize: PAGE_SIZE,
-              totalRows: data.totalBusinesses,
-              onPageChange,
-            }}
-            emptyState={<EmptyState title="No businesses found" />}
-          />
+          {atRisk.length === 0 ? (
+            <EmptyState
+              title="Nothing at risk"
+              detail="Every business is scoring healthy right now."
+            />
+          ) : (
+            <ul className="divide-y divide-gray-200 overflow-hidden rounded-md border border-gray-200 bg-white">
+              {atRisk.map((business) => (
+                <li key={business.id}>
+                  <Link
+                    href={`/admin/businesses/${business.id}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50"
+                  >
+                    <span className="text-sm font-medium text-gray-900">{business.name}</span>
+                    <HealthBadge
+                      level={business.churnScore.level}
+                      score={business.churnScore.score}
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </>
@@ -220,21 +134,15 @@ export function OverviewClient({
   initialData: OverviewData;
   flaggedOpen: number;
 }) {
-  const [page, setPage] = useState(0);
-
   const { data, isLoading, isError, refetch } = useQuery<OverviewData>({
-    queryKey: ['admin-overview', page],
+    queryKey: ['admin-overview'],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: String(page * PAGE_SIZE),
-      });
-      const res = await fetch(`/api/admin/overview?${params}`);
+      const res = await fetch('/api/admin/overview');
       if (!res.ok) throw new Error(`Failed to fetch overview: ${res.status}`);
       return res.json() as Promise<OverviewData>;
     },
     refetchInterval: 30_000,
-    initialData: page === 0 ? initialData : undefined,
+    initialData,
     staleTime: 30_000,
   });
 
@@ -273,12 +181,7 @@ export function OverviewClient({
               />
             </div>
           )}
-          <OverviewContent
-            data={data}
-            flaggedOpen={navCounts.flaggedOpen}
-            page={page}
-            onPageChange={setPage}
-          />
+          <OverviewContent data={data} flaggedOpen={navCounts.flaggedOpen} />
         </>
       ) : null}
     </>

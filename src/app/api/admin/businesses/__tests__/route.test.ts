@@ -10,17 +10,17 @@ const {
   mockInviteUserByEmail,
   mockDeleteUser,
   mockTopLevelSqlCalls,
-  mockGetAdminBusinessesList,
+  mockGetBusinessSummaries,
   linkUpdateState,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockRequireCurrentAal2FromSupabase: vi.fn(),
-  // GET delegates its two queries + row mapping to
-  // src/lib/admin/businesses-list-service (admin console Phase 3). That service
-  // has its own unit suite, so these route tests mock it and assert the
-  // handler's OWN contract: the admin gate, query-param clamping, the response
-  // envelope, and the 500 mapping.
-  mockGetAdminBusinessesList: vi.fn(),
+  // GET delegates its queries + row mapping to
+  // src/lib/admin/business-summary (the single owner shared with
+  // /admin/overview, spec §5.2). That service has its own unit suite, so these
+  // route tests mock it and assert the handler's OWN contract: the admin gate,
+  // query-param clamping, the response envelope, and the 500 mapping.
+  mockGetBusinessSummaries: vi.fn(),
   mockTxCalls: [] as unknown[][],
   mockInviteUserByEmail: vi.fn(),
   mockDeleteUser: vi.fn(() => Promise.resolve({ data: null, error: null })),
@@ -101,8 +101,8 @@ vi.mock('@/lib/db/server', () => {
   };
 });
 
-vi.mock('@/lib/admin/businesses-list-service', () => ({
-  getAdminBusinessesList: mockGetAdminBusinessesList,
+vi.mock('@/lib/admin/business-summary', () => ({
+  getBusinessSummaries: mockGetBusinessSummaries,
 }));
 
 vi.mock('@supabase/ssr', () => ({
@@ -482,12 +482,12 @@ describe('POST /api/admin/businesses — channel enrollment insert', () => {
 
 // ── GET /api/admin/businesses ───────────────────────────────────────
 //
-// The handler is thin by design (Phase 3 moved the SQL into
-// businesses-list-service so the /admin/businesses server page can read the
-// same data without an HTTP hop), but it still owns three things nothing else
-// covers: the plain-admin gate (no AAL2 — reads are not control-plane
-// mutations), the limit/offset parse+clamp, and the `{...data, limit, offset}`
-// envelope the client pager depends on.
+// The handler is thin by design (Phase 3 moved the SQL into a service so the
+// /admin/businesses server page can read the same data without an HTTP hop;
+// spec §5.2 then merged that service into business-summary), but it still owns
+// three things nothing else covers: the plain-admin gate (no AAL2 — reads are
+// not control-plane mutations), the limit/offset parse+clamp, and the
+// `{...data, limit, offset}` envelope the client pager depends on.
 
 function makeGetRequest(query = ''): NextRequest {
   return new NextRequest(`http://localhost/api/admin/businesses${query}`, {
@@ -503,16 +503,24 @@ const LIST_FIXTURE = {
       category: 'Cafe',
       subscriptionStatus: 'active',
       lastSyncAt: '2026-08-01T10:00:00.000Z',
-      pendingCount: 2,
+      pendingApprovalCount: 2,
+      pendingReconnectCount: 0,
+      totalResponses: 0,
+      completedResponses: 0,
+      responseRate: 0,
+      avgResponseTimeHours: null,
+      lastActivity: null,
+      churnScore: { score: 2, level: 'healthy', breakdown: [] },
     },
   ],
   total: 1,
+  responseMetricsWindowDays: 30,
 };
 
 describe('GET /api/admin/businesses', () => {
   beforeEach(() => {
     mockRequireRole.mockReset();
-    mockGetAdminBusinessesList.mockReset();
+    mockGetBusinessSummaries.mockReset();
     mockRequireRole.mockResolvedValue({
       id: '01890000-0000-7000-8000-000000000001',
       name: 'Admin User',
@@ -521,7 +529,7 @@ describe('GET /api/admin/businesses', () => {
       accountId: null,
       locationId: null,
     });
-    mockGetAdminBusinessesList.mockResolvedValue(LIST_FIXTURE);
+    mockGetBusinessSummaries.mockResolvedValue(LIST_FIXTURE);
   });
 
   it('gates on the admin role and returns 401 without querying', async () => {
@@ -531,7 +539,7 @@ describe('GET /api/admin/businesses', () => {
     const res = await GET(makeGetRequest());
 
     expect(res.status).toBe(401);
-    expect(mockGetAdminBusinessesList).not.toHaveBeenCalled();
+    expect(mockGetBusinessSummaries).not.toHaveBeenCalled();
   });
 
   it('returns 403 when the caller is authenticated but not an admin', async () => {
@@ -541,7 +549,7 @@ describe('GET /api/admin/businesses', () => {
     const res = await GET(makeGetRequest());
 
     expect(res.status).toBe(403);
-    expect(mockGetAdminBusinessesList).not.toHaveBeenCalled();
+    expect(mockGetBusinessSummaries).not.toHaveBeenCalled();
   });
 
   it('requires the "admin" role specifically (not owner)', async () => {
@@ -557,18 +565,21 @@ describe('GET /api/admin/businesses', () => {
 
     // Pin the envelope: the pager reads limit/offset back off the response, so
     // an accidental extra/renamed key is a client-visible break.
+    // `responseMetricsWindowDays` is the service's own field (spec §5.5 — the
+    // GET gains the metric fields), not something this handler adds.
     expect(Object.keys(body).sort()).toEqual(
-      ['businesses', 'limit', 'offset', 'total'].sort(),
+      ['businesses', 'limit', 'offset', 'responseMetricsWindowDays', 'total'].sort(),
     );
     expect(body.businesses).toEqual(LIST_FIXTURE.businesses);
     expect(body.total).toBe(1);
+    expect(body.responseMetricsWindowDays).toBe(30);
     expect(body.limit).toBe(20);
     expect(body.offset).toBe(0);
   });
 
   it('defaults to limit=20 offset=0 when no query params are supplied', async () => {
     await GET(makeGetRequest());
-    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), {
       limit: 20,
       offset: 0,
     });
@@ -577,7 +588,7 @@ describe('GET /api/admin/businesses', () => {
   it('passes through in-range limit/offset', async () => {
     const res = await GET(makeGetRequest('?limit=50&offset=100'));
 
-    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(expect.anything(), {
       limit: 50,
       offset: 100,
     });
@@ -594,7 +605,7 @@ describe('GET /api/admin/businesses', () => {
     ['?limit=', 20, 'empty string falls back to the 20 default'],
   ])('limit %s → %i (%s)', async (query, expected) => {
     await GET(makeGetRequest(query));
-    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ limit: expected }),
     );
@@ -605,7 +616,7 @@ describe('GET /api/admin/businesses', () => {
     //   (parseInt('0') || 20) === 20, then max(20,1) → 20, then min(20,100) → 20.
     // A future refactor to `?? 20` would change this to 1; pin it either way.
     await GET(makeGetRequest('?limit=0'));
-    const call = mockGetAdminBusinessesList.mock.calls[0]?.[1] as { limit: number };
+    const call = mockGetBusinessSummaries.mock.calls[0]?.[1] as { limit: number };
     expect(call.limit).toBe(20);
   });
 
@@ -615,7 +626,7 @@ describe('GET /api/admin/businesses', () => {
     ['?offset=250', 250, 'has no upper bound'],
   ])('offset %s → %i (%s)', async (query, expected) => {
     await GET(makeGetRequest(query));
-    expect(mockGetAdminBusinessesList).toHaveBeenCalledWith(
+    expect(mockGetBusinessSummaries).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ offset: expected }),
     );
@@ -629,7 +640,7 @@ describe('GET /api/admin/businesses', () => {
   });
 
   it('maps a service throw to a 500 without leaking the error message', async () => {
-    mockGetAdminBusinessesList.mockRejectedValue(new Error('connection terminated'));
+    mockGetBusinessSummaries.mockRejectedValue(new Error('connection terminated'));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await GET(makeGetRequest());
@@ -643,12 +654,22 @@ describe('GET /api/admin/businesses', () => {
   });
 
   it('serialises an empty result set without special-casing', async () => {
-    mockGetAdminBusinessesList.mockResolvedValue({ businesses: [], total: 0 });
+    mockGetBusinessSummaries.mockResolvedValue({
+      businesses: [],
+      total: 0,
+      responseMetricsWindowDays: 30,
+    });
 
     const res = await GET(makeGetRequest());
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ businesses: [], total: 0, limit: 20, offset: 0 });
+    expect(body).toEqual({
+      businesses: [],
+      total: 0,
+      responseMetricsWindowDays: 30,
+      limit: 20,
+      offset: 0,
+    });
   });
 });
