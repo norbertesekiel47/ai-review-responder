@@ -7,7 +7,64 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-15 (channel-route unification — Quick summary immediately below. Prior entry: admin invite funnel.)
+Last updated: 2026-08-15 (Overview spec-alignment — Quick summary immediately below. Prior entry: channel-route unification.)
+
+## Quick summary — Overview spec-alignment (2026-08-15, PR #833)
+
+**The admin console stopped asking the same question twice, and the Overview page
+stopped pretending to be an inventory.**
+
+Two things were wrong. First, `src/lib/admin/` spelled the same business query
+twice — once in `overview-service.ts` (every business, no `category`) and once in
+`businesses-list-service.ts` (one page, with it). Second, `/admin/overview` was a
+paginated table of *every* business, which is a worse version of what
+`/admin/businesses` already is: an admin landing page should say **who needs a look**,
+not list everything.
+
+**The new shape.** One module owns the query; the two pages ask it different questions:
+
+```
+src/lib/admin/business-summary.ts        ← THE single owner
+  getBusinessSummaries(sql, opts?)       → { businesses, total, responseMetricsWindowDays }
+    · base query   businesses ⋈ accounts ⟕ responses  (+ category, ORDER BY name)
+    · COUNT        only when opts is passed; else total = businesses.length
+    · metrics CTE  keyed on the ids ACTUALLY RETURNED (post-LIMIT)
+    · buildBusinessSummary → the BusinessSummary DTO
+
+  /admin/overview     → getBusinessSummaries(sql)                  ← unpaginated, then ranks
+  /admin/businesses   → getBusinessSummaries(sql, {limit, offset}) ← one page
+```
+
+`businesses-list-service.ts` is **deleted**. No shim — these are internal admin APIs
+with no external consumers.
+
+**Overview now renders the At-risk list.** Businesses whose `churnScore.level` is not
+`healthy`, ranked, capped at 5, under `At risk (N of M)` with a `View all →` link. It
+is **filtered, then capped** — an all-healthy account shows the EmptyState, never five
+healthy businesses under an "At risk" heading. Ranking stays in TypeScript and must
+never become `ORDER BY … LIMIT`: account age makes every business score non-zero, so
+no SQL predicate is a provable superset of "at risk".
+
+**Businesses became the single inventory owner**, absorbing Reconnect, Response rate,
+Avg time, Last activity and Health — and it fetches metrics for the **current page's
+ids only**, so it is bounded where Overview's old fan-out was not.
+
+Health presentation got one owner too: `src/components/admin/ui/HealthBadge.tsx`, a
+peer of `StatusBadge`, so the two pages cannot disagree about what "at risk" looks
+like. It is typed on `ChurnScore['level']` rather than `string` — the old
+`Record<string, string>` with a `?? healthy` fallback would have rendered an unknown
+level as a green "healthy" pill.
+
+**Two things that look like oversights and are not.** Overview still reads every
+business row — recorded deliberately in the spec, with a named rejected alternative
+(a SQL-ranked attention proxy, rejected because it drops the churn model from the
+landing page and would disagree with the Health column). And `OVERVIEW_AT_RISK_LIMIT`
+lives in `overview-service.ts`, **not** `page-sizes.ts` where the spec asked: `src/lib/**`
+may not import `@/app/**` (eslint `APP_LEAF_IMPORT_BAN`), and nothing app-side reads
+the number. `page-sizes.ts` carries a pointer comment instead.
+
+Production code is net **+21 lines** (+578 / −557). Closes the three-PR portal audit
+remediation spec: #827 (correctness) → #831 (channel routes) → #833.
 
 ## Quick summary — channel-route unification (2026-08-15, PR #831)
 
@@ -67,9 +124,10 @@ read comment-stripped code (a header comment used to satisfy it). Its floor: it 
 still a text scan, so an aliased import would clear it.
 
 **This is PR 2 of 3** from `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md`.
-PR 1 (#827) shipped the correctness fixes. **PR 3 (§5, Overview spec-alignment) is
-not built** — its target duplication is still live in `src/lib/admin/overview-service.ts`
-and `src/lib/admin/businesses-list-service.ts`.
+PR 1 (#827) shipped the correctness fixes; **PR 3 (§5, Overview spec-alignment)
+shipped as #833** — the duplication this entry pointed at is gone, collapsed into
+`src/lib/admin/business-summary.ts` (see the Quick summary at the top). The spec is
+now fully shipped.
 
 ## Quick summary — admin invite funnel (2026-08-14, PR #821)
 

@@ -3915,3 +3915,107 @@ all 13 CI checks green. One CI round was spent on `fallow`, which flagged
 `collectRouteFiles` at CRAP 56 once the audit file entered its changed-file scope —
 covered rather than suppressed, since that function decides the audit's scope and
 an under-walk would make every one of its cases vacuous.
+
+## 2026-08-15 — Overview spec-alignment: one owner for the admin business query, and an At-risk landing list (PR #833)
+
+Closes the three-PR portal audit remediation spec
+(`docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md` §5). PR 1
+shipped as #827 (correctness), PR 2 as #831 (channel routes), this is PR 3.
+Squash `51ad51eb`. RISK=normal, SURFACE=mixed, no migration/worker/webhook/billing
+and no new dependency — so no staging ride.
+
+**The duplication.** `src/lib/admin/` spelled the same base query twice —
+`overview-service.ts` (every business, no `category`) and
+`businesses-list-service.ts` (one page, with it). Both are now
+`src/lib/admin/business-summary.ts`, which owns the base query (`businesses` JOIN
+`accounts` LEFT JOIN `responses`, superset spelling with `b.category` added to SELECT
+and GROUP BY, `ORDER BY b.name ASC`), the conditional unfiltered COUNT, the metrics
+follow-up, `buildBusinessSummary`, and `RESPONSE_METRICS_WINDOW_DAYS`. One exported
+function: `getBusinessSummaries(sql, opts?: { limit, offset })` →
+`{ businesses, total, responseMetricsWindowDays }`. `total` is the COUNT query when
+paginated and `businesses.length` when not — a caller holding every row does not need
+a second query to be told how many it has. `businesses-list-service.ts` and its test
+were **deleted**, no shim; both admin APIs are internal with no external consumers.
+
+**The payload.** `/admin/overview` replaced its paginated business table with the
+**At-risk list**: `churnScore.level !== 'healthy'`, ranked, capped at
+`OVERVIEW_AT_RISK_LIMIT` (5), under `At risk (N of M)` with a `View all →` link to
+`/admin/businesses`, EmptyState when N is 0. **Filtered, then capped, in that order** —
+capping first would surface healthy rows whenever the first five happened to be
+healthy. Ordering is the pre-existing four-level comparator moved unchanged: score
+desc → `pendingApprovalCount` desc → name asc → id asc. `OverviewData` renamed
+`businesses` → `atRisk` and dropped `limit`/`offset`/`responseMetricsWindowDays`;
+`totalBusinesses` is now the row count, so the separate COUNT query is gone.
+`overview-service.ts` went 344 → 189 lines, keeping only the 5 system-health queries,
+`deriveEmailHealth`, and the at-risk selection.
+
+**The inventory.** `/admin/businesses` absorbed Reconnect, Response rate (30d), Avg
+time (30d), Last activity and Health, and fetches metrics for the **current page's ids
+only** — LIMIT/OFFSET first, then metrics for those ids — so it is bounded where
+Overview's old fan-out was not. Window labels derive from `responseMetricsWindowDays`,
+never a literal `30`; the pinning test uses a fixture window of 14 so a hardcoded
+literal fails.
+
+**New shared component.** `src/components/admin/ui/HealthBadge.tsx`, a peer of
+`StatusBadge`, is the single owner of churn-level → style/label. It is typed on
+`ChurnScore['level']`, not `string`: main's `Record<string, string>` plus a
+`?? HEALTH_BADGE_STYLES.healthy` fallback rendered an unknown level as a green
+"healthy" pill. This was the one owner-approved edit-surface amendment of the run.
+
+**Ranking stays TypeScript — deliberate, spec §5.1.** `computeChurnRiskScore` is a
+weighted composite and account age contributes, so every business carries a non-zero
+score and no cheap SQL predicate is a provable superset of "at risk". Ranking must
+never become `ORDER BY … LIMIT`. Overview consequently still reads every business
+row: a recorded limitation with a named rejected alternative (a SQL-ranked attention
+proxy — bounded, but it drops the churn model from the landing page and would
+disagree with the Health column on `/admin/businesses`). Trivial at the Capacity
+target of 250 locations. **Not an oversight; do not "fix" it.**
+
+**One locked decision could not be implemented as written.** Spec §5.1 puts
+`OVERVIEW_AT_RISK_LIMIT` in `src/app/admin/page-sizes.ts`. The cap is applied in
+`src/lib/admin/overview-service.ts`, and `src/lib/**` may not import `@/app/**`
+(eslint `APP_LEAF_IMPORT_BAN` — "Route leaves are terminal"). The rationale was moot
+anyway: nothing app-side reads the number, since the client renders N from
+`atRisk.length`. It is declared and exported by the module that applies it;
+`page-sizes.ts` deletes `OVERVIEW_PAGE_SIZE` and gains a pointer comment rather than
+a second declaration. Owner-confirmed, with the eslint probe recorded in the
+deviations log.
+
+**Two guards were passing for the wrong reason** — both found at step-7 review, both
+proven fixed by mutation-checking. The new #773 concurrency test seeded its mock with
+zero rows, so `businessIds` was empty, the metrics CTE never dispatched, and peak
+concurrency was measured over 2 queries while the test claimed 3 — a
+`Promise.all([count, metrics])` regression would have passed. And splitting the old
+comparator sort test into a score-tier test and a name-tier test silently dropped the
+only pin on the `pendingApprovalCount` tier, so deleting that tier from production
+failed nothing. Full write-ups in lab-notes "#833: two guards that passed for the
+wrong reason".
+
+**Also at review.** The trailing-window SQL contract (the `created_at` FILTER, the
+three `AS` aliases, `awaiting_owner_connect`/`pending_reconnect_count`,
+`MAX(GREATEST(…)) AS last_activity`) was still asserted from the *Overview* suite
+against `sqlCalls[5]` — `business-summary.ts`'s query reached transitively. Coverage
+was intact but ownership inverted, so it moved to `business-summary.test.ts`. Dead
+payload `OverviewData.responseMetricsWindowDays` removed (its only consumers were the
+deleted columns). One finding was **rejected**: moving `formatRelative` into
+`src/components/admin/ui/format.ts`, its declared single owner — exactly one copy
+exists on the branch, so it is placement rather than duplication, and the file was
+outside the locked edit surface. Recorded as a follow-up in
+`docs/reviews/refactor-overview-spec-alignment/triage.md`.
+
+**Allowlist.** `scripts/ci/tenant-scope-allowlist.ts` re-keyed twice as the queries
+moved: 400 → 403 when `business-summary.ts` gained them alongside
+`overview-service.ts`'s still-live copies, then 403 → 396 when PR 3's second half
+deleted those copies. `ci:tenant-scope` green at 396/396.
+
+**Verification.** Gate green 24/25 (the one WARN is `reclassify`, adjudicated below);
+`ci:fallow:coverage` dead code 0 · complexity 0 · one warn-level clone group; React
+Doctor `--scope changed` **100**, zero findings; all 13 CI checks green. `e2e` failed
+once on an `apt-get` hang at "Install Playwright system deps" and passed on re-run of
+the identical commit — infra, no test executed.
+
+**Gotcha for future estimates.** The `reclassify` row fired at 2.39× (prod) and 3.26×
+(test) against the intake estimate, because the gate counts **churn** (added+deleted)
+and this was a relocation-shaped refactor — every moved line counts twice. Net
+production change was **+21 lines** (+578 / −557). Step 0 was re-run as required; the
+lane was unchanged. Estimate churn, not net, on a move-heavy PR.

@@ -6,8 +6,48 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 5 — AT THRESHOLD. An architecture pass is
+**Merges since last architecture pass: 6 — OVER THRESHOLD. An architecture pass is
 due; the reminder is the orchestrator's, the decision is the owner's.**
+
+- **PR #833** — portal audit PR 3, Overview spec-alignment (2026-08-15, squash
+  `51ad51eb`). **Entropy-negative: a duplicated query collapsed to one owner and a
+  module deleted.** No migration, flag, env var, or dependency; net **+21 production
+  lines** (+578/−557) across 22 non-docs files, tests net +647.
+  **New single owner** `src/lib/admin/business-summary.ts` — the base query
+  (`businesses` ⋈ `accounts` ⟕ `responses`), the conditional unfiltered COUNT, the
+  metrics follow-up scoped to the ids actually returned, `buildBusinessSummary`, and
+  `RESPONSE_METRICS_WINDOW_DAYS`; ONE exported function
+  `getBusinessSummaries(sql, opts?)`. **Concept deleted:**
+  `src/lib/admin/businesses-list-service.ts` + its test (no shim — internal admin APIs,
+  no external consumers), and `getAdminBusinessesList` with it.
+  `overview-service.ts` 344 → 189 lines, keeping only the 5 system-health queries,
+  `deriveEmailHealth`, and the At-risk list selection. **New shared component**
+  `src/components/admin/ui/HealthBadge.tsx` (peer of `StatusBadge`, single owner of
+  churn-level presentation) — the run's one owner-approved edit-surface amendment.
+  **Response shapes changed** without a compat shim: `GET /api/admin/overview` returns
+  `atRisk[]` for `businesses[]` and drops `limit`/`offset`; `GET /api/admin/businesses`
+  gains the metric fields. **Allowlist baseline moved twice** — 400 → 403 while both
+  modules held the queries, then 403 → **396** when the duplicates were deleted.
+  Two new `CONTEXT.md` terms: **Business summary**, **At-risk list**.
+  **This closes the three-PR portal audit remediation spec** (#827 §3 → #831 §4 →
+  #833 §5). The #827 entry asked that the three be weighed together, since PRs 2 and 3
+  carry the structural weight — **they now can be**; that is the single highest-value
+  thing for the next pass to look at in this window.
+  **What the pass should scrutinise.** (1) A *recorded, deliberate* limitation now
+  sits on the admin landing page: Overview loads every business row and ranks in
+  TypeScript, because `computeChurnRiskScore` has no SQL superset (§5.1). It is
+  trivial at the 250-location **Capacity target** and the rejected alternative is
+  named — but it is the kind of thing a capacity review should re-date rather than
+  inherit. (2) A spec-locked constant location turned out to be **illegal**
+  (`APP_LEAF_IMPORT_BAN` blocks `src/lib/**` → `@/app/**`), which is the third
+  instance in three PRs of "a prescribed fix falls outside what the discovering
+  change may legally touch" — after #827's `.claude/skills/**` and `config/server.ts`
+  cases. The class is now well-evidenced enough to be worth a structural answer.
+  (3) Step-7 review found **two guards passing for the wrong reason** in one branch
+  (a concurrency test whose mock skipped the guarded query; a comparator tier that
+  lost its only pin in a test split) — both invisible to coverage and to a green
+  suite, both caught only by mutation-checking. Worth asking how many older guards
+  have the same shape.
 
 - **PR #831** — portal audit PR 2, channel-route unification (2026-08-15).
   **Entropy-negative on duplication, entropy-positive on one guard.** No
