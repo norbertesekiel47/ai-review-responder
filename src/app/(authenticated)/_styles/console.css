@@ -12,6 +12,15 @@
   text-rendering: optimizeLegibility;
   /* Young Serif is single-weight (400); never synthesize faux-bold on headings. */
   font-synthesis-weight: none;
+  /* Scoped override of the brand mono, kept so the Console keeps its system-mono
+     rendering; an override inside `.rw-console` is the sanctioned mechanism (see
+     docs/design/README.md rule 2) — a `:root` re-declaration is not. The brand
+     default is JetBrains Mono (--rw-font-mono, globals.css); the Console has
+     always rendered its reference codes, chips and `.mono` runs in the system
+     mono stack, and this is what keeps that true now that tokens.css no longer
+     re-declares the token on :root. */
+  --rw-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+                  Consolas, 'Liberation Mono', monospace;
 }
 .rw-console * { box-sizing: border-box; }
 .rw-console :where(a, button, input, select, textarea, [tabindex]):focus-visible {

@@ -13,7 +13,16 @@
    re-declare Island colors here; that reintroduces the --rw-sage collision
    (#D2E0D3 on public vs #97B3AE in-app, decided only by CSS load order).
 
-   Guard: src/__tests__/design-token-single-source.test.ts
+   Nor does it own the brand FONT FAMILIES (--rw-font-display/-body/-serif/-mono)
+   — same reason, same owner. See the Type section below for the two places the
+   Console overrides one.
+
+   This file is the VALUES export. The Tailwind-utility export is its sibling
+   _styles/theme.css (`@theme inline`, imported from globals.css), which only
+   REFERENCES the tokens declared here.
+
+   Guards: src/__tests__/design-token-single-source.test.ts
+           src/__tests__/design-scope-purity.test.ts
    Which palette when: docs/design/README.md
    Console Style Reference: docs/design/console/DESIGN.md
    ========================================================================== */
@@ -143,32 +152,26 @@
   --rw-chart-6: #0891b2;
 
   /* ---------- Type ----------
-     GLOBAL default = Plus Jakarta Sans (marketing "Island" surfaces).
-     The authenticated app overrides --rw-font-display to YOUNG SERIF inside
-     .rw-console (console.css) — display-only, single weight, warm/editorial.
-     DM Sans is the body face everywhere. */
-  --rw-font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system,
-                    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --rw-font-body:    'DM Sans', ui-sans-serif, system-ui, -apple-system,
-                    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  /* Legacy alias — old code points here; resolves to body */
-  --rw-font-sans:    var(--rw-font-body);
-  --rw-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
-                  Consolas, 'Liberation Mono', monospace;
+     THE FONT FAMILIES ARE BRAND-WIDE AND THIS FILE DOES NOT OWN THEM.
+     --rw-font-display / --rw-font-body / --rw-font-serif / --rw-font-mono are
+     declared once, in src/app/globals.css :root, which loads on every route —
+     so the Console resolves them by fall-through. This file used to re-declare
+     display/body/mono (and a --rw-font-sans alias with zero consumers); that
+     duplicate was the same cross-file collision class as --rw-sage and it is
+     gone. Guard: src/__tests__/design-scope-purity.test.ts.
 
-  /* Marketing scale — generous, display-leaning. text-5xl → text-7xl at hero.
-     Headings use Plus Jakarta Sans; body & eyebrow use DM Sans. */
-  --rw-mkt-display:  700 4.5rem/1.05 var(--rw-font-display);   /* 72px hero */
-  --rw-mkt-h1:       600 3.75rem/1.1 var(--rw-font-display);   /* 60px */
-  --rw-mkt-h2:       600 3rem/1.15 var(--rw-font-display);     /* 48px section */
-  --rw-mkt-h3:       600 1.5rem/1.3 var(--rw-font-display);    /* 24px card */
-  --rw-mkt-lead:     400 1.125rem/1.6 var(--rw-font-body);     /* 18px body lead */
-  --rw-mkt-body:     400 1rem/1.55 var(--rw-font-body);        /* 16px */
-  --rw-mkt-small:    400 0.875rem/1.5 var(--rw-font-body);     /* 14px */
-  --rw-mkt-eyebrow:  500 0.8125rem/1.2 var(--rw-font-body);    /* 13px uppercase tracking */
-  --rw-mkt-micro:    400 0.75rem/1.4 var(--rw-font-body);      /* 12px */
+     The Console's two overrides are elsewhere, on purpose:
+       · display + body → next/font `localFont` variables bound on the SAME
+         element that carries `.rw-console` ((authenticated)/layout.tsx), which
+         is what swaps display to Young Serif inside the Console only;
+       · mono → a scoped `.rw-console` override in console.css.
+     Style Reference: docs/design/console/DESIGN.md → Tokens — Typography.
 
-  /* App scale — tight, admin utility. */
+     (The nine dead --rw-mkt-* marketing type roles that sat here had zero
+     consumers anywhere in src/ and were deleted with them. A marketing type
+     scale, if it is ever wanted, belongs to the Island.)
+
+     App scale — tight, admin utility. */
   --rw-app-h1:       700 1.5rem/1.2 var(--rw-font-display);    /* 24px page title */
   --rw-app-h2:       600 1.125rem/1.3 var(--rw-font-display);  /* 18px section */
   --rw-app-h3:       600 1rem/1.3 var(--rw-font-display);
