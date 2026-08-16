@@ -1,6 +1,5 @@
 @import 'tailwindcss';
 @import './(authenticated)/_styles/theme.css';
-@config '../../tailwind.config.mjs';
 
 /* ========================================================================
    Design-token utilities (audit #5) — expose the --rw-* source tokens as
