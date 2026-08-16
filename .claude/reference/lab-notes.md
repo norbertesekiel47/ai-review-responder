@@ -2678,3 +2678,75 @@ spread DOES intercept a module's `import { createHash, randomUUID } from
 Proven non-vacuous by mutation — moving the mint inside `sql.begin` turned
 exactly one test red — which is the only way to trust a timing assertion, since
 a sha256 string looks identical whether it was minted before or inside the tx.
+
+## 2026-08-15 — #833: two guards that passed for the wrong reason, and how the gate mis-sized a move
+
+Portal-audit PR 3 collapsed two near-duplicate admin query modules into one and
+turned Overview's paginated table into a ranked at-risk list. The production code
+was net **+21 lines** and the spec review found no behavioural defect. Everything
+below cost real time anyway, and all four will recur.
+
+- **[2026-08-15] A new #773 concurrency guard could not have failed → its mock
+  returned zero rows, so the module skipped the very query the test claimed to
+  guard → seed the harness AND assert the query COUNT, not just peak
+  concurrency.** `getBusinessSummaries` issues rows → COUNT → metrics, but skips
+  the metrics CTE when `businessIds` is empty (a correct optimisation). The test
+  called `makeConcurrencyTrackingSql()` with no rows, so it measured peak over
+  **2** queries while its own comment said three — and a
+  `Promise.all([count, metrics])` regression would have passed clean. Fix: seed one
+  base row, add `getQueryCount()`, assert `toBe(3)`. **The general rule: when a
+  test's subject is "N things happen sequentially", assert N.** Peak-concurrency
+  alone cannot distinguish "sequential" from "never dispatched". Proven by
+  mutation — the `Promise.all` fails the seeded test and passes the unseeded one.
+
+- **[2026-08-15] Splitting one sort test into two better tests silently deleted a
+  comparator tier's only pin → each replacement fixture happened to hold that
+  tier's field equal or zero → when you split a multi-tier comparator test, give
+  each tier its OWN fixture that varies only that tier.** The comparator is score
+  desc → `pendingApprovalCount` desc → name asc → id asc. `main`'s single test
+  discriminated tier 2 (pending 5 vs 2 at equal score). The split produced a
+  score-tier test and a name-tier test, both with pending all-equal or all-zero, so
+  **deleting tier 2 from production failed nothing**. Same class, one file over:
+  the name-tier tie test used ids `biz-z`/`biz-a` against names `Zulu`/`Alpha` — the
+  id tier rescued the assertion, so dropping the name tier also passed. Anti-correlate
+  fixture ids with names; production ids are UUIDv7 and carry no name ordering.
+
+- **[2026-08-15] Two vitest coverage runs as parallel gate rows clobbered each
+  other → `verify-gate.sh --review` runs its own `vitest --coverage`, and an intake
+  `verification_commands` entry of `pnpm test:coverage && pnpm ci:fallow:coverage`
+  became a second one sharing `coverage/.tmp` → never put a coverage run in
+  `verification_commands`; run `ci:fallow:coverage` serially after the gate.**
+  Symptom is a red `test` row whose log says *"Something removed the coverage
+  directory … Make sure you are not running multiple Vitests with the same
+  coverage.reportsDirectory"* — it failed BOTH rows and looked like a real test
+  failure. Serial re-run: 11752 passed. Same shape as the #643 lesson about a
+  destructive command as a parallel peer.
+
+- **[2026-08-15] Local `pnpm doctor` failed on a branch CI would pass → it scans the
+  WHOLE repo and exits non-zero on the pre-existing backlog, while CI's gate is
+  `scope: changed` + `blocking: error` → the matching local command is
+  `npx react-doctor@0.9.11 --scope changed --base origin/main`.** The 16 repo-wide
+  errors (RLS-less tables in migrations, uncleaned effects, layout animation) are
+  not any one branch's. Same local-vs-gating-signal divergence as the #581 fallow
+  class: reproduce the gate's SCOPE, not just its command.
+
+- **[2026-08-15] `verify-gate`'s `reclassify` row fires on every well-executed
+  relocation → it counts CHURN (added + deleted), so a moved line counts twice,
+  while intake estimates are naturally written as NET → estimate churn on a
+  move-shaped refactor.** This PR read 2.39× (prod) and 3.26× (test) over estimate;
+  actual production change was +578/−557 = **net +21**. Step 0 was re-run as the
+  workflow requires and the lane was unchanged — the estimate was wrong, not the
+  lane. Related but distinct from #827's finding that the row counts
+  `docs/superpowers/specs/**` as production.
+
+- **[2026-08-15] A spec-locked file location was illegal and nobody noticed until
+  implementation → `src/lib/**` may not import `@/app/**` (eslint
+  `APP_LEAF_IMPORT_BAN`, "Route leaves are terminal") → when a spec pins a constant's
+  location, check which layer APPLIES it before locking.** Spec §5.1 put
+  `OVERVIEW_AT_RISK_LIMIT` in `src/app/admin/page-sizes.ts`; the cap is applied in
+  `src/lib/admin/overview-service.ts`. The stated reason ("so the server page and its
+  client component cannot disagree") was moot too — nothing app-side reads it. It is
+  declared where it is applied; `page-sizes.ts` carries a pointer comment. Re-exporting
+  through `page-sizes.ts` was rejected: six admin client components import that file, so
+  a value re-export drags the service module graph into their bundles — the exact
+  bundler hazard that file's header comment exists to document.

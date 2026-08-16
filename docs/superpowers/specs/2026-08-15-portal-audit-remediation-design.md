@@ -1,7 +1,24 @@
 # Portal Audit Remediation (design spec)
 
-_Status: approved design, pending implementation plan · 2026-08-15_
+_Status: **SHIPPED IN FULL** · 2026-08-15 — §3/PR 1 as **#827**, §4/PR 2 as **#831**, §5/PR 3 as **#833**_
 _Owner: Norbert + Claude · Branch: `docs/portal-audit-remediation-spec`_
+
+> **Two §5 decisions changed during implementation and this spec text was NOT
+> rewritten** — read them here before treating §5 as literal:
+> 1. `OVERVIEW_AT_RISK_LIMIT` does **not** live in `src/app/admin/page-sizes.ts`
+>    (§5.1). It is declared and exported by the module that applies it,
+>    `src/lib/admin/overview-service.ts`, because `src/lib/**` may not import
+>    `@/app/**` (eslint `APP_LEAF_IMPORT_BAN`); `page-sizes.ts` carries a pointer
+>    comment. §5.1's stated reason was moot — nothing app-side reads the number.
+> 2. §5.6's "the existing overview characterization tests … must keep passing
+>    unmodified" holds only for the `buildBusinessSummary` row→DTO assertions,
+>    which moved verbatim into `business-summary.test.ts`. Six `getAdminOverview`
+>    tests whose subject §5 deletes were rewritten; each is logged against its
+>    mandating spec line in
+>    `docs/superpowers/plans/refactor-overview-spec-alignment-deviations.md`.
+>
+> §5.1's "Overview still reads every business row" remains a deliberate, recorded
+> limitation with a named rejected alternative — not an oversight.
 
 ## 1. Problem
 
