@@ -151,7 +151,7 @@ baseline file deleted, and worker roots are now registration-derived from
 an exempt indicator (build-inlined public client config), taking its baseline
 14 → 10 (2 genuine admin-channel reads added; 6 `NEXT_PUBLIC`-only readers dropped
 as newly-exempt) — still baseline-mode, not strict. Also gave `ci:fallow` real
-`--coverage` in CI (`.github/workflows/fallow.yml` runs `pnpm test:coverage` then
+`--coverage` in CI (ci.yml's `test` job runs `pnpm test:coverage`; its `fallow` job then runs
 `ci:fallow:coverage`, which first normalizes the vitest-4 v8 `-1` branch-count
 sentinel); local/manual `ci:fallow` stays static.
 

@@ -5,6 +5,15 @@ name: CI
 # re-run was a pure duplicate (~20 billable minutes per merge). Main-branch
 # cache warming (the reason a main run used to matter beyond the re-test) lives
 # in cache-warm.yml.
+#
+# Runner: every job here runs on `vars.CI_RUNNER` when that repo variable is
+# set (today `self-hosted` — the Lima VM on the founder's Mac, see
+# docs/runbooks/self-hosted-ci-runner.md; self-hosted minutes are free) and
+# falls back to GitHub-hosted `ubuntu-latest` when it is unset. Unset the
+# variable to move CI back to hosted runners without touching this file.
+# e2e.yml / react-doctor.yml / cache-warm.yml carry the same switch. claude.yml /
+# claude-code-review.yml stay hosted on purpose: they hold the one real secret
+# (CLAUDE_CODE_OAUTH_TOKEN) and it must never land on the VM.
 on:
   pull_request:
 
@@ -47,11 +56,12 @@ jobs:
   # (they run unless this job explicitly said skip).
   changes:
     name: changes
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       docs_only: ${{ steps.detect.outputs.docs_only }}
       deploy_surface: ${{ steps.detect.outputs.deploy_surface }}
+      llm_eval: ${{ steps.detect.outputs.llm_eval }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,8 +79,11 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" != 'pull_request' ]; then
             # Defensive: the workflow is PR-only today. Anything else runs everything.
-            echo 'docs_only=false' >> "$GITHUB_OUTPUT"
-            echo 'deploy_surface=true' >> "$GITHUB_OUTPUT"
+            {
+              echo 'docs_only=false'
+              echo 'deploy_surface=true'
+              echo 'llm_eval=true'
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot diff = merge-base(base, head) vs head: exactly the files
@@ -78,7 +91,7 @@ jobs:
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
           printf 'changed files:\n%s\n' "$changed"
           # Keep this docs definition in lockstep with the paths-ignore lists in
-          # fallow.yml / react-doctor.yml / claude-code-review.yml.
+          # react-doctor.yml / claude-code-review.yml.
           non_docs="$(printf '%s\n' "$changed" | grep -vE '^(docs/|\.claude/)|\.md$' || true)"
           if [ -n "$changed" ] && [ -z "$non_docs" ]; then
             echo 'docs-only change — heavy jobs will skip'
@@ -94,6 +107,21 @@ jobs:
           else
             echo 'deploy_surface=false' >> "$GITHUB_OUTPUT"
           fi
+          # llm-eval surface (WS7, docs/superpowers/plans/2026-07-07-ws7-eval-in-ci.md):
+          # prompts, policy logic, pinned model IDs, moderation rules, the eval
+          # harness itself, or this workflow. Keep in lockstep with the plan
+          # doc's path-filter table. Detected HERE (not inside llm-eval) so the
+          # eval job can skip at job level — a skipped job bills nothing and
+          # still satisfies the required check, where an in-job no-op step
+          # paid a full checkout + minute of rounding on every PR.
+          llm_watch='^(tests/llm-eval/|src/lib/moderation/|src/lib/responses/|src/lib/llm/|\.github/workflows/ci\.yml$)'
+          if printf '%s\n' "$changed" | grep -qE "$llm_watch"; then
+            echo 'llm-eval surface changed:'
+            printf '%s\n' "$changed" | grep -E "$llm_watch"
+            echo 'llm_eval=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'llm_eval=false' >> "$GITHUB_OUTPUT"
+          fi
 
   # The `ci:*` audit steps below are not the authoritative list — package.json
   # is. src/__tests__/ci-audit-wiring.test.ts (run by the `test` job) fails when
@@ -108,7 +136,7 @@ jobs:
   # deploy-install/llm-eval.
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -168,7 +196,7 @@ jobs:
 
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     # Docs-only PRs skip the whole job: no unit test reads docs/** or *.md at
@@ -210,8 +238,20 @@ jobs:
       # (static gate only); here TEST_DATABASE_POOL_URL makes it execute.
       - name: RLS audit (live)
         run: pnpm ci:rls-audit
-      - name: Run unit tests
-        run: pnpm test
+      # `test:coverage` = `vitest run --coverage`: the SAME whole-suite run as
+      # `pnpm test` (both projects, live-DB lane included) plus a v8 coverage
+      # report. The report feeds the `fallow` job below, which used to be its
+      # own workflow standing up a second Postgres and re-running the entire
+      # suite (~11 billed minutes per PR) just to produce this file.
+      - name: Run unit tests (with coverage)
+        run: pnpm test:coverage
+      - name: Upload coverage for the fallow job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage/coverage-final.json
+          retention-days: 1
+          if-no-files-found: error
 
   # NOTE: the Playwright e2e job lives in .github/workflows/e2e.yml — it is path-gated
   # to UI-affecting changes (it is not a required check), so it no longer runs on
@@ -220,70 +260,32 @@ jobs:
 
   # WS7 eval-in-CI gate (docs/superpowers/plans/2026-07-07-ws7-eval-in-ci.md):
   # runs the offline, keyless LLM safety eval when a PR touches prompts, policy
-  # logic, pinned model IDs, moderation rules, or the eval harness itself.
-  # ALWAYS runs (so it can be a required check without hanging on a path-filtered
-  # workflow that never triggers) and no-ops green when nothing watched changed.
+  # logic, pinned model IDs, moderation rules, or the eval harness itself. The
+  # path detection lives in the `changes` job (its `llm_eval` output); this job
+  # skips at JOB level otherwise — `skipped` satisfies the required check the
+  # same way `test`/`build` do on docs-only PRs, and bills nothing. Fail-open:
+  # `!= 'false'` runs the eval unless `changes` explicitly cleared it.
   # Offline mode scores the canned eval-set candidates through the production
   # output filter — deterministic, no provider keys, no external calls.
   llm-eval:
     name: llm-eval
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.llm_eval != 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history only on PRs, where the detect step computes a
-          # merge-base diff. Pushes to main never diff, so they keep the cheap
-          # default shallow clone. The quoted '0'/'1' are deliberate: a bare 0
-          # is falsy in workflow expressions and would collapse the ternary.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
-      - name: Detect changes to prompt/policy/model-pin/eval paths
-        id: detect
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          # Keep in lockstep with the plan doc's path-filter table.
-          watched='^(tests/llm-eval/|src/lib/moderation/|src/lib/responses/|src/lib/llm/|\.github/workflows/ci\.yml$)'
-          if [ "$EVENT_NAME" = 'pull_request' ]; then
-            # Three-dot diff against the PR HEAD = merge-base(base, head) vs
-            # head: exactly the files THIS PR changes. A two-dot diff against
-            # the base tip (or any diff involving the checked-out merge
-            # commit, whose merge-base with base.sha IS base.sha) would also
-            # pick up files changed on main since the branch point,
-            # over-triggering the eval on unrelated PRs.
-            changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
-            if printf '%s\n' "$changed" | grep -qE "$watched"; then
-              echo 'watched paths changed:'
-              printf '%s\n' "$changed" | grep -E "$watched"
-              echo 'run=true' >> "$GITHUB_OUTPUT"
-            else
-              echo 'no watched paths changed'
-              echo 'run=false' >> "$GITHUB_OUTPUT"
-            fi
-          else
-            # Push to main: always run — trunk regressions must be visible and
-            # the offline eval costs seconds.
-            echo 'push event — running eval unconditionally'
-            echo 'run=true' >> "$GITHUB_OUTPUT"
-          fi
       - name: Setup Node + pnpm
-        if: steps.detect.outputs.run == 'true'
         uses: ./.github/actions/setup
       - name: Run offline LLM safety eval
-        if: steps.detect.outputs.run == 'true'
         run: pnpm eval:llm
-      - name: Skip (no watched paths changed)
-        if: steps.detect.outputs.run != 'true'
-        run: echo 'No prompt/policy/model-pin/eval paths changed — eval skipped, job passes.'
 
   build:
     name: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
@@ -297,40 +299,6 @@ jobs:
       - name: Build app
         run: pnpm build
 
-  # Dummy-env build canary (Stage 2 config foundation): builds with ONLY
-  # PLACEHOLDER public + DB-infra env values and NO real subsystem secrets (no
-  # STRIPE_*, RESEND_*, TWILIO_*, SERPAPI_*, OPENAI_*, ANTHROPIC_*). It proves the
-  # build needs no *valid* secret VALUES — placeholders suffice — so no new strict
-  # import-time validation crept in with the config layer. It does NOT prove a
-  # zero-env build: `next build` collects page data, which imports `db/server.ts`
-  # whose Supabase client is constructed at module load (a PRE-EXISTING import-time
-  # DB dependency, not introduced by Stage 2), so empty SUPABASE_URL fails with
-  # "supabaseUrl is required". Hence the three DB placeholders are required here.
-  # The crisp "config modules have no import-time parse" guarantee is proven
-  # separately by src/lib/config/__tests__/import-safety.test.ts.
-  build-dummy-env:
-    name: build-dummy-env-canary
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
-    env:
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key-for-ci
-      SUPABASE_URL: http://localhost:54321
-      SUPABASE_SERVICE_KEY: dummy-service-key-for-ci
-      DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Setup Node + pnpm
-        uses: ./.github/actions/setup
-      - name: Build with placeholder env only (no real secrets)
-        run: pnpm build
-
   # Reproduces a deploy build context (e.g. Railway RAILPACK) that runs
   # `pnpm install` with NO .git directory. Catches lifecycle scripts
   # (prepare/postinstall) that shell out to git and would abort the deploy.
@@ -338,7 +306,7 @@ jobs:
   # this failure mode. See .claude/reference/lab-notes.md (2026-06-04).
   deploy-install:
     name: deploy-install
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     # Runs only when the install recipe or a lifecycle-script input changed —
@@ -355,3 +323,51 @@ jobs:
         run: rm -rf .git
       - name: Install must succeed without git (runs prepare/postinstall)
         uses: ./.github/actions/setup
+
+  # Advisory codebase-health gate (was its own workflow, fallow.yml, until the
+  # CI cost pass — see the `test` job's coverage step). Runs
+  # `fallow audit --gate new-only --coverage`, which respects the rule
+  # severities in .fallowrc.jsonc and fails ONLY on findings this PR introduces
+  # (the acknowledged backlog in .fallowrc.jsonc is not re-litigated). It can go
+  # red but is NOT a required status check — promote it in the ruleset once the
+  # signal is trusted.
+  #
+  # `ci:fallow:coverage` is deliberately NOT mirrored in lefthook.yml (the one
+  # sanctioned exception in src/__tests__/ci-audit-wiring.test.ts): its input
+  # is a full `vitest run --coverage`, which has no place in a pre-push hook.
+  # The faithful local reproduction is `pnpm test:coverage && pnpm
+  # ci:fallow:coverage` (lab-notes "fallow coverage DB-complete").
+  fallow:
+    name: fallow
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    needs: [changes, test]
+    # Docs-only PRs change no code-health signal. `needs: test` also means a red
+    # suite skips this job instead of auditing a partial coverage report.
+    if: needs.changes.outputs.docs_only != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history (all branches) so the PR's base branch — origin/<base> —
+          # is available to fallow as the diff base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup
+      - name: Install fallow
+        # Pinned: a floating version makes findings drift day to day. Bump on
+        # purpose, verifying same diff → same verdict first.
+        run: npm install -g fallow@3.16.0
+      - name: Download coverage from the test job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage
+          path: coverage
+      - name: Fallow audit (new findings only, coverage-informed)
+        env:
+          # Stacked PRs target a non-main base. Compare against the PR's actual
+          # base branch so we never re-count the parent branch's findings as new.
+          # Normal PRs (base = main) resolve to origin/main, the prior behaviour.
+          FALLOW_BASE: origin/${{ github.event.pull_request.base.ref }}
+        run: pnpm ci:fallow:coverage

@@ -40,7 +40,7 @@
     "ci:outbox-seam": "tsx scripts/ci/outbox-seam-audit.ts",
     "ci:dropped-columns": "tsx scripts/ci/dropped-columns-audit.ts",
     "ci:directory-map": "tsx scripts/ci/directory-map-audit.ts",
-    "// fallow gate split": "The CI fallow gate is ci:fallow:coverage (coverage-informed) — run ONLY by .github/workflows/fallow.yml after test:coverage so cold-path/CRAP signals use real runtime coverage; it is NOT in lefthook's pre-push. The static ci:fallow (fast, no coverage gen) is retained for LOCAL/MANUAL runs and is wired into NO hook or workflow. ci:fallow:coverage self-heals its input first: normalize-v8-coverage clamps vitest-v8's out-of-range -1 branch counts to 0 (spec-valid istanbul) so fallow's u32 coverage parser accepts the report.",
+    "// fallow gate split": "The CI fallow gate is ci:fallow:coverage (coverage-informed) — run ONLY by ci.yml's `fallow` job on the `test` job's test:coverage artifact so cold-path/CRAP signals use real runtime coverage; it is NOT in lefthook's pre-push (CI_ONLY_BY_DESIGN in src/__tests__/ci-audit-wiring.test.ts). The static ci:fallow (fast, no coverage gen) is retained for LOCAL/MANUAL runs and is wired into NO hook or workflow. ci:fallow:coverage self-heals its input first: normalize-v8-coverage clamps vitest-v8's out-of-range -1 branch counts to 0 (spec-valid istanbul) so fallow's u32 coverage parser accepts the report.",
     "ci:fallow": "fallow audit --gate new-only --fail-on-issues --base ${FALLOW_BASE:-origin/main}",
     "ci:fallow:coverage": "tsx scripts/ci/normalize-v8-coverage.ts && fallow audit --gate new-only --fail-on-issues --coverage coverage/coverage-final.json --base ${FALLOW_BASE:-origin/main}",
     "worker": "tsx worker/index.ts",

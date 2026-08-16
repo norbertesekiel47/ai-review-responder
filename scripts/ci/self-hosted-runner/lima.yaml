@@ -1,0 +1,94 @@
+# RepWorth self-hosted CI runner — Lima VM definition.
+#
+# One Ubuntu 24.04 VM on the founder's Mac (Apple Virtualization framework,
+# native arm64), with Docker + the Postgres client + git inside, and the GitHub
+# Actions runner installed by register-runner.sh as a systemd service. Every job
+# in ci.yml / e2e.yml / react-doctor.yml lands here while the repo variable
+# CI_RUNNER=self-hosted is set; self-hosted minutes are free.
+#
+# Why a Linux VM and not the macOS runner: `services: postgres` blocks need
+# Docker on Linux, and CI must stay Linux (case-sensitive FS, GNU userland)
+# to keep one code path with the GitHub-hosted fallback.
+# Why Lima and not OrbStack: OrbStack needs a paid licence for commercial use;
+# Lima is Apache-2.0 and gives the same shape (systemd VM + docker inside).
+#
+# Create / start / manage with scripts/ci/self-hosted-runner/install.sh — do
+# not `limactl create` this file by hand unless you are debugging.
+# Runbook: docs/runbooks/self-hosted-ci-runner.md
+
+minimumLimaVersion: 2.0.0
+
+# Lima's own pinned Ubuntu 24.04 cloud images (digest-checked, all arches).
+# `_default/mounts` is deliberately NOT inherited — see `mounts:` below.
+base:
+  - template:_images/ubuntu-24.04
+
+vmType: "vz"
+os: "Linux"
+
+# Sized against the GitHub-hosted private-repo runner (2 vCPU / 8 GB): more
+# cores because vitest + next build fan out, same RAM ceiling so a job that
+# fits here fits there when CI falls back to hosted. Disk is sparse.
+cpus: 6
+memory: "8GiB"
+disk: "80GiB"
+
+# NO host mounts. The Mac's home directory must not be visible to CI: a job
+# runs `pnpm install` on Dependabot PRs and third-party postinstall scripts,
+# and the whole point of the VM is that this code cannot read the host.
+mounts: []
+
+# The runner uses Docker (apt docker.io); Lima's own containerd is not needed.
+containerd:
+  system: false
+  user: false
+
+provision:
+  # System packages every job needs. Node itself is installed per job by
+  # actions/setup-node into the runner's tool cache (persistent), so it is
+  # deliberately NOT installed here — .nvmrc stays the single owner of the
+  # Node version. Playwright's apt deps are installed by the e2e job's own
+  # `playwright install-deps` step (the Lima user has passwordless sudo).
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        docker.io \
+        postgresql-client \
+        git curl jq unzip ca-certificates \
+        build-essential python3 \
+        libicu74
+      systemctl enable --now docker
+      # {{.User}} = the Lima user (mirrors the Mac username); the runner
+      # service runs as this user and needs the docker socket.
+      usermod -aG docker "{{.User}}"
+      # Weekly GC of stopped containers, dangling images/networks and unused
+      # volumes (the per-job hook does the same before each job; this catches
+      # whatever it missed). No `-a`: images in use by the jobs — postgres:16 —
+      # stay cached instead of being re-pulled every week.
+      cat >/etc/cron.weekly/docker-gc <<'EOF'
+      #!/bin/sh
+      docker system prune -f --volumes >/dev/null 2>&1 || true
+      EOF
+      chmod +x /etc/cron.weekly/docker-gc
+
+probes:
+  # Runs as the Lima user over Lima's ssh ControlMaster, which is opened BEFORE
+  # provisioning finishes — so the session predates `usermod -aG docker` and a
+  # bare `docker info` here is "permission denied" forever (bit us on the first
+  # install: `limactl start` timed out after 10 min with docker fully healthy).
+  # Ask systemd as root instead. The runner's own systemd session, started
+  # later, sees the group.
+  - script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 120s bash -c "until sudo systemctl is-active --quiet docker; do sleep 3; done"; then
+        echo >&2 "docker.service is not active yet"
+        exit 1
+      fi
+    hint: |
+      Docker did not come up inside the VM. Check with:
+        limactl shell repworth-ci sudo journalctl -u docker --no-pager | tail -50
