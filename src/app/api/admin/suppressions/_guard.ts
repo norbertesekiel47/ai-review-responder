@@ -7,15 +7,16 @@
 // review, and it reads identically here.
 //
 // WHY THIS DOES NOT ALSO WRAP THE AAL2 GATE. An earlier version of this file
-// did, and it was wrong: `scripts/ci/admin-aal2-audit.ts` is a file-level TEXT
-// scan asserting every admin route exporting a mutation verb contains
-// `requireAdminWithAal2`. Hiding the call behind a wrapper made three real,
-// still-gated routes read as ungated and turned the audit red — and the audit
-// is right to be strict, because "is this admin mutation MFA-gated?" should be
-// answerable by grepping the route, not by following a wrapper. The audit does
-// have a `GATED_SHARED_HELPERS` allowlist for thin delegators, but taking it
-// here would trade a greppable gate for a shorter file. The gate therefore
-// stays spelled out in each route; only the body handling lives here.
+// did, and it was wrong: `scripts/ci/admin-aal2-audit.ts` asserts that every
+// exported mutation handler on an admin route REACHES `requireAdminWithAal2`.
+// Hiding the call behind a wrapper made three real, still-gated routes read as
+// ungated and turned the audit red — and the audit is right to be strict,
+// because "is this admin mutation MFA-gated?" should be answerable by reading
+// the route, not by following a wrapper. Since the audit became an AST scan it
+// follows local delegation within a route file (`withSameOrigin()(inner)`), but
+// an imported wrapper still terminates the walk and is a finding by design —
+// fail-closed. The gate therefore stays spelled out in each route; only the
+// body handling lives here.
 
 import type { NextRequest, NextResponse } from 'next/server';
 import { NextResponse as Response } from 'next/server';
