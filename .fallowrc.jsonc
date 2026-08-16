@@ -395,7 +395,21 @@
       // `AdminImpersonationViewPage` from 12 cyclomatic / 141 lines / 156 CRAP on
       // main down to 11 / 104 / 132. Still over threshold, so it is acknowledged
       // rather than left to fail a gate it was already failing before the PR.
-      "src/app/admin/impersonate/*/view/page.tsx"
+      "src/app/admin/impersonate/*/view/page.tsx",
+
+      // ── Console scope hardening, PR 3a (#845) ──
+      // dashboard/connect/page.tsx — the design-token PR changed exactly two
+      // lines here (one comment, plus `fontFamily` added to the inline `HEADING`
+      // const so the connect headings restate the Console display face the way
+      // `.page-title` does). Line count is identical before and after, and both
+      // flagged functions are byte-identical to main: `ConnectPageInner`
+      // (25 cyclomatic / 46 cognitive / 248 lines, 32.0 CRAP at 78% tested) and
+      // `friendlyErrorMessage` (19 cyclomatic / 35 lines, 138.8 CRAP at 31%
+      // tested). Neither dimension is reducible by coverage alone — the six-state
+      // connect matrix is one component by design — so this is the same
+      // "pre-existing on main, touched mechanically" case as the entries above,
+      // acknowledged rather than left to fail a gate it was already failing.
+      "src/app/(authenticated)/dashboard/connect/page.tsx"
     ]
   },
   "duplicates": {

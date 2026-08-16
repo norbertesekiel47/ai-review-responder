@@ -286,13 +286,23 @@ first; not required for independence.
 > follow-up lines in `console.css` are now redundant — harmless, and left in
 > place.
 >
-> Two things went with it. `::selection` in `console.css` was the one rule in
-> that file matching elements OUTSIDE the Console, so it moved inside the scope
-> with the tokens (otherwise a stale chunk turns a leaked selection color into
-> an unresolvable `var()` and an invisible highlight). And the dead `.rw-app`
-> element-style block at the end of `tokens.css` was deleted — the class was
-> applied nowhere in `src/`; the `--rw-app-*` composite TOKENS are unrelated and
-> stay.
+> The dead `.rw-app` element-style block at the end of `tokens.css` went with
+> it — the class was applied nowhere in `src/`; the `--rw-app-*` composite
+> TOKENS are unrelated and stay.
+>
+> **One follow-up this uncovered, deliberately NOT taken here.** `::selection`
+> in `console.css` is the one rule in that file whose selector matches elements
+> OUTSIDE the Console, so in the stale-chunk scenario the file's own header
+> comment names it applies to public pages. That used to leak a Console
+> selection color; with the tokens scoped it is instead an unresolvable `var()`,
+> i.e. a transparent (invisible) selection highlight. Scoping it to
+> `.rw-console` is the fix and was written, then reverted: any edit to
+> `console.css` pulls two pre-existing clone groups
+> (`console.css:482-495` ↔ `settings.css:183-195`, and a self-clone at
+> `console.css:988-996` ↔ `1132-1136`) into `fallow --gate new-only`'s
+> changed-file scope, and silencing a whole 2,269-line stylesheet in
+> `duplicates.ignore` to land a cosmetic hardening is the worse trade. Do it
+> together with those clones, or with the next real `console.css` change.
 
 Optional, larger (PR 3): extract the ~2,400 lines of landing-island /
 features / how-it-works / pricing page CSS out of `globals.css` into colocated

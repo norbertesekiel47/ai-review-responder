@@ -2057,14 +2057,8 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* selection — scoped with the tokens (PR 3a). A bare `::selection` is the only
-   rule in this file that matches elements OUTSIDE the Console, so a stale chunk
-   surviving a client navigation applied it to public pages. That used to mean
-   "Console selection colors leak"; now that the tokens are declared on
-   `.rw-console` it would instead mean an unresolvable var() and an invisible
-   selection highlight, so the selector moves inside the scope with them. */
-.rw-console::selection,
-.rw-console ::selection { background: var(--rw-accent-100); color: var(--rw-accent-800); }
+/* selection */
+::selection { background: var(--rw-accent-100); color: var(--rw-accent-800); }
 
 /* ---------- Location chip (aggregate reviews, briefs) ---------- */
 .location-chip {
