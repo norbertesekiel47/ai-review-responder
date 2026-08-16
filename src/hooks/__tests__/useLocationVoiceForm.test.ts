@@ -1,4 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
 
 // ── Mock fetch ─────────────────────────────────────────────────────────
 
@@ -85,5 +87,75 @@ describe('useLocationVoiceForm utilities', () => {
       const result = buildPatch(initial, current);
       expect(result!.avoidFacts).toEqual(['a', 'b']);
     });
+  });
+});
+
+// ── Multi-location MODE is the SERVER's answer (invariants #9b + #13) ────────
+//
+// `shouldUseMultiLocationSettings` is `featureEnabled && activeLocationCount > 1`.
+// The hook previously re-spelled only the second half as `locations.length > 1`,
+// so an account with 2 active locations and MULTI_LOCATION_ENABLED=false got the
+// multi-location voice UI. These tests pin BOTH directions so the count-only
+// derivation cannot come back: a count-based implementation passes the "on" case
+// and fails the "off" one.
+
+describe('useLocationVoiceForm — multi-location mode comes from the server', () => {
+  function mockTwoLocations(): void {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ locations: MOCK_LOCATIONS }),
+    });
+  }
+
+  it('stays in single-location mode when the server says the flag is off, even with 2 locations', async () => {
+    mockTwoLocations();
+    const { useLocationVoiceForm } = await import('../useLocationVoiceForm');
+
+    const { result } = renderHook(() =>
+      useLocationVoiceForm({ multiLocationEnabled: false }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Two locations were loaded — the count alone would have said "multi".
+    expect(result.current.locations).toHaveLength(2);
+    expect(result.current.isMultiLocation).toBe(false);
+  });
+
+  it('enters multi-location mode when the server resolved it true', async () => {
+    mockTwoLocations();
+    const { useLocationVoiceForm } = await import('../useLocationVoiceForm');
+
+    const { result } = renderHook(() =>
+      useLocationVoiceForm({ multiLocationEnabled: true }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.locations).toHaveLength(2);
+    expect(result.current.isMultiLocation).toBe(true);
+  });
+
+  it('reports the server answer verbatim and never AND-s a local count into it', async () => {
+    // Unreachable in production (the server derives mode from the same rows),
+    // but it is what kills the halfway mutant `multiLocationEnabled && count > 1`:
+    // mode has ONE owner, `shouldUseMultiLocationSettings`, and the hook is not
+    // allowed a second opinion.
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ locations: [MOCK_LOCATIONS[0]] }),
+    });
+    const { useLocationVoiceForm } = await import('../useLocationVoiceForm');
+
+    const { result } = renderHook(() =>
+      useLocationVoiceForm({ multiLocationEnabled: true }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.locations).toHaveLength(1);
+    expect(result.current.isMultiLocation).toBe(true);
   });
 });

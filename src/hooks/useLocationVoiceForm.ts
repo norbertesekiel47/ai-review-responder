@@ -39,6 +39,21 @@ interface LocationFormEntry {
   saving: boolean;
 }
 
+export interface UseLocationVoiceFormOptions {
+  /**
+   * Multi-location MODE, resolved on the server by
+   * `shouldUseMultiLocationSettings(multiLocationEnabled(), activeLocationCount)`
+   * and passed down from `settings/voice/page.tsx`.
+   *
+   * The hook must NEVER re-derive this from `locations.length` and must never
+   * read a flag itself: `locations.length > 1` drops the MULTI_LOCATION_ENABLED
+   * half of the check (invariant #9b — mode / visibility / eligibility are three
+   * checks that never collapse into one boolean), and a client-side flag read
+   * would violate invariant #13.
+   */
+  multiLocationEnabled: boolean;
+}
+
 export interface UseLocationVoiceForm {
   /** All locations with their voice config. */
   locations: LocationVoiceConfig[];
@@ -68,7 +83,7 @@ export interface UseLocationVoiceForm {
   loading: boolean;
   /** Fetch error. */
   fetchError: string | null;
-  /** Whether the account has more than one location. */
+  /** Whether this account is in multi-location settings mode (server-resolved). */
   isMultiLocation: boolean;
   /** Display name for the currently selected location. */
   selectedDisplayName: string | null;
@@ -116,7 +131,9 @@ export function buildPatch(initial: VoiceFormState, current: VoiceFormState): Re
 
 // ── Hook ─────────────────────────────────────────────────────────────────
 
-export function useLocationVoiceForm(): UseLocationVoiceForm {
+export function useLocationVoiceForm(
+  { multiLocationEnabled }: UseLocationVoiceFormOptions,
+): UseLocationVoiceForm {
   const [entries, setEntries] = useState<Map<string, LocationFormEntry>>(new Map());
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -193,7 +210,10 @@ export function useLocationVoiceForm(): UseLocationVoiceForm {
     [entries],
   );
 
-  const isMultiLocation = locations.length > 1;
+  // Server-resolved mode, verbatim — see UseLocationVoiceFormOptions. A local
+  // `locations.length > 1` here would render the multi-location voice UI for an
+  // account with the feature flag OFF.
+  const isMultiLocation = multiLocationEnabled;
 
   const selectedDisplayName = currentEntry?.config.displayName ?? null;
 
