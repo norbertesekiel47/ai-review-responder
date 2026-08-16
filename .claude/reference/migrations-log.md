@@ -191,7 +191,7 @@ Revisit triggers:
 
   Any pre-existing duplicate `posted` rows would abort the CONCURRENTLY
   index build mid-way (leaving an INVALID index that requires `DROP INDEX`
-  + retry). See `docs/runbooks/zernio-launch-runbook.md` §10 for the full
+  + retry). See `docs/runbooks/completed_runbooks/zernio-launch-runbook.md` §10 for the full
   Phase A / B1 / B2 rollout playbook.
 
   Migration ships on `feat/past-replies-view`. Same migration file appears
@@ -2415,11 +2415,11 @@ org-default rows by `(account_id, channel, location_id IS NULL)`; the
 `mobile_enroll` advisory lock is account-scoped for those channels. `business_id`
 stays the legacy FK on INSERT only.
 
-**STILL OPEN (deferred, tracked in `docs/known-issues.md`):**
+**Deferred at the time — since resolved (`docs/known-issues.md` retired 2026-06-11 in `8e185e38` once every entry had shipped; #132/#133):**
 - ~~Admin **SMS** still locks per business (`withMobileEnrollmentLock`) and prechecks cross-channel by `business_id`~~ — **MOOT: SMS removed (migration 061, 2026-06-09).**
-- **Dispatcher** failure-handling writes (`worker/jobs/notification/dispatch.ts`)
+- ~~**Dispatcher** failure-handling writes (`worker/jobs/notification/dispatch.ts`)
   flip enrollment status by `business_id = ctx.businessId` — can miss the org-default
-  row on multi-location.
+  row on multi-location~~ — **FIXED (#133): the status flip is keyed by `account_id`.**
 - Admin per-business **status read** (`admin/businesses/[id]/channels`) lists by
   `business_id` — display-only mismatch.
 
