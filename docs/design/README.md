@@ -6,9 +6,9 @@ and no component recipes so it can never drift from them.
 
 | System | Scope | Style Reference | Token file (the "CSS variables" export) | `@theme` block (the "Tailwind v4" export) | Guard |
 |---|---|---|---|---|---|
-| **Landing** | `.rw-lp` | [`landing/DESIGN.md`](./landing/DESIGN.md) + [`landing/measurements.md`](./landing/measurements.md) | `src/components/sections/landing/landing-experience.css` (+ `hero/hero.css`) | none — Landing is plain CSS | Landing scope guard (PR 2) |
-| **Island** | `:root` | [`island/DESIGN.md`](./island/DESIGN.md) | `src/app/globals.css` `:root` | `globals.css` `@theme inline` — Island entries | [`design-token-single-source.test.ts`](../../src/__tests__/design-token-single-source.test.ts) |
-| **Console** ("Warm Editorial") | `.rw-console` | [`console/DESIGN.md`](./console/DESIGN.md) | `src/app/(authenticated)/_styles/tokens.css` | `_styles/theme.css` (PR 2; today in `globals.css`) | the same test + `console-admin-palette` / `no-yellow-star-colors` / `save-bar-sidebar-width` |
+| **Landing** | `.rw-lp` | [`landing/DESIGN.md`](./landing/DESIGN.md) + [`landing/measurements.md`](./landing/measurements.md) | `src/components/sections/landing/landing-experience.css` (+ `hero/hero.css`) | none — Landing is plain CSS | [`design-scope-purity.test.ts`](../../src/__tests__/design-scope-purity.test.ts) — only `--rw-lp-*` may be declared |
+| **Island** | `:root` | [`island/DESIGN.md`](./island/DESIGN.md) | `src/app/globals.css` `:root` | `globals.css` `@theme inline` — Island entries | [`design-token-single-source.test.ts`](../../src/__tests__/design-token-single-source.test.ts) + [`design-scope-purity.test.ts`](../../src/__tests__/design-scope-purity.test.ts) — the `@theme` block may name no Console token |
+| **Console** ("Warm Editorial") | `.rw-console` | [`console/DESIGN.md`](./console/DESIGN.md) | `src/app/(authenticated)/_styles/tokens.css` | [`_styles/theme.css`](../../src/app/(authenticated)/_styles/theme.css), `@import`ed from `globals.css` | the same single-source test (colors **and** font families) + `console-admin-palette` / `no-yellow-star-colors` / `save-bar-sidebar-width` |
 | _Brand (shared)_ | — | this file + root [`DESIGN.md`](../../DESIGN.md) + [`brand-story.md`](./brand-story.md) | `--rw-font-*` families in `globals.css` | — | — |
 
 ## Which system am I in?
@@ -31,12 +31,19 @@ the amber/orange/stone ban locked by `console-admin-palette.test.ts`.
 
 1. **Tokens live in code, not in a doc.** Each system's token file *is* its export. A
    Style Reference's Tokens tables restate the values for readability and are pinned to the
-   token file by test; everything else — recipes, prose — points at the file.
+   token file by [`design-doc-token-pin.test.ts`](../../src/__tests__/design-doc-token-pin.test.ts)
+   — every `` `--rw-*` `` a table names must exist in that system's token file, and where the
+   table has both a **Value** and a **Token** column the value must match the declaration.
+   Everything else — recipes, prose — points at the file.
 2. **One owner per token; no cross-scope declarations.** The Console token file must not
    re-declare an Island color or font token: that reintroduced the `--rw-sage` collision,
    where one name resolved to the Island sage on public pages but the Console sage inside
    the dashboard, decided only by CSS load order. `globals.css` loads on every route, so
    the other two systems inherit it by fall-through — they override, they do not restate.
+   **An override belongs inside the scope** (`.rw-console` / `.rw-lp`), or on the scoped
+   element itself: the Console's Young Serif and DM Sans are `localFont` variables bound
+   on the `.rw-console` div, and its system-mono stack is a `.rw-console` rule in
+   `console.css`. A second `:root` declaration is never the mechanism.
 3. **The two teals.** The decorative Island teal fails WCAG AA for text. For links, button
    fills, and any text use the actionable teal token, which passes AA on white and cream
    (and neither on sage or teal — use ink there). Rationale:
@@ -69,7 +76,13 @@ router to all three Style References.
 
 ## Known follow-ups (not in this pass)
 
-- **Tailwind v4 `@theme` migration is effectively complete.** Verified 2026-08-16:
+- **Tailwind v4 `@theme` migration is complete.** Verified 2026-08-16:
   `rg -l '\[#[0-9a-fA-F]{3,8}\]' src/components src/app --glob '*.tsx'` returns **0 files**
-  — no component hardcodes an arbitrary-value hex. What remains is PR 2's split of the
-  Console `@theme` entries out of the Island file.
+  — no component hardcodes an arbitrary-value hex. The Console `@theme` entries now live in
+  their own file, and the v3-era `tailwind.config.mjs` + its `@config` line are gone (v4
+  auto-detects content; the file's `theme`/`plugins` were empty and the built utility set
+  is identical without it).
+- **Not in this pass:** moving the Console declarations from `:root` to `.rw-console` in
+  `tokens.css` (needs a portal audit first — a component rendered through a portal outside
+  the `.rw-console` div would lose its tokens), and extracting the ~2,400 lines of page CSS
+  out of `globals.css`. Both are recorded in the spec as separate decisions.
