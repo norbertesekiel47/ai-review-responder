@@ -28,7 +28,7 @@ const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql } = await vi.hoisted(asy
 });
 
 import { getAdminNavCounts } from '../nav-counts-service';
-import { getAdminBusinessesList } from '../businesses-list-service';
+import { getBusinessSummaries } from '../business-summary';
 import { getAdminOffboardings } from '../offboardings-service';
 import { getAdminJobsData } from '../jobs-service';
 import { getMarginReport } from '../margin-service';
@@ -52,10 +52,12 @@ const CASES: Case[] = [
     run: (sql) => getAdminNavCounts(sql),
   },
   {
-    name: 'getAdminBusinessesList',
+    // The held first query releases zero rows, so the metrics follow-up is
+    // skipped and the paginated bundle is exactly rows → COUNT.
+    name: 'getBusinessSummaries',
     queries: 2,
     rest: [[{ total: 0 }]],
-    run: (sql) => getAdminBusinessesList(sql, PAGE),
+    run: (sql) => getBusinessSummaries(sql, PAGE),
   },
   {
     name: 'getAdminOffboardings',

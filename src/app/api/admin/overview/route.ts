@@ -15,11 +15,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!auth.ok) return auth.response;
 
   try {
-    const rawLimit = parseInt(request.nextUrl.searchParams.get('limit') ?? '20', 10);
-    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 100);
-    const offset = Math.max(parseInt(request.nextUrl.searchParams.get('offset') ?? '0', 10) || 0, 0);
-
-    const data = await getAdminOverview(sql, { limit, offset });
+    // No limit/offset: Overview returns the at-risk list, capped in the service
+    // at OVERVIEW_AT_RISK_LIMIT (spec §5.1/§5.3). Nothing here to parse or clamp.
+    const data = await getAdminOverview(sql);
 
     return NextResponse.json(data);
   } catch (error) {

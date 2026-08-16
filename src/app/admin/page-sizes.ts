@@ -24,8 +24,12 @@
 // directive. The client components import these too, which is fine — the
 // direction that breaks is server-importing-from-client, never the reverse.
 
-/** Admin Overview — businesses table page size. */
-export const OVERVIEW_PAGE_SIZE = 20;
+// Admin Overview has no page size: it stopped paginating in favour of the
+// at-risk list (spec §5.1/§5.3). That list's cap, OVERVIEW_AT_RISK_LIMIT, is
+// declared by the module that applies it — src/lib/admin/overview-service.ts —
+// because `src/lib/**` may not import `@/app/**` (eslint APP_LEAF_IMPORT_BAN)
+// and no page or client component reads the number. See the deviations log.
+
 /** Admin Jobs — failed-jobs table page size. */
 export const JOBS_PAGE_SIZE = 20 as const;
 /** Admin Costs — per-business cost table page size. */
