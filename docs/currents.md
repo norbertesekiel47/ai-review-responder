@@ -2564,7 +2564,7 @@ Class names didn't change. `OutboxPoller` is still `OutboxPoller`. `Notification
 
 ### Where to read more
 
-- `docs/directory.md` — the full file-by-file reference, with one row per file describing what it does.
+- `docs/directory.md` — the file-by-file reference; one row per production file under `worker/` + `src/lib/` (CI-enforced by `ci:directory-map`), folder-level for `src/app/` + `src/components/`.
 - `docs/superpowers/specs/2026-05-04-worker-folder-reorg-design.md` and `docs/superpowers/specs/2026-05-05-worker-background-split-design.md` — the planning documents (local-only, not in git).
 
 ---
