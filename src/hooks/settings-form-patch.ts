@@ -64,6 +64,41 @@ export function patchOrNull(
 }
 
 /**
+ * The account settings form: the four voice fields plus three the per-location
+ * Voice tab has no concept of. Structural, so `useSettingsForm`'s own
+ * `SettingsForm` satisfies it without this module importing the hook.
+ */
+export interface AccountSettingsFields extends VoiceFormFields {
+  ownerPhone: string;
+  weeklySummaryEnabled: boolean;
+  monthlyImpactEnabled: boolean;
+}
+
+/**
+ * The whole PUT body for `/api/settings`, or `null` when nothing changed.
+ *
+ * Lives HERE rather than inside `useSettingsForm` so it is reachable — and so
+ * testable — without rendering the hook; as a hook-private function it was
+ * uncovered and scored CRAP 30. `ownerPhone` clears to `null` (matching
+ * `productsServices`); the two booleans send their new value as-is, `false`
+ * included.
+ */
+export function buildAccountSettingsPatch(
+  initial: AccountSettingsFields,
+  current: AccountSettingsFields,
+): Record<string, unknown> | null {
+  const patch = buildVoiceFieldsPatch(initial, current);
+  if (current.ownerPhone !== initial.ownerPhone) patch.ownerPhone = current.ownerPhone || null;
+  if (current.weeklySummaryEnabled !== initial.weeklySummaryEnabled) {
+    patch.weeklySummaryEnabled = current.weeklySummaryEnabled;
+  }
+  if (current.monthlyImpactEnabled !== initial.monthlyImpactEnabled) {
+    patch.monthlyImpactEnabled = current.monthlyImpactEnabled;
+  }
+  return patchOrNull(patch);
+}
+
+/**
  * How many of `current`'s fields differ from `initial` — the number the save bar
  * shows. Keyed off `current`'s own keys (not `initial`'s), matching what both
  * hooks did before, and compared by JSON so array fields count as one field.

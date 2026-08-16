@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 // ── Mock fetch ─────────────────────────────────────────────────────────
 
@@ -157,5 +157,110 @@ describe('useLocationVoiceForm — multi-location mode comes from the server', (
 
     expect(result.current.locations).toHaveLength(1);
     expect(result.current.isMultiLocation).toBe(true);
+  });
+});
+
+// ── save() ──────────────────────────────────────────────────────────────────
+//
+// The per-location PUT. It scopes the write to `selectedLocationId` in BOTH the
+// URL body and the entry it marks saved, which is the whole reason the Voice tab
+// can hold several locations' forms at once — untested, that scoping is one
+// typo away from writing a sibling location's voice.
+
+describe('useLocationVoiceForm — save', () => {
+  async function loadTwoLocations() {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ locations: MOCK_LOCATIONS }),
+    });
+    const { useLocationVoiceForm } = await import('../useLocationVoiceForm');
+    const { result } = renderHook(() =>
+      useLocationVoiceForm({ multiLocationEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    return result;
+  }
+
+  it('PUTs only the changed fields, scoped to the selected location, and clears dirty', async () => {
+    const result = await loadTwoLocations();
+
+    // Select the SECOND location, so a hardcoded primary would fail this.
+    act(() => result.current.setSelectedLocationId(LOCATION_ID_2));
+    act(() => result.current.set('tone', 'playful'));
+
+    expect(result.current.dirty).toBe(true);
+    expect(result.current.dirtyCount).toBe(1);
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    await act(async () => { await result.current.save(); });
+
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).toBe('/api/settings/voice');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ locationId: LOCATION_ID_2, tone: 'playful' });
+
+    // Saved: the entry's baseline moved to the current form.
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.saving).toBe(false);
+    expect(result.current.saveError).toBeNull();
+    expect(result.current.savedFlash).toBe(true);
+
+    // The other location is untouched — its form still holds its own tone.
+    act(() => result.current.setSelectedLocationId(LOCATION_ID_1));
+    expect(result.current.form?.tone).toBe('professional');
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('is a no-op when nothing is dirty', async () => {
+    const result = await loadTwoLocations();
+    const callsBefore = mockFetch.mock.calls.length;
+
+    await act(async () => { await result.current.save(); });
+
+    expect(mockFetch.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('surfaces the server error on the current form and leaves it dirty', async () => {
+    const result = await loadTwoLocations();
+    act(() => result.current.set('tone', 'playful'));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'location_archived' }),
+    });
+    await act(async () => { await result.current.save(); });
+
+    expect(result.current.saveError).toBe('location_archived');
+    expect(result.current.saving).toBe(false);
+    expect(result.current.savedFlash).toBe(false);
+    // Unsaved edits survive a failed save.
+    expect(result.current.dirty).toBe(true);
+  });
+
+  it('falls back to a status-coded message when the error body is unreadable', async () => {
+    const result = await loadTwoLocations();
+    act(() => result.current.set('tone', 'playful'));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => { throw new Error('not json'); },
+    });
+    await act(async () => { await result.current.save(); });
+
+    expect(result.current.saveError).toBe('Save failed (500)');
+  });
+
+  it('discard restores the saved snapshot', async () => {
+    const result = await loadTwoLocations();
+    act(() => result.current.set('tone', 'playful'));
+    expect(result.current.dirty).toBe(true);
+
+    act(() => result.current.discard());
+
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.form?.tone).toBe('professional');
   });
 });

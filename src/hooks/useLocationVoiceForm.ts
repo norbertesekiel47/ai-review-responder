@@ -121,6 +121,67 @@ export function buildPatch(initial: VoiceFormState, current: VoiceFormState): Re
   return buildPatchInternal(initial, current);
 }
 
+/**
+ * Replace one location's entry, leaving the map untouched when that location is
+ * no longer present (a location archived while its form was open). The five
+ * `setEntries` closures in the hook each spelled this out — copy the map, look
+ * the entry up, bail to `prev` if it vanished — which is where most of the
+ * hook's cognitive complexity lived.
+ *
+ * Same observable result as the closures it replaces: identity-unchanged map on
+ * a miss, fresh map with exactly one key rewritten on a hit.
+ */
+function updateEntry(
+  entries: Map<string, LocationFormEntry>,
+  locationId: string,
+  update: (entry: LocationFormEntry) => LocationFormEntry,
+): Map<string, LocationFormEntry> {
+  const entry = entries.get(locationId);
+  if (!entry) return entries;
+  const next = new Map(entries);
+  next.set(locationId, update(entry));
+  return next;
+}
+
+/**
+ * GET every location's voice config and index it by location id, plus which
+ * location the tab should open on (primary, else the first).
+ *
+ * Extracted from the mount effect so the effect keeps only its own concern —
+ * the `cancelled` guard around each state write. Nothing here touches React
+ * state, so it is safe to complete after unmount; the caller drops the result.
+ */
+async function fetchLocationEntries(): Promise<{
+  entries: Map<string, LocationFormEntry>;
+  defaultLocationId: string | null;
+}> {
+  const res = await fetch('/api/settings/voice');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Request failed (${res.status})`);
+  }
+  const json = await res.json();
+  const locs: LocationVoiceConfig[] = json.locations ?? [];
+
+  const entries = new Map<string, LocationFormEntry>();
+  for (const loc of locs) {
+    const form = configToForm(loc);
+    entries.set(loc.locationId, {
+      config: loc,
+      form,
+      initial: { ...form },
+      saveError: null,
+      saving: false,
+    });
+  }
+
+  const primary = locs.find((l) => l.isPrimary);
+  return {
+    entries,
+    defaultLocationId: primary?.locationId ?? locs[0]?.locationId ?? null,
+  };
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useLocationVoiceForm(
@@ -147,36 +208,16 @@ export function useLocationVoiceForm(
 
     async function load() {
       try {
-        const res = await fetch('/api/settings/voice');
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error ?? `Request failed (${res.status})`);
-        }
-        const json = await res.json();
+        // The fetch, the error shape and the indexing live in
+        // fetchLocationEntries; what stays here is only the effect's own
+        // concern — do not touch state after unmount.
+        const { entries: loaded, defaultLocationId } = await fetchLocationEntries();
 
         if (cancelled) return;
 
-        const locs: LocationVoiceConfig[] = json.locations ?? [];
-        const map = new Map<string, LocationFormEntry>();
-
-        for (const loc of locs) {
-          const form = configToForm(loc);
-          map.set(loc.locationId, {
-            config: loc,
-            form,
-            initial: { ...form },
-            saveError: null,
-            saving: false,
-          });
-        }
-
-        setEntries(map);
-
-        // Default selection: primary location, or first location
-        const primary = locs.find((l) => l.isPrimary);
-        const defaultId = primary?.locationId ?? locs[0]?.locationId ?? null;
-        if (defaultId && !selectedLocationId) {
-          setSelectedLocationId(defaultId);
+        setEntries(loaded);
+        if (defaultLocationId && !selectedLocationId) {
+          setSelectedLocationId(defaultLocationId);
         }
       } catch (err) {
         if (!cancelled) {
@@ -222,16 +263,10 @@ export function useLocationVoiceForm(
   // Set a form field
   const set = useCallback(<K extends keyof VoiceFormState>(key: K, value: VoiceFormState[K]) => {
     if (!selectedLocationId) return;
-    setEntries((prev) => {
-      const next = new Map(prev);
-      const entry = next.get(selectedLocationId);
-      if (!entry) return prev;
-      next.set(selectedLocationId, {
-        ...entry,
-        form: { ...entry.form, [key]: value },
-      });
-      return next;
-    });
+    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+      ...entry,
+      form: { ...entry.form, [key]: value },
+    })));
   }, [selectedLocationId]);
 
   // Save the current form
@@ -241,13 +276,11 @@ export function useLocationVoiceForm(
     if (!patch) return;
 
     // Mark saving
-    setEntries((prev) => {
-      const next = new Map(prev);
-      const entry = next.get(selectedLocationId);
-      if (!entry) return prev;
-      next.set(selectedLocationId, { ...entry, saving: true, saveError: null });
-      return next;
-    });
+    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+      ...entry,
+      saving: true,
+      saveError: null,
+    })));
 
     try {
       const res = await fetch('/api/settings/voice', {
@@ -262,50 +295,32 @@ export function useLocationVoiceForm(
       }
 
       // Update initial to match current form (mark as saved)
-      setEntries((prev) => {
-        const next = new Map(prev);
-        const entry = next.get(selectedLocationId);
-        if (!entry) return prev;
-        next.set(selectedLocationId, {
-          ...entry,
-          initial: { ...entry.form },
-          saving: false,
-          saveError: null,
-        });
-        return next;
-      });
+      setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+        ...entry,
+        initial: { ...entry.form },
+        saving: false,
+        saveError: null,
+      })));
 
       setSavedFlash(true);
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
       flashTimeoutRef.current = setTimeout(() => setSavedFlash(false), 1800);
     } catch (err) {
-      setEntries((prev) => {
-        const next = new Map(prev);
-        const entry = next.get(selectedLocationId);
-        if (!entry) return prev;
-        next.set(selectedLocationId, {
-          ...entry,
-          saving: false,
-          saveError: err instanceof Error ? err.message : 'Failed to save',
-        });
-        return next;
-      });
+      setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+        ...entry,
+        saving: false,
+        saveError: err instanceof Error ? err.message : 'Failed to save',
+      })));
     }
   }, [selectedLocationId, currentEntry]);
 
   // Discard changes
   const discard = useCallback(() => {
     if (!selectedLocationId) return;
-    setEntries((prev) => {
-      const next = new Map(prev);
-      const entry = next.get(selectedLocationId);
-      if (!entry) return prev;
-      next.set(selectedLocationId, {
-        ...entry,
-        form: { ...entry.initial },
-      });
-      return next;
-    });
+    setEntries((prev) => updateEntry(prev, selectedLocationId, (entry) => ({
+      ...entry,
+      form: { ...entry.initial },
+    })));
   }, [selectedLocationId]);
 
   return {

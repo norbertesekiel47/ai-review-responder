@@ -4,9 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardSettings } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
-  buildVoiceFieldsPatch,
+  buildAccountSettingsPatch,
   countDirtyFields,
-  patchOrNull,
 } from './settings-form-patch';
 
 /** The light GET /api/settings payload — the only fields the settings pages
@@ -42,17 +41,6 @@ function settingsToForm(s: DashboardSettings): SettingsForm {
     weeklySummaryEnabled: s.weeklySummaryEnabled,
     monthlyImpactEnabled: s.monthlyImpactEnabled,
   };
-}
-
-// The four voice fields come from the shared owner (settings-form-patch.ts,
-// also used by useLocationVoiceForm); this form adds the three account-level
-// fields the Voice tab has no concept of.
-function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string, unknown> | null {
-  const patch = buildVoiceFieldsPatch(initial, current);
-  if (current.ownerPhone !== initial.ownerPhone) patch.ownerPhone = current.ownerPhone || null;
-  if (current.weeklySummaryEnabled !== initial.weeklySummaryEnabled) patch.weeklySummaryEnabled = current.weeklySummaryEnabled;
-  if (current.monthlyImpactEnabled !== initial.monthlyImpactEnabled) patch.monthlyImpactEnabled = current.monthlyImpactEnabled;
-  return patchOrNull(patch);
 }
 
 export function settingsRedirectForDashboardData(
@@ -136,7 +124,7 @@ export function useSettingsForm(): UseSettingsForm {
 
   const dirty = useMemo(() => {
     if (!form || !initial) return false;
-    return buildPatch(initial, form) !== null;
+    return buildAccountSettingsPatch(initial, form) !== null;
   }, [form, initial]);
 
   const dirtyCount = useMemo(() => {
@@ -151,7 +139,7 @@ export function useSettingsForm(): UseSettingsForm {
   // fallow-ignore-next-line complexity
   async function save() {
     if (!form || !initial) return;
-    const patch = buildPatch(initial, form);
+    const patch = buildAccountSettingsPatch(initial, form);
     if (!patch) return;
     setSaving(true);
     setSaveError(null);
