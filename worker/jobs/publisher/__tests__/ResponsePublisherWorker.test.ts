@@ -236,27 +236,68 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
   });
 
+  // ── Owner-lane terminals: the fixture must make the GUARD load-bearing ──
+  //
+  // Both of these previously queued only the response + business rows. With
+  // the guard deleted, control flowed on to resolvePublishTarget, the mock
+  // queue ran DRY, the connection lookup returned [] → `no_connection` →
+  // parkResponseForOwnerReconnect → markOutboxCompleted — reaching the same
+  // three assertions by a different route. The tests passed either way while
+  // their titles claimed the coverage (Pathfinder 2026-08-15 census, group B).
+  //
+  // The fix is the fixture, not the assertion: an ACTIVE connection row plus a
+  // resolvable provider review id means the only thing standing between this
+  // job and a real Google post is the guard under test. `not.toHaveBeenCalled`
+  // on postReply is now a genuine claim about the guard.
+  function pushPublishableConnectionFixture(businessOverrides: Record<string, unknown>) {
+    sqlReturnQueue.push([mockResponseRow()]);                 // 1: response
+    sqlReturnQueue.push([mockBusinessRow(businessOverrides)]); // 2: business
+    sqlReturnQueue.push([mockZernioConnectionRow()]);          // 3: ACTIVE connection
+    sqlReturnQueue.push(Object.assign([], { count: 1 }));      // 4: UPDATE posted (guard-removed path)
+    mockLookupZernioReviewId.mockResolvedValue('zernio-rev-id-1');
+    mockPostReply.mockResolvedValue({
+      comment: 'Thank you for your kind review!',
+      updateTime: '2026-04-27T00:00:00Z',
+    });
+    mockListAllReviews.mockResolvedValue([
+      makeZernioReview('zernio-rev-id-1', 'Thank you for your kind review!'),
+    ]);
+  }
+
   it('completes outbox without action when subscription is cancelled', async () => {
-    sqlReturnQueue.push([mockResponseRow()]);
-    sqlReturnQueue.push([mockBusinessRow({ subscription_status: 'cancelled' })]);
+    pushPublishableConnectionFixture({ subscription_status: 'cancelled' });
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    // The guard is what stopped this — the connection resolved and the post
+    // would otherwise have gone out.
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockIsHeldForModerationReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
+    expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    // Nothing may reach the reconnect park either: that is the OTHER terminal
+    // this fixture used to be indistinguishable from.
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /awaiting_owner_connect/.test(t))).toBe(false);
   });
 
   it('completes outbox without action when location is archived before publishing', async () => {
-    sqlReturnQueue.push([mockResponseRow()]);
-    sqlReturnQueue.push([mockBusinessRow({ archived_at: new Date('2026-05-09T00:00:00Z') })]);
+    pushPublishableConnectionFixture({ archived_at: new Date('2026-05-09T00:00:00Z') });
 
     await handlePublishResponse(mockSql, makeJob());
 
-    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
     expect(mockPostReply).not.toHaveBeenCalled();
+    expect(mockLookupZernioReviewId).not.toHaveBeenCalled();
+    expect(mockIsHeldForModerationReview).not.toHaveBeenCalled();
     expect(mockMarkOutboxCompleted).toHaveBeenCalledWith(mockSql, 'outbox-pub-1', undefined);
     expect(mockMarkOutboxFailed).not.toHaveBeenCalled();
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /awaiting_owner_connect/.test(t))).toBe(false);
   });
 
   // F-5 belt-and-suspenders: even with an approved, active, connected response,
@@ -304,6 +345,38 @@ describe('ResponsePublisherWorker — Zernio branching', () => {
     );
     expect(mockPostReply).not.toHaveBeenCalled();
     expect(mockIsHeldForModerationReview).not.toHaveBeenCalled();
+  });
+
+  // The edit-lane invariant assert (ResponsePublisherWorker.ts, inside the
+  // `hasPostedSibling || isOrphanRetry` block) cannot be reached through this
+  // entry point: the auto-policy ROUTING branch above it returns for exactly
+  // the same predicate, so the assert is unreachable defense-in-depth on the
+  // WS4 spec invariant, not a live branch. What can be pinned — and what
+  // actually keeps an auto_policy row out of the edit writers — is the routing
+  // branch itself, with the edit lane fully OPEN. Without it, this fixture
+  // (flag on + a posted sibling) is precisely the shape that walks into
+  // runEditPublishIfApplicable / the invariant throw.
+  it('routes auto-policy rows away from the edit lane even with the edit flag on and a posted sibling', async () => {
+    process.env.EDIT_REPLIES_ENABLED = 'true';
+    sqlReturnQueue.push([mockResponseRow({ approval_method: 'auto_policy' })]);
+    sqlReturnQueue.push([mockBusinessRow()]);
+    sqlReturnQueue.push([mockZernioConnectionRow()]);      // resolveTarget (guard-removed path)
+    sqlReturnQueue.push([{ id: 'resp-posted-sibling' }]);  // sibling probe (guard-removed path)
+    mockLookupZernioReviewId.mockResolvedValue('zernio-rev-id-1');
+
+    await handlePublishResponse(mockSql, makeJob({
+      outbox_id: 'outbox-auto-2',
+      outbox_attempt: 1,
+    }));
+
+    expect(mockPublishAutoPolicyResponse).toHaveBeenCalledTimes(1);
+    expect(mockRunEditPublishIfApplicable).not.toHaveBeenCalled();
+    expect(mockPostReply).not.toHaveBeenCalled();
+    // The sibling probe must never even be issued for an auto_policy row.
+    const callTexts = (mockSql as any).mock.calls.map(
+      (c: any[]) => (c[0] as TemplateStringsArray).join('?'),
+    );
+    expect(callTexts.some((t: string) => /status = 'posted'[\s\S]*id <>/m.test(t))).toBe(false);
   });
 
   it('owner-approved rows never touch the notice-delivery gate (flag on)', async () => {

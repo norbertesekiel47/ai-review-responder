@@ -48,14 +48,34 @@ describe('selectAutoDefaultRival', () => {
     });
   });
 
-  it('breaks ties by rank position with NULL rank last, then place id', () => {
+  it('breaks a gap tie by rank position, with NULL rank last', () => {
+    // The place_id tier is ANTI-ALIGNED with the expectation on purpose: the
+    // ranked row carries the place id that sorts LAST, so tier 3 produces the
+    // OPPOSITE answer and cannot rescue a deleted rank tier. The original
+    // fixture had `ChIJ_a` winning both tiers, so this test passed with the
+    // rank tier removed (Pathfinder 2026-08-15 census, group D).
     const rows = [
       packRow({ place_id: 'ChIJ_self', is_self: true, review_count: 100 }),
-      packRow({ place_id: 'ChIJ_b', title: 'Null Rank', review_count: 150, rank_position: null }),
-      packRow({ place_id: 'ChIJ_a', title: 'Ranked', review_count: 150, rank_position: 4 }),
+      packRow({ place_id: 'ChIJ_a', title: 'Null Rank', review_count: 150, rank_position: null }),
+      packRow({ place_id: 'ChIJ_z', title: 'Ranked', review_count: 150, rank_position: 4 }),
     ];
 
     expect(selectAutoDefaultRival(rows, '2026-07-20', undefined)).toMatchObject({ rivalName: 'Ranked' });
+  });
+
+  it('breaks a gap-and-rank tie by place id ascending', () => {
+    // Same gap AND same rank exhausts tiers 1-2, so only the place_id tier can
+    // decide. Fed id-DESCENDING, because Array.prototype.sort is stable and a
+    // deleted tier would otherwise leave the input order in place unnoticed.
+    const rows = [
+      packRow({ place_id: 'ChIJ_self', is_self: true, review_count: 100 }),
+      packRow({ place_id: 'ChIJ_b', title: 'Second By Id', review_count: 150, rank_position: 4 }),
+      packRow({ place_id: 'ChIJ_a', title: 'First By Id', review_count: 150, rank_position: 4 }),
+    ];
+
+    expect(selectAutoDefaultRival(rows, '2026-07-20', undefined)).toMatchObject({
+      rivalName: 'First By Id',
+    });
   });
 
   it('returns null when no pack row is our own business', () => {

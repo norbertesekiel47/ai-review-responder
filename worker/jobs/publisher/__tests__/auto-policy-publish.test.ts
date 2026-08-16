@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import {
@@ -833,3 +835,190 @@ function classifyAnchor(text: string): string {
   if (/FROM responses/.test(text)) return 'response';
   return 'entitlement';
 }
+
+// ── The gate chain: one row per gate, each denied ALONE ──────────────────
+//
+// Invariant #3 ("no unapproved posting") is enforced by a CHAIN, not by any
+// one check, and every collaborator in this file is pinned to its ALLOW value
+// in `beforeEach` above. Nothing here ever overrode one — so until this table
+// existed, deleting `evaluateRuntimeGate`, `evaluateVetoGate`,
+// `evaluateModerationGate`, the judge verdict, or the `approval_method`
+// conjunct of `isPublishableAutoPolicy` left all 32 tests in this file green
+// (Pathfinder 2026-08-15 guard-integrity census, group A).
+//
+// The table is deliberately ONE suite over the production array rather than
+// five hand-written tests: five tests are five chances to repeat the root
+// cause. `pins every LOCKED_GATE_CHECKS entry` below re-reads the array from
+// source, so an eighth gate lands red until it gets a row here.
+//
+// Each row denies EXACTLY ONE gate against an otherwise fully-allowing lane
+// and asserts the same universal property: the lane terminates inside the
+// FIRST transaction, arms nothing, and makes zero provider calls.
+interface GateDenialCase {
+  /** Production symbol this row denies. Array members must match by name/order. */
+  gate: string;
+  /** `false` for the two gates that live outside LOCKED_GATE_CHECKS. */
+  inArray: boolean;
+  /** Flips exactly one collaborator/state field to its DENY value. */
+  deny: (harness: ReturnType<typeof createHarness>) => void;
+  /** SQL the locked lane is allowed to issue before it terminates. */
+  trace: readonly string[];
+  /** The terminal disposition this specific gate owns. */
+  assert: () => void;
+}
+
+const GATE_DENIALS: readonly GateDenialCase[] = [
+  {
+    // Outside the array: the publishable-state predicate that guards it.
+    // The only pre-existing tests touching non-publishable state mutate
+    // `responseStatus` AND `approvalMethod` together, so the status half
+    // masked the method half. Here the status stays publishable.
+    gate: 'isPublishableAutoPolicy.approval_method',
+    inArray: false,
+    deny: (harness) => { harness.state.approvalMethod = 'owner'; },
+    trace: LOCK_TRACE,
+    assert: () => {
+      expect(mocks.markOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.downgrade).not.toHaveBeenCalled();
+      // Not one gate may be consulted for a row that is not auto-policy.
+      expect(mocks.veto).not.toHaveBeenCalled();
+      expect(mocks.held).not.toHaveBeenCalled();
+      expect(mocks.judge).not.toHaveBeenCalled();
+    },
+  },
+  {
+    gate: 'evaluateOffboardingGate',
+    inArray: true,
+    deny: (harness) => { harness.state.offboardingBlocked = true; },
+    trace: PHASE_TRACE,
+    assert: () => {
+      expect(mocks.markOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.downgrade).not.toHaveBeenCalled();
+    },
+  },
+  {
+    gate: 'evaluateRuntimeGate',
+    inArray: true,
+    deny: () => { mocks.runtimeEnabled.mockReturnValue(false); },
+    trace: PHASE_TRACE,
+    assert: () => expectDowngrade('auto_approval_disabled'),
+  },
+  {
+    gate: 'evaluateVetoGate',
+    inArray: true,
+    deny: () => { mocks.veto.mockResolvedValue('downgrade'); },
+    trace: PHASE_TRACE,
+    assert: () => expectDowngrade('notice_undelivered'),
+  },
+  {
+    gate: 'evaluateArchivedGate',
+    inArray: true,
+    deny: (harness) => { harness.state.archived = true; },
+    trace: PHASE_TRACE,
+    assert: () => {
+      expect(mocks.markOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.downgrade).not.toHaveBeenCalled();
+    },
+  },
+  {
+    // The tier conjunct has its own test above ('downgrades authoritative
+    // Copilot…'); this row denies the SUBSCRIPTION conjunct of the same gate.
+    gate: 'evaluateEntitlementGate',
+    inArray: true,
+    deny: () => { mocks.checkSubscription.mockReturnValue({ allowed: false }); },
+    trace: PHASE_TRACE,
+    assert: () => expectDowngrade('autopilot_entitlement_lost'),
+  },
+  {
+    gate: 'evaluatePolicySuspensionGate',
+    inArray: true,
+    deny: (harness) => { harness.state.suspended = true; },
+    trace: PHASE_TRACE,
+    assert: () => expectDowngrade('policy_suspended'),
+  },
+  {
+    // Invariant #4 on the publish path: moderation is an absolute veto.
+    gate: 'evaluateModerationGate',
+    inArray: true,
+    deny: () => { mocks.held.mockResolvedValue(true); },
+    trace: PHASE_TRACE,
+    assert: () => {
+      expect(mocks.markOwned).toHaveBeenCalledTimes(1);
+      expect(mocks.downgrade).not.toHaveBeenCalled();
+    },
+  },
+  {
+    // Outside the array, and the sharpest of the five: CLAUDE.md invariant #3
+    // makes judge availability a POSTING PRECONDITION. The real gate owns its
+    // own downgrade + outbox completion, so neither is expected here.
+    gate: 'applyJudgeGateInTx',
+    inArray: false,
+    deny: () => { mocks.judge.mockResolvedValue('downgraded'); },
+    trace: PHASE_TRACE,
+    assert: () => {
+      expect(mocks.judge).toHaveBeenCalledTimes(1);
+      expect(mocks.downgrade).not.toHaveBeenCalled();
+      expect(mocks.markOwned).not.toHaveBeenCalled();
+    },
+  },
+];
+
+function expectDowngrade(reason: string): void {
+  expect(mocks.downgrade).toHaveBeenCalledTimes(1);
+  expect(mocks.downgrade).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ reason }),
+  );
+  // The downgrade helper owns outbox completion in the same tx.
+  expect(mocks.markOwned).not.toHaveBeenCalled();
+}
+
+describe('auto-policy gate chain — each gate denies the lane on its own', () => {
+  it.each(GATE_DENIALS.map((gateCase) => [gateCase.gate, gateCase] as const))(
+    '%s alone terminates the lane with zero provider work',
+    async (_name, gateCase) => {
+      const harness = createHarness();
+      gateCase.deny(harness);
+
+      await publishAutoPolicyResponse(harness.sql, input());
+
+      // Universal property — this is what invariant #3 actually claims.
+      expect(mocks.resolveTarget).not.toHaveBeenCalled();
+      expect(mocks.publishReply).not.toHaveBeenCalled();
+      expect(mocks.verify409).not.toHaveBeenCalled();
+      expect(mocks.markPosted).not.toHaveBeenCalled();
+      expect(mocks.recoverTruth).not.toHaveBeenCalled();
+      // Nothing was armed, so no retry can resume into a provider call either.
+      expect(harness.state.armedCount).toBe(0);
+      expect(harness.state.possibleCount).toBe(0);
+      expect(harness.state.markerPhase).toBe('none');
+      // Terminated inside the FIRST transaction — no preparation, no publish.
+      expectTrace(harness, gateCase.trace);
+      expect((harness.sql as unknown as { begin: ReturnType<typeof vi.fn> }).begin)
+        .toHaveBeenCalledTimes(1);
+
+      gateCase.assert();
+    },
+  );
+
+  it('pins every LOCKED_GATE_CHECKS entry, in order', () => {
+    // Read the production array rather than importing it: `auto-policy-publish.ts`
+    // exports only its entry points, and a new gate must not be able to ship
+    // without a denial row above.
+    const source = readFileSync(
+      fileURLToPath(new URL('../auto-policy-publish.ts', import.meta.url)),
+      'utf8',
+    );
+    const arrayBody = /const LOCKED_GATE_CHECKS:[^=]*=\s*\[([\s\S]*?)\];/.exec(source)?.[1];
+    expect(arrayBody, 'LOCKED_GATE_CHECKS array literal not found').toBeDefined();
+
+    const declared = arrayBody!
+      .split(',')
+      .map((entry) => entry.replace(/\/\/.*$/gm, '').trim())
+      .filter((entry) => entry.length > 0);
+
+    expect(declared).toEqual(
+      GATE_DENIALS.filter((gateCase) => gateCase.inArray).map((gateCase) => gateCase.gate),
+    );
+  });
+});

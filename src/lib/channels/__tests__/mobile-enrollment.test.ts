@@ -67,6 +67,12 @@ describe.each(CHANNELS)('startMobileEnrollment (%s)', (channel) => {
       expect(calls[1]!.text).toContain('UPDATE channel_enrollments');
       expect(calls[1]!.text).toMatch(/status\s+= 'pending_verification'/);
       expect(calls[1]!.text).toMatch(/disabled_at\s+= NULL/);
+      // Tenant scope on the UPDATE branch, pinned the way the INSERT and the
+      // SELECT already pin theirs. Defense-in-depth — the row id came from the
+      // account-scoped SELECT … FOR UPDATE above — but it was the one sibling
+      // with no assertion at all (Pathfinder 2026-08-15 census, group F).
+      expect(calls[1]!.text).toContain('account_id =');
+      expect(calls[1]!.values).toContain('acct-1');
     },
   );
 
