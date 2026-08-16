@@ -83,7 +83,7 @@ pick up. Or unset `CI_RUNNER` to drain to hosted.
 | Persistent runner, not a fresh VM per job | leftovers could bleed between jobs | `actions/checkout` `clean: true` (default) wipes the workspace; `job-started-hook.sh` prunes stopped containers, dangling networks, anonymous volumes before every job; weekly `docker system prune` cron in the VM. Not `--ephemeral`: that needs an admin-scoped token on the box for every job — worse than the hygiene it buys on a single-author private repo. |
 | Untrusted code runs on your hardware (Dependabot PRs, `postinstall` scripts) | a malicious dependency executes on the VM | VM has **no host mounts** and holds **no secrets** (`ci.yml` env is all dummy values; the Claude OAuth token stays on hosted workflows). The registration token is minted per install, lives ~1 hour, and only registers a runner. |
 | **One** runner → jobs run sequentially | a full PR is ~10–15 min wall clock instead of ~8 min parallel | Acceptable. Do NOT add a second runner on the same VM without first making the Postgres service port dynamic: `ci.yml`'s `test` job and `e2e.yml` both publish `5432:5432` and would collide. |
-| linux/**arm64**, hosted is linux/x64 | native-module or arch-specific behaviour could differ from prod (x64) | Every native dep in the lockfile ships an arm64 build (`@next/swc`, esbuild, rollup, sharp, tailwind oxide, fallow). Vercel/Railway still build x64 on their side, so an arch-only break surfaces at deploy, not silently. |
+| linux/**arm64**, hosted is linux/x64 | native-module or arch-specific behaviour could differ from prod (x64); **Actions caches are shared across the two** | Every native dep in the lockfile ships an arm64 build (`@next/swc`, esbuild, rollup, sharp, tailwind oxide, fallow). Vercel/Railway still build x64 on their side, so an arch-only break surfaces at deploy, not silently. Every `actions/cache` key carries `${{ runner.arch }}` (Playwright browsers in `e2e.yml`/`cache-warm.yml`, pnpm store in `.github/actions/setup`) — an os-only key let the arm runner restore x64 chromium on the first run. |
 | No GitHub runner SLA | CI stops when the Mac is off | LaunchAgent starts the VM at login; fallback is one `gh variable delete`. |
 | Runner + toolchain updates are yours | stale runner version eventually refuses jobs | The runner self-updates. Ubuntu security updates: `limactl shell repworth-ci sudo apt-get update && sudo apt-get upgrade -y` occasionally. |
 
@@ -96,6 +96,14 @@ pick up. Or unset `CI_RUNNER` to drain to hosted.
   `sudo systemctl is-active docker`. Same reason `docker …` in a `limactl shell`
   may need `sudo` until the VM is restarted; the runner's own systemd session
   is fresh and sees the group.
+
+- **`e2e` failed on the first self-hosted run: `browserType.launch: Executable doesn't exist`
+  after a Playwright cache HIT.** The browser cache key was `${{ runner.os }}-playwright-<ver>`
+  — no architecture — so the arm64 runner restored the x64 chromium that hosted
+  runners had saved on `main`, and the cache-hit branch skips the download. Any
+  `actions/cache` key that can be written by one arch and read by the other
+  must include `${{ runner.arch }}`; both Playwright keys and the pnpm-store key
+  now do.
 
 ## Moving back to hosted at launch
 

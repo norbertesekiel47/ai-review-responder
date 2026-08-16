@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.pw.outputs.version }}
       # Browser download only — system deps (apt) are not in the cached path,
       # so e2e.yml installs those itself either way.
       - name: Download chromium on cache miss

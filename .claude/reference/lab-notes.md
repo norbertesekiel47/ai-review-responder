@@ -2811,6 +2811,15 @@ is PR count, not pushes per PR (2.5). Fix shipped as one PR; runbook
   (`sudo systemctl is-active docker`), never the user's docker socket; and
   expect `docker …` inside `limactl shell` to need `sudo` until the VM restarts.
   Services started later by systemd (the runner) get the group normally.
+- **[2026-08-16] First self-hosted `e2e` run failed with `browserType.launch:
+  Executable doesn't exist` right after a Playwright cache HIT → the cache key
+  was `${{ runner.os }}-playwright-<ver>` with no architecture, so the arm64
+  runner restored the x64 chromium that hosted runners had saved on `main`, and
+  the hit branch skips the download → every `actions/cache` key that can be
+  written on one arch and read on another carries `${{ runner.arch }}` (both
+  Playwright keys + the pnpm-store key in `.github/actions/setup`). Mixed-arch
+  runner fleets poison os-only cache keys silently; the required checks passed
+  on that same run, so only a non-required job caught it.
 - **[2026-08-16] Measuring Actions spend: `GET /actions/runs/{id}/timing`
   returns `total_ms: 0` now (deprecated) and the billing endpoints need
   `user`/`admin:org` scopes** → sum `ceil((completed_at − started_at)/60s)` per

@@ -26,9 +26,11 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.pnpm-store.outputs.STORE_PATH }}
-        key: ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+        # Keyed on the CPU architecture too: the self-hosted runner is arm64,
+        # hosted is x64, and the store holds platform-specific native packages.
+        key: ${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
+          ${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-pnpm-
 
     - name: Install dependencies
       shell: bash

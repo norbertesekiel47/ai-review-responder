@@ -95,14 +95,17 @@ jobs:
         id: pw
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       # Cache the downloaded browser binaries (~/.cache/ms-playwright), keyed on the
-      # exact Playwright version. System libraries (apt) are NOT in this path, so on a
-      # cache hit we still run the cheap `install-deps`; only the browser download is saved.
+      # exact Playwright version AND the CPU architecture: the self-hosted runner is
+      # linux/arm64, hosted is linux/x64, and an os-only key let the arm runner
+      # restore the x64 chromium and skip the download (first self-hosted run,
+      # 2026-08-16). System libraries (apt) are NOT in this path, so on a cache hit
+      # we still run the cheap `install-deps`; only the browser download is saved.
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.pw.outputs.version }}
       - name: Install Playwright chromium (browsers + deps)
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install chromium --with-deps
