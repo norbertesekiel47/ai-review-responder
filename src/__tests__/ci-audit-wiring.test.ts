@@ -23,10 +23,26 @@ const WORKFLOWS_DIR = join(ROOT, '.github', 'workflows');
  */
 const UNGATED_BY_DESIGN: Record<string, string> = {
   // The developer-facing sweep. Its PR gate is the sibling `ci:fallow:coverage`
-  // (fallow.yml), which feeds fallow real coverage; running both would double
-  // the suite per PR for a strictly weaker signal. Reading a local `ci:fallow`
-  // pass as "the PR gate is green" is how §2's second instance happened.
-  'ci:fallow': 'superseded as a gate by ci:fallow:coverage in fallow.yml',
+  // (ci.yml's `fallow` job), which feeds fallow real coverage; running both
+  // would double the suite per PR for a strictly weaker signal. Reading a local
+  // `ci:fallow` pass as "the PR gate is green" is how §2's second instance
+  // happened.
+  'ci:fallow': "superseded as a gate by ci:fallow:coverage in ci.yml's fallow job",
+};
+
+/**
+ * Scripts that run in ci.yml but are deliberately NOT mirrored in lefthook.yml.
+ * Each needs a reason: lefthook's header promises every ci.yml audit runs
+ * locally too, so an unmirrored one reads as drift unless it says why not.
+ */
+const CI_ONLY_BY_DESIGN: Record<string, string> = {
+  // Its input is a full `vitest run --coverage` (the `test` job's artifact) —
+  // minutes of work that has no place in a pre-push hook. Until the CI cost
+  // pass this ran in its own workflow (fallow.yml) precisely to stay outside
+  // this mirror rule; folding it into ci.yml removed a second suite run and a
+  // second Postgres per PR. Faithful local reproduction is
+  // `pnpm test:coverage && pnpm ci:fallow:coverage`.
+  'ci:fallow:coverage': 'coverage-informed gate; input is a full coverage run',
 };
 
 /** Every `pnpm ci:<name>` invocation in a file, whatever the surrounding YAML. */
@@ -66,11 +82,25 @@ describe('ci:* audit wiring', () => {
     expect({ script, wired, excused }).toEqual({ script, wired: !excused, excused });
   });
 
-  it.each([...inCi])('%s also runs in lefthook.yml', (script) => {
-    // lefthook.yml's own header: "Every command here mirrors a step in
-    // .github/workflows/ci.yml so the local loop and CI never diverge."
-    expect(inLefthook.has(script)).toBe(true);
-  });
+  it.each([...inCi].filter((script) => !(script in CI_ONLY_BY_DESIGN)))(
+    '%s also runs in lefthook.yml',
+    (script) => {
+      // lefthook.yml's own header: "Every command here mirrors a step in
+      // .github/workflows/ci.yml so the local loop and CI never diverge."
+      expect(inLefthook.has(script)).toBe(true);
+    },
+  );
+
+  it.each(Object.keys(CI_ONLY_BY_DESIGN))(
+    '%s is CI-only: runs in ci.yml, absent from lefthook.yml',
+    (script) => {
+      // The exemption is only meaningful while the script actually runs in
+      // ci.yml — if it moves out, this entry is stale and goes with it. And if
+      // someone mirrors it into lefthook after all, the exemption is moot.
+      expect(inCi.has(script)).toBe(true);
+      expect(inLefthook.has(script)).toBe(false);
+    },
+  );
 
   it.each([...new Set([...inCi, ...inLefthook, ...inAnyWorkflow])])(
     '%s is a real package.json script',
@@ -81,6 +111,7 @@ describe('ci:* audit wiring', () => {
 
   it('excuses only scripts that exist', () => {
     expect(declared).toEqual(expect.arrayContaining(Object.keys(UNGATED_BY_DESIGN)));
+    expect(declared).toEqual(expect.arrayContaining(Object.keys(CI_ONLY_BY_DESIGN)));
   });
 });
 
@@ -180,18 +211,23 @@ describe('live-DB lane is gated in CI', () => {
   });
 
   it('ci.yml test job runs the whole suite, not a subset', () => {
-    expect(testJob).toMatch(/^\s+run:\s*pnpm test\s*$/m);
+    // `pnpm test:coverage` since the CI cost pass — the same whole-suite run
+    // as `pnpm test` plus the v8 report the `fallow` job consumes. Either
+    // spelling is the gate; a `--project`, a path filter, or `test:integration`
+    // here is not.
+    expect(testJob).toMatch(/^\s+run:\s*pnpm test(?::coverage)?\s*$/m);
   });
 
-  it('pnpm test runs every vitest project', () => {
-    // `pnpm test` must not narrow to one project: the integration suites live
-    // in their own serialized `integration` project, and a `--project parallel`
-    // filter here would drop the entire live-DB lane while staying green.
+  it('pnpm test and pnpm test:coverage run every vitest project', () => {
+    // Neither may narrow to one project: the integration suites live in their
+    // own serialized `integration` project, and a `--project parallel` filter
+    // here would drop the entire live-DB lane while staying green.
     // (`pnpm test:integration` is a developer fast-path that deliberately runs
     // ONE suite — it is not this gate, and must never be mistaken for it.)
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8')) as {
       scripts: Record<string, string>;
     };
     expect(pkg.scripts.test).toBe('vitest run');
+    expect(pkg.scripts['test:coverage']).toBe('vitest run --coverage');
   });
 });

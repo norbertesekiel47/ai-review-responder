@@ -1767,7 +1767,8 @@ The worker is single-replica by invariant, and that is DETECTED, not enforced. F
 `resolveTestDatabaseUrl()` (`live-db-lock.ts`) falls back to reading `.env.local` off disk, so the six suites gating on it (ingest, batch-builder, run-spine, live-db-lock, migrations 088/090) run even under `env -u`. That matters because a whole-repo `pnpm test` with the DB awake breaks the suites that set the `src/lib/db/server` singleton at import time — whichever file initializes it first wins and the rest get `ECONNREFUSED :5432` (the #520 class). CI never sees it because CI's DB *is* on :5432, so the singleton default happens to be right. Kill switch: `REPWORTH_DISABLE_LIVE_DB_SUITES=1`, honoured by both gates; `scripts/verify-gate.sh`'s full-suite row sets it alongside `env -u` (#563).
 
 ### [2026-08-03] fallow coverage input is DB-complete as of #581 (moved from CLAUDE.md, context diet)
-`fallow.yml` stands up its own `postgres:16` service container — per-job, on its own runner, NOT shared with `ci.yml` (which stands up its own, as does `e2e.yml`). Before that, ~37 integration suites self-skipped in the fallow run, so a module covered *only* by an integration suite read 0% and its CRAP (complexity × uncovered²) was inflated by up to its full complexity. Corollary the original report got wrong: a module with BOTH a unit and an integration suite was never affected — `ingest.ts` measured 91.9% statements / 89.1% branches in the DB-less input, and its four `fallow-ignore-next-line complexity` suppressions were phantom (removed; the gate passes without them under either input).
+*(2026-08-16 update: `fallow.yml` no longer exists — the CI cost pass folded it into `ci.yml`, where the `test` job's own `pnpm test:coverage` run (live-DB lane included) is uploaded as an artifact and consumed by the `fallow` job. DB-completeness is unchanged; the second Postgres and second suite run are gone. History below describes the pre-fold layout.)*
+`fallow.yml` stood up its own `postgres:16` service container — per-job, on its own runner, NOT shared with `ci.yml` (which stands up its own, as does `e2e.yml`). Before that, ~37 integration suites self-skipped in the fallow run, so a module covered *only* by an integration suite read 0% and its CRAP (complexity × uncovered²) was inflated by up to its full complexity. Corollary the original report got wrong: a module with BOTH a unit and an integration suite was never affected — `ingest.ts` measured 91.9% statements / 89.1% branches in the DB-less input, and its four `fallow-ignore-next-line complexity` suppressions were phantom (removed; the gate passes without them under either input).
 
 ## 2026-08-03 — #644 unsubscribe opt-out ship promotions
 
@@ -2750,3 +2751,82 @@ below cost real time anyway, and all four will recur.
   through `page-sizes.ts` was rejected: six admin client components import that file, so
   a value re-export drags the service module graph into their bundles — the exact
   bundler hazard that file's header comment exists to document.
+
+## 2026-08-16 — CI cost pass: self-hosted runner + Tier 1 workflow trims
+
+GitHub Actions hit the account spending limit (every PR check failing in ~4 s at
+"billing"). Measured over the prior 30 days: 601 `ci.yml` runs × 17.8 billed
+min + 306 fallow × 11.1 + 468 e2e × 3.0 + 306 react-doctor × 1.1 ≈ **15,800
+min/month** (~$80–85 after the free allowance), for 240 PRs — the volume driver
+is PR count, not pushes per PR (2.5). Fix shipped as one PR; runbook
+`docs/runbooks/self-hosted-ci-runner.md`.
+
+- **[2026-08-16] `build-dummy-env-canary` was an exact duplicate of `build` and
+  had billed ~1,400 min/month for nothing → a JOB-level `env:` block MERGES over
+  the WORKFLOW-level `env:`; it cannot UNSET a variable, so the "placeholder
+  env only" job inherited `REDIS_*`/`SESSION_*`/`CSRF_*`/`ENCRYPTION_*` exactly
+  like `build` did and both ran `pnpm build` under identical env → delete it; the
+  property it claimed (no import-time secret parse) is proven by
+  `src/lib/config/__tests__/import-safety.test.ts`. General rule: a job whose
+  premise is "runs WITHOUT variable X" cannot be expressed by omission when X is
+  set higher up — you would need a separate workflow, a `run:` that `unset`s, or
+  a container. Verify the premise before paying for the job.
+- **[2026-08-16] fallow re-ran the whole suite in its own workflow (~11 min/PR)
+  only to produce `coverage/coverage-final.json` → the reason was the lefthook
+  mirror rule in `ci-audit-wiring.test.ts` (every `ci:*` in ci.yml must also be
+  in lefthook), which fallow.yml sidestepped by living outside ci.yml → fold it
+  in: `test` runs `pnpm test:coverage` (same suite, +~1 min), uploads the
+  artifact, `fallow` (`needs: test`) downloads it; the rule gains one sanctioned
+  exemption map `CI_ONLY_BY_DESIGN` whose own test asserts the script IS in
+  ci.yml and is NOT in lefthook (so the exemption cannot go stale silently).
+  `actions/download-artifact` v8 ↔ `upload-artifact` v7 interoperate (both
+  Artifact API v2). Coverage still runs the live-DB lane — one Postgres per PR
+  now, not three.
+- **[2026-08-16] `llm-eval` paid a checkout + a billed minute on every PR to
+  print "skipped" → detection was an in-job step, and a step-level skip still
+  bills the job → move the path detect into `changes` as a fourth output and
+  skip llm-eval at JOB level (`if: needs.changes.outputs.llm_eval != 'false'`,
+  fail-open) — a skipped job bills 0 and still satisfies the required check,
+  the same asymmetry docs-only PRs already rely on.
+- **[2026-08-16] Self-hosted runner: which box, and what NOT to do.** Chosen:
+  a Lima Ubuntu 24.04 arm64 VM on the founder's Mac (`limactl`, Apache-2.0),
+  runner as a systemd service, `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`
+  everywhere so `gh variable delete CI_RUNNER` is the whole rollback. Rejected:
+  (a) the native macOS runner — `services:` containers are Linux-only, and
+  darwin's case-insensitive FS + bash 3.2 would let things pass that fail on
+  Vercel/Railway; (b) OrbStack — needs a paid licence for commercial use; (c)
+  running the runner as a Docker Desktop container with the host socket —
+  `services:` publish on the VM, not in the runner container's namespace,
+  unless you fight host networking; (d) `--ephemeral` — needs an admin-scoped
+  token on the box for every job; persistent + `actions/checkout` clean +
+  `ACTIONS_RUNNER_HOOK_JOB_STARTED` prune is the better trade for a
+  single-author private repo. Hard limit: ONE runner per VM until the Postgres
+  service port is dynamic — `test` and `e2e` both publish `5432:5432` and a
+  second concurrent job fails to bind (hosted never sees this: one VM per job).
+  Keep `claude*.yml` on hosted so `CLAUDE_CODE_OAUTH_TOKEN` never reaches the VM;
+  `cache-warm.yml` follows the switch (it warms whichever runner CI uses).
+- **[2026-08-16] Lima `limactl start` hung 10 min on a `docker info` readiness
+  probe while Docker was fully healthy → probes and `limactl shell` run over
+  Lima's ssh ControlMaster, opened BEFORE provisioning finishes, so the session
+  predates `usermod -aG docker` and never gains the group → in probes ask root
+  (`sudo systemctl is-active docker`), never the user's docker socket; and
+  expect `docker …` inside `limactl shell` to need `sudo` until the VM restarts.
+  Services started later by systemd (the runner) get the group normally.
+- **[2026-08-16] First self-hosted `e2e` run failed with `browserType.launch:
+  Executable doesn't exist` right after a Playwright cache HIT → the cache key
+  was `${{ runner.os }}-playwright-<ver>` with no architecture, so the arm64
+  runner restored the x64 chromium that hosted runners had saved on `main`, and
+  the hit branch skips the download → every `actions/cache` key that can be
+  written on one arch and read on another carries `${{ runner.arch }}` (both
+  Playwright keys + the pnpm-store key in `.github/actions/setup`). Mixed-arch
+  runner fleets poison os-only cache keys silently; the required checks passed
+  on that same run, so only a non-required job caught it.
+- **[2026-08-16] Measuring Actions spend: `GET /actions/runs/{id}/timing`
+  returns `total_ms: 0` now (deprecated) and the billing endpoints need
+  `user`/`admin:org` scopes** → sum `ceil((completed_at − started_at)/60s)` per
+  JOB from `/actions/runs/{id}/jobs` (billing rounds per job, per minute) over a
+  sample of runs, × the 30-day run count from
+  `/actions/workflows/{file}/runs?created=>=DATE` `.total_count`. Rates (private
+  repo, 2026-08): Linux x64 2-core $0.006/min, arm64 $0.005, `ubuntu-slim`
+  1-core $0.002; self-hosted $0. `claude.yml`'s 584 skipped runs, Dependabot's
+  "dynamic" runs and the Copilot-review ruleset bill no Actions minutes.
