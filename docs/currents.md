@@ -7,7 +7,51 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-15 (Overview spec-alignment — Quick summary immediately below. Prior entry: channel-route unification.)
+Last updated: 2026-08-16 (Architecture pass 2026-08-15 + its six handoff PRs — Quick summary immediately below. Prior entry: Overview spec-alignment.)
+
+## Quick summary — Architecture pass 2026-08-15, executed (2026-08-16, PRs #836–#841)
+
+**The code was healthy; the tests were the story.** The entropy counter hit 6, a
+Pathfinder pass ran over the two portals + onboarding funnel (6 features + 1 seam,
+671 nodes, `docs/reviews/PATHFINDER-2026-08-15/`), and six handoffs were executed the
+same day, each in its own sibling worktree, each merged only after the full local
+gate (lint · typecheck · 17 audits · parallel project · fallow · integration lane
+against a head-provisioned DB) **and** a seven-way merge simulation passed.
+
+**What is true now:**
+
+- **Invariant #3's auto-policy gate chain has a tripwire** (#836). One table-driven
+  suite over `LOCKED_GATE_CHECKS` denies each gate independently — judge, runtime,
+  veto, moderation, `approval_method` — plus a completeness test that fails if a gate
+  is added without a denial row. Before: deleting the judge check left 32/32 green.
+  Fifteen guards passing for the wrong reason (mutation-verified) are now pinned;
+  zero production lines changed.
+- **`ci:admin-aal2` is an AST audit** (#837). Per-handler, call-not-mention,
+  fail-closed, and admin pages are in scope under **read-gate parity**. An unused
+  import no longer clears the gate; a gated `GET` no longer launders an ungated `POST`.
+- **The live-DB CI lane is pinned** (#840) — and the pass's own claim that it was
+  "inert in CI" was **wrong**: CI has run all 91 integration suites since #244. What
+  was missing was a pin on the wiring; four YAML lines could un-gate 92 suites and stay
+  green. `ci-audit-wiring.test.ts` now fails on any of them.
+- **Trial eligibility and the primary-scoped `onboarded_by` read each have one owner**
+  (#838, rode staging: worker + UI deployed clean, 3/3 checkout smokes PASS vs Stripe
+  test mode). `isTrialEligible` is the strict form the docs already recorded;
+  `primaryOnboardedBySql` replaced three spellings, one of them unscoped. Tenant-scope
+  allowlist **396 → 394 → 392** across #838/#839 (two provable scopes, no suppressions).
+- **`HealthBadge` and churn derivation have one owner each** (#839). The detail page's
+  private `Record<string,…>` copy — which rendered an unknown level silently green —
+  is gone; `churnMetricsQuery` + `churnScoreFromMetrics` in `business-summary.ts`
+  serve all three admin surfaces. The `as unknown as DetailData` cast is gone too.
+- **The Voice tab reads multi-location MODE from the server** (#841, invariant #9b),
+  plus a behaviour-preserving bundle (two 2-wide dashboard reads sequenced, six
+  duplications folded, dead `withRateLimit`/`withSession` deleted, the owner shell's
+  missing `role` check added).
+
+**Process:** the sweep-miss mechanization is confirmed working (last three log entries
+written by the skill). New class found: an *uncounted* PR (#803) deleted the `/feature`
+skill's entire step 8 — the surface three earlier prescriptions targeted. Handoff-
+execution PRs are now explicitly **not counted** toward the threshold (policy written
+into `arch-review-log.md`). Counter reset to 0.
 
 ## Quick summary — Overview spec-alignment (2026-08-15, PR #833)
 

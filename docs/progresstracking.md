@@ -4019,3 +4019,70 @@ the identical commit — infra, no test executed.
 and this was a relocation-shaped refactor — every moved line counts twice. Net
 production change was **+21 lines** (+578 / −557). Step 0 was re-run as required; the
 lane was unchanged. Estimate churn, not net, on a move-heavy PR.
+
+## 2026-08-15/16 — Architecture pass (Pathfinder) and its six handoff PRs (#836–#841)
+
+**Trigger.** `arch-review-log.md` counter at 6 (#793, #805, #821, #827, #831, #833).
+Owner chose a **windowed** pass (portals + onboarding funnel, not repo-wide) **with**
+the process layer included. Artifacts: `docs/reviews/PATHFINDER-2026-08-15/00-07`.
+
+**Pass shape.** Phase 0 discovery → 6 features + 1 seam (auth gate, deliberately NOT a
+feature — no single owner). Phase 1: seven chart agents, 671 nodes / 3,908 lines, every
+node `file:line`-cited; a guard-integrity agent ran in parallel, mutation-checking ~55
+candidates against the full 862-file suite (**15 confirmed** passing for the wrong
+reason, 40 correctly killed). Phase 2 synthesized from the chart reports rather than
+two fresh duplication agents (recorded deviation — the charts already carried the
+evidence). Phase 3/4 orchestrator-owned. Phase 5 adjudicated 10 process items.
+
+**Execution — same day, six Opus agents, six sibling worktrees.** Each agent got one
+handoff prompt verbatim, edited only under its own worktree, mutation-verified its
+pins, ran the affected suites + audits, and committed locally (no push). Reviewer
+(orchestrator) then: independently re-ran a mutation on H1 (judge gate: was 32/32
+green, now `1 failed | 41 passed`) and H3 (stubbed the real gate call keeping the
+import — old scan passed, new AST audit fails it); verified H2's policy call against
+`main` (`flags.ts` docstring + `checkout-params.test.ts:286` already pinned the strict
+posture); ran the fallow gate H5 had skipped — **3 real findings**, sent back, fixed in
+a third commit.
+
+**Validation before push.** (1) Sequential full gate in every worktree — lint,
+typecheck, 17 audits, parallel project **with coverage**, `ci:fallow:coverage`,
+integration project against a head-provisioned local DB — **132/132 PASS**. (2) A
+seventh worktree merged all six in the planned order: exactly two conflicts
+(`.claude/CLAUDE.md` adjacent table rows; `ALLOWLIST_BASELINE` — both H2 and H4 wrote
+394, integrated truth is **392**, audit-confirmed), resolved, and the integrated tree
+passed lint/typecheck/17 audits/three full parallel runs (11,457 tests)/fallow. One
+non-reproducing failure in 3 runs (`live-db-suites-audit` "widened detector", during
+concurrent sibling load; walk is `git ls-files`, so not a temp-file leak) — CI arbiter.
+
+**Landing.** Serial squash-merges against strict up-to-date checks, in the simulated
+order: **#836** (H1) → **#837** (H3) → **#840** (H6) → **#838** (H2) → **#839** (H4) →
+**#841** (H5). H2 rode `staging` first per the billing rule: `staging` fast-forwarded
+`0a379fb7..592a5868`, Railway worker `SUCCESS` with a clean boot log (`Worker
+listening`, `[boot] readiness cure complete`), Vercel `Ready`, and the WS8 checkout
+smoke run **from H2's worktree with staging env injected** — `01-list`, `01c-trial`,
+`03-same-tier-retry` **PASS** against Stripe test mode (`05a` skipped: Autopilot gate
+closed on staging, pre-existing, not H2's surface); fixtures cleaned (4 accounts).
+H4's rebase reproduced the simulation's two conflicts exactly; resolved the same way.
+
+**The one retraction.** The pass claimed live-DB-only pins were inert in CI. H6's
+census refuted it — CI's `test` job has run the lane since #244 (`ci.yml:182-212`,
+91 suites measured). Observations held; conclusion misread `pnpm test:integration`'s
+local one-suite list as CI coverage. Corrected in `06-guard-integrity.md`,
+`05-process-findings.md` §9, `04-handoff-prompts.md` H6, and the log row. H6's real
+yield — the unpinned CI gate — shipped in #840.
+
+**Two owner-facing calls surfaced, not hidden.** H2 collapsed trial eligibility toward
+the strict form (inert: `TRIAL_ENABLED` Off everywhere; reversible by deleting one term
+from `isTrialEligible`). H5 item 11 added the owner shell's `role` check (unreachable
+in practice — `proxy.ts:196` already gates the group). Both stated in the PR bodies.
+
+**Gotchas for next time.** (a) `pnpm test:integration` is a *local* convenience, not
+CI's coverage — do not read its one-suite list as the gate. (b) Two branches shrinking
+the same allowlist baseline both write the same number; the merge simulation, not the
+diff, is what reveals the integrated value. (c) The `dcg` command guard blocks
+`git reset --hard`, `$(cat <<EOF)` bodies combined with `git push`, and dynamic-path
+truncating writes inside heredocs — split push from PR-create (`--body-file`), push
+remote refs by `origin/<branch>:refs/heads/<target>` instead of resetting a worktree,
+and use the Edit tool for doc edits. (d) An agent that skips `ci:fallow:coverage`
+should be assumed to fail it — H3 ran it unprompted and found real findings; H5 did
+not and had three.
