@@ -41,6 +41,31 @@ export const cssDeclarations = (css: string): Map<string, string[]> => {
   return declarations;
 };
 
+/**
+ * The same declarations, grouped by the selector of the FLAT rule block they
+ * sit in (whitespace in the selector collapsed). Deliberately flat: it assumes
+ * no nested braces, which holds for a token file and is what keeps the parser
+ * honest about what it can see — an `@media`/`@theme` wrapper would be reported
+ * as one selector, not silently unwrapped.
+ *
+ * This is what lets a guard ask *where* a token is declared, not just whether:
+ * the Console's tokens must sit inside `.rw-console`, never `:root` (spec D4).
+ */
+export const declarationsBySelector = (css: string): Map<string, Map<string, string[]>> => {
+  const bySelector = new Map<string, Map<string, string[]>>();
+  for (const [, selector, body] of stripCssComments(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const key = selector!.trim().replace(/\s+/g, ' ');
+    const declarations = bySelector.get(key) ?? new Map<string, string[]>();
+    // The captured body has no closing brace, and `cssDeclarations` needs a `;`
+    // or `}` terminator to see the last declaration in the block.
+    for (const [name, values] of cssDeclarations(`${body!}}`)) {
+      declarations.set(name, [...(declarations.get(name) ?? []), ...values]);
+    }
+    bySelector.set(key, declarations);
+  }
+  return bySelector;
+};
+
 /** Merge several files' declarations into one lookup (system → its token files). */
 export const mergeDeclarations = (sources: string[]): Map<string, string[]> => {
   const merged = new Map<string, string[]>();

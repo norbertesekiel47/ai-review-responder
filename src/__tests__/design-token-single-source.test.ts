@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cssDeclarations, cssVarReferences } from './helpers/css-tokens';
+import {
+  cssDeclarations,
+  cssVarReferences,
+  declarationsBySelector,
+  stripCssComments,
+} from './helpers/css-tokens';
 
 // Design-token single-source guard (refactor/design-tokens-single-source, 2026-06).
 //
@@ -16,6 +21,7 @@ const GLOBALS = 'src/app/globals.css';
 const TOKENS = 'src/app/(authenticated)/_styles/tokens.css';
 const THEME = 'src/app/(authenticated)/_styles/theme.css';
 const CONSOLE_SCOPED = 'src/app/(authenticated)/_styles/console.css';
+const CONSOLE_SCOPE = '.rw-console';
 
 // A DECLARATION (`  --rw-x: …`) at line start — never a usage (`var(--rw-x)`) or
 // a mention inside a comment.
@@ -132,6 +138,48 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
     expect(read(CONSOLE_SCOPED)).toMatch(
       /\.rw-console\s*\{[\s\S]*?--rw-font-mono\s*:\s*ui-monospace/,
     );
+  });
+
+  // D4 (spec §2.4 "Optional hardening", shipped in PR 3a after the portal
+  // audit). The Console token file used to declare everything on `:root`, which
+  // meant a chunk surviving a client navigation put Console values on public
+  // pages — the same mechanism as the `--rw-sage` collision, one level up. The
+  // declarations now sit on `.rw-console`, the element (authenticated)/layout.tsx
+  // renders on both of its return paths. This also has a typography
+  // consequence worth keeping true: a `var()` inside a custom property is
+  // substituted where it is DECLARED, so `--rw-app-h1: … var(--rw-font-display)`
+  // only resolves to Young Serif while it is declared on the same element that
+  // carries the `localFont` variable.
+  it('declares every Console token inside .rw-console, never on :root (D4)', () => {
+    const bySelector = declarationsBySelector(tokens);
+    const consoleScoped = bySelector.get(CONSOLE_SCOPE);
+
+    expect(
+      stripCssComments(tokens),
+      `${TOKENS} still opens a \`:root { … }\` block. Console values declared on :root leak to ` +
+        `every surface if the chunk survives a client navigation (docs/design/README.md rule 2).`,
+    ).not.toMatch(/:root\s*\{/);
+
+    expect(consoleScoped, `${TOKENS} must declare its tokens in a \`${CONSOLE_SCOPE} { … }\` block`)
+      .toBeDefined();
+
+    const stray = [...bySelector]
+      .filter(([selector]) => selector !== CONSOLE_SCOPE)
+      .flatMap(([selector, declarations]) =>
+        [...declarations.keys()]
+          .filter((token) => token.startsWith('--rw-'))
+          .map((token) => `${token} (declared on \`${selector}\`)`),
+      );
+
+    expect(
+      stray,
+      `${TOKENS} declares ${stray.join(', ')} outside \`${CONSOLE_SCOPE}\`. Every --rw-* value in ` +
+        `this file belongs to the Console scope.`,
+    ).toEqual([]);
+
+    // Belt and braces: the flat per-selector parse must account for the whole
+    // file, so a declaration sitting outside any rule block cannot slip past.
+    expect(consoleScoped!.size).toBe(tokenDeclarations.size);
   });
 
   it('the Console @theme file references only tokens the Console token file declares', () => {

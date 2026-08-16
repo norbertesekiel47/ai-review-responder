@@ -6,6 +6,21 @@
    blush / terracotta / gold / violet). Loads only inside the authenticated
    `.rw-console` shell.
 
+   SCOPE — every token below is declared on `.rw-console`, not `:root`. A stale
+   chunk surviving a client navigation can no longer leak Console values onto
+   public pages, the mechanism behind the old `--rw-sage` collision. The
+   selector is the `<div className="rw-console …">` in
+   (authenticated)/layout.tsx; BOTH of that layout's return paths render
+   everything inside it, and the route group has no template.tsx / not-found.tsx
+   (its error.tsx boundaries render as children of the layout), so no Console
+   consumer sits outside. The portal audit behind the move (spec D4): nothing
+   under src/app/(authenticated)/** or src/components/dashboard/** uses
+   createPortal, and the repo has no Radix / toast dependency — the only
+   overlays are native `<dialog>` + `showModal()` (SettingsModal,
+   EditReplyDrawer, PastDueModal), which are promoted to the top layer but stay
+   in their DOM position and therefore still inherit these custom properties.
+   Guard: src/__tests__/design-token-single-source.test.ts.
+
    This file does NOT own the MARKETING / PUBLIC ("Island") palette. Those tokens
    (--rw-sage, --rw-teal, --rw-teal-strong, --rw-peach, --rw-pink, --rw-beige,
    --rw-cream, --rw-ink, --rw-ink-soft, status, fonts) live in src/app/globals.css,
@@ -27,7 +42,7 @@
    Console Style Reference: docs/design/console/DESIGN.md
    ========================================================================== */
 
-:root {
+.rw-console {
   /* ---------- App-only tokens (not part of the Island palette) ----------
      Consumed by the Console surface; globals.css doesn't declare these, so they
      live here. Island colors (--rw-sage/teal/peach/cream/ink/…) are NOT
@@ -170,6 +185,19 @@
      (The nine dead --rw-mkt-* marketing type roles that sat here had zero
      consumers anywhere in src/ and were deleted with them. A marketing type
      scale, if it is ever wanted, belongs to the Island.)
+
+     WHAT THE `.rw-console` SCOPE CHANGED HERE (PR 3a). A var() inside a custom
+     property is substituted where that property is DECLARED, not where it is
+     used. The --rw-app-h1…--rw-app-micro composites below are now declared on
+     the SAME element that carries the localFont --rw-font-display /
+     --rw-font-body variables, so var(--rw-font-display) resolves to Young Serif
+     at declaration time: `font: var(--rw-app-hN)` ALONE now renders Young Serif
+     everywhere in the Console. While these sat on :root it substituted the
+     ROOT display family (Plus Jakarta) instead, which is why every
+     `font: var(--rw-app-hN)` site in console.css is followed by an explicit
+     `font-family: var(--rw-font-display)`. Those follow-up lines are now
+     redundant. They are harmless — same face either way — and were deliberately
+     left in place rather than swept in this PR.
 
      App scale — tight, admin utility. */
   --rw-app-h1:       700 1.5rem/1.2 var(--rw-font-display);    /* 24px page title */
