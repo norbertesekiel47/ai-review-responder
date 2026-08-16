@@ -2803,7 +2803,8 @@ is PR count, not pushes per PR (2.5). Fix shipped as one PR; runbook
   single-author private repo. Hard limit: ONE runner per VM until the Postgres
   service port is dynamic — `test` and `e2e` both publish `5432:5432` and a
   second concurrent job fails to bind (hosted never sees this: one VM per job).
-  Keep `claude*.yml` on hosted so `CLAUDE_CODE_OAUTH_TOKEN` never reaches the VM.
+  Keep `claude*.yml` on hosted so `CLAUDE_CODE_OAUTH_TOKEN` never reaches the VM;
+  `cache-warm.yml` follows the switch (it warms whichever runner CI uses).
 - **[2026-08-16] Lima `limactl start` hung 10 min on a `docker info` readiness
   probe while Docker was fully healthy → probes and `limactl shell` run over
   Lima's ssh ControlMaster, opened BEFORE provisioning finishes, so the session

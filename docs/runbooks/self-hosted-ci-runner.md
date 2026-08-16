@@ -29,8 +29,8 @@ Mac (macOS, Apple silicon)
         └── tool cache                    Node (from .nvmrc via setup-node), pnpm store, Playwright browsers — persist on purpose
 ```
 
-Routing is one repo variable: every job in `ci.yml`, `e2e.yml`, `react-doctor.yml`
-declares `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`.
+Routing is one repo variable: every job in `ci.yml`, `e2e.yml`, `react-doctor.yml`,
+`cache-warm.yml` declares `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`.
 
 | `vars.CI_RUNNER` | where CI runs |
 |---|---|
@@ -39,7 +39,7 @@ declares `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`.
 
 Deliberately **still hosted**: `claude.yml`, `claude-code-review.yml` (they hold
 `CLAUDE_CODE_OAUTH_TOKEN`, the one real secret — it must never land on the VM;
-they cost ~0 minutes) and `cache-warm.yml` (only meaningful for hosted caches).
+they cost ~0 minutes).
 
 ## Install / repair (one command)
 

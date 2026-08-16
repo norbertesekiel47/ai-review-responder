@@ -11,8 +11,9 @@ name: CI
 # docs/runbooks/self-hosted-ci-runner.md; self-hosted minutes are free) and
 # falls back to GitHub-hosted `ubuntu-latest` when it is unset. Unset the
 # variable to move CI back to hosted runners without touching this file.
-# claude.yml / claude-code-review.yml stay hosted on purpose: they hold the one
-# real secret (CLAUDE_CODE_OAUTH_TOKEN) and it must never land on the VM.
+# e2e.yml / react-doctor.yml / cache-warm.yml carry the same switch. claude.yml /
+# claude-code-review.yml stay hosted on purpose: they hold the one real secret
+# (CLAUDE_CODE_OAUTH_TOKEN) and it must never land on the VM.
 on:
   pull_request:
 
