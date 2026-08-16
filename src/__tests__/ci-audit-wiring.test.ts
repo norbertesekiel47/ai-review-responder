@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -81,5 +81,117 @@ describe('ci:* audit wiring', () => {
 
   it('excuses only scripts that exist', () => {
     expect(declared).toEqual(expect.arrayContaining(Object.keys(UNGATED_BY_DESIGN)));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The live-DB lane's CI wiring (Pathfinder 2026-08-15, handoff H6).
+//
+// The `*.integration.test.ts` family is the SOLE coverage of ~22 migrations'
+// DDL and of pins no mock can reach — ON CONFLICT inference against a real
+// partial index, DB CHECK constraints, `FOR UPDATE` serialization, and
+// `ORDER BY` precedence resolved by Postgres rather than by JS. Mutation
+// evidence: deleting `suppressionMatchSql`'s global-wins ordering or its
+// account scoping (`src/lib/solicitation/suppression.ts`), or
+// `import-offer-view`'s `ORDER BY jo.created_at DESC`, leaves the entire
+// 862-file `parallel` project green. Only the live lane fails.
+//
+// That lane runs today: ci.yml's `test` job stands up a `postgres:16` service,
+// sets `TEST_DATABASE_POOL_URL`, provisions the schema, and runs the whole
+// suite — 91 of 92 integration suites execute per PR. But NOTHING pinned that,
+// and every suite degrades to a SILENT SKIP rather than a failure when the
+// database is absent (`describeWithDb`). Deleting four lines of YAML would
+// therefore un-gate all 92 suites and leave CI green — the #520 failure mode,
+// one config edit away.
+//
+// The cost of not pinning it is already measured: `vitest.config.ts` carried a
+// comment asserting the opposite ("the integration suites self-skip there
+// because TEST_DATABASE_POOL_URL is unset"). It was stale from the moment the
+// service container landed, two reviews recorded it as stale without
+// correcting it, and a later architecture pass trusted it and filed a
+// finding — "correct tests that no gate runs" — that was false. A gate nobody
+// can verify from the source is a gate the source will eventually misdescribe.
+//
+// Same reasoning as the block above: this is a guard TEST, not another `ci:*`
+// script, because an audit that checks whether the DB lane is wired would have
+// to be wired itself.
+
+const CI_YML = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf-8');
+
+/**
+ * One top-level job's YAML, comment-stripped.
+ *
+ * Comments are removed for the same reason `ci:admin-aal2` strips them: prose
+ * describing a service container must never satisfy a check for one. The slice
+ * runs to the next 2-space-indented key, which can trail the following job's
+ * comment header — stripping makes that bleed inert instead of load-bearing.
+ */
+function jobBlock(job: string): string {
+  const start = CI_YML.indexOf(`\n  ${job}:\n`);
+  expect(start, `ci.yml has no top-level "${job}" job`).toBeGreaterThan(-1);
+  const rest = CI_YML.slice(start + 1);
+  const next = rest.search(/\n {2}[a-zA-Z0-9_-]+:\n/);
+  return (next === -1 ? rest : rest.slice(0, next + 1))
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
+
+/** Every `*.integration.test.ts` under src/ and worker/. */
+function integrationSuites(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules') continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (entry.endsWith('.integration.test.ts')) found.push(full);
+    }
+  };
+  walk(join(ROOT, 'src'));
+  walk(join(ROOT, 'worker'));
+  return found;
+}
+
+describe('live-DB lane is gated in CI', () => {
+  const testJob = jobBlock('test');
+
+  it('the lane it protects is non-empty', () => {
+    // A floor, not a count: this fails if the suffix convention is renamed
+    // wholesale (which would also silently empty vitest's `integration`
+    // project, since that project selects on exactly this glob).
+    expect(integrationSuites().length).toBeGreaterThan(50);
+  });
+
+  it('ci.yml test job runs a Postgres service container', () => {
+    expect(testJob).toMatch(/^\s+image:\s*postgres:\d+/m);
+  });
+
+  it('ci.yml test job sets TEST_DATABASE_POOL_URL', () => {
+    // The gate `describeWithDb` reads. Absent, all 92 suites skip silently.
+    expect(testJob).toMatch(/^\s+TEST_DATABASE_POOL_URL:\s*\S+/m);
+  });
+
+  it('ci.yml test job provisions the schema before running tests', () => {
+    // Live-DB suites ASSERT their schema (`assertSchemaReady`) instead of
+    // applying migrations, so a job without this step fails loudly rather
+    // than self-healing — but only if the step is here to begin with.
+    expect(testJob).toMatch(/uses:\s*\.\/\.github\/actions\/test-db/);
+  });
+
+  it('ci.yml test job runs the whole suite, not a subset', () => {
+    expect(testJob).toMatch(/^\s+run:\s*pnpm test\s*$/m);
+  });
+
+  it('pnpm test runs every vitest project', () => {
+    // `pnpm test` must not narrow to one project: the integration suites live
+    // in their own serialized `integration` project, and a `--project parallel`
+    // filter here would drop the entire live-DB lane while staying green.
+    // (`pnpm test:integration` is a developer fast-path that deliberately runs
+    // ONE suite — it is not this gate, and must never be mistaken for it.)
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts.test).toBe('vitest run');
   });
 });

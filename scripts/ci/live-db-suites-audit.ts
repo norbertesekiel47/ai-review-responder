@@ -85,11 +85,17 @@ export interface LiveDbFileFinding {
 /**
  * Files that mention TEST_DATABASE_POOL_URL without connecting to it:
  * `describe-with-db.test.ts` manipulates the variable to exercise the DB-gating
- * helper, and this audit's own test carries violating source as fixtures.
+ * helper, this audit's own test carries violating source as fixtures, and
+ * `ci-audit-wiring.test.ts` asserts that ci.yml's `test` job SETS the variable —
+ * it reads workflow YAML off disk and opens no connection. Renaming that last
+ * one to `*.integration.test.ts` would be actively wrong: R1's serialization
+ * exists to stop DB contention, so it would move a file that touches no
+ * database into the serialized project for nothing.
  */
 const NOT_LIVE_DB = new Set([
   'src/__tests__/helpers/describe-with-db.test.ts',
   'scripts/ci/__tests__/live-db-suites-audit.test.ts',
+  'src/__tests__/ci-audit-wiring.test.ts',
 ]);
 
 /**

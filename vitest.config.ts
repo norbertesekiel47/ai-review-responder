@@ -1,18 +1,28 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
 
-// The 45 `*.integration.test.ts` suites all talk to ONE shared test database,
-// and several re-apply migrations and DELETE from the same tables. Run in
-// parallel they deadlock each other nondeterministically — a different set of
-// files fails every run, always with `deadlock detected` or a `beforeAll`
-// timeout, never a failed assertion. They are therefore split into their own
-// project and serialized; the other ~738 files stay fully parallel.
+// The `*.integration.test.ts` suites (92 today) all talk to ONE shared test
+// database, and several re-apply migrations and DELETE from the same tables.
+// Run in parallel they deadlock each other nondeterministically — a different
+// set of files fails every run, always with `deadlock detected` or a
+// `beforeAll` timeout, never a failed assertion. They are therefore split into
+// their own project and serialized; the other ~862 files stay fully parallel.
+// `groupOrder` keeps the two groups from overlapping, so a parallel-project
+// file can never hold a lock an integration file is waiting on.
 //
-// This costs CI nothing: the integration suites self-skip there because
-// `TEST_DATABASE_POOL_URL` is unset, which is precisely why CI never surfaced
-// the contention (the #520 blind spot). `groupOrder` keeps the two groups from
-// overlapping, so a parallel-project file can never hold a lock an integration
-// file is waiting on.
+// These suites DO run in CI. ci.yml's `test` job stands up a `postgres:16`
+// service, sets `TEST_DATABASE_POOL_URL` and provisions the schema, so `pnpm
+// test` executes BOTH projects — 91 of the 92 run per PR (the lone abstainer
+// needs live Stripe credentials). fallow.yml stands up a second container so
+// coverage sees them too. `src/__tests__/ci-audit-wiring.test.ts` pins that
+// wiring, because a suite here degrades to a SILENT SKIP, never a failure,
+// when the database is absent.
+//
+// This comment used to claim the opposite — that the suites "self-skip there
+// because TEST_DATABASE_POOL_URL is unset". True before the service container
+// landed, false after. Two reviews recorded it as stale without correcting it,
+// then an architecture pass trusted it and filed a finding that the suites
+// below were ungated. They were not. Fix this comment before trusting it.
 const INTEGRATION_GLOB = '**/__tests__/**/*.integration.test.ts';
 
 const VITEST_DEFAULT_EXCLUDE = ['**/node_modules/**', '**/dist/**'];
