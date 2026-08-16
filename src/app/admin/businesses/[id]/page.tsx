@@ -6,7 +6,6 @@ import { getBusinessDetail } from '@/lib/admin/business-detail-service';
 import { getBusinessChannelEnrollments } from '@/lib/admin/business-channels-service';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { BusinessDetailClient } from './BusinessDetailClient';
-import type { DetailData } from './types';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,12 +43,14 @@ export default async function AdminBusinessDetailPage({
     >
       <BusinessDetailClient
         businessId={id}
-        // `DetailData` is the page-level UI shape: structurally the API response,
-        // but with tone/ownerName/ownerEmail declared non-nullable and churnScore
-        // optional. The client has always asserted exactly this on the fetch
-        // (`res.json() as Promise<DetailData>`); asserting it once here at the
-        // server seam keeps the rendered object byte-identical to the fetched one.
-        initialDetail={detail as unknown as DetailData}
+        // No cast. `DetailData` is now DERIVED from the API contract and widens
+        // only `churnScore` to optional, so `BusinessDetailResponse` is
+        // assignable to it and every field — including `churnScore.level`,
+        // which the shared HealthBadge keys on — is CHECKED at this seam. The
+        // former `as unknown as DetailData` narrowed three nullable columns to
+        // `string` and, in erasing the check, let the detail page carry its own
+        // loosely-typed health badge (Pathfinder §A1). Don't put it back.
+        initialDetail={detail}
         initialChannels={channels.enrollments}
       />
     </AdminPage>

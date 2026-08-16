@@ -41,9 +41,16 @@ export async function getBusinessDetail(
   if (!business) {
     return null;
   }
+  // The ONLY tier guard on this path (it used to be spelled a second time, with
+  // the same message, inside mapBusinessDetailResponse). It stays here rather
+  // than in the mapper so an unsupported tier costs one query bundle instead of
+  // two — pinned by "rejects an unsupported tier after batch 1 and before every
+  // batch-2 query". The narrowed value is passed down; the mapper re-derives
+  // nothing.
   if (!isSubscriptionTier(business.subscription_tier)) {
     throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
   }
+  const subscriptionTier = business.subscription_tier;
 
   const {
     metricsRows,
@@ -57,6 +64,7 @@ export async function getBusinessDetail(
 
   return mapBusinessDetailResponse({
     business,
+    subscriptionTier,
     reviewRows,
     reviewsTotal,
     rankingSnapshots,

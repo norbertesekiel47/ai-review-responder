@@ -1,11 +1,13 @@
 // src/lib/admin/business-detail/mappers.ts
 //
 // Pure mapping functions: DB rows → BusinessDetailResponse DTO.
-// Extracted verbatim from business-detail-service.ts; only
-// export/import wiring changed. No edits to computation or mapping logic.
+// Originally extracted verbatim from business-detail-service.ts. The churn
+// derivation it used to spell inline now belongs to ../business-summary.ts
+// (`churnScoreFromMetrics`), and the tier guard belongs to the caller, which
+// hands the narrowed value in — this module derives nothing about either.
 
-import { computeChurnRiskScore } from '@/lib/shared/churn-score';
-import { isSubscriptionTier, tierGrantsAutopilot } from '@/lib/accounts/tier-config';
+import { churnScoreFromMetrics } from '../business-summary';
+import { tierGrantsAutopilot, type SubscriptionTierValue } from '@/lib/accounts/tier-config';
 import { parseDbArray } from '@/lib/shared/db-array';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
@@ -34,13 +36,13 @@ import type {
   ZernioFinalizeIncidentRow,
   ZernioPanelData,
 } from '../business-detail-types';
+import type { BusinessChurnMetricsRow } from '../business-summary';
 import type {
   AccountAuditRow,
   AccountLocationRow,
   ApprovalAuditRow,
   AutoApprovalAccountRow,
   AutoApprovalPolicyRow,
-  BusinessMetricsRow,
 } from './queries';
 import type { PolicyRowState } from '@/lib/auto-approval/types';
 import {
@@ -221,13 +223,22 @@ function buildAutoApprovalDiagnostics({
 
 export interface MapBusinessDetailResponseArgs {
   business: BusinessRow;
+  /**
+   * `business.subscription_tier` AFTER the caller's tier guard. Passed narrowed
+   * rather than re-validated here: `getBusinessDetail` already rejects an
+   * unsupported tier between batch 1 and batch 2 (so the failure costs one
+   * query bundle, not two), and re-spelling the same `isSubscriptionTier` +
+   * `invalid_ws8_subscription_tier:` throw in this file was the second half of
+   * a guard that can only ever fire in one place (Pathfinder §A2).
+   */
+  subscriptionTier: SubscriptionTierValue;
   reviewRows: ReviewRow[];
   reviewsTotal: number;
   rankingSnapshots: RankingSnapshotRow[];
   zernioConnectionRows: ZernioConnectionRow[];
   awaitingOwnerConnectRows: AwaitingOwnerConnectRow[];
   finalizeIncidentRows: ZernioFinalizeIncidentRow[];
-  metrics: BusinessMetricsRow | undefined;
+  metrics: BusinessChurnMetricsRow | undefined;
   accountLocationRows: AccountLocationRow[];
   approvalAuditRows: ApprovalAuditRow[];
   accountAuditRows: AccountAuditRow[];
@@ -237,11 +248,12 @@ export interface MapBusinessDetailResponseArgs {
 
 /**
  * Assemble the full BusinessDetailResponse DTO from batch-1 and batch-2
- * query results. Contains responseTimeTrend derivation, computeChurnRiskScore
- * call, accountLocations/accountContext construction, and final assembly.
+ * query results: the shared churn derivation, accountLocations/accountContext
+ * construction, and final assembly.
  */
 export function mapBusinessDetailResponse({
   business,
+  subscriptionTier,
   reviewRows,
   reviewsTotal,
   rankingSnapshots,
@@ -255,25 +267,10 @@ export function mapBusinessDetailResponse({
   autoApprovalPolicyRows,
   autoApprovalAccountRows,
 }: MapBusinessDetailResponseArgs): BusinessDetailResponse {
-  if (!isSubscriptionTier(business.subscription_tier)) {
-    throw new Error(`invalid_ws8_subscription_tier:${business.subscription_tier}`);
-  }
-  let responseTimeTrend: 'faster_or_stable' | 'slower' | 'stopped' | null = null;
-  if (metrics?.avg_hours_current != null && metrics?.avg_hours_prev != null) {
-    responseTimeTrend = metrics.avg_hours_current > metrics.avg_hours_prev * 1.5 ? 'slower' : 'faster_or_stable';
-  } else if (metrics && metrics.pending_count > 0 && metrics.days_since_approval != null && metrics.days_since_approval > 7) {
-    responseTimeTrend = 'stopped';
-  }
-
-  const churnScore = computeChurnRiskScore({
-    approvalRate: metrics?.approval_rate ?? null,
-    notifiedResponseCount30d: metrics?.notified_count ?? 0,
-    pendingResponseCount: metrics?.pending_count ?? 0,
-    daysSinceLastApproval: metrics?.days_since_approval ?? null,
-    satisfactionResponses: null,
-    responseTimeTrend,
-    accountAgeDays: metrics?.account_age_days ?? 0,
-  });
+  // Single owner: src/lib/admin/business-summary.ts. The detail page and the
+  // /admin/businesses Health column must not be able to score the same business
+  // differently — spec §5.1 names that as a real failure mode.
+  const churnScore = churnScoreFromMetrics(metrics);
 
   const accountLocations: AccountLocationSummary[] = accountLocationRows.map((row) => ({
     id: row.id,
@@ -286,7 +283,7 @@ export function mapBusinessDetailResponse({
   const accountContext: AccountContext = {
     id: business.account_id,
     displayName: business.name, // Use the primary business name or account display_name
-    subscriptionTier: business.subscription_tier,
+    subscriptionTier,
     subscriptionStatus: business.subscription_status,
     locations: accountLocations,
   };
@@ -305,7 +302,7 @@ export function mapBusinessDetailResponse({
       avoidFacts: parseDbArray(business.avoid_facts),
       sampleResponses: parseDbArray(business.sample_responses),
       subscriptionStatus: business.subscription_status,
-      subscriptionTier: business.subscription_tier,
+      subscriptionTier,
       ownerName: business.owner_name ?? null,
       ownerEmail: business.owner_email ?? null,
       lastSyncAt: business.last_sync_at ? business.last_sync_at.toISOString() : null,

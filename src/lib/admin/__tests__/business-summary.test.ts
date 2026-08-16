@@ -539,3 +539,156 @@ describe('getBusinessSummaries — row→DTO mapping (buildBusinessSummary)', ()
     ).toEqual({ signal: 'Response time trend', value: 'slower', contribution: 8 });
   });
 });
+
+// ── One churn derivation, one churn query ────────────────────────────────
+//
+// The 2026-08-15 Pathfinder pass (§A2) found the churn METRICS CTE and the
+// `responseTimeTrend` + `computeChurnRiskScore` composition spelled twice: once
+// here for /admin/overview + /admin/businesses, once in
+// business-detail/{queries,mappers}.ts for /admin/businesses/[id]. Same score,
+// two derivations — which is how the detail page and the Health column could
+// have started disagreeing about the same business.
+//
+// These two suites are the anti-regression pins for the merge. Neither can fail
+// while there is one owner, which is the point: they fail the moment somebody
+// re-spells either half. Both use the REAL computeChurnRiskScore (this file
+// mocks nothing) so "same score" means the same number, not the same mock.
+
+/** Batch-1 fixture rows for getBusinessDetail; only the churn path matters. */
+const DETAIL_BUSINESS_ROW = {
+  id: 'biz-1',
+  name: 'Main Street Cafe',
+  category: 'restaurant',
+  website: null,
+  google_place_id: null,
+  tone: null,
+  products_services: null,
+  staff_names: '{}',
+  highlight_facts: '{}',
+  avoid_facts: '{}',
+  sample_responses: '{}',
+  subscription_status: 'active',
+  subscription_tier: 'copilot',
+  owner_name: null,
+  owner_email: null,
+  last_sync_at: null,
+  tracked_keywords: '{}',
+  google_place_lat: null,
+  google_place_lng: null,
+  ranking_search_location: null,
+  google_place_address: null,
+  owner_email_bounced: false,
+  account_id: 'acct-1',
+  display_label: null,
+  is_primary: true,
+};
+
+/** Queue the 13 results getBusinessDetail consumes, with `metrics` at index 7. */
+function queueDetailResults(harnessRef: MockSqlHarness, metrics: MetricsRowFixture) {
+  harnessRef.sqlReturnQueue.push([DETAIL_BUSINESS_ROW]); // business
+  harnessRef.sqlReturnQueue.push([]);                    // reviews
+  harnessRef.sqlReturnQueue.push([{ count: 0 }]);        // reviews COUNT
+  harnessRef.sqlReturnQueue.push([]);                    // ranking snapshots
+  harnessRef.sqlReturnQueue.push([]);                    // zernio connection
+  harnessRef.sqlReturnQueue.push([]);                    // awaiting owner connect
+  harnessRef.sqlReturnQueue.push([]);                    // finalize incidents
+  harnessRef.sqlReturnQueue.push([metrics]);             // churn metrics
+  harnessRef.sqlReturnQueue.push([]);                    // account locations
+  harnessRef.sqlReturnQueue.push([]);                    // approval audit
+  harnessRef.sqlReturnQueue.push([]);                    // account audit
+  harnessRef.sqlReturnQueue.push([]);                    // auto-approval policies
+  harnessRef.sqlReturnQueue.push([]);                    // auto-approval account
+}
+
+function metricsFixture(overrides: Partial<MetricsRowFixture> = {}): MetricsRowFixture {
+  return {
+    business_id: 'biz-1',
+    approval_rate: null,
+    notified_count: 0,
+    pending_count: 0,
+    days_since_approval: null,
+    account_age_days: 0,
+    avg_hours_current: null,
+    avg_hours_prev: null,
+    ...overrides,
+  };
+}
+
+describe('churn derivation has one owner across both admin surfaces', () => {
+  // Each case reaches a different branch of the responseTimeTrend derivation —
+  // the half most likely to be re-spelled differently, because it is `if/else`
+  // rather than a call.
+  const CASES: Array<{ name: string; metrics: MetricsRowFixture }> = [
+    {
+      name: 'slower (current > prev * 1.5)',
+      metrics: metricsFixture({
+        approval_rate: 0.2, notified_count: 5, pending_count: 3,
+        days_since_approval: 20, account_age_days: 14,
+        avg_hours_current: 10, avg_hours_prev: 2,
+      }),
+    },
+    {
+      name: 'faster_or_stable (both windows present)',
+      metrics: metricsFixture({
+        approval_rate: 0.9, notified_count: 5, pending_count: 0,
+        days_since_approval: 1, account_age_days: 400,
+        avg_hours_current: 2, avg_hours_prev: 10,
+      }),
+    },
+    {
+      name: 'stopped (pending work, no approval in over a week, no windows)',
+      metrics: metricsFixture({
+        approval_rate: 0.5, notified_count: 4, pending_count: 2,
+        days_since_approval: 9, account_age_days: 200,
+      }),
+    },
+    {
+      name: 'null trend (a brand-new business with no signals at all)',
+      metrics: metricsFixture(),
+    },
+  ];
+
+  for (const { name, metrics } of CASES) {
+    it(`scores ${name} identically on the detail page and in the summary`, async () => {
+      const { getBusinessDetail } = await import('../business-detail-service');
+
+      harness.sqlReturnQueue.push([businessRow('biz-1', 'Main Street Cafe')]);
+      harness.sqlReturnQueue.push([metrics]);
+      const summary = await getBusinessSummaries(mockSql);
+
+      harness.resetMockSql();
+      queueDetailResults(harness, metrics);
+      const detail = await getBusinessDetail(mockSql, 'biz-1');
+
+      // Whole object, not just the score: `level` drives HealthBadge and
+      // `breakdown` drives the Engagement panel, so a divergence in either is
+      // just as visible to an admin as a different number.
+      expect(detail!.business.churnScore).toEqual(summary.businesses[0]!.churnScore);
+    });
+  }
+});
+
+describe('both admin surfaces embed the same churn-metrics statement', () => {
+  it('issues byte-identical SQL from getBusinessSummaries and fetchBusinessDetailBatch2', async () => {
+    const { fetchBusinessDetailBatch2 } = await import('../business-detail/queries');
+
+    harness.sqlReturnQueue.push([businessRow('biz-1', 'Main Street Cafe')]);
+    harness.sqlReturnQueue.push([metricsFixture()]);
+    await getBusinessSummaries(mockSql);
+    const summaryMetricsCall = harness.sqlCalls[1]!;
+
+    harness.resetMockSql();
+    await fetchBusinessDetailBatch2(mockSql, 'biz-1', 'acct-1');
+    const detailMetricsCall = harness.sqlCalls[0]!;
+
+    // Same text, because both call churnMetricsQuery. A re-spelling in either
+    // module — even a semantically equivalent one — breaks this immediately.
+    expect(detailMetricsCall.text).toBe(summaryMetricsCall.text);
+    expect(detailMetricsCall.text).toContain('UNNEST');
+
+    // The detail page differs ONLY in the id set it binds: one element, so the
+    // shared multi-id query still returns the single row it needs.
+    expect(detailMetricsCall.values[0]).toEqual(['biz-1']);
+    expect(summaryMetricsCall.values[0]).toEqual(['biz-1']);
+  });
+});

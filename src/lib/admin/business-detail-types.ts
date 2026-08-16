@@ -3,10 +3,12 @@
 // API-contract types for `GET/PATCH /api/admin/businesses/[id]`.
 //
 // These intentionally live separately from `src/app/admin/businesses/[id]/types.ts`,
-// which holds page-level UI shapes that are subtly different (e.g. `tone: string`
-// non-nullable, `ownerName: string` non-nullable, `ChannelEnrollmentRow` for the
-// channels widget). Conflating the two has been a recurring source of bugs, so
-// the boundary is explicit.
+// which holds page-level UI shapes (`churnScore` widened to optional,
+// `ChannelEnrollmentRow` for the channels widget). Those shapes are DERIVED from
+// the types here rather than re-declared: the page seam type-checks with no
+// cast, so a change to this contract surfaces as a compile error on the page.
+// Conflating the two has been a recurring source of bugs, so the boundary is
+// explicit — but it is a widening boundary, not a re-typing one.
 
 import { z } from 'zod';
 import { UpdateBusinessSchema } from '@/lib/shared/schemas';

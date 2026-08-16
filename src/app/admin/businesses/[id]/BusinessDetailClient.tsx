@@ -9,6 +9,7 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import { DataTable, type DataTableColumn } from '@/components/admin/ui/DataTable';
 import { EmptyState, ErrorState } from '@/components/admin/ui/states';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
+import { HealthBadge } from '@/components/admin/ui/HealthBadge';
 import { ProfileEditor } from './_components/ProfileEditor';
 import { TrackedKeywordsSection } from './_components/TrackedKeywordsSection';
 import { ManualRankingSection } from './_components/ManualRankingSection';
@@ -29,26 +30,6 @@ import type {
 
 /** Audit tables were hand-sliced to 10 rows; DataTable now pages at the same size. */
 const AUDIT_PAGE_SIZE = 10;
-
-const HEALTH_BADGE_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  watch: 'bg-gray-100 text-gray-700',
-  at_risk: 'bg-red-100 text-red-800',
-};
-const HEALTH_BADGE_LABELS: Record<string, string> = { healthy: 'Healthy', watch: 'Watch', at_risk: 'At Risk' };
-
-/**
- * Deliberately NOT the shared `StatusBadge` — churn health is a derived
- * engagement score (healthy/watch/at_risk), not a subscription or job status,
- * and it renders a numeric score alongside the label.
- */
-function HealthBadge({ level, score }: { level: string; score: number }) {
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${HEALTH_BADGE_STYLES[level] ?? HEALTH_BADGE_STYLES.healthy}`}>
-      {HEALTH_BADGE_LABELS[level] ?? level} <span className="opacity-60">{score}</span>
-    </span>
-  );
-}
 
 /**
  * "Resend invite" (plan step 9 / T7). Visible only while the Account is

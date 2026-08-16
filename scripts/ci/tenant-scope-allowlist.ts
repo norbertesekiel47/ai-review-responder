@@ -122,7 +122,14 @@ export interface TenantScopeAllowlistEntry {
 //     snippet is `resolveCheckoutContext`'s business lookup, which stopped
 //     projecting `onboarded_by` (it reads the PRIMARY business's value through
 //     the fragment now, not whichever business it was handed).
-export const ALLOWLIST_BASELINE = 394;
+//   - 2026-08-15 (394 → 392): PF-H4, the churn-metrics half of that same
+//     consolidation. `business-detail/queries.ts` stopped spelling its own
+//     single-id copy of the CTE and now calls `churnMetricsQuery` in
+//     `src/lib/admin/business-summary.ts` — already the owner, already carrying
+//     the equivalent `responses` + `notification_deliveries` entries — with a
+//     one-element id array. The 2 now-dead `queries.ts` metrics entries were
+//     removed; its 2 batch-1 entries (reviews/responses) stay.
+export const ALLOWLIST_BASELINE = 392;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1688,20 +1695,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT resp.id AS response_id, r.reviewer_name, r.star_rating FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE resp.business_id = ${business.id} AND resp.status = 'pending_approval' ORDER BY resp.created_at ASC LIMIT 5",
     category: 'worker-job-scoped',
     reason: "Onboarding drip worker first selects a business/account candidate, then uses that business id for report and reminder evidence queries.",
-  },
-  {
-    file: "src/lib/admin/business-detail/queries.ts",
-    table: "responses",
-    sqlSnippet: "WITH notif AS ( SELECT COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id = ${businessId} AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 ), resp AS ( SELECT COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id = ${businessId} ) SELECT CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(r.pending_count, 0)::int AS pending_count, r.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days, r.avg_hours_current, r.avg_hours_prev FROM businesses b CROSS JOIN notif n CROSS JOIN resp r WHERE b.id = ${businessId}",
-    category: 'admin-after-require-role',
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
-  },
-  {
-    file: "src/lib/admin/business-detail/queries.ts",
-    table: "notification_deliveries",
-    sqlSnippet: "WITH notif AS ( SELECT COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id = ${businessId} AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 ), resp AS ( SELECT COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id = ${businessId} ) SELECT CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(r.pending_count, 0)::int AS pending_count, r.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - b.created_at)::int AS account_age_days, r.avg_hours_current, r.avg_hours_prev FROM businesses b CROSS JOIN notif n CROSS JOIN resp r WHERE b.id = ${businessId}",
-    category: 'admin-after-require-role',
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/dashboard/service.ts",

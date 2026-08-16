@@ -52,8 +52,11 @@ function fieldsFromBusiness(business: BusinessDetail): FormFields {
     name: business.name,
     category: business.category ?? '',
     website: business.website ?? '',
-    tone: business.tone,
-    ownerEmail: business.ownerEmail,
+    // `tone`/`ownerEmail` are nullable columns; a controlled input needs a
+    // string, so NULL becomes an empty field (never the literal "null"). The
+    // page type used to claim these were non-nullable — see ../types.ts.
+    tone: business.tone ?? '',
+    ownerEmail: business.ownerEmail ?? '',
     productsServices: business.productsServices ?? '',
     staffNames: business.staffNames.join(', '),
     highlightFacts: business.highlightFacts.join('\n'),
@@ -191,7 +194,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 text-sm">
           <div>
             <dt className="font-medium text-gray-500">Owner</dt>
-            <dd className="text-gray-900">{business.ownerName} · {business.ownerEmail}</dd>
+            <dd className="text-gray-900">{business.ownerName ?? '—'} · {business.ownerEmail ?? '—'}</dd>
           </div>
           <div>
             <dt className="font-medium text-gray-500">Tier</dt>
@@ -221,7 +224,7 @@ export function ProfileEditor({ business, businessId, onSaved }: ProfileEditorPr
           </div>
           <div>
             <dt className="font-medium text-gray-500">Tone</dt>
-            <dd className="text-gray-900">{business.tone}</dd>
+            <dd className="text-gray-900">{business.tone ?? '—'}</dd>
           </div>
           <div className="sm:col-span-2">
             <dt className="font-medium text-gray-500">Products / Services</dt>
