@@ -288,6 +288,52 @@ describe('approve', () => {
     expect(allSql.some((s: string) => s.includes("'approved'"))).toBe(false);
     expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
   });
+
+  // lockPendingResponse's status check is the primitive that stops a SECOND
+  // approve / edit / regenerate on an already-approved, vetoed, superseded or
+  // posted response. Until this test, only its CONSUMER was pinned:
+  // http-routes.test.ts and this suite's 409-mapping case both throw
+  // ResponseNotPendingError from a MOCK, while every suite that runs the
+  // primitive for real feeds fixtures whose response is `pending_approval`, so
+  // the rejecting branch was unreachable (Pathfinder 2026-08-15 census, group
+  // C). This is the producer.
+  it.each(['approved', 'edited', 'posted', 'superseded', 'failed'])(
+    'rejects a %s response with ResponseNotPendingError before consuming the link or mutating anything',
+    async (status) => {
+      const link = validLink({ device_cookie_hash: 'device-hash-abc' });
+
+      const tx = createMockTx([
+        // anchorReviewLockOrder: pre-read + reviews FOR UPDATE
+        [{ review_id: 'rev-1' }],
+        [{ id: 'rev-1' }],
+        // lockPendingResponse: SELECT ... FOR UPDATE → NOT pending
+        [{ status, original_draft_text: 'draft', response_text: 'Approved draft', version: 1, review_id: 'rev-1', business_id: 'biz-1' }],
+      ]);
+
+      const err = await approve(tx, link, 'device-hash-abc', AUDIT, 'test-correlation-xyz')
+        .then(() => null, (e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ResponseNotPendingError);
+      // ArchivedLocationError EXTENDS ResponseNotPendingError, so the
+      // instanceof above alone would also accept the archived gate firing on a
+      // drained mock queue — which is exactly what happens if the status check
+      // is deleted. The concrete class and the reported status are what make
+      // this test about the status check.
+      expect(err).not.toBeInstanceOf(ArchivedLocationError);
+      expect((err as ResponseNotPendingError).currentStatus).toBe(status);
+
+      // Rejected inside the claim, BEFORE the archived probe: the status check
+      // is the third and last query this lane may issue.
+      expect(tx).toHaveBeenCalledTimes(3);
+      const allSql = tx.mock.calls.map((call: unknown[]) =>
+        String((call[0] as TemplateStringsArray).join(' ')),
+      );
+      expect(allSql.some((s: string) => s.includes('consumed_at'))).toBe(false);
+      expect(allSql.some((s: string) => s.includes("SET status = 'approved'"))).toBe(false);
+      expect(allSql.some((s: string) => s.includes('job_outbox'))).toBe(false);
+      expect(allSql.some((s: string) => s.includes('approval_audit_log'))).toBe(false);
+    },
+  );
 });
 
 // ── edit ──────────────────────────────────────────────────────────────────

@@ -148,6 +148,37 @@ describe('getBusinessSummaries — bounded metrics fetch', () => {
     expect(result.total).toBe(3);
   });
 
+  it('binds the page ids into BOTH CTE predicates and scopes notif to approval_request', async () => {
+    // The test above asserts the bound VALUE; nothing asserted the predicates
+    // that CONSUME it, so deleting either `IN (SELECT id FROM biz)` left the
+    // DTO byte-identical (the outer LEFT JOIN drops the extra rows) and every
+    // test green — a silent full-table-scan regression of the #505/#773 class
+    // (Pathfinder 2026-08-15 census, group E).
+    //
+    // `nd.template = 'approval_request'` is the sharper one: it is not a
+    // performance property but a CORRECTNESS one. Without it every template
+    // (reconnect notices, digests, FYIs) counts as an approval request, which
+    // moves notified_count and approval_rate — hence every churn score and the
+    // at-risk list Overview renders.
+    harness.sqlReturnQueue.push([businessRow('biz-1', 'Cafe One')]);
+    harness.sqlReturnQueue.push([]);
+
+    await getBusinessSummaries(mockSql);
+
+    const metricsCall = harness.sqlCalls.find((call) => call.text.includes('UNNEST'))!;
+    expect(metricsCall).toBeDefined();
+
+    // notif CTE: bounded by the page ids AND scoped to the approval-request
+    // template, in the same WHERE.
+    expect(metricsCall.text).toContain('FROM notification_deliveries nd');
+    expect(metricsCall.text).toContain('WHERE nd.business_id IN (SELECT id FROM biz)');
+    expect(metricsCall.text).toContain("AND nd.template = 'approval_request'");
+
+    // resp CTE: bounded by the same page ids.
+    expect(metricsCall.text).toContain('FROM responses rp');
+    expect(metricsCall.text).toContain('WHERE rp.business_id IN (SELECT id FROM biz)');
+  });
+
   it('skips the metrics query entirely when the page has no rows', async () => {
     // A page past the end of the list. An empty id array would make the CTE a
     // pointless round trip (`UNNEST('{}'::uuid[])`), and the total must still

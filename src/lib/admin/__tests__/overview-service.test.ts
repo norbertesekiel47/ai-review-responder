@@ -517,6 +517,47 @@ describe('getAdminOverview — at-risk selection (filter → sort → cap)', () 
     ]);
   });
 
+  it('breaks a full score, pending AND name collision on business id ascending', async () => {
+    // Tier 4 exists to make the comparator a TOTAL order — without it the sort
+    // falls back to whatever `ORDER BY b.name ASC` happened to emit, which is
+    // itself undefined between rows with an identical name. Nothing pinned it
+    // (Pathfinder 2026-08-15 census, group D2): `Array.prototype.sort` is
+    // stable, so deleting `a.id.localeCompare(b.id)` is invisible unless the
+    // fixture feeds a genuine name COLLISION in descending id order — two
+    // locations of the same brand under one account is the real-world shape.
+    queueBaseQueries(harness, {
+      businessRows: [
+        businessRow('01991000-0000-7000-8000-000000000002', 'Alpha Co', {
+          pending_approval_count: 2,
+        }),
+        businessRow('01991000-0000-7000-8000-000000000001', 'Alpha Co', {
+          pending_approval_count: 2,
+        }),
+      ],
+    });
+    harness.sqlReturnQueue.push([
+      metricsRow('01991000-0000-7000-8000-000000000002', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
+      metricsRow('01991000-0000-7000-8000-000000000001', {
+        approval_rate: 0.2,
+        days_since_approval: 20,
+      }),
+    ] satisfies MetricsRowFixture[]);
+
+    const result = await getAdminOverview(mockSql);
+
+    expect(result.atRisk.map((b) => b.id)).toEqual([
+      '01991000-0000-7000-8000-000000000001',
+      '01991000-0000-7000-8000-000000000002',
+    ]);
+    // Guards the guard: every earlier tier must genuinely be exhausted.
+    expect(result.atRisk[0]!.churnScore.score).toBe(result.atRisk[1]!.churnScore.score);
+    expect(result.atRisk[0]!.pendingApprovalCount).toBe(result.atRisk[1]!.pendingApprovalCount);
+    expect(result.atRisk[0]!.name).toBe(result.atRisk[1]!.name);
+  });
+
   it('caps the at-risk list at OVERVIEW_AT_RISK_LIMIT even when more businesses qualify', async () => {
     // Six qualifying businesses with distinct real scores 70/55/45/40/38/31.
     // The cap keeps the top five and drops the 31.
