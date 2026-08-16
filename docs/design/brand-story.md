@@ -3,7 +3,7 @@
 Owner of the **narrative** layer of the brand: positioning, story arc, and
 messaging guardrails for anything customer-facing (landing pages, ads, video,
 social, decks). Visual identity is owned elsewhere — tokens by
-`src/app/globals.css`, layout/components by [`brand-island.md`](./brand-island.md).
+`src/app/globals.css`, layout/components by [`island/DESIGN.md`](./island/DESIGN.md).
 
 ## Positioning
 
@@ -70,7 +70,7 @@ Alternate emphases by audience:
   verbs read as agency; icon grids read as a pricing page.
 - **One thing per ad.** Prove the core story deeply, then widen at the end.
   An ad that says "we do everything" says nothing.
-- **Anti-slop copy rules** (mirrors brand-island): no "unlock", "supercharge",
+- **Anti-slop copy rules** (mirrors the Island system): no "unlock", "supercharge",
   "seamless", no fake metrics/testimonials/logos.
 - **SMB texture is specific, not abstract.** The customer is a café at 8 AM,
   a salon, a dental office — show their craft, not a generic "business owner".

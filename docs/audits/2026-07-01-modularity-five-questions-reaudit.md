@@ -205,7 +205,8 @@ Clean pass; zero regressions:
   auto-post-notice files as issue-kind words. Cosmetic fix: move the rationale to its own
   comment line above the pragma.
 - `warm-editorial.css` unused-flag remains the documented false positive (referenced by
-  6 live mockups).
+  6 live mockups). _(Deleted 2026-08-16 with `docs/design/dashboard-redesign/`; tag
+  `design-mockups-2026-06`.)_
 
 ---
 

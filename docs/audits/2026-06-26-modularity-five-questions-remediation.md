@@ -189,7 +189,8 @@ Re-verified all four audit hygiene items; only one was real. **Single-sourced `f
 (byte-identical channel-agnostic 404) into `src/app/api/admin/channels/_shared/flag-off.ts`;
 telegram + whatsapp `_shared.ts` re-export it. The other three were fallow false-positives /
 already-resolved and **intentionally left untouched** (documented): `warm-editorial.css` is
-referenced by 6 live dashboard-redesign mockups; `DrawerState` is actively used (prior team
+referenced by 6 live dashboard-redesign mockups (deleted 2026-08-16, tag
+`design-mockups-2026-06`); `DrawerState` is actively used (prior team
 review confirmed the fallow flag is a false positive); the `AutoPostNoticeWorker`
 fallow-ignore comment is already well-formed.
 

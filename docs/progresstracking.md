@@ -460,7 +460,7 @@ The publish path was hard-wired to Zernio across ~7 worker files; the parked dir
 
 ### Stage 6 — hygiene (PR #398)
 
-Re-verified all four audit "hygiene" items; only one was real. **Single-sourced `flagOff()`** — `telegram/_shared.ts` + `whatsapp/_shared.ts` each defined a byte-identical channel-agnostic 404 → extracted to `src/app/api/admin/channels/_shared/flag-off.ts`, both re-export it (route imports unchanged). The other three were fallow false-positives / already-resolved and **intentionally not touched** (documented in the PR): `warm-editorial.css` is referenced by 6 live dashboard-redesign mockups; `DrawerState` is actively used (prior team review confirmed the fallow flag is a false positive); the `AutoPostNoticeWorker` fallow-ignore comment is already well-formed.
+Re-verified all four audit "hygiene" items; only one was real. **Single-sourced `flagOff()`** — `telegram/_shared.ts` + `whatsapp/_shared.ts` each defined a byte-identical channel-agnostic 404 → extracted to `src/app/api/admin/channels/_shared/flag-off.ts`, both re-export it (route imports unchanged). The other three were fallow false-positives / already-resolved and **intentionally not touched** (documented in the PR): `warm-editorial.css` is referenced by 6 live dashboard-redesign mockups (deleted 2026-08-16 with the whole `docs/design/dashboard-redesign/` folder; tag `design-mockups-2026-06`); `DrawerState` is actively used (prior team review confirmed the fallow flag is a false positive); the `AutoPostNoticeWorker` fallow-ignore comment is already well-formed.
 
 ### Follow-up — worker transient-DB crash-net resilience (PR #399)
 

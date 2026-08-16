@@ -394,7 +394,7 @@ re-sent link opening from a mailbox); that is wiring, not contract risk.
 Recorded from the docs/reference sweep. The first three were **fixed** in T8;
 the fourth is out of T8's surface and needs an owner.
 
-1. **`docs/design/landing-page.md` and `docs/directory.md` justified the landing
+1. **`docs/design/landing-page.md` (now `docs/design/landing/DESIGN.md`) and `docs/directory.md` justified the landing
    nav gate with a claim that is no longer true.** Both said the Log in / Sign up
    pair is hidden when `SELF_SERVE_SIGNUP_ENABLED` is off *because both routes
    404 without it* — "correctness, not cosmetics". After T4, `/login` is
@@ -439,7 +439,8 @@ including their LOCAL-ONLY markers and 105's WS8 sequencing note.
 
 **Live-vs-archive calls made during the cross-reference sweep** — recorded so the
 next sweep does not re-litigate them. **Treated as LIVE and fixed:**
-`docs/directory.md`, `docs/launch-checklist.md`, `docs/design/landing-page.md`,
+`docs/directory.md`, `docs/launch-checklist.md`, `docs/design/landing-page.md`
+(now `docs/design/landing/DESIGN.md`),
 `docs/eservices-variables.md`, `docs/runbooks/{beta-onboarding-cofounder-guide,
 beta-production-standup,launch-flag-readiness,rollback}.md`,
 `.claude/reference/env-vars.md`, `CONTEXT.md`. **Treated as HISTORICAL RECORD and

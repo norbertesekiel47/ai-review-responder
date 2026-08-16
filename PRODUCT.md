@@ -146,13 +146,15 @@ Confirm the production flag state before any surface promises instant signup.
   items appear as text, use two-word verb phrases — "Get reviews · Flag fakes ·
   Watch everywhere" — because verbs read as agency while icon grids read as a
   pricing page.
-- **Visual system:** the Island system (`docs/design/brand-island.md` —
+- **Visual system:** the Island system (`docs/design/island/DESIGN.md` —
   sage/teal/peach tokens, white `rounded-[3rem]` island on sage) is
-  authoritative for every public and authenticated surface. **Exception agreed
-  2026-08-03: the landing page (`/`) is deliberately unlocked** and may
+  authoritative for every public surface, and the Warm Editorial Console
+  (`docs/design/console/DESIGN.md`) for the authenticated owner app; which
+  system a file belongs to is routed by `docs/design/README.md`. **Exception
+  agreed 2026-08-03: the landing page (`/`) is deliberately unlocked** and may
   establish its own world; the rest of the site does not follow it unless the
   owner later says so.
-- **Anti-slop guardrails** in `brand-island.md` apply everywhere: no fabricated
+- **Anti-slop guardrails** in `docs/design/island/DESIGN.md` apply everywhere: no fabricated
   metrics, testimonials, logos, avatars, or customer names; no external icon
   libraries (inline SVG only); no purple/blue AI gradients, orb/blob
   backgrounds, or black-glass dashboards.
