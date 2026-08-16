@@ -13,7 +13,18 @@ import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 // Console text tokens reused across the connect views (no warm tones).
 const MUTED = { color: 'var(--rw-app-text-muted)' } as const;
 const FINE = { color: 'var(--rw-app-text-soft)', fontSize: 12 } as const;
-const HEADING = { font: 'var(--rw-app-h1)', margin: '0 0 14px', letterSpacing: '-0.01em' } as const;
+// `fontFamily` restates what `--rw-app-h1` already carries, exactly as
+// `.page-title` in console.css does: the Console display face is Young Serif.
+// Kept as an inline object rather than switching to `.page-title` because that
+// class is the TopBar's title slot and sets `margin: 0` — six of the eight
+// headings below rely on the 14px bottom margin, so reusing it would change
+// spacing on this page.
+const HEADING = {
+  font: 'var(--rw-app-h1)',
+  fontFamily: 'var(--rw-font-display)',
+  margin: '0 0 14px',
+  letterSpacing: '-0.01em',
+} as const;
 const CTA_SPACING = { marginTop: 16 } as const;
 const SPINNER_ROW = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 } as const;
 
