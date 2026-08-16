@@ -12,6 +12,8 @@ import {
   siblingRouteFile,
   collectRouteFiles,
   collectAdminPageFiles,
+  auditRoutes,
+  auditPages,
   type PageScanContext,
 } from '../admin-aal2-audit';
 
@@ -815,5 +817,103 @@ describe('collectRouteFiles / collectAdminPageFiles — audit scope', () => {
     await collectAdminPageFiles(join(root, 'src', 'app', 'admin'), root, out);
 
     expect(out).toEqual([join('src', 'app', 'admin', 'jobs', 'page.tsx')]);
+  });
+});
+
+// The two passes `main` composes. Exercised over a real temp tree so the
+// walk → read → scan wiring (and the sibling-route lookup that anchors P2) is
+// covered, not just the pure scanners.
+describe('auditRoutes / auditPages — the composed passes', () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'aal2-pass-')));
+
+    const api = join(root, 'src', 'app', 'api', 'admin');
+    mkdirSync(join(api, 'flagged'), { recursive: true });
+    mkdirSync(join(api, 'jobs'), { recursive: true });
+    // AAL2-gated GET + AAL2-gated POST — the /admin/flagged shape.
+    writeFileSync(
+      join(api, 'flagged', 'route.ts'),
+      [
+        "import { requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';",
+        'export async function GET(request) {',
+        '  const gate = await requireAdminWithAal2(request);',
+        '  return gate.ok ? Response.json({}) : gate.response;',
+        '}',
+        'export async function POST(request) {',
+        '  const gate = await requireAdminWithAal2(request);',
+        '  return gate.ok ? Response.json({}) : gate.response;',
+        '}',
+      ].join('\n'),
+    );
+    // Plain-admin GET only — the /admin/jobs shape.
+    writeFileSync(
+      join(api, 'jobs', 'route.ts'),
+      [
+        "import { requireRoleOr401 } from '@/lib/db/auth';",
+        'export async function GET(request) {',
+        "  await requireRoleOr401(request, 'admin');",
+        '  return Response.json({});',
+        '}',
+      ].join('\n'),
+    );
+
+    const pages = join(root, 'src', 'app', 'admin');
+    mkdirSync(join(pages, 'flagged'), { recursive: true });
+    mkdirSync(join(pages, 'jobs'), { recursive: true });
+    mkdirSync(join(pages, 'login'), { recursive: true });
+    // Deliberately UNDER-gated against an AAL2 sibling GET → the P2 finding.
+    writeFileSync(
+      join(pages, 'flagged', 'page.tsx'),
+      [
+        "import { requireAdminPage } from '@/lib/auth/page-gate';",
+        'export default async function P() {',
+        "  await requireAdminPage(sql, { from: '/admin/flagged' });",
+        '  return null;',
+        '}',
+      ].join('\n'),
+    );
+    // Plain page over a plain sibling GET → clean.
+    writeFileSync(
+      join(pages, 'jobs', 'page.tsx'),
+      [
+        "import { requireAdminPage } from '@/lib/auth/page-gate';",
+        'export default async function P() {',
+        "  await requireAdminPage(sql, { from: '/admin/jobs' });",
+        '  return null;',
+        '}',
+      ].join('\n'),
+    );
+    // Ungated but pre-auth → exempt.
+    writeFileSync(join(pages, 'login', 'page.tsx'), 'export default function P() { return null; }');
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('auditRoutes walks and scans every admin route, and finds nothing when all are gated', async () => {
+    const pass = await auditRoutes(root);
+    expect(pass.files).toHaveLength(2);
+    expect(pass.findings).toEqual([]);
+  });
+
+  it('auditPages applies P2 against the sibling route and exempts pre-auth pages', async () => {
+    const pass = await auditPages(root, new Set(['/admin/login']));
+    expect(pass.files).toHaveLength(3);
+    // Only /admin/flagged is under-gated: its sibling GET requires AAL2.
+    expect(pass.findings).toHaveLength(1);
+    expect(pass.findings[0]).toContain('src/app/admin/flagged/page.tsx');
+    expect(pass.findings[0]).toContain('{ aal2: true }');
+  });
+
+  it('auditPages flags a pre-auth page once it is no longer exempt (the derivation is load-bearing)', async () => {
+    // If readPreAuthAdminPaths ever stopped deriving /admin/login from
+    // src/proxy.ts, the ungated login page would go red — which is why an empty
+    // derivation is a fatal error in main() rather than a silent pass.
+    const pass = await auditPages(root, new Set<string>());
+    expect(pass.findings).toHaveLength(2);
+    expect(pass.findings.some((f) => f.includes('login/page.tsx'))).toBe(true);
   });
 });

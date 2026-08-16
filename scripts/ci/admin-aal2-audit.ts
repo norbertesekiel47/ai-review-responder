@@ -183,6 +183,93 @@ interface ModuleIndex {
   exports: ReadonlyMap<string, ts.Node | null>;
 }
 
+/** Local binding name → origin, for every NAMED import in `statement`. */
+function readImportBindings(statement: ts.ImportDeclaration): Array<[string, ImportOrigin]> {
+  if (!ts.isStringLiteralLike(statement.moduleSpecifier)) return [];
+  const bindings = statement.importClause?.namedBindings;
+  if (!bindings || !ts.isNamedImports(bindings)) return [];
+  // Not named `module` — @next/next/no-assign-module-variable bans that identifier.
+  const moduleSpec = statement.moduleSpecifier.text;
+  return bindings.elements.map((element) => [
+    element.name.text,
+    { imported: (element.propertyName ?? element.name).text, module: moduleSpec },
+  ]);
+}
+
+/**
+ * Top-level value declarations introduced by `statement`, as
+ * [localName, nodeWorthWalking]. A variable's INITIALIZER is the node to walk —
+ * that is what `export const POST = withSameOrigin()(inner)` puts the handler in.
+ */
+function readValueDeclarations(statement: ts.Statement): Array<[string, ts.Node]> {
+  if (ts.isFunctionDeclaration(statement)) {
+    return statement.name ? [[statement.name.text, statement]] : [];
+  }
+  if (!ts.isVariableStatement(statement)) return [];
+  const declared: Array<[string, ts.Node]> = [];
+  for (const declaration of statement.declarationList.declarations) {
+    if (!ts.isIdentifier(declaration.name)) continue;
+    declared.push([declaration.name.text, declaration.initializer ?? declaration]);
+  }
+  return declared;
+}
+
+/** True when `statement` carries an `export` modifier. */
+function hasExportModifier(statement: ts.Statement): boolean {
+  return (
+    ts.canHaveModifiers(statement) &&
+    (ts.getModifiers(statement) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+  );
+}
+
+/**
+ * `export { createBusiness as POST }` resolved through the local table. With a
+ * moduleSpecifier it is a re-export this audit cannot see into, and null records
+ * that so the caller fails closed rather than skipping the handler.
+ */
+function readNamedExportAliases(
+  statement: ts.ExportDeclaration,
+  locals: ReadonlyMap<string, ts.Node>,
+): Array<[string, ts.Node | null]> {
+  const clause = statement.exportClause;
+  if (!clause || !ts.isNamedExports(clause)) return [];
+  const reExported = statement.moduleSpecifier !== undefined;
+  return clause.elements.map((element) => [
+    element.name.text,
+    reExported ? null : (locals.get((element.propertyName ?? element.name).text) ?? null),
+  ]);
+}
+
+function setAll<V>(target: Map<string, V>, entries: ReadonlyArray<readonly [string, V]>): void {
+  for (const [key, value] of entries) target.set(key, value);
+}
+
+/** The three maps `indexModule` fills, before they are frozen into a ModuleIndex. */
+interface MutableIndex {
+  imports: Map<string, ImportOrigin>;
+  locals: Map<string, ts.Node>;
+  exports: Map<string, ts.Node | null>;
+}
+
+/**
+ * Folds one top-level statement into the index. Statements are processed in
+ * source order, which is what lets `readNamedExportAliases` resolve
+ * `export { createBusiness as POST }` against the locals declared above it.
+ */
+function indexStatement(statement: ts.Statement, index: MutableIndex): void {
+  if (ts.isImportDeclaration(statement)) {
+    setAll(index.imports, readImportBindings(statement));
+    return;
+  }
+  if (ts.isExportDeclaration(statement)) {
+    setAll(index.exports, readNamedExportAliases(statement, index.locals));
+    return;
+  }
+  const declared = readValueDeclarations(statement);
+  setAll(index.locals, declared);
+  if (hasExportModifier(statement)) setAll(index.exports, declared);
+}
+
 function indexModule(text: string): ModuleIndex {
   const source = ts.createSourceFile(
     'scan.tsx',
@@ -191,59 +278,9 @@ function indexModule(text: string): ModuleIndex {
     /* setParentNodes */ true,
     ts.ScriptKind.TSX,
   );
-  const imports = new Map<string, ImportOrigin>();
-  const locals = new Map<string, ts.Node>();
-  const exports = new Map<string, ts.Node | null>();
-
-  const isExported = (node: ts.Node): boolean =>
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-
-  for (const statement of source.statements) {
-    if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
-      // Not named `module` — @next/next/no-assign-module-variable bans that identifier.
-      const moduleSpec = statement.moduleSpecifier.text;
-      const bindings = statement.importClause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements) {
-          imports.set(element.name.text, {
-            imported: (element.propertyName ?? element.name).text,
-            module: moduleSpec,
-          });
-        }
-      }
-      continue;
-    }
-
-    if (ts.isFunctionDeclaration(statement) && statement.name) {
-      locals.set(statement.name.text, statement);
-      if (isExported(statement)) exports.set(statement.name.text, statement);
-      continue;
-    }
-
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name)) continue;
-        const node = declaration.initializer ?? declaration;
-        locals.set(declaration.name.text, node);
-        if (isExported(statement)) exports.set(declaration.name.text, node);
-      }
-      continue;
-    }
-
-    // `export { createBusiness as POST }` — resolve through the local table.
-    // With a moduleSpecifier it is a re-export this audit cannot see into, and
-    // null records that so the caller can fail closed rather than skip it.
-    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
-      const reExported = statement.moduleSpecifier !== undefined;
-      for (const element of statement.exportClause.elements) {
-        const localName = (element.propertyName ?? element.name).text;
-        exports.set(element.name.text, reExported ? null : (locals.get(localName) ?? null));
-      }
-    }
-  }
-
-  return { source, imports, locals, exports };
+  const index: MutableIndex = { imports: new Map(), locals: new Map(), exports: new Map() };
+  for (const statement of source.statements) indexStatement(statement, index);
+  return { source, ...index };
 }
 
 /**
@@ -590,28 +627,33 @@ async function readIfPresent(path: string): Promise<string | null> {
   }
 }
 
-async function main(): Promise<void> {
-  const root = process.cwd();
-  const findings: string[] = [];
+/** One pass of the audit: the files it walked, and what it found in them. */
+export interface AuditPass {
+  files: string[];
+  findings: string[];
+}
 
-  const routeFiles: string[] = [];
-  await collectRouteFiles(resolve(root, 'src', 'app', 'api', 'admin'), root, routeFiles);
-  for (const file of routeFiles) {
+/** Scans every `route.ts` under `<root>/src/app/api/admin`. */
+export async function auditRoutes(root: string): Promise<AuditPass> {
+  const files: string[] = [];
+  await collectRouteFiles(resolve(root, 'src', 'app', 'api', 'admin'), root, files);
+  const findings: string[] = [];
+  for (const file of files) {
     findings.push(...scanRouteFile(file, await readFile(resolve(root, file), 'utf8')));
   }
+  return { files, findings };
+}
 
-  const proxyText = await readFile(resolve(root, 'src', 'proxy.ts'), 'utf8');
-  const preAuthPaths = readPreAuthAdminPaths(proxyText);
-  if (preAuthPaths.size === 0) {
-    // Deriving zero exemptions would flag every pre-auth page — a loud failure
-    // rather than a silent one, but still a broken derivation worth naming.
-    console.error('admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts');
-    process.exit(1);
-  }
-
-  const pageFiles: string[] = [];
-  await collectAdminPageFiles(resolve(root, 'src', 'app', 'admin'), root, pageFiles);
-  for (const file of pageFiles) {
+/**
+ * Scans every `page.tsx` under `<root>/src/app/admin`, anchoring P2 on each
+ * page's sibling route. A page with no sibling gets a null anchor and is
+ * checked by P1 only.
+ */
+export async function auditPages(root: string, preAuthPaths: ReadonlySet<string>): Promise<AuditPass> {
+  const files: string[] = [];
+  await collectAdminPageFiles(resolve(root, 'src', 'app', 'admin'), root, files);
+  const findings: string[] = [];
+  for (const file of files) {
     const normalized = file.replace(/\\/g, '/');
     const siblingText = await readIfPresent(resolve(root, siblingRouteFile(normalized)));
     findings.push(
@@ -621,6 +663,23 @@ async function main(): Promise<void> {
       }),
     );
   }
+  return { files, findings };
+}
+
+async function main(): Promise<void> {
+  const root = process.cwd();
+
+  const preAuthPaths = readPreAuthAdminPaths(await readFile(resolve(root, 'src', 'proxy.ts'), 'utf8'));
+  if (preAuthPaths.size === 0) {
+    // Deriving zero exemptions would flag every pre-auth page — a loud failure
+    // rather than a silent one, but still a broken derivation worth naming.
+    console.error('admin-aal2-audit: fatal — derived 0 pre-auth admin paths from src/proxy.ts');
+    process.exit(1);
+  }
+
+  const routes = await auditRoutes(root);
+  const pages = await auditPages(root, preAuthPaths);
+  const findings = [...routes.findings, ...pages.findings];
 
   if (findings.length > 0) {
     console.error('admin-aal2-audit: FAILED');
@@ -631,8 +690,8 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `admin-aal2-audit: passed (${routeFiles.length} admin route files, ` +
-      `${pageFiles.length} admin pages scanned)`,
+    `admin-aal2-audit: passed (${routes.files.length} admin route files, ` +
+      `${pages.files.length} admin pages scanned)`,
   );
 }
 
