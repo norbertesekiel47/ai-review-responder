@@ -22,8 +22,9 @@ import {
 import { computeOverageQuantity } from '@/lib/accounts/quota';
 
 // One runnable assertion even when the DB is absent, so the file is never a
-// pure no-op in CI (where TEST_DATABASE_POOL_URL is unset). This guards the
-// public surface the E2E kit imports.
+// pure no-op wherever `TEST_DATABASE_POOL_URL` is missing. This guards the
+// public surface the E2E kit imports. (CI's `test` job DOES provide a
+// database — see vitest.config.ts — so there the DB-backed cases run too.)
 describe('e2e/seed — multi-location exports', () => {
   it('exports seedMultiLocationAccount and cleanupMultiLocationAccount as functions', () => {
     expect(typeof seedMultiLocationAccount).toBe('function');
