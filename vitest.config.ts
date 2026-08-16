@@ -13,8 +13,8 @@ import path from 'path';
 // These suites DO run in CI. ci.yml's `test` job stands up a `postgres:16`
 // service, sets `TEST_DATABASE_POOL_URL` and provisions the schema, so `pnpm
 // test` executes BOTH projects — 91 of the 92 run per PR (the lone abstainer
-// needs live Stripe credentials). fallow.yml stands up a second container so
-// coverage sees them too. `src/__tests__/ci-audit-wiring.test.ts` pins that
+// needs live Stripe credentials). The same job runs `pnpm test:coverage`, so
+// the coverage report ci.yml's `fallow` job consumes sees them too. `src/__tests__/ci-audit-wiring.test.ts` pins that
 // wiring, because a suite here degrades to a SILENT SKIP, never a failure,
 // when the database is absent.
 //
