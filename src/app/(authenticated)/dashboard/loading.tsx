@@ -1,17 +1,13 @@
-// Streaming fallback while the dashboard segment loads. Mirrors the in-page
-// skeleton DashboardContent shows during client data fetches (console.css).
+// Streaming fallback while the dashboard segment loads. Renders the SAME
+// component as DashboardContent's in-page loading branches
+// (`components/dashboard/shell/DashboardSkeleton`), so the streaming skeleton
+// and the client-fetch skeleton cannot drift apart.
+import { DashboardSkeleton } from '@/components/dashboard/shell/DashboardSkeleton';
+
 export default function DashboardLoading() {
   return (
     <div aria-busy="true" aria-label="Loading dashboard">
-      <div className="dashboard-skeleton">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-          <div className="skeleton-card" />
-          <div className="skeleton-card" />
-          <div className="skeleton-card" />
-        </div>
-        <div className="skeleton-card-lg" />
-        <div className="skeleton-card-lg" />
-      </div>
+      <DashboardSkeleton />
     </div>
   );
 }

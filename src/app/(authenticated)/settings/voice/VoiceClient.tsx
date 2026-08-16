@@ -19,8 +19,17 @@ import { SettingsSkeleton } from '@/components/dashboard/settings/SettingsSkelet
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { VoiceReportCard } from './VoiceReportCard';
 
-export function VoiceClient() {
-  const f = useLocationVoiceForm();
+interface Props {
+  /**
+   * Multi-location settings MODE, resolved by the server page with
+   * `shouldUseMultiLocationSettings` (invariant #9b) so the browser never
+   * re-derives it from a location count and never learns the flag (#13).
+   */
+  multiLocationEnabled: boolean;
+}
+
+export function VoiceClient({ multiLocationEnabled }: Props) {
+  const f = useLocationVoiceForm({ multiLocationEnabled });
 
   // The hook selects primary/first location on load for single-location
   // accounts too; the locations[0] fallback is a safety net only.

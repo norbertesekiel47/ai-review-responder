@@ -13,6 +13,17 @@
  */
 export type NavSection = 'dashboard' | 'reviews' | 'requests' | 'analytics' | 'settings';
 
+/**
+ * Which settings tab the bare `/settings` route means. Single owner of that
+ * fact: `settings/page.tsx` redirects here and `SettingsSidebar` highlights
+ * this row for a bare `/settings` pathname, so the redirect target and the
+ * highlighted row cannot point at different tabs. Lives beside
+ * `deriveNavSection` because it is the same kind of fact — a nav-path rule two
+ * unrelated modules must agree on — and because this module is deliberately
+ * free of `'use client'`, so the server page can import it.
+ */
+export const SETTINGS_DEFAULT_HREF = '/settings/voice';
+
 /** Order matters: the specific sections are tested before the `/dashboard` catch-all. */
 export function deriveNavSection(pathname: string): NavSection | null {
   if (pathname.startsWith('/settings')) return 'settings';

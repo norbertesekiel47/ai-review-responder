@@ -82,17 +82,29 @@ export default async function AuthenticatedLayout({
 
   // Read users.account_id (users.business_id was dropped in migration 034).
   const [appUser] = await sql<{
+    role: string;
     account_id: string | null;
     owner_name: string | null;
     email: string;
   }[]>`
-    SELECT u.account_id, u.name AS owner_name, u.email
+    SELECT u.role, u.account_id, u.name AS owner_name, u.email
     FROM users u
     WHERE u.auth_id = ${authUser.id}
     LIMIT 1
   `;
 
-  if (!appUser?.account_id) redirect('/admin/login');
+  if (!appUser) redirect('/admin/login');
+
+  // Role routing, matching requireOwnerAccess (require-owner-access.ts:78-79)
+  // exactly — 10 pages under THIS shell call that helper and get these two
+  // redirects, so the shell itself having only an `account_id` check meant two
+  // different postures under one layout. Defense in depth behind proxy.ts's
+  // owner-page block (`role === 'owner'` on /dashboard, /settings, /account —
+  // the whole of this route group), not a replacement for it.
+  if (appUser.role === 'admin') redirect('/admin/overview');
+  if (appUser.role !== 'owner') redirect('/login');
+
+  if (!appUser.account_id) redirect('/admin/login');
 
   const accountId = asAccountId(appUser.account_id);
 

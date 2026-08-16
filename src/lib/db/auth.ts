@@ -21,7 +21,8 @@ export interface AppUser {
  * the session. getUser() still validates the token against Supabase on every
  * call, so a stale access token surfaces as a 401 (triggering a browser-side
  * refresh), never a trust gap. The single owner of this adapter — previously
- * copy-pasted into getCurrentUser, withSession, and the admin MFA gate.
+ * copy-pasted into getCurrentUser, the (since-deleted) `withSession` wrapper,
+ * and the admin MFA gate.
  */
 export function cookieBackedServerClient(request: NextRequest) {
   return createServerClient(

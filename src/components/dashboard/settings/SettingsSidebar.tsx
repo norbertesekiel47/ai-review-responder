@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
+import { SETTINGS_DEFAULT_HREF } from '@/components/dashboard/shell/active-nav';
 
 interface NavItem {
   label: string;
@@ -37,15 +38,19 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
-/** Treat the bare `/settings` index as Brand Voice (it will redirect to `/settings/voice`). */
+/**
+ * Treat the bare `/settings` index as the default tab — `settings/page.tsx`
+ * redirects there, and both read SETTINGS_DEFAULT_HREF so they cannot disagree
+ * about which tab that is.
+ */
 function resolveActiveHref(pathname: string): string {
-  if (pathname === '/settings' || pathname === '/settings/voice') return '/settings/voice';
+  if (pathname === '/settings' || pathname === SETTINGS_DEFAULT_HREF) return SETTINGS_DEFAULT_HREF;
   const match = ALL_ITEMS.find((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
-  return match?.href ?? '/settings/voice';
+  return match?.href ?? SETTINGS_DEFAULT_HREF;
 }
 
 export function SettingsSidebar() {
-  const pathname = usePathname() ?? '/settings/voice';
+  const pathname = usePathname() ?? SETTINGS_DEFAULT_HREF;
   const router = useRouter();
   const activeHref = resolveActiveHref(pathname);
 

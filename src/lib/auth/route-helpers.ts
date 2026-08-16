@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type postgres from 'postgres';
-import type { User } from '@supabase/supabase-js';
-import { checkRateLimit } from '@/lib/shared/rate-limit';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
-import { requireRole, AuthError, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
+import { requireRole, AuthError, type AppUser } from '@/lib/db/auth';
 import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offboarding/gate';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { assertWritableSubscriptionForAccount } from '@/lib/shared/writable-subscription';
@@ -16,36 +14,6 @@ type WrappedNextHandler<TArgs extends unknown[] = []> = (
   req: NextRequest,
   ...args: TArgs
 ) => Promise<Response>;
-
-/**
- * Wraps a handler with a fixed-window rate limit using the cache Redis instance.
- *
- * Always runs in strict mode — if Redis is unavailable the wrapper returns 503
- * rather than silently allowing the request (auth endpoints need budget
- * enforcement, not fail-open behaviour).
- *
- * @param keyFn  Derives the Redis key from the incoming request (e.g. by IP or email).
- * @param maxRequests  Maximum allowed calls within the window.
- * @param windowSeconds  Rolling window length in seconds.
- */
-export function withRateLimit(
-  keyFn: (req: NextRequest) => string,
-  maxRequests: number,
-  windowSeconds: number,
-): (handler: NextHandler) => NextHandler {
-  return (handler) => async (req) => {
-    try {
-      const result = await checkRateLimit(keyFn(req), maxRequests, windowSeconds, { strict: true });
-      if (!result.allowed) {
-        return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
-      }
-    } catch (err) {
-      console.error('[route-helpers/withRateLimit] strict failure:', err);
-      return NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503 });
-    }
-    return handler(req);
-  };
-}
 
 /**
  * Wraps a handler with a same-origin check.
@@ -67,28 +35,6 @@ export function withSameOrigin(): <TArgs extends unknown[]>(
       throw err;
     }
     return handler(req, ...args);
-  };
-}
-
-/**
- * Wraps a handler with a Supabase session check.
- *
- * Reads cookies from the incoming NextRequest (read-only — setAll is a no-op
- * because auth routes do not need to write session cookies back). Returns 401
- * when no authenticated user is found; otherwise calls the inner handler with
- * a typed `{ user }` session object as the first argument.
- */
-export function withSession(
-  handler: (session: { user: User }, req: NextRequest) => Promise<Response> | Response,
-): NextHandler {
-  return async (req) => {
-    const supabase = cookieBackedServerClient(req);
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-    return handler({ user }, req);
   };
 }
 

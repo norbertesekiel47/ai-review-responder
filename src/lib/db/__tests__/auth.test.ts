@@ -2,8 +2,9 @@
 //
 // Unit coverage for cookieBackedServerClient — the single owner of the
 // read-only cookie-backed Supabase SSR adapter (previously copy-pasted into
-// getCurrentUser, withSession, and the admin MFA gate). Pins the security-
-// relevant wiring: getAll() returns the request cookies; setAll() is a no-op.
+// getCurrentUser, the since-deleted `withSession` wrapper, and the admin MFA
+// gate). Pins the security-relevant wiring: getAll() returns the request
+// cookies; setAll() is a no-op.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';

@@ -7,12 +7,14 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import { assertSameOrigin, SameOriginError } from '@/lib/shared/csrf';
 import { FinishSignupSchema } from '@/lib/shared/schemas';
 import { accountExistsResponse } from '@/lib/shared/auth-responses';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 import {
   createBusinessTx,
   DuplicateEmailError,
   type SelfServeBusinessTxInput,
 } from '@/lib/onboarding/create-business';
 import { onboardingDemoEnabled } from '@/lib/onboarding/flags';
+import { resolveFunnelEntry } from '@/lib/onboarding/funnel-entry';
 import { enrollOwnerEmailChannel } from '@/lib/notifications/channels/enroll-email-owner';
 
 export const dynamic = 'force-dynamic';
@@ -207,14 +209,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // 10. Success. Google-confirmed email is auto-verified so we skip the
-  //     /signup/check-email detour. Destination depends on the demo flag
-  //     so the Google path matches the email/password path (verify-otp
-  //     applies the same branch). Without this, Google signups skipped
-  //     /onboarding/start + /onboarding/demo entirely and landed straight
-  //     on the paywall — losing the AHA moment for half the funnel.
-  const postFinishRedirect =
-    onboardingDemoEnabled()
-      ? '/onboarding/start'
-      : '/onboarding/pay';
+  //     /signup/check-email detour. The destination comes from the Funnel
+  //     entry owner rather than a private demo-flag branch, so the Google path
+  //     cannot drift from the email/password path. Without this, Google signups
+  //     skipped /onboarding/start + /onboarding/demo entirely and landed
+  //     straight on the paywall — losing the AHA moment for half the funnel.
+  //
+  //     The three non-flag inputs are FACTS about a brand-new self-serve
+  //     account, not assumptions: createBusinessTx inserted the account with
+  //     subscription_status = 'pending_payment', a placeholder business with no
+  //     place captured, and no wizard completion. `demoEnabled` is passed in
+  //     because resolveFunnelEntry is pure and reads no flag itself.
+  const postFinishRedirect = resolveFunnelEntry({
+    subscriptionStatus: SubscriptionStatus.PENDING_PAYMENT,
+    demoEnabled: onboardingDemoEnabled(),
+    hasPlace: false,
+    wizardCompleted: false,
+  });
   return NextResponse.json({ redirectTo: postFinishRedirect }, { status: 201 });
 }

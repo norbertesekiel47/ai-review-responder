@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardSettings } from '@/lib/dashboard/types';
 import { SubscriptionStatus } from '@/lib/shared/subscription-status';
+import {
+  buildAccountSettingsPatch,
+  countDirtyFields,
+} from './settings-form-patch';
 
 /** The light GET /api/settings payload — the only fields the settings pages
  *  read (previously satisfied by fetching the entire /api/dashboard). */
@@ -37,31 +41,6 @@ function settingsToForm(s: DashboardSettings): SettingsForm {
     weeklySummaryEnabled: s.weeklySummaryEnabled,
     monthlyImpactEnabled: s.monthlyImpactEnabled,
   };
-}
-
-// One comparison branch per settings field — the count is the form-field
-// vocabulary, unchanged by the light-endpoint swap.
-// fallow-ignore-next-line complexity
-function buildPatch(initial: SettingsForm, current: SettingsForm): Record<string, unknown> | null {
-  const patch: Record<string, unknown> = {};
-  if (current.tone !== initial.tone) patch.tone = current.tone;
-  if (current.productsServices !== initial.productsServices) patch.productsServices = current.productsServices || null;
-  if (JSON.stringify(current.avoidFacts) !== JSON.stringify(initial.avoidFacts)) {
-    patch.avoidFacts = current.avoidFacts.flatMap((l) => {
-      const trimmed = l.trim();
-      return trimmed ? [trimmed] : [];
-    });
-  }
-  if (JSON.stringify(current.sampleResponses) !== JSON.stringify(initial.sampleResponses)) {
-    patch.sampleResponses = current.sampleResponses.flatMap((l) => {
-      const trimmed = l.trim();
-      return trimmed ? [trimmed] : [];
-    });
-  }
-  if (current.ownerPhone !== initial.ownerPhone) patch.ownerPhone = current.ownerPhone || null;
-  if (current.weeklySummaryEnabled !== initial.weeklySummaryEnabled) patch.weeklySummaryEnabled = current.weeklySummaryEnabled;
-  if (current.monthlyImpactEnabled !== initial.monthlyImpactEnabled) patch.monthlyImpactEnabled = current.monthlyImpactEnabled;
-  return Object.keys(patch).length > 0 ? patch : null;
 }
 
 export function settingsRedirectForDashboardData(
@@ -145,17 +124,12 @@ export function useSettingsForm(): UseSettingsForm {
 
   const dirty = useMemo(() => {
     if (!form || !initial) return false;
-    return buildPatch(initial, form) !== null;
+    return buildAccountSettingsPatch(initial, form) !== null;
   }, [form, initial]);
 
-  // fallow-ignore-next-line complexity
   const dirtyCount = useMemo(() => {
     if (!form || !initial) return 0;
-    let n = 0;
-    for (const k of Object.keys(form) as (keyof SettingsForm)[]) {
-      if (JSON.stringify(form[k]) !== JSON.stringify(initial[k])) n++;
-    }
-    return n;
+    return countDirtyFields(initial, form);
   }, [form, initial]);
 
   function set<K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) {
@@ -165,7 +139,7 @@ export function useSettingsForm(): UseSettingsForm {
   // fallow-ignore-next-line complexity
   async function save() {
     if (!form || !initial) return;
-    const patch = buildPatch(initial, form);
+    const patch = buildAccountSettingsPatch(initial, form);
     if (!patch) return;
     setSaving(true);
     setSaveError(null);
