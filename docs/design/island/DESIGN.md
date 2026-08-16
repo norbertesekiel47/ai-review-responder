@@ -112,8 +112,13 @@ utilities, so the sizes live in the components:
 | Section h2 | `text-4xl md:text-5xl font-medium text-rw-ink` |
 | Card h3 | `text-xl md:text-2xl font-medium text-rw-ink` |
 | Body | `text-lg text-rw-ink-soft leading-relaxed` |
-| Eyebrow | `text-sm tracking-wider uppercase text-rw-teal` |
-| Caption / note | `text-sm text-rw-teal italic` |
+| Eyebrow | `text-sm tracking-wider uppercase text-rw-teal-strong` |
+| Caption / note | `text-sm text-rw-teal-strong italic` |
+
+Eyebrows, captions, labels, and the wordmark are **text**, so they take the actionable
+teal (`text-rw-teal-strong`) on white/cream — never the decorative `text-rw-teal`
+(2.24:1, fails AA). Rationale and the per-background table:
+[`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md).
 
 ## Tokens — Spacing & Shape
 
@@ -267,7 +272,7 @@ wordmark on the right.
   </div>
   <div className="flex items-center gap-2">
     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
-    <span className="text-sm tracking-wider uppercase text-rw-teal">RepWorth</span>
+    <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
   </div>
 </nav>
 ```
@@ -276,15 +281,18 @@ wordmark on the right.
 
 | Type | Classes |
 |---|---|
-| Primary (teal pill) | `px-8 py-4 bg-rw-teal text-white rounded-full shadow-lg` |
-| Secondary (outline) | `px-8 py-4 bg-white text-rw-teal rounded-full border border-rw-teal/20` |
+| Primary (teal-strong pill, on the white island) | `px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg` |
+| Primary on a teal CTA band | white pill: `px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg` |
+| Secondary (outline) | `px-8 py-4 bg-white text-rw-teal-strong rounded-full border border-rw-teal/20` |
 | Ghost | `px-8 py-4 bg-rw-cream text-rw-ink rounded-full border border-rw-teal/10` |
 
 States: always wrap clickable buttons in `motion.button` with the hover/tap variants in
 **Tokens — Spacing & Shape → Motion**.
 
 **Never:** put white text on `--rw-teal`. White text only ever sits on
-`--rw-teal-strong` or darker.
+`--rw-teal-strong` or darker (ADR 0004 — white on `#97B3AE` is 2.24:1). The
+pre-ADR recipe `bg-rw-teal text-white` still survives in a handful of files
+(`not-found.tsx`, onboarding step dots); it is a known violation, not a pattern to copy.
 
 ### Feature / info cards
 
@@ -450,7 +458,12 @@ Alternate between these to create visual rhythm:
 |---|---|
 | Default | `bg-white` |
 | Tinted | `bg-gradient-to-b from-white to-rw-cream/30` |
-| CTA (last section) | `bg-gradient-to-br from-rw-teal to-rw-teal/80 text-white rounded-b-[3rem]` |
+| CTA (last section) | `bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 text-white rounded-b-[3rem]` |
+
+A CTA band follows ADR 0004's three cases exactly: a `--rw-teal` band may carry **ink**
+copy plus white-pill actions; a band that must carry **white** copy darkens to
+`--rw-teal-strong` or darker (the recipe above — what `book-a-demo`, `demo/[slug]`, and
+`help/contact` ship); text-free teal decoration may stay `--rw-teal`.
 
 ### The marquee field
 
@@ -505,9 +518,9 @@ robot/brain/sparkle imagery, no decorative network graphs. Decorative wrappers c
 ## Agent prompt guide
 
 - **"Build a primary button on this surface"** → `motion.button` with
-  `px-8 py-4 bg-rw-teal text-white rounded-full shadow-lg`, plus the primary-button
-  hover/tap variants. If the label needs to sit on a light ground instead, use
-  `text-rw-teal-strong` — never `text-rw-teal`.
+  `px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg`, plus the
+  primary-button hover/tap variants. On a teal CTA band it flips to a white pill with
+  `text-rw-teal-strong`. Never `bg-rw-teal text-white`, never `text-rw-teal` as a label.
 - **"Add a new public page"** → sage root (`min-h-screen bg-rw-sage relative`, no
   `overflow-hidden`), fixed `aria-hidden` parallax layer, dot nav, then the
   `max-w-5xl bg-white rounded-[3rem] shadow-2xl` island with the nav bar as its first child.
