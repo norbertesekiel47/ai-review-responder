@@ -110,7 +110,19 @@ export interface TenantScopeAllowlistEntry {
 //     (spec §5.2) and already carries the equivalent entries, added in T2. The 7
 //     now-dead `overview-service.ts` entries were removed; its 3 system-health
 //     entries (api_costs + the two notification_deliveries aggregates) stay.
-export const ALLOWLIST_BASELINE = 396;
+//   - 2026-08-15 (396 → 394): PF-H2, a SHRINK of two. The primary-scoped
+//     `onboarded_by` subquery had three spellings; `primaryOnboardedBySql`
+//     (`src/lib/payments/plan-activation.ts`) is now their single owner, and it
+//     binds `pb.account_id = ${accountId}::uuid` in a TOP-LEVEL predicate — so
+//     the audit sees the scope in the fragment itself and needs no suppression.
+//     Both `/api/billing/checkout` entries went with the copy they described:
+//     that route's template no longer names `businesses` at all, and its
+//     `accounts` statement is scoped outright by `a.id = ${accountId}::uuid`
+//     once the subquery is not competing for the reading. The one refreshed
+//     snippet is `resolveCheckoutContext`'s business lookup, which stopped
+//     projecting `onboarded_by` (it reads the PRIMARY business's value through
+//     the fragment now, not whichever business it was handed).
+export const ALLOWLIST_BASELINE = 394;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -343,20 +355,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Opaque approval token or callback lookup must resolve the approval row before tenant scope is known.",
   },
   {
-    file: "src/app/api/billing/checkout/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT a.id, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = ${accountId}::uuid AND b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
-    category: 'tenant-root-lookup',
-    reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
-  },
-  {
-    file: "src/app/api/billing/checkout/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT a.id, a.subscription_status, u.email AS owner_email, (SELECT b.onboarded_by FROM businesses b WHERE b.account_id = ${accountId}::uuid AND b.account_id = a.id AND b.is_primary = TRUE AND b.archived_at IS NULL LIMIT 1) AS onboarded_by FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ${accountId}::uuid",
-    category: 'tenant-root-lookup',
-    reason: "onboarded_by subquery is tenant-scoped: b.account_id = a.id where a.id = ${accountId} (the owner-verified tenant root).",
-  },
-  {
     file: "src/app/api/billing/portal/route.ts",
     table: "accounts",
     sqlSnippet: "SELECT id, subscription_status, stripe_customer_id FROM accounts WHERE id = ${accountId}::uuid",
@@ -387,7 +385,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/payments/plan-activation.ts",
     table: "businesses",
-    sqlSnippet: "SELECT account_id, onboarded_by FROM businesses WHERE id = ${businessId}::uuid",
+    sqlSnippet: "SELECT account_id FROM businesses WHERE id = ${businessId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
   },

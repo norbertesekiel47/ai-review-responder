@@ -8,6 +8,7 @@ const {
   mockSql,
   mockGetOffboardingState,
   mockApplyTierSnapshot,
+  mockPrimaryOnboardedBySql,
   mockStripeCreate,
 } = vi.hoisted(() => {
   const mockSql = vi.fn() as ReturnType<typeof vi.fn> & {
@@ -21,6 +22,14 @@ const {
     mockSql,
     mockGetOffboardingState: vi.fn(),
     mockApplyTierSnapshot: vi.fn(),
+    // The primary-scoped `onboarded_by` subquery is a LAZY Postgres.js fragment
+    // in production — composing it neither executes nor consumes a connection.
+    // This suite's `sql` is a bare `vi.fn()`, which cannot model laziness: a
+    // real fragment call would shift the strict once-queue below and make the
+    // route look like it issues two statements when it issues one. Stubbed to a
+    // sentinel so the queue keeps mirroring real call order; the fragment's own
+    // text and scoping are pinned at its owner, plan-activation.test.ts.
+    mockPrimaryOnboardedBySql: vi.fn(() => 'PRIMARY_ONBOARDED_BY_SQL'),
     mockStripeCreate: vi.fn(),
   };
 });
@@ -42,6 +51,7 @@ vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => ({
 vi.mock('@/lib/payments/plan-activation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/payments/plan-activation')>()),
   applyTierSnapshot: mockApplyTierSnapshot,
+  primaryOnboardedBySql: mockPrimaryOnboardedBySql,
 }));
 vi.mock('@/lib/payments/stripe-client', () => ({
   getStripe: () => ({ checkout: { sessions: { create: mockStripeCreate } } }),
@@ -79,7 +89,7 @@ function account(onboardedBy: string | null = null) {
     id: ACCOUNT_ID,
     subscription_status: SubscriptionStatus.PENDING_PAYMENT,
     owner_email: 'owner@example.com',
-    onboarded_by: onboardedBy,
+    primary_onboarded_by: onboardedBy,
   };
 }
 

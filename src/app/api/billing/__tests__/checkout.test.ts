@@ -14,12 +14,14 @@ const {
   mockGetOffboardingState,
   mockApplyTierSnapshot,
   mockCreateCheckoutSession,
+  mockPrimaryOnboardedBySql,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockSql: vi.fn(),
   mockGetOffboardingState: vi.fn(),
   mockApplyTierSnapshot: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
+  mockPrimaryOnboardedBySql: vi.fn(() => 'PRIMARY_ONBOARDED_BY_SQL'),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -36,10 +38,17 @@ vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/account-offboarding/gate')>()),
   getOffboardingState: mockGetOffboardingState,
 }));
-vi.mock('@/lib/payments/plan-activation', () => {
-  class CheckoutAttemptConflictError extends Error {}
-  return { CheckoutAttemptConflictError, applyTierSnapshot: mockApplyTierSnapshot };
-});
+// Spread the real module rather than re-declaring its surface: the route now
+// takes its trial decision through the module's `isTrialEligible`, and a
+// hand-rolled factory that omits an export turns every route call into an
+// opaque TypeError. `primaryOnboardedBySql` is stubbed for the same reason it
+// is in the sibling suites — a bare `vi.fn()` `sql` cannot model a lazy
+// fragment, so composing one would shift the once-queue.
+vi.mock('@/lib/payments/plan-activation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/payments/plan-activation')>()),
+  applyTierSnapshot: mockApplyTierSnapshot,
+  primaryOnboardedBySql: mockPrimaryOnboardedBySql,
+}));
 vi.mock('@/lib/payments/create-checkout-session', () => {
   class CheckoutUnavailableError extends Error {}
   class CheckoutOffboardingBlockedError extends Error {}
@@ -74,7 +83,7 @@ function account(
     id: ACCOUNT_ID,
     subscription_status: subscriptionStatus,
     owner_email: 'owner@example.com',
-    onboarded_by: onboardedBy,
+    primary_onboarded_by: onboardedBy,
   };
 }
 

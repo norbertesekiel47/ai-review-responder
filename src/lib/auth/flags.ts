@@ -6,9 +6,11 @@ import { readFlag } from '@/lib/config/flags';
  *
  * It gates the anonymous account-minting surface only — `/signup` + its
  * sub-pages, `POST /api/auth/{signup,finish-signup,resend-confirmation,verify-otp}`,
- * the trial-eligibility clause in `POST /api/billing/checkout`, and the
- * marketing CTA copy that advertises anonymous signup. It does NOT gate the
- * always-on auth pages (`/login`, `/forgot-password`, `/reset-password`) or the
+ * the trial-eligibility clause (`isTrialEligible`,
+ * `src/lib/payments/plan-activation.ts` — one owner since PF-H2, read by BOTH
+ * checkout entry points where it used to sit inline in `/api/billing/checkout`
+ * alone), and the marketing CTA copy that advertises anonymous signup. It does
+ * NOT gate the always-on auth pages (`/login`, `/forgot-password`, `/reset-password`) or the
  * authenticated onboarding funnel: those are reached by admin-invited owners
  * while the flag is off, and each enforces its own authenticated-session +
  * `role = 'owner'` + allowed-state boundary instead.

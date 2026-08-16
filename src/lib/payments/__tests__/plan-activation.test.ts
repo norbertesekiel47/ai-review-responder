@@ -60,13 +60,18 @@ vi.mock('@/lib/payments/stripe-client', () => ({
 import {
   applyTierSnapshot as applyTierSnapshotImpl,
   CheckoutAttemptConflictError,
+  isTrialEligible,
+  primaryOnboardedBySql,
   releaseCouponFaultedAttempt,
   resolveCheckoutContext,
   type ApplyTierSnapshotParams,
 } from '../plan-activation';
+import { SubscriptionStatus } from '@/lib/shared/subscription-status';
 
 const ACCOUNT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const BUSINESS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+/** A non-primary location on the same account. */
+const SECONDARY_BUSINESS_ID = 'cccccccc-dddd-eeee-ffff-000000000000';
 const ATTEMPT_ID = '11111111-2222-4333-8444-555555555555';
 const SESSION_ID = 'cs_prior';
 
@@ -203,6 +208,10 @@ beforeEach(() => {
   vi.stubEnv('STRIPE_PRICE_AUTOPILOT_FOUNDING', 'price_autopilot_founding');
   vi.stubEnv('STRIPE_PRICE_COPILOT_OVERAGE', 'price_copilot_overage');
   vi.stubEnv('STRIPE_PRICE_AUTOPILOT_OVERAGE', 'price_autopilot_overage');
+  // The second flag term of `isTrialEligible`. Read through `readFlag`, which
+  // is deliberately un-memoized, so stubbing the env IS the seam — there is no
+  // accessor mock to keep in sync.
+  vi.stubEnv('SELF_SERVE_SIGNUP_ENABLED', 'true');
   reportCaughtErrorMock.mockReset();
   loggerMock.log.mockReset();
   loggerMock.warn.mockReset();
@@ -821,18 +830,107 @@ describe('applyTierSnapshot beta comp coupon snapshot', () => {
   });
 });
 
+describe('primaryOnboardedBySql', () => {
+  it('scopes the onboarded_by read to the account, its PRIMARY business, and un-archived rows', () => {
+    primaryOnboardedBySql(mockSql, ACCOUNT_ID);
+
+    // A fragment is LAZY: composing it must not execute. `sqlCalls` records
+    // only awaited queries, so an empty log here IS the laziness assertion —
+    // an eager fragment would burn a pooled connection at every call site.
+    expect(harness.sqlCalls).toHaveLength(0);
+    const [strings, ...values] = harness.mockSql.mock.calls[0]!;
+    const text = (strings as TemplateStringsArray).join('?');
+
+    // `onboarded_by` lives per-Business while both decisions that read it (the
+    // Beta comp coupon and the self-serve trial) are per-Account, so "which
+    // Business" is the whole question. All three predicates are load-bearing:
+    // drop is_primary and the answer becomes "whichever row Postgres returns
+    // first"; drop archived_at and a deleted location can still decide it.
+    expect(text).toMatch(/FROM\s+businesses\s+pb/i);
+    expect(text).toMatch(/pb\.account_id\s*=\s*\?::uuid/i);
+    expect(text).toMatch(/pb\.is_primary\s*=\s*TRUE/i);
+    expect(text).toMatch(/pb\.archived_at\s+IS\s+NULL/i);
+    expect(text).toMatch(/LIMIT\s+1/i);
+    expect(values).toEqual([ACCOUNT_ID]);
+  });
+
+  it('carries its own tenant predicate as a bound value, not an outer correlation', () => {
+    primaryOnboardedBySql(mockSql, ACCOUNT_ID);
+    const [strings] = harness.mockSql.mock.calls[0]!;
+    const text = (strings as TemplateStringsArray).join('?');
+
+    // Correlating to an outer alias (`pb.account_id = a.id`) would hide the
+    // scope from every composed statement AND from the tenant-scope audit,
+    // which reads raw template text per file.
+    expect(text).not.toMatch(/pb\.account_id\s*=\s*[a-z]+\.id/i);
+  });
+});
+
+describe('isTrialEligible', () => {
+  // The truth table, exhaustively. Each of the four terms is the sole reason
+  // for denial in at least one row, which is what makes deleting any one of
+  // them fail here rather than in a route suite three modules away.
+  for (const trial of [true, false]) {
+    for (const selfServeSignup of [true, false]) {
+      for (const subscriptionStatus of [
+        SubscriptionStatus.PENDING_PAYMENT,
+        // `cancelled` is not hypothetical: reactivation posts to
+        // /api/billing/checkout, so without the status term a self-serve
+        // account would earn a fresh $0 trial on every cancellation.
+        SubscriptionStatus.CANCELLED,
+      ]) {
+        for (const primaryOnboardedBy of [null, 'admin-1']) {
+          const expected =
+            trial &&
+            selfServeSignup &&
+            subscriptionStatus === SubscriptionStatus.PENDING_PAYMENT &&
+            primaryOnboardedBy === null;
+          it(`TRIAL_ENABLED=${trial} SELF_SERVE=${selfServeSignup} status=${subscriptionStatus} onboarded_by=${primaryOnboardedBy} → ${expected}`, () => {
+            mockTrialEnabled.mockReturnValue(trial);
+            vi.stubEnv('SELF_SERVE_SIGNUP_ENABLED', String(selfServeSignup));
+            expect(
+              isTrialEligible({ subscriptionStatus, primaryOnboardedBy }),
+            ).toBe(expected);
+          });
+        }
+      }
+    }
+  }
+});
+
 describe('resolveCheckoutContext', () => {
+  /** Business lookup, then the account read the eligibility facts come from. */
+  function queueContext(
+    accountId: string | null,
+    account: { subscription_status: string; primary_onboarded_by: string | null } | null,
+  ): void {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult(accountId ? [{ account_id: accountId }] : []),
+    );
+    if (account) harness.sqlReturnQueue.push(mkTaggedResult([account]));
+  }
+
   it('returns null when the business row is missing', async () => {
-    harness.sqlReturnQueue.push(mkTaggedResult([]));
+    queueContext(null, null);
     expect(await resolveCheckoutContext(mockSql, BUSINESS_ID)).toBeNull();
+    // Short-circuits: no account id means nothing to read the facts from.
     expect(harness.sqlCalls).toHaveLength(1);
+  });
+
+  it('returns null when the account row vanished between the two reads', async () => {
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([{ account_id: ACCOUNT_ID }]),
+      mkTaggedResult([]),
+    );
+    expect(await resolveCheckoutContext(mockSql, BUSINESS_ID)).toBeNull();
   });
 
   it('allows a configured trial only for a self-serve business', async () => {
     mockTrialEnabled.mockReturnValue(true);
-    harness.sqlReturnQueue.push(
-      mkTaggedResult([{ account_id: ACCOUNT_ID, onboarded_by: null }]),
-    );
+    queueContext(ACCOUNT_ID, {
+      subscription_status: SubscriptionStatus.PENDING_PAYMENT,
+      primary_onboarded_by: null,
+    });
     expect(await resolveCheckoutContext(mockSql, BUSINESS_ID)).toEqual({
       accountId: ACCOUNT_ID,
       trialEligible: true,
@@ -841,13 +939,55 @@ describe('resolveCheckoutContext', () => {
 
   it('denies a trial to admin-provisioned businesses', async () => {
     mockTrialEnabled.mockReturnValue(true);
-    harness.sqlReturnQueue.push(
-      mkTaggedResult([{ account_id: ACCOUNT_ID, onboarded_by: 'admin-1' }]),
-    );
+    queueContext(ACCOUNT_ID, {
+      subscription_status: SubscriptionStatus.PENDING_PAYMENT,
+      primary_onboarded_by: 'admin-1',
+    });
     expect(await resolveCheckoutContext(mockSql, BUSINESS_ID)).toEqual({
       accountId: ACCOUNT_ID,
       trialEligible: false,
     });
+  });
+
+  it('defers to the single owner rather than re-spelling the flag terms', async () => {
+    // Same self-serve, pending row as the granting case above — only the
+    // second flag differs. A copy of the predicate that carried just
+    // TRIAL_ENABLED + onboarded_by (what this function spelled before #H2)
+    // would answer `true` here and disagree with /api/billing/checkout.
+    mockTrialEnabled.mockReturnValue(true);
+    vi.stubEnv('SELF_SERVE_SIGNUP_ENABLED', 'false');
+    queueContext(ACCOUNT_ID, {
+      subscription_status: SubscriptionStatus.PENDING_PAYMENT,
+      primary_onboarded_by: null,
+    });
+    expect(await resolveCheckoutContext(mockSql, BUSINESS_ID)).toEqual({
+      accountId: ACCOUNT_ID,
+      trialEligible: false,
+    });
+  });
+
+  it('reads the PRIMARY business onboarded_by, not the business it was handed', async () => {
+    // The latent bug this function carried: it read `onboarded_by` off the row
+    // the caller passed. Correct today only because select-plan happens to pass
+    // the primary and a pending_payment account cannot yet hold a second
+    // location — a precondition enforced two modules away, failing OPEN (it
+    // grants the trial) the moment either half changes.
+    mockTrialEnabled.mockReturnValue(true);
+    queueContext(ACCOUNT_ID, {
+      subscription_status: SubscriptionStatus.PENDING_PAYMENT,
+      primary_onboarded_by: 'admin-1',
+    });
+
+    const context = await resolveCheckoutContext(mockSql, SECONDARY_BUSINESS_ID);
+
+    expect(context).toEqual({ accountId: ACCOUNT_ID, trialEligible: false });
+    // The facts read keys on the ACCOUNT resolved from that business — never on
+    // the business id — and is scoped to the primary through the shared fragment.
+    const factsRead = harness.sqlCalls[1]!;
+    expect(factsRead.values).toEqual([ACCOUNT_ID, ACCOUNT_ID]);
+    expect(factsRead.values).not.toContain(SECONDARY_BUSINESS_ID);
+    expect(factsRead.text).toMatch(/pb\.is_primary\s*=\s*TRUE/i);
+    expect(factsRead.text).toMatch(/pb\.archived_at\s+IS\s+NULL/i);
   });
 });
 

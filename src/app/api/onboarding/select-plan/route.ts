@@ -163,6 +163,9 @@ async function validateSelectPlanRequest(
  * because the flag now means only "strangers may mint accounts"
  * (`docs/superpowers/plans/2026-08-14-admin-invite-funnel-flag-inventory.md`)
  * and an admin-invited owner buys through this same route while it is off.
+ * The flag DOES appear one level down, inside `isTrialEligible` — but as a term
+ * of the trial offer, not as a gate on the route: with it off this route still
+ * serves every owner, at full price.
  *
  * Same-origin: yes — this UPDATEs account state, so a CSRF-driven call
  * with a victim's cookies could flip them to a different tier.

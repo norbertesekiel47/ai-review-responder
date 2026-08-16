@@ -7,7 +7,6 @@
 //   VAL-BILLING-030 through VAL-BILLING-032.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { selfServeSignupEnabled } from '@/lib/auth/flags';
 import { z } from 'zod';
 import { getOffboardingState, isCheckoutBlocked } from '@/lib/account-offboarding/gate';
 import { sql } from '@/lib/db/server';
@@ -22,9 +21,10 @@ import {
 import {
   applyTierSnapshot,
   CheckoutAttemptConflictError,
+  isTrialEligible,
+  primaryOnboardedBySql,
   releaseCouponFaultedAttempt,
 } from '@/lib/payments/plan-activation';
-import { trialEnabled } from '@/lib/payments/flags';
 import { TierNotPurchasableError } from '@/lib/payments/tier-purchasability';
 import { requireOwnerWithAccount, withSameOrigin } from '@/lib/auth/route-helpers';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
@@ -89,22 +89,19 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Look up the account. onboarded_by from the primary business is the self-serve
-  // discriminator (FIX 2): NULL = self-serve, non-null = admin/partner handoff —
-  // same discriminator dashboard/route.ts uses to suppress the self-serve CTA.
+  // Look up the account. `onboarded_by` of the PRIMARY business is the
+  // self-serve discriminator (FIX 2): NULL = self-serve, non-null =
+  // admin/partner handoff. The scoping is not spelled here — `primaryOnboardedBySql`
+  // owns it, because reading the field off an arbitrary location is the mistake
+  // it exists to prevent.
   const [account] = await sql<{
     id: string;
     subscription_status: string;
     owner_email: string;
-    onboarded_by: string | null;
+    primary_onboarded_by: string | null;
   }[]>`
     SELECT a.id, a.subscription_status, u.email AS owner_email,
-      (SELECT b.onboarded_by FROM businesses b
-        WHERE b.account_id = ${accountId}::uuid
-          AND b.account_id = a.id
-          AND b.is_primary = TRUE
-          AND b.archived_at IS NULL
-        LIMIT 1) AS onboarded_by
+      (${primaryOnboardedBySql(sql, accountId)}) AS primary_onboarded_by
     FROM accounts a
     JOIN users u ON u.id = a.owner_user_id
     WHERE a.id = ${accountId}::uuid
@@ -141,23 +138,17 @@ async function createBillingCheckout(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Trial eligibility (PLAN.md §0.2): trials are the SELF-SERVE pending_payment
-  // onboarding path only. The status reject above eliminates active/trialing/
-  // past_due, but NOT cancelled — so check pending_payment explicitly here
-  // rather than rely on "everything else was rejected". Also require
-  // SELF_SERVE_SIGNUP_ENABLED so an admin-onboarded pending_payment account
-  // (not part of the self-serve trial funnel) gets a normal paid checkout, not
-  // a free trial. Both flags are server-authoritative; no NEXT_PUBLIC_* companion.
-  //
-  // FIX 2: per-account self-serve gate. Even with both flags on, an
-  // admin/partner-onboarded account (onboarded_by non-null) must fall back to a
-  // NORMAL paid checkout — never a $0 trial it could obtain by direct POST. Only
-  // self-serve accounts (onboarded_by IS NULL) are trial-eligible.
-  const trialEligible =
-    trialEnabled() &&
-    selfServeSignupEnabled() &&
-    account.subscription_status === SubscriptionStatus.PENDING_PAYMENT &&
-    account.onboarded_by === null;
+  // Trial eligibility (PLAN.md §0.2). The four terms and the reasoning for each
+  // live at their single owner, `isTrialEligible` — this route spelled its own
+  // stricter copy and `resolveCheckoutContext` spelled a laxer one, so the two
+  // checkout entry points answered the same question differently. The status
+  // reject above does NOT make the `pending_payment` term redundant: it leaves
+  // `cancelled` standing, which is exactly the state a reactivating owner
+  // arrives in (account-offboarding/reactivate.ts posts here).
+  const trialEligible = isTrialEligible({
+    subscriptionStatus: account.subscription_status,
+    primaryOnboardedBy: account.primary_onboarded_by,
+  });
 
   // Create the Checkout Session via the shared module
   // VAL-BILLING-066: Returns 502 with user-facing error when Stripe API fails
