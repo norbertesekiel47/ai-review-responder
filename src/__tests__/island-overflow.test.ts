@@ -10,8 +10,9 @@ import { describe, expect, it } from 'vitest';
 // same contract for the two CSS-class island roots.
 const ISLAND_ROOTS = [
   {
-    label: 'marketing .rw-island (globals.css)',
-    path: resolve(process.cwd(), 'src/app/globals.css'),
+    // Moved out of globals.css by PR 3b; globals.css is the token file now.
+    label: 'marketing .rw-island ((public)/_styles/island.css)',
+    path: resolve(process.cwd(), 'src/app/(public)/_styles/island.css'),
   },
   {
     label: 'auth .rw-island (auth-island.css)',
