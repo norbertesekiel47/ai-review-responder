@@ -148,7 +148,8 @@ compile-time fetch.
 
 ### Role tokens
 
-Composite `font:` shorthands declared in `tokens.css` and consumed via `.rw-app`:
+Composite `font:` shorthands declared in `tokens.css` and consumed from `console.css`
+(`.page-title`, section and card headings, `.stat` numerals, form labels):
 
 | Role | Value | Token |
 |---|---|---|

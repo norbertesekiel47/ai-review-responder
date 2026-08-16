@@ -247,21 +247,9 @@
   --rw-sp-12: 3rem;    --rw-sp-16: 4rem;   --rw-sp-20: 5rem;
 }
 
-/* ==========================================================================
-   Semantic element styles — drop into any page
-   ========================================================================== */
-
-/* App-scoped utilities. Prefix a surface with .rw-app. */
-.rw-app {
-  background: var(--rw-app-bg);
-  color: var(--rw-app-text);
-  font: var(--rw-app-body);
-  -webkit-font-smoothing: antialiased;
-}
-.rw-app h1 { font: var(--rw-app-h1); color: var(--rw-app-text); }
-.rw-app h2 { font: var(--rw-app-h2); color: var(--rw-app-text); }
-.rw-app h3 { font: var(--rw-app-h3); color: var(--rw-app-text); }
-.rw-app label { font: var(--rw-app-label); color: var(--rw-app-text); }
-.rw-app .stat { font: var(--rw-app-stat); }
-.rw-app .muted { color: var(--rw-app-text-muted); }
-.rw-app code, .rw-app .mono { font-family: var(--rw-font-mono); }
+/* This file is VALUES ONLY. The `.rw-app` element-style block that used to sit
+   here (`.rw-app h1/h2/h3/label/.stat/.muted/code`) was deleted in PR 3a: the
+   class was applied nowhere in src/ — `console.css` styles the real Console
+   elements (`.page-title` and friends) and the shell class is `.rw-console`.
+   The --rw-app-* composite TOKENS are a different thing and stay; console.css
+   consumes them. */
