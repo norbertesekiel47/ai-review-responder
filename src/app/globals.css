@@ -69,6 +69,7 @@
    (src/app/(authenticated)/_styles/tokens.css); that reintroduces the --rw-sage
    collision. Guard: src/__tests__/design-token-single-source.test.ts
    Which palette when: docs/design/README.md
+   Island Style Reference: docs/design/island/DESIGN.md
    ======================================================================== */
 
 :root {

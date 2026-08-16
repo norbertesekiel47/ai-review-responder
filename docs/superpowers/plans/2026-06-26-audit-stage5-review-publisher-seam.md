@@ -127,7 +127,7 @@ Then: Codex correctness review (read-only) → thermo-nuclear maintainability �
 CI green incl. React Doctor 100/100 → staging ride (worker-touching) → merge.
 
 ## Stage 6 hygiene (fold in; re-verify each still applies)
-- Delete `docs/design/dashboard-redesign/assets/warm-editorial.css` (confirm no ref).
+- Delete `docs/design/dashboard-redesign/assets/warm-editorial.css` (confirm no ref). _(Moot — the whole `docs/design/dashboard-redesign/` folder was deleted 2026-08-16 in the design-system three-tier PR; recover from tag `design-mockups-2026-06`.)_
 - Delete unused `DrawerState`-type export in edit-reply hook (confirm genuinely unused).
 - Dedupe `flagOff` across telegram/whatsapp `_shared.ts` (may already be deduped).
 - Reformat stale `fallow-ignore` comment in `AutoPostNoticeWorker.ts`. Run `ci:fallow`.

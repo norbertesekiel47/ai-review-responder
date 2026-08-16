@@ -15,7 +15,7 @@
 
    Guard: src/__tests__/design-token-single-source.test.ts
    Which palette when: docs/design/README.md
-   Console visual spec: docs/design/dashboard-redesign/design-spec.md
+   Console Style Reference: docs/design/console/DESIGN.md
    ========================================================================== */
 
 :root {
@@ -28,8 +28,8 @@
   --rw-text:  var(--rw-ink);  /* generic text → Island --rw-ink (globals.css) = #2a2a2a */
 
   /* ---------- Console palette (Warm Editorial) ----------
-     Young Serif display + DM Sans. Full visual spec:
-     docs/design/dashboard-redesign/design-spec.md */
+     Young Serif display + DM Sans. Full Style Reference:
+     docs/design/console/DESIGN.md */
   --rw-app-bg:          #FDFBF7;  /* warm off-white field */
   --rw-app-field:       radial-gradient(140% 120% at 12% -8%, #ffffff 0%, #fdfbf7 46%, #f6f1e9 100%);
   --rw-app-surface:     #FFFDF9;  /* card core */

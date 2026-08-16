@@ -1,5 +1,17 @@
 # Dashboard-redesign Docs IA Refresh (#345) Implementation Plan
 
+> **CLOSED — MOOT as of 2026-08-16.** The artifacts this plan neutralized are gone:
+> `docs/design/dashboard-redesign/` (all 7 HTML mockups, `assets/warm-editorial.css`, and
+> `design-spec.md`) was **deleted** in the design-system three-tier PR. The mockups encoded
+> the superseded IA, which is exactly why they were deleted rather than re-bannered; they
+> remain one checkout away at annotated tag `design-mockups-2026-06`. The Warm Editorial
+> **visual** system that Task 1 was careful to preserve now lives in
+> `docs/design/console/DESIGN.md`, cited by `src/app/(authenticated)/_styles/tokens.css`
+> and `docs/design/README.md`. **Do not execute the unticked steps below** — Task 2
+> (`index.html` banner) has no file to edit, and Tasks 1 and 4 Step 2 target a deleted
+> doc. Task 3 (root `PLAN.md` banner) is the only item whose target still exists.
+> Body retained as a historical record.
+
 > **For agentic workers:** This is a docs-only change. Steps use checkbox (`- [ ]`) syntax for tracking. No code, no migrations, no DB.
 
 **Goal:** Stop the older `docs/design/dashboard-redesign/` artifacts (and the root `PLAN.md` they reference) from presenting the superseded IA — a live `/dashboard/insights` route and the reviews/needs-action queue living on the dashboard.
@@ -40,8 +52,13 @@ These legitimately mention `/dashboard/insights` (describing its deletion). That
 
 ### Task 1: design-spec.md — scoped IA-superseded banner
 
+**MOOT (2026-08-16) — CLOSED, do not execute.** `design-spec.md` was deleted with the rest
+of the folder; its **visual** half (the part this task was careful to preserve) was merged
+into `docs/design/console/DESIGN.md`, and its IA half is what the deletion retires. Steps
+below are void.
+
 **Files:**
-- Modify: `docs/design/dashboard-redesign/design-spec.md`
+- ~~Modify: `docs/design/dashboard-redesign/design-spec.md`~~ (deleted)
 
 - [ ] **Step 1:** Insert a banner block immediately under the title/status lines (after line ~4) that chains BOTH supersession steps and links the FINAL glance spec (`../../superpowers/specs/2026-06-19-glance-dashboard-analytics-history-design.md`) as authoritative: `/dashboard/insights` removed → analytics now on `/dashboard/analytics`, dashboard is a glance, reviews on `/dashboard/reviews`. The Warm Editorial **visual** system below remains the live Console source of truth.
 - [ ] **Step 2:** Neutralize the IA references in the prose/tables so none presents `/dashboard/insights` as a live route or reviews-on-dashboard as current behavior:
@@ -54,12 +71,18 @@ These legitimately mention `/dashboard/insights` (describing its deletion). That
 
 ### Task 2: index.html — visible banner + neutralize stale launcher copy
 
-**Files:**
-- Modify: `docs/design/dashboard-redesign/index.html`
+**MOOT (2026-08-16) — CLOSED, do not execute.** `docs/design/dashboard-redesign/index.html`
+was deleted with the rest of the mockup folder in the design-system three-tier PR (tag
+`design-mockups-2026-06`). Deleting the artifact achieves this task's goal outright: no
+banner is needed on a file that no longer presents the superseded IA to anyone. All three
+steps below are void.
 
-- [ ] **Step 1:** Add a visible banner under the page heading chaining both supersession steps and linking the FINAL glance spec: `/dashboard/insights` removed, analytics now on `/dashboard/analytics`, dashboard is a glance, reviews on `/dashboard/reviews`; these mockups are an archived visual exploration.
-- [ ] **Step 2:** Edit the Dashboard launcher card copy: remove "needs-action queue" as current dashboard content.
-- [ ] **Step 3:** Edit the Insights launcher card: mark it an archived/superseded screen (page no longer a live route).
+**Files:**
+- ~~Modify: `docs/design/dashboard-redesign/index.html`~~ (deleted)
+
+- [x] ~~**Step 1:** Add a visible banner under the page heading chaining both supersession steps and linking the FINAL glance spec: `/dashboard/insights` removed, analytics now on `/dashboard/analytics`, dashboard is a glance, reviews on `/dashboard/reviews`; these mockups are an archived visual exploration.~~ — moot, file deleted.
+- [x] ~~**Step 2:** Edit the Dashboard launcher card copy: remove "needs-action queue" as current dashboard content.~~ — moot, file deleted.
+- [x] ~~**Step 3:** Edit the Insights launcher card: mark it an archived/superseded screen (page no longer a live route).~~ — moot, file deleted.
 
 ### Task 3: PLAN.md — top IA-superseded banner
 
@@ -71,7 +94,7 @@ These legitimately mention `/dashboard/insights` (describing its deletion). That
 ### Task 4: Verify gate + cross-ref sweep
 
 - [ ] **Step 1:** `rg -n "/dashboard/insights" .` — confirm every hit is either the 2026-06-19 source-of-truth files, or inside a superseded banner/annotation. No doc presents it as live.
-- [ ] **Step 2:** `rg -n "dashboard-redesign/design-spec.md" .` and `rg -n "dashboard-redesign/index.html" .` — confirm `README.md`/`tokens.css` references remain valid (point at the still-live visual spec) and no dangling/misleading refs.
+- [x] ~~**Step 2:** `rg -n "dashboard-redesign/design-spec.md" .` and `rg -n "dashboard-redesign/index.html" .` — confirm `README.md`/`tokens.css` references remain valid (point at the still-live visual spec) and no dangling/misleading refs.~~ — moot: both files were deleted 2026-08-16 and every reference was retargeted at `docs/design/console/DESIGN.md` in the same PR.
 - [ ] **Step 3:** From the worktree root run `pnpm lint && pnpm typecheck && pnpm test`. Expected: all green (docs change must not affect them).
 - [ ] **Step 4:** Commit on `docs/345-dashboard-ia` referencing #345.
 

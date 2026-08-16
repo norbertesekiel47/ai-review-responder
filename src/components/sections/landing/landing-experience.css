@@ -52,7 +52,7 @@
      brightest pixel under the hero headline's first glyphs the same gold
      measured 2.89:1, under the 3:1 large-text floor. That was fixed by
      deepening the hero scrim, not by changing this token — one gold across the
-     page is load-bearing (§2 of docs/design/landing-page.md). See hero.css. */
+     page is load-bearing (docs/design/landing/DESIGN.md). See hero.css. */
   --rw-lp-accent: rgb(var(--rw-lp-accent-rgb));
   /* Content gutter — used by contained blocks (the footer's inner row). */
   --rw-lp-gutter: clamp(1.5rem, 4vw, 4rem);
@@ -64,8 +64,8 @@
      also bound to `100svh`, and the persona/watchdog cards are `aspect-ratio:
      3/4`, so width buys height: at 1920x812 the persona row keeps 48px of
      vertical slack at 102rem and only 6px at 110rem. Going wider overflows the
-     shortest 16:9 viewports before it looks any better. Re-measure (§6 of
-     docs/design/landing-page.md) before raising it. */
+     shortest 16:9 viewports before it looks any better. Re-measure (§4 of
+     docs/design/landing/measurements.md) before raising it. */
   --rw-lp-inner-max: 102rem;
   /* Page-EDGE gutter — used by the full-bleed chrome that sits in the viewport
      corners (nav, hero scroll cue). Deliberately tighter than the content
