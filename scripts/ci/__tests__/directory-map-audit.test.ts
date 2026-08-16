@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectFiles,
+  collectRowExistence,
   evaluateFindings,
   expandBraces,
   isInScope,
@@ -186,5 +188,32 @@ describe('directory-map-audit: evaluateFindings', () => {
       exists: () => false,
     });
     expect(findings).toEqual([]);
+  });
+});
+
+describe('directory-map-audit: filesystem helpers (real repo)', () => {
+  const root = process.cwd();
+
+  it('collectRowExistence probes in-scope rows once and ignores out-of-scope rows', async () => {
+    const exists = await collectRowExistence(root, [
+      { path: 'worker/index.ts', line: 1 },
+      { path: 'worker/index.ts', line: 2 }, // duplicate — one probe
+      { path: 'worker/definitely-not-a-file.ts', line: 3 },
+      { path: 'src/app/page.tsx', line: 4 }, // out of scope — never probed
+      { path: 'worker/jobs', line: 5 }, // a directory is not a file
+    ]);
+    expect(exists('worker/index.ts')).toBe(true);
+    expect(exists('worker/definitely-not-a-file.ts')).toBe(false);
+    expect(exists('src/app/page.tsx')).toBe(false); // not probed → unknown → false
+    expect(exists('worker/jobs')).toBe(false);
+    expect(exists('never-asked.ts')).toBe(false);
+  });
+
+  it('collectFiles walks worker/ + src/lib/ and skips the test lane', async () => {
+    const files = await collectFiles(root);
+    expect(files.has('worker/index.ts')).toBe(true);
+    expect(files.has('src/lib/db/server.ts')).toBe(true);
+    expect([...files].some((f) => f.includes('__tests__') || /\.test\.tsx?$/.test(f))).toBe(false);
+    expect([...files].some((f) => f.startsWith('src/app/'))).toBe(false);
   });
 });

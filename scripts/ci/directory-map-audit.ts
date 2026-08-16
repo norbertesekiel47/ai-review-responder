@@ -236,19 +236,34 @@ export async function collectFiles(root: string): Promise<Set<string>> {
   return new Set(await walk(root, { scanDirs: SCAN_DIRS }));
 }
 
+/** True when `path` is an existing regular file (any stat error → false). */
+function isFile(path: string): Promise<boolean> {
+  return stat(path).then((s) => s.isFile(), () => false);
+}
+
+/**
+ * One existence probe per distinct IN-SCOPE row path (rows outside SCAN_DIRS
+ * are never judged, so they are never stat'ed). Returns a lookup for
+ * `evaluateFindings`. Unit-tested against real repo paths.
+ */
+export async function collectRowExistence(
+  root: string,
+  rows: readonly MappedRow[],
+): Promise<(path: string) => boolean> {
+  const existence = new Map<string, boolean>();
+  for (const row of rows) {
+    if (!isInScope(row.path) || existence.has(row.path)) continue;
+    existence.set(row.path, await isFile(resolve(root, row.path)));
+  }
+  return (path) => existence.get(path) ?? false;
+}
+
 async function main(): Promise<void> {
   const root = process.cwd();
   const [files, mapText] = await Promise.all([collectFiles(root), readFile(resolve(root, MAP_PATH), 'utf8')]);
   const rows = parseDirectoryMap(mapText);
-  const existence = new Map<string, boolean>();
-  for (const row of rows) {
-    if (!isInScope(row.path) || existence.has(row.path)) continue;
-    existence.set(
-      row.path,
-      await stat(resolve(root, row.path)).then((s) => s.isFile(), () => false),
-    );
-  }
-  const findings = evaluateFindings({ files, rows, exists: (path) => existence.get(path) ?? false });
+  const exists = await collectRowExistence(root, rows);
+  const findings = evaluateFindings({ files, rows, exists });
   if (findings.length > 0) {
     console.error(`directory-map-audit: failed (${findings.length})`);
     for (const finding of findings) console.error(`  ${finding}`);
