@@ -1,9 +1,17 @@
 @import 'tailwindcss';
+@import './(authenticated)/_styles/theme.css';
 @config '../../tailwind.config.mjs';
 
 /* ========================================================================
    Design-token utilities (audit #5) — expose the --rw-* source tokens as
    Tailwind utilities so components write `bg-rw-sage` instead of `bg-[#D2E0D3]`.
+
+   THE ISLAND'S `@theme` BLOCK — Island entries only. The CONSOLE's utilities
+   live in their own file, src/app/(authenticated)/_styles/theme.css, imported
+   above; Tailwind v4 bundles local `@import`s itself and reads `@theme` across
+   them, so both blocks generate utilities exactly as one block did. Do NOT add
+   a `--color-rw-app-*` / `--rw-tray` / `--rw-card` / `--rw-star` style Console
+   entry here. Guard: src/__tests__/design-scope-purity.test.ts.
 
    `@theme inline` means each utility emits `var(--rw-*)` (a REFERENCE), not a
    copied hex — so the --rw-* declarations in :root (Island, this file) and in
@@ -36,25 +44,8 @@
   --color-rw-teal-strong-hover: var(--rw-teal-strong-hover);
   --color-rw-teal-strong-hover-deep: var(--rw-teal-strong-hover-deep);
   --color-rw-teal-darkest: var(--rw-teal-darkest);
-
-  /* Console (authenticated app — Warm Editorial). Resolve only inside .rw-console. */
-  --color-rw-app-bg: var(--rw-app-bg);
-  --color-rw-app-surface: var(--rw-app-surface);
-  --color-rw-tray: var(--rw-tray);
-  --color-rw-card: var(--rw-card);
-  --color-rw-recess: var(--rw-recess);
-  --color-rw-app-text: var(--rw-app-text);
-  --color-rw-app-text-muted: var(--rw-app-text-muted);
-  --color-rw-app-text-soft: var(--rw-app-text-soft);
-  --color-rw-sage-deep: var(--rw-sage-deep);
-  --color-rw-sage-soft: var(--rw-sage-soft);
-  --color-rw-sage-line: var(--rw-sage-line);
-  --color-rw-blush: var(--rw-blush);
-  --color-rw-blush-deep: var(--rw-blush-deep);
-  --color-rw-danger: var(--rw-danger);
-  --color-rw-violet: var(--rw-violet);
-  --color-rw-star: var(--rw-star);
-  --color-rw-white: var(--rw-white);
+  /* Bright alert reds — declared in this file's :root (issue #373), so their
+     utilities belong to the Island block too. */
   --color-rw-red-600: var(--rw-red-600);
   --color-rw-red-700: var(--rw-red-700);
 }
