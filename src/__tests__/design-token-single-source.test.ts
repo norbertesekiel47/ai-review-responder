@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { cssDeclarations, cssVarReferences } from './helpers/css-tokens';
 
 // Design-token single-source guard (refactor/design-tokens-single-source, 2026-06).
 //
@@ -13,6 +14,8 @@ import { describe, expect, it } from 'vitest';
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf-8');
 const GLOBALS = 'src/app/globals.css';
 const TOKENS = 'src/app/(authenticated)/_styles/tokens.css';
+const THEME = 'src/app/(authenticated)/_styles/theme.css';
+const CONSOLE_SCOPED = 'src/app/(authenticated)/_styles/console.css';
 
 // A DECLARATION (`  --rw-x: …`) at line start — never a usage (`var(--rw-x)`) or
 // a mention inside a comment.
@@ -41,6 +44,24 @@ const contrastRatio = (foreground: string, background: string): number => {
   const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
   return (lighter + 0.05) / (darker + 0.05);
 };
+
+// The brand FONT FAMILIES. Same rule as the colors below, one tier up: they are
+// brand-wide, globals.css owns them, and it loads on every route. tokens.css
+// re-declared display/body/mono on `:root` with the Island values (plus a
+// consumer-less `--rw-font-sans` alias) until the three-tier split; because
+// globals.css loads FIRST, the duplicate silently won on every authenticated
+// route. The Console's two legitimate overrides are elsewhere: display + body
+// are `localFont` variables bound on the `.rw-console` element itself
+// ((authenticated)/layout.tsx), and mono is a scoped `.rw-console` override in
+// console.css. An override inside the scope is the sanctioned mechanism; a
+// `:root` re-declaration is not (docs/design/README.md rule 2).
+const BRAND_FONT_TOKENS = [
+  '--rw-font-display',
+  '--rw-font-body',
+  '--rw-font-serif',
+  '--rw-font-mono',
+  '--rw-font-sans',
+];
 
 // The Island color palette. Single authoritative owner = globals.css.
 const ISLAND_COLOR_TOKENS = [
@@ -79,6 +100,50 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
     expect(declares(tokens, '--rw-sage-deep')).toBe(true);
     expect(declares(tokens, '--rw-sage-soft')).toBe(true);
     expect(declares(globals, '--rw-sage-deep')).toBe(false);
+  });
+
+  // The declaration matcher above is line-anchored and cannot see a token
+  // written mid-line, so the font/theme guards below use the shared
+  // non-line-anchored parser (helpers/css-tokens.ts) instead.
+  const tokenDeclarations = cssDeclarations(tokens);
+
+  it.each(BRAND_FONT_TOKENS)('globals.css owns the brand family %s', (token) => {
+    if (token === '--rw-font-sans') return; // deleted alias, zero consumers
+    expect(
+      cssDeclarations(globals).has(token),
+      `${token} must be declared in ${GLOBALS}`,
+    ).toBe(true);
+  });
+
+  it.each(BRAND_FONT_TOKENS)('the Console token file does NOT re-declare %s', (token) => {
+    expect(
+      tokenDeclarations.has(token),
+      `${token} is re-declared in ${TOKENS}. The font families are brand-wide and belong to ` +
+        `${GLOBALS} only. The Console overrides display/body via localFont on the .rw-console ` +
+        `element and mono via a scoped .rw-console rule in ${CONSOLE_SCOPED} — never here.`,
+    ).toBe(false);
+  });
+
+  it('keeps the Console mono override scoped to .rw-console', () => {
+    // Not a "delete it" rule — a "put it where it belongs" one. The Console has
+    // always rendered mono in the system stack rather than the brand JetBrains
+    // Mono, and the scoped override is what preserves that without a second
+    // `:root` owner.
+    expect(read(CONSOLE_SCOPED)).toMatch(
+      /\.rw-console\s*\{[\s\S]*?--rw-font-mono\s*:\s*ui-monospace/,
+    );
+  });
+
+  it('the Console @theme file references only tokens the Console token file declares', () => {
+    const theme = read(THEME);
+    const foreign = cssVarReferences(theme).filter((token) => !tokenDeclarations.has(token));
+
+    expect(
+      foreign,
+      `${THEME} references ${foreign.join(', ')}, which ${TOKENS} does not declare. The Console ` +
+        `utility export may only name Console-owned tokens — an Island token belongs in the ` +
+        `${GLOBALS} @theme block (docs/design/README.md rule 2).`,
+    ).toEqual([]);
   });
 
   it('app-only tokens the Console surface needs stay in the Console file', () => {

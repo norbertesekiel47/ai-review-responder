@@ -1,7 +1,8 @@
 # RepWorth Island — Style Reference
 
 > **Scope:** `:root` (loads on every route) · **Tokens:** [`src/app/globals.css`](../../../src/app/globals.css) `:root` ·
-> **Utilities:** `src/app/globals.css` `@theme inline` (Island entries) · **Guard:** [`src/__tests__/design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts)
+> **Utilities:** `src/app/globals.css` `@theme inline` (Island entries) ·
+> **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) · [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) (the `@theme` block may name no Console token) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
 > Which system am I in? → [`docs/design/README.md`](../README.md)
 
 ## Overview

@@ -1,7 +1,7 @@
 # RepWorth Landing — Style Reference
 
 > **Scope:** `.rw-lp` · **Tokens:** [`src/components/sections/landing/landing-experience.css`](../../../src/components/sections/landing/landing-experience.css) (+ [`hero/hero.css`](../../../src/components/sections/landing/hero/hero.css)) ·
-> **Utilities:** none (plain CSS) · **Guard:** none today — the Landing scope guard lands in PR 2
+> **Utilities:** none (plain CSS) · **Guards:** [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts) (every custom property under `sections/landing/**` must be `--rw-lp-*`) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
 > Which system am I in? → [`docs/design/README.md`](../README.md)
 > Before touching `src/components/sections/landing/**`, read [`measurements.md`](./measurements.md) — most of the numbers in that folder are measurements with a documented failure mode, not preferences.
 

@@ -225,6 +225,26 @@ Required (PR 2):
    legacy alias if still referenced, or migrate its consumers). `globals.css`
    provides them on every route; `console.css` keeps the `.rw-console` Young
    Serif override. Extend the single-source test from colors to font families.
+
+   > **As built (PR 2).** `--rw-font-sans` had zero consumers and went with the
+   > others. `--rw-font-mono` was **moved, not deleted**: tokens.css's stack is
+   > the system mono and globals.css's is JetBrains Mono, so a bare delete would
+   > have re-faced three Console call sites. It is now a `.rw-console` override
+   > in `console.css` — an override inside the scope, which is the sanctioned
+   > mechanism; a second `:root` declaration is not.
+   >
+   > **The gotcha this uncovered, worth not re-learning:** a `var()` inside a
+   > custom property is substituted where the property is **declared**, not where
+   > it is used. `--rw-app-h1: … var(--rw-font-display)` is declared on `:root`,
+   > so it carries the ROOT display family even inside `.rw-console` — which is
+   > why every `font: var(--rw-app-hN)` call site in `console.css` is followed by
+   > an explicit `font-family: var(--rw-font-display)`. Verified in Chromium, not
+   > assumed. The one Console consumer WITHOUT that follow-up line is the inline
+   > `HEADING` const in `dashboard/connect/page.tsx`; its `<h1>`s therefore change
+   > from the unresolvable `'Plus Jakarta Sans'` literal (which fell back to
+   > `ui-sans-serif`) to the real self-hosted Plus Jakarta. Left as-is
+   > deliberately: making it Young Serif like every other Console page title is a
+   > real fix but a visual change, and belongs in its own PR.
 3. **Delete the nine dead `--rw-mkt-*` tokens** from `tokens.css` (0 consumers).
    If a marketing type-role scale is wanted later it belongs to Island.
 4. **Delete `tailwind.config.mjs` and the `@config` line** — verify `pnpm build`
@@ -350,8 +370,8 @@ selectors). Nothing else in the repo needs to know a redesign happened.
 
 | PR | Scope | Notes |
 |---|---|---|
-| **1 — docs** | §2.2 tree, three `DESIGN.md`, `landing/measurements.md`, router README, thin root `DESIGN.md`, router skill, mockup delete + tag, full cross-ref sweep (§3) | Docs-only → `changes` short-circuits the heavy CI jobs. Content is a **restructure**, not a rewrite: every rule in the current docs survives, just under the template's headings. |
-| **2 — code, small** | §2.4 items 1–4 + the four guards in §2.7 | Zero visual change; the guards are the proof. Runs full CI. |
+| **1 — docs** (#843) | §2.2 tree, three `DESIGN.md`, `landing/measurements.md`, router README, thin root `DESIGN.md`, router skill, mockup delete + tag, full cross-ref sweep (§3) | Docs-only → `changes` short-circuits the heavy CI jobs. Content is a **restructure**, not a rewrite: every rule in the current docs survives, just under the template's headings. Landed 2026-08-16. |
+| **2 — code, small** (#PR2) | §2.4 items 1–4 + the four guards in §2.7 | Zero visual change; the guards are the proof. Runs full CI. Guards shipped as `design-scope-purity.test.ts` (Landing scope + Island `@theme` purity), an extension of `design-token-single-source.test.ts` (Console purity, colors **and** font families, + `theme.css` references), and `design-doc-token-pin.test.ts` (D2 option A). |
 | **3 — optional** | `globals.css` page-CSS extraction; D4 `.rw-console` scoping after a portal audit | Separate decisions, separate PRs. |
 
 ---

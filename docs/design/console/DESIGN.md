@@ -1,8 +1,8 @@
 # RepWorth Console — Style Reference
 
 > **Scope:** `.rw-console` · **Tokens:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css) ·
-> **Utilities:** `src/app/(authenticated)/_styles/theme.css` (created in PR 2; until then the block lives in `globals.css` `@theme inline`) ·
-> **Guard:** [`src/__tests__/design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts)
+> **Utilities:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css) ·
+> **Guards:** [`design-token-single-source.test.ts`](../../../src/__tests__/design-token-single-source.test.ts) (Console purity + contrast floors) · [`design-doc-token-pin.test.ts`](../../../src/__tests__/design-doc-token-pin.test.ts) (this doc's tables ↔ the CSS)
 > Which system am I in? → [`docs/design/README.md`](../README.md)
 
 ## Overview
@@ -125,13 +125,14 @@ copy, shape, iconography, or position.
 |---|---|---|---|
 | Display | Young Serif, single weight 400 (Georgia / `ui-serif` fallback) | `--rw-font-display` | `(authenticated)/layout.tsx` — a `localFont` variable on the `.rw-console` element |
 | Body / UI | DM Sans (system sans fallback) | `--rw-font-body` | `(authenticated)/layout.tsx` (same mechanism); brand default in `globals.css` |
-| Mono | `ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace` | `--rw-font-mono` | `globals.css` (brand-wide) |
+| Mono | `ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace` | `--rw-font-mono` | `console.css` — a `.rw-console` override (brand default JetBrains Mono in `globals.css`) |
 
 The font families are the one token group the Console does **not** own — they are
-brand-wide (see root [`DESIGN.md`](../../../DESIGN.md)). `tokens.css` currently carries a
-duplicate `:root` declaration of the Island values for `--rw-font-display` /
-`--rw-font-body` / `--rw-font-mono`; that duplicate is deleted in PR 2 and is not the
-source of the Console's Young Serif.
+brand-wide, `globals.css` is their single owner, and it loads on every route (see root
+[`DESIGN.md`](../../../DESIGN.md)). The Console's two overrides both live **inside its
+scope**, never as a second `:root` declaration: display and body are `localFont`
+variables bound on the element that carries `.rw-console`, and mono is a `.rw-console`
+rule in `console.css` that keeps the Console on the system mono stack.
 
 **Character:** Young Serif makes the owner console feel cared for without turning
 operational UI into marketing. DM Sans keeps dense review, settings, and billing work
@@ -460,8 +461,11 @@ stack an unrelated border, shadow, and glow to manufacture depth.
 
 - **CSS variables:** [`src/app/(authenticated)/_styles/tokens.css`](../../../src/app/(authenticated)/_styles/tokens.css)
   — the `:root` block IS the export; do not copy it here.
-- **Tailwind v4:** `src/app/(authenticated)/_styles/theme.css` — created in PR 2 of the
-  three-tier design-system change. Until then the Console `@theme inline` entries live in
-  [`src/app/globals.css`](../../../src/app/globals.css).
+- **Tailwind v4:** [`src/app/(authenticated)/_styles/theme.css`](../../../src/app/(authenticated)/_styles/theme.css)
+  — the `@theme inline` block IS the export. It is `@import`ed from
+  [`src/app/globals.css`](../../../src/app/globals.css) (Tailwind v4 bundles local
+  `@import`s and reads `@theme` across them), so a Console overhaul never opens the
+  Island file. `inline` means each utility emits `var(--rw-*)` — a reference, not a
+  copied hex — so `tokens.css` stays the single source of values.
 - **Scope:** `.rw-console` is applied in `src/app/(authenticated)/layout.tsx`;
   `_styles/console.css` owns the scoped element styles.
