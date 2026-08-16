@@ -10,24 +10,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { requireRoleOr401, errorResponse } from '@/lib/auth/route-helpers';
 import { subscriptionAllowsDashboardRead } from '@/lib/shared/subscription-status';
-import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
-import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
-import { whatsappEnvReady } from '@/lib/notifications/channels/whatsapp-env';
-import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
+import {
+  telegramAvailable,
+  whatsappAvailable,
+} from '@/lib/notifications/channels/availability';
 import { maskChannelHandle } from '@/lib/notifications/mask-handle';
+import { getOrgDefaultChannelEnrollments } from '@/lib/channels/org-default-enrollments';
 
 export const dynamic = 'force-dynamic';
-
-
-function whatsappAvailable(): boolean {
-  if (!channelsWhatsappEnabled()) return false;
-  return whatsappEnvReady();
-}
-
-function telegramAvailable(): boolean {
-  if (!channelsTelegramEnabled()) return false;
-  return assertTelegramEnvReady() === null;
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await requireRoleOr401(request, 'owner');
@@ -54,29 +44,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   const accountId = accountRow.id;
 
-  // verification_token_hash INTENTIONALLY excluded from SELECT — only the
-  // expiry timestamp is exposed (so the UI can render a countdown).
-  const rows = await sql<{
-    channel: string;
-    handle: string | null;
-    status: string;
-    verified_at: Date | null;
-    disabled_at: Date | null;
-    unsubscribed_at: Date | null;
-    unsubscribed_reason: string | null;
-    expires_at: Date | null;
-  }[]>`
-    SELECT
-      e.channel, e.handle, e.status,
-      e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
-      e.verification_token_expires_at AS expires_at
-    FROM channel_enrollments e
-    WHERE e.account_id = ${accountId}
-      AND e.location_id IS NULL
-      AND e.archived_at IS NULL
-      AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
-    ORDER BY e.created_at ASC
-  `;
+  // Org-default rows come from their single owner; this route only masks and
+  // serializes them.
+  const rows = await getOrgDefaultChannelEnrollments(sql, accountId);
 
   const enrollments = rows.map((r) => ({
     channel: r.channel,

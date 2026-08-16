@@ -17,6 +17,7 @@ import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal'
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { ImportOfferBanner } from '@/components/dashboard/account-state/ImportOfferBanner';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { DashboardSkeleton } from '@/components/dashboard/shell/DashboardSkeleton';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
@@ -62,15 +63,7 @@ export function DashboardContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message="Loading your dashboard…" />
-          <div className="dashboard-skeleton">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-              <div className="skeleton-card" />
-              <div className="skeleton-card" />
-              <div className="skeleton-card" />
-            </div>
-            <div className="skeleton-card-lg" />
-            <div className="skeleton-card-lg" />
-          </div>
+          <DashboardSkeleton />
         </div>
       </>
     );
@@ -85,16 +78,7 @@ export function DashboardContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message={message} level="assertive" />
-          <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
-            <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>Unable to verify account status</h2>
-            <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{message}</p>
-            <Link
-              href="/help/contact"
-              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
-            >
-              Contact support
-            </Link>
-          </div>
+          <DashboardErrorCard heading="Unable to verify account status" message={message} />
         </div>
       </>
     );
@@ -114,6 +98,28 @@ export function DashboardContent() {
   }
 
   return <DashboardOperationalContent />;
+}
+
+/**
+ * The dashboard's danger card — both places this file reports a failed gate
+ * ("Unable to verify account status", "Error"). Only the heading ever differed.
+ * Deliberately local rather than `renderDashboardStatePanel`'s error card, which
+ * is a plain `.card` with no danger styling and no support link: routing through
+ * it would change what a failing owner sees.
+ */
+function DashboardErrorCard({ heading, message }: { heading: string; message: string }) {
+  return (
+    <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+      <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>{heading}</h2>
+      <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{message}</p>
+      <Link
+        href="/help/contact"
+        style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
+      >
+        Contact support
+      </Link>
+    </div>
+  );
 }
 
 type OffboardingStatusResponse = {
@@ -146,16 +152,7 @@ function DashboardOperationalContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message={error} level="assertive" />
-          <div className="card" style={{ borderColor: 'var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
-            <h2 className="card-h2" style={{ color: 'var(--rw-danger)' }}>Error</h2>
-            <p style={{ fontSize: 14, color: 'var(--rw-danger)', marginTop: 4 }}>{error}</p>
-            <Link
-              href="/help/contact"
-              style={{ display: 'inline-block', fontSize: 14, marginTop: 10, color: 'var(--rw-sage-deep)' }}
-            >
-              Contact support
-            </Link>
-          </div>
+          <DashboardErrorCard heading="Error" message={error} />
         </div>
       </>
     );
@@ -168,15 +165,7 @@ function DashboardOperationalContent() {
         <TopBar title="Dashboard" />
         <div className="content">
           <LiveRegion message="Loading your dashboard…" />
-          <div className="dashboard-skeleton">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-              <div className="skeleton-card" />
-              <div className="skeleton-card" />
-              <div className="skeleton-card" />
-            </div>
-            <div className="skeleton-card-lg" />
-            <div className="skeleton-card-lg" />
-          </div>
+          <DashboardSkeleton />
         </div>
       </>
     );

@@ -17,26 +17,17 @@ import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { type InitialEnrollment } from './ChannelsClient';
 import { ChannelsTabClient } from './ChannelsTabClient';
-import { channelsTelegramEnabled, channelsWhatsappEnabled } from '@/lib/notifications/channels/flags';
-import { assertTelegramEnvReady } from '@/lib/notifications/channels/telegram-env';
-import { whatsappEnvReady } from '@/lib/notifications/channels/whatsapp-env';
+import {
+  telegramAvailable,
+  whatsappAvailable,
+} from '@/lib/notifications/channels/availability';
 import { getChannelOverridesView } from '@/lib/channels/overrides-view';
-import { CHANNEL_IDS } from '@/lib/notifications/channels/types';
+import { getOrgDefaultChannelEnrollments } from '@/lib/channels/org-default-enrollments';
 import { shouldUseMultiLocationSettings } from '@/lib/locations/multi-location-mode';
 import { multiLocationEnabled as isMultiLocationEnabled } from '@/lib/locations/flags';
 
 function isoOrNull(value: Date | null): string | null {
   return value ? value.toISOString() : null;
-}
-
-function whatsappAvailable(): boolean {
-  if (!channelsWhatsappEnabled()) return false;
-  return whatsappEnvReady();
-}
-
-function telegramAvailable(): boolean {
-  if (!channelsTelegramEnabled()) return false;
-  return assertTelegramEnvReady() === null;
 }
 
 export default async function ChannelsPage() {
@@ -66,30 +57,10 @@ export default async function ChannelsPage() {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   const ownerEmail = authUser?.email ?? '';
 
-  // Org-level defaults (location_id IS NULL) — per-location overrides come
-  // from the override view above.
-  const enrollmentRows = await sql<{
-    id: string;
-    channel: string;
-    handle: string | null;
-    status: string;
-    verified_at: Date | null;
-    disabled_at: Date | null;
-    unsubscribed_at: Date | null;
-    unsubscribed_reason: string | null;
-    expires_at: Date | null;
-  }[]>`
-    SELECT
-      e.id, e.channel, e.handle, e.status,
-      e.verified_at, e.disabled_at, e.unsubscribed_at, e.unsubscribed_reason,
-      e.verification_token_expires_at AS expires_at
-    FROM channel_enrollments e
-    WHERE e.account_id = ${access.accountId}
-      AND e.archived_at IS NULL
-      AND e.location_id IS NULL
-      AND e.channel = ANY(${[...CHANNEL_IDS] as string[]}::text[])
-    ORDER BY e.created_at ASC
-  `;
+  // Org-level defaults (location_id IS NULL) from their single owner — the same
+  // read GET /api/dashboard/channels serves, so SSR and the status endpoint
+  // cannot disagree. Per-location overrides come from the override view above.
+  const enrollmentRows = await getOrgDefaultChannelEnrollments(sql, access.accountId);
 
   const orgLevelEnrollments: InitialEnrollment[] = enrollmentRows.map((r) => ({
     channel: r.channel as InitialEnrollment['channel'],

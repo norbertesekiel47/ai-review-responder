@@ -26,6 +26,7 @@ import {
   type PerLocationAggregateSlice,
 } from './aggregate-queries';
 import { getLocationsForAccount } from '@/lib/locations/repo';
+import { settledInOrder } from '@/lib/shared/settled-in-order';
 import { openFlagExistsSql } from '@/lib/moderation/held-draft';
 import { getDisplayLabel } from '@/lib/locations/display-label';
 import type {
@@ -111,13 +112,20 @@ async function buildAggregateDashboardData(
   // unknown locations is meaningless (the analog of the business lookup in
   // getActiveDashboardData). The billing query degrades: its `??` defaults
   // below already render a sane KPI strip without it.
-  const locationsPromise = getLocationsForAccount(sql, accountId);
-  const accountSettledPromise = Promise.allSettled([
+  //
+  // SEQUENTIAL via settledInOrder — do NOT swap this back to Promise.allSettled
+  // (#505, and the #773 admission chokepoint above it). The fatal read completes
+  // BEFORE the degradable one starts, so this function never has two queries in
+  // flight on the pool-3 `sql` singleton. Per-widget degradation is unchanged:
+  // the billing read still settles independently and still degrades only its own
+  // widget through widgetOrFallback, which reports.
+  const locations = await getLocationsForAccount(sql, accountId);
+  const [accountRowsSettled] = await settledInOrder([
     // VAL-DASH-028: Fetch account billing data to determine billingPending flag.
     // A location's KPI shows "Billing update pending" when the Stripe overage
     // webhook has not yet confirmed the quantity update (i.e., the active
     // location count exceeds locations_included + locations_paid).
-    sql<{
+    () => sql<{
       locations_included: number;
       locations_paid: number;
     }[]>`
@@ -125,8 +133,6 @@ async function buildAggregateDashboardData(
       FROM accounts WHERE id = ${accountId}::uuid
     `,
   ]);
-  const locations = await locationsPromise;
-  const [accountRowsSettled] = await accountSettledPromise;
   const accountRows = widgetOrFallback(
     accountRowsSettled,
     [] as { locations_included: number; locations_paid: number }[],
@@ -160,8 +166,8 @@ async function buildAggregateDashboardData(
     };
   }
 
-  // One set-based aggregate wave (constant query count) + the account-wide
-  // LIMIT-20 recent-reviews feed, run together. Every retained field is then
+  // One set-based aggregate wave (constant query count) THEN the account-wide
+  // LIMIT-20 recent-reviews feed. Every retained field is then
   // assembled from the per-location slices exactly as before — only the fetch
   // layer changed, so the output is byte-identical (bar the two signed-off
   // deltas: windowed currentResponseRate, and partialFailures removed).
@@ -174,12 +180,16 @@ async function buildAggregateDashboardData(
   // surfacing here means the anchor itself failed. The account-wide
   // recent-reviews feed is an independent widget and degrades to an empty
   // feed, reported.
-  const slicesPromise = fetchPerLocationAggregateSlices(sql, accountId, window);
-  const recentReviewsSettledPromise = Promise.allSettled([
-    getAccountRecentReviews(sql, accountId),
+  //
+  // SEQUENTIAL via settledInOrder — do NOT swap this back to Promise.allSettled
+  // (#505). The wave is itself an 8-query sequential bundle; overlapping the feed
+  // with it put a 9th query in flight on the pool-3 `sql` singleton. The feed's
+  // degradation contract is untouched — it still settles on its own and still
+  // empties only its own widget.
+  const slices = await fetchPerLocationAggregateSlices(sql, accountId, window);
+  const [recentReviewsSettled] = await settledInOrder([
+    () => getAccountRecentReviews(sql, accountId),
   ]);
-  const slices = await slicesPromise;
-  const [recentReviewsSettled] = await recentReviewsSettledPromise;
   const recentReviews = widgetOrFallback(
     recentReviewsSettled,
     [] as AggregateReviewItem[],

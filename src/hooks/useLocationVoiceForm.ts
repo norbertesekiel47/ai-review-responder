@@ -11,6 +11,11 @@
 // VAL-SETTINGS-036: Voice tab for single-location account.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  buildVoiceFieldsPatch,
+  countDirtyFields,
+  patchOrNull,
+} from './settings-form-patch';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -105,23 +110,10 @@ export function configToForm(c: LocationVoiceConfig): VoiceFormState {
   return settingsToForm(c);
 }
 
+// This form is exactly the four shared voice fields — no extras — so the whole
+// patch comes from the shared owner (settings-form-patch.ts).
 function buildPatchInternal(initial: VoiceFormState, current: VoiceFormState): Record<string, unknown> | null {
-  const patch: Record<string, unknown> = {};
-  if (current.tone !== initial.tone) patch.tone = current.tone;
-  if (current.productsServices !== initial.productsServices) patch.productsServices = current.productsServices || null;
-  if (JSON.stringify(current.avoidFacts) !== JSON.stringify(initial.avoidFacts)) {
-    patch.avoidFacts = current.avoidFacts.flatMap((l) => {
-      const trimmed = l.trim();
-      return trimmed ? [trimmed] : [];
-    });
-  }
-  if (JSON.stringify(current.sampleResponses) !== JSON.stringify(initial.sampleResponses)) {
-    patch.sampleResponses = current.sampleResponses.flatMap((l) => {
-      const trimmed = l.trim();
-      return trimmed ? [trimmed] : [];
-    });
-  }
-  return Object.keys(patch).length > 0 ? patch : null;
+  return patchOrNull(buildVoiceFieldsPatch(initial, current));
 }
 
 // Exported for testing
@@ -224,12 +216,7 @@ export function useLocationVoiceForm(
 
   const dirtyCount = useMemo(() => {
     if (!currentEntry) return 0;
-    let n = 0;
-    const { form, initial } = currentEntry;
-    for (const k of Object.keys(form) as (keyof VoiceFormState)[]) {
-      if (JSON.stringify(form[k]) !== JSON.stringify(initial[k])) n++;
-    }
-    return n;
+    return countDirtyFields(currentEntry.initial, currentEntry.form);
   }, [currentEntry]);
 
   // Set a form field

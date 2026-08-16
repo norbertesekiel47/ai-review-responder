@@ -15,8 +15,8 @@ export function AggregateIntelligenceBriefCard({ perLocationBriefs }: Props) {
 
   // If there's only one brief, render it like the single-location version
   if (perLocationBriefs.length === 1 && perLocationBriefs[0]?.brief) {
-    const { brief, displayName } = perLocationBriefs[0];
-    return <SingleLocationBrief brief={brief!} displayName={displayName} />;
+    const { brief } = perLocationBriefs[0];
+    return <SingleLocationBrief brief={brief!} />;
   }
 
   // Multiple briefs: group by location with prefix
@@ -66,11 +66,18 @@ export function AggregateIntelligenceBriefCard({ perLocationBriefs }: Props) {
   );
 }
 
+/**
+ * The one-brief case. Near-verbatim of `kpi/IntelligenceBriefCard` and
+ * DELIBERATELY not folded into it: that card also renders an
+ * `Insights agent` label (`kpi/IntelligenceBriefCard.tsx:22`) which this one
+ * does not, so reusing it would add visible copy to the All-Locations view.
+ * Whether the aggregate card should carry that label is a product call, not a
+ * mechanical dedupe — leave it to whoever makes it.
+ */
 function SingleLocationBrief({
   brief,
 }: {
   brief: NonNullable<AggregateDashboardData['perLocationBriefs'][number]['brief']>;
-  displayName: string;
 }) {
   const bullets = getBriefBullets(brief.text);
 

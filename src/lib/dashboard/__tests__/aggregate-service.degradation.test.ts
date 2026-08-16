@@ -62,23 +62,25 @@ function preHandledRejection(reason: Error): Promise<never> {
  * call consumes (same dispatch-order reasoning as aggregate-queries.test.ts's
  * pushWave):
  *   1. account billing row               (aggregate-service, settled)
- *   2. baseline anchor                   (wave — FATAL, now dispatched first)
- *   3. account-wide recent reviews feed  (aggregate-service, settled)
- *   4. review counters                   (wave, degradable)
- *   5. review velocity                   (wave, degradable)
- *   6. rating breakdown                  (wave, degradable)
- *   7. ranking snapshots                 (wave, degradable)
- *   8. latest monthly briefs             (wave, degradable)
- *   9. latest weekly briefs              (wave, degradable)
- *  10. pending-approval counts           (wave, degradable — now LAST)
+ *   2. baseline anchor                   (wave — FATAL, dispatched first)
+ *   3. review counters                   (wave, degradable)
+ *   4. review velocity                   (wave, degradable)
+ *   5. rating breakdown                  (wave, degradable)
+ *   6. ranking snapshots                 (wave, degradable)
+ *   7. latest monthly briefs             (wave, degradable)
+ *   8. latest weekly briefs              (wave, degradable)
+ *   9. pending-approval counts           (wave, degradable — LAST in the wave)
+ *  10. account-wide recent reviews feed  (aggregate-service, settled)
  *
- * Two positions moved when #505 made the wave sequential. Pending was 2nd
- * because `getPendingApprovalCountsForAccount` is an async function whose body
- * ran eagerly while the old `Promise.allSettled` array was being BUILT; as a
- * thunk it now runs in its written position, last. Recent-reviews rose to 3rd
- * because the wave no longer dispatches everything up front — it dispatches
- * baseline and suspends, so `getAccountRecentReviews` (called on the next line
- * in aggregate-service) gets its query out before the wave resumes.
+ * The order IS the execution order, and that is the point: after #505 made the
+ * wave sequential and the H5 pass sequenced aggregate-service's own two pairs,
+ * this file's FIFO is simply top-to-bottom source order. Recent-reviews used to
+ * land 3rd because the wave was still suspended when `getAccountRecentReviews`
+ * was dispatched CONCURRENTLY on the next line — it is now awaited after the
+ * whole wave, so it is last. Pending stays last-in-wave for the #505 reason:
+ * `getPendingApprovalCountsForAccount` is an async function whose body used to
+ * run eagerly while a `Promise.allSettled` array was being BUILT; as a thunk it
+ * runs in its written position.
  */
 function pushDashboardQueries(overrides: Partial<Record<
   'billing' | 'pending' | 'baseline' | 'counters' | 'velocity' | 'rating' | 'ranking' | 'monthly' | 'weekly' | 'recent',
@@ -90,7 +92,6 @@ function pushDashboardQueries(overrides: Partial<Record<
       { business_id: 'loc-1', name: 'Downtown Cafe', created_at: new Date('2026-01-01'), initial_review_count: 100, initial_responded_count: 30, baseline_captured_at: new Date('2026-01-05') },
       { business_id: 'loc-2', name: 'Westside Bakery', created_at: new Date('2026-01-01'), initial_review_count: null, initial_responded_count: null, baseline_captured_at: null },
     ],
-    overrides.recent ?? [],
     overrides.counters ?? [
       { business_id: 'loc-1', total_received_all_time: 12, total_responded_all_time: 10, received_window: 10, responded_window: 8 },
       { business_id: 'loc-2', total_received_all_time: 12, total_responded_all_time: 10, received_window: 10, responded_window: 8 },
@@ -108,6 +109,7 @@ function pushDashboardQueries(overrides: Partial<Record<
       { business_id: 'loc-1', count: 3 },
       { business_id: 'loc-2', count: 1 },
     ],
+    overrides.recent ?? [],
   );
 }
 
