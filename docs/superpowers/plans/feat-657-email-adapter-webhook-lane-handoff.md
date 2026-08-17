@@ -4,7 +4,21 @@
 **Branch:** `feat-657-email-adapter-webhook-lane`
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-657-email-adapter-webhook-lane`
 **Lane:** RISK=high · SURFACE=backend · SIZE=normal · db_touching=true (writes, **no migration**)
-**Phase:** `plan_approved` — next step is 4 (EXECUTE)
+
+## ⚠ RESUME AT STEP 4. Do not trust the phase field.
+
+`.feature/state.json` reads `phase=gate_green`. **That is misleading and this line
+overrides it.** The green is a **docs-only checkpoint gate** — the branch diff is
+entirely `docs/*.md`, so the gate auto-detected `"mode":"docs_only"` and skipped the
+test, build, `promised-tests`, `reclassify` and `diff-coverage` rows. It ran only
+lint, typecheck and the 18 `ci:*` audits.
+
+**No production code exists on this branch.** Nothing has been implemented, so
+nothing has been gated. The true phase is `plan_approved`.
+
+The gate was run solely to satisfy the Stop hook at the step 3→4 handoff. It will
+read `gate_green` again after any docs commit, for the same reason. **Resume at step
+4 (EXECUTE), starting with Task 1.**
 
 ## Read these, in this order. Do not restate them here.
 
