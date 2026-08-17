@@ -220,3 +220,42 @@ unsubscribe ingress and the landing page stay fully live when it is off. The
 Architecture paragraph is corrected to say so. **ACCEPT** — wording only, no
 behaviour change, but the wrong version would have invited a reviewer to add a
 flag gate the ledger must not have.
+
+---
+
+## D6 — Task 6 (solicitation lane) execution notes, 2026-08-16
+
+Two things the plan's Step 7 did not anticipate. **Both ACCEPT** — neither
+changes a promised title, the allowed edit surface, or a production contract.
+Amendment count remains **0**. All 41 lane tests are green: 8/8 routing, 33/33
+live-DB (the suite RAN — `Tests 33 passed`, not skipped), and every pre-existing
+`worker/ingress` suite still passes (444 passed, 4 skipped — the 4 are
+`stripe/trial-test-clock.integration.test.ts`, a pre-existing skip this ticket
+does not touch). The plan's code was executable as written; nothing in the lane
+itself deviated.
+
+### D6.1 — `ALLOWLIST_BASELINE` must be bumped in the same edit
+
+Step 7 says "add an entry" to `scripts/ci/tenant-scope-allowlist.ts`. The audit
+also gates the ENTRY COUNT against `ALLOWLIST_BASELINE`, by design: "update the
+baseline in the same PR so the change is an explicit, reviewed decision". Five
+entries were added (**392 → 397**) and the baseline's dated changelog comment
+carries the justification, matching the format of the four entries above it.
+
+Five, not four, because the attribution `SELECT` is ONE statement the audit
+attributes to TWO tables — `solicitation_outreach` and the
+`solicitation_contacts` join. Per the file's own "Shared snippets" convention
+that statement is hoisted once into `SOLICITATION_LANE_ATTRIBUTION_SQL` and
+referenced by both entries, rather than copy-pasted; the snippet text must stay
+byte-identical to the source or the entries read as dead.
+
+### D6.2 — `ci:directory-map` is RED until Task 7 lands, as the plan intends
+
+`docs/directory.md` is CI-complete for `worker/` + `src/lib/`, so
+`worker/ingress/resend/{bounce-classifier,solicitation-lane}.ts` each need a row.
+That file belongs to **Task 7**, which the plan's File structure table already
+assigns it to, so Task 6 deliberately does not touch it. `pnpm ci:directory-map`
+therefore fails with 4 findings after this task — 2 mine, 2 for Task 5's
+`src/lib/messaging/` pair — and goes green when Task 7 adds the rows. Not a
+deviation from the plan; recorded so a reviewer running the audits mid-ticket
+does not mistake it for one.
