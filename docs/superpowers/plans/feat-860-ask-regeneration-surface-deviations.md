@@ -45,6 +45,14 @@ the cost on the security ticket.
 
 **Also noted in:** `codex-859-tenant-scope-subqueries` deviations.
 
+**Verdict (step 6): ACCEPT — decision satisfied, one clause superseded.** The
+merge order held: `#859` merged first (`649c43b5`), this branch rebased onto it,
+and Tasks 4/5 wrote post-fix-convention SQL against the new parser
+(`ci:tenant-scope` entries 381, baseline 381). **The `codex-861` row of the table
+is void** — see D10: this feature does now touch `requests-client.test.tsx`.
+`#861` has since merged (`0276ca7c`) and the two edits auto-merged in different
+regions.
+
 ---
 
 ## D2 — surface amendment #1: `src/lib/agents/*` (owner-approved at step 3)
@@ -73,6 +81,12 @@ unattributable).
 helpers are read-only imports; `worker/` needs no change because
 `worker/jobs/solicitation-batch/generate.ts` already dispatches on `ask_id`.
 
+**Verdict (step 6): ACCEPT — spent as approved, not widened.** Task 4 added
+exactly one key to `STEP_PERSONA` (`src/lib/agents/run-spine.ts`, +1 line) and
+nothing else under `src/lib/agents/*`. `ci:agent-config` passes. **Amendment
+count is still 1 of 2** — D10 and D13 both landed inside existing globs and spent
+nothing.
+
 ---
 
 ## D3 — `job_outbox` is not a tenant table (finding, no action)
@@ -91,6 +105,15 @@ auditable, and require scope keys on a query whose safety comes from elsewhere �
 the caller already proved the batch belongs to the tenant via the scoped
 lifecycle read, and `aggregate_id` is that same proven id. Write that reasoning
 as a code comment so a reviewer does not read the absent keys as a defect.
+
+**Verdict (step 6): ACCEPT — confirmed empirically, not just argued.** Task 5's
+`readRegeneratingAskId` (`batch-view.ts:381-411`) carries the reasoning as a
+comment, and `ci:tenant-scope` entries stayed at **381 (baseline 381)** under
+`#859`'s NEW parser, proving the statement is genuinely invisible to the audit
+rather than merely allowlisted. The test enforces it **negatively** — asserting
+the query text contains none of `solicitation_batches` / `account_id` /
+`business_id` — so a future "fix" that joins the tenant table fails a test
+instead of silently passing.
 
 ---
 
