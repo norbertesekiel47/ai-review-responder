@@ -5,6 +5,7 @@ import { m } from 'motion/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { COMPANY_LINKS, LEGAL_LINKS, MARKETING_LINKS } from '@/components/ui/marketing-links';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { AmbientMotionToggle } from '../ambient-motion';
 import { BLURB, SUPPORT_EMAIL, WORDMARK } from './footer-copy';
 
 /**
@@ -224,10 +225,20 @@ export function LandingFooter() {
         </div>
 
         <div className="rw-lp-foot-bottom">
-          {/* The server renders the year at build time and the client at view
-              time; across a New Year boundary those differ and React would warn
-              on a mismatch that is not worth a client-only render. */}
-          <span suppressHydrationWarning>&copy; {year} RepWorth. All rights reserved.</span>
+          <div className="rw-lp-foot-bottom-lead">
+            {/* WCAG 2.2.2: eight clips and two keyframe animations start on
+                their own and loop forever, so the page owes the visitor a way
+                to stop them. It lives HERE — in flow, in the bottom bar — since
+                2026-08-16; the fixed bottom-left placement it had before sat on
+                top of the closing band's note text at 1440x900. Placement note:
+                landing-experience.css, "Ambient motion toggle". */}
+            <AmbientMotionToggle />
+
+            {/* The server renders the year at build time and the client at view
+                time; across a New Year boundary those differ and React would
+                warn on a mismatch that is not worth a client-only render. */}
+            <span suppressHydrationWarning>&copy; {year} RepWorth. All rights reserved.</span>
+          </div>
 
           {/* The legal set, as a row — see the FOOTER_COLUMNS note for why it
               is not a column. Links reuse `rw-lp-foot-link` so the focus ring

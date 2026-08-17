@@ -5,20 +5,13 @@ import { LazyMotion, domAnimation } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import { NAV_LINKS } from '@/components/ui/marketing-links';
-import {
-  AmbientMotionProvider,
-  AmbientMotionToggle,
-  useAmbientMotionPaused,
-} from './ambient-motion';
+import { AmbientMotionProvider, useAmbientMotionPaused } from './ambient-motion';
 import { CtaSection } from './cta/CtaSection';
 import { LandingFooter } from './footer/LandingFooter';
 import { FleetSection } from './fleet/FleetSection';
 import { FutureSection } from './future/FutureSection';
 import { HeroSection } from './hero/HeroSection';
 import { PersonasSection } from './personas/PersonasSection';
-import { ChapterRail } from './scroll/ChapterRail';
-import { SectionTransition } from './scroll/SectionTransition';
-import { SmoothScrollProvider } from './scroll/SmoothScroll';
 import { WatchdogsSection } from './watchdogs/WatchdogsSection';
 import './agent-flip-card.css';
 import './cta/cta.css';
@@ -28,7 +21,6 @@ import './fleet/video-lightbox.css';
 import './future/future.css';
 import './hero/hero.css';
 import './personas/personas.css';
-import './scroll/scroll-experience.css';
 import './watchdogs/watchdogs.css';
 import './landing-experience.css';
 
@@ -63,6 +55,13 @@ import './landing-experience.css';
  * Nav positioning note: the nav is absolute over the hero rather than sticky,
  * because with one section on the page there is no scrolled state to design
  * against yet. Revisit when section 2 lands.
+ *
+ * Scroll note (2026-08-16 Linear pass): the page scrolls natively. The Lenis
+ * smooth-scroll + snap layer, the scroll-linked section dissolve, the chapter
+ * rail and the vertical chapter markers were removed together — the reader
+ * owns the wheel, sections are as tall as their content, and the only motion
+ * on arrival is `Reveal`'s single opacity fade. Rationale and the measurements
+ * that changed: docs/design/landing/measurements.md §2.
  */
 
 interface LandingExperienceProps {
@@ -88,7 +87,7 @@ interface LandingExperienceProps {
 /**
  * The provider is a separate outer component for one reason: the paused state
  * has to reach BOTH the clips (through context) and the page root as a data
- * attribute (so CSS can pause the three infinite keyframe animations). A
+ * attribute (so CSS can pause every infinite keyframe animation). A
  * component cannot read a context it is itself providing, so the root element
  * lives one level in.
  */
@@ -102,13 +101,7 @@ export function LandingExperience(props: LandingExperienceProps) {
     // exists to prevent.
     <LazyMotion features={domAnimation} strict>
       <AmbientMotionProvider>
-        {/* Smoothed scroll + eased snap. Inside the page providers, outside
-            the chrome, so both the rail (scrollTo) and the chapters (snap
-            targets) sit under one instance. Renders nothing when gated off —
-            native scroll + the CSS snap fallback take over. */}
-        <SmoothScrollProvider>
-          <LandingChrome {...props} />
-        </SmoothScrollProvider>
+        <LandingChrome {...props} />
       </AmbientMotionProvider>
     </LazyMotion>
   );
@@ -164,31 +157,35 @@ function LandingChrome({
           ))}
         </ul>
 
-        {/* Owner auth. Mirrors SiteNav's cluster on the other marketing pages —
-            same order (Log in, then Sign up), same labels, same flag — so the
-            two navs cannot drift into offering different doors. Short labels on
-            purpose: the offer-bearing label ("Start your 30-day free trial")
-            lives on the hero and closing CTAs, and would not fit a nav pill. */}
-        {selfServeEnabled ? (
-          <div className="rw-lp-nav-auth">
-            <Link href="/login" className="rw-lp-nav-link rw-lp-nav-login">
-              Log in
-            </Link>
-            <Link href="/signup" className="rw-lp-nav-signup">
-              Sign up
-            </Link>
-          </div>
-        ) : null}
+        {/* The nav's one filled control — the same gold pill the hero and the
+            closing band carry, so the primary action sits where a first-time
+            visitor looks for it before reading a word of the hero.
 
-        {/* WCAG 2.2.2: eight clips and three keyframe animations start on
-            their own and loop forever, so the page owes the visitor a way to
-            stop them.
+            Flag on: the owner-auth pair, mirroring SiteNav's cluster on the
+            other marketing pages (same order, same labels, same flag) so the
+            two navs cannot drift into offering different doors. Flag off: the
+            lead-capture CTA is the only door there is, so the pill points at
+            it. Never both — with self-serve on, `primaryCtaHref` IS `/signup`.
 
-            It lives in the nav MARKUP but is `position: fixed` from 901px up —
-            see the placement note in landing-experience.css for why the same
-            control is docked here on narrow viewports and floats on wide
-            ones. */}
-        <AmbientMotionToggle />
+            Short labels on purpose: the offer-bearing label ("Start your
+            30-day free trial") is only ever produced when self-serve is on,
+            which is exactly the branch that renders "Sign up" instead. */}
+        <div className="rw-lp-nav-auth">
+          {selfServeEnabled ? (
+            <>
+              <Link href="/login" className="rw-lp-nav-link rw-lp-nav-login">
+                Log in
+              </Link>
+              <Link href="/signup" className="rw-lp-nav-cta">
+                Sign up
+              </Link>
+            </>
+          ) : (
+            <Link href={primaryCtaHref} className="rw-lp-nav-cta">
+              {primaryCtaLabel}
+            </Link>
+          )}
+        </div>
 
         <button
           ref={menuButtonRef}
@@ -252,43 +249,26 @@ function LandingChrome({
         </div>
       </nav>
 
-      <ChapterRail />
-
       <main id="main-content">
-        {/* Each section is wrapped, never modified: the wrapper carries the id,
-            the snap point and the scroll-linked dissolve, so the scroll
-            experience is entirely additive. Ids come from `SCROLL_CHAPTERS`,
-            which the rail also reads — the two cannot drift apart. */}
-        <SectionTransition id="top">
-          <HeroSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
-        </SectionTransition>
+        {/* Sections sit directly in the landmark. No wrapper carries a snap
+            point or a scroll-linked transform any more, which also means
+            nothing above the future section can put a transform on an ancestor
+            of its `background-attachment: fixed` card glow. */}
+        <HeroSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
 
-        <SectionTransition id="fleet">
-          <FleetSection
-            videoSrc="/video/repworth-explainer.mp4"
-            videoPoster="/video/repworth-explainer-poster.jpg"
-            videoTitle="Watch the film"
-          />
-        </SectionTransition>
+        <FleetSection
+          videoSrc="/video/repworth-explainer.mp4"
+          videoPoster="/video/repworth-explainer-poster.jpg"
+          videoTitle="Watch the film"
+        />
 
-        <SectionTransition id="agents-that-act">
-          <PersonasSection />
-        </SectionTransition>
+        <PersonasSection />
 
-        <SectionTransition id="agents-that-watch">
-          <WatchdogsSection />
-        </SectionTransition>
+        <WatchdogsSection />
 
-        {/* `transform={false}` is load-bearing: the future cards' glow is built
-            on `background-attachment: fixed`, which a transformed ancestor
-            silently downgrades to `scroll`. It dissolves, it does not drift. */}
-        <SectionTransition id="where-this-is-going" transform={false}>
-          <FutureSection />
-        </SectionTransition>
+        <FutureSection />
 
-        <SectionTransition id="early-access">
-          <CtaSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
-        </SectionTransition>
+        <CtaSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
       </main>
 
       <LandingFooter />

@@ -231,8 +231,10 @@
 }
 
 /* ---------- bottom bar ----------
-   Copyright left, the legal row right — the row is where Legal's six links
-   went when they left the column grid (see LandingFooter.tsx). `flex-wrap` +
+   The motion toggle and the copyright left, the legal row right — the row is
+   where Legal's six links went when they left the column grid (see
+   LandingFooter.tsx), and where the WCAG 2.2.2 pause control moved on
+   2026-08-16 (landing-experience.css, "Ambient motion toggle"). `flex-wrap` +
    `row-gap` because at narrow widths the two halves stack rather than
    squeeze. */
 
@@ -250,6 +252,14 @@
   font-weight: 400;
   font-size: 0.75rem;
   color: rgb(var(--rw-lp-text-rgb) / 0.55);
+}
+
+/* Toggle + copyright as one unit, so the two halves of the bar wrap as a pair
+   rather than the toggle stranding on its own line. */
+.rw-lp-foot-bottom-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
 }
 
 .rw-lp-foot-legal-list {

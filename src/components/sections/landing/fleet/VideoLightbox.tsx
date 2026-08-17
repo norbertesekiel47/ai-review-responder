@@ -60,18 +60,15 @@ export function VideoLightbox({ open, onClose, src, poster, title }: VideoLightb
   );
 
   return (
-    // `data-lenis-prevent`: `showModal()` makes the page behind inert, but
-    // inertness does not stop WHEEL events from reaching the smooth-scroll
-    // instance — without this, spinning the wheel over the open dialog scrolls
-    // the landing page behind the film. Inert to Lenis, like everything else
-    // is inert to the pointer.
+    // Native scroll only since 2026-08-16 (the Lenis instance and its
+    // `data-lenis-prevent` opt-out are gone): `showModal()` makes the page
+    // behind inert, and the browser's own wheel handling respects that.
     <dialog
       ref={dialogRef}
       className="rw-lp-lightbox"
       aria-label={title}
       onClose={handleClose}
       onClick={handleClick}
-      data-lenis-prevent
     >
       {open ? (
         <div className="rw-lp-lightbox-frame">

@@ -24,20 +24,12 @@ const HERO_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/hero/hero.css'),
   'utf-8',
 );
-const FUTURE_CSS = readFileSync(
-  resolve(process.cwd(), 'src/components/sections/landing/future/future.css'),
-  'utf-8',
-);
 const CTA_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/cta/cta.css'),
   'utf-8',
 );
 const FOOTER_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/footer/footer.css'),
-  'utf-8',
-);
-const SCROLL_CSS = readFileSync(
-  resolve(process.cwd(), 'src/components/sections/landing/scroll/scroll-experience.css'),
   'utf-8',
 );
 const FLEET_CSS = readFileSync(
@@ -54,7 +46,7 @@ const FOCUS_RULES = [
   { css: LANDING_CSS, selector: '.rw-lp-nav-link:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: LANDING_CSS, selector: '.rw-lp-menu-button:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: LANDING_CSS, selector: '.rw-lp-menu-link:focus-visible', token: '--rw-lp-accent', offset: '3px' },
-  { css: LANDING_CSS, selector: '.rw-lp-nav-signup:focus-visible', token: '--rw-lp-accent', offset: '3px' },
+  { css: LANDING_CSS, selector: '.rw-lp-nav-cta:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   // The WCAG 2.2.2 pause control. Rings on its own rather than joining the
   // grouped rule below it, because that rule squares the corner off with
   // `border-radius: 2px` and this button is round.
@@ -62,12 +54,11 @@ const FOCUS_RULES = [
   { css: FOOTER_CSS, selector: '.rw-lp-foot-link:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: FOOTER_CSS, selector: '.rw-lp-foot-mail:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: FOOTER_CSS, selector: '.rw-lp-foot-brand-name:focus-visible', token: '--rw-lp-accent', offset: '3px' },
-  { css: SCROLL_CSS, selector: '.rw-lp-rail-dot:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: FLEET_CSS, selector: '.rw-lp-fleet-play:focus-visible', token: '--rw-lp-accent', offset: '4px' },
   { css: LIGHTBOX_CSS, selector: '.rw-lp-lightbox-close:focus-visible', token: '--rw-lp-accent', offset: '3px' },
-  { css: HERO_CSS, selector: '.rw-lp-hero-cta:focus-visible', token: '--rw-lp-hero-accent', offset: '6px' },
-  { css: FUTURE_CSS, selector: '.rw-lp-future-flip:focus-visible', token: '--rw-lp-accent', offset: '5px' },
-  { css: CTA_CSS, selector: '.rw-lp-cta-action:focus-visible', token: '--rw-lp-cta-accent', offset: '6px' },
+  // The three gold pills ring at 3px: outward, past the pill's own fill.
+  { css: HERO_CSS, selector: '.rw-lp-hero-cta:focus-visible', token: '--rw-lp-hero-accent', offset: '3px' },
+  { css: CTA_CSS, selector: '.rw-lp-cta-action:focus-visible', token: '--rw-lp-cta-accent', offset: '3px' },
   { css: PRICING_CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-teal-strong', offset: '3px' },
   { css: PRICING_CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-teal-strong', offset: '2px' },
 ] as const;

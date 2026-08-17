@@ -18,7 +18,7 @@ import {
 /**
  * Closing CTA — the night-time bookend to the hero.
  *
- * Same construction as the hero (full-bleed clip, directional scrim, ring CTA)
+ * Same construction as the hero (full-bleed clip, directional scrim, pill CTA)
  * with the copy set LEFT instead of right, so the page opens and closes on
  * mirrored compositions rather than repeating one.
  *
@@ -175,11 +175,10 @@ export function CtaSection({ primaryCtaHref, primaryCtaLabel }: CtaSectionProps)
             <BrokenLines lines={SUBHEAD_LINES} />
           </p>
 
+          {/* The same filled pill as the hero and the nav. */}
           <Link href={primaryCtaHref} className="rw-lp-cta-action">
-            <span className="rw-lp-cta-action-ring" aria-hidden="true">
-              <ArrowGlyph />
-            </span>
             <span className="rw-lp-cta-action-label">{primaryCtaLabel}</span>
+            <ArrowGlyph />
           </Link>
 
           <p className="rw-lp-cta-note">

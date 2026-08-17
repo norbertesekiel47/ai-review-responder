@@ -16,11 +16,11 @@
   --rw-lp-personas-muted: rgb(var(--rw-lp-text-rgb) / 0.66);
 
   position: relative;
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  /* As tall as its content plus the page's section rhythm — never bound to
+     the viewport (2026-08-16; docs/design/landing/measurements.md §2). */
+  padding: var(--rw-lp-section-gap, 6rem) 0;
   /* A warm gold wash off the TOP-LEFT — where this section's intro sits and
      where its temperature is declared. This was the only narrative section on
      bare ink (fleet has its contour rings, watchdogs its teal wash + lighter
@@ -57,12 +57,13 @@
   margin-bottom: clamp(1.25rem, 3.5vh, 2.5rem);
 }
 
+/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
 .rw-lp-personas-eyebrow {
   margin: 0 0 1.125rem;
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.6875rem;
-  letter-spacing: 0.28em;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   color: var(--rw-lp-accent, #dcc489);
 }
@@ -99,14 +100,15 @@
    discoverable affordance on any device. */
 .rw-lp-personas-column-note {
   margin: 0 0 1.25rem;
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.625rem;
-  letter-spacing: 0.24em;
+  /* Same label role as the eyebrow (mono, 12px), one alpha step quieter. */
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   /* 0.55, not the 0.45 this shipped with. Composited over this section's ground
-     (#14201c) that alpha measures 4.07:1 — below the 4.5 AA floor for text this
-     small. 0.55 measures 5.40:1. The ratio MUST be computed on the composited
+     (#14201c) that alpha measures 4.07:1 — below the 4.5 AA floor for small
+     text. 0.55 measures 5.40:1. The ratio MUST be computed on the composited
      colour: reading the rgba() channels alone reports ~15:1 for text that is
      actually at 4.07, which is how it passed review the first time. */
   color: rgb(var(--rw-lp-text-rgb) / 0.55);
@@ -114,22 +116,15 @@
 
 /* ---------- card grid ---------- */
 
-/* Height-aware, because the cards are `aspect-ratio: 3/4` — width here is spent
-   as height, and the section is bound to `100svh`. Four cards plus three 1rem
-   gaps means a card is `(G - 3rem) / 4` wide and a third of that again tall, so
-   capping card height at 45svh caps the grid at `180svh + 3rem`.
-   `min(100%, ...)` lets the grid fill the container on any viewport tall enough
-   to afford it, and pull in only on the short ones: at 1920x812 it is not
-   binding (grid fills all 1504px), at 1920x760 it holds the grid to 1416px and
-   keeps 35px of slack instead of 6px.
-
-   Left-aligned, not centred — when the cap does bite, the row must stay flush
-   with the heading above it. */
+/* Four `aspect-ratio: 3/4` cards across the 75rem column: ~264px wide, ~352px
+   tall at 1200px. The `min(100%, calc(180svh + 3rem))` cap this used to carry
+   existed only to keep the row inside a `100svh` section on short viewports;
+   with the bind gone the section grows with the row, so the cap went with it
+   (2026-08-16). */
 .rw-lp-personas-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
-  max-width: min(100%, calc(180svh + 3rem));
 }
 
 @media (max-width: 1100px) {

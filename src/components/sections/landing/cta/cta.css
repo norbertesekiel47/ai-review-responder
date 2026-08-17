@@ -16,7 +16,9 @@
    alpha evaluated at each glyph's own x, composited over the BRIGHTEST video
    pixel under that text band, sampled at t = 0.5/3/6/9/11.5s.
      title 12.30 (needs 3)   accent 7.83 (needs 3)   eyebrow 8.59 (needs 4.5)
-     sub 13.93 (4.5)         action 14.72 (4.5)      note 14.04 (4.5)
+     sub 13.93 (4.5)         note 14.04 (4.5)
+     action: ink on the gold pill, 9.82:1 — the pill's fill is opaque, so the
+     clip under it does not enter the ratio (2026-08-16).
    Measuring against flat ink instead inflates every one of these and would
    have hidden the previous source's accent at 4.93. Re-measure by the same
    method if any scrim opacity below is lowered, the copy column moves, or the
@@ -150,12 +152,13 @@
   max-width: 44rem;
 }
 
+/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
 .rw-lp-cta-eyebrow {
   margin: 0 0 clamp(0.75rem, 1.6vw, 1.125rem);
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.6875rem;
-  letter-spacing: 0.28em;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   color: var(--rw-lp-cta-accent);
 }
@@ -206,50 +209,43 @@
   color: var(--rw-lp-cta-text);
 }
 
-/* ---------- action ---------- */
+/* ---------- action ----------
+   The same filled pill as the hero CTA (`.rw-lp-hero-cta`) — see the note
+   there. Gold ground, ink text, label then arrow. */
 
 .rw-lp-cta-action {
   display: inline-flex;
   align-items: center;
-  gap: 1.125rem;
+  gap: 0.625rem;
+  min-height: 2.75rem;
   margin-top: clamp(1.75rem, 3vw, 2.5rem);
-  color: var(--rw-lp-cta-text);
+  padding: 0 1.375rem;
+  border-radius: 999px;
+  background: var(--rw-lp-cta-accent);
+  color: var(--rw-lp-cta-ink);
   text-decoration: none;
-}
-
-.rw-lp-cta-action-ring {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 3.25rem;
-  height: 3.25rem;
-  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.42);
-  border-radius: 50%;
   transition:
     background-color 240ms ease,
-    border-color 240ms ease,
-    color 240ms ease;
-}
-
-.rw-lp-cta-arrow {
-  width: 1.25rem;
-  height: 1.25rem;
-  transition: transform 240ms ease;
+    transform 240ms ease;
 }
 
 .rw-lp-cta-action-label {
   font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.75rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: -0.005em;
 }
 
-.rw-lp-cta-action:hover .rw-lp-cta-action-ring,
-.rw-lp-cta-action:focus-visible .rw-lp-cta-action-ring {
-  background: var(--rw-lp-cta-accent);
-  border-color: var(--rw-lp-cta-accent);
-  color: var(--rw-lp-cta-ink);
+.rw-lp-cta-arrow {
+  flex: 0 0 auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  transition: transform 240ms ease;
+}
+
+.rw-lp-cta-action:hover {
+  background: #e8d3a1;
+  transform: translateY(-1px);
 }
 
 .rw-lp-cta-action:hover .rw-lp-cta-arrow,
@@ -261,8 +257,7 @@
    control here means adding it there too. */
 .rw-lp-cta-action:focus-visible {
   outline: 2px solid var(--rw-lp-cta-accent);
-  outline-offset: 6px;
-  border-radius: 4px;
+  outline-offset: 3px;
 }
 
 /* ---------- truth anchor ----------
@@ -335,7 +330,7 @@
     transition: none;
   }
 
-  .rw-lp-cta-action-ring,
+  .rw-lp-cta-action,
   .rw-lp-cta-arrow {
     transition: none;
   }
