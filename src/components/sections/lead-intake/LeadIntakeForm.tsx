@@ -15,6 +15,8 @@ import {
 } from './LeadIntakeForm.helpers';
 
 export type LeadIntent = 'waitlist' | 'demo';
+/** Which tier the lead asked about, when a page offers a per-tier door (pricing). */
+export type LeadPlanInterest = 'copilot' | 'autopilot';
 export type LeadSource =
   | 'landing'
   | 'features'
@@ -35,6 +37,8 @@ export interface LeadIntakePayload {
   googleMapsUrl: string;
   intent: LeadIntent;
   source: LeadSource;
+  /** Optional tier interest; omitted from the request when unset. */
+  plan?: LeadPlanInterest;
   // Hidden honeypot value; sent under its canonical server field name by
   // submitLeadIntake so the server-side bot check can actually fire.
   honeypot: string;
@@ -50,6 +54,8 @@ type LeadIntakeCopy = Partial<{
 type LeadIntakeFormProps = {
   intent: LeadIntent;
   source: LeadSource;
+  /** Tier the visitor asked about (pricing per-plan doors); sent with the lead. */
+  plan?: LeadPlanInterest;
   tone?: 'onTeal' | 'light';
   copy?: LeadIntakeCopy;
 };
@@ -166,6 +172,7 @@ function leadIntakeReducer(state: LeadIntakeState, action: LeadIntakeAction): Le
 export function LeadIntakeForm({
   intent,
   source,
+  plan,
   tone = 'onTeal',
   copy,
 }: LeadIntakeFormProps) {
@@ -225,6 +232,7 @@ export function LeadIntakeForm({
         googleMapsUrl: googleMapsUrl.trim(),
         intent,
         source,
+        ...(plan ? { plan } : {}),
         honeypot,
       });
 

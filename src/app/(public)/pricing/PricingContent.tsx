@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useId, useState } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
+import type { LeadPlanInterest } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { SiteShell } from '@/components/ui/SiteShell';
 import type {
   PlanPresentationViewModel,
@@ -15,7 +16,6 @@ interface PlanCopy {
   name: string;
   tag: string;
   icon: 'copilot' | 'autopilot';
-  featured: boolean;
   features: readonly string[];
 }
 
@@ -25,7 +25,6 @@ const PLANS: readonly PlanCopy[] = [
     name: 'Copilot',
     tag: 'The agent team prepares every public action for your approval.',
     icon: 'copilot',
-    featured: false,
     features: [
       'Reply drafts personalized responses in your business voice',
       'Guardian holds negative and flagged reviews for owner attention',
@@ -39,7 +38,6 @@ const PLANS: readonly PlanCopy[] = [
     name: 'Autopilot',
     tag: 'The same agent team may act inside the rules you set.',
     icon: 'autopilot',
-    featured: true,
     features: [
       'Everything in Copilot',
       'Only 4–5★ unflagged replies may post automatically',
@@ -86,6 +84,12 @@ const BASE_FAQS = [
   },
 ] as const;
 
+const PLAN_PICK_OPTIONS: readonly { value: LeadPlanInterest | null; label: string }[] = [
+  { value: 'copilot', label: 'Copilot' },
+  { value: 'autopilot', label: 'Autopilot' },
+  { value: null, label: 'Not sure yet' },
+];
+
 const CheckIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M5 13l4 4L19 7" />
@@ -117,25 +121,36 @@ function PlanCard({
   price,
   priceVariant,
   purchasable,
+  autopilotOpen,
   selfServeEnabled,
+  onPlanInterest,
 }: {
   plan: PlanCopy;
   price: PlanPriceView;
   priceVariant: PlanPresentationViewModel['priceVariant'];
   purchasable: boolean;
+  autopilotOpen: boolean;
   selfServeEnabled: boolean;
+  onPlanInterest: (plan: LeadPlanInterest) => void;
 }) {
-  const unavailableId = `pricing-${plan.tier}-unavailable`;
+  // Emphasis follows purchasability, never a hardcoded favourite: the featured card
+  // is the most-autonomous tier you can actually get today. While Autopilot is closed
+  // it wears a quiet "Opening soon" badge and Copilot carries the primary action —
+  // the ribboned, tinted card used to be the one you could not buy.
+  const isAutopilot = plan.tier === 'autopilot';
+  const featured = isAutopilot && autopilotOpen;
+  const primary = autopilotOpen ? isAutopilot : !isAutopilot;
   const ctaLabel = selfServeEnabled
     ? `Choose ${plan.name}`
     : `Join the ${plan.name} waitlist`;
 
   return (
-    <article className={`pr-plan ${plan.featured ? 'is-featured' : ''}`}>
+    <article className={`pr-plan ${featured ? 'is-featured' : ''}`}>
       <div className="pr-plan-hatch" aria-hidden>
         {Array.from({ length: 14 }).map((_, index) => <span key={index} />)}
       </div>
-      {plan.featured && <div className="pr-ribbon">More autonomy</div>}
+      {featured && <div className="pr-ribbon">More autonomy</div>}
+      {isAutopilot && !autopilotOpen && <div className="pr-ribbon is-soon">Opening soon</div>}
       <div className={`pr-plan-swatch is-${plan.icon}`} aria-hidden>
         <PlanIcon icon={plan.icon} />
       </div>
@@ -162,22 +177,30 @@ function PlanCard({
       {purchasable ? (
         <Link
           href={selfServeEnabled ? '/signup' : '#pricing-waitlist'}
-          className={`pr-plan-cta ${plan.featured ? 'primary' : 'ghost'}`}
+          className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}
+          onClick={() => onPlanInterest(plan.tier)}
         >
           {ctaLabel}
         </Link>
+      ) : selfServeEnabled ? (
+        // No door to offer here (a signed-up owner switches plans in-product), so
+        // no fake button: plain text says what is true and what to do now.
+        <p className="pr-plan-soon">
+          Not open yet: we are finishing its safety checks. Start on Copilot now and switch
+          when Autopilot opens.
+        </p>
       ) : (
         <>
-          <button
-            type="button"
-            className="pr-plan-cta ghost is-disabled"
-            disabled
-            aria-describedby={unavailableId}
+          <Link
+            href="#pricing-waitlist"
+            className="pr-plan-cta ghost"
+            onClick={() => onPlanInterest('autopilot')}
           >
-            Autopilot unavailable
-          </button>
-          <p id={unavailableId} className="pr-unavailable-reason">
-            Autopilot is temporarily unavailable while its safety runtime is closed. Copilot remains available.
+            Tell me when Autopilot opens
+          </Link>
+          <p className="pr-plan-soon">
+            Not open yet: we are finishing its safety checks. Copilot is taking waitlist
+            sign-ups now.
           </p>
         </>
       )}
@@ -217,7 +240,12 @@ export function PricingContent({
   selfServeEnabled?: boolean;
 }) {
   const [openFaq, setOpenFaq] = useState(0);
+  // Which tier the visitor asked about via a card door; the waitlist form sends it
+  // with the lead, and the chooser above the form keeps it visible and changeable.
+  const [planInterest, setPlanInterest] = useState<LeadPlanInterest | null>(null);
   const faqBaseId = useId();
+  const planPickId = useId();
+  const autopilotOpen = viewModel.purchasable.autopilot;
   const faqs = viewModel.trialEnabled
     ? [
         {
@@ -247,7 +275,9 @@ export function PricingContent({
             price={viewModel.prices[plan.tier]}
             priceVariant={viewModel.priceVariant}
             purchasable={viewModel.purchasable[plan.tier]}
+            autopilotOpen={autopilotOpen}
             selfServeEnabled={selfServeEnabled}
+            onPlanInterest={setPlanInterest}
           />
         ))}
       </div>
@@ -344,7 +374,36 @@ export function PricingContent({
           <Link href="/signup" className="pr-cta-btn">Create account</Link>
         ) : (
           <div className="w-full max-w-md">
-            <LeadIntakeForm intent="waitlist" source="pricing" tone="onTeal" />
+            <fieldset className="pr-plan-pick">
+              <legend className="pr-plan-pick-lbl">Which plan are you asking about?</legend>
+              {PLAN_PICK_OPTIONS.map((option) => {
+                const checked = planInterest === option.value;
+                const optionId = `${planPickId}-${option.value ?? 'either'}`;
+                return (
+                  <label
+                    key={optionId}
+                    htmlFor={optionId}
+                    className={`pr-plan-pick-opt ${checked ? 'is-on' : ''}`}
+                  >
+                    <input
+                      id={optionId}
+                      type="radio"
+                      name="pricing-plan-interest"
+                      value={option.value ?? ''}
+                      checked={checked}
+                      onChange={() => setPlanInterest(option.value)}
+                    />
+                    {option.label}
+                  </label>
+                );
+              })}
+            </fieldset>
+            <LeadIntakeForm
+              intent="waitlist"
+              source="pricing"
+              plan={planInterest ?? undefined}
+              tone="onTeal"
+            />
           </div>
         )}
       </section>

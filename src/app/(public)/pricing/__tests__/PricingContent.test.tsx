@@ -62,13 +62,38 @@ describe('PricingContent', () => {
     expect(disabled).not.toMatch(/trial|card required/i);
   });
 
-  it('keeps unavailable Autopilot visible, disabled, and accessibly explained', () => {
+  it('keeps closed Autopilot visible with a quiet status and moves emphasis to Copilot (self-serve)', () => {
     const html = renderPricing({ autopilot: false, selfServe: true });
 
-    expect(html).toContain('Autopilot unavailable');
-    expect(html).toMatch(/disabled="" aria-describedby="pricing-autopilot-unavailable"/);
-    expect(html).toContain('safety runtime is closed. Copilot remains available');
-    expect(html).toContain('href="/signup"');
+    // Status, not a dead-end: an "Opening soon" badge and owner-language next step,
+    // no disabled button, no "More autonomy" ribbon on the tier you cannot buy.
+    expect(html).toContain('>Opening soon</div>');
+    expect(html).not.toContain('More autonomy');
+    expect(html).not.toMatch(/disabled=""/);
+    expect(html).toContain('Not open yet: we are finishing its safety checks. Start on Copilot now');
+    // The buyable tier carries the primary action; nothing is visually featured.
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="\/signup"[^>]*>Choose Copilot</);
+    expect(html).not.toContain('pr-plan is-featured');
+  });
+
+  it('offers a per-tier waitlist door for closed Autopilot and a visible plan chooser (self-serve off)', () => {
+    const html = renderPricing({ autopilot: false, selfServe: false });
+
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="#pricing-waitlist"[^>]*>Join the Copilot waitlist</);
+    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*href="#pricing-waitlist"[^>]*>Tell me when Autopilot opens</);
+    expect(html).toContain('Copilot is taking waitlist sign-ups now');
+    expect(html).toContain('Which plan are you asking about?');
+    expect(html.match(/name="pricing-plan-interest"/g)).toHaveLength(3);
+  });
+
+  it('features Autopilot with the primary action only when it is purchasable', () => {
+    const html = renderPricing({ autopilot: true, selfServe: true });
+
+    expect(html).toContain('pr-plan is-featured');
+    expect(html).toContain('>More autonomy</div>');
+    expect(html).not.toContain('Opening soon');
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*>Choose Autopilot</);
+    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*>Choose Copilot</);
   });
 
   it('states the shipped agent-team and autonomy boundary precisely', () => {

@@ -405,6 +405,52 @@ describe('POST /api/lead-intake', () => {
     expect(dbState.calls).toHaveLength(0);
   });
 
+  it('stores an optional plan interest in metadata and reports it in the notification', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+      intent: 'waitlist',
+      source: 'pricing',
+      plan: 'autopilot',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockJsonb).toHaveBeenCalledWith(expect.objectContaining({ planInterest: 'autopilot' }));
+    const arg = mockNotify.mock.calls[0]![0] as { lines: string[] };
+    expect(arg.lines.join('\n')).toContain('Plan interest: autopilot');
+  });
+
+  it('omits plan interest from metadata when the door was tier-less', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+      source: 'landing',
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockJsonb).toHaveBeenCalledWith(expect.not.objectContaining({ planInterest: expect.anything() }));
+    const arg = mockNotify.mock.calls[0]![0] as { lines: string[] };
+    expect(arg.lines.join('\n')).toContain('Plan interest: (not stated)');
+  });
+
+  it('returns 400 for an unknown plan and does not write to the database', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makeRequest({
+      name: 'Alice Owner',
+      email: 'owner@example.com',
+      businessName: 'Alice Bakery',
+      plan: 'guardian',
+    }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/plan/i);
+    expect(dbState.calls).toHaveLength(0);
+  });
+
   it('returns 400 for unsupported source and does not write to the database', async () => {
     const { POST } = await import('../route');
     const res = await POST(makeRequest({

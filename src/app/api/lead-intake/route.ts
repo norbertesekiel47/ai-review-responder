@@ -19,6 +19,9 @@ const MAX_NAME_LEN = 200;
 const MAX_BUSINESS_NAME_LEN = 300;
 const MAX_URL_LEN = 2048;
 const ALLOWED_INTENTS = new Set(['waitlist', 'demo']);
+// Optional tier interest from a per-plan door (pricing "Join the Copilot waitlist" /
+// "Tell me when Autopilot opens"). Stored in metadata.planInterest, never a column.
+const ALLOWED_PLANS = new Set(['copilot', 'autopilot']);
 const ALLOWED_SOURCES = new Set([
   'landing',
   'features',
@@ -78,6 +81,8 @@ interface ValidatedLead {
   googleMapsUrl: string;
   intent: string;
   source: string;
+  /** 'copilot' | 'autopilot' when the visitor used a per-plan door; otherwise null. */
+  planInterest: string | null;
 }
 
 type ValidateResult =
@@ -129,6 +134,14 @@ function validateLeadInput(data: Record<string, unknown>): ValidateResult {
   const source = readEnum(data, 'source', 'unknown', ALLOWED_SOURCES);
   if (!source.ok) return { ok: false, response: source.response };
 
+  // Absent → null (most doors are tier-less); present → must be a known tier.
+  let planInterest: string | null = null;
+  if (data.plan !== undefined) {
+    const plan = readEnum(data, 'plan', '', ALLOWED_PLANS);
+    if (!plan.ok) return { ok: false, response: plan.response };
+    planInterest = plan.value;
+  }
+
   return {
     ok: true,
     value: {
@@ -138,6 +151,7 @@ function validateLeadInput(data: Record<string, unknown>): ValidateResult {
       googleMapsUrl: rawUrl,
       intent: intent.value,
       source: source.value,
+      planInterest,
     },
   };
 }
@@ -154,6 +168,7 @@ async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): P
         `Business: ${lead.businessName}`,
         `Intent: ${lead.intent}`,
         `Source: ${lead.source}`,
+        `Plan interest: ${lead.planInterest ?? '(not stated)'}`,
         `Google Maps: ${lead.googleMapsUrl || '(not provided)'}`,
         `Submitted at: ${submittedAt}`,
       ],
@@ -212,6 +227,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     userAgent: req.headers.get('user-agent'),
     referer: req.headers.get('referer'),
     submittedAt,
+    ...(lead.planInterest ? { planInterest: lead.planInterest } : {}),
   };
 
   let leadId: string | null = null;

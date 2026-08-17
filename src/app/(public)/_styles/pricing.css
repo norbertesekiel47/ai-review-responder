@@ -87,6 +87,12 @@
   padding: 6px 14px; border-radius: 9999px; white-space: nowrap;
   box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--rw-teal) 55%, transparent);
 }
+/* "Opening soon" on a closed tier: same slot, quieter — a status, not a recommendation. */
+.pr-ribbon.is-soon {
+  background: var(--rw-cream); color: var(--rw-teal-strong);
+  border: 1px solid color-mix(in srgb, var(--rw-teal) 45%, transparent);
+  box-shadow: none;
+}
 .pr-plan-hatch {
   position: absolute; top: 0; left: 22px; right: 22px;
   height: 4px; display: flex; gap: 3px;
@@ -158,18 +164,13 @@
 }
 .pr-plan-cta.ghost:hover { background: color-mix(in srgb, var(--rw-teal) 34%, transparent); }
 .pr-plan-cta:focus-visible { outline: 2px solid var(--rw-teal-strong); outline-offset: 3px; }
-.pr-plan-cta.is-disabled,
-.pr-plan-cta:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
-  transform: none;
-  box-shadow: none;
+/* Closed-tier status line: what is true now and what to do next, in owner language.
+   Sits in the CTA slot when there is no door (self-serve), under the ghost door otherwise. */
+.pr-plan-soon {
+  margin: 22px 0 0; color: var(--rw-ink-soft);
+  font: 500 13px/1.5 var(--rw-font-body); text-wrap: pretty;
 }
-.pr-plan-cta.is-disabled:hover,
-.pr-plan-cta:disabled:hover {
-  background: color-mix(in srgb, var(--rw-teal) 20%, transparent);
-}
-.pr-unavailable-reason { margin: 10px 0 0; color: var(--rw-ink-soft); font: 500 12px/1.5 var(--rw-font-body); }
+.pr-plan-cta + .pr-plan-soon { margin-top: 10px; }
 .pr-divider { height: 1px; background: color-mix(in srgb, var(--rw-teal) 35%, transparent); margin: 24px 0 20px; }
 .pr-includes-lbl {
   font: 600 11px var(--rw-font-body);
@@ -360,6 +361,29 @@
 }
 .pr-cta-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px color-mix(in srgb, var(--rw-ink) 28%, transparent); }
 .pr-cta-btn:focus-visible { outline: 2px solid var(--rw-cream); outline-offset: 4px; }
+
+/* Waitlist plan chooser (self-serve off): keeps the tier a card door pre-selected
+   visible and changeable above the lead form. Radios stay real (keyboard + SR);
+   the pill is the label. */
+.pr-plan-pick {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  border: 0; padding: 0; margin: 0 0 18px; min-width: 0;
+}
+.pr-plan-pick-lbl {
+  width: 100%; text-align: center; margin: 0 0 6px; padding: 0;
+  font: 500 14px var(--rw-font-body); color: var(--rw-cream);
+}
+.pr-plan-pick-opt {
+  position: relative; display: inline-flex; align-items: center;
+  min-height: 44px; padding: 10px 18px; border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--rw-cream) 45%, transparent);
+  color: var(--rw-cream); font: 500 14px var(--rw-font-body);
+  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.pr-plan-pick-opt:hover { border-color: var(--rw-cream); }
+.pr-plan-pick-opt.is-on { background: var(--rw-cream); color: var(--rw-teal-strong); border-color: var(--rw-cream); }
+.pr-plan-pick-opt input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.pr-plan-pick-opt:has(input:focus-visible) { outline: 2px solid var(--rw-cream); outline-offset: 3px; }
 
 /* Responsive */
 @media (max-width: 1100px) {
