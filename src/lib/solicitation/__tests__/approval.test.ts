@@ -1,9 +1,58 @@
-import { describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
+
+const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
+  await vi.hoisted(async () => {
+    const helpers = await import('../../../../worker/__tests__/helpers/mock-sql');
+    return { ...helpers.createMockSql(), mkTaggedResult: helpers.mkTaggedResult };
+  });
+
+const mocks = vi.hoisted(() => ({
+  acquireSolicitationBatchLock: vi.fn(),
+  closeBatchIfSettled: vi.fn(),
+  recordStep: vi.fn(),
+}));
+
+vi.mock('@/lib/agents/run-spine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/agents/run-spine')>()),
+  recordStep: mocks.recordStep,
+}));
+vi.mock('../batch-builder', () => ({
+  acquireSolicitationBatchLock: mocks.acquireSolicitationBatchLock,
+}));
+vi.mock('../outreach', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../outreach')>()),
+  closeBatchIfSettled: mocks.closeBatchIfSettled,
+}));
+
 import { deriveBatchState, type BatchLifecycleRow } from '../outreach';
-import { ownerHaltReason } from '../approval';
+import { approveBatch, ownerHaltReason } from '../approval';
+
+const sql = mockSql as unknown as Sql;
 
 const EPOCH = new Date('2026-08-16T12:00:00.000Z');
+const ACCOUNT_ID = 'a0000000-0000-4000-8000-000000000001';
+const BUSINESS_ID = 'b0000000-0000-4000-8000-000000000001';
+const MIXED_CASE_BATCH_ID = '0190ABCD-0000-7000-8000-0000000000EF';
+const CANONICAL_BATCH_ID = MIXED_CASE_BATCH_ID.toLowerCase();
+const OWNER_ID = 'c0000000-0000-4000-8000-000000000001';
+const SEND_PARENT_RUN_ID = 'd0000000-0000-4000-8000-000000000001';
+
+function normalizedSql(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+beforeEach(() => {
+  resetMockSql();
+  mockSql.mockClear();
+  mockSql.begin.mockClear();
+  for (const mock of Object.values(mocks)) mock.mockReset();
+
+  mocks.acquireSolicitationBatchLock.mockResolvedValue(undefined);
+  mocks.closeBatchIfSettled.mockResolvedValue({ status: 'not_settled', liveCount: 2 });
+  mocks.recordStep.mockResolvedValue(undefined);
+});
 
 function lifecycle(overrides: Partial<BatchLifecycleRow> = {}): BatchLifecycleRow {
   return {
@@ -90,5 +139,95 @@ describe('deriveBatchState send-lane arms', () => {
         EPOCH,
       ),
     ).toBe('veto_window');
+  });
+});
+
+describe('approveBatch query shapes', () => {
+  it('pins the restored approval scalar parent and NOT EXISTS readiness queries', async () => {
+    const vetoDeadlineAt = '2026-08-17 12:15:00+00';
+    sqlReturnQueue.push(
+      mkTaggedResult([
+        {
+          built_at: new Date(Date.now() - 60_000),
+          approved_at: null,
+          veto_deadline_at: null,
+          sending_started_at: null,
+          send_closed_at: null,
+          halted_at: null,
+          send_parent_run_id: SEND_PARENT_RUN_ID,
+        },
+      ]),
+      mkTaggedResult([{ missing: 0 }]),
+      mkTaggedResult([{ veto_deadline_at: vetoDeadlineAt }]),
+      mkTaggedResult([{ approved: 2 }]),
+    );
+
+    await expect(
+      approveBatch(sql, {
+        batchId: MIXED_CASE_BATCH_ID,
+        accountId: ACCOUNT_ID,
+        businessId: BUSINESS_ID,
+        approvedByUserId: OWNER_ID,
+        excludedOutreachIds: [],
+      }),
+    ).resolves.toEqual({
+      status: 'approved',
+      approvedCount: 2,
+      excludedCount: 0,
+      vetoDeadlineAt,
+      close: null,
+    });
+
+    expect(mockSql.begin).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls.every((call) => call.inTransaction)).toBe(true);
+
+    const lockQuery = sqlCalls[0]!;
+    const lockText = normalizedSql(lockQuery.text);
+    expect(lockText).toContain('( SELECT r.id FROM agent_runs r');
+    expect(lockText).toContain('r.subject_id = b.id::text');
+    expect(lockText).toContain('r.account_id = ?::uuid');
+    expect(lockText).toContain('r.business_id = ?::uuid');
+    expect(lockText).toContain(') AS send_parent_run_id FROM solicitation_batches b');
+    expect(lockText).toContain('FOR UPDATE OF b');
+    expect(lockQuery.values).toEqual([
+      ACCOUNT_ID,
+      BUSINESS_ID,
+      CANONICAL_BATCH_ID,
+      ACCOUNT_ID,
+      BUSINESS_ID,
+    ]);
+    expect(sqlCalls.filter((call) => /FROM\s+agent_runs\s+r/.test(call.text))).toHaveLength(1);
+
+    const readinessQuery = sqlCalls[1]!;
+    const readinessText = normalizedSql(readinessQuery.text);
+    expect(readinessText).toContain('FROM solicitation_asks a');
+    expect(readinessText).toContain('AND NOT EXISTS ( SELECT 1 FROM solicitation_outreach o');
+    expect(readinessText).toContain('o.ask_id = a.id');
+    expect(readinessText).toContain('o.batch_id = a.batch_id');
+    expect(readinessText).toContain('o.account_id = ?::uuid');
+    expect(readinessText).toContain('o.business_id = ?::uuid');
+    expect(readinessText).toContain("o.delivery_status <> 'cancelled'");
+    expect(readinessQuery.values).toEqual([
+      CANONICAL_BATCH_ID,
+      ACCOUNT_ID,
+      BUSINESS_ID,
+      ACCOUNT_ID,
+      BUSINESS_ID,
+    ]);
+
+    expect(mocks.acquireSolicitationBatchLock).toHaveBeenCalledWith(mockSql, BUSINESS_ID);
+    expect(mocks.recordStep).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        runId: SEND_PARENT_RUN_ID,
+        stepKey: 'batch_approved',
+      }),
+    );
+    expect(mocks.closeBatchIfSettled).toHaveBeenCalledWith(mockSql, {
+      batchId: CANONICAL_BATCH_ID,
+      accountId: ACCOUNT_ID,
+      businessId: BUSINESS_ID,
+    });
   });
 });

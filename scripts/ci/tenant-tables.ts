@@ -101,3 +101,69 @@ export const TENANT_TABLES = [
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
+
+export type TenantScopeColumn = 'id' | 'account_id' | 'business_id';
+
+/**
+ * The tenant-identity columns each tenant table PHYSICALLY carries, as
+ * `ci:tenant-scope` may cite them: `accounts` is identified by `id`,
+ * `businesses` by `id` + `account_id`, every other table by whichever of
+ * `account_id` / `business_id` it has. An empty list means the table has no
+ * tenant column at all and reaches its tenant only through a bridge the audit
+ * names explicitly (or an allowlist entry).
+ *
+ * Why the audit needs this: PostgreSQL resolves an unqualified column in a
+ * subquery OUTWARD when the local relation lacks it.
+ * `EXISTS (SELECT 1 FROM reviews WHERE account_id = $1)` compiles — reviews
+ * has no `account_id`, so the predicate reads the OUTER row's — and restricts
+ * nothing. A scope predicate is therefore proof only on a column the table
+ * actually has. Keep this map in lockstep with the schema:
+ * `scripts/ci/__tests__/tenant-tables.integration.test.ts` asserts every row
+ * against information_schema at migration head. A table added to
+ * TENANT_TABLES without a row here fails typecheck.
+ */
+export const TENANT_SCOPE_COLUMNS: Record<TenantTable, readonly TenantScopeColumn[]> = {
+  accounts: ['id'],
+  businesses: ['id', 'account_id'],
+  channel_enrollments: ['account_id', 'business_id'],
+  reviews: ['business_id'],
+  responses: ['business_id'],
+  approval_links: ['business_id'],
+  approval_audit_log: ['account_id', 'business_id'],
+  account_audit_log: ['account_id'],
+  account_offboardings: ['account_id'],
+  account_offboarding_tokens: [],
+  auto_approval_policies: ['account_id'],
+  notification_deliveries: ['account_id', 'business_id'],
+  api_costs: ['account_id', 'business_id'],
+  weekly_summaries: ['business_id'],
+  monthly_impact_emails: ['business_id'],
+  onboarding_drip_log: ['business_id'],
+  onboarding_demos: ['business_id'],
+  satisfaction_responses: ['business_id'],
+  api_costs_daily_rollups: ['business_id'],
+  review_exceptions: ['business_id'],
+  ranking_snapshots: ['business_id'],
+  competitor_snapshots: ['business_id'],
+  zernio_connections: ['business_id'],
+  zernio_finalize_incidents: ['business_id'],
+  zernio_backfill_runs: ['business_id'],
+  contact_csv_uploads: ['account_id', 'business_id'],
+  solicitation_contacts: ['business_id'],
+  solicitation_visits: ['business_id'],
+  solicitation_batches: ['account_id', 'business_id'],
+  solicitation_asks: ['account_id', 'business_id'],
+  solicitation_outreach: ['account_id', 'business_id'],
+  solicitation_consent: ['business_id'],
+  solicitation_suppressions: ['account_id'],
+  solicitation_unsubscribe_tokens: ['account_id', 'business_id'],
+  solicitation_suppression_corrections: ['account_id'],
+  inbound_events: [],
+  prospect_demos: [],
+  google_connections: ['business_id'],
+  agent_runs: ['account_id', 'business_id'],
+  agent_run_steps: [],
+  agent_outcomes: ['account_id', 'business_id'],
+  review_escalations: ['account_id', 'business_id'],
+  judge_verdicts: ['account_id', 'business_id'],
+};

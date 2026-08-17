@@ -62,12 +62,16 @@
     "scripts/ci/tenant-scope-allowlist.ts",
     "src/lib/solicitation/approval.ts",
     "src/lib/solicitation/batch-view.ts",
+    "src/lib/solicitation/__tests__/approval.test.ts",
     "src/lib/solicitation/__tests__/batch-view.test.ts",
     "src/lib/solicitation/__tests__/approval.integration.test.ts",
     "src/lib/solicitation/__tests__/batch-view.integration.test.ts",
     "docs/security/tenant-isolation.md",
     ".claude/reference/lab-notes.md",
-    "docs/reviews/codex-859-tenant-scope-subqueries/repo-audit-triage.md"
+    "docs/reviews/codex-859-tenant-scope-subqueries/repo-audit-triage.md",
+    "scripts/ci/tenant-tables.ts",
+    "scripts/ci/__tests__/tenant-tables.integration.test.ts",
+    "docs/directory.md"
   ],
   "tests_to_add": [
     "passes a directly scoped tenant table inside NOT EXISTS",
@@ -92,16 +96,23 @@
     "fails a LATERAL child correlated only by a non-tenant row id",
     "audits scoped and unscoped data-modifying CTE bodies",
     "does not treat a CTE name shadowing a tenant table as a physical table reference",
-    "reports a deterministic duplicate-template statement arm block and binding identity for every unscoped occurrence"
+    "reports a deterministic duplicate-template statement arm block and binding identity for every unscoped occurrence",
+    "pins the restored approval scalar parent and NOT EXISTS readiness queries",
+    "rejects an unqualified scope column the table does not carry",
+    "does not let a subquery prove itself on a scope column its table lacks",
+    "does not let a grandchild inherit an ancestor alias that an intermediate block shadows",
+    "extracts a nested TAGGED fragment but not a plain literal nested in a placeholder",
+    "lists exactly the tenant-identity columns each tenant table carries"
   ],
   "verification_commands": [
     "pnpm exec vitest run scripts/ci/__tests__/tenant-scope-audit.test.ts",
     "pnpm ci:tenant-scope",
-    "pnpm exec vitest run src/lib/solicitation/__tests__/batch-view.test.ts",
-    "pnpm exec vitest run src/lib/solicitation/__tests__/approval.integration.test.ts src/lib/solicitation/__tests__/batch-view.integration.test.ts"
+    "pnpm exec vitest run src/lib/solicitation/__tests__/approval.test.ts src/lib/solicitation/__tests__/batch-view.test.ts",
+    "pnpm exec vitest run src/lib/solicitation/__tests__/approval.integration.test.ts src/lib/solicitation/__tests__/batch-view.integration.test.ts",
+    "pnpm exec vitest run scripts/ci/__tests__/tenant-tables.integration.test.ts"
   ],
-  "estimated_prod_lines": 380,
-  "estimated_test_lines": 340,
+  "estimated_prod_lines": 1400,
+  "estimated_test_lines": 1250,
   "dependencies_added": [],
   "rollback_plan": "Revert the parser, allowlist baseline, documentation, and solicitation SQL-shape cleanup together. No migration, data repair, flag change, or deployment ordering is required.",
   "observability": [

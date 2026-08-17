@@ -92,8 +92,10 @@ function canonicalBatchId(batchId: string): string {
  * the caller maps that onto the uniform 404, so a foreign batch id and an
  * unknown one are indistinguishable.
  *
- * `batchId` must already be canonical (`canonicalBatchId`) — the parent lookup
- * below is a TEXT compare and cannot normalise it.
+ * `batchId` is already canonical (`canonicalBatchId`) so every downstream use,
+ * including `closeBatchIfSettled`, observes the same defensive normalization.
+ * This statement also correlates the TEXT parent subject to `b.id::text`, which
+ * lets Postgres render the UUID canonically at the comparison boundary.
  */
 async function lockBatchForAction(
   tx: TransactionSql,
@@ -101,52 +103,38 @@ async function lockBatchForAction(
 ): Promise<BatchActionRow | null> {
   await acquireSolicitationBatchLock(tx, input.businessId);
 
-  // TWO statements, not one with a scalar subquery, and the split is not
-  // stylistic: `ci:tenant-scope` reads predicates only at the top level of a
-  // statement (`stripSelectSubqueries` blanks parenthesised SELECTs before
-  // `splitTopLevelAnd` runs). Scope keys buried in a subquery are invisible to
-  // it, so the audit cannot tell a correctly-scoped query from an unscoped one.
-  // Hoisting the parent lookup to its own statement makes both tenant keys
-  // top-level on BOTH tables — the same reason batch-view.ts repeats its keys
-  // on the join rather than nesting them. Do not re-nest this.
-  //
-  // Lock order is unchanged and still batch -> run (amendment B11): the row
-  // lock below is taken before the agent_runs read.
-  const [batch] = await tx<BatchLifecycleRow[]>`
+  // Keep the parent lookup correlated to the locked batch row. The query-block
+  // tenant-scope audit proves both tenant predicates inside this scalar
+  // subquery independently, so the old scanner-only two-statement workaround
+  // is no longer needed. `FOR UPDATE OF b` locks only the batch row; the parent
+  // lookup is an ordinary read, and the first run-row lock remains recordStep's
+  // later SELECT FOR UPDATE. The batch -> run lock order is therefore unchanged.
+  const [batch] = await tx<BatchActionRow[]>`
     SELECT
       b.built_at,
       b.approved_at,
       b.veto_deadline_at,
       b.sending_started_at,
       b.send_closed_at,
-      b.halted_at
+      b.halted_at,
+      (
+        SELECT r.id
+        FROM agent_runs r
+        WHERE r.kind = 'solicitation_send_batch'
+          AND r.subject_type = 'solicitation_batch'
+          AND r.subject_id = b.id::text
+          AND r.account_id = ${input.accountId}::uuid
+          AND r.business_id = ${input.businessId}::uuid
+        ORDER BY r.started_at DESC
+        LIMIT 1
+      ) AS send_parent_run_id
     FROM solicitation_batches b
     WHERE b.id = ${input.batchId}::uuid
       AND b.account_id = ${input.accountId}::uuid
       AND b.business_id = ${input.businessId}::uuid
     FOR UPDATE OF b
   `;
-  if (batch === undefined) return null;
-
-  // `subject_id` is TEXT and the batch row above already proved this id belongs
-  // to this tenant, so matching the id directly is equivalent to the old
-  // correlated `b.id::text` — but ONLY because the caller canonicalised it. The
-  // correlated form normalised case for free (uuid -> text renders lower case);
-  // a raw request string does not, and would silently miss the parent here
-  // while still matching `b.id = $1::uuid` above.
-  const [parent] = await tx<{ id: string }[]>`
-    SELECT r.id
-    FROM agent_runs r
-    WHERE r.kind = 'solicitation_send_batch'
-      AND r.subject_type = 'solicitation_batch'
-      AND r.subject_id = ${input.batchId}
-      AND r.account_id = ${input.accountId}::uuid
-      AND r.business_id = ${input.businessId}::uuid
-    ORDER BY r.started_at DESC
-    LIMIT 1
-  `;
-
-  return { ...batch, send_parent_run_id: parent?.id ?? null };
+  return batch ?? null;
 }
 
 export interface ApproveBatchInput {
@@ -244,27 +232,26 @@ export async function approveBatch(
     // approvable copy. Only a `cancelled` row — a superseded attempt — leaves a
     // hole its replacement must fill. Requiring `rendered` here would wedge
     // every batch that had one lint failure.
-    // Spelled as an anti-join (LEFT JOIN + `o.id IS NULL`) rather than the more
-    // obvious NOT EXISTS, for the tenant-scope reason documented on
-    // `lockBatchForAction`: predicates inside a parenthesised subquery are
-    // invisible to `ci:tenant-scope`, so the outreach scope keys have to sit in
-    // the JOIN's ON clause to be seen. Semantically identical — every join
-    // condition of the NOT EXISTS moved verbatim into ON, and `o.id IS NULL`
-    // keeps exactly the asks that had no surviving attempt.
+    // Keep this as the natural anti-existence predicate: each send Ask is a
+    // readiness gap only when no non-cancelled Outreach attempt exists. The
+    // query-block tenant-scope audit proves the nested Outreach occurrence on
+    // both tenant keys, so no scanner-shaped LEFT JOIN is necessary.
     const [gap] = await tx<{ missing: number }[]>`
-      SELECT COUNT(DISTINCT a.id)::int AS missing
+      SELECT COUNT(*)::int AS missing
       FROM solicitation_asks a
-      LEFT JOIN solicitation_outreach o
-             ON o.ask_id = a.id
-            AND o.batch_id = a.batch_id
-            AND o.account_id = ${input.accountId}::uuid
-            AND o.business_id = ${input.businessId}::uuid
-            AND o.delivery_status <> 'cancelled'
       WHERE a.batch_id = ${batchId}::uuid
         AND a.account_id = ${input.accountId}::uuid
         AND a.business_id = ${input.businessId}::uuid
         AND a.status = 'send'
-        AND o.id IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM solicitation_outreach o
+          WHERE o.ask_id = a.id
+            AND o.batch_id = a.batch_id
+            AND o.account_id = ${input.accountId}::uuid
+            AND o.business_id = ${input.businessId}::uuid
+            AND o.delivery_status <> 'cancelled'
+        )
     `;
     const missingRenders = gap?.missing ?? 0;
     if (missingRenders > 0) return { status: 'not_ready', missingRenders };
