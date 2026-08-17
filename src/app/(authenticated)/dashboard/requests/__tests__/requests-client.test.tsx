@@ -205,7 +205,7 @@ describe('RequestsClient — loading, scope, failure', () => {
     expect(screen.getByText(/choose a location/i)).toBeInTheDocument();
   });
 
-  it('offers a retry that actually re-fetches after a failed load', async () => {
+  it('offers a retry after a failed load without claiming nothing was sent or changed', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(500, {}))
@@ -214,7 +214,14 @@ describe('RequestsClient — loading, scope, failure', () => {
     render(<RequestsClient />);
     await flush();
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/could not load/i);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/could not load/i);
+    // Absence of the CLAIM, not exact wording: honest rephrasing stays free,
+    // but no tense of "nothing was sent / nothing changed" may come back on a
+    // read failure (#861) — the server transaction may already have committed.
+    expect(alert).not.toHaveTextContent(/nothing (?:was |has been |had been )?sent/i);
+    expect(alert).not.toHaveTextContent(/nothing (?:has |had |was )?changed/i);
+    expect(alert).not.toHaveTextContent(/no changes? (?:was|were) made/i);
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     await flush();
 
