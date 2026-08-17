@@ -3,6 +3,27 @@
 A fresh session resumes from this file plus the artifacts it points at. It never
 needs the prior transcript. Resume with `/feature-resume feat-629-owner-approval-lane`.
 
+## READ FIRST — this branch uses an ISOLATED test database
+
+Export this before ANY test, gate, or coverage command:
+
+```bash
+export TEST_DATABASE_POOL_URL="postgresql://test:test@localhost:5499/test_629"
+export DATABASE_POOL_URL="$TEST_DATABASE_POOL_URL"
+```
+
+`.env.local` still points at the shared `test_ws4` and is deliberately NOT
+edited (outside the intake's `allowed_edit_surface`; amending it for local
+config would waste the last amendment). Without the export,
+`resolveTestDatabaseUrl()` falls back to `.env.local`, this branch runs against
+a **107** schema, and its live-DB suites fail on
+`solicitation_outreach_status_reason_consistency` — an error that reads like a
+defect in `approval.ts` and is not one.
+
+Why: seven worktrees share one container, only this branch has migration 108,
+and `pnpm test:db:setup` rebuilds from the RUNNING branch's migrations. Another
+worktree reverted the shared DB twice mid-run. Full account: deviations **D10**.
+
 ## Where we are
 
 Step 4 (EXECUTION) — plan complete, review loop closed, owner released it to

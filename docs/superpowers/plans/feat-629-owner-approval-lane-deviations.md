@@ -313,3 +313,107 @@ Guard suite: 4 passed.
 committed audit copy), verified byte-identical afterwards.
 
 **Budget: this is amendment 1 of 2. One remains** for Tasks 6, 7 and 8.
+
+---
+
+## D9 — two refactors after Task 8, driven by `ci:fallow:coverage` (owner-decided)
+
+**When:** after all eight tasks landed and the gate was green. `ci:fallow:coverage`
+is **advisory, not a required status check** — `ci.yml` says so in as many words
+("It can go red but is NOT a required status check"). An earlier note in this
+run called it "the real PR gate"; that was wrong and is corrected here.
+
+**What it found, and what each finding turned out to be:**
+
+| Finding | Verdict |
+|---|---|
+| `ApprovalPanel.halt` — CRAP 30, **0% tested** | real test gap |
+| `haltHandler` 21% / `readBatchId` **0% tested** | real test gap |
+| `VETO_WINDOW_MINUTES_OWNER` exported, no consumers | real |
+| 3 clone groups / 131 lines across the three batch routes | real, architectural |
+| `ApprovalPanel` cognitive complexity 19 | real, architectural |
+
+**The halt coverage gap was the substantive one.** Approve had five route tests;
+halt had only its refusal paths, so its success path, result mapping and body
+parsing were entirely unasserted — the *destructive* verb was the less-tested
+one. The tests added for it also pin the security rule at both layers: the panel
+POST body must be exactly `{batchId}`, and the route must pass exactly four keys
+to `haltBatch`. A `reason` key appearing in either is what would let a client
+dictate whether the audit trail says email had already left.
+
+**Owner chose to clear both architectural findings** rather than record them as
+debt. Neither cost an amendment — `reviewed/route.ts` is already inside
+`src/app/api/dashboard/solicitation/**`, which an earlier note in this run
+mis-stated as outside the surface.
+
+1. **Shared route runner** — `batch/_shared/scoped-batch-route.ts` exporting
+   `withScopedBatch`. Not an invented shape: the repo already owns this policy
+   one directory over in `withScopedContact`, and the new seam mirrors its
+   signature. Config is 4 fields, none boolean.
+   **The hazard here was real and was avoided:** the three routes do NOT share a
+   flag gate — `reviewed` is watch-only, `approve`/`halt` are watch AND send.
+   Collapsing them would have 404'd `reviewed` for every existing watch-mode
+   customer, since `SOLICITATION_SEND_ENABLED` is unset in every environment
+   today. The gate is bound per route as a **function reference**, and the
+   regression is pinned by a test that stubs the send flag explicitly off. That
+   test was proven load-bearing by mutation: binding the send gate to `reviewed`
+   flips it and three siblings to 404.
+2. **Panel split** — `AskList.tsx` + `ApprovalActions.tsx`.
+   **The hazard here was the redaction guarantee**, which a split is exactly how
+   you lose: `toRows` both filters `redacted` attempts and projects survivors
+   onto three fields, and a child "needing a bit more data" would undo it.
+   Verified independently after the fact: `toRows` remains the only consumer of
+   an `AskAttemptView`, `AskList.tsx`'s reference is a type-only indexed access
+   (`AskAttemptView['deliveryStatus']`), and no `subject`/`body`/
+   `interpolationInputs` read exists in any of the three files.
+
+**Result:** fallow reports `dead code 0 · complexity 0 · duplication 0`.
+Duplication went 131 lines → 0; `ApprovalPanel` cognitive 19 → below threshold,
+cyclomatic 13 → 7, length 164 → 80.
+
+---
+
+## D10 — the shared local test database silently deleted migration 108, twice, mid-run
+
+**When:** during the D9 refactors. Two agents reported live-DB failures
+(`violates check constraint "solicitation_outreach_status_reason_consistency"`).
+
+**Root cause — worth promoting to lab notes after merge, since this file dies
+with the branch.** Seven worktrees share ONE local test database
+(`localhost:5499/test_ws4`). Only this branch carries migration **108**; every
+other branch is at 107. `pnpm test:db:setup` rebuilds the database from **the
+running branch's** `supabase/migrations/`, so an agent running it from any
+107-head worktree silently reverts the shared database and breaks this branch's
+live-DB suites — with an error that looks like a code defect in `approval.ts`.
+
+**A wrong diagnosis is recorded here on purpose.** The orchestrator first blamed
+the `lock_timeout` added in D5, theorising that a concurrent lock made 108's
+`ALTER TABLE` time out and abort the provisioning script. That was speculation,
+never verified, and it was wrong. The correct diagnosis came from checking every
+worktree's migration head. The lesson generalises: *"the DB is in a state my
+branch didn't put it in"* has a mundane multi-worktree explanation far more often
+than an exotic locking one.
+
+**Why it matters beyond the annoyance:** it silently invalidates evidence. One
+agent reported `ci:fallow:coverage` green while the coverage feeding it was
+produced against the reverted database; CRAP is computed from coverage, so a
+"0% tested" finding there measured the harness, not the code. Any live-DB result
+taken while the database is reverted must be discarded, not interpreted.
+
+**Fix applied (owner decision):** this worktree now uses its **own** database,
+`test_629`, created in the same container. `test_ws4` is left at 107 for the
+other six worktrees, so nothing else is disturbed.
+
+**How it is wired, and why not via `.env.local`:** the edit-surface guard
+correctly refuses `.env.local` (not in the contract), and amending the contract
+for a local config file would have spent the last amendment on something that is
+not code. Instead every command exports `TEST_DATABASE_POOL_URL` explicitly,
+which overrides `resolveTestDatabaseUrl()`'s `.env.local` fallback. **A resumed
+session MUST export it too** — the handoff doc carries the value, because
+without the export this branch silently falls back to the shared `test_ws4` and
+its live-DB suites fail against a 107 schema.
+
+**Verified after isolation:** verify gate GREEN 27/27, `pnpm test:coverage`
+963 files / 12,356 tests passed with **zero** failures, `ci:fallow:coverage`
+`✓ No issues in 36 changed files`. The three failures seen before isolation were
+entirely the race.
