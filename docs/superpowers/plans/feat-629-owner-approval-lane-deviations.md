@@ -255,3 +255,61 @@ Without that, the next simplification pass silently reintroduces a CI failure.
 
 **Classification:** stays inside `allowed_edit_surface`. No intake change, no
 surface amendment, no behaviour change. Does not count toward the abort budget.
+
+---
+
+## D8 — SURFACE AMENDMENT #1 of 2: `approval.ts` registered in the spine lock-order guard (owner-approved)
+
+**When:** step 4 (EXECUTION), at the first full (non-docs) verify gate, after
+Task 4. Every gate row passed except `test`.
+
+**What failed:** `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts`, two
+assertions. It enforces the global lock order
+`reviews → businesses → child rows → agent_runs` by requiring every file that
+calls `recordStep`/`recordOutcome`/`completeRun` to be registered there.
+`approval.ts` calls `recordStep` in both verbs, so it tripped as an unreviewed
+new caller.
+
+**Why an amendment was unavoidable.** The intake's `allowed_edit_surface` did not
+list `src/lib/approval/**`. There is no way to satisfy the guard from inside the
+surface: the `CALLER_ALLOWLIST` membership check can only be answered in that
+test file, and the alternative — making `approval.ts` take a reviews lock so it
+satisfies the pairing check — would introduce exactly the cross-lane lock the
+carve-out exists to avoid. The plan mandated the `recordStep` calls (they are the
+immutable record D9 requires, and are named in the intake's `observability`), so
+this is the surface contract being incomplete, not the scope growing.
+
+**The lock analysis, which is the substance of the entry.** `approval.ts` is the
+third file in the solicitation send-batch lane and rests on the identical
+argument as `outreach.ts` (#624) and `ask-generation.ts` (#628):
+
+- Lock order is per-business advisory lock → `solicitation_batches` row
+  `FOR UPDATE` → spine. Batch → run, the SAME single order the two existing
+  carve-outs rest on, so no ABBA pair exists against either.
+- Both verbs route through one helper, `lockBatchForAction`, which takes the
+  advisory lock and the batch row lock **before** any `agent_runs` read or write.
+  Every run-spine call in the file — `recordStep`, and `closeBatchIfSettled`
+  which terminalizes — happens strictly after that.
+- `reviews` is never touched. The subject is a `solicitation_batch`, and the only
+  `agent_runs` row either verb reads or writes is that batch's own send parent.
+- It INSERTs no `agent_runs`/`agent_outcomes` row, so as with `outreach.ts` the
+  step INSERT's implicit FK `FOR KEY SHARE` lands on the run row the transaction
+  already holds; no `businesses`/`accounts` parent-row lock is taken at all.
+
+**One property the other two entries do not share,** recorded in the carve-out
+comment: `approval.ts` is reached from HTTP routes rather than a worker, making
+it the lane's only user-latency-bearing caller of the advisory lock. That affects
+blocking *time*, not lock *order*, and order is what the carve-out governs — but
+it is the thing to look at first if the Requests screen ever feels slow under a
+concurrent generation run.
+
+**Applied:** `approval.ts` added to `CALLER_ALLOWLIST` and to
+`NON_REVIEW_SUBJECT_CALLERS`, with the analysis above as a carve-out comment
+matching the two precedents. A third assertion pins the carve-out set's exact
+contents — a deliberate "update this consciously" guard — and was updated too.
+Guard suite: 4 passed.
+
+**Both intake copies amended in the same change** (`.feature/intake.json` and the
+committed audit copy), verified byte-identical afterwards.
+
+**Budget: this is amendment 1 of 2. One remains** for Tasks 6, 7 and 8.

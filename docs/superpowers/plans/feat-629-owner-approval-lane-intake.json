@@ -71,6 +71,7 @@
     "src/app/api/dashboard/contacts/location-scope.ts",
     "supabase/migrations/108_*.sql",
     "src/lib/shared/__tests__/helpers/schema-ready.ts",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**",
