@@ -307,7 +307,9 @@ export function PricingContent({
             <div className="pr-matrix-row hdr-row">
               <div className="pr-matrix-cell hdr first">Feature</div>
               <div className="pr-matrix-cell hdr">Copilot</div>
-              <div className="pr-matrix-cell hdr featured">Autopilot</div>
+              {/* The tinted column follows the same rule as the featured card:
+                  emphasis only on a tier you can get today. */}
+              <div className={`pr-matrix-cell hdr ${autopilotOpen ? 'featured' : ''}`}>Autopilot</div>
             </div>
             {MATRIX.map((row) => {
               if ('section' in row) {
@@ -321,7 +323,7 @@ export function PricingContent({
                 <div key={row.label} className="pr-matrix-row">
                   <div className="pr-matrix-cell first">{row.label}</div>
                   <MatrixCell value={row.values[0]} plan="Copilot" featured={false} />
-                  <MatrixCell value={row.values[1]} plan="Autopilot" featured />
+                  <MatrixCell value={row.values[1]} plan="Autopilot" featured={autopilotOpen} />
                 </div>
               );
             })}
@@ -364,11 +366,19 @@ export function PricingContent({
       </div>
 
       <section id="pricing-waitlist" className="pr-cta">
-        <h2>{selfServeEnabled ? 'Ready to choose your plan?' : 'Join the early access waitlist.'}</h2>
+        <h2>
+          {!selfServeEnabled
+            ? 'Join the early access waitlist.'
+            : autopilotOpen
+              ? 'Ready to choose your plan?'
+              : 'Start with Copilot today.'}
+        </h2>
         <p>
-          {selfServeEnabled
-            ? 'Create your account, choose Copilot or Autopilot explicitly, and continue to secure checkout.'
-            : 'Tell us about your business and we’ll reach out when early access opens for your area.'}
+          {!selfServeEnabled
+            ? 'Tell us about your business and we’ll reach out when early access opens for your area.'
+            : autopilotOpen
+              ? 'Create your account, choose Copilot or Autopilot, and continue to secure checkout.'
+              : 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.'}
         </p>
         {selfServeEnabled ? (
           <Link href="/signup" className="pr-cta-btn">Create account</Link>

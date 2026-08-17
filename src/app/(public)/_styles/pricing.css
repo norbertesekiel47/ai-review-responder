@@ -256,7 +256,9 @@
   border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
 }
 .pr-matrix-cell.hdr.first { z-index: 3; justify-content: flex-start; }
-.pr-matrix-cell.hdr.featured { color: var(--rw-teal-strong); background: color-mix(in srgb, var(--rw-sage) 65%, var(--rw-cream)); }
+/* Ink, not teal-strong: teal-strong on the 65%-sage header tint measured 4.17:1 (AA fail);
+   the tint marks the column, the ink keeps the label readable. */
+.pr-matrix-cell.hdr.featured { color: var(--rw-ink); background: color-mix(in srgb, var(--rw-sage) 65%, var(--rw-cream)); }
 .pr-matrix-cell.featured { background: color-mix(in srgb, var(--rw-sage) 35%, var(--rw-cream)); }
 .pr-matrix-cell.section {
   font: 600 12px var(--rw-font-body);

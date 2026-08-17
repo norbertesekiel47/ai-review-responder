@@ -71,9 +71,14 @@ describe('PricingContent', () => {
     expect(html).not.toContain('More autonomy');
     expect(html).not.toMatch(/disabled=""/);
     expect(html).toContain('Not open yet: we are finishing its safety checks. Start on Copilot now');
-    // The buyable tier carries the primary action; nothing is visually featured.
+    // The buyable tier carries the primary action; nothing is visually featured —
+    // not the card, not the matrix column, and the band does not offer Autopilot.
     expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="\/signup"[^>]*>Choose Copilot</);
     expect(html).not.toContain('pr-plan is-featured');
+    expect(html).not.toContain('pr-matrix-cell hdr featured');
+    expect(html).not.toContain('pr-matrix-cell num featured');
+    expect(html).toContain('Start with Copilot today.');
+    expect(html).not.toContain('choose Copilot or Autopilot');
   });
 
   it('offers a per-tier waitlist door for closed Autopilot and a visible plan chooser (self-serve off)', () => {
@@ -94,6 +99,8 @@ describe('PricingContent', () => {
     expect(html).not.toContain('Opening soon');
     expect(html).toMatch(/class="pr-plan-cta primary"[^>]*>Choose Autopilot</);
     expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*>Choose Copilot</);
+    expect(html).toContain('pr-matrix-cell hdr featured');
+    expect(html).toContain('Ready to choose your plan?');
   });
 
   it('states the shipped agent-team and autonomy boundary precisely', () => {
