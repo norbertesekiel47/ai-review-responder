@@ -17,6 +17,16 @@
  * run-spine call (recordStep, closeBatchIfSettled) therefore happens LAST.
  * Taking the run lock first is an ABBA deadlock against the offboarding purge.
  *
+ * Where this file DIFFERS from outreach.ts, whose lock analysis it otherwise
+ * mirrors: nothing here locks an `agent_runs` row before calling the spine, so
+ * `recordStep`'s own `SELECT … FOR UPDATE` on the send parent is this
+ * transaction's FIRST lock on that row (the step INSERT's implicit FK
+ * `FOR KEY SHARE` then lands on a row `recordStep` just took, not on one this
+ * file was already holding). The batch -> run order above is unaffected — the
+ * spine call still happens after both batch locks — but do not restate
+ * outreach.ts's "the transaction already holds it" premise here: it is false in
+ * this file, and a lock analysis resting on an untrue statement is worthless.
+ *
  * Domain module: the caller supplies `sql` (invariant #15) and both tenant ids
  * (invariant #8) — a batch id is a bare UUID carrying no tenant proof.
  */
@@ -57,10 +67,33 @@ interface BatchActionRow extends BatchLifecycleRow {
 }
 
 /**
+ * The batch id in the ONE form Postgres renders a uuid in — lower case.
+ *
+ * `agent_runs.subject_id` is TEXT (migration 071), so every compare against it
+ * is case-SENSITIVE, while every `::uuid` cast normalises. `isValidUuid` — the
+ * validator the routes use — accepts upper case, so a mixed-case request id
+ * matched the batch row (`b.id = $1::uuid`) and MISSED that batch's send
+ * parent: `approveBatch` threw a 500 and `haltBatch` silently dropped its
+ * `batch_halted` step. Canonicalise ONCE at the entry point and use the result
+ * for every id below — including the `closeBatchIfSettled` argument, whose own
+ * parent lookup is the same text compare on the same column.
+ *
+ * Cheaper and narrower than a SQL-side `$1::uuid::text`, which would fix only
+ * the statement it is spelled on and leave the next text compare to rediscover
+ * this. A malformed id still fails at the first `::uuid` cast exactly as before.
+ */
+function canonicalBatchId(batchId: string): string {
+  return batchId.toLowerCase();
+}
+
+/**
  * The locked batch row plus its Send batch parent, in ONE statement under the
  * advisory lock. Returns null when the batch does not exist for this tenant —
  * the caller maps that onto the uniform 404, so a foreign batch id and an
  * unknown one are indistinguishable.
+ *
+ * `batchId` must already be canonical (`canonicalBatchId`) — the parent lookup
+ * below is a TEXT compare and cannot normalise it.
  */
 async function lockBatchForAction(
   tx: TransactionSql,
@@ -96,8 +129,11 @@ async function lockBatchForAction(
   if (batch === undefined) return null;
 
   // `subject_id` is TEXT and the batch row above already proved this id belongs
-  // to this tenant, so matching the input directly is equivalent to the old
-  // correlated `b.id::text`.
+  // to this tenant, so matching the id directly is equivalent to the old
+  // correlated `b.id::text` — but ONLY because the caller canonicalised it. The
+  // correlated form normalised case for free (uuid -> text renders lower case);
+  // a raw request string does not, and would silently miss the parent here
+  // while still matching `b.id = $1::uuid` above.
   const [parent] = await tx<{ id: string }[]>`
     SELECT r.id
     FROM agent_runs r
@@ -140,7 +176,15 @@ export type ApproveBatchResult =
    *  approval and become releasable unseen, breaking the byte-for-byte
    *  contract. */
   | { status: 'not_ready'; missingRenders: number }
-  | { status: 'not_approvable'; state: BatchState }
+  /**
+   * The batch cannot be approved. `state` is the derived lifecycle state that
+   * refused it; `reason` is present only for the ONE refusal that is structural
+   * rather than lifecycle-driven — a `built` batch with no send work at all, so
+   * nothing would ever send and nothing could ever close it. Both are the same
+   * owner-visible outcome (one 409, one sentence), so they are one discriminant
+   * with a cause, not two statuses the UI would copy identically.
+   */
+  | { status: 'not_approvable'; state: BatchState; reason?: 'no_send_parent' }
   | { status: 'unknown_exclusion' }
   | { status: 'not_found' };
 
@@ -148,8 +192,13 @@ export async function approveBatch(
   sql: Sql,
   input: ApproveBatchInput,
 ): Promise<ApproveBatchResult> {
+  const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<ApproveBatchResult> => {
-    const batch = await lockBatchForAction(tx, input);
+    const batch = await lockBatchForAction(tx, {
+      batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+    });
     if (batch === null) return { status: 'not_found' };
 
     // Read the state ONCE, under the lock, from the same row every write below
@@ -160,6 +209,28 @@ export async function approveBatch(
       return batch.approved_at !== null
         ? { status: 'already_approved' }
         : { status: 'not_approvable', state };
+    }
+
+    // No send parent means no send work, and it is a REFUSAL, not a broken
+    // invariant: `buildSolicitationBatch` skips the generation enqueue outright
+    // when `sendCount === 0` (batch-builder, EXEC D21), so an all-withheld
+    // batch is built with no parent, no send Ask and no Outreach row. Readiness
+    // below cannot catch that — its anti-join counts `status = 'send'` asks and
+    // passes VACUOUSLY over zero of them — so this gate has to be its own, and
+    // it has to come first.
+    //
+    // Approving such a batch would be actively harmful, which is why this is a
+    // refusal rather than a silent skip of the run step the way `haltBatch`
+    // does: nothing would ever send, `closeBatchIfSettled` has no parent to
+    // terminalize so the batch could never close, and the approval would hold
+    // the location's ONE active-send slot (091's partial unique index
+    // solicitation_batches_one_active_send_per_business, keyed on approved and
+    // neither closed nor halted) against its next real batch until someone
+    // halted it. The panel shows no approve control for an all-withheld batch,
+    // so this answers a direct POST or a stale tab — never a 500.
+    const sendParentRunId = batch.send_parent_run_id;
+    if (sendParentRunId === null) {
+      return { status: 'not_approvable', state, reason: 'no_send_parent' };
     }
 
     // Readiness: every send Ask must already have a non-cancelled Outreach row.
@@ -189,7 +260,7 @@ export async function approveBatch(
             AND o.account_id = ${input.accountId}::uuid
             AND o.business_id = ${input.businessId}::uuid
             AND o.delivery_status <> 'cancelled'
-      WHERE a.batch_id = ${input.batchId}::uuid
+      WHERE a.batch_id = ${batchId}::uuid
         AND a.account_id = ${input.accountId}::uuid
         AND a.business_id = ${input.businessId}::uuid
         AND a.status = 'send'
@@ -210,7 +281,7 @@ export async function approveBatch(
         SELECT COUNT(*)::int AS matched
         FROM solicitation_outreach
         WHERE id = ANY(${input.excludedOutreachIds}::uuid[])
-          AND batch_id = ${input.batchId}::uuid
+          AND batch_id = ${batchId}::uuid
           AND account_id = ${input.accountId}::uuid
           AND business_id = ${input.businessId}::uuid
           AND delivery_status = 'rendered'
@@ -226,7 +297,7 @@ export async function approveBatch(
             disposition_reason = 'owner_excluded',
             updated_at = NOW()
         WHERE id = ANY(${input.excludedOutreachIds}::uuid[])
-          AND batch_id = ${input.batchId}::uuid
+          AND batch_id = ${batchId}::uuid
           AND account_id = ${input.accountId}::uuid
           AND business_id = ${input.businessId}::uuid
           AND delivery_status = 'rendered'
@@ -243,35 +314,39 @@ export async function approveBatch(
           approval_method = 'owner',
           approved_by_user_id = ${input.approvedByUserId}::uuid,
           veto_deadline_at = NOW() + make_interval(mins => ${VETO_WINDOW_MINUTES_OWNER})
-      WHERE id = ${input.batchId}::uuid
+      WHERE id = ${batchId}::uuid
         AND account_id = ${input.accountId}::uuid
         AND business_id = ${input.businessId}::uuid
         AND approved_at IS NULL
       RETURNING veto_deadline_at::text AS veto_deadline_at
     `;
-    if (approved === undefined) return { status: 'already_approved' };
+    // Losing this CAS is IMPOSSIBLE, and the throw is how that claim stays
+    // honest. `approved_at` was read NULL above under `FOR UPDATE` on this very
+    // row, and that lock is held until commit, so no concurrent writer can have
+    // stamped it in between. Returning `already_approved` here — the shape this
+    // branch used to have — would be a silent partial write: the exclusion
+    // UPDATE above has already run, and postgres.js COMMITS on a normal return,
+    // so the owner's deselections would be cancelled for good while the response
+    // said nothing had been approved. That contradicts this function's own
+    // validate-first-mutate-second contract, so it fails loudly and rolls back.
+    if (approved === undefined) {
+      throw new Error(
+        `approveBatch: batch ${batchId} lost the approval CAS while holding its row lock`,
+      );
+    }
 
     const [live] = await tx<{ approved: number }[]>`
       SELECT COUNT(*)::int AS approved
       FROM solicitation_outreach
-      WHERE batch_id = ${input.batchId}::uuid
+      WHERE batch_id = ${batchId}::uuid
         AND account_id = ${input.accountId}::uuid
         AND business_id = ${input.businessId}::uuid
         AND delivery_status = 'rendered'
     `;
     const approvedCount = live?.approved ?? 0;
 
-    // The parent must exist: readiness passed, so generation ran and minted
-    // one. A missing parent here is a broken invariant, not a branch to
-    // absorb — fail loudly rather than approving a batch nothing can close.
-    if (batch.send_parent_run_id === null) {
-      throw new Error(
-        `approveBatch: batch ${input.batchId} passed readiness with no send parent run`,
-      );
-    }
-
     await recordStep(tx, {
-      runId: batch.send_parent_run_id,
+      runId: sendParentRunId,
       stepKey: 'batch_approved',
       detail: {
         approval_method: 'owner',
@@ -287,7 +362,7 @@ export async function approveBatch(
     // writer (D11) — is what keeps parent terminalization to one owner. It
     // no-ops (`not_settled`) whenever anything is still live.
     const close = await closeBatchIfSettled(tx, {
-      batchId: input.batchId,
+      batchId,
       accountId: input.accountId,
       businessId: input.businessId,
     });
@@ -337,8 +412,13 @@ export async function haltBatch(
   sql: Sql,
   input: HaltBatchInput,
 ): Promise<HaltBatchResult> {
+  const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<HaltBatchResult> => {
-    const batch = await lockBatchForAction(tx, input);
+    const batch = await lockBatchForAction(tx, {
+      batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+    });
     if (batch === null) return { status: 'not_found' };
 
     const state = deriveBatchState(batch, new Date());
@@ -354,7 +434,7 @@ export async function haltBatch(
       SET halted_at = NOW(),
           halt_reason = ${reason},
           halted_by = ${input.haltedByUserId}::uuid
-      WHERE id = ${input.batchId}::uuid
+      WHERE id = ${batchId}::uuid
         AND account_id = ${input.accountId}::uuid
         AND business_id = ${input.businessId}::uuid
         AND halted_at IS NULL
@@ -369,7 +449,7 @@ export async function haltBatch(
       SET delivery_status = 'cancelled',
           disposition_reason = ${reason},
           updated_at = NOW()
-      WHERE batch_id = ${input.batchId}::uuid
+      WHERE batch_id = ${batchId}::uuid
         AND account_id = ${input.accountId}::uuid
         AND business_id = ${input.businessId}::uuid
         AND delivery_status IN ('rendered', 'queued')
@@ -392,7 +472,7 @@ export async function haltBatch(
     }
 
     const close = await closeBatchIfSettled(tx, {
-      batchId: input.batchId,
+      batchId,
       accountId: input.accountId,
       businessId: input.businessId,
     });

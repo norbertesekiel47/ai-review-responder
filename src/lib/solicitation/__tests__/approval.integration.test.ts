@@ -172,6 +172,36 @@ async function seedSendAsk(batchId: string, uploadId: string): Promise<SeededAsk
   return { askId, contactId };
 }
 
+/**
+ * One `withhold` ask. 088's status/reason CHECK and 090's evidence CHECK both
+ * have to agree, so the reason is spelled in the column AND in the evidence.
+ *
+ * This is the shape a batch carries when every candidate was withheld at
+ * decision time — the one build that skips the generation enqueue outright
+ * (`summary.sendCount === 0`) and therefore never mints a send parent.
+ */
+async function seedWithholdAsk(batchId: string, uploadId: string): Promise<SeededAsk> {
+  const contactId = await seedContact(uploadId);
+  const askId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_asks (
+      id, account_id, business_id, batch_id, contact_id, status,
+      withheld_reason, evidence, decided_at
+    ) VALUES (
+      ${askId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${batchId}::uuid, ${contactId}::uuid, 'withhold', 'no_consent',
+      ${sql().json({
+        contact_id: contactId,
+        policy_version: 'approval-fixture',
+        decision: 'withhold',
+        reason: 'no_consent',
+      })},
+      NOW()
+    )
+  `;
+  return { askId, contactId };
+}
+
 interface AttemptInput {
   batchId: string;
   ask: SeededAsk;
@@ -667,6 +697,36 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
     30_000,
   );
 
+  it('refuses a built batch that has no send work at all', async () => {
+    // Every candidate withheld at decision time, so the builder skipped the
+    // generation enqueue and no send parent exists. Readiness cannot catch this
+    // — its anti-join counts `status = 'send'` asks and passes VACUOUSLY over
+    // zero of them — so this batch reaches the approval CAS on the strength of
+    // having nothing to check.
+    const { batchId, uploadId } = await seedBatch('1 hour');
+    await seedWithholdAsk(batchId, uploadId);
+    const before = await snapshotBatch(batchId);
+
+    const result = await approveBatch(sql(), {
+      batchId,
+      accountId: accountId(),
+      businessId,
+      approvedByUserId: userId(),
+      excludedOutreachIds: [],
+    });
+
+    // A refusal the route maps to 409, NOT the 500 a missing-parent throw would
+    // have raised: approving would stamp a batch that can never send and — with
+    // no parent for closeBatchIfSettled to terminalize — can never close, while
+    // holding the location's one active-send slot against its next real batch.
+    expect(result).toEqual({
+      status: 'not_approvable',
+      state: 'built',
+      reason: 'no_send_parent',
+    });
+    expect(await snapshotBatch(batchId)).toBe(before);
+  });
+
   it('refuses to approve a batch past its 7-day approval window', async () => {
     const { batchId, accountId: account, businessId: business, userId: owner } =
       await seedRenderedBatch({ renders: 1, builtAgo: '8 days' });
@@ -1006,6 +1066,49 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         halted_by: userId(),
       });
       expect((await readBatch(batchId)).approved_at).toBeNull();
+    });
+  });
+
+  describe('mixed-case batch id', () => {
+    it('finds the send parent for an upper-cased batch id, for both verbs', async () => {
+      // `agent_runs.subject_id` is TEXT, so matching it is case-SENSITIVE while
+      // `b.id = $1::uuid` normalises — and `isValidUuid`, the routes' only
+      // validator, accepts upper case. An upper-cased id therefore used to find
+      // the batch and MISS its parent: approveBatch threw (a 500 the owner could
+      // reach) and haltBatch silently dropped its `batch_halted` audit record.
+      const approving = await seedRenderedBatch({ renders: 2 });
+      // Only one of the two is ever approved — two approved batches would
+      // contend for solicitation_batches_one_active_send_per_business.
+      const halting = await seedRenderedBatch({ renders: 1 });
+
+      const approved = await approveBatch(sql(), {
+        batchId: approving.batchId.toUpperCase(),
+        accountId: approving.accountId,
+        businessId: approving.businessId,
+        approvedByUserId: approving.userId,
+        excludedOutreachIds: [],
+      });
+      const halted = await haltBatch(sql(), {
+        batchId: halting.batchId.toUpperCase(),
+        accountId: halting.accountId,
+        businessId: halting.businessId,
+        haltedByUserId: halting.userId,
+      });
+
+      expect(approved).toMatchObject({ status: 'approved', approvedCount: 2 });
+      // `closed` rather than `no_send_parent` is the second half of the same
+      // regression: closeBatchIfSettled resolves the parent with the identical
+      // TEXT compare, so it has to receive the canonical id too.
+      expect(halted).toMatchObject({
+        status: 'halted',
+        reason: 'owner_veto',
+        cancelledCount: 1,
+        close: { status: 'closed', disposition: 'halted', parentStatus: 'cancelled' },
+      });
+      // The steps are what the case is really about: both verbs wrote their
+      // domain rows either way, and only the audit record went missing.
+      expect(await readSteps(approving.parentRunId, 'batch_approved')).toHaveLength(1);
+      expect(await readSteps(halting.parentRunId, 'batch_halted')).toHaveLength(1);
     });
   });
 
