@@ -110,3 +110,71 @@ real `it(...)`, so the stub file's omission never reaches the gate.
 **Classification:** plan-internal inconsistency, not a scope change.
 `allowed_edit_surface` and `tests_to_add` are both untouched, so this does not
 count toward the two-amendment abort budget.
+
+---
+
+## D5 — migration 108's SQL amended: wrapped in one transaction with a `lock_timeout` (safety defect in the plan's literal SQL)
+
+**When:** step 4 (EXECUTION), after Task 2 committed `56075ac4`. Raised by the
+Task 2 agent, which wrote the plan's SQL verbatim rather than amend a locked
+plan unilaterally — the right call. Verified and fixed by the orchestrator.
+
+**What the plan specified:** a bare `ALTER TABLE … DROP CONSTRAINT` followed by
+a bare `ALTER TABLE … ADD CONSTRAINT`, with no `BEGIN`/`COMMIT` and no
+`lock_timeout`.
+
+**Why that is wrong, not merely unidiomatic — two independent failure modes:**
+
+1. **psql autocommits each statement.** A DROP that succeeds followed by an ADD
+   that fails leaves `solicitation_outreach` with *no* status/reason constraint
+   at all. The table's entire disposition domain would be silently gone, and
+   `disposition_reason` is a bare `TEXT` column with no other constraint
+   governing it (confirmed: no other migration in 001–107 constrains it), so
+   nothing else would catch a bad write.
+2. **No lock bound.** `ALTER TABLE` takes ACCESS EXCLUSIVE. Without
+   `lock_timeout` the acquisition can queue behind a long Supavisor session and
+   stall every reader of the table for the duration.
+
+**Repo precedent is unambiguous, and the plan simply missed it:** `101` and
+`106` set `lock_timeout = '5s'`; `105` — the *same* drop-then-re-add-a-superset
+shape — wraps in `BEGIN; SET LOCAL lock_timeout = '3s'; … COMMIT;`. The
+`new-migration` skill mandates a lock timeout for any `ALTER TABLE`.
+
+**Applied:** 108 now opens `BEGIN; SET LOCAL lock_timeout = '3s';` and closes
+`COMMIT;`, matching 105. **The resulting constraint is byte-for-byte unchanged** —
+this is purely about how it is applied. Re-verified by rebuilding the local test
+DB from scratch: all 108 migrations apply clean, and the live constraint carries
+`owner_excluded`.
+
+**Why this was editable at all:** 108 carries the **LOCAL-ONLY** marker in
+`migrations-log.md`, which is what keeps `migration-immutability-guard.sh` from
+freezing it (see D6). Had Task 2 omitted that marker, this fix would have been
+blocked.
+
+**Classification:** safety fix inside `allowed_edit_surface`
+(`supabase/migrations/108_*.sql`), no scope change, no intake change. Does not
+count toward the amendment budget.
+
+---
+
+## D6 — two repo conventions the plan did not name; Task 2 followed the convention over the plan text (both correct)
+
+**When:** step 4 (EXECUTION), Task 2.
+
+**1. `schema-ready.ts` placement.** The plan said append "after
+`MIGRATION_099_SOLICITATION_POSTAL_ADDRESS`". 099 is no longer last — 100, 104
+and 105 follow it, and the `SchemaRequirement` block is kept in ascending
+migration order. Task 2 appended after `MIGRATION_105_CHECKOUT_ATTEMPT_COUPON`,
+the true end of that block. This satisfies both "append" and the file's
+ordering; following the plan literally would have broken the ordering.
+
+**2. The `LOCAL-ONLY` marker.** The plan said leave the "APPLIED TO STAGING"
+line blank until Task 8. `migrations-log.md` lines 7–15 make something stronger
+a hard convention: an unpromoted entry MUST carry **LOCAL-ONLY**, and that
+marker is precisely what keeps `migration-immutability-guard.sh` from freezing
+the file. Omitting it would have made 108 immutable the moment head was bumped —
+blocking Task 8's promotion edit *and* blocking D5's fix. Task 2 added it with a
+pending STAGING/PRODUCTION line instructing Task 8 to remove it.
+
+**Verdict:** ACCEPT both. Neither changes behaviour or scope; each is the plan
+being less specific than the repo, not the plan being contradicted.

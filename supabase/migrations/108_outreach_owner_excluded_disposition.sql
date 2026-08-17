@@ -11,6 +11,18 @@
 --
 -- The whole predicate is RE-SPELLED rather than patched: a CHECK cannot be
 -- widened in place, and re-spelling keeps this file readable next to 091.
+--
+-- ONE TRANSACTION, and it is load-bearing rather than stylistic: psql
+-- autocommits each statement, so an unwrapped DROP that succeeds followed by an
+-- ADD that fails would leave solicitation_outreach with NO status/reason
+-- constraint at all — the table's entire disposition domain, silently gone.
+-- 105 replaces a constraint with a superset the same way and wraps it for the
+-- same reason. lock_timeout bounds the ACCESS EXCLUSIVE acquisition so a long
+-- Supavisor session cannot make this migration queue behind it and stall every
+-- reader of the table (101 and 106 set it for the same reason).
+
+BEGIN;
+SET LOCAL lock_timeout = '3s';
 
 ALTER TABLE solicitation_outreach
   DROP CONSTRAINT IF EXISTS solicitation_outreach_status_reason_consistency;
@@ -37,3 +49,5 @@ ALTER TABLE solicitation_outreach
 
 COMMENT ON CONSTRAINT solicitation_outreach_status_reason_consistency ON solicitation_outreach IS
   'Status <-> reason totality. 108 added owner_excluded to the cancel set for the owner approval lane (#629 D23); every other arm is 091 verbatim.';
+
+COMMIT;
