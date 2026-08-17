@@ -35,7 +35,7 @@ import {
 /** The owner veto window (D9): an undo, not a review window — the owner has
  *  already read every rendered message. The auto lane's 60-minute window is
  *  anchored differently and belongs to #631. */
-export const VETO_WINDOW_MINUTES_OWNER = 15;
+const VETO_WINDOW_MINUTES_OWNER = 15;
 
 /** The two Halt-latch reasons an OWNER can cause. `admin_halt`,
  *  `send_window_elapsed` and `batch_expired` are the same latch with other

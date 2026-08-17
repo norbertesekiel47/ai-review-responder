@@ -254,4 +254,66 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     expect(mockRequireRole).not.toHaveBeenCalled();
     expect(mockHaltBatch).not.toHaveBeenCalled();
   });
+
+  // The four below are not plan titles. `ci:fallow:coverage` reported
+  // haltHandler at 21% tested and readBatchId at 0% while approve carried five
+  // cases — halt had only the refusal paths above, so its entire success path
+  // and result mapping were unasserted. Halt is the destructive verb; it should
+  // not be the less-tested one.
+
+  it('halts a batch and passes no client-supplied reason to the writer', async () => {
+    const response = await HALT(post('halt'));
+
+    expect(response.status).toBe(200);
+    expect(mockHaltBatch).toHaveBeenCalledTimes(1);
+    const [, input] = mockHaltBatch.mock.calls[0] as [unknown, Record<string, unknown>];
+    // The route may pass ONLY these four. A `reason`/`haltReason` key here would
+    // mean the client can dictate what the audit trail says about whether email
+    // had already left — the exact thing ownerHaltReason exists to prevent.
+    expect(Object.keys(input).sort()).toEqual([
+      'accountId',
+      'batchId',
+      'businessId',
+      'haltedByUserId',
+    ]);
+    expect(input.batchId).toBe(BATCH_ID);
+  });
+
+  it('reports an already-halted batch as success rather than an error', async () => {
+    mockHaltBatch.mockResolvedValue({ status: 'already_halted' });
+
+    const response = await HALT(post('halt'));
+
+    // The latch is monotone, so a second stop is a no-op and NOT a failure —
+    // an owner clicking twice must not be told something went wrong.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 'already_halted' });
+  });
+
+  it('maps an unhaltable batch to 409 and an unknown one to 404', async () => {
+    mockHaltBatch.mockResolvedValue({ status: 'not_haltable', state: 'closed' });
+    const closed = await HALT(post('halt'));
+
+    mockHaltBatch.mockResolvedValue({ status: 'not_found' });
+    const unknown = await HALT(post('halt'));
+
+    expect(closed.status).toBe(409);
+    await expect(closed.json()).resolves.toEqual({ status: 'not_haltable', state: 'closed' });
+    // Uniform 404 — a foreign batch id and an unknown one are indistinguishable.
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toEqual({ error: 'Not found' });
+  });
+
+  it('refuses a halt whose body carries no valid batch id', async () => {
+    const missing = await HALT(post('halt', { body: {} }));
+    const notAUuid = await HALT(post('halt', { body: { batchId: 'not-a-uuid' } }));
+    const wrongType = await HALT(post('halt', { body: { batchId: 42 } }));
+
+    for (const response of [missing, notAUuid, wrongType]) {
+      expect(response.status).toBe(404);
+    }
+    // Refused at the parse boundary — no transaction is opened for a body the
+    // route cannot trust.
+    expect(mockHaltBatch).not.toHaveBeenCalled();
+  });
 });

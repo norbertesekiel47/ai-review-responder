@@ -216,6 +216,41 @@ describe('ApprovalPanel', () => {
     expect(screen.queryByRole('button', { name: /edit|regenerate|rewrite/i })).toBeNull();
   });
 
+  // Not one of the plan's five titles. Added after `ci:fallow:coverage` reported
+  // the `halt` callback at CRAP 30 / 0% tested: every other case asserts the
+  // stop control RENDERS, and nothing clicked it. The gap matters beyond
+  // coverage arithmetic — the body assertion below is the UI-layer half of the
+  // rule that the halt reason is derived server-side, and it is the assertion
+  // that fails if anyone ever "helpfully" adds a reason field to this POST.
+  it('stops the batch and sends no reason of its own', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { status: 'halted', reason: 'owner_veto', cancelledCount: 2 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { onChanged } = renderPanel(
+      sendLane({
+        batchState: 'veto_window',
+        approvedAt: '2026-08-16 12:00:00+00',
+        vetoDeadlineAt: '2026-08-16 12:15:00+00',
+      }),
+      [rendered('1', 'Dana Reeve'), rendered('2', 'Sam Okafor')],
+    );
+
+    fireEvent.click(stopButton()!);
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/api/dashboard/solicitation/batch/halt?scope=${SCOPE}`);
+    expect(init.method).toBe('POST');
+    // EXACTLY one key. Not a reason, not an empty reason, not a null one — the
+    // server derives it from Batch state so the audit trail cannot be dictated.
+    expect(JSON.parse(String(init.body))).toEqual({ batchId: BATCH_ID });
+
+    expect(onChanged).toHaveBeenCalledWith('Batch stopped. Nothing further will send.');
+  });
+
   it('shows the expired state with no approve control', () => {
     renderPanel(sendLane({ batchState: 'expired', ready: true }), [
       rendered('1', 'Dana Reeve'),
