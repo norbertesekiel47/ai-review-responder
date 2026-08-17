@@ -143,6 +143,21 @@ beforeEach(() => {
   });
 });
 
+/**
+ * A `close` that actually SETTLED. The default stubs above use `close: null` /
+ * `not_settled`, which is why the original suite could not see that both routes
+ * were serialising the whole domain union — the leaking fields only exist on
+ * this arm. A halt normally settles the batch, so this is the ordinary path,
+ * not an edge case.
+ */
+const SETTLED_CLOSE = {
+  status: 'closed' as const,
+  parentRunId: '9f8e7d6c-0000-7000-8000-00000000000a',
+  disposition: 'exhausted' as const,
+  parentStatus: 'completed' as const,
+  counts: { rendered: 0, queued: 0, sending: 0, sent: 3, cancelled: 2 },
+};
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
@@ -302,6 +317,47 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     // Uniform 404 — a foreign batch id and an unknown one are indistinguishable.
     expect(unknown.status).toBe(404);
     await expect(unknown.json()).resolves.toEqual({ error: 'Not found' });
+  });
+
+  // Round-2 standards finding F10: both routes serialised the domain union, so
+  // `close.parentRunId` — an internal agent_runs UUID — reached the browser
+  // against ADR 0012's no-internal-id posture on this surface. The routes now
+  // project to an explicit wire shape. Asserted on the SETTLED arm, because
+  // that is the only arm the leaking fields exist on.
+  it('never ships the internal run id or spine vocabulary to the browser', async () => {
+    mockHaltBatch.mockResolvedValue({
+      status: 'halted',
+      reason: 'owner_veto',
+      cancelledCount: 2,
+      close: SETTLED_CLOSE,
+    });
+    mockApproveBatch.mockResolvedValue({
+      status: 'approved',
+      approvedCount: 0,
+      excludedCount: 3,
+      vetoDeadlineAt: '2026-08-16 12:15:00+00',
+      close: SETTLED_CLOSE,
+    });
+
+    const halted = await HALT(post('halt'));
+    const approved = await APPROVE(post('approve'));
+
+    for (const response of [halted, approved]) {
+      const raw = JSON.stringify(await response.json());
+      // Substring, not key-walking: a nested or renamed field still fails.
+      expect(raw).not.toContain(SETTLED_CLOSE.parentRunId);
+      expect(raw).not.toContain('parentRunId');
+      expect(raw).not.toContain('parentStatus');
+      expect(raw).not.toContain('disposition');
+      expect(raw).not.toContain('counts');
+    }
+
+    // The one bit the panel could act on survives the projection.
+    await expect(HALT(post('halt')).then((r) => r.json())).resolves.toMatchObject({
+      status: 'halted',
+      reason: 'owner_veto',
+      closed: true,
+    });
   });
 
   it('refuses a halt whose body carries no valid batch id', async () => {

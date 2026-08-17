@@ -9,7 +9,7 @@ import type { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
-import { approveBatch } from '@/lib/solicitation/approval';
+import { approveBatch, type ApproveBatchResult } from '@/lib/solicitation/approval';
 import { requireSolicitationSendWriteAccess } from '@/app/api/dashboard/contacts/location-scope';
 import { readJsonObject, withScopedBatch } from '../_shared/scoped-batch-route';
 
@@ -30,6 +30,42 @@ async function readApproval(
   if (!Array.isArray(excludedOutreachIds)) return null;
   if (!excludedOutreachIds.every((id) => typeof id === 'string' && isValidUuid(id))) return null;
   return { batchId, excludedOutreachIds };
+}
+
+/**
+ * Everything the browser is allowed to learn from an approval, and nothing
+ * else. `closed` reduces the whole `CloseBatchIfSettledResult` to the one bit
+ * the panel could act on; the parent run id, disposition and status counts stay
+ * server-side.
+ */
+interface ApproveWire {
+  status: ApproveBatchResult['status'];
+  approvedCount?: number;
+  excludedCount?: number;
+  vetoDeadlineAt?: string;
+  closed?: boolean;
+  missingRenders?: number;
+  state?: string;
+  reason?: string;
+}
+
+function toWire(result: ApproveBatchResult): ApproveWire {
+  switch (result.status) {
+    case 'approved':
+      return {
+        status: result.status,
+        approvedCount: result.approvedCount,
+        excludedCount: result.excludedCount,
+        vetoDeadlineAt: result.vetoDeadlineAt,
+        closed: result.close !== null,
+      };
+    case 'not_ready':
+      return { status: result.status, missingRenders: result.missingRenders };
+    case 'not_approvable':
+      return { status: result.status, state: result.state, reason: result.reason };
+    default:
+      return { status: result.status };
+  }
 }
 
 export const POST = withSameOrigin()(
@@ -61,15 +97,25 @@ export const POST = withSameOrigin()(
         excludedCount: result.status === 'approved' ? result.excludedCount : 0,
       });
 
+      // Project to an EXPLICIT wire shape rather than serialising the domain
+      // union. `ApproveBatchResult.close` carries `parentRunId` — an internal
+      // `agent_runs` UUID — plus the spine's `disposition`/`parentStatus`
+      // vocabulary and raw status counts, none of which the browser reads and
+      // none of which belongs on the Requests surface (ADR 0012: no internal id
+      // is ever rendered there). Whitelisting also means a field added to the
+      // domain union later cannot silently start shipping: it has to be named
+      // here first.
+      const wire = toWire(result);
+
       switch (result.status) {
         case 'approved':
         case 'already_approved':
-          return jsonResponse(result);
+          return jsonResponse(wire);
         case 'not_ready':
         case 'not_approvable':
-          return jsonResponse(result, 409);
+          return jsonResponse(wire, 409);
         case 'unknown_exclusion':
-          return jsonResponse(result, 400);
+          return jsonResponse(wire, 400);
         case 'not_found':
           return errorResponse('Not found', 404);
       }

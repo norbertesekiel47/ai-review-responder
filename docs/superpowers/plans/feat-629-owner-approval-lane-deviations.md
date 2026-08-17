@@ -556,10 +556,19 @@ approve control · `laneMessage` is scope-keyed and clearable · the `haltable` 
 is exhaustive over three states · the send-lane counts no longer Cartesian-
 multiply (three statements, no `COUNT(DISTINCT)`) · `readBuiltBatch` 241 → 100
 lines · `HaltReason` is a typed closed union so the halted copy stops saying
-"**you**" for `admin_halt`/`send_window_elapsed`/`batch_expired` · the internal
-`agent_runs` UUID no longer ships to the browser · the false "only file that
-renders a control" claim is gone · the copied-and-false FK lock premise is struck
-at all three sites · the read-failure card no longer makes a write-scoped promise.
+"**you**" for `admin_halt`/`send_window_elapsed`/`batch_expired` · the
+copied-and-false FK lock premise is struck at all three sites · the read-failure
+card no longer makes a write-scoped promise.
+
+> **CORRECTION (round 2).** This entry originally also claimed "the internal
+> `agent_runs` UUID no longer ships to the browser" and "the false 'only file
+> that renders a control' claim is gone". **Both were false when written.** The
+> fix round was dispatched as three agents by file set — writer, read model,
+> panel — and the routes plus `docs/directory.md` were assigned to a fourth that
+> was never dispatched; the orchestrator folded "the rest" into its own work and
+> dropped those two. Round-2 standards caught both. See D15. The lesson is not
+> about either defect: **a deviations entry written from the dispatch plan
+> rather than from the diff will record intentions as outcomes.**
 
 **An honest limitation recorded by the read-model agent:** no data-driven test
 can fail against the old cross-joined query, because `COUNT(DISTINCT …)` produced
@@ -609,3 +618,67 @@ than repeating this.
 
 **Verdict:** ACCEPT, with the epic-shaped verdict recorded above so the estimate
 miss is not lost.
+
+---
+
+## D15 — round-2 verification: two of D13's fixes had not actually landed
+
+**When:** step 7 round 2 (verification-only, one fresh agent per axis).
+
+**Spec axis: empty findings table, all six round-1 findings FIXED.** Full
+`pnpm test` 12,376 passed against the isolated DB; both intake copies
+byte-identical by SHA-256; all 33 `tests_to_add` titles present; all 39 changed
+paths inside `allowed_edit_surface`.
+
+**Adversarial axis: empty findings table, all four Codex findings resolved.** It
+verified the redaction fix against the deliberately-leaky fixture, enumerated
+every 400/409 producer across both routes and the shared preamble to confirm the
+surviving "Nothing changed" copy is sound, and judged the D11 halt-reason
+decision correct on its merits.
+
+**Standards axis: nine FIXED, one NOT-FIXED-BY-DESIGN, and two that had NOT
+landed** — both of them recorded in D13 as done:
+
+1. **F10 — the internal run id still reached the browser.** `approve/route.ts`
+   and `halt/route.ts` still did `jsonResponse(result)`, serialising the whole
+   domain union including `close.parentRunId`, `disposition`, `parentStatus` and
+   raw status counts, against ADR 0012's no-internal-id posture on this surface.
+   **Halt leaked it on the ORDINARY path**, not an edge case, because a halt
+   normally settles the batch. The existing route tests could not see it: every
+   stub used `close: null` or `not_settled`, the two arms on which the leaking
+   fields do not exist.
+   **Fixed:** each route now projects to an explicit wire interface, reducing the
+   whole close result to a `closed: boolean`. Whitelisting rather than
+   blacklisting, so a field added to the domain union later cannot start
+   shipping without being named. A new test asserts the absence by substring
+   over the serialised body (a renamed or nested field still fails) against a
+   **settled** close stub — and it was mutation-verified: reverting one route to
+   `jsonResponse(result)` fails it with the leaked UUID quoted.
+2. **F7 — the false `docs/directory.md` claim survived, and the fix round made a
+   second row false.** The "only file that renders a control" sentence was
+   corrected in both source files but not in the map, and the `ApprovalPanel`
+   row still described `toRows` as projecting away subject and body — which the
+   round-1 fix deliberately reversed. `ci:directory-map` cannot catch either:
+   it checks that `src/lib/` and `worker/` files *have* rows, never that a row
+   is true, and these rows are under `src/app/`.
+   **Fixed:** both rows rewritten, each naming what the earlier revision claimed
+   and why it was wrong, so the correction is legible rather than silent.
+
+**Two non-tabled observations accepted as follow-ups, not fixed here:**
+- The load-failure copy has no test pinning it — the existing case matches
+  `/could not load/i`, which the old write-scoped body also satisfied. Worth a
+  test before the copy drifts back.
+- The lane-cost guard is a statement-shape assertion. The adversarial agent
+  corrected the earlier caveat usefully: no *value*-driven test can fail the old
+  cross-joined query, but a *cost*-driven one could — the suite already has the
+  `EXPLAIN`-plus-wall-clock machinery used for Q3 and simply does not point it at
+  the lane.
+
+**Also corrected here:** the read-model agent's stated reason for leaving
+`readBuiltBatch` at six parameters (that bundling the tenant keys would hide
+invariant #8 from `ci:tenant-scope`) is wrong — that audit matches SQL
+identifiers, never function signatures. The decision stands on the real ground:
+file-local convention and a private single-caller helper.
+
+**Verdict:** ACCEPT. Round 2 closed with two axes clean and the third's two
+misses fixed and pinned by tests.
