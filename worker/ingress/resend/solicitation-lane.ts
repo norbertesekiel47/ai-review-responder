@@ -13,10 +13,7 @@
 // ticket carries no migration.
 
 import type { Sql, TransactionSql } from 'postgres';
-import {
-  LANE_TAG_NAME,
-  SOLICITATION_LANE_TAG_VALUE,
-} from '../../../src/lib/messaging/messaging-adapter';
+import { LANE_TAG_NAME, SOLICITATION_LANE_TAG_VALUE } from '../../../src/lib/messaging/lane-tag';
 import {
   recordSuppression,
   type SuppressionSource,
@@ -31,9 +28,10 @@ const logger = createWorkerLogger('ingress/resend/solicitation');
  *
  * The tag name and value are IMPORTED, never spelled here: the adapter that
  * emits them (`src/lib/messaging/email-adapter.ts`) is on the other side of a
- * cross-module contract that `src/lib/messaging/messaging-adapter.ts` owns. A
- * re-spelling here is exactly how the two halves drift apart and every
- * solicitation webhook silently falls through to the notification lane.
+ * cross-module contract that `src/lib/messaging/lane-tag.ts` owns — a leaf
+ * module with no imports, so this ingress does not reach the Resend SDK just to
+ * read two strings. A re-spelling here is exactly how the two halves drift apart
+ * and every solicitation webhook silently falls through to the notification lane.
  */
 export function isSolicitationLane(data: unknown): boolean {
   return readTag(data, LANE_TAG_NAME) === SOLICITATION_LANE_TAG_VALUE;

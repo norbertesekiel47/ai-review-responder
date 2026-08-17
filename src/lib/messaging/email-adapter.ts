@@ -9,12 +9,8 @@ import { getServerConfig } from '@/lib/config/server';
 import { getSolicitationResend, type getResend } from '@/lib/notifications/email/client';
 import { getEmailHeaders, getEmailTags } from '@/lib/notifications/email/headers';
 import { sendEmail } from '@/lib/notifications/email/send-email';
-import {
-  LANE_TAG_NAME,
-  SOLICITATION_LANE_TAG_VALUE,
-  type MessagingAdapter,
-  type OutboundMessage,
-} from './messaging-adapter';
+import { LANE_TAG_NAME, SOLICITATION_LANE_TAG_VALUE } from './lane-tag';
+import type { MessagingAdapter, OutboundMessage } from './messaging-adapter';
 
 type ResendClient = ReturnType<typeof getResend>;
 

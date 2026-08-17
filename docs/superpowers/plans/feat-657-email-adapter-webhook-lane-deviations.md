@@ -391,3 +391,51 @@ only inside `send()`), and no lint rule or CI audit in this repo forbids cycles.
 alternative — a third file owning two string constants — would have cost a new file and
 a `docs/directory.md` row against the "default is no new file" rule, for a weaker
 outcome: the seam file naming its own discriminant is where a reader looks for it.
+
+---
+
+## D9 — Orchestrator override of D8's cycle decision, 2026-08-16
+
+**The third file was built after all.** `src/lib/messaging/lane-tag.ts` now owns the
+two constants; `messaging-adapter.ts`, `email-adapter.ts`, `solicitation-lane.ts` and
+the routing suite all import from it. **This reverses D8's stated reasoning, and the
+fault is the orchestrator's** — FIX 1 instructed the constants be placed on
+`messaging-adapter.ts`, and that instruction was wrong.
+
+D8 weighed the cycle and judged it benign. That judgement is correct as far as it
+goes: both references are deferred to call time, so no TDZ error is reachable. But it
+answered the wrong question. The cost was never the cycle.
+
+**The real cost was coupling.** `messaging-adapter.ts` imports `EmailAdapter`, so
+hosting the constants there made the import chain
+`solicitation-lane.ts → messaging-adapter.ts → email-adapter.ts` — and from there the
+Resend SDK, `sendEmail`, `getSolicitationResend` and `getServerConfig`. The webhook
+ingress transitively loaded the entire email-sending stack **to read two strings**.
+That contradicts the plan's Architecture paragraph in as many words: the lane "shares
+nothing with the adapter except the `solicitation_outreach` table" and "lands and
+works whether or not the adapter ever sends."
+
+Two of D8's supporting points also do not hold:
+
+- **"No CI audit forbids cycles."** True of the audits the gate runs — but `ci:fallow`
+  reports circular dependencies and runs in ci.yml's `fallow` job, which
+  `scripts/verify-gate.sh` deliberately excludes (`ci:fallow*` is the one exception to
+  the gate's "same set CI runs" property). A green local gate therefore does **not**
+  predict that job. Relying on "no audit catches it" is relying on the one gap.
+- **"Against the 'default is no new file' rule."** That rule requires *justification*,
+  not abstinence. The justification here is the same one this ticket already accepted
+  once: `worker/ingress/resend/bounce-classifier.ts` was extracted in Task 6 for
+  precisely this reason — "exporting them in place would make `solicitation-lane.ts`
+  import its own parent, a cycle. So they move." Applying that precedent twice in one
+  branch is consistency, not file-sprawl.
+
+`lane-tag.ts` is a leaf module with **zero imports**, and its header says to keep it
+that way. `email-adapter.ts` now takes only `import type` from `messaging-adapter.ts`,
+which is erased at runtime, so no runtime edge remains in either direction.
+
+**Verified after the change:** `pnpm typecheck` clean, `pnpm lint` clean,
+`ci:directory-map` passes at 554 files (the new row shipped in the same edit),
+`src/lib/messaging` + routing suites 32/32.
+
+`allowed_edit_surface` untouched — `src/lib/messaging/**` already covered the new
+file. Amendment count remains **0**.

@@ -58,11 +58,8 @@ import { isSolicitationLane } from '../resend/solicitation-lane';
 import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
 import { resetServerConfigForTests } from '../../../src/lib/config/server';
 import { EmailAdapter } from '../../../src/lib/messaging/email-adapter';
-import {
-  LANE_TAG_NAME,
-  SOLICITATION_LANE_TAG_VALUE,
-  type OutboundMessage,
-} from '../../../src/lib/messaging/messaging-adapter';
+import { LANE_TAG_NAME, SOLICITATION_LANE_TAG_VALUE } from '../../../src/lib/messaging/lane-tag';
+import type { OutboundMessage } from '../../../src/lib/messaging/messaging-adapter';
 
 // The handler only reads .body, .headers and .rawBody; the mock supplies all
 // three. Cast because FastifyRequest's generics are awkward from an ad-hoc object.
