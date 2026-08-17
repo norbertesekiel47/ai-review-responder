@@ -204,7 +204,7 @@ cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-860-ask-rege
 pnpm vitest run src/lib/solicitation/__tests__/ask-generation.test.ts src/lib/costs/__tests__/tracker.test.ts src/lib/solicitation/__tests__/batch-view.test.ts src/app/api/dashboard/solicitation/batch/__tests__/approval-routes.test.ts 'src/app/(authenticated)/dashboard/requests/__tests__/approval-panel.test.tsx'
 ```
 
-Expected: all pass, with **26 todo** across these five files (the six integration todos need `TEST_DATABASE_POOL_URL` and run in the live-DB project).
+Expected: all pass, with **31 todo** across these five files. The other **9** titles live in the two live-DB suites (`approval.integration.test.ts` 8, `ask-generation.integration.test.ts` 1); they need `TEST_DATABASE_POOL_URL` and run in vitest's serialized `integration` project. 31 + 9 = the intake's 40.
 
 - [ ] **Step 9: Verify every promised title exists verbatim**
 
@@ -395,13 +395,58 @@ In `describe('regenerateAsk', …)`, replacing the todos:
 
 `isRegenerableBatchState` is module-private. Export it from `ask-generation.ts` (`export function isRegenerableBatchState`) with a one-line comment saying the export exists for the invariant test — the alternative is asserting the decision through six layers of SQL mock, which tests the mocks. Confirm `ALL_STATES` matches `BatchState`'s union exactly by importing the type and letting tsc check the annotation.
 
+- [ ] **Step 5b: Write the live-DB byte-finality race**
+
+In `src/lib/solicitation/__tests__/ask-generation.integration.test.ts`. Everything above this point is mocked, which proves JavaScript call order and nothing about Postgres. The feature's headline claim is that approved bytes cannot change, so it needs one test against real row locks and a real rollback.
+
+```ts
+  it('keeps approved outreach bytes unchanged when approval races the real regeneration swap', async () => {
+    const seeded = await seedRenderedBatch({ renders: 1 });
+    const before = await readOutreachBytes(seeded.asks[0].askId);
+
+    // Approve FIRST, exactly as the owner racing a pending regenerate does.
+    await approveBatch(sql(), {
+      batchId: seeded.batchId,
+      accountId: accountId(),
+      businessId,
+      approvedByUserId: userId(),
+      excludedOutreachIds: [],
+    });
+
+    // Now run the worker's swap against the REAL database. Its locked re-check
+    // must abort: `built` is the only regenerable state (ADR 0020).
+    await regenerateAsk(sql(), {
+      batchId: seeded.batchId,
+      businessId,
+      askId: seeded.asks[0].askId,
+      outboxHandle: seededOutboxHandle,
+      correlationId: 'test-byte-finality',
+    });
+
+    // The assertion that matters is on BYTES, not on call counts: subject and
+    // body are identical, attempt_no did not advance, and no superseded row
+    // appeared. A mocked test cannot make this claim.
+    expect(await readOutreachBytes(seeded.asks[0].askId)).toEqual(before);
+    const rows = await readOutreach(seeded.batchId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].attempt_no).toBe(1);
+    expect(rows.some((row) => row.disposition_reason === 'superseded')).toBe(false);
+  });
+```
+
+Add a `readOutreachBytes(askId)` helper returning `{ subject, body }` for the live attempt — this file's existing helpers read status columns, not content. Seed an outbox row for the handle the same way the file's other `regenerateAsk` cases do; if it has none yet, insert a `dispatched` `generate_solicitation_asks` row and build the handle from its id, because `regenerateAsk` completes the attempt on every non-transient path.
+
+This suite is `*.integration.test.ts`, so it runs in vitest's serialized `integration` project and **must not execute DDL at run time** (the #573 convention, CI-enforced by `ci:live-db-suites`).
+
 - [ ] **Step 6: Run the suite**
 
 ```bash
 pnpm vitest run src/lib/solicitation/__tests__/ask-generation.test.ts
+export TEST_DATABASE_POOL_URL=... DATABASE_POOL_URL=...
+pnpm vitest run src/lib/solicitation/__tests__/ask-generation.integration.test.ts
 ```
 
-Expected: PASS, 0 todo in this file.
+Expected: PASS, 0 todo in both files.
 
 - [ ] **Step 7: Write ADR 0020**
 
@@ -621,7 +666,7 @@ vi.mock('ioredis', () => ({
 }));
 ```
 
-- [ ] **Step 5: Write the two tests**
+- [ ] **Step 5: Write the three tests**
 
 ```ts
 describe('peekAskRegenBudgetBatch', () => {
@@ -657,6 +702,20 @@ describe('peekAskRegenBudgetBatch', () => {
     // reporting `remaining: 0` would disable every control during an outage.
     expect(result.size).toBe(0);
     await expect(peekAskRegenBudgetBatch(['ask-1'])).resolves.toBeInstanceOf(Map);
+  });
+
+  it('peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously', async () => {
+    // The contract says this function has NO rejection path, which is why its
+    // callers carry no catch of their own. A REJECTED mget only proves half of
+    // that: the client factory can throw SYNCHRONOUSLY, which is exactly why it
+    // is called INSIDE the try. Without this test the primitive could be
+    // "tidied" to hoist the client above the try and still pass every other
+    // case, turning a fail-open peek into a route-level 500.
+    mockRedis.mget.mockImplementation(() => {
+      throw new Error('cache redis unavailable');
+    });
+
+    await expect(peekAskRegenBudgetBatch(['ask-1'])).resolves.toEqual(new Map());
   });
 });
 ```
@@ -1051,7 +1110,7 @@ export const POST = withSameOrigin()(
 );
 ```
 
-- [ ] **Step 6: Write the six integration tests**
+- [ ] **Step 6: Write the eight integration tests**
 
 In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpers — do not write new seeding. Their **verified** shapes (checked against the file, not assumed):
 
@@ -1084,6 +1143,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
 
       expect(result).toEqual({ status: 'accepted' });
@@ -1104,6 +1166,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
 
       const steps = await readSteps(seeded.parentRunId, 'ask_regeneration_requested');
@@ -1130,6 +1195,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
 
       // ADR 0020, asserted against the DATABASE rather than the return value:
@@ -1152,6 +1220,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
 
       // §8.2 r6: blocked is terminal. Re-rolling it would launder the
@@ -1168,6 +1239,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
       expect(first.status).toBe('accepted');
 
@@ -1179,6 +1253,9 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: accountId(),
         businessId,
         requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
       });
 
       expect(second).toEqual({ status: 'already_in_flight' });
@@ -1199,18 +1276,89 @@ The destructuring style below (`accountId: account`) is the house pattern from t
         accountId: foreign.accountId,
         businessId,
         requestedByUserId: foreign.userId,
+        budgetRemaining: 3,
       });
 
       // A foreign batch id and an unknown one are indistinguishable.
       expect(result).toEqual({ status: 'not_found' });
       expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
     });
+
+    it('rolls back the regeneration outbox row when recording ask_regeneration_requested fails', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      // The enqueue-first order means the outbox row is written BEFORE the step.
+      // If the step could fail without taking the row with it, an owner would
+      // get a regeneration nobody asked for and no record of who asked —
+      // invariant #2 broken in the one direction the ordering makes possible.
+      // Force the failure with a real constraint rather than a mock: a run id
+      // that does not exist makes `recordStep` throw inside the transaction.
+      await expect(
+        requestAskRegeneration(sql(), {
+          batchId: seeded.batchId,
+          askId: seeded.asks[0].askId,
+          accountId: accountId(),
+          businessId,
+          requestedByUserId: userId(),
+          budgetRemaining: 3,
+        }),
+      ).rejects.toThrow();
+
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(0);
+    });
+
+    it('does not deadlock when a worker completion races a second regeneration request', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0].askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+      const [inflight] = await readInflightOutbox(seeded.batchId);
+
+      // Reproduce the worker's opening move in its OWN transaction and hold it:
+      // `markOutboxCompletedIfOwned` locks the outbox row, and the worker then
+      // wants the advisory lock. A request path that took the advisory lock
+      // first would deadlock here (40P01) instead of completing.
+      const worker = writerSql();
+      await worker.begin(async (tx) => {
+        await tx`
+          UPDATE job_outbox SET status = 'completed'
+          WHERE id = ${inflight.id}::uuid
+        `;
+
+        // With the enqueue-first order this must simply WAIT on the outbox row
+        // and then proceed once the worker commits — never deadlock.
+        const second = requestAskRegeneration(sql(), {
+          batchId: seeded.batchId,
+          askId: seeded.asks[1].askId,
+          accountId: accountId(),
+          businessId,
+          requestedByUserId: userId(),
+          budgetRemaining: 3,
+        });
+
+        // Give the second request time to reach the outbox row and block on it,
+        // then release the worker. `acquireSolicitationBatchLock` is what the
+        // worker would be waiting for in the broken ordering.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await acquireSolicitationBatchLock(tx, businessId);
+
+        await expect(second).resolves.toEqual({ status: 'accepted' });
+      });
+    });
   });
 ```
 
+> The deadlock test is the one that would have caught round 1's critical defect, so it must fail loudly rather than skip. If the exact interleaving proves flaky in CI, DO NOT weaken it to a sequential call — that is the shape the round-1 plan already had, and it cannot expose this. Raise it as a deviation instead.
+
 Every helper above was verified against the file at plan time. **Do not** change any of them — the existing `approveBatch` / `haltBatch` / tenant-scope suites depend on all of them.
 
-- [ ] **Step 7: Write the six route tests**
+- [ ] **Step 7: Write the eight route tests**
 
 In `approval-routes.test.ts`. Extend the hoisted mock block with `mockRequestAskRegeneration`, add it to the `@/lib/solicitation/approval` factory, add `'regenerate'` to `post`'s path union, and default the body to `{ batchId: BATCH_ID, askId: ASK_ID }` for that path. Then:
 
@@ -1253,9 +1401,47 @@ describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
     const response = await REGENERATE(post('regenerate', { query: `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}` }));
 
     expect(response.status).toBe(429);
-    // Refused BEFORE the domain call: the point of the advisory gate is that
-    // the owner learns synchronously, not after a spinner.
-    expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'regen_limit_reached',
+      remaining: 0,
+      limit: 3,
+    });
+    // The domain IS called — that is the whole point of round 1's finding 4.
+    // The route peeks and PASSES the count; the decision happens inside, after
+    // the ask has been proven to belong to this tenant.
+    expect(mockRequestAskRegeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ askId: ASK_ID, budgetRemaining: 0 }),
+    );
+  });
+
+  it('POST regenerate answers 404 for an over-budget ask belonging to another tenant', async () => {
+    // An exhausted counter for an ask this owner does NOT own. The counter is
+    // keyed on the bare ask id, so a route refusing on the peek alone would
+    // answer 429 and confirm the ask exists somewhere. It must be
+    // indistinguishable from an unknown id.
+    mockPeekAskRegenBudget.mockResolvedValue(new Map([[ASK_ID, { used: 3, limit: 3, remaining: 0 }]]));
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'not_found' });
+
+    const response = await REGENERATE(post('regenerate', { query: `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}` }));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.not.toMatchObject({ error: 'regen_limit_reached' });
+  });
+
+  it('POST regenerate enqueues when the ask budget map has no entry', async () => {
+    // An ABSENT MAP ENTRY is UNKNOWN (the MGET failed) and must fail OPEN. An
+    // absent Redis KEY is a different fact and arrives as `remaining: 3`.
+    mockPeekAskRegenBudget.mockResolvedValue(new Map());
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'accepted' });
+
+    const response = await REGENERATE(post('regenerate', { query: `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}` }));
+
+    expect(response.status).toBe(202);
+    expect(mockRequestAskRegeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ budgetRemaining: null }),
+    );
   });
 
   it('POST regenerate answers 409 when a regeneration is already in flight for the batch', async () => {
@@ -1936,6 +2122,10 @@ Write `'reports that nothing changed when a regeneration settles without a new a
 
 Write `'keeps an ask excluded when a regeneration replaces its outreach id'` (round 1, finding 6) by deselecting an ask, rerendering with that ask carrying a NEW `outreachId` and `attemptNo: 2` — the shape another tab's regeneration produces — and asserting the approve label still counts it as excluded, then that the POST body carries the NEW outreach id.
 
+Write `'shows the daily rewrite limit when a regenerate POST is refused 429'` (round 1, finding 7) by stubbing `fetch` to answer `429` with `{ error: 'regen_limit_reached', message: 'Daily rewrite limit reached for this message — you can try again tomorrow.', remaining: 0, limit: 3 }`, clicking a regenerate control, and asserting that sentence appears in the panel's error region. It must NOT show the `unconfirmed` copy: the server definitively refused, so "We could not confirm whether that went through" would be false. This test drives the real `postLaneAction` classifier, which is the thing Step 4c changed.
+
+Write `'reports a settled regeneration that completed before the first refetch'` (round 1, finding 10) by clicking regenerate, then rerendering ONCE with `regeneratingAskId: null` and the ask's `attemptNo` already incremented — the worker finishing between the 202 and the first poll. Assert the panel reports the landed rewrite and does NOT emit the "could not write a new version" sentence. Outcome reporting must not depend on ever having observed a non-null `regeneratingAskId`.
+
 Add a `props()` helper if the file does not have one, so these tests do not each spell the full prop set.
 
 - [ ] **Step 12: Run and commit**
@@ -1987,3 +2177,23 @@ pre-review.
 | 10 | MEDIUM | Outcome reporting assumed the panel always observes a non-null `regeneratingAskId`; a fast worker could complete before the first poll. | **ACCEPT** | New panel test |
 
 **Intake changes from this round** (deviations, not amendments — `allowed_edit_surface` is unchanged): `tests_to_add` 32 → 40, one title retitled (`drops a stale exclusion…` → `keeps an ask excluded when a regeneration replaces its outreach id`; the property test likewise), `estimated_test_lines` 1200 → 1600.
+
+## Review appendix — round 2 (verification-only)
+
+`VERDICT: REVISE`. Full report: `scratchpad/codex-round2.md` (session-local).
+
+**Confirmed addressed, with evidence read from the real code:** finding 1 (the request order now matches `ask-generation.ts:1392`; throwing from the `sql.begin` callback does roll the enqueue back; `recordStep`'s `agent_runs` lock sits after batch/outreach on BOTH paths and the worker's earlier parent lookup takes no row lock, so the fix introduced no new hazard), finding 5 (rejection sound), finding 6 (no surviving `pruneExclusions` reference), finding 7.
+
+**Legitimately still open, and all one defect:** the eight new titles were added to Task 1's scaffolding but never carried into their owning tasks' implementation steps, so the plan simultaneously promised 40 tests and "0 todo" while writing only 32. Round 2 also caught a real contradiction the round-1 fix introduced: the 429 route test still asserted `mockRequestAskRegeneration` was **never called**, which is precisely what finding 4's fix inverted.
+
+| Round-2 item | Fix |
+|---|---|
+| 429 test contradicted finding 4's fix | Rewritten: the domain IS called, with `budgetRemaining: 0`, and returns `budget_exhausted` |
+| Integration calls omitted the now-required `budgetRemaining` | Added to every call in Task 4, Step 6 |
+| Findings 2, 3 had no implementation step | Task 2 Step 5b (live-DB byte-finality race) and Task 4 Step 6 (rollback coupling + the deadlock reproduction) |
+| Findings 8, 4-tenant had no implementation step | Task 4, Step 7 — now eight route tests |
+| Finding 9 had no implementation step | Task 3, Step 5 — now three tracker tests |
+| Finding 10 and the 429 copy had no implementation step | Task 6, Step 11 |
+| Stale counts ("six", "two", "26 todo") | Corrected to eight / eight / three, and 31 todo + 9 live-DB = 40 |
+
+The deadlock reproduction (Task 4, Step 6) is the test that would have caught round 1's critical defect. It carries an explicit instruction never to weaken it into a sequential call — that is the shape the round-1 plan already had, and it cannot expose the bug.
