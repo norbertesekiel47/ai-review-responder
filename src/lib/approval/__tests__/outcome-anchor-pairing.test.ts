@@ -114,10 +114,20 @@ const LOCK_HELD_BY_CALLER = new Set([
 // call in the file — recordStep, and closeBatchIfSettled which terminalizes —
 // happens strictly after that. reviews is never touched: the subject is a
 // solicitation_batch and the only agent_runs row either verb reads or writes is
-// that batch's own send parent. It INSERTs no agent_runs/agent_outcomes row, so
-// as with outreach.ts the step INSERT's implicit FK FOR KEY SHARE lands on the
-// run row the tx already holds, and no businesses/accounts parent-row lock is
-// taken at all.
+// that batch's own send parent. It INSERTs no agent_runs/agent_outcomes row.
+//
+// Here it DIVERGES from the outreach.ts entry above, and the divergence is
+// recorded because the original wording of this paragraph copied outreach.ts's
+// premise verbatim and that premise is FALSE in approval.ts: this file holds no
+// agent_runs lock of its own, so recordStep's own SELECT … FOR UPDATE on the
+// send parent is the transaction's FIRST lock on that row — not a re-take of
+// one "the transaction already holds". The step INSERT's implicit FK
+// FOR KEY SHARE then lands on a row recordStep just took. The conclusion is
+// unchanged and in fact holds a fortiori: that lock is acquired strictly after
+// both batch locks, so batch → run still holds, and no businesses/accounts
+// parent-row lock is taken at all. Do not restore the copied sentence — a lock
+// analysis resting on an untrue premise is worthless even when its conclusion
+// happens to be right.
 //
 // One thing to watch that the other two entries do not have: approval.ts is
 // reached from HTTP routes, not from a worker, so it is the lane's only

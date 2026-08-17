@@ -317,9 +317,18 @@ argument as `outreach.ts` (#624) and `ask-generation.ts` (#628):
   which terminalizes — happens strictly after that.
 - `reviews` is never touched. The subject is a `solicitation_batch`, and the only
   `agent_runs` row either verb reads or writes is that batch's own send parent.
-- It INSERTs no `agent_runs`/`agent_outcomes` row, so as with `outreach.ts` the
+- It INSERTs no `agent_runs`/`agent_outcomes` row. ~~As with `outreach.ts` the
   step INSERT's implicit FK `FOR KEY SHARE` lands on the run row the transaction
-  already holds; no `businesses`/`accounts` parent-row lock is taken at all.
+  already holds~~ — **struck 2026-08-17, round-1 standards review: that sentence
+  was copied from `outreach.ts` and is FALSE here.** `approval.ts` holds no
+  `agent_runs` lock of its own, so `recordStep`'s own `SELECT … FOR UPDATE` is
+  the transaction's *first* lock on the send parent, and the FK `FOR KEY SHARE`
+  lands on a row `recordStep` just took. The conclusion survives — that lock is
+  taken strictly after both batch locks, so batch → run holds *a fortiori* — but
+  the premise did not, and a carve-out justified by an untrue statement is
+  worthless. Corrected at all three sites: `approval.ts`'s header, the
+  `outcome-anchor-pairing.test.ts` carve-out comment, and here. No
+  `businesses`/`accounts` parent-row lock is taken at all.
 
 **One property the other two entries do not share,** recorded in the carve-out
 comment: `approval.ts` is reached from HTTP routes rather than a worker, making
