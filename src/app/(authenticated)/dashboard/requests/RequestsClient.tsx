@@ -308,9 +308,12 @@ interface ScopedPhase {
  *    tick ever reaches the ceiling and the bound silently never fires.
  * 2. State is keyed by scope AND the in-flight request is aborted on switch,
  *    so an old location's late answer cannot overwrite the new location.
- * 3. Polling runs only while the batch is `building`. An empty screen does not
- *    poll: a CSV finishing in another tab will not appear until reload, which
- *    is the accepted trade for not polling forever on an idle screen.
+ * 3. Polling runs while the batch is `building`, and — since #860 — while a
+ *    built batch has a per-ask regeneration in flight, so the new copy appears
+ *    without a reload. Same bounded ceiling and the same abort-on-scope-switch;
+ *    only the predicate is wider. An empty screen still does not poll: a CSV
+ *    finishing in another tab will not appear until reload, which is the
+ *    accepted trade for not polling forever on an idle screen.
  * 4. The completion announcement is produced HERE, by the loop that actually
  *    observes the transition, and carried on the same state as the phase. A
  *    separate mirror hook could not re-announce: a live region only announces a
@@ -384,10 +387,21 @@ function useLatestBatch(currentScope: string): {
           wasBuilding && outcome.kind === 'ready' && outcome.view.state === 'built';
         wasBuilding = building;
 
+        // #860: a built batch keeps polling while a regeneration is in flight.
+        // Spelled with an explicit `sendLane !== null` rather than `?.` — a
+        // null lane (SOLICITATION_SEND_ENABLED off, invariant #13) would
+        // otherwise read as `undefined !== null` and poll to the ceiling on
+        // every built batch.
+        const regenerating =
+          outcome.kind === 'ready' &&
+          outcome.view.state === 'built' &&
+          outcome.view.sendLane !== null &&
+          outcome.view.sendLane.regeneratingAskId !== null;
+
         if (outcome.kind === 'ready') latest = outcome.view;
-        // Every non-building outcome ends the loop: no_batch, built, error,
-        // unavailable and auth.
-        if (!building) stop();
+        // Every other outcome ends the loop: no_batch, a settled built batch,
+        // error, unavailable and auth.
+        if (!building && !regenerating) stop();
         setState({
           scope: currentScope,
           phase: outcome,

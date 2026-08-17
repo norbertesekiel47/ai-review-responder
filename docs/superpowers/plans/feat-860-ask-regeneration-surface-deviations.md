@@ -313,3 +313,79 @@ left it and corrected only the `docs/directory.md` row it does own.
 a second surface amendment (budget 1 of 2) or a separate sweep PR. Recommend the
 sweep: it is a stale comment, not a defect, and spending this feature's last
 amendment on prose is a poor trade with Task 6 still unrun.
+
+---
+
+## D13 — Task 6 touched a sixth file, `ApprovalActions.tsx` (no amendment spent)
+
+**When:** step 4 (EXECUTE), Task 6.
+
+**What:** Task 6's `Files:` list names five files. Its own Step 1 instructs
+rewriting a doc comment in a **sixth**, `ApprovalActions.tsx` — the same D4
+class of bookkeeping drift ("incomplete `Files:` lists"), and Step bodies win.
+
+Step 7 then makes that file unavoidable rather than merely listed. It says to
+pass `busy || sendLane.regeneratingAskId !== null` as `ApprovalActions`' `busy`.
+But `busy` drives **two** things there: `disabled` AND the label
+(`busy ? 'Approving…' : 'Approve and send N messages'`). Passing the widened
+value makes the approve button announce "Approving…" while the owner is waiting
+on a regeneration — naming an act that is not happening — and it also breaks
+Step 11's own promised assertion, which queries
+`getByRole('button', { name: /Approve and send/ })`. Step 7 and Step 11 are
+therefore contradictory unless the prop is split.
+
+**Shipped:** `ApprovalActionsProps` gains `unavailable: boolean` beside `busy`;
+`disabled = busy || unavailable`, and only `busy` licenses the "Approving…" /
+"Stopping…" label. `ApprovalPanel` passes `unavailable={regenerating}`. Plus
+Step 1's doc-comment rewrite.
+
+**No surface amendment was spent** and none was needed: the file matches
+`allowed_edit_surface`'s `src/app/(authenticated)/dashboard/requests/*`, and
+`ci:feature-surface` passed over all 23 changed files. The budget stays at
+**1 of 2**.
+
+**Verdict: ACCEPT.** The alternative inside a strict five-file reading was to
+ship copy that lies about which act is in progress.
+
+---
+
+## D14 — five defects in Task 6's own snippets
+
+**When:** step 4 (EXECUTE), Task 6.
+
+1. **The `RegenerateControl` snippet disables on the wrong key.** Step 2 writes
+   `disabled={… || excluded.has(row.outreachId)}`, which Step 4 then re-keys the
+   whole set away from. Shipped `excluded.has(row.askId)`; the Step-2 spelling
+   would have silently stopped disabling the control on a deselected ask the
+   moment Step 4 landed. Mutation-checked together with the exclusion key —
+   reverting both to `outreachId` fails `keeps an ask excluded when a
+   regeneration replaces its outreach id` with exactly the finding-6 symptom
+   ("Approve and send **2** messages" after the regeneration).
+2. **Step 10's CSS names tokens this design system does not have.**
+   `--space-2`, `--text-xs` and `--color-text-muted` exist nowhere in the repo;
+   `requests.css` is a Console-tier surface and carries `--rw-*` only. Shipped
+   against the Console tokens (`--rw-app-text-muted`, the AA floor for words on
+   this card; `--rw-recess` / `--rw-hair` for the disabled state) per the
+   `repworth-brand-design` router, which Step 10 itself instructs.
+3. **`'Rewriting…'` violates the term it implements.** **Ask regeneration**'s
+   `_Avoid_` list bans `rewrite` and — unlike the **Halt latch**'s single "stop"
+   carve-out — carries no owner-facing exception. Shipped
+   `'Writing a new version…'`, matching the approvable-mode sentence. Same
+   reason, `LANE_REFUSAL_COPY.ask_not_regenerable` reads "We cannot write a new
+   version of this message" rather than "cannot be rewritten", and the
+   `budget_exhausted` fallback is worded in "new versions". The server's own
+   `ASK_REGEN_LIMIT_MESSAGE` still says "rewrite" — it shipped in Task 3, is
+   outside Task 6's file set, and wins on the wire anyway (Step 4c), so the
+   panel repeats it verbatim without minting a second copy of the word.
+4. **Step 11's withheld-ask test asserts a row that is not rendered.** In
+   `approvable` mode `SelectableAskList` receives `sendable` only, so a withheld
+   ask has no row at all — its reason is reported by `BatchReport`. Asserting
+   `getByText('Held back')` inside the panel fails. The test asserts the
+   stronger true thing instead: the withheld ask carries no row control of any
+   kind.
+5. **Step 12's commit line is `git add -A` (D9) and its subject says "exclusion
+   pruning"** — the approach round 1 superseded. Staged per-file; subject
+   rewritten.
+
+**Verdict: ACCEPT.** All five are snippet defects, resolved in the direction the
+surrounding prose and the locked decisions already point.

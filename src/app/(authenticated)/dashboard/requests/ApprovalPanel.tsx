@@ -1,8 +1,12 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
-import type { ApproveBatchResult, HaltBatchResult } from '@/lib/solicitation/approval';
+import type {
+  ApproveBatchResult,
+  HaltBatchResult,
+  RequestAskRegenerationResult,
+} from '@/lib/solicitation/approval';
 import type {
   AskAttemptView,
   HaltReason,
@@ -41,15 +45,17 @@ import './requests.css';
  * how the redacted half would be lost: if a child ever seems to need one, the
  * seam is wrong, not the projection.
  *
- * There is no edit affordance and no regenerate control anywhere here (D22).
- * The lane renders exactly two kinds of control — the approve/stop button in
- * `ApprovalActions`, and the per-ask exclude checkbox in `SelectableAskList` —
- * so widening D22 means widening `ApprovalVerb`, which is the point of naming
- * the verbs. Approve or exclude, and nothing else.
+ * There is no edit affordance anywhere here, and that is still D22: the owner
+ * may ask for new bytes, never write them. What changed at #860 is that asking
+ * is now possible — the lane renders THREE kinds of control: the approve/stop
+ * button in `ApprovalActions`, and per rendered ask, the exclude checkbox and
+ * the regenerate button in `SelectableAskList`. Both per-ask controls are row
+ * controls, not batch verbs, which is why `ApprovalVerb` still names two.
  */
 
 const APPROVE_PATH = '/api/dashboard/solicitation/batch/approve';
 const HALT_PATH = '/api/dashboard/solicitation/batch/halt';
+const REGENERATE_PATH = '/api/dashboard/solicitation/batch/regenerate';
 
 /** The redaction reason, as the owner sees it named. Verbatim, like the
  *  withhold-reason chips in BatchReport — the code is the thing support and the
@@ -75,6 +81,8 @@ function toRows(attempts: AskAttemptView[]): AskRowView[] {
     if (attempt.redacted) continue;
     rows.push({
       outreachId: attempt.outreachId,
+      askId: attempt.askId,
+      attemptNo: attempt.attemptNo,
       contactName: attempt.contactName,
       deliveryStatus: attempt.deliveryStatus,
       subject: attempt.subject,
@@ -220,7 +228,7 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
     case 'approvable':
       return {
         heading: 'Ready for your approval',
-        body: 'Read each message below — this is exactly what will be sent. Nothing sends until you approve, and messages cannot be edited here. Deselect anyone you would rather skip.',
+        body: 'Read each message below — this is exactly what will be sent. Nothing sends until you approve. You can ask for a new version of any message, but you cannot write one yourself. Deselect anyone you would rather skip.',
       };
     case 'nothing_to_send':
       return {
@@ -246,14 +254,14 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
 
 // ── The exclusion set ───────────────────────────────────────────────────────
 
-/** Exclusion is an act, not a default: an id in the set is a deselected ask, so
- *  the set IS the approve payload. Toggling a second time removes it again. */
+/** Exclusion is an act, not a default: an ASK id in the set is a deselected
+ *  ask. Toggling a second time removes it again. */
 function toggleExclusion(
   current: ReadonlySet<string>,
-  outreachId: string,
+  askId: string,
 ): ReadonlySet<string> {
   const next = new Set(current);
-  if (!next.delete(outreachId)) next.add(outreachId);
+  if (!next.delete(askId)) next.add(askId);
   return next;
 }
 
@@ -264,21 +272,49 @@ function includedCount(
   excluded: ReadonlySet<string>,
 ): number {
   return rows.reduce(
-    (total, row) => (excluded.has(row.outreachId) ? total : total + 1),
+    (total, row) => (excluded.has(row.askId) ? total : total + 1),
     0,
   );
+}
+
+/**
+ * The approve payload: the CURRENT outreach id of every deselected ask.
+ *
+ * The exclusion set is keyed on `askId` because that identity survives a
+ * regeneration and an outreach id does not — a re-roll supersedes the row and
+ * inserts a replacement under a new id. Resolving to outreach ids HERE, from
+ * the rows this render is showing, means a regenerated ask stays excluded
+ * under its new row instead of silently returning to the send list.
+ *
+ * An ask with no live row contributes nothing: there is no row left to cancel,
+ * and sending a dead id would fail the whole approval `unknown_exclusion`.
+ *
+ * Exported for its property test — asserting this through a full render plus a
+ * refetch would test the harness instead of the rule.
+ */
+export function excludedOutreachIds(
+  rows: readonly AskRowView[],
+  excludedAsks: ReadonlySet<string>,
+): string[] {
+  return rows
+    .filter((row) => excludedAsks.has(row.askId))
+    .map((row) => row.outreachId);
 }
 
 // ── The write ───────────────────────────────────────────────────────────────
 
 /**
- * Every discriminant either owner route can answer with, taken from the two
- * result unions themselves rather than re-spelled as strings here. That is the
- * whole point of the type: the record below is TOTAL over it, so a new refusal
- * added to `ApproveBatchResult` or `HaltBatchResult` is a tsc error in this
- * file instead of silently degrading to the generic copy.
+ * Every discriminant any of the three owner routes can answer with, taken from
+ * the result unions themselves rather than re-spelled as strings here. That is
+ * the whole point of the type: the record below is TOTAL over it, so a new
+ * refusal added to `ApproveBatchResult`, `HaltBatchResult` or
+ * `RequestAskRegenerationResult` is a tsc error in this file instead of
+ * silently degrading to the generic copy.
  */
-type LaneStatus = ApproveBatchResult['status'] | HaltBatchResult['status'];
+type LaneStatus =
+  | ApproveBatchResult['status']
+  | HaltBatchResult['status']
+  | RequestAskRegenerationResult['status'];
 
 /**
  * What the owner reads when a write did not settle as done. `null` marks the
@@ -303,6 +339,18 @@ const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
     'We could not match one of the people you deselected. Nothing was approved.',
   not_haltable: 'This batch has already finished. There is nothing left to stop.',
   not_found: 'We could not find this batch any more. Reload the page to see where it stands.',
+  // 202 Accepted — the work was taken, not done, so there is nothing to refuse.
+  accepted: null,
+  already_in_flight:
+    'We are already writing a new version for this batch. Wait for it to finish, then try again.',
+  not_regenerable:
+    'This batch has been approved, so its messages can no longer be changed. Stop the batch if you need to.',
+  ask_not_regenerable:
+    'We cannot write a new version of this message. Nothing changed.',
+  // Reached only if the 429 body ever loses its `message`; the server's own
+  // sentence wins when present (`postLaneAction` reads it).
+  budget_exhausted:
+    'You have reached today\'s limit for new versions of this message. You can ask again tomorrow.',
 };
 
 /** A discriminant this build knows, or null for anything else on the wire — a
@@ -317,8 +365,13 @@ function toLaneStatus(value: unknown): LaneStatus | null {
 type LaneOutcome =
   /** The server settled the request: 2xx, carrying its result discriminant. */
   | { kind: 'done'; status: LaneStatus | null }
-  /** The server refused with a reason worth repeating (400 / 409). */
-  | { kind: 'refused'; status: LaneStatus | null }
+  /**
+   * The server refused with a reason worth repeating (400 / 409 / 429).
+   * `message` is the server's OWN sentence when it wrote one — the 429 body
+   * carries no `status`, so without it an exhausted budget would fall through
+   * to the generic copy.
+   */
+  | { kind: 'refused'; status: LaneStatus | null; message: string | null }
   /**
    * The client never read an answer: transport failure, or a response whose
    * body carries no discriminant. NOT a failure — the transaction may already
@@ -346,13 +399,23 @@ async function postLaneAction(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    // 400 and 409 are the only refusals that carry a result discriminant; every
+    // 400, 409 and 429 are the refusals that carry a body worth reading; every
     // other non-2xx is `errorResponse`, whose body says nothing about whether
     // the transaction committed. So it is unconfirmed, not failed.
-    if (response.ok || response.status === 400 || response.status === 409) {
-      const result = (await response.json()) as { status?: unknown };
+    //
+    // 429 is the ask-regenerate budget arm and it is a DEFINITE refusal, so it
+    // must not fall through to `unconfirmed`, whose whole purpose is to admit
+    // that the write may have committed. Its body is
+    // `{ error, message, remaining, limit }` and carries no `status`, so
+    // `toLaneStatus` yields null and the server's `message` is what the owner
+    // reads.
+    if (response.ok || [400, 409, 429].includes(response.status)) {
+      const result = (await response.json()) as { status?: unknown; message?: unknown };
       const status = toLaneStatus(result.status);
-      return response.ok ? { kind: 'done', status } : { kind: 'refused', status };
+      const message = typeof result.message === 'string' ? result.message : null;
+      return response.ok
+        ? { kind: 'done', status }
+        : { kind: 'refused', status, message };
     }
     console.error(`[requests] lane action answered ${response.status}`);
     return { kind: 'unconfirmed' };
@@ -362,10 +425,13 @@ async function postLaneAction(
   }
 }
 
-/** The copy for a refusal. A status outside this build's union, or one whose
- *  arm is `null`, is still a refusal — the server validated and declined — so
- *  the generic sentence may honestly say nothing changed. */
-function refusalCopy(status: LaneStatus | null): string {
+/** The copy for a refusal. The server's own sentence wins when it wrote one —
+ *  it knows facts this table cannot carry, such as the daily cap. Otherwise a
+ *  status outside this build's union, or one whose arm is `null`, is still a
+ *  refusal — the server validated and declined — so the generic sentence may
+ *  honestly say nothing changed. */
+function refusalCopy(status: LaneStatus | null, message: string | null): string {
+  if (message !== null) return message;
   return (status === null ? null : LANE_REFUSAL_COPY[status]) ?? GENERIC_REFUSAL;
 }
 
@@ -380,6 +446,13 @@ function approvedAnnounce(sendCount: number): Announce {
       ? 'This batch was already approved.'
       : `Approved. ${countPhrase(sendCount)} will send. You can still stop this batch.`;
 }
+
+/** A regeneration is accepted, not done. The sentence must not describe a
+ *  result the server has not produced. */
+const regenerateAnnounce: Announce = (status) =>
+  status === 'accepted'
+    ? 'Writing a new version. It will replace the message below in a moment.'
+    : 'Nothing changed.';
 
 /** The halt sentence. Both routes are idempotent, so each has an "already" arm
  *  that must not claim anything new happened. */
@@ -401,24 +474,26 @@ interface LaneWriteInputs {
   /** The location scope the view was read for — the write must name the same
    *  location, or it lands on the owner's default one. */
   scope: string;
-  /** Outreach ids the owner deselected; the set IS the approve payload. */
-  excluded: ReadonlySet<string>;
+  /** The CURRENT outreach ids of the deselected asks — the approve payload,
+   *  resolved from the rows on screen by `excludedOutreachIds`. */
+  excludedIds: readonly string[];
   /** Only for the approve sentence — the server recounts under its own lock. */
   sendCount: number;
   onChanged: (message: string, outcome: LaneWriteOutcome) => void;
 }
 
 interface LaneWrites {
-  /** True while either write is in flight. */
+  /** True while any of the three writes is in flight. */
   busy: boolean;
   /** Copy for the last write the server REFUSED; '' when there is none. */
   error: string;
   approve: () => void;
   halt: () => void;
+  regenerate: (askId: string) => void;
 }
 
 /**
- * The lane's two writes and the two pieces of state they own.
+ * The lane's three writes and the two pieces of state they own.
  *
  * They settle identically — busy on, error cleared, POST, busy off, then either
  * the parent's announcement or the refusal copy — and differ only in route,
@@ -428,7 +503,7 @@ interface LaneWrites {
 function useLaneWrites({
   batchId,
   scope,
-  excluded,
+  excludedIds,
   sendCount,
   onChanged,
 }: LaneWriteInputs): LaneWrites {
@@ -442,7 +517,7 @@ function useLaneWrites({
       const outcome = await postLaneAction(path, scope, requestBody);
       setBusy(false);
       if (outcome.kind === 'refused') {
-        setError(refusalCopy(outcome.status));
+        setError(refusalCopy(outcome.status, outcome.message));
         return;
       }
       // An unconfirmed outcome is handed UP rather than shown here, and the
@@ -462,10 +537,10 @@ function useLaneWrites({
   const approve = useCallback(() => {
     void perform(
       APPROVE_PATH,
-      { batchId, excludedOutreachIds: [...excluded] },
+      { batchId, excludedOutreachIds: [...excludedIds] },
       approvedAnnounce(sendCount),
     );
-  }, [batchId, excluded, perform, sendCount]);
+  }, [batchId, excludedIds, perform, sendCount]);
 
   // The halt body carries ONLY the batch id: the halt reason is derived
   // server-side so the audit trail cannot be told what to say.
@@ -473,7 +548,17 @@ function useLaneWrites({
     void perform(HALT_PATH, { batchId }, haltedAnnounce);
   }, [batchId, perform]);
 
-  return { busy, error, approve, halt };
+  const regenerate = useCallback(
+    (askId: string) => {
+      // Same settle path as the other two, different sentence: the other verbs
+      // announce a completed act and this one is 202 Accepted. The sentence
+      // says what was ASKED for; the poll loop reports what happened.
+      void perform(REGENERATE_PATH, { batchId, askId }, regenerateAnnounce);
+    },
+    [batchId, perform],
+  );
+
+  return { busy, error, approve, halt, regenerate };
 }
 
 // ── The panel ───────────────────────────────────────────────────────────────
@@ -498,7 +583,21 @@ export function ApprovalPanel({
   scope,
   onChanged,
 }: ApprovalPanelProps) {
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // Keyed on ASK id, not outreach id, and there is deliberately no pruning
+  // effect: an ask's identity survives a regeneration, so a deselection does
+  // too, and a stale ask id resolves to no row and drops out of the payload by
+  // construction (`excludedOutreachIds`). The pruning this plan carried at
+  // round 1 stopped an `unknown_exclusion` crash but silently RE-SELECTED the
+  // contact, which could send a message the owner had deselected.
+  const [excludedAsks, setExcludedAsks] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+
+  /** The ask this panel asked to regenerate, and the attempt number it carried
+   *  when we asked. Both halves are needed by the settle effect below: the
+   *  first says which row to look at, the second is how a landed regeneration
+   *  is told from one that settled without changing anything. */
+  const pendingRegen = useRef<{ askId: string; attemptNo: number } | null>(null);
 
   const rows = useMemo(() => toRows(attempts), [attempts]);
   const sendable = useMemo(
@@ -510,19 +609,67 @@ export function ApprovalPanel({
   // to approve, and must not be offered a control that would send 0 messages.
   const mode = panelMode(sendLane, sendable.length);
   const { heading, body } = panelCopy(mode, sendLane);
-  const sendCount = includedCount(sendable, excluded);
+  const sendCount = includedCount(sendable, excludedAsks);
+  const excludedIds = useMemo(
+    () => excludedOutreachIds(sendable, excludedAsks),
+    [sendable, excludedAsks],
+  );
 
-  const toggle = useCallback((outreachId: string) => {
-    setExcluded((current) => toggleExclusion(current, outreachId));
+  const toggle = useCallback((askId: string) => {
+    setExcludedAsks((current) => toggleExclusion(current, askId));
   }, []);
 
-  const { busy, error, approve, halt } = useLaneWrites({
+  const { busy, error, approve, halt, regenerate } = useLaneWrites({
     batchId,
     scope,
-    excluded,
+    excludedIds,
     sendCount,
     onChanged,
   });
+
+  const onRegenerate = useCallback(
+    (askId: string) => {
+      const row = sendable.find((candidate) => candidate.askId === askId);
+      // The control only exists for rows in `sendable`, so an absent row means
+      // the list moved underneath the click. Ask anyway — the server decides —
+      // but record no pending entry, because there is no attempt number to
+      // compare a settlement against.
+      pendingRegen.current =
+        row === undefined ? null : { askId, attemptNo: row.attemptNo };
+      regenerate(askId);
+    },
+    [regenerate, sendable],
+  );
+
+  /**
+   * A worker-side refusal (budget race, subscription lapse, a swap that lost
+   * its re-check) completes the outbox row and leaves the copy untouched. The
+   * spinner would simply stop and the same words would still be on screen,
+   * which reads as "nothing happened" — so say it.
+   *
+   * Deliberately NOT gated on having observed a non-null `regeneratingAskId`:
+   * a fast worker can finish between the 202 and the first poll, and outcome
+   * reporting must not depend on the panel having caught the in-flight state
+   * (codex round 1, finding 10).
+   */
+  useEffect(() => {
+    const pending = pendingRegen.current;
+    if (pending === null || sendLane.regeneratingAskId !== null) return;
+    pendingRegen.current = null;
+    const row = sendable.find((candidate) => candidate.askId === pending.askId);
+    if (row !== undefined && row.attemptNo === pending.attemptNo) {
+      onChanged(
+        'We could not write a new version. The message below is unchanged.',
+        'settled',
+      );
+    }
+  }, [sendLane.regeneratingAskId, sendable, onChanged]);
+
+  // Server-authoritative: `regeneratingAskId` is read from the in-flight
+  // `job_outbox` row, so a second tab is held too. Approving mid-flight is safe
+  // — the swap's locked re-check refuses and only the spend is lost — but it
+  // silently throws away work the owner asked for.
+  const regenerating = sendLane.regeneratingAskId !== null;
 
   return (
     <section
@@ -537,9 +684,12 @@ export function ApprovalPanel({
       {mode.kind === 'approvable' && (
         <SelectableAskList
           rows={sendable}
-          excluded={excluded}
+          excluded={excludedAsks}
           onToggle={toggle}
           disabled={busy}
+          regenBudgets={sendLane.regenBudgets}
+          regeneratingAskId={sendLane.regeneratingAskId}
+          onRegenerate={onRegenerate}
         />
       )}
 
@@ -568,6 +718,7 @@ export function ApprovalPanel({
       <ApprovalActions
         verb={actionVerb(mode)}
         busy={busy}
+        unavailable={regenerating}
         sendPhrase={countPhrase(sendCount)}
         onApprove={approve}
         onHalt={halt}
