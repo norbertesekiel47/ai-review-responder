@@ -15,6 +15,8 @@ import { JudgeArtifact } from './JudgeArtifact';
 interface HowItWorksContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
+  /** Label for the /signup CTA when self-serve is on; null keeps the waitlist form. */
+  signupCtaLabel?: string | null;
 }
 
 const SECTIONS = [
@@ -38,10 +40,10 @@ const STEPS = [
     tick: 'T + 0:00',
     kicker: 'Watch',
     title: "We watch your reviews so you don't have to.",
-    sub: "We're notified the moment a new review is posted via a provider webhook, with a safety-net check every ~5 minutes as backup. New reviews are deduplicated against what we've seen and queued for drafting right away.",
+    sub: 'Google tells us within seconds when a new review lands (through our review partner). We also double-check every 5 minutes as a backup. We never draft the same review twice, and new reviews go straight to drafting.',
     bullets: [
-      'Reacts in near-real-time via webhook, with a ~5-minute safety-net poll',
-      'Multi-location supported on Copilot and Autopilot',
+      'Hears about new reviews within seconds, with a backup check every 5 minutes',
+      'Multi-location supported on Copilot and Autopilot (extra locations billed per location)',
       'Star rating, reviewer name, and full text captured',
     ],
     Artifact: WatchArtifact,
@@ -52,10 +54,10 @@ const STEPS = [
     tick: 'T + 0:01',
     kicker: 'Triage',
     title: 'Guardian reads it before anyone answers.',
-    sub: 'Every review is sorted by star sentiment first. Reviews that aren’t clearly positive get a severity read (low, medium, or high), and the ones Guardian decides need a human escalate straight to you with the context attached. Positive reviews flow on to drafting.',
+    sub: 'Every review is sorted by star rating first. Reviews of 3★ or less, or with no rating, get a quick AI read of how serious they are (low, medium, or high), and the ones Guardian decides need a human escalate straight to you with the context attached. Positive reviews flow on to drafting.',
     bullets: [
-      'Negative lane gets a bounded AI severity read',
-      'Serious issues escalate to you with full context',
+      'Reviews of 3★ or less get a quick AI read of how serious they are',
+      'Escalations reach you by email; you mark them acknowledged or resolved from your dashboard',
       'Guardian never posts anything, anywhere',
     ],
     Artifact: TriageArtifact,
@@ -66,11 +68,11 @@ const STEPS = [
     tick: 'T + 0:12',
     kicker: 'Draft',
     title: 'AI drafts a reply, in your voice.',
-    sub: 'RepWorth learns from the edits you make to drafts. The model picks up your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
+    sub: 'From day one, drafts follow your Brand Voice settings: tone, staff names, products, facts to mention or avoid. Once you have edited and posted five replies, RepWorth starts matching your most recent edits too: your phrasing, your rhythm, how you handle thanks and how you handle complaints. Each draft renders in seconds.',
     bullets: [
-      'Learns from the replies you edit',
-      'Every draft passes a moderation check before the gate',
-      'Regenerate button if the first pass misses',
+      'Learns from the replies you edit and post',
+      'Every draft passes a safety check before the gate',
+      'Regenerate if the first pass misses, up to 3 times a day per review',
     ],
     Artifact: DraftArtifact,
   },
@@ -80,10 +82,10 @@ const STEPS = [
     tick: 'T + 0:20',
     kicker: 'The Gate',
     title: 'Copilot asks you. Autopilot asks your policy.',
-    sub: 'This is the fork. On Copilot, every draft comes to you by email with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ unflagged reviews that fit your policy post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
+    sub: 'This is the fork. On Copilot, every draft comes to you by email with one tap to approve, edit, or regenerate. On Autopilot, replies to 4–5★ reviews that pass our safety checks and fit your Autopilot settings post themselves after a veto window of 15 or 30 minutes, and one tap stops them. Negative reviews are never auto-posted.',
     bullets: [
       'One-tap approve, straight from your inbox',
-      'Autopilot posts only inside your rating band and daily cap',
+      'Autopilot posts only for the star ratings you allow (5★ only, or 4–5★) and up to your daily limit',
       'The veto window is your one-tap stop before anything goes live',
     ],
     Artifact: GateArtifact,
@@ -94,7 +96,7 @@ const STEPS = [
     tick: 'T + 1:04',
     kicker: 'Post',
     title: 'Posted to Google, on your behalf.',
-    sub: "Once a reply clears the gate, we post it to your Google listing. It shows up within seconds, attributed to the business owner. Replies that posted on Autopilot send you an FYI the moment they're live.",
+    sub: "Once a reply clears the gate, we post it to your Google listing. It usually shows up within seconds, attributed to the business owner. Replies that posted on Autopilot send you an FYI the moment they're live.",
     bullets: [
       'Shows as "Response from the owner" on Google',
       'Auto-posts send an FYI with a link to the live reply',
@@ -108,10 +110,10 @@ const STEPS = [
     tick: 'T + 1:47',
     kicker: 'Judge',
     title: 'Every auto-post gets a second opinion.',
-    sub: 'After any reply posts without your tap, the Judge (an independent AI reviewer) checks it against a fixed safety rubric: no unauthorized promises, no personal details, no hostile or unprofessional tone. Verdicts feed the Governor. If trust slips, it suspends autonomy for that account and notifies you. And if the Judge is ever unavailable, auto-posting stops on its own.',
+    sub: 'After any reply posts without your tap, the Judge (a separate AI safety check with its own rulebook) checks it against a fixed safety rubric: no unauthorized promises, no personal details, no made-up facts about your business, no hostile or unprofessional tone. The Governor watches those results. One flagged reply, or a pattern of edits and vetoes over a week, pauses Autopilot for your whole account, you get an email, and RepWorth support switches it back on after a review. And if the Judge is ever unavailable, auto-posting stops on its own.',
     bullets: [
       '100% of auto-posted replies are reviewed',
-      'The Governor can suspend autonomy per account',
+      'The Governor can pause Autopilot for your whole account',
       'Judge unavailable → auto-posting halts',
     ],
     Artifact: JudgeArtifact,
@@ -119,18 +121,18 @@ const STEPS = [
 ];
 
 const HOOD = [
-  { color: '#D2E0D3', title: 'Review ingest', sub: 'Reacts to a provider webhook in near-real-time; a safety-net poll runs every ~5 minutes.', tech: 'webhook · BullMQ', glyph: '⏱' },
-  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Severity read on the negative lane; serious reviews escalate to the owner.', tech: 'severity · escalation', glyph: '⚑' },
-  { color: '#F0DDD6', title: 'Voice model', sub: 'Drafts a reply in your voice, then runs it through moderation.', tech: 'LLM · moderated', glyph: '✎' },
+  { color: '#D2E0D3', title: 'Review ingest', sub: 'Hears about new reviews within seconds; a backup check runs every 5 minutes.', tech: 'instant alert · 5-min backup', glyph: '⏱' },
+  { color: '#F2C3B9', title: 'Guardian triage', sub: 'Quick read of how serious a 3★-or-less review is; serious reviews escalate to the owner.', tech: 'how serious · escalate', glyph: '⚑' },
+  { color: '#F0DDD6', title: 'AI writer', sub: 'Drafts a reply in your voice, then runs it through a safety check.', tech: 'AI · safety check', glyph: '✎' },
   { color: '#D6CBBF', title: 'The gate', sub: 'Owner approval on Copilot; policy + veto window on Autopilot.', tech: 'approval · veto', glyph: '✋' },
   { color: '#D2E0D3', title: 'Post back', sub: 'Submits the approved reply to Google on your behalf.', tech: 'Google', glyph: '↗' },
-  { color: '#F2C3B9', title: 'Judge', sub: 'Reviews every auto-post; the Governor suspends autonomy if trust slips.', tech: 'verdicts · governor', glyph: '⚖' },
+  { color: '#F2C3B9', title: 'Judge', sub: 'Reviews every auto-post; the Governor pauses Autopilot if trust slips.', tech: 'checks · governor', glyph: '⚖' },
 ];
 
 const GUARANTEES = [
   {
     title: 'Nothing posts without passing the gate',
-    desc: "On Copilot that gate is you. On Autopilot it's your policy, a veto window, moderation, and the Judge. Negative reviews are never auto-posted.",
+    desc: "On Copilot that gate is you. On Autopilot it's your settings, a veto window, a safety check, and the Judge on duty, which then reviews every auto-post. Negative reviews are never auto-posted.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -139,7 +141,7 @@ const GUARANTEES = [
   },
   {
     title: 'Sounds like you wrote it',
-    desc: 'RepWorth learns from every edit you make. Your tone, your phrasing, your voice.',
+    desc: 'RepWorth learns from the replies you edit and post. Your tone, your phrasing, your voice.',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -160,12 +162,16 @@ const GUARANTEES = [
 ];
 
 const FAQ_ITEMS = [
-  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ unflagged reviews that fit your owner-set policy, and only after the veto window passes and moderation, judge, and governor safeguards clear it. Negative reviews are never auto-posted.' },
-  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts sit and wait, and we send you a reminder. If you never approve, we never post. The review simply stays unanswered on your end.' },
-  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades severity; serious ones escalate straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted), and the tone defaults to acknowledging the issue and offering a path forward.' },
-  { q: 'How does it learn my voice?', a: 'RepWorth learns your voice from the edits you make. As you tweak drafts it picks up your tone, length, and phrasing. The more you edit, the more it sounds like you.' },
-  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge's availability is a precondition for posting without your tap. If it can't review, pending auto-approved replies fall back to your normal approval queue." },
-  { q: 'Which review platforms do you support?', a: "Today, Google only. That's where most of the volume sits. Yelp, Tripadvisor and Facebook are on the roadmap." },
+  { q: 'What can Autopilot post without asking me?', a: 'Only replies to 4–5★ reviews that pass our safety checks and fit your Autopilot settings, and only after the veto window passes, the Judge is on duty, and your account isn’t paused. The Judge then reviews every one of them after it posts. Negative reviews are never auto-posted.' },
+  { q: "What happens if I don't approve a draft?", a: 'Nothing. Drafts wait in your dashboard. Email links expire after 48 hours, and if you go quiet for about three days with drafts waiting we send a reminder with a fresh link. If you never approve, we never post. The review simply stays unanswered on your end.' },
+  { q: 'What about negative reviews?', a: 'Guardian reads them first and grades how serious they are; the ones it decides need a human go straight to you. Drafts for 1–3★ reviews always wait for your approval (they are never auto-posted). When Guardian rates an issue medium or high, the draft opens with an apology, avoids admitting fault, and invites the customer to continue offline.' },
+  { q: 'How does it learn my voice?', a: 'From day one, drafts follow your Brand Voice settings: tone, staff names, products, facts to mention or avoid. Once you have edited and posted five replies, RepWorth starts matching your most recent edits too: your tone, length, and phrasing. The more you edit, the more it sounds like you.' },
+  { q: 'What if the AI safety checks go down?', a: "Auto-posting stops. The Judge must be on duty for anything to post without your tap. If it can't review, pending auto-approved replies fall back to your normal approval queue." },
+  { q: 'Which review platforms do you support?', a: "Today, Google only. That's where most of the volume sits. Other review platforms are on the roadmap." },
+  { q: 'How do I connect my Google reviews?', a: 'You connect your Google Business Profile with your Google login through our review partner. RepWorth never sees your Google password. Replies post as “Response from the owner”. One location is one Google Business Profile listing.' },
+  { q: 'What about my existing reviews?', a: 'When you connect, we offer to import your 100 most recent reviews from the past 12 months. You have 7 days to say yes. Imported reviews get no drafts unless you ask, and they are never auto-posted.' },
+  { q: 'Where do approvals arrive?', a: 'By email today. The link works for 48 hours, and your dashboard always works. Approve, edit, or regenerate (up to 3 times a day per review), with no login and no app. Reviews with a star rating but no text still get a reply.' },
+  { q: 'Can I turn Autopilot off?', a: 'Yes, any time in Settings, for your account or per location. If the Governor pauses it, you get an email and RepWorth support switches it back on after a review.' },
 ];
 
 const OVERVIEW = [
@@ -179,7 +185,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '02', title: 'Triage', time: '~1 sec', color: '#F2C3B9',
+    n: '02', title: 'Triage', time: 'seconds', color: '#F2C3B9',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -187,7 +193,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '03', title: 'Draft', time: '~4 sec', color: '#F0DDD6',
+    n: '03', title: 'Draft', time: 'seconds', color: '#F0DDD6',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
@@ -205,7 +211,7 @@ const OVERVIEW = [
     ),
   },
   {
-    n: '05', title: 'Post', time: 'instant', color: '#D2E0D3',
+    n: '05', title: 'Post', time: 'seconds', color: '#D2E0D3',
     glyph: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M5 12h14" />
@@ -236,7 +242,11 @@ const jumpTo = (id: string) => {
 export function HowItWorksContent({
   comingSoon = false,
   selfServeEnabled = false,
+  signupCtaLabel = null,
 }: HowItWorksContentProps) {
+  const showSignupCta = selfServeEnabled && signupCtaLabel !== null;
+  const navLabelFor = (s: { id: string; label: string }) =>
+    s.id === 'hiw-cta' && showSignupCta ? 'Get started' : s.label;
   const [active, setActive] = useState('hiw-hero');
   const [openFaq, setOpenFaq] = useState(0);
   const faqBaseId = useId();
@@ -270,8 +280,8 @@ export function HowItWorksContent({
               key={s.id}
               type="button"
               onClick={() => jumpTo(s.id)}
-              aria-label={s.label}
-              title={s.label}
+              aria-label={navLabelFor(s)}
+              title={navLabelFor(s)}
               className={`hiw-dotnav-btn ${active === s.id ? 'is-active' : ''}`}
             />
           ))}
@@ -292,7 +302,7 @@ export function HowItWorksContent({
             <div className="hiw-hero-meta">
               <div className="hiw-hero-meta-item">
                 <span className="hiw-hero-meta-val">~5 min</span>
-                <span className="hiw-hero-meta-lbl">safety-net poll</span>
+                <span className="hiw-hero-meta-lbl">backup check</span>
               </div>
               <div className="hiw-hero-meta-item">
                 <span className="hiw-hero-meta-val">30 sec</span>
@@ -382,8 +392,8 @@ export function HowItWorksContent({
               <p className="hiw-eyebrow">Under the hood</p>
               <h2 className="hiw-h2">The pipeline, end to end.</h2>
               <p className="hiw-lead">
-                A webhook, a triage read, a voice model, a gate, a posting call, and a judge. Six
-                well-behaved services, and two of them exist only to say no.
+                An instant alert, a quick read, an AI writer, a gate, a post, and a check. Six
+                steps, and two of them exist only to say no.
               </p>
             </div>
             <Reveal>
@@ -458,13 +468,18 @@ export function HowItWorksContent({
 
           {/* CTA */}
           <section id="hiw-cta" className="hiw-cta">
-            <h2>Join the early access waitlist.</h2>
+            <h2>{showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}</h2>
             <p>
-              Tell us about your business and we&apos;ll reach out when early access opens for
-              your area.
+              {showSignupCta
+                ? 'Connect your Google Business Profile and get your first drafts in minutes.'
+                : "Tell us about your business and we'll reach out when early access opens for your area."}
             </p>
             {comingSoon ? (
               <span className="hiw-cta-btn is-disabled">Coming soon</span>
+            ) : showSignupCta ? (
+              <Link href="/signup" className="hiw-cta-btn">
+                {signupCtaLabel}
+              </Link>
             ) : (
               <div className="w-full max-w-md">
                 <LeadIntakeForm intent="waitlist" source="how-it-works" tone="onTeal" />

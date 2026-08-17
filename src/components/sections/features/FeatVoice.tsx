@@ -41,8 +41,9 @@ export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null
             It learns your <span className="rw-display-serif text-rw-peach">voice</span>, edit by edit.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
-            Every time you tweak a draft, RepWorth notices the change. Your warmth level, your phrasing,
-            the way you handle a complaint. The aim is drafts you approve untouched.
+            Every reply you edit and post teaches it. After your first five, drafts start matching
+            your edits: your warmth level, your phrasing, the way you handle a complaint. The aim is
+            drafts you approve untouched.
           </p>
         </div>
 

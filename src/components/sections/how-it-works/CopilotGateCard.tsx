@@ -71,6 +71,27 @@ export function CopilotGateCard() {
         </div>
 
         <div className="hiw-email-actions">
+          <span className="hiw-btn hiw-btn-approve" style={{ cursor: 'default' }} aria-hidden="true">
+            Review &amp; Approve
+          </span>
+        </div>
+        <div className="hiw-email-foot">
+          <span>One button in the email opens your approval page</span>
+          <span>One-tap · straight from your inbox</span>
+        </div>
+      </div>
+      <div className="hiw-artifact-cap" style={{ marginTop: 12 }}>
+        <span className="hiw-artifact-cap-dot" />
+        <span>Your approval page · no login</span>
+        <span className="hiw-artifact-cap-tail">opens from the email</span>
+      </div>
+      <div className="hiw-email">
+        <div className="hiw-email-reply">
+          <div className="hiw-email-reply-meta">Suggested reply</div>
+          Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
+          because we know your schedule doesn&apos;t wait for ours. See you again soon.
+        </div>
+        <div className="hiw-email-actions">
           {state === 'approved' ? (
             <button
               type="button"
@@ -108,10 +129,6 @@ export function CopilotGateCard() {
         </div>
         <div aria-live="polite" className="sr-only">
           {statusMessage}
-        </div>
-        <div className="hiw-email-foot">
-          <span>Responds from owner@brightlinen.com</span>
-          <span>One-tap · straight from your inbox</span>
         </div>
       </div>
     </div>

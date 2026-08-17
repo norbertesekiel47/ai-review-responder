@@ -229,7 +229,8 @@ const serverSchema = z.object({
   //    #827 patched and #831 made unspellable by deleting the second copy.)
   //  - REDIS_QUEUE_URL / REDIS_QUEUE_TOKEN: admin/jobs queue-health probe (`if (!url)`
   //    gate + ioredis `password`). (REDIS_CACHE_URL — admin/demos/generate gate — and
-  //    TRIAL_PERIOD_DAYS — (public)/page.tsx — are REUSED from prior batches.)
+  //    TRIAL_PERIOD_DAYS — `trialPeriodDays()` in payments/flags.ts, read by the
+  //    landing, /how-it-works and /features CTAs — are REUSED from prior batches.)
   ZERNIO_PROFILE_ID_PREFIX: rawOpt,
   TWILIO_WHATSAPP_NUMBER: rawOpt,
   TELEGRAM_BOT_USERNAME: rawOpt,

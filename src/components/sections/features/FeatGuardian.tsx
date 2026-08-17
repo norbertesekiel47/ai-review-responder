@@ -4,10 +4,10 @@ import type { RefObject } from 'react';
 import { useReveal } from './useReveal';
 
 const GUARDIAN_STEPS = [
-  { n: '01', title: '1★ review lands', sub: 'Negative lane: Guardian reads it first', t: '0:00', dark: false, d: '100ms' },
-  { n: '02', title: 'Severity read', sub: 'Low · medium · high: a bounded AI check', t: '+0:01', dark: false, d: '300ms' },
+  { n: '01', title: '1★ review lands', sub: 'Guardian reads it before anything is drafted', t: '0:00', dark: false, d: '100ms' },
+  { n: '02', title: 'Severity read', sub: 'Low · medium · high: a quick AI check', t: '+0:01', dark: false, d: '300ms' },
   { n: '03', title: 'Serious → escalation', sub: "You're notified with the full context", t: '+0:02', dark: false, d: '500ms' },
-  { n: '04', title: 'You acknowledge and resolve', sub: 'Tracked until discharged · never auto-posted', t: 'ongoing', dark: true, d: '700ms' },
+  { n: '04', title: 'You acknowledge and resolve', sub: 'Tracked in your dashboard until you mark it resolved · never auto-posted', t: 'ongoing', dark: true, d: '700ms' },
 ];
 
 /* ================== 02 GUARDIAN ================== */
@@ -25,14 +25,15 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-12 ${headSeen ? 'in' : ''}`}>
         <span className="rw-num-tag text-7xl leading-none text-rw-peach/80" aria-hidden="true">02</span>
         <div className="flex-1">
-          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Guardian · the negative lane</p>
+          <p className="rw-label-mono text-xs uppercase text-rw-teal-strong mb-3">Guardian · reviews of 3★ or less</p>
           <h2 className="text-4xl md:text-5xl font-medium text-rw-ink leading-tight max-w-2xl">
             Bad reviews get read <span className="rw-display-serif text-rw-teal-strong">first</span>, not just answered.
           </h2>
           <p className="text-rw-ink-soft mt-4 max-w-xl leading-relaxed">
             Guardian reads every review that isn&apos;t clearly positive and grades its severity
-            before anything is drafted. Serious ones (health claims, legal threats, safety hazards)
-            escalate straight to you with the context attached. A careful draft is still prepared,
+            before anything is drafted. Serious ones (safety or health hazards, legal threats,
+            harassment or discrimination allegations, staff-misconduct or fraud accusations) go
+            straight to you with the context attached. A careful draft is still prepared,
             but it always waits for you. Guardian never posts anything, anywhere.
           </p>
         </div>

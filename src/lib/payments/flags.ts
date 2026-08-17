@@ -16,6 +16,11 @@
  *
  *   - betaCompCouponId(): the Stripe Coupon ID comped onto an admin-invited
  *     beta tester's Checkout Session, or null when unset.
+ *   - trialPeriodDays(): the trial length the marketing CTAs print ("Start your
+ *     N-day free trial"), read from `TRIAL_PERIOD_DAYS` with the same ≥1-else-30
+ *     fallback the landing page used inline before it had three callers
+ *     (landing, /how-it-works, /features). Same getServerConfig() rationale as
+ *     the coupon id; no effect unless `trialEnabled()`.
  *
  * Why here and not a module of its own: `BETA_COMP_COUPON_ID` is read for
  * exactly one purpose — deciding whether the beta comp applies — and "unset"
@@ -60,4 +65,10 @@ export function stripeLocationsReconcileDisabled(): boolean {
 export function betaCompCouponId(): string | null {
   const configured = getServerConfig().BETA_COMP_COUPON_ID?.trim();
   return configured ? configured : null;
+}
+
+/** Trial length in days for CTA copy: `TRIAL_PERIOD_DAYS`, non-numeric or ≤0 → 30. */
+export function trialPeriodDays(): number {
+  const parsed = Number.parseInt(getServerConfig().TRIAL_PERIOD_DAYS ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
 }

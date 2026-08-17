@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/flags';
 import { FeaturesContent } from '@/components/sections/features/FeaturesContent';
 
 export const metadata: Metadata = {
@@ -10,5 +11,11 @@ export const metadata: Metadata = {
 
 export default function FeaturesPage() {
   const selfServeEnabled = selfServeSignupEnabled();
-  return <FeaturesContent selfServeEnabled={selfServeEnabled} />;
+  // Same door as the landing page and /pricing (see how-it-works/page.tsx).
+  const signupCtaLabel = selfServeEnabled
+    ? isTrialEnabled()
+      ? `Start your ${trialPeriodDays()}-day free trial`
+      : 'Create account'
+    : null;
+  return <FeaturesContent selfServeEnabled={selfServeEnabled} signupCtaLabel={signupCtaLabel} />;
 }
