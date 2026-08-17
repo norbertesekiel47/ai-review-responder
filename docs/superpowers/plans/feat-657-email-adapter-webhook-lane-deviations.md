@@ -439,3 +439,58 @@ which is erased at runtime, so no runtime edge remains in either direction.
 
 `allowed_edit_surface` untouched — `src/lib/messaging/**` already covered the new
 file. Amendment count remains **0**.
+
+---
+
+## D10 — `ci:fallow` caught a plan error the local gate structurally cannot, 2026-08-17
+
+**Finding (CI, PR #853):** `worker/ingress/resend/bounce-classifier.ts:52
+isHardBounceType` — *"Exported symbols with no known consumers."* The `fallow`
+job failed the PR while every other required check passed.
+
+**ACCEPT — real defect, and the plan caused it.** Task 6 Step 1 says to move the
+classifier "changing only `function` to `export function` on the three public
+entry points." `isHardBounceType` is **not** a public entry point. Nothing
+imports it anywhere in the repo; its only caller is `classifyBounce`, one
+function below it in the same file. It was private in `resend.ts` before the
+move, and exporting it during the move published a second way to ask "what
+counts as permanent" — the precise second-owner problem that moving the
+classifier *intact* was meant to prevent.
+
+**Fix:** drop the `export`. It is now private alongside `isRecord` and
+`lowerNonEmptyString`, exactly as the same Step already prescribed for those two.
+No behaviour change; `classifyBounce` already returns the `isHard` verdict, so no
+caller loses anything.
+
+### Why the local gate could not have caught this
+
+`scripts/verify-gate.sh` runs every `ci:*` audit **except** `ci:fallow*`, which
+runs in ci.yml's own `fallow` job. That is the single documented hole in the
+gate's "same set CI runs" property, and this is it firing for real: **27 green
+gate rows, and CI still red.**
+
+This is the second time in this branch that the fallow exclusion has been
+load-bearing. D9 argued the import cycle should be fixed partly because
+`ci:fallow` reports circular dependencies and the gate does not run it — that was
+reasoning about the hole in the abstract. D10 is the hole producing an actual
+failure. Anyone treating a green local gate as "CI will pass" is wrong by exactly
+this margin.
+
+Reproducing it locally, per CLAUDE.md, needs
+`pnpm test:coverage && pnpm ci:fallow:coverage` — a bare `fallow audit` does not
+predict the gate in either direction.
+
+**Also in this round:** `main` moved twice during the PR (`ecd4924d` #851, then
+`6038642b` #852). Both merged into the branch with **no conflicts**, including
+`docs/directory.md` and `src/lib/config/server.ts`, which both sides touched.
+
+**One flake, investigated and dismissed with evidence:** the first gate run on the
+merged tree failed `test` — `live-db-suites-audit > every live-DB file in the
+repository passes the widened detector`, **timed out at 5000ms** (suite measured
+5531ms), 1 failed against 11,680 passed. It passes **43/43 twice in isolation**,
+the re-run of the full gate was GREEN, and CI's own `test` job passed. That test
+does a repo-wide scan under a fixed 5s timeout, so it will flake more as the repo
+grows — worth a follow-up, but it lives in `scripts/ci/__tests__/`, outside this
+ticket's `allowed_edit_surface`, so it is deliberately untouched here.
+
+`allowed_edit_surface` untouched. Amendment count remains **0**.

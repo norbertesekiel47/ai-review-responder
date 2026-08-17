@@ -48,8 +48,16 @@ function lowerNonEmptyString(value: unknown): string | null {
  * NOTE: The admin overview SQL in src/app/api/admin/overview/route.ts
  * MUST filter on the normalized prefix 'bounced:hard:' so its red-state
  * metrics match this function's decision. See `classifyBounce()` below.
+ *
+ * PRIVATE to this module, like isRecord/lowerNonEmptyString. `classifyBounce`
+ * is the only caller and it already returns the `isHard` verdict, so exporting
+ * this would publish a second way to ask the same question — a second owner of
+ * "what counts as permanent", which is exactly what moving the classifier here
+ * intact was meant to prevent. (#657 plan said to export all three entry
+ * points; that was wrong for this one, and `ci:fallow` caught it as an unused
+ * export. The local verify gate cannot: it excludes `ci:fallow*`.)
  */
-export function isHardBounceType(type: string): boolean {
+function isHardBounceType(type: string): boolean {
   const t = type.toLowerCase();
   return (
     t === 'permanent' ||
