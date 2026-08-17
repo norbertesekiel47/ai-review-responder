@@ -14,7 +14,7 @@ import {
 } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
+import { solicitationSendEnabled, solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import {
   resolveDashboardLocation,
   resolveDashboardRequest,
@@ -52,6 +52,22 @@ export async function requireContactsWriteAccess(
   request: NextRequest,
 ): Promise<WritableOwnerResult> {
   if (!solicitationWatchEnabled()) {
+    return { ok: false, response: errorResponse('Not found', 404) };
+  }
+  return requireWritableOwner(sql, request);
+}
+
+/**
+ * Write preamble for the send-lane mutation routes (#629). BOTH flags, because
+ * the send surface lives inside the watch surface: `SOLICITATION_WATCH_ENABLED`
+ * owns the Requests screen, `SOLICITATION_SEND_ENABLED` owns the approval lane
+ * on it. Gate FIRST (invariant #13), then requireWritableOwner.
+ */
+export async function requireSolicitationSendWriteAccess(
+  sql: Sql,
+  request: NextRequest,
+): Promise<WritableOwnerResult> {
+  if (!solicitationWatchEnabled() || !solicitationSendEnabled()) {
     return { ok: false, response: errorResponse('Not found', 404) };
   }
   return requireWritableOwner(sql, request);
