@@ -1,5 +1,16 @@
 # Handoff — #629 owner approval lane
 
+> **SHIPPED 2026-08-17 — this document is now a historical record, not a
+> work-list.** PR **#863** merged to `main` as squash `71b1bd88`. Migration 108
+> is applied to **both** Supabase projects (staging then production, same day);
+> the branch and its worktree are cleaned up; `staging` is re-synced to `main`.
+> **Everything under "Next actions — step 8 SHIP" below is DONE** — do not work
+> it. What actually happened during promotion, including the traps, is recorded
+> in `docs/progresstracking.md` (2026-08-17 entry) and
+> `.claude/reference/lab-notes.md` (2026-08-17 — #629 ship). The follow-ups at
+> the bottom (#858–#861) are the only live items, and **#858 must be resolved
+> before #630**.
+
 A fresh session resumes from this file plus the artifacts it points at. It never
 needs the prior transcript. Resume with `/feature-resume feat-629-owner-approval-lane`.
 

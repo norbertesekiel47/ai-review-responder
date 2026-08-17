@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — reset by the **2026-08-15 pass**
+**Merges since last architecture pass: 2** — reset by the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
 (entries below). **Not counted, and correctly so** — #830 (marketing copy),
@@ -29,6 +29,40 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #863** — #629 owner approval lane (2026-08-17, squash `71b1bd88`).
+  **Moderate entropy, and it CLOSES more concept than it opens.** Migration
+  **108** (widens 091's `solicitation_outreach_status_reason_consistency` cancel
+  set by one member, `owner_excluded`) — applied to staging and production in
+  lockstep the same day. No env var, no flag, no dependency; net **+2,474
+  production lines**, tests ~4× that — a DB-contract feature in the #643 band,
+  which is what fired `reclassify` (D14).
+  **New single owner: `src/lib/solicitation/approval.ts`** — `approveBatch` and
+  `haltBatch`, the owner arm of the **Halt latch**. It deliberately does NOT own
+  batch terminalization: both verbs call the existing `closeBatchIfSettled` in
+  `outreach.ts`, so the **Settled batch** join keeps one owner and #630's
+  releaser tick becomes a third caller of the same function rather than a
+  parallel implementation. **New route seam** `_shared/scoped-batch-route.ts`
+  collapses three batch routes onto one runner.
+  **What the next pass should look at:** (a) **#858** — `closeBatchIfSettled`'s
+  case-sensitive `subject_id` compare, fixed here for two verbs only; a
+  single-owner function with a per-caller correctness fix is a seam under
+  strain, and #630 adds the third caller. (b) **#859** — `ci:tenant-scope`
+  subquery blindness forced SQL reshaping in BOTH `approval.ts` and
+  `batch-view.ts` (D7); the audit is now shaping production query structure,
+  which is the tail wagging the dog, and fixing it moves `ALLOWLIST_BASELINE`.
+  (c) The send lane now spans `approval.ts`, `outreach.ts`, `batch-view.ts`,
+  `batch-builder.ts` and `ask-generation.ts` with #630 still to land — worth
+  asking whether `src/lib/solicitation/` wants sub-structure before, not after.
+  (d) `admin_halt` remains a CHECK member with **no writer** — a live-but-dead
+  enum arm, still unfiled.
+
+  > **Counter caveat, surfaced rather than absorbed:** **PR #857** (#651
+  > unsubscribe redemption pool) merged 2026-08-17 and has **no entry here**, so
+  > the count below excludes it. If that was an omission rather than a policy
+  > call, the true figure is **3**, not 2. Flagged for the owner; not
+  > back-filled by this sweep, which has no standing to write another feature's
+  > architectural summary.
 
 - **PR #853** — #657 Messaging adapter seam + solicitation Sending identity +
   Resend **Solicitation lane** (2026-08-17, squash `ad185edb`). **Entropy-positive
