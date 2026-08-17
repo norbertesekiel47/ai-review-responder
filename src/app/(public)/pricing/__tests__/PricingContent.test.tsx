@@ -62,13 +62,45 @@ describe('PricingContent', () => {
     expect(disabled).not.toMatch(/trial|card required/i);
   });
 
-  it('keeps unavailable Autopilot visible, disabled, and accessibly explained', () => {
+  it('keeps closed Autopilot visible with a quiet status and moves emphasis to Copilot (self-serve)', () => {
     const html = renderPricing({ autopilot: false, selfServe: true });
 
-    expect(html).toContain('Autopilot unavailable');
-    expect(html).toMatch(/disabled="" aria-describedby="pricing-autopilot-unavailable"/);
-    expect(html).toContain('safety runtime is closed. Copilot remains available');
-    expect(html).toContain('href="/signup"');
+    // Status, not a dead-end: an "Opening soon" badge and owner-language next step,
+    // no disabled button, no "More autonomy" ribbon on the tier you cannot buy.
+    expect(html).toContain('>Opening soon</div>');
+    expect(html).not.toContain('More autonomy');
+    expect(html).not.toMatch(/disabled=""/);
+    expect(html).toContain('Not open yet: we are finishing its safety checks. Start on Copilot now');
+    // The buyable tier carries the primary action; nothing is visually featured —
+    // not the card, not the matrix column, and the band does not offer Autopilot.
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="\/signup"[^>]*>Choose Copilot</);
+    expect(html).not.toContain('pr-plan is-featured');
+    expect(html).not.toContain('pr-matrix-cell hdr featured');
+    expect(html).not.toContain('pr-matrix-cell num featured');
+    expect(html).toContain('Start with Copilot today.');
+    expect(html).not.toContain('choose Copilot or Autopilot');
+  });
+
+  it('offers a per-tier waitlist door for closed Autopilot and a visible plan chooser (self-serve off)', () => {
+    const html = renderPricing({ autopilot: false, selfServe: false });
+
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*href="#pricing-waitlist"[^>]*>Join the Copilot waitlist</);
+    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*href="#pricing-waitlist"[^>]*>Tell me when Autopilot opens</);
+    expect(html).toContain('Copilot is taking waitlist sign-ups now');
+    expect(html).toContain('Which plan are you asking about?');
+    expect(html.match(/name="pricing-plan-interest"/g)).toHaveLength(3);
+  });
+
+  it('features Autopilot with the primary action only when it is purchasable', () => {
+    const html = renderPricing({ autopilot: true, selfServe: true });
+
+    expect(html).toContain('pr-plan is-featured');
+    expect(html).toContain('>More autonomy</div>');
+    expect(html).not.toContain('Opening soon');
+    expect(html).toMatch(/class="pr-plan-cta primary"[^>]*>Choose Autopilot</);
+    expect(html).toMatch(/class="pr-plan-cta ghost"[^>]*>Choose Copilot</);
+    expect(html).toContain('pr-matrix-cell hdr featured');
+    expect(html).toContain('Ready to choose your plan?');
   });
 
   it('states the shipped agent-team and autonomy boundary precisely', () => {
@@ -83,11 +115,15 @@ describe('PricingContent', () => {
     expect(html).toContain('Negative and flagged reviews are never auto-posted');
   });
 
-  it('keeps the two-column comparison keyboard reachable and the site footer present', () => {
+  it('labels the comparison region, self-labels each value cell for the stacked phone layout, and keeps the site footer present', () => {
     const html = renderPricing();
 
-    expect(html).toContain('aria-label="Plan comparison, scroll horizontally to compare both plans"');
-    expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
+    // The matrix no longer scrolls horizontally at any width (it stacks ≤720px), so it
+    // is neither focusable nor labelled as scrollable.
+    expect(html).toContain('aria-label="Plan comparison"');
+    expect(html).not.toMatch(/class="pr-matrix"[^>]*tabindex=/);
+    expect(html).toContain('data-plan="Copilot"');
+    expect(html).toContain('data-plan="Autopilot"');
     expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('href="/legal/terms"');

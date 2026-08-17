@@ -284,7 +284,7 @@ wordmark on the right.
 | Type | Classes |
 |---|---|
 | Primary (teal-strong pill, on the white island) | `px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg` |
-| Primary on a teal CTA band | white pill: `px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg` |
+| Primary on a teal CTA band | white pill: `px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg` — or the CSS owner `.rw-btn-pill-onband` (`island.css`) for page-CSS surfaces (`/how-it-works`, `/pricing`); page classes carry only their delta |
 | Secondary (outline) | `px-8 py-4 bg-white text-rw-teal-strong rounded-full border border-rw-teal/20` |
 | Ghost | `px-8 py-4 bg-rw-cream text-rw-ink rounded-full border border-rw-teal/10` |
 

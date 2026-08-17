@@ -44,6 +44,14 @@
 .rw-reveal.from-left  { transform: translate3d(-48px, 0, 0); }
 .rw-reveal.from-right { transform: translate3d(48px, 0, 0); }
 .rw-reveal.scale-in   { transform: scale(0.94); }
+/* Narrow viewports slide up, not sideways: a 48px horizontal pre-reveal offset on a
+   full-width block pokes past the island edge and gives the page a real horizontal
+   scroll (scrollWidth 425 on a 390px phone) until the block scrolls into view.
+   Must sit ABOVE `.rw-reveal.in` so the revealed state still wins the cascade. */
+@media (max-width: 767px) {
+  .rw-reveal.from-left,
+  .rw-reveal.from-right { transform: translateY(24px); }
+}
 .rw-reveal.in { opacity: 1; transform: none; filter: none; }
 
 /* Hero word reveal */
