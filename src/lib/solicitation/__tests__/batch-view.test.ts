@@ -292,6 +292,9 @@ describe('readLatestBatch', () => {
     });
     expect(tx.mock.calls).toHaveLength(3);
   });
+
+  it.todo('omits every send-lane field from the batch view when send mode is off');
+  it.todo('reports a moderation_high attempt without its subject or body');
 });
 
 describe('readLatestBatch attempts join (#628)', () => {
