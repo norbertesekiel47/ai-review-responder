@@ -46,6 +46,9 @@ const costMocks = vi.hoisted(() => ({
   reserveCost: vi.fn(),
   finalizeCost: vi.fn(),
   releaseCost: vi.fn(),
+  // Redis-backed, and this lane stands up Postgres only — the regen budget is
+  // asserted in the unit suite and in tracker.test.ts, never here.
+  checkAskRegenBudget: vi.fn(),
 }));
 
 vi.mock('@/lib/llm/run-task', async (importOriginal) => ({
@@ -57,13 +60,15 @@ vi.mock('@/lib/costs/tracker', async (importOriginal) => ({
   reserveCost: costMocks.reserveCost,
   finalizeCost: costMocks.finalizeCost,
   releaseCost: costMocks.releaseCost,
+  checkAskRegenBudget: costMocks.checkAskRegenBudget,
 }));
 
 import { OPENAI_MODEL } from '@/lib/llm/tasks';
 import { SOLICITATION_ASK_PROMPT_VERSION, solicitationAskPromptHash } from '../ask-prompt-policy';
 import { ASK_LINT_VERSION } from '../ask-compliance-lint';
 import { insertOutreachRender } from '../outreach';
-import { generateAsksForBatch } from '../ask-generation';
+import { approveBatch, type ApproveBatchResult } from '../approval';
+import { generateAsksForBatch, regenerateAsk } from '../ask-generation';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -161,19 +166,61 @@ async function seedRenderedAttempt(askId: string): Promise<void> {
   });
 }
 
-async function seedDispatchedOutboxRow(): Promise<{ outboxId: string; attempt: number }> {
+/**
+ * The CAS target every door in this module completes. `topic` is a raw literal
+ * rather than a QUEUE_NAMES constant because the send-mode topics ship without
+ * one until their producers land (migration 091 §7, amendment B10) — and
+ * `ci:outbox-topics` skips `__tests__` anyway. `regenerateAsk` never reads the
+ * topic; it only needs an owned `dispatched` row to complete.
+ */
+async function seedDispatchedOutboxRow(
+  topic = 'generate_solicitation_asks',
+): Promise<{ outboxId: string; attempt: number }> {
   const outboxId = randomUUID();
   await sql()`
     INSERT INTO job_outbox (
       id, topic, aggregate_type, aggregate_id, payload,
       status, attempts, dispatched_at
     ) VALUES (
-      ${outboxId}::uuid, 'generate_solicitation_asks', 'solicitation_batch',
+      ${outboxId}::uuid, ${topic}, 'solicitation_batch',
       ${batchId}::uuid, ${sql().json({ batch_id: batchId, business_id: businessId })},
       'dispatched', 1, NOW()
     )
   `;
   return { outboxId, attempt: 1 };
+}
+
+/** The CONTENT of an ask's live attempt — the bytes ADR 0020 says are final. */
+async function readOutreachBytes(
+  askId: string,
+): Promise<{ subject: string | null; body: string | null }> {
+  const [row] = await sql()<{ rendered_subject: string | null; rendered_body: string | null }[]>`
+    SELECT rendered_subject, rendered_body
+    FROM solicitation_outreach
+    WHERE ask_id = ${askId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+      AND delivery_status <> 'cancelled'
+    ORDER BY attempt_no DESC
+    LIMIT 1
+  `;
+  return { subject: row?.rendered_subject ?? null, body: row?.rendered_body ?? null };
+}
+
+/** Every attempt row of the batch, oldest first. */
+async function readOutreach(): Promise<
+  { attempt_no: number; delivery_status: string; disposition_reason: string | null }[]
+> {
+  return sql()<
+    { attempt_no: number; delivery_status: string; disposition_reason: string | null }[]
+  >`
+    SELECT attempt_no, delivery_status, disposition_reason
+    FROM solicitation_outreach
+    WHERE batch_id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+    ORDER BY attempt_no
+  `;
 }
 
 describeWithDb(
@@ -240,6 +287,7 @@ describeWithDb(
       costMocks.reserveCost.mockReset();
       costMocks.finalizeCost.mockReset();
       costMocks.releaseCost.mockReset();
+      costMocks.checkAskRegenBudget.mockReset();
       const structured = {
         subject: 'Thanks for visiting Ask Generation Business',
         body: 'Hi Alice, thanks for coming by Ask Generation Business. Would you share how it went?',
@@ -254,6 +302,7 @@ describeWithDb(
       costMocks.reserveCost.mockResolvedValue('2026-07-31');
       costMocks.finalizeCost.mockResolvedValue(undefined);
       costMocks.releaseCost.mockResolvedValue(undefined);
+      costMocks.checkAskRegenBudget.mockResolvedValue(undefined);
     });
 
     afterEach(async () => {
@@ -540,6 +589,116 @@ describeWithDb(
       }
     });
 
-    it.todo('keeps approved outreach bytes unchanged when approval races the real regeneration swap');
+    // ADR 0020 (#860), codex round-1 finding 2. Every other regeneration test is
+    // mocked, which proves JavaScript call order and nothing about Postgres.
+    // This one runs the swap transaction against the real database so the
+    // claim rests on real row locks and a real ROLLBACK.
+    //
+    // The race is made deterministic rather than hoped for: `approveBatch` runs
+    // INSIDE the LLM mock, which is exactly the window `regenerateAsk` leaves
+    // open by design (decision 7 — no transaction spans the LLM call). So the
+    // pre-check legitimately reads `built`, approval commits, and the locked
+    // re-check under `FOR UPDATE` is the gate that has to refuse. Approving
+    // before the call instead would only exercise the pre-check and would leave
+    // the rollback path — the half that owns the bytes — untested.
+    it('keeps approved outreach bytes unchanged when approval races the real regeneration swap', async () => {
+      // Attested address, so the child RENDERS and there are real bytes to
+      // compare; the fixture business is unattested by default (see the header).
+      const postalAddress = '500 Congress Ave\nAustin, TX 78701';
+      await sql()`
+        UPDATE businesses
+        SET solicitation_postal_address = ${postalAddress},
+            solicitation_postal_address_attested_at = NOW(),
+            solicitation_postal_address_attested_by_user_id = ${tenant!.userId}::uuid,
+            solicitation_postal_address_attestation_version = 'postal_address_attestation_v1',
+            solicitation_postal_address_attested_digest =
+              encode(sha256(convert_to(${postalAddress}::text, 'UTF8')), 'hex')
+        WHERE id = ${businessId}::uuid
+          AND account_id = ${accountId()}::uuid
+      `;
+
+      try {
+        const askId = await seedSendAsk(1);
+        const generation = await generateAsksForBatch(sql(), {
+          batchId,
+          businessId,
+          outboxHandle: await seedDispatchedOutboxRow(),
+        });
+        expect(generation).toMatchObject({ rendered: 1, withheld: 0, failed: 0 });
+
+        const before = await readOutreachBytes(askId);
+        expect(before.body).toBeTruthy();
+
+        // The replacement the swap would install if it were allowed to. Its
+        // bytes differ from the approved ones, so a swap that DID commit could
+        // not pass the equality assertion below by accident.
+        const replacement = {
+          subject: 'A different subject the owner never approved',
+          body: 'Hi Alice, a completely different body the owner never approved.',
+        };
+        let approval: ApproveBatchResult | undefined;
+        llmMocks.runLlmTask.mockImplementationOnce(async () => {
+          approval = await approveBatch(sql(), {
+            batchId,
+            accountId: accountId(),
+            businessId,
+            approvedByUserId: tenant!.userId,
+            excludedOutreachIds: [],
+          });
+          return {
+            text: JSON.stringify(replacement),
+            provider: 'openai',
+            model: OPENAI_MODEL,
+            usage: { promptTokens: 500, completionTokens: 120 },
+            structured: replacement,
+          };
+        });
+
+        await regenerateAsk(sql(), {
+          batchId,
+          businessId,
+          askId,
+          outboxHandle: await seedDispatchedOutboxRow('regenerate_solicitation_ask'),
+          correlationId: 'test-byte-finality',
+        });
+
+        expect(approval).toMatchObject({ status: 'approved', approvedCount: 1 });
+
+        // The assertion that matters is on BYTES, not on call counts: subject
+        // and body are identical, attempt_no did not advance, and no superseded
+        // row appeared. A mocked test cannot make this claim.
+        expect(await readOutreachBytes(askId)).toEqual(before);
+        const rows = await readOutreach();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.attempt_no).toBe(1);
+        expect(rows[0]!.delivery_status).toBe('rendered');
+        expect(rows.some((row) => row.disposition_reason === 'superseded')).toBe(false);
+      } finally {
+        // The batch row and the business row are BOTH shared across this
+        // suite's tests, and afterEach clears neither of these columns —
+        // leaving them set would make every later test order-dependent (and
+        // 091's one-active-send-per-business partial index would hold the slot).
+        await sql()`
+          UPDATE solicitation_batches
+          SET approved_at = NULL,
+              approval_method = NULL,
+              approved_by_user_id = NULL,
+              veto_deadline_at = NULL
+          WHERE id = ${batchId}::uuid
+            AND account_id = ${accountId()}::uuid
+            AND business_id = ${businessId}::uuid
+        `;
+        await sql()`
+          UPDATE businesses
+          SET solicitation_postal_address = NULL,
+              solicitation_postal_address_attested_at = NULL,
+              solicitation_postal_address_attested_by_user_id = NULL,
+              solicitation_postal_address_attestation_version = NULL,
+              solicitation_postal_address_attested_digest = NULL
+          WHERE id = ${businessId}::uuid
+            AND account_id = ${accountId()}::uuid
+        `;
+      }
+    });
   },
 );

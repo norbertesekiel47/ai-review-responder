@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import fc from 'fast-check';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockSql, sqlReturnQueue, sqlCalls, resetMockSql, mkTaggedResult } =
@@ -95,10 +96,12 @@ import { OPENAI_MODEL } from '@/lib/llm/tasks';
 import { ANTHROPIC_MODEL } from '@/lib/llm/tasks';
 import {
   generateAsksForBatch,
+  isRegenerableBatchState,
   regenerateAsk,
   settleGenerationExhaustion,
   SOLICITATION_ASK_ESTIMATE_CENTS,
 } from '../ask-generation';
+import { BATCH_STATES, type BatchState } from '../outreach';
 
 const sql = mockSql as unknown as Sql;
 
@@ -1062,11 +1065,92 @@ describe('regenerateAsk', () => {
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
   });
 
-  it.todo('refuses a regenerate once the batch is approved, leaving the live render untouched');
-  it.todo('refuses a regenerate in veto_window and in sending, the two states amendment B2 previously allowed');
-  it.todo('aborts the swap when the batch is approved between the pre-check and the locked re-check');
+  it('refuses a regenerate once the batch is approved, leaving the live render untouched', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow({ approved_at: new Date(Date.now() - 60_000) })]),
+    );
+
+    await regenerateAsk(sql, REGEN_INPUT);
+
+    // ADR 0020: approved bytes are final. No spend, no supersede, no insert —
+    // and the outbox attempt still completes, because a refusal is a SUCCESS.
+    expect(mocks.runLlmTask).not.toHaveBeenCalled();
+    expect(mocks.supersedeLiveRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a regenerate in veto_window and in sending, the two states amendment B2 previously allowed', async () => {
+    const approvedAt = new Date(Date.now() - 60_000);
+
+    // veto_window: approved, deadline still ahead.
+    sqlReturnQueue.push(
+      mkTaggedResult([
+        contextRow({
+          approved_at: approvedAt,
+          veto_deadline_at: new Date(Date.now() + 10 * 60_000),
+        }),
+      ]),
+    );
+    await regenerateAsk(sql, REGEN_INPUT);
+
+    // sending: the drip has started.
+    sqlReturnQueue.push(
+      mkTaggedResult([
+        contextRow({ approved_at: approvedAt, sending_started_at: approvedAt }),
+      ]),
+    );
+    await regenerateAsk(sql, REGEN_INPUT);
+
+    expect(mocks.runLlmTask).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts the swap when the batch is approved between the pre-check and the locked re-check', async () => {
+    // Pre-checks see `built`; the locked re-read sees `approved`. This is the
+    // owner clicking regenerate and then approving before the worker ran.
+    enqueuePreChecks('rendered');
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow({ approved_at: new Date() })]),
+    );
+
+    await regenerateAsk(sql, REGEN_INPUT);
+
+    // The replacement was generated (spend happened, and is audited) but the
+    // swap rolled back: nothing supersedes an approved render.
+    expect(mocks.runLlmTask).toHaveBeenCalled();
+    expect(mocks.supersedeLiveRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.recordApiCost).toHaveBeenCalled();
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'ask regeneration discarded after generation',
+      expect.objectContaining({ reason: 'batch_not_regenerable:approved' }),
+    );
+  });
 
   describe('invariants', () => {
-    it.todo('property: regeneration is accepted for the built batch state and refused for every other');
+    it('property: regeneration is accepted for the built batch state and refused for every other', () => {
+      const ALL_STATES: BatchState[] = [
+        'pending',
+        'built',
+        'approved',
+        'veto_window',
+        'sending',
+        'closed',
+        'halted',
+        'expired',
+      ];
+      // The annotation rejects a non-state; this rejects an OMITTED one, since
+      // BATCH_STATES is the union's single source of truth. Together they are
+      // the exhaustiveness proof — a ninth state cannot slip past unclassified.
+      expect([...ALL_STATES].sort()).toEqual([...BATCH_STATES].sort());
+
+      fc.assert(
+        fc.property(fc.constantFrom(...ALL_STATES), (state) => {
+          expect(isRegenerableBatchState(state)).toBe(state === 'built');
+        }),
+      );
+    });
   });
 });
