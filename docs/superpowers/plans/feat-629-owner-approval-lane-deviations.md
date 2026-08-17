@@ -5,6 +5,31 @@ before review (step 6); every entry gets an ACCEPT / RE-PLAN verdict there.
 
 ---
 
+## Step 6 read-back — verdicts (2026-08-17)
+
+All ten entries read end to end. **No entry invalidates a locked decision, so no
+RE-PLAN and no abort criteria triggered.** Review agents receive this triaged
+file.
+
+| # | One-line verdict |
+|---|---|
+| D1 | **ACCEPT** — four test titles added/retitled from round-1 findings; surface unchanged, so not an amendment. |
+| D2 | **ACCEPT** — round-1 reasoning was wrong and is recorded as overturned rather than deleted. The test it restored then caught a real defect (the plan's own sketch was vacuously green), which is the strongest possible argument the entry was right. |
+| D3 | **ACCEPT, with a live constraint attached** — the closest call in the file. B2 post-approval regeneration means "byte-for-byte" is *conditional*, and that is a headline guarantee. Accepted only because the path has no owner entry point today (unreachable in the shipped surface) and the owner deferred the regenerate ticket explicitly. **The constraint is binding on that ticket**: a post-approval regenerate must re-open approval for the superseded ask or be refused once `approved_at` is set. Now also recorded in the `CONTEXT.md` **Owner approval** term, so it survives this file. |
+| D4 | **ACCEPT** — plan-prose defect only; the Step-body test specs are the contract and all 33 titles shipped. |
+| D5 | **ACCEPT** — safety fix. Unwrapped DROP+ADD could have left `solicitation_outreach` with no status/reason constraint at all; resulting constraint byte-identical. |
+| D6 | **ACCEPT** — both cases are the plan being less specific than the repo, not contradicted. The `LOCAL-ONLY` half is load-bearing: without it D5 would have been blocked by the immutability guard. |
+| D7 | **ACCEPT** — owner-decided. No behaviour change (same 11 tests pass before and after), and it avoided committing a false "deliberately cross-tenant" claim to the allowlist. |
+| D8 | **ACCEPT** — owner-approved surface amendment #1 of 2. The lock analysis is the substance and matches two existing carve-outs in the same lane. |
+| D9 | **ACCEPT** — owner-decided. The halt coverage gap it exposed was a genuine defect: the destructive verb was the less-tested one. |
+| D10 | **ACCEPT** — environment, not code. Contains a deliberately recorded wrong diagnosis (the `lock_timeout` theory) because the misdiagnosis is the reusable lesson. |
+
+**One thing a reviewer should look at hardest:** D3. Everything else is either a
+correction or an owner decision; D3 is the only entry that leaves a real
+conditional inside a guarantee this feature advertises.
+
+---
+
 ## D1 — `tests_to_add` grew by three titles and one retitle (owner-approved, not a surface amendment)
 
 **When:** plan review round 1, before any implementation.
