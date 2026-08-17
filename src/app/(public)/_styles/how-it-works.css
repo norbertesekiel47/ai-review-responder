@@ -601,18 +601,8 @@
 }
 .hiw-cta p { font-size: 17px; max-width: 34em; color: var(--rw-cream); margin: 0; }
 .hiw-cta-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
-.hiw-cta-btn {
-  background: white; color: var(--rw-teal-strong);
-  border: 0;
-  padding: 14px 28px; border-radius: 9999px;
-  font-weight: 600; font-size: 15px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(.2,.8,.2,1);
-  text-decoration: none;
-  display: inline-block;
-}
-.hiw-cta-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px color-mix(in srgb, var(--rw-ink) 20%, transparent); }
-.hiw-cta-btn:focus-visible { outline: 2px solid var(--rw-cream); outline-offset: 4px; }
+/* Recipe lives in island.css (.rw-btn-pill-onband); this page's pill is white. */
+.hiw-cta-btn { background: white; }
 .hiw-cta-btn.is-ghost {
   background: transparent; color: white;
   border: 1px solid color-mix(in srgb, white 55%, transparent);

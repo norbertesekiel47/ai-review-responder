@@ -116,6 +116,59 @@ function formatDollars(cents: number): string {
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
 }
 
+// The card's action slot. Three honest states: a door to the tier (signup or the
+// waitlist band), a plain status when the tier is closed and there is no door to
+// offer (self-serve — a signed-up owner switches plans in-product), or a status plus
+// a "tell me when" door in the waitlist posture. Never a disabled fake button.
+function PlanDoor({
+  plan,
+  purchasable,
+  primary,
+  selfServeEnabled,
+  onPlanInterest,
+}: {
+  plan: PlanCopy;
+  purchasable: boolean;
+  primary: boolean;
+  selfServeEnabled: boolean;
+  onPlanInterest: (plan: LeadPlanInterest) => void;
+}) {
+  if (purchasable) {
+    return (
+      <Link
+        href={selfServeEnabled ? '/signup' : '#pricing-waitlist'}
+        className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}
+        onClick={() => onPlanInterest(plan.tier)}
+      >
+        {selfServeEnabled ? `Choose ${plan.name}` : `Join the ${plan.name} waitlist`}
+      </Link>
+    );
+  }
+  if (selfServeEnabled) {
+    return (
+      <p className="pr-plan-soon">
+        Not open yet: we are finishing its safety checks. Start on Copilot now and switch
+        when Autopilot opens.
+      </p>
+    );
+  }
+  return (
+    <>
+      <Link
+        href="#pricing-waitlist"
+        className="pr-plan-cta ghost"
+        onClick={() => onPlanInterest('autopilot')}
+      >
+        Tell me when Autopilot opens
+      </Link>
+      <p className="pr-plan-soon">
+        Not open yet: we are finishing its safety checks. Copilot is taking waitlist
+        sign-ups now.
+      </p>
+    </>
+  );
+}
+
 function PlanCard({
   plan,
   price,
@@ -140,9 +193,6 @@ function PlanCard({
   const isAutopilot = plan.tier === 'autopilot';
   const featured = isAutopilot && autopilotOpen;
   const primary = autopilotOpen ? isAutopilot : !isAutopilot;
-  const ctaLabel = selfServeEnabled
-    ? `Choose ${plan.name}`
-    : `Join the ${plan.name} waitlist`;
 
   return (
     <article className={`pr-plan ${featured ? 'is-featured' : ''}`}>
@@ -174,36 +224,13 @@ function PlanCard({
         One location included · ${formatDollars(price.locationsOveragePriceCents)}/month per extra location
       </p>
 
-      {purchasable ? (
-        <Link
-          href={selfServeEnabled ? '/signup' : '#pricing-waitlist'}
-          className={`pr-plan-cta ${primary ? 'primary' : 'ghost'}`}
-          onClick={() => onPlanInterest(plan.tier)}
-        >
-          {ctaLabel}
-        </Link>
-      ) : selfServeEnabled ? (
-        // No door to offer here (a signed-up owner switches plans in-product), so
-        // no fake button: plain text says what is true and what to do now.
-        <p className="pr-plan-soon">
-          Not open yet: we are finishing its safety checks. Start on Copilot now and switch
-          when Autopilot opens.
-        </p>
-      ) : (
-        <>
-          <Link
-            href="#pricing-waitlist"
-            className="pr-plan-cta ghost"
-            onClick={() => onPlanInterest('autopilot')}
-          >
-            Tell me when Autopilot opens
-          </Link>
-          <p className="pr-plan-soon">
-            Not open yet: we are finishing its safety checks. Copilot is taking waitlist
-            sign-ups now.
-          </p>
-        </>
-      )}
+      <PlanDoor
+        plan={plan}
+        purchasable={purchasable}
+        primary={primary}
+        selfServeEnabled={selfServeEnabled}
+        onPlanInterest={onPlanInterest}
+      />
 
       <div className="pr-divider" />
       <p className="pr-includes-lbl">What&apos;s included</p>
@@ -381,7 +408,7 @@ export function PricingContent({
               : 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.'}
         </p>
         {selfServeEnabled ? (
-          <Link href="/signup" className="pr-cta-btn">Create account</Link>
+          <Link href="/signup" className="rw-btn-pill-onband pr-cta-btn">Create account</Link>
         ) : (
           <div className="w-full max-w-md">
             <fieldset className="pr-plan-pick">

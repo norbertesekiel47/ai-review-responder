@@ -232,7 +232,8 @@ export function LeadIntakeForm({
         googleMapsUrl: googleMapsUrl.trim(),
         intent,
         source,
-        ...(plan ? { plan } : {}),
+        // undefined when the door was tier-less; JSON.stringify drops the key.
+        plan,
         honeypot,
       });
 

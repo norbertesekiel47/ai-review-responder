@@ -220,6 +220,25 @@
 .rw-btn-pill:active { transform: scale(0.98); }
 .rw-btn-pill:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
+/* Primary on a teal CTA band (island/DESIGN.md → Buttons): the light pill with
+   teal-strong text. Single owner for /how-it-works and /pricing — the page CSS
+   carries only its delta (fill shade, ghost variant, spacing). */
+.rw-btn-pill-onband {
+  background: var(--rw-cream);
+  color: var(--rw-teal-strong);
+  border: 0;
+  padding: 14px 28px;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: transform 0.2s cubic-bezier(.2,.8,.2,1), box-shadow 0.2s cubic-bezier(.2,.8,.2,1);
+}
+.rw-btn-pill-onband:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px color-mix(in srgb, var(--rw-ink) 20%, transparent); }
+.rw-btn-pill-onband:focus-visible { outline: 2px solid var(--rw-cream); outline-offset: 4px; }
+
 .rw-btn-ghost {
   background: transparent;
   color: var(--rw-ink);

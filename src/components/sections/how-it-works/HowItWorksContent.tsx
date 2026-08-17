@@ -475,9 +475,9 @@ export function HowItWorksContent({
                 : "Tell us about your business and we'll reach out when early access opens for your area."}
             </p>
             {comingSoon ? (
-              <span className="hiw-cta-btn is-disabled">Coming soon</span>
+              <span className="rw-btn-pill-onband hiw-cta-btn is-disabled">Coming soon</span>
             ) : showSignupCta ? (
-              <Link href="/signup" className="hiw-cta-btn">
+              <Link href="/signup" className="rw-btn-pill-onband hiw-cta-btn">
                 {signupCtaLabel}
               </Link>
             ) : (
@@ -486,7 +486,7 @@ export function HowItWorksContent({
               </div>
             )}
             <div className="hiw-cta-row">
-              <Link href="/pricing" className="hiw-cta-btn is-ghost">
+              <Link href="/pricing" className="rw-btn-pill-onband hiw-cta-btn is-ghost">
                 See pricing
               </Link>
             </div>

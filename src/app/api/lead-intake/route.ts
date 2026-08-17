@@ -156,6 +156,32 @@ function validateLeadInput(data: Record<string, unknown>): ValidateResult {
   };
 }
 
+// Request-context metadata stored on the lead row. planInterest is present only when
+// the visitor used a per-plan door, so tier-less leads keep the historical shape.
+interface LeadMetadata {
+  ip: string;
+  userAgent: string | null;
+  referer: string | null;
+  submittedAt: string;
+  planInterest?: string;
+}
+
+function buildLeadMetadata(
+  req: NextRequest,
+  ip: string,
+  submittedAt: string,
+  lead: ValidatedLead,
+): LeadMetadata {
+  const metadata: LeadMetadata = {
+    ip,
+    userAgent: req.headers.get('user-agent'),
+    referer: req.headers.get('referer'),
+    submittedAt,
+  };
+  if (lead.planInterest) metadata.planInterest = lead.planInterest;
+  return metadata;
+}
+
 // Best-effort founder notification. notifyContactSubmission skips (no throw)
 // when email is unconfigured; a real send failure is surfaced as 500.
 async function sendLeadNotification(lead: ValidatedLead, submittedAt: string): Promise<NextResponse> {
@@ -222,13 +248,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const lead = validated.value;
 
   const submittedAt = new Date().toISOString();
-  const metadata = {
-    ip,
-    userAgent: req.headers.get('user-agent'),
-    referer: req.headers.get('referer'),
-    submittedAt,
-    ...(lead.planInterest ? { planInterest: lead.planInterest } : {}),
-  };
+  const metadata = buildLeadMetadata(req, ip, submittedAt, lead);
 
   let leadId: string | null = null;
 
