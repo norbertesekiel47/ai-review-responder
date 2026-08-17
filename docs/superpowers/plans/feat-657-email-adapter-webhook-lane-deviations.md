@@ -211,6 +211,48 @@ and `email-headers.test.ts`). Four promised titles pass ALREADY and are meant to
 
 ---
 
+## D7 — Task 7 (docs) execution notes, 2026-08-16
+
+Three things the plan's Task 7 did not anticipate. **All ACCEPT** — docs only, no
+production contract, no promised title, no edit-surface change. Amendment count
+remains **0**. `pnpm ci:directory-map` PASSES (553 files, no stale rows) and
+`claude-md-shape` is 43/43.
+
+### D7.1 — SIX directory rows changed, not four
+
+The plan names four new rows. Two **existing** rows became materially incomplete
+when Tasks 3 and 4 widened their files, and were corrected in the same change:
+
+- `email/client.ts` said only `getResend()`; it now also exports the fail-closed
+  `getSolicitationResend()`.
+- `email/headers.ts` said "Shared email header helpers"; it now owns the
+  fail-closed `'solicitation'` category.
+
+`ci:directory-map` would not have caught either — it checks coverage and
+staleness, not accuracy. But the map's whole job is answering "does a helper
+already exist?", and a row that hides `getSolicitationResend()` is how a second
+one gets written. Corrected rather than left for a later sweep.
+
+### D7.2 — the runbook filename differs from the spec's parenthetical
+
+Spec §3.3 says the ramp table lives in "`docs/runbooks/` (new: solicitation
+send-mode rollout)". The plan names the file
+`docs/runbooks/solicitation-sending-domain.md`, and that is what shipped — the
+document is domain bring-up (Resend domain, DNS, DMARC, mailbox, ramp, seed
+gate), not the send-mode feature rollout. The spec's parenthetical is a
+suggestion, not a path anything resolves.
+
+### D7.3 — the DMARC `rua` mailbox is an unresolved input, and the runbook says so
+
+Spec §8.2 specifies `rua=mailto:<a mailbox we control>` and spec §12 records the
+exact address as an **open question** (a real mailbox or a DMARC reporting vendor
+decision). The runbook therefore carries the placeholder with an explicit "resolve
+this before creating the record" note rather than inventing an address — the same
+posture the plan takes on the §3.3 ramp numbers. #633 resolves it at execution
+time.
+
+---
+
 ## D2 — Secondary note accepted from round 1
 
 Codex observed that the plan's Architecture line ("config + boot assert gate the
