@@ -95,6 +95,17 @@ tests:
    the title is absent from the stub file and present at `.feature/intake.json:91`.
 2. **Task 3 Step 5** says "write the remaining **nine**" and **Step 6** says
    "Expected: **7** passing". The describe actually holds **eleven** titles.
+3. **Task 4 Step 3** says "Expected: **13** passing, 0 todo" for the whole
+   integration file. The correct total is **seventeen** (11 approveBatch +
+   5 haltBatch + 1 tenant scope).
+
+**The staleness is two rounds deep, not one.** 13 = 7 + 5 + 1 is the count from
+*before* round 1, and 7 is the pre-round-1 approveBatch count. So neither the
+round-1 amendment (which added three approveBatch titles) nor the round-2
+amendment (which added one) updated any of these running totals. Every
+"Expected: N passing" line in the plan is therefore suspect on sight; the
+authoritative source is the intake's `tests_to_add` (34 titles) and the per-test
+specifications in the Step bodies, never a total in prose.
 
 **Why it matters:** an agent that trusts Step 6 stops at 7 green and reports the
 task done, leaving up to four promised tests unwritten. The verify gate's
