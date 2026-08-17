@@ -27,17 +27,26 @@ budget.
 
 ---
 
-## D2 — the "hold a generation transaction open" concurrency test is deliberately not written
+## D2 — the interleaving concurrency test IS written (my round-1 reasoning was wrong)
 
-**When:** plan review round 1 (finding 4).
-**What:** codex asked for a test that holds the generation transaction after it
-takes the advisory/batch locks, starts an approval, then commits generation.
-**Why not:** generation is **not a single transaction** — `persistChildRender`
-(`ask-generation.ts:705`) opens its own `sql.begin` per child — so there is no
-transaction to hold and the test would be staging a fiction. The
-refuse-then-succeed pair across a genuinely committed render pins the real
-contract: readiness is evaluated against the committed row set, inside the
-approval transaction, under the batch lock.
+**When:** raised in plan review round 1 (finding 4); **my dismissal of it was
+overturned in round 2.**
+
+**What I first wrote, and why it was wrong:** I argued the "hold a generation
+transaction open across the approval" test could not be written because
+"generation is not a single transaction, so there is nothing to hold." The
+premise is true and the conclusion does not follow. `persistChildRender`
+(`ask-generation.ts:714`) opens a **per-child** `sql.begin` that takes the
+advisory batch lock and the batch row lock and holds both across its insert.
+That per-child transaction is exactly the thing to hold. I had read this code
+while writing D2's own evidence note below and still drew the wrong conclusion
+from it.
+
+**Resolution:** the test is in the plan (Task 3, `blocks approval on the batch
+lock until an in-flight render commits, then counts it`). It uses a second
+postgres.js connection to hold the lock, asserts the approval has NOT settled
+while it is held, then asserts it counts the committed render. That proves
+serialization; the refuse-then-succeed pair alone does not.
 
 **Verified while writing this entry, and it strengthens the design:**
 `persistChildRender` takes the same advisory batch lock, re-reads the batch

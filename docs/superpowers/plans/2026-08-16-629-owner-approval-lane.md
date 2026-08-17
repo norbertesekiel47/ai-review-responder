@@ -749,7 +749,38 @@ Write the remaining nine against the same `seedRenderedBatch` helper:
 
 `cancels excluded asks owner_excluded in the same transaction as the approval` — exclude one of three; assert `delivery_status='cancelled'` + `disposition_reason='owner_excluded'` and `approvedCount` 2.
 
-`refuses to approve while a send ask has no outreach row` — seed 3 send asks with 2 renders; assert `not_ready` with `missingRenders: 1` and `approved_at IS NULL`. **Then commit the third render and re-approve in the same test**, asserting it now succeeds with `approvedCount: 3`. That refuse-then-succeed pair is what pins the gate to the *committed* render set. (The stronger "hold a generation transaction open across the approval" form is deliberately NOT written: generation is not one transaction — `persistChildRender` commits per child — so there is no single tx to hold, and a fake one would prove nothing. Recorded in the deviations file.)
+`refuses to approve while a send ask has no outreach row` — seed 3 send asks with 2 renders; assert `not_ready` with `missingRenders: 1` and `approved_at IS NULL`. **Then commit the third render and re-approve in the same test**, asserting it now succeeds with `approvedCount: 3`. That refuse-then-succeed pair pins the gate to the *committed* render set.
+
+`blocks approval on the batch lock until an in-flight render commits, then counts it` — the interleaving case, and it IS writable: `persistChildRender` (`ask-generation.ts:714`) opens a per-child transaction that holds the advisory batch lock across its insert. Two connections:
+
+```ts
+    // A: hold the child-render transaction open, exactly as persistChildRender
+    // does — advisory lock, then the insert, no commit yet.
+    let releaseA!: () => void;
+    const aHeld = new Promise<void>((resolve) => { releaseA = resolve; });
+    const aDone = writerSql.begin(async (tx) => {
+      await acquireSolicitationBatchLock(tx, businessId);
+      await insertOutreachRender(tx, thirdRenderInput);
+      await aHeld;                       // hold the lock
+    });
+
+    // B: approval must BLOCK on the advisory lock, not read past it.
+    let settled = false;
+    const bDone = approveBatch(sql, { batchId, accountId, businessId,
+      approvedByUserId: userId, excludedOutreachIds: [] })
+      .then((r) => { settled = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 250));
+    expect(settled).toBe(false);         // still waiting on A
+
+    releaseA();
+    await aDone;
+    const result = await bDone;
+    // Approval saw the COMMITTED set: three renders, none missed.
+    expect(result).toMatchObject({ status: 'approved', approvedCount: 3 });
+```
+
+Use a SECOND postgres.js connection for `writerSql` — the pooled singleton would deadlock against itself — and give the test an explicit vitest timeout so a regression fails loudly instead of hanging. This is the test that proves readiness is evaluated against a serialized snapshot rather than a torn read, which is the property the byte-for-byte contract actually rests on.
 
 `refuses to approve a batch past its 7-day approval window` — seed `built_at = NOW() - interval '8 days'`; assert `{ status:'not_approvable', state:'expired' }`.
 

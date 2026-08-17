@@ -88,6 +88,7 @@
     "refuses a stale exclusion list without cancelling any row or approving the batch",
     "approves the rendered subset when another send ask is withheld",
     "treats a superseded attempt as ready only once its replacement exists",
+    "blocks approval on the batch lock until an in-flight render commits, then counts it",
     "halt latches once and a second halt writes nothing",
     "halt cancels rendered and queued rows and never a sending row",
     "halt before sending starts records owner_veto and after it records owner_halt",
