@@ -140,8 +140,6 @@ Next.js App Router pages, grouped by access level.
 
 ### `admin/` — Sales partner or admin role required
 
-| Path | What it does |
-|------|--------------|
 The console migration (spec `docs/superpowers/specs/2026-07-30-admin-console-redesign-design.md`)
 landed the same shape on every page: `page.tsx` is a **server component** —
 `requireAdminPage(sql, {from, aal2?})` gate → read via the owning
@@ -150,6 +148,27 @@ that read as react-query `initialData`. Phase 3 finished the set and moved
 `<AdminPage>` out of the five Phase 2 clients onto their server pages, so page
 chrome renders in the RSC payload rather than behind a loading state. `PAGE_SIZE`
 is declared once, in the client, and imported by the server page.
+
+> **`ci:admin-aal2` — the AAL2 gate audit** (moved here from the CLAUDE.md
+> channel-routes row on 2026-08-16). It is an **AST** audit: it resolves each
+> exported mutation handler (`POST`/`PUT`/`PATCH`/`DELETE`) separately —
+> following `withSameOrigin()(inner)` to `inner` — and requires a gate reachable
+> from THAT handler, either a CALL to `requireAdminWithAal2` or a
+> `resolveAdminActor` binding, each credited only when imported from its
+> canonical module. So a gated `GET` no longer clears an ungated `POST`, an
+> unused import earns nothing, and a comment or string naming a resolver is
+> invisible. It is **fail-closed** — an unrecognized gate shape is a finding —
+> which is what closes the renaming re-export (`export { resolveOwnerActor as
+> … }` in a second file) without cross-file resolution; the old "an aliased
+> import would still clear it" was wrong anyway, since a same-file alias leaves
+> the literal `resolveOwnerActor` and trips the deny rule. It also covers
+> `src/app/admin/**/page.tsx`: every admin page must call a gate (pre-auth
+> exemptions derived from `src/proxy.ts`), and a page whose sibling route gates
+> `GET` with `requireAdminWithAal2` must pass `{ aal2: true }` — **read-gate
+> parity**, because the page reads the DB directly and is otherwise a parallel
+> path around the route's step-up. Deliberately NOT "a page rendering a mutation
+> surface needs AAL2" (`/admin/businesses/[id]` correctly hosts AAL2-gated
+> mutations while gating plain).
 
 | Path | What it does |
 |------|--------------|
@@ -238,6 +257,31 @@ is declared once, in the client, and imported by the server page.
 Shared by BOTH portals' channel routes — placed at the common ancestor of
 `api/admin/channels/*` and `api/dashboard/channels/*` per the `_shared`
 convention. All 12 enrollment routes are binding shims over these.
+
+> **Channel-route rules the code does not make obvious** (moved here from the
+> CLAUDE.md routing row on 2026-08-16; `CONTEXT.md` → **Channel actor** + spec
+> `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md` §4 —
+> PR 2 of 3; the spec is fully shipped: §3/PR 1 as #827, §4/PR 2 as #831,
+> §5/PR 3 as #833). The 12 routes
+> (`{admin,dashboard}/channels/{telegram,whatsapp}/{start,cancel,disable}`) are
+> thin shims — name a channel, bind a resolver, call a runner
+> (`start.ts`/`action.ts` here); put behaviour in the runner or the resolver,
+> never back in a route. `resolve-actor.ts` holds the two portal resolvers,
+> which must stay TWO functions: `resolveAdminActor` reads `businessId` from the
+> request BODY behind `requireAdminWithAal2`, `resolveOwnerActor` reads
+> `locationId` from the SESSION behind `requireRoleOr401` and never from the
+> body — that asymmetry is a tenant-isolation boundary, and each resolver also
+> owns its portal's subscription gate (admin `start` requires full access; admin
+> `cancel`/`disable` deliberately require none; owner applies
+> `resolveWritableAccountForLocation` on all three). `ChannelRouteConfig` is 4
+> fields on purpose — **a fifth means the seam is wrong; re-plan rather than
+> widen**. Deep links have ONE owner
+> (`src/lib/notifications/channels/deep-links.ts`), as do the flag/env modules
+> beside it (they are read by a server-component page, which is why they are in
+> `src/lib` and not under `api/`). **The admin MFA gate is now configuration, not
+> structure** — the runners call `config.resolveActor`, so `tsc` cannot reject a
+> mis-binding and `ci:admin-aal2` is the compensating check (its mechanics: the
+> `### admin/` section of `src/app/` above).
 
 | File | Purpose |
 |------|---------|
@@ -726,6 +770,29 @@ Auto-policy evaluation plus the WS6 account-level safety governor and suspension
 
 Everything about fetching and normalising Google reviews.
 
+> **Review import consent — rules the code does not make obvious** (moved here
+> from the CLAUDE.md routing row on 2026-08-16; spec
+> `docs/superpowers/specs/2026-08-05-consented-review-import-design.md` — §2
+> decision table D1–D10 is **locked**; ADR
+> `docs/adr/0015-consented-import-unflagged-replacement.md`; ADR
+> `docs/adr/0016-import-consent-enforcement-locus.md` — enforcement locus, why
+> not a `job_outbox` trigger; `CONTEXT.md` → **Review import**, **Import
+> consent**, **Import offer**, **Import window**, **Live-ingest cutoff**).
+> `import-consent.ts` is the SINGLE owner of the predicate and of every consent
+> write — including `enqueueInitialImport`, which all four producers delegate
+> to; do not re-spell its guard. Enforcement is at the four producers **and,
+> since #679, at the chokepoint**: `guardImportConsent`
+> (`worker/jobs/zernio/job-eligibility.ts`) is a fail-closed pre-flight in
+> `ZernioBackfillWorker` that proceeds only on `accepted` — so a hand-inserted
+> `zernio_initial_backfill` row no-op-completes with a logged reason instead of
+> importing. It is deliberately a SEPARATE function from
+> `guardZernioJobEligibility` (a merged guard would have two callers, one of
+> which must never reach consent code), and its whole body must stay inside
+> `sql.begin` with `SELECT … FOR UPDATE` + `markOutboxCompletedWithReason(tx, …)`
+> — without that serialization an owner's accept races the guard into silent
+> permanent data loss. Enqueue-path inventory:
+> `.claude/reference/review-ingestion.md`.
+
 | File | What it does |
 |------|--------------|
 | `types.ts` | `NormalizedReview` DTO, `ReviewSource` interface, `MonitoredReview`. |
@@ -789,6 +856,26 @@ it acknowledge → resolve (spec `docs/superpowers/specs/2026-07-07-ws3-guardian
 ### `solicitation/`
 
 Phase 2 Solicitation agent (watch-mode first).
+
+> **Solicitation consent & suppression — rules the code does not make obvious**
+> (moved here from the CLAUDE.md routing row on 2026-08-16; spec
+> `docs/superpowers/specs/2026-07-28-suppression-unsubscribe-design.md`;
+> `CONTEXT.md` → "Solicitation suppression & unsubscribe" — **eight** locked
+> terms, incl. **attestation never overrides suppression**; global wins a double
+> match; the ledger is solicitation-only — DR2). **Redemption (#644) spans both
+> surfaces** — `unsubscribe.ts` here owns the token gate, the claim-first
+> ordering and the Success receipt; `worker/ingress/unsubscribe.ts` is the RFC
+> 8058 one-click route; `src/app/(public)/u/**` + `src/app/api/u/**` are the
+> recipient landing path. A page may claim "you are unsubscribed" **only** from
+> a ledger read taken during that render — a receipt is necessary, never
+> sufficient. **Manual paths (#645)**: the **Correction path** is the
+> admin-only, audited removal of a factually-wrong row — error correction, NEVER
+> re-subscribe — sunk to `solicitation_suppression_corrections` (migration 098),
+> NOT `account_audit_log`, and written by ONE data-modifying CTE so the DELETE
+> cannot commit without its record. §7.6 **owner clearing** is a different act
+> with a different sink (`account_audit_log`); an owner may never clear a
+> `global` row, and the UI must not present the two as the same control. Daily
+> servicing ritual: `docs/runbooks/channels-rollout.md` §6.
 
 | File | What it does |
 |------|--------------|
@@ -978,6 +1065,35 @@ LLM cost tracking and enforcement.
 
 Admin-side domain helpers.
 
+> **Admin business query — rules the code does not make obvious** (moved here
+> from the CLAUDE.md routing row on 2026-08-16; `CONTEXT.md` → **Business
+> summary** + **At-risk list**, two LOCKED terms; spec
+> `docs/superpowers/specs/2026-08-15-portal-audit-remediation-design.md` §5).
+> `business-summary.ts` is the SINGLE owner of the base query, the conditional
+> COUNT, the metrics follow-up and `buildBusinessSummary`; it exports ONE
+> function, `getBusinessSummaries(sql, opts?)` — Overview calls it unpaginated
+> and ranks, Businesses calls it with a page. Do not re-spell that query in a
+> second module (it was spelled twice until #833). (a) The at-risk list is
+> **filtered THEN capped** — eligibility `churnScore.level !== 'healthy'`, then
+> top `OVERVIEW_AT_RISK_LIMIT`; capping first surfaces healthy rows and is the
+> bug the tests exist to catch. (b) Ranking is **TypeScript and must never become
+> `ORDER BY … LIMIT`** — account age makes every business score non-zero, so no
+> SQL predicate is a provable superset of "at risk", and Overview reading every
+> row is a RECORDED limitation (§5.1) with a named rejected alternative, not an
+> oversight. (c) Businesses fetches metrics for the **current page's ids only**
+> (LIMIT/OFFSET first, then metrics) — a pinned test guards that bound. (d)
+> `OVERVIEW_AT_RISK_LIMIT` lives in `overview-service.ts`, NOT `page-sizes.ts`
+> as §5.1 asks, because `src/lib/**` may not import `@/app/**`
+> (`APP_LEAF_IMPORT_BAN`) and nothing app-side reads it. Health presentation has
+> ONE owner, `src/components/admin/ui/HealthBadge.tsx` — all three surfaces
+> import it now, including the business DETAIL page, which carried a private
+> `Record<string, string>` copy (an unrecognised level rendered silently green)
+> until it was deleted; and churn DERIVATION has one owner too, which is
+> `business-summary.ts` and NOT a third module — it exports
+> `churnMetricsQuery(sql, businessIds)` + `churnScoreFromMetrics(row)`, and
+> `business-detail/{queries,mappers}.ts` call them, the detail page passing a
+> one-element id array instead of re-spelling the CTE.
+
 | File | What it does |
 |------|--------------|
 | `impersonation/cookie.ts` | HMAC signs/verifies the `rw_impersonation` session cookie. |
@@ -999,6 +1115,31 @@ Admin-side domain helpers.
 | `cost-report-service.ts`, `margin-service.ts`, `csv-import.ts` | API-cost report; admin-only aggregate margin signals; the CSV locations-import row processor. |
 
 ### `onboarding/`
+
+> **Admin invite funnel — rules the code does not make obvious** (moved here from
+> the CLAUDE.md routing row on 2026-08-16; plan
+> `docs/superpowers/plans/2026-08-14-admin-invite-funnel.md`, `CONTEXT.md` →
+> **Admin invite**, **Checkout attempt**, **Funnel entry**, **Beta comp coupon** —
+> four LOCKED terms; staging proof
+> `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md`; step-7
+> reviews `docs/reviews/admin-invite-funnel/`).
+> (a) **Every** Stripe Session parameter is built from the durable
+> `accounts.checkout_attempt_*` snapshot, never a live env read — the coupon
+> joined that snapshot precisely so an ops flip between an owner's first click
+> and their retry cannot change the price under a key Stripe treats as
+> identical. (b) `resolveFunnelEntry` (`funnel-entry.ts`) is **pure** — it takes
+> `onboardingDemoEnabled()` as an argument and reads no flag, env or DB, which
+> is what keeps flag state server-side (invariant #13) and the whole matrix
+> table-testable; the deleted `paymentUrl` must not come back. (c) `onboarded_by`
+> on the PRIMARY business is the comp's only eligibility marker and already
+> carries three unrelated meanings — before reusing or widening it read the
+> rejected-finding record in
+> `docs/reviews/admin-invite-funnel/adversarial-approach-codex.md` (migration
+> 025 backfilled it on every pre-025 row, and NULLing those rows would grant
+> trial eligibility and strip a `CleanupAbandonedSignupsPoller` guard).
+> **Migration 105 cannot be applied where 077 has not been** — a real
+> dependency, but no longer a prod gate: both 077 and 105 are applied in prod as
+> of 2026-08-14 (see the standing exception in CLAUDE.md § Environments).
 
 | File | What it does |
 |------|--------------|
