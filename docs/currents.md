@@ -7,7 +7,54 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-17 (#657 messaging seam + solicitation Sending identity + Resend Solicitation lane — Quick summary immediately below. Prior entry: Architecture pass 2026-08-15 executed.)
+Last updated: 2026-08-17 (#629 owner approval lane — Quick summary immediately below. Prior entry: #657 messaging seam + solicitation Sending identity + Resend Solicitation lane.)
+
+## Quick summary — #629 owner approval lane (2026-08-17, PR #863)
+
+**An owner can now approve a batch of review requests, drop individual ones
+before they go, and stop a batch outright. Nothing sends yet.**
+
+The screen at `/dashboard/requests` gains an approval panel. The owner sees every
+drafted message, un-ticks any they do not want sent, and approves the rest in one
+action. Un-ticking is the only edit available — a message is either sent as
+written or not sent at all. Approving starts a 15-minute undo window; "Stop this
+batch" ends the batch for good, with no resume.
+
+**This ships inert.** `SOLICITATION_SEND_ENABLED` is unset in every environment,
+and the thing that actually delivers the messages is #630. With the flag off the
+Requests screen is exactly the watch-mode screen it was before.
+
+Three rules decide the whole design:
+
+- **You can only approve what is finished.** Every request in the batch must have
+  a drafted message before approval is allowed, re-checked inside the approval
+  transaction. That is what makes "what you approved is what sends" true — no
+  message can appear after approval and go out unseen. *Finished* means "not
+  cancelled", not "successfully drafted": a message held back by moderation is a
+  finished attempt with nothing left to draft, so it does not block approval.
+  Requiring a clean draft would wedge any batch that had one lint failure.
+- **Dropping a request only ever removes a message.** It never adds or changes
+  one, which is why it needs no re-check of the content, and why partial approval
+  is safe even though editing a drafted message is forbidden. Drop every request
+  and the batch is approved and closed in the same breath.
+- **Stopping is one-way.** Approve, drop and stop are the owner's only verbs.
+
+### The new shape
+
+| File | What it owns |
+|---|---|
+| `src/lib/solicitation/approval.ts` | **New.** `approveBatch` (approval + per-request exclusion in ONE transaction) and `haltBatch` (the owner's stop). Neither closes the batch itself — both call the existing `closeBatchIfSettled`, so batch closing keeps one owner. |
+| `src/app/api/dashboard/solicitation/batch/{approve,halt}/route.ts` | **New.** Thin routes over those two verbs. |
+| `src/app/api/dashboard/solicitation/batch/_shared/scoped-batch-route.ts` | **New.** One runner shared by the three batch routes. |
+| `src/app/(authenticated)/dashboard/requests/{ApprovalPanel,AskList,ApprovalActions}.tsx` | **New.** The panel, the per-request list, the buttons. |
+| `src/lib/solicitation/batch-view.ts` | Gains the send-lane read the panel renders from. |
+| `supabase/migrations/108_outreach_owner_excluded_disposition.sql` | Lets the database record "the owner dropped this one". Applied to staging **and** production 2026-08-17. |
+
+**Known gaps, all filed:** `closeBatchIfSettled` compares ids case-sensitively and
+was fixed here for these two verbs only — **#858**, which must be resolved before
+#630. Per-request re-drafting has no owner entry point — **#860**. The
+admin/support stop surface exists in the database as a permitted value with
+nothing that writes it, and is still unfiled.
 
 ## Quick summary — #657 email adapter + solicitation webhook lane (2026-08-17, PR #853)
 

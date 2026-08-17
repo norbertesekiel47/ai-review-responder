@@ -4253,3 +4253,122 @@ creep into exactly the place that deadlocks, #573).
   so a caller could pass `'solicitation'` and get a runtime throw. Fail-closed and
   therefore not a defect; narrowing it would have cost a surface amendment for a
   type nicety with no live caller. Visible to #630, the first real caller.
+
+## 2026-08-17 — #629: Owner approval lane — approveBatch, per-ask exclusion, haltBatch (PR #863)
+
+Squash `71b1bd88`. 42 files, +9,743/−151. Base `fd0b48f3`. RISK = high lane
+(migration); rode `staging` before `main`. Ships **inert** —
+`SOLICITATION_SEND_ENABLED` is unset in every environment and the releaser/send
+worker are #630.
+
+Spec: `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md`
+(D2/D6a/D9/D10/D11/D22/D23) + amendments B2, B11. Plan:
+`docs/superpowers/plans/2026-08-16-629-owner-approval-lane.md`. Map: #617.
+
+### What landed
+
+- **`src/lib/solicitation/approval.ts` (new, 482 lines)** — two exported verbs.
+  - `approveBatch` writes **Owner approval** (`approved_at` /
+    `approval_method='owner'` / `approved_by_user_id` / `veto_deadline_at`),
+    CAS'd on `approved_at IS NULL` so a double-submit re-approves nothing and
+    mints no fresh veto deadline. A CAS miss **throws loudly** rather than
+    returning silently (round-1 fix).
+  - `haltBatch` writes the **Halt latch** — one monotone
+    `halted_at`/`halt_reason`/`halted_by`; a second halt is a no-op.
+  - Neither terminalizes the **Send batch parent**. Both call the existing
+    `closeBatchIfSettled` in `outreach.ts`, keeping the **Settled batch** join
+    at one owner. #630's releaser tick becomes a third caller of that same
+    function, not a parallel implementation.
+- **Readiness rule** — approval requires every send **Ask** to carry a
+  non-cancelled **Outreach row**, re-asserted *inside* the approval transaction
+  under the batch lock. `withheld` (lint_failed, moderation_high) satisfies
+  readiness: it is a FINISHED attempt with nothing left to render. Only
+  `cancelled` leaves a hole a replacement must fill. Requiring `rendered` would
+  wedge every batch that had one lint failure.
+- **Ask exclusion** — `delivery_status='cancelled'`,
+  `disposition_reason='owner_excluded'`, written in the SAME transaction as the
+  approval. **Exclusions are validated before any row is written**, and the
+  ordering is load-bearing rather than stylistic: postgres.js commits when the
+  `sql.begin` callback resolves, so an early return after a partial UPDATE would
+  commit that partial cancellation while telling the caller the approval was
+  refused. An unknown or non-live id fails the whole approval closed. Excluding
+  every ask approves and closes the batch outright.
+- **Migration 108** — widens 091's
+  `solicitation_outreach_status_reason_consistency` cancel arm by one member.
+  The term existed in the spec; the value did not, so partial approval could not
+  be written at all. Wrapped in ONE transaction with `lock_timeout = '3s'` (D5 —
+  the plan's literal SQL was unwrapped; an unwrapped DROP that succeeds followed
+  by a failing ADD leaves the table with NO status/reason constraint).
+- **Route seam** — `_shared/scoped-batch-route.ts` collapses the three batch
+  routes (`approve`, `halt`, `reviewed`) onto one runner. Routes stay thin shims.
+- **UI** — `ApprovalPanel` / `AskList` / `ApprovalActions`, additive on
+  `/dashboard/requests`, gated by `SOLICITATION_SEND_ENABLED`.
+- **Copy carve-out (D12)** — the owner-facing panel says "Stop this batch" /
+  "Batch stopped". `halt` is domain jargon an owner does not read. The carve-out
+  is exactly one word: `pause`, `resume` and `cancel batch` stay banned
+  everywhere including copy, because each implies a reversibility the latch does
+  not have. Code-level names still obey the term (`haltable`, not `stoppable`).
+  `CONTEXT.md`'s **Halt latch** entry was amended to record this.
+
+### Verification
+
+Gate GREEN. `pnpm test` 12,376 passing; 33/33 promised test titles present.
+Review ran **two full rounds**: round 1 across three axes (spec, standards,
+adversarial-Codex) produced 21 findings, all triaged and fixed; round 2 was
+verification-only per axis — spec and adversarial returned empty tables, and
+**standards found two round-1 fixes that had never landed** (D15), both then
+fixed and pinned by tests.
+
+One standing `reclassify` **WARN** (production 2,474 lines vs a 1,000-line
+estimate), recorded and owner-decided as **D14**: the verdict is that the ticket
+was epic-shaped and should have been decomposed at step 0. **#630 is at least
+this size** — size it as an epic.
+
+### Promotion
+
+- Migration 108 applied to **staging** (`kubdiqdhqbhwmqfditeg`) then
+  **production** (`udeyaqnvpojbwgoaxwdg`), both 2026-08-17, lockstep satisfied.
+- Verified by schema introspection, never the migration ledger. Staging got the
+  097-precedent live probe in an aborted transaction; production was verified by
+  **definition-equivalence** — `pg_get_constraintdef` byte-identical to
+  staging's, 821 bytes each — rather than by re-probing, because an INSERT inside
+  a rolled-back transaction is still a write.
+- Rode `staging` **merged on top of #651**, which was mid-ride with its burst
+  drill pending. #629 touches no worker, poller or scheduler file and every route
+  it adds is unreachable with the flag off. `staging` re-synced to `main` after
+  both merged.
+
+### Gotchas found (full accounts in the deviations file and lab-notes 2026-08-17)
+
+- **The shared test DB trap (D10) also bites the pre-push hook**, not only the
+  verify gate — and there the error names a constraint your own migration
+  widened, so it reads like a defect in the code under test. Export
+  `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` for `git push` too.
+- **A `psql -f` that prints nothing has not run.** A silent quoting failure was
+  reported as a successful production apply; only introspection caught it.
+- **A constraint probe's `check_violation` handler catches whichever CHECK fires
+  first.** `solicitation_outreach` has eight; the probe returned a false
+  `REJECTED` for `owner_excluded` until every sibling CHECK was satisfied.
+- **`ci:tenant-scope` is blind to subqueries** (D7), which forced SQL reshaping
+  in both `approval.ts` and `batch-view.ts` — filed as **#859**; fixing the audit
+  reverts those workarounds and moves `ALLOWLIST_BASELINE`.
+- **The staging smoke could not cross a Next.js route** — Vercel team-SSO, no
+  bypass secret. Worker health and migration introspection were genuinely
+  proven; the Requests UI was not rendered. This constraint was already in
+  lab-notes from #679.
+
+### Follow-ups filed on map #617
+
+- **#858** — `closeBatchIfSettled` case-sensitive `subject_id` compare, all
+  callers. #629 fixed only its own two verbs. **Resolve before #630**, whose
+  releaser tick is a backstop caller of the same function.
+- **#859** — `ci:tenant-scope` subquery blindness.
+- **#860** — per-ask regenerate surface, carrying **D3** as a binding constraint:
+  it must either re-open approval for the superseded ask or be refused once
+  `approved_at` is set. `regenerateAsk` already accepts
+  `approved`/`veto_window`/`sending`, so the path exists and is merely
+  unreachable from the shipped surface.
+- **#861** — pin the load-failure copy so it cannot regress to a write-scoped
+  claim.
+- **Still unfiled:** the admin/support halt surface. `admin_halt` remains a CHECK
+  member with no writer — a live-but-dead enum arm.
