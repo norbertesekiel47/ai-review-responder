@@ -6,16 +6,24 @@ name: CI
 # cache warming (the reason a main run used to matter beyond the re-test) lives
 # in cache-warm.yml.
 #
-# Runner: every job here runs on `vars.CI_RUNNER` when that repo variable is
-# set (today `self-hosted` — the Lima VM on the founder's Mac, see
-# docs/runbooks/self-hosted-ci-runner.md; self-hosted minutes are free) and
-# falls back to GitHub-hosted `ubuntu-latest` when it is unset. Unset the
-# variable to move CI back to hosted runners without touching this file.
-# e2e.yml / react-doctor.yml / cache-warm.yml carry the same switch. claude.yml /
-# claude-code-review.yml stay hosted on purpose: they hold the one real secret
-# (CLAUDE_CODE_OAUTH_TOKEN) and it must never land on the VM.
+# Runners: two repo variables route jobs, no file change needed
+# (docs/runbooks/self-hosted-ci-runner.md § Routing):
+#   vars.CI_RUNNER_HEAVY — lint / test / build / llm-eval (+ e2e.yml, cache-warm.yml):
+#                          a managed fast runner (Blacksmith 4 vCPU today).
+#   vars.CI_RUNNER_LIGHT — changes / deploy-install / fallow (+ react-doctor.yml):
+#                          sub-minute jobs; GitHub-hosted, inside the free minutes.
+# Each falls back to the legacy single knob `vars.CI_RUNNER` (the Lima VM on the
+# founder's Mac when set to `self-hosted`), then to GitHub-hosted `ubuntu-latest`.
+# claude.yml / claude-code-review.yml stay hosted on purpose: they hold the one
+# real secret (CLAUDE_CODE_OAUTH_TOKEN) and it must never reach another runner.
+#
+# Draft PRs run nothing (see the `changes` job): agents open PRs as drafts and
+# `gh pr ready` when the work is complete, so CI runs once per finished PR plus
+# once per fix push — not once per WIP push. `ready_for_review` is in the
+# trigger list so marking ready starts the first run.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -54,10 +62,17 @@ jobs:
   # a failure here blocks the merge instead of skipping every dependent gate
   # into a false green; the dependent `if:` conditions are written fail-open
   # (they run unless this job explicitly said skip).
+  #
+  # Draft gate: a skipped `changes` skips every job that `needs:` it (GitHub
+  # skips dependents of a skipped job unless they use `always()`), so this one
+  # condition parks the whole tree on a draft PR. `lint` has no `needs:` and
+  # carries the same condition itself. Skipped jobs bill nothing, and a draft
+  # cannot merge, so a skipped required check on a draft is harmless.
   changes:
     name: changes
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
+    if: github.event.pull_request.draft == false
     outputs:
       docs_only: ${{ steps.detect.outputs.docs_only }}
       deploy_surface: ${{ steps.detect.outputs.deploy_surface }}
@@ -136,8 +151,10 @@ jobs:
   # deploy-install/llm-eval.
   lint:
     name: lint
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
+    # No `needs: changes`, so the draft gate is repeated here (see `changes`).
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -196,7 +213,7 @@ jobs:
 
   test:
     name: test
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     # Docs-only PRs skip the whole job: no unit test reads docs/** or *.md at
@@ -209,6 +226,11 @@ jobs:
     # and other *.integration.test.ts) actually runs instead of self-skipping.
     # DATABASE_POOL_URL is already pointed here by the workflow env; TEST_DATABASE_POOL_URL
     # (the gate those tests check) is added below.
+    # Keep the `services:` block in lockstep with e2e.yml. Data dir on tmpfs: the
+    # test DB is small and disposable, RAM beats the runner disk for the
+    # write-heavy integration suites. 2s health probes: the runner waits for the
+    # first `healthy`, and Docker's first probe fires only after one interval —
+    # 10s was ~8s of pure wait per job. 30 retries keeps the same ~60s window.
     services:
       postgres:
         image: postgres:16
@@ -219,10 +241,11 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw
           --health-cmd "pg_isready -U test -d test"
-          --health-interval 10s
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 30
     env:
       TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
     steps:
@@ -269,7 +292,7 @@ jobs:
   # output filter — deterministic, no provider keys, no external calls.
   llm-eval:
     name: llm-eval
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.llm_eval != 'false'
@@ -285,7 +308,7 @@ jobs:
 
   build:
     name: build
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
@@ -306,7 +329,7 @@ jobs:
   # this failure mode. See .claude/reference/lab-notes.md (2026-06-04).
   deploy-install:
     name: deploy-install
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     # Runs only when the install recipe or a lifecycle-script input changed —
@@ -339,7 +362,7 @@ jobs:
   # ci:fallow:coverage` (lab-notes "fallow coverage DB-complete").
   fallow:
     name: fallow
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: [changes, test]
     # Docs-only PRs change no code-health signal. `needs: test` also means a red

@@ -1,7 +1,10 @@
 name: E2E
 
 # Playwright e2e, split out of ci.yml so it can be path-gated. The app boots via
-# playwright.config.ts `webServer` (pnpm dev) — one owner for app boot.
+# playwright.config.ts `webServer` — one owner for app boot: `pnpm dev` locally,
+# `pnpm start` under CI after this job's own `pnpm build` step (a production
+# build compiles every route once; the dev server's compile-on-first-hit blew
+# the 30s test timeout on slow runners and showed up as "flaky" retries).
 # Auth-dependent specs self-skip here (no E2E_OWNER_* / harness env);
 # only the hermetic seeded/token flows run. Mobile-chrome stays local-only
 # (PR-gate runtime budget). Dummy Supabase/session values exist solely so
@@ -56,9 +59,13 @@ env:
 jobs:
   e2e:
     name: e2e
-    # Same runner switch as ci.yml: `vars.CI_RUNNER` (self-hosted) or hosted fallback.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Same runner routing as ci.yml's heavy jobs (see its header): CI_RUNNER_HEAVY,
+    # then the legacy CI_RUNNER, then hosted. Draft PRs skip, same as ci.yml.
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
+    if: github.event.pull_request.draft == false
+    # Keep in lockstep with ci.yml's `test` job `services:` block (tmpfs data
+    # dir, 2s health probes — rationale there).
     services:
       postgres:
         image: postgres:16
@@ -69,10 +76,11 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw
           --health-cmd "pg_isready -U test -d test"
-          --health-interval 10s
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 30
     env:
       TEST_DATABASE_POOL_URL: postgres://test:test@localhost:5432/test
       ALLOW_E2E_DB_WRITES: "true"
@@ -114,6 +122,15 @@ jobs:
         run: pnpm exec playwright install-deps chromium
       - name: Prepare test database
         uses: ./.github/actions/test-db
+      # Production build as its own step: visible output and its own timing.
+      # playwright.config.ts's `webServer` then runs `pnpm start` under CI, so
+      # its timeout covers only the ~2s server start, not the build. (Building
+      # inside `webServer` hid the compiler output — Playwright drops the
+      # child's stdout by default — and one slow build read as a bare
+      # "Timed out waiting 300000ms".) The build sees the same job env the
+      # server does; NEXT_PUBLIC_* values are inlined here.
+      - name: Build app (production)
+        run: pnpm build
       - name: Run e2e (chromium)
         run: pnpm test:e2e --project=chromium
       - name: Upload Playwright report

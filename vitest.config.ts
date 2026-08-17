@@ -68,7 +68,11 @@ export default defineConfig({
   test: {
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'lcov', 'html'],
+      // CI's only coverage consumer is `ci:fallow:coverage`, which reads
+      // coverage/coverage-final.json (the `json` reporter). The other three
+      // render ~1,900 files nobody opens in CI (`html` writes a page per file,
+      // `text` prints the whole table into the job log). Locally keep all four.
+      reporter: process.env.CI ? ['json'] : ['text', 'json', 'lcov', 'html'],
       // Write the report even when the run has failures. Vitest defaults this
       // to false, so one red test left `coverage/` absent entirely and every
       // downstream consumer died with "failed to read coverage file" — naming a

@@ -2825,6 +2825,28 @@ is PR count, not pushes per PR (2.5). Fix shipped as one PR; runbook
   second concurrent job fails to bind (hosted never sees this: one VM per job).
   Keep `claude*.yml` on hosted so `CLAUDE_CODE_OAUTH_TOKEN` never reaches the VM;
   `cache-warm.yml` follows the switch (it warms whichever runner CI uses).
+- **[2026-08-17] The Mac runner lasted one day → one runner process = one job
+  at a time, so two PRs' 15 jobs ran in series (~29 min wall clock for ~10 min of
+  compute each) and the VM shared the Mac's cores with local agent sessions
+  (`next build` 35s idle vs 141s under load; e2e 236s vs 465s, the extra being
+  30s `next dev` compile-on-first-hit timeouts that read as "flaky") → managed
+  cloud runners, split by weight: `vars.CI_RUNNER_HEAVY` (Blacksmith 4 vCPU:
+  no floor, 3,000 free min/mo, $0.004/min per 2 vCPU, per-second billing) for
+  lint/test/build/llm-eval/e2e/warm; `vars.CI_RUNNER_LIGHT` (GitHub `ubuntu-latest`)
+  for the four sub-minute jobs GitHub rounds up to a billed minute each
+  (~2,400 min/mo, inside the 3,000 free); legacy `CI_RUNNER` is the fallback so
+  the VM route survives as a rollback. Also measured and fixed on the way:
+  `actions/cache` on a PERSISTENT runner is pure waste (a new PR branch uploaded
+  297 MB Playwright + 183 MB pnpm store — 136s — over files already on disk;
+  cache scope is per branch, only main-saved entries are shared); GitHub's
+  per-job minute rounding made `changes`/`deploy-install`/`fallow`/`react-doctor`
+  cost ~600 min/mo each; ~600 CI-triggering pushes/mo is the biggest lever, so
+  draft PRs now run nothing (`changes`+`lint` gate on `draft == false`, agents
+  `gh pr create --draft` / `gh pr ready`). Vendor math for this workload: Depot
+  ($20 floor + 2,000 min) ≈ $30–60/mo, GitHub-hosted ≈ $54, arm+slim ≈ $38,
+  Blacksmith ≈ $5–15; Depot's edge (Docker layer cache, AWS-adjacent) is
+  irrelevant here — no image builds. 8 vCPU helps only vitest's parallel project;
+  the `integration` project is serial by design and e2e runs 1 worker.
 - **[2026-08-16] Lima `limactl start` hung 10 min on a `docker info` readiness
   probe while Docker was fully healthy → probes and `limactl shell` run over
   Lima's ssh ControlMaster, opened BEFORE provisioning finishes, so the session
