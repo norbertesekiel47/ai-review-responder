@@ -44,7 +44,7 @@
     "Halt during the veto window records owner_veto; halt after sending_started_at records owner_halt — the reason is derived server-side from batch state, never sent by the client",
     "Halt cancels Outreach rows in rendered and queued and deliberately never a row in sending",
     "Second halt is a no-op; halt of an already-closed batch is refused",
-    "Halt of a batch that was never approved is allowed (it is the owner discarding a built batch) and records owner_halt",
+    "Halt of a batch that was never approved is allowed (it is the owner discarding a built batch) and records owner_veto — a veto is 'halt at zero sends' per CONTEXT.md, and no email has left; amended 2026-08-17 (deviation D11) because this entry originally said owner_halt and contradicted tests_to_add's owner_veto property",
     "A batch whose asks were all withheld at generation has no rendered rows: the panel shows the spoilage report and no approve control",
     "Partially-generated batch after generation exhaustion: holes are already withheld/render_failed rows, so the settled predicate is satisfied and approval proceeds over what rendered",
     "Cross-account or cross-location batch id: uniform 404, same exposure as an unknown row",
