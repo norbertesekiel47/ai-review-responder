@@ -6,6 +6,7 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { BatchView } from '@/lib/solicitation/batch-view';
+import { ApprovalPanel } from './ApprovalPanel';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
 import './requests.css';
@@ -48,10 +49,29 @@ const LOADING: Phase = { kind: 'loading' };
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
   const { phase, announcement, retry } = useLatestBatch(currentScope);
+  const [laneMessage, setLaneMessage] = useState('');
 
   const builtBatchId =
     phase.kind === 'ready' && phase.view.state === 'built' ? phase.view.batchId : null;
   useReviewedPing(builtBatchId, currentScope);
+
+  /**
+   * The approval panel writes, then hands the refetch straight back to
+   * `retry()` — the fetch loop stays the single owner of `phase`, so the panel
+   * never has to reconcile a view it just changed.
+   *
+   * Its sentence takes precedence in the live region because it reports
+   * something the owner just DID. It cannot mask the loop's own announcement:
+   * that one fires only on a building → built transition, which cannot follow
+   * an approval of an already-built batch.
+   */
+  const onLaneChanged = useCallback(
+    (message: string) => {
+      setLaneMessage(message);
+      retry();
+    },
+    [retry],
+  );
 
   return (
     <>
@@ -69,14 +89,33 @@ export function RequestsClient() {
         {/* Mounted unconditionally: a live region only announces changes to a
             region already in the DOM, and the building screen it reports on is
             gone by the time there is anything to say. */}
-        <LiveRegion message={announcement} />
-        {currentScope === 'all' ? <ChooseLocation /> : <Screen phase={phase} onRetry={retry} />}
+        <LiveRegion message={laneMessage !== '' ? laneMessage : announcement} />
+        {currentScope === 'all' ? (
+          <ChooseLocation />
+        ) : (
+          <Screen
+            phase={phase}
+            scope={currentScope}
+            onRetry={retry}
+            onLaneChanged={onLaneChanged}
+          />
+        )}
       </div>
     </>
   );
 }
 
-function Screen({ phase, onRetry }: { phase: Phase; onRetry: () => void }) {
+function Screen({
+  phase,
+  scope,
+  onRetry,
+  onLaneChanged,
+}: {
+  phase: Phase;
+  scope: string;
+  onRetry: () => void;
+  onLaneChanged: (message: string) => void;
+}) {
   switch (phase.kind) {
     case 'loading':
       return <LoadingCard />;
@@ -110,16 +149,36 @@ function Screen({ phase, onRetry }: { phase: Phase; onRetry: () => void }) {
           onCheckAgain={onRetry}
         />
       );
-    case 'ready':
-      if (phase.view.state === 'built') return <BatchReport view={phase.view} />;
+    case 'ready': {
+      const { view } = phase;
+      if (view.state === 'built') {
+        return (
+          <>
+            {/* `sendLane === null` IS how the browser learns
+                SOLICITATION_SEND_ENABLED is off (invariant #13) — there is no
+                NEXT_PUBLIC companion, so the absence of the lane is the flag. */}
+            {view.sendLane !== null && (
+              <ApprovalPanel
+                batchId={view.batchId}
+                sendLane={view.sendLane}
+                attempts={view.attempts}
+                scope={scope}
+                onChanged={onLaneChanged}
+              />
+            )}
+            <BatchReport view={view} />
+          </>
+        );
+      }
       return (
         <GhostPipeline
           // A built batch with queued 0 is NOT this screen: it asked for
           // nobody, which is a result, not an absence.
-          mode={phase.view.state}
-          contactsOnFile={phase.view.contactsOnFile}
+          mode={view.state}
+          contactsOnFile={view.contactsOnFile}
         />
       );
+    }
   }
 }
 
