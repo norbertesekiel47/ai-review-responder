@@ -31,13 +31,14 @@
  * and disclaimer — never as cards. Cards are what this section uses for
  * committed work, and the difference is the whole honesty mechanism.
  *
- * ── The front of a flip card is now load-bearing ──────────────────────────
- * The committed items became flip cards, so the body copy — and with it every
- * "will" that marks these as unbuilt — is hidden until the visitor interacts.
- * A skim now sees four names and nothing else, which reads as four features.
- * `CARD_TAG` is what stops that: every card front carries it, so the roadmap
- * status survives without the body being read. Do not remove it, and do not
- * move the "not available yet" disclaimer off the tier header.
+ * ── The card tag is load-bearing ──────────────────────────────────────────
+ * Every card carries `CARD_TAG` beside its name, so the roadmap status
+ * survives a skim that never reaches the body. (Until 2026-08-16 the cards
+ * flipped and the body — where every "will" lives — was hidden until the
+ * visitor interacted, which made the tag the ONLY status marker a skim saw.
+ * The body is on the card now; the tag stays because a skim still reads names
+ * before paragraphs.) Do not remove it, and do not move the "not available
+ * yet" disclaimer off the tier header.
  *
  * Nothing in this file may use present tense. Every committed item is "will",
  * and the section is labelled as future at three separate levels: the eyebrow,
@@ -97,12 +98,8 @@ export const LEAD_IN =
 export const COMMITTED_LABEL = 'Committed direction';
 export const COMMITTED_NOTE = 'Not available yet. This is what the fleet grows into next.';
 
-/** Tells the visitor the cards have a back. Without it the bodies are only
- *  found by accident, and on touch not at all. */
-export const COMMITTED_HINT = 'Hover or tap a card';
-
-/** Per-card roadmap marker. See the note above on why the card front cannot
- *  rely on the body copy to carry this. */
+/** Per-card roadmap marker. See the note above on why the card cannot rely on
+ *  the body copy alone to carry this. */
 export const CARD_TAG = 'Planned';
 
 /**

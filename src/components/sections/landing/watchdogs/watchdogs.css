@@ -18,11 +18,11 @@
   --rw-lp-watch-accent: #a9c6c0;
 
   position: relative;
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  /* As tall as its content plus the page's section rhythm — never bound to
+     the viewport (2026-08-16; docs/design/landing/measurements.md §2). */
+  padding: var(--rw-lp-section-gap, 6rem) 0;
   background:
     radial-gradient(ellipse 70% 55% at 50% 0%, rgba(169, 198, 192, 0.07), transparent 70%),
     #17251f;
@@ -46,12 +46,13 @@
   margin-bottom: clamp(1.25rem, 3vh, 2.25rem);
 }
 
+/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
 .rw-lp-watch-eyebrow {
   margin: 0 0 1.125rem;
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.6875rem;
-  letter-spacing: 0.28em;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   color: var(--rw-lp-watch-accent);
 }
@@ -137,10 +138,11 @@
    channel reading reports ~15:1 for text that is actually at 3.45. */
 .rw-lp-watch-tier-label {
   margin: 0 0 clamp(0.5rem, 1.2vh, 0.875rem);
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.625rem;
-  letter-spacing: 0.24em;
+  /* Same label role as the eyebrow (mono, 12px), one alpha step quieter. */
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   text-align: center;
   color: rgb(var(--rw-lp-text-rgb) / 0.55);
