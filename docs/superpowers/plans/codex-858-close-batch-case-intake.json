@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "high",
+  "risk_reasons": [
+    "The change controls durable Send batch parent terminalization and its exactly-once close receipt."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "A Settled batch closes its Send batch parent for every valid UUID casing accepted at an input boundary.",
+  "non_goals": [
+    "Change approval or halt semantics.",
+    "Remove boundary canonicalization already present in approveBatch and haltBatch.",
+    "Implement the #630 releaser or send worker."
+  ],
+  "user_visible_behavior": [
+    "A mixed-case batch id cannot strand an otherwise Settled batch with a running Send batch parent."
+  ],
+  "invariants": [
+    "closeBatchIfSettled remains the single owner of batch closure.",
+    "The Send batch parent and close step terminalize exactly once behind the winning batch CAS.",
+    "Canonical lowercase callers retain identical behavior.",
+    "Malformed UUIDs retain the existing database rejection behavior."
+  ],
+  "edge_cases": [
+    "Uppercase and mixed-case UUIDs resolve the same batch and Send batch parent as lowercase UUIDs.",
+    "A second close attempt writes no duplicate close step.",
+    "Existing HTTP callers remain protected by their entry-point canonicalization."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/solicitation/approval.ts canonicalizes request-supplied batch ids once at each verb entry point.",
+    "src/lib/solicitation/outreach.ts owns Settled batch closure and parent terminalization.",
+    "src/lib/solicitation/__tests__/outreach-close.integration.test.ts verifies closure through the public transaction seam."
+  ],
+  "test_seams": [
+    "closeBatchIfSettled invoked in a live database transaction with a mixed-case batch id."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/outreach.ts",
+    "src/lib/solicitation/__tests__/outreach-close.integration.test.ts"
+  ],
+  "tests_to_add": [
+    "closes the Send batch parent when the batch id uses mixed case"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/lib/solicitation/__tests__/outreach-close.integration.test.ts",
+    "pnpm ci:tenant-scope"
+  ],
+  "estimated_prod_lines": 8,
+  "estimated_test_lines": 45,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the single callee-local canonicalization and its regression test; no schema, data repair, flag change, or remote operation is involved.",
+  "observability": [
+    "The existing Send batch close step and parent terminal state remain the durable success signals."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "merge"
+  ],
+  "open_questions": []
+}

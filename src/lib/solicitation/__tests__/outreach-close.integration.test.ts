@@ -91,6 +91,7 @@ async function seedContact(uploadId: string): Promise<string> {
 }
 
 interface BatchInput {
+  batchId?: string;
   /** Interval strings off NOW(), e.g. '1 hour' / '8 days'. NULL when omitted. */
   builtAgo?: string;
   approvedAgo?: string;
@@ -118,7 +119,7 @@ interface SeededBatch {
  */
 async function seedBatch(input: BatchInput = {}): Promise<SeededBatch> {
   const uploadId = await seedUpload();
-  const batchId = randomUUID();
+  const batchId = input.batchId ?? randomUUID();
   const haltedBy =
     input.haltReason === 'owner_veto'
     || input.haltReason === 'owner_halt'
@@ -514,6 +515,36 @@ describeWithDb(
         unknown: 1,
         withheld_by_reason: { suppressed: 1, unsubscribed: 1 },
       });
+    });
+
+    it('closes the Send batch parent when the batch id uses mixed case', async () => {
+      const { batchId, uploadId } = await seedBatch({
+        batchId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        builtAgo: '2 hours',
+        approvedAgo: '1 hour',
+        approvalMethod: 'auto_policy',
+        sendingStartedAgo: '30 minutes',
+      });
+      const parentRunId = await seedSendParent({ batchId });
+      await seedOutreach({ batchId, uploadId, deliveryStatus: 'sent' });
+      let uppercaseNext = true;
+      const mixedCaseBatchId = batchId.replace(/[a-f]/g, (character) => {
+        const replacement = uppercaseNext ? character.toUpperCase() : character;
+        uppercaseNext = !uppercaseNext;
+        return replacement;
+      });
+
+      const result = await close(mixedCaseBatchId);
+
+      expect(result).toMatchObject({
+        status: 'closed',
+        parentRunId,
+        disposition: 'exhausted',
+        parentStatus: 'completed',
+      });
+      expect(await readRunStatus(parentRunId)).toBe('completed');
+      expect((await readBatchClosure(batchId)).send_closed_at).not.toBeNull();
+      expect(await readCloseSteps(parentRunId)).toHaveLength(1);
     });
 
     it('closeBatchIfSettled maps the halted disposition to a cancelled parent run', async () => {

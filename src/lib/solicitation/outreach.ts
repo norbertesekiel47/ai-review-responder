@@ -318,6 +318,7 @@ export async function closeBatchIfSettled(
   tx: TransactionSql,
   input: CloseBatchIfSettledInput,
 ): Promise<CloseBatchIfSettledResult> {
+  const batchId = input.batchId.toLowerCase();
   const [batch] = await tx<BatchClosureRow[]>`
     SELECT
       halted_at IS NOT NULL AS halted,
@@ -327,14 +328,14 @@ export async function closeBatchIfSettled(
         AND built_at <= NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
       ) AS approval_window_elapsed
     FROM solicitation_batches
-    WHERE id = ${input.batchId}::uuid
+    WHERE id = ${batchId}::uuid
       AND account_id = ${input.accountId}::uuid
       AND business_id = ${input.businessId}::uuid
     FOR UPDATE
   `;
   if (!batch) {
     throw new Error(
-      `closeBatchIfSettled: batch ${input.batchId} not found for its account and business`,
+      `closeBatchIfSettled: batch ${batchId} not found for its account and business`,
     );
   }
 
@@ -349,12 +350,12 @@ export async function closeBatchIfSettled(
   const tallyRows = await tx<OutreachTallyRow[]>`
     SELECT delivery_status, disposition_reason, COUNT(*)::int AS total
     FROM solicitation_outreach
-    WHERE batch_id = ${input.batchId}::uuid
+    WHERE batch_id = ${batchId}::uuid
       AND account_id = ${input.accountId}::uuid
       AND business_id = ${input.businessId}::uuid
     GROUP BY delivery_status, disposition_reason
   `;
-  const { liveCount, counts } = tallyOutreach(tallyRows, input.batchId);
+  const { liveCount, counts } = tallyOutreach(tallyRows, batchId);
   if (liveCount > 0) return { status: 'not_settled', liveCount };
 
   // subject_id is TEXT (migration 071) — a polymorphic subject key, not a uuid
@@ -365,7 +366,7 @@ export async function closeBatchIfSettled(
     FROM agent_runs
     WHERE kind = 'solicitation_send_batch'
       AND subject_type = 'solicitation_batch'
-      AND subject_id = ${input.batchId}
+      AND subject_id = ${batchId}
       AND account_id = ${input.accountId}::uuid
       AND business_id = ${input.businessId}::uuid
     ORDER BY started_at DESC
@@ -385,7 +386,7 @@ export async function closeBatchIfSettled(
     const closedParentless = await tx<{ id: string }[]>`
       UPDATE solicitation_batches
       SET send_closed_at = NOW()
-      WHERE id = ${input.batchId}::uuid
+      WHERE id = ${batchId}::uuid
         AND account_id = ${input.accountId}::uuid
         AND business_id = ${input.businessId}::uuid
         AND send_closed_at IS NULL
@@ -402,7 +403,7 @@ export async function closeBatchIfSettled(
   const closed = await tx<{ id: string }[]>`
     UPDATE solicitation_batches
     SET send_closed_at = NOW()
-    WHERE id = ${input.batchId}::uuid
+    WHERE id = ${batchId}::uuid
       AND account_id = ${input.accountId}::uuid
       AND business_id = ${input.businessId}::uuid
       AND send_closed_at IS NULL
