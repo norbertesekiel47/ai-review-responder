@@ -106,7 +106,15 @@ Add a sibling `describe` after `describe('haltBatch', …)`:
     it.todo('refuses a regenerate for an ask whose current attempt is withheld');
     it.todo('returns already_in_flight when a generation is already in flight for the batch');
     it.todo('refuses a regenerate for a batch belonging to another tenant');
+    it.todo('rolls back the regeneration outbox row when recording ask_regeneration_requested fails');
+    it.todo('does not deadlock when a worker completion races a second regeneration request');
   });
+```
+
+And in `src/lib/solicitation/__tests__/ask-generation.integration.test.ts` (the file exists):
+
+```ts
+  it.todo('keeps approved outreach bytes unchanged when approval races the real regeneration swap');
 ```
 
 - [ ] **Step 3: Add the two `tracker.test.ts` titles as `it.todo`**
@@ -115,6 +123,7 @@ Add a sibling `describe` after `describe('haltBatch', …)`:
 describe('peekAskRegenBudgetBatch', () => {
   it.todo('peekAskRegenBudgetBatch reads the ask-keyed counter and never the review-keyed one');
   it.todo('peekAskRegenBudgetBatch resolves to an empty map when Redis is unavailable');
+  it.todo('peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously');
 });
 ```
 
@@ -136,6 +145,8 @@ describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
   it.todo('POST regenerate answers 409 when a regeneration is already in flight for the batch');
   it.todo('POST regenerate answers 404 when the body carries no valid ask id');
   it.todo('POST regenerate is refused when SOLICITATION_SEND_ENABLED is off');
+  it.todo('POST regenerate answers 404 for an over-budget ask belonging to another tenant');
+  it.todo('POST regenerate enqueues when the ask budget map has no entry');
 });
 ```
 
@@ -151,11 +162,13 @@ describe('regenerate control', () => {
   it.todo('renders no regenerate counter when the budget is unknown');
   it.todo('disables approve and every regenerate control while a regeneration is in flight');
   it.todo('reports that nothing changed when a regeneration settles without a new attempt');
-  it.todo('drops a stale exclusion when a regenerated ask replaces its outreach id');
+  it.todo('keeps an ask excluded when a regeneration replaces its outreach id');
+  it.todo('shows the daily rewrite limit when a regenerate POST is refused 429');
+  it.todo('reports a settled regeneration that completed before the first refetch');
   it.todo('says the owner may ask for a new version but may not write one');
 
   describe('invariants', () => {
-    it.todo('property: pruning an exclusion set never keeps an id absent from the sendable rows');
+    it.todo('property: every excluded ask resolves to a live outreach id or drops out of the payload');
   });
 });
 ```
@@ -549,36 +562,32 @@ const ASK_REGEN_LIMIT_MESSAGE =
   'Daily rewrite limit reached for this message — you can try again tomorrow.';
 
 /**
- * Returns a 429 `regen_limit_reached` NextResponse when this ask has used its
- * per-ask daily cap, or null when a regenerate may proceed. Call BEFORE
- * enqueueing, so the owner gets synchronous feedback instead of a spinner that
- * ends with unchanged copy.
+ * The 429 an exhausted per-ask budget answers with — a RESPONSE BUILDER, not an
+ * enforcer, and the difference is load-bearing.
  *
- * Same contract as `enforceRegenBudgetForReview`, and the same single fail-open
- * path: an ABSENT MAP ENTRY means the MGET failed and the regenerate proceeds;
- * an absent Redis KEY is a different fact and still yields `{ used: 0 }`.
+ * Its review-lane sibling `enforceRegenBudgetForReview` peeks AND decides AND
+ * shapes, which is safe there because a review id is scoped by the surrounding
+ * route before it is ever reached. An ASK id is not: the counter is keyed on
+ * the bare id, so a peek-and-refuse before tenant validation lets an
+ * authenticated owner tell a foreign ask from an unknown one (codex round 1,
+ * finding 4). So the ask lane splits the three jobs — the route PEEKS,
+ * `requestAskRegeneration` DECIDES after it has proven ownership, and this
+ * shapes. Do not "unify" it with the review door.
  */
-export async function enforceAskRegenBudget(
-  askId: string,
-): Promise<NextResponse | null> {
-  const status = (await peekAskRegenBudgetBatch([askId])).get(askId);
-  if (status === undefined || status.remaining > 0) {
-    return null;
-  }
-
+export function askRegenLimitResponse(limit: number): NextResponse {
   return NextResponse.json(
     {
       error: 'regen_limit_reached',
       message: ASK_REGEN_LIMIT_MESSAGE,
       remaining: 0,
-      limit: status.limit,
+      limit,
     },
     { status: 429, headers: NO_STORE_HEADERS },
   );
 }
 ```
 
-Add `peekAskRegenBudgetBatch` to the existing `@/lib/costs/tracker` import.
+This file needs no new `@/lib/costs/tracker` import — it no longer peeks. `MAX_REGEN_PER_SUBJECT_PER_DAY` reaches the copy through the caller's `limit` argument.
 
 - [ ] **Step 4: Add `mget` to the test's Redis mock**
 
@@ -741,7 +750,22 @@ export type RequestAskRegenerationResult =
   /** The ask's current attempt is not `rendered` — a `withheld` row is terminal
    *  (§8.2 r6) and a released one is never superseded. */
   | { status: 'ask_not_regenerable'; deliveryStatus: string }
+  /** The ask has spent its 3/day budget. Decided HERE rather than in the route
+   *  so it lands AFTER tenant validation: the counter is keyed on the bare ask
+   *  id, so answering 429 before proving ownership would let an authenticated
+   *  owner tell a foreign ask from an unknown one (codex round 1, finding 4). */
+  | { status: 'budget_exhausted' }
   | { status: 'not_found' };
+
+/** Control-flow sentinel: aborts the request tx, rolling back the outbox row
+ *  the enqueue-first lock order forces us to write before validating. Mirrors
+ *  `RegenSwapAbort` in ask-generation.ts, which exists for the same reason. */
+class RegenRequestAbort extends Error {
+  constructor(public readonly result: RequestAskRegenerationResult) {
+    super('ask regeneration request aborted');
+    this.name = 'RegenRequestAbort';
+  }
+}
 
 /**
  * The owner asking for one new draft — **Ask regeneration**'s request half.
@@ -752,31 +776,58 @@ export type RequestAskRegenerationResult =
  * ADVISORY — the worker re-checks every one of them under its own locks, which
  * is the only reason a refusal here can be cheap.
  *
- * LOCK ORDER (amendment B11), matching `regenerateAsk`'s swap exactly:
- * advisory batch lock -> `solicitation_batches` row -> `solicitation_outreach`
- * row -> `agent_runs` (taken by `recordStep`). Do not move the outreach lock
- * below the spine call; the swap holds them in this order and an inversion here
- * is an ABBA deadlock against the very worker this enqueues.
+ * LOCK ORDER: `job_outbox` row -> advisory batch lock -> `solicitation_batches`
+ * row -> `solicitation_outreach` row -> `agent_runs` (taken by `recordStep`).
  *
- * VALIDATE BEFORE MUTATE, like `approveBatch`: postgres.js COMMITS when the
- * `sql.begin` callback resolves, so every refusal must return before the
- * enqueue. It does — the enqueue is the first write in the function.
+ * The FIRST element is the one amendment B11 does not mention and the one that
+ * matters here. `regenerateAsk`'s swap opens with `markOutboxCompletedIfOwned`
+ * — a row lock on `job_outbox` — and only THEN calls
+ * `acquireSolicitationBatchLock`. So B11's stated "advisory first, then row
+ * locks" is INCOMPLETE for any writer that owns an outbox attempt, and a
+ * request path that took the advisory lock first would deadlock against the
+ * worker it is enqueueing for: the worker would hold the outbox row and wait
+ * for the advisory lock, while this transaction held the advisory lock and
+ * waited for that outbox row (the `ON CONFLICT` uniqueness probe blocks on the
+ * worker's uncommitted status change, which removes the row from the partial
+ * index). Postgres would break it with a 40P01 on one side at random.
+ *
+ * Hence enqueue-first. Do not "tidy" this back into validate-first.
+ *
+ * VALIDATE AFTER MUTATE, and therefore ABORT BY THROWING. postgres.js COMMITS
+ * when the `sql.begin` callback resolves, so a refusal reached by a normal
+ * `return` after the enqueue would COMMIT the outbox row and start a
+ * regeneration this function just refused. Every refusal below therefore throws
+ * `RegenRequestAbort`, which rolls the row back; the catch maps it to the
+ * result. This is the same shape, for the same reason, as `RegenSwapAbort`.
  */
 export async function requestAskRegeneration(
   sql: Sql,
   input: RequestAskRegenerationInput,
 ): Promise<RequestAskRegenerationResult> {
   const batchId = canonicalBatchId(input.batchId);
-  return sql.begin(async (tx): Promise<RequestAskRegenerationResult> => {
+  try {
+    return await sql.begin(async (tx): Promise<RequestAskRegenerationResult> => {
+    // FIRST, before any other lock: the outbox row. See LOCK ORDER above.
+    // `null` is the dedup arm, and it is the ONE refusal that may still return
+    // normally rather than throw, because DO NOTHING wrote nothing.
+    const outboxId = await enqueueGenerateSolicitationAsks(tx, {
+      batchId,
+      businessId: input.businessId,
+      askId: input.askId,
+    });
+    if (outboxId === null) return { status: 'already_in_flight' };
+
     const batch = await lockBatchForAction(tx, {
       batchId,
       accountId: input.accountId,
       businessId: input.businessId,
     });
-    if (batch === null) return { status: 'not_found' };
+    if (batch === null) throw new RegenRequestAbort({ status: 'not_found' });
 
     const state = deriveBatchState(batch, new Date());
-    if (state !== 'built') return { status: 'not_regenerable', state };
+    if (state !== 'built') {
+      throw new RegenRequestAbort({ status: 'not_regenerable', state });
+    }
 
     // The ask's live attempt, locked for the duration. Ordered by attempt_no
     // DESC and excluding `cancelled` for the same reason `loadCurrentOutreach`
@@ -796,9 +847,21 @@ export async function requestAskRegeneration(
     `;
     // An ask id from another batch or another tenant produces no row and is
     // indistinguishable from an unknown one — the uniform 404.
-    if (current === undefined) return { status: 'not_found' };
+    if (current === undefined) throw new RegenRequestAbort({ status: 'not_found' });
     if (current.delivery_status !== 'rendered') {
-      return { status: 'ask_not_regenerable', deliveryStatus: current.delivery_status };
+      throw new RegenRequestAbort({
+        status: 'ask_not_regenerable',
+        deliveryStatus: current.delivery_status,
+      });
+    }
+
+    // Budget LAST among the refusals, because it is the only one keyed on a
+    // bare ask id: every check above has already proven this ask is ours, so
+    // reaching this line leaks nothing. `null` means the advisory peek could
+    // not answer (Redis down) and the request proceeds — the worker's Lua INCR
+    // is the authoritative gate and is itself retryable.
+    if (input.budgetRemaining !== null && input.budgetRemaining <= 0) {
+      throw new RegenRequestAbort({ status: 'budget_exhausted' });
     }
 
     // ASSERT, do not branch: a live rendered row exists only because generation
@@ -812,15 +875,6 @@ export async function requestAskRegeneration(
       );
     }
 
-    const outboxId = await enqueueGenerateSolicitationAsks(tx, {
-      batchId,
-      businessId: input.businessId,
-      askId: input.askId,
-    });
-    // `null` is the dedup arm — an in-flight row already exists and DO NOTHING
-    // fired, so nothing has been written and returning here commits nothing.
-    if (outboxId === null) return { status: 'already_in_flight' };
-
     await recordStep(tx, {
       runId: batch.send_parent_run_id,
       stepKey: 'ask_regeneration_requested',
@@ -832,8 +886,25 @@ export async function requestAskRegeneration(
     });
 
     return { status: 'accepted' };
-  });
+    });
+  } catch (err) {
+    // The sentinel is the ONE owner of why the request was refused. Every other
+    // error — including the missing-send-parent assertion above — propagates,
+    // because those are broken invariants, not owner-causable outcomes.
+    if (err instanceof RegenRequestAbort) return err.result;
+    throw err;
+  }
 }
+```
+
+Add `budgetRemaining` to the input interface, above `requestedByUserId`:
+
+```ts
+  /** Regenerations left for this ask today, or `null` when the advisory peek
+   *  could not answer. The ROUTE reads it (Redis belongs to the composition
+   *  root, not a domain module) but this function DECIDES on it, so the
+   *  decision lands after tenant validation. */
+  budgetRemaining: number | null;
 ```
 
 - [ ] **Step 5: Create the route**
@@ -861,9 +932,10 @@ import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { isValidUuid } from '@/lib/shared/ids';
 import {
-  enforceAskRegenBudget,
+  askRegenLimitResponse,
   enforceDashboardRegenRateLimit,
 } from '@/lib/shared/dashboard-regen-rate-limit';
+import { peekAskRegenBudgetBatch } from '@/lib/costs/tracker';
 import {
   requestAskRegeneration,
   type RequestAskRegenerationResult,
@@ -923,8 +995,12 @@ export const POST = withSameOrigin()(
       const limited = await enforceDashboardRegenRateLimit(accountId);
       if (limited) return limited;
 
-      const capped = await enforceAskRegenBudget(input.askId);
-      if (capped) return capped;
+      // PEEK only. The refusal belongs to the domain call below, which decides
+      // it after proving the ask is this tenant's — see `askRegenLimitResponse`.
+      // An absent entry is UNKNOWN (Redis down) and travels as `null`, which
+      // the domain reads as "proceed"; an absent Redis KEY is a different fact
+      // and arrives as `{ used: 0, remaining: 3 }`.
+      const budget = (await peekAskRegenBudgetBatch([input.askId])).get(input.askId);
 
       const result = await requestAskRegeneration(sql, {
         batchId: input.batchId,
@@ -932,6 +1008,7 @@ export const POST = withSameOrigin()(
         accountId,
         businessId: locationId,
         requestedByUserId: actorUserId,
+        budgetRemaining: budget?.remaining ?? null,
       });
 
       // Ids and statuses only — no rendered subject or body is ever
@@ -954,6 +1031,18 @@ export const POST = withSameOrigin()(
         case 'not_regenerable':
         case 'ask_not_regenerable':
           return jsonResponse(wire, 409);
+        case 'budget_exhausted': {
+          // ASSERT, do not fall back: the domain returns this arm only when
+          // `budgetRemaining` was non-null, which required the peek to have
+          // answered — so an undefined `budget` here is a broken invariant, not
+          // a case needing an invented default limit.
+          if (budget === undefined) {
+            throw new Error(
+              'regenerate route: budget_exhausted without a peeked budget',
+            );
+          }
+          return askRegenLimitResponse(budget.limit);
+        }
         case 'not_found':
           return errorResponse('Not found', 404);
       }
@@ -1509,43 +1598,75 @@ function RegenerateControl({
 
 `toRows` stays the single choke point — redacted attempts are still dropped before this line, so no held ask can acquire a control.
 
-- [ ] **Step 4: Add the exclusion-pruning effect**
+- [ ] **Step 4: Re-key the exclusion set from `outreachId` to `askId`**
 
-In `ApprovalPanel`, after `sendable` is computed:
+> **Supersedes the pruning approach this plan carried at round 1.** Pruning stopped the crash but produced a worse bug: the deselection silently vanished and the contact was re-selected, so a regenerate — or another tab's regenerate — could send a message the owner had explicitly deselected. Codex round 1, finding 6. Keying on the **ask** removes the problem rather than cleaning up after it: an ask's identity survives a regeneration; only its outreach row's identity does not.
+
+Change the state to hold ask ids:
 
 ```tsx
-  /**
-   * Drop exclusions whose outreach row no longer exists.
-   *
-   * NOT defensive tidying: a regeneration supersedes the live row and inserts
-   * its replacement at a NEW `outreachId`, so an id the owner deselected before
-   * a rewrite is gone after it. `approveBatch` validates the exclusion list
-   * fail-closed — one unknown id refuses the WHOLE approval `unknown_exclusion`
-   * — so a stale id here does not lose one deselection, it blocks the batch.
-   * A halt or an exclusion committed in another tab reaches this the same way.
-   */
-  useEffect(() => {
-    setExcluded((current) => pruneExclusions(current, sendable));
-  }, [sendable]);
+  const [excludedAsks, setExcludedAsks] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
 ```
 
-with the pure helper exported for its property test:
+`toggleExclusion` and `includedCount` take `row.askId`. `SelectableAskList` receives `excluded={excludedAsks}` and checks `excluded.has(row.askId)`.
+
+The approve POST still needs **outreach** ids — that is what `approveBatch` validates — so map at submit time, from the rows currently on screen:
 
 ```ts
-/** Exported for the invariant test — the alternative is asserting this through
- *  a full render plus a refetch, which tests the harness. */
-export function pruneExclusions(
-  current: ReadonlySet<string>,
+/**
+ * The approve payload: the CURRENT outreach id of every deselected ask.
+ *
+ * The exclusion set is keyed on `askId` because that identity survives a
+ * regeneration and an outreach id does not — a re-roll supersedes the row and
+ * inserts a replacement under a new id. Resolving to outreach ids HERE, from
+ * the rows this render is showing, means a regenerated ask stays excluded
+ * under its new row instead of silently returning to the send list.
+ *
+ * An ask with no live row contributes nothing: there is no row left to cancel,
+ * and sending a dead id would fail the whole approval `unknown_exclusion`.
+ */
+function excludedOutreachIds(
   rows: readonly AskRowView[],
-): ReadonlySet<string> {
-  const live = new Set(rows.map((row) => row.outreachId));
-  const next = new Set([...current].filter((id) => live.has(id)));
-  // Returning the SAME reference when nothing changed keeps the effect above
-  // from looping: setState with an identical value still re-renders once, and a
-  // fresh Set every time would make that permanent.
-  return next.size === current.size ? current : next;
+  excludedAsks: ReadonlySet<string>,
+): string[] {
+  return rows
+    .filter((row) => excludedAsks.has(row.askId))
+    .map((row) => row.outreachId);
 }
 ```
+
+No pruning effect is needed and none should be added: a stale ask id resolves to no row and drops out of the payload by construction.
+
+Export `excludedOutreachIds` for its property test — asserting it through a full render plus a refetch would test the harness instead of the rule.
+
+There is **no `useEffect`** in this step. The round-1 plan had one, to prune the set after every refetch; re-keying on `askId` deletes the need for it, and re-adding one would reintroduce the silent-re-selection bug it existed to paper over.
+
+- [ ] **Step 4c: Teach `postLaneAction` that 429 is a refusal**
+
+`postLaneAction` treats only 400 and 409 as refusals carrying a discriminant; everything else becomes `unconfirmed`. The regenerate route deliberately answers **429**, so without this the owner reads "We could not confirm whether that went through" for a request the server definitively refused — the one outcome the `unconfirmed` copy exists NOT to describe (codex round 1, finding 7).
+
+```ts
+    // 400, 409 and 429 are the refusals that carry a body worth reading. 429 is
+    // the ask-regenerate budget arm; it is a DEFINITE refusal, so it must not
+    // fall through to `unconfirmed`, whose whole purpose is to admit that the
+    // write may have committed.
+    if (response.ok || [400, 409, 429].includes(response.status)) {
+```
+
+The 429 body is `{ error, message, remaining, limit }` — it carries no `status`, so `toLaneStatus` yields `null` and the generic copy would apply. Read `message` when present so the owner sees the daily-limit sentence the server wrote:
+
+```ts
+      const result = (await response.json()) as { status?: unknown; message?: unknown };
+      const status = toLaneStatus(result.status);
+      const message = typeof result.message === 'string' ? result.message : null;
+      return response.ok
+        ? { kind: 'done', status }
+        : { kind: 'refused', status, message };
+```
+
+`refusalCopy` prefers that server message over its own table when one is present.
 
 - [ ] **Step 5: Add the regenerate write**
 
@@ -1568,7 +1689,19 @@ Add the four new arms to `LANE_REFUSAL_COPY` (tsc will demand them):
     'This batch has been approved, so its messages can no longer be changed. Stop the batch if you need to.',
   ask_not_regenerable:
     'This message cannot be rewritten. Nothing changed.',
+  // Reached only if the 429 body ever loses its `message`; the server's own
+  // sentence wins when present (Step 4c).
+  budget_exhausted:
+    'Daily rewrite limit reached for this message — you can try again tomorrow.',
 ```
+
+**Mechanical completeness for this step** (codex round 1, secondary finding — the round-1 plan named the hook changes but not the wiring):
+
+- `const REGENERATE_PATH = '/api/dashboard/solicitation/batch/regenerate';` beside `APPROVE_PATH` / `HALT_PATH`.
+- `useRef` added to the `react` import; `const pendingRegen = useRef<{ askId: string; attemptNo: number } | null>(null);` in `ApprovalPanel`, set at click time from the row being regenerated and cleared by Step 6's effect.
+- `LaneWrites` gains `regenerate: (askId: string) => void`; `useLaneWrites` returns it; `ApprovalPanel` destructures it.
+- `SelectableAskList` receives `onRegenerate={regenerate}`, `regenBudgets={sendLane.regenBudgets}` and `regeneratingAskId={sendLane.regeneratingAskId}`.
+- `LaneOutcome`'s `refused` arm gains `message: string | null` (Step 4c).
 
 Add to `useLaneWrites`, alongside `approve` and `halt`:
 
@@ -1732,18 +1865,27 @@ Replace the todos. Representative shapes — the panel is rendered directly, as 
     expect(screen.getByRole('button', { name: /Ana/ })).toHaveTextContent('Rewriting…');
   });
 
-  it('drops a stale exclusion when a regenerated ask replaces its outreach id', () => {
+  it('keeps an ask excluded when a regeneration replaces its outreach id', async () => {
     const { rerender } = render(<ApprovalPanel {...props({ attempts: [rendered('1', 'Ana'), rendered('2', 'Bo')] })} />);
     fireEvent.click(screen.getByRole('checkbox', { name: /Send to Ana/ }));
     expect(screen.getByRole('button', { name: /Approve and send 1 message/ })).toBeInTheDocument();
 
-    // The refetch after a regeneration: Ana's attempt is attempt 2 with a NEW
-    // outreachId. A surviving stale id would refuse the whole approval
-    // `unknown_exclusion`, so it must be dropped and Ana re-counted.
+    // The refetch after a regeneration (this tab's or another's): Ana's ask now
+    // carries attempt 2 under a NEW outreachId. Keying the exclusion on askId
+    // is what keeps her deselected — the round-1 pruning approach dropped the
+    // stale id and silently re-selected her, which would have SENT a message
+    // the owner explicitly deselected.
     const regenerated = { ...rendered('9', 'Ana'), askId: 'ask-1', attemptNo: 2 };
     rerender(<ApprovalPanel {...props({ attempts: [regenerated, rendered('2', 'Bo')] })} />);
 
-    expect(screen.getByRole('button', { name: /Approve and send 2 messages/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Approve and send 1 message/ })).toBeInTheDocument();
+
+    // And the payload carries her NEW outreach id, not the superseded one —
+    // otherwise `approveBatch` refuses the whole approval `unknown_exclusion`.
+    fireEvent.click(screen.getByRole('button', { name: /Approve and send 1 message/ }));
+    await screen.findByRole('button', { name: /Approving/ });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.excludedOutreachIds).toEqual([regenerated.outreachId]);
   });
 
   it('says the owner may ask for a new version but may not write one', () => {
@@ -1756,20 +1898,32 @@ Replace the todos. Representative shapes — the panel is rendered directly, as 
   });
 
   describe('invariants', () => {
-    it('property: pruning an exclusion set never keeps an id absent from the sendable rows', () => {
+    it('property: every excluded ask resolves to a live outreach id or drops out of the payload', () => {
       fc.assert(
         fc.property(
           fc.array(fc.uuid()),
-          fc.array(fc.uuid()),
-          (excludedIds, liveIds) => {
-            const rows = liveIds.map((id) => ({ ...rendered('1', 'Ana'), outreachId: id }));
-            const pruned = pruneExclusions(new Set(excludedIds), rows);
+          fc.array(fc.tuple(fc.uuid(), fc.uuid())),
+          (excludedAskIds, livePairs) => {
+            const rows = livePairs.map(([askId, outreachId]) => ({
+              ...rendered('1', 'Ana'),
+              askId,
+              outreachId,
+            }));
+            const payload = excludedOutreachIds(rows, new Set(excludedAskIds));
 
-            for (const id of pruned) expect(liveIds).toContain(id);
-            // And nothing live was dropped: pruning removes, never filters down
-            // an owner's live deselections.
-            for (const id of excludedIds) {
-              if (liveIds.includes(id)) expect(pruned.has(id)).toBe(true);
+            // Every id in the payload is a LIVE outreach id — this is the half
+            // that keeps `approveBatch` from refusing the whole approval
+            // `unknown_exclusion`.
+            const liveOutreachIds = rows.map((row) => row.outreachId);
+            for (const id of payload) expect(liveOutreachIds).toContain(id);
+
+            // And every deselected ask that still HAS a live row is in the
+            // payload — the half pruning got wrong: an ask must never be
+            // silently re-selected just because its row was replaced.
+            for (const row of rows) {
+              if (excludedAskIds.includes(row.askId)) {
+                expect(payload).toContain(row.outreachId);
+              }
             }
           },
         ),
@@ -1780,7 +1934,9 @@ Replace the todos. Representative shapes — the panel is rendered directly, as 
 
 Write `'reports that nothing changed when a regeneration settles without a new attempt'` by rerendering with `regeneratingAskId` back to `null` and the SAME `attemptNo`, asserting `onChanged` received the "could not write a new version" sentence; and rerendering with an incremented `attemptNo`, asserting it did not.
 
-Add a `props()` helper if the file does not have one, so these eleven do not each spell the full prop set.
+Write `'keeps an ask excluded when a regeneration replaces its outreach id'` (round 1, finding 6) by deselecting an ask, rerendering with that ask carrying a NEW `outreachId` and `attemptNo: 2` — the shape another tab's regeneration produces — and asserting the approve label still counts it as excluded, then that the POST body carries the NEW outreach id.
+
+Add a `props()` helper if the file does not have one, so these tests do not each spell the full prop set.
 
 - [ ] **Step 12: Run and commit**
 
@@ -1804,6 +1960,30 @@ Expected: PASS, 0 todo repo-wide.
 
 **Spec coverage.** Issue #860 asks for three things: the route + owner affordance (Tasks 4, 6), the 3/day budget UI (Tasks 3, 5, 6), and the (a)/(b) decision with tests pinning it (Task 2, plus the property test). The glossary update it names is Task 2, Step 9. All four covered.
 
-**Type consistency.** `RequestAskRegenerationResult` (Task 4) is imported by the route (Task 4, Step 5) and by `LaneStatus` (Task 6, Step 5). `RegenBudgetStatus` flows `tracker.ts` (Task 3) → `SendLaneView` (Task 5) → `SelectableAskListProps` (Task 6). `isRegenerableBatchState` is defined and exported in Task 2 and used by its own property test only. `pruneExclusions` is defined in Task 6, Step 4 and used in Step 11. `regeneratingAskId` and `regenBudgets` are named identically in Tasks 1 (fixture), 5 (definition) and 6 (consumption).
+**Type consistency.** `RequestAskRegenerationResult` (Task 4) is imported by the route (Task 4, Step 5) and by `LaneStatus` (Task 6, Step 5), and carries the `budget_exhausted` arm both must handle. `RegenBudgetStatus` flows `tracker.ts` (Task 3) → `SendLaneView` (Task 5) → `SelectableAskListProps` (Task 6), and its `.remaining` also reaches `requestAskRegeneration` as `budgetRemaining: number | null` via the route. `askRegenLimitResponse(limit)` is defined in Task 3, Step 3 and called in Task 4, Step 5 — it is a response builder, not an enforcer, and nothing calls a peek inside it. `isRegenerableBatchState` is defined and exported in Task 2 and used by its own property test only. `excludedOutreachIds` is defined and exported in Task 6, Step 4 and used in Step 11's property test. `regeneratingAskId` and `regenBudgets` are named identically in Tasks 1 (fixture), 5 (definition) and 6 (consumption). `pruneExclusions` does **not** exist — round 1 removed it.
 
 **Known soft spots, flagged rather than papered over.** Task 4, Step 6's helper shapes were **verified against the file** after the first draft got all three wrong (it assumed a bare-string argument, `sendParentRunId`, and an `outreachSnapshot` field; the real API is `{ renders }`, `parentRunId`, and a separate `snapshotOutreach(batchId)` call). Task 6, Step 10 gives CSS structure but not final values — the `repworth-brand-design` Console reference owns those and must be read first. Task 5, Step 4's three tests are sketched at the assertion level rather than fully seeded, because `batch-view.test.ts`'s fixture style must be read before adding to it.
+
+---
+
+## Review appendix — round 1 (codex, thread `01a0118d-5b8a-7a72-9743-0d4524f913cd`)
+
+`VERDICT: REVISE`. Full report: `scratchpad/codex-plan-review.md` (session-local).
+Cited-artifact check passed clean, including "0020 is the next free ADR number";
+it independently re-found the `seedRenderedBatch` API defect already fixed
+pre-review.
+
+| # | Sev | Finding | Verdict | Where fixed |
+|---|---|---|---|---|
+| 1 | CRITICAL | ABBA deadlock: `regenerateAsk`'s swap locks the `job_outbox` row FIRST (`markOutboxCompletedIfOwned`) and only then takes the advisory lock. The round-1 request path took the advisory lock first, then blocked on that row via the `ON CONFLICT` uniqueness probe. | **ACCEPT** — verified in `ask-generation.ts`; the worker's own "B11 global lock order: advisory first" comment is incomplete. | Task 4, Step 4: enqueue-FIRST ordering + `RegenRequestAbort` to roll back on refusal |
+| 2 | HIGH | The byte-finality race was mock-only, proving JS call order rather than that Postgres row locks and rollback preserve the stored bytes. | **ACCEPT** — it is the feature's central claim. | New live-DB test in `ask-generation.integration.test.ts` |
+| 3 | HIGH | Nothing pinned outbox/step rollback coupling; a future split across transactions would pass every test. | **ACCEPT** | New test in `approval.integration.test.ts` |
+| 4 | HIGH | The globally-keyed budget peek ran BEFORE tenant validation, so a foreign exhausted ask answered 429 instead of the promised uniform 404. | **ACCEPT** — a real oracle, and it contradicted the plan's own stated contract. | Route PEEKS, `requestAskRegeneration` DECIDES after ownership is proven; `enforceAskRegenBudget` became `askRegenLimitResponse` |
+| 5 | HIGH | `payload->>'ask_id'` is unvalidated on read and could carry a foreign ask id. | **REJECT** | The payload is written by this very verb, after the ask is proven to belong to the batch and tenant; the panel only matches the value against rows it already holds, so a foreign id matches nothing. Reasoning recorded in the read-model comment rather than adding a tenant join D3 explicitly warns against |
+| 6 | HIGH | Pruning stale exclusions prevented `unknown_exclusion` but silently RE-SELECTED the ask — so a regenerate in another tab could send a message the owner had deselected. | **ACCEPT, and it supersedes the round-1 fix** — a worse bug than the one being fixed. | Task 4/6: exclusion set re-keyed on `askId`; `pruneExclusions` deleted; `excludedOutreachIds` resolves at submit time |
+| 7 | MEDIUM | `postLaneAction` classifies only 400/409 as refusals, so the new 429 read as "could not confirm" — the one thing it definitely was not. | **ACCEPT** | Task 6, Step 4c |
+| 8 | MEDIUM | Absent budget map entry (UNKNOWN) untested at the route boundary. | **ACCEPT** | New route test |
+| 9 | MEDIUM | Only an async `mget` rejection was covered, not a synchronous `getCacheRedis()` throw the contract also promises. | **ACCEPT** | New tracker test |
+| 10 | MEDIUM | Outcome reporting assumed the panel always observes a non-null `regeneratingAskId`; a fast worker could complete before the first poll. | **ACCEPT** | New panel test |
+
+**Intake changes from this round** (deviations, not amendments — `allowed_edit_surface` is unchanged): `tests_to_add` 32 → 40, one title retitled (`drops a stale exclusion…` → `keeps an ask excluded when a regeneration replaces its outreach id`; the property test likewise), `estimated_test_lines` 1200 → 1600.

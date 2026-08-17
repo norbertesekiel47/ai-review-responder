@@ -2,14 +2,14 @@
   "classification": "high",
   "surface": "mixed",
   "db_touching": true,
-  "goal": "Make per-ask Ask regeneration reachable for the owner on a built Solicitation batch — a route, a per-ask control with its 3/day budget counter — and close #629 deviation D3 by refusing regeneration once Owner approval is recorded, so \"what was approved is byte-for-byte what sends\" becomes unconditional.",
+  "goal": "Make per-ask Ask regeneration reachable for the owner on a built Solicitation batch \u2014 a route, a per-ask control with its 3/day budget counter \u2014 and close #629 deviation D3 by refusing regeneration once Owner approval is recorded, so \"what was approved is byte-for-byte what sends\" becomes unconditional.",
   "non_goals": [
-    "Owner editing of a rendered ask — D22 stands, and the panel must keep saying so",
+    "Owner editing of a rendered ask \u2014 D22 stands, and the panel must keep saying so",
     "Post-approval regeneration in any form, including a per-ask re-approval state machine (this is the decision, not a deferral)",
-    "\"Regenerate all\" — spec §8.2 r1 calls it a #629 UI affordance, but the outbox dedup is keyed (topic, aggregate_id = batchId), so a fan-out of N enqueues 1 and silently drops N−1; structurally impossible without re-keying the dedup",
-    "Any change under worker/ — worker/jobs/solicitation-batch/generate.ts already dispatches on ask_id",
+    "\"Regenerate all\" \u2014 spec \u00a78.2 r1 calls it a #629 UI affordance, but the outbox dedup is keyed (topic, aggregate_id = batchId), so a fan-out of N enqueues 1 and silently drops N\u22121; structurally impossible without re-keying the dedup",
+    "Any change under worker/ \u2014 worker/jobs/solicitation-batch/generate.ts already dispatches on ask_id",
     "The admin/support halt surface (admin_halt remains a CHECK member with no writer)",
-    "Flipping SOLICITATION_SEND_ENABLED in any environment — blocked on #633, and the boot assert would crash the staging worker",
+    "Flipping SOLICITATION_SEND_ENABLED in any environment \u2014 blocked on #633, and the boot assert would crash the staging worker",
     "Any migration or schema change"
   ],
   "user_visible_behavior": [
@@ -22,15 +22,15 @@
     "When a rewrite settles without changing the copy (a worker-side refusal), the panel says so rather than silently showing the same text"
   ],
   "invariants": [
-    "Byte-for-byte approval is UNCONDITIONAL: once approved_at is set, no path may replace a rendered ask's bytes — regenerateAsk refuses in every state except built",
+    "Byte-for-byte approval is UNCONDITIONAL: once approved_at is set, no path may replace a rendered ask's bytes \u2014 regenerateAsk refuses in every state except built",
     "Transactional outbox (#2): the ask_regeneration_requested run step and the job_outbox row are written in ONE Postgres transaction",
     "Tenant isolation (#8): every read and write carries both account_id and business_id; a bare batch or ask id is no tenant proof",
     "Domain modules receive sql explicitly (#15); the route is the composition root",
     "Feature flags are server-authoritative (#13): no NEXT_PUBLIC companion; the browser learns send-lane state from the response shape alone",
     "D6a redaction: a moderation_high attempt never gains a regenerate control, because toRows never turns it into a row",
-    "Spec §8.2 r6: a withheld (blocked) ask is terminal for the batch and is never regenerable",
+    "Spec \u00a78.2 r6: a withheld (blocked) ask is terminal for the batch and is never regenerable",
     "Cost-guard direction: the advisory peek fails OPEN; the worker's Lua INCR (checkAskRegenBudget) stays the authoritative gate",
-    "At most one regeneration is in flight per batch — the (topic, aggregate_id) partial unique index owns that fact"
+    "At most one regeneration is in flight per batch \u2014 the (topic, aggregate_id) partial unique index owns that fact"
   ],
   "edge_cases": [
     "Owner clicks regenerate, then approves before the worker swaps: approval succeeds, the swap's locked re-check refuses, the spend is discarded and approved bytes are untouched. The panel disables Approve while regeneratingAskId is non-null to make this rare rather than to rely on it",
@@ -45,14 +45,14 @@
     "A rendered outreach row implies a send parent run, so a null parent is an impossible state and throws with context rather than branching (regenerateAsk's own precedent)"
   ],
   "existing_patterns_to_follow": [
-    "src/lib/solicitation/approval.ts — approveBatch/haltBatch shape: canonicalBatchId, lockBatchForAction (advisory → batch row → run), discriminated result union, validate-before-mutate",
-    "src/app/api/dashboard/solicitation/batch/approve/route.ts + _shared/scoped-batch-route.ts — thin route, per-route readInput, explicit wire projection",
-    "src/lib/shared/dashboard-regen-rate-limit.ts — enforceRegenBudgetForReview's advisory-peek 429 shape and fail-open contract",
-    "src/lib/costs/tracker.ts — enforceRegenBudget's two-named-doors-over-one-mechanism split, to be repeated for the peek",
-    "src/lib/responses/generation-state.ts — pendingGenerateExists, the in-flight job_outbox read for UI",
-    "src/lib/past-replies/load-replies.ts — a Redis peek merged into a read model and returned as a plain Record, not a Map (D12)",
-    "src/components/dashboard/reviews/PastReplyCard.tsx — \"{used} of {limit} today\" counter, disabled at 0 remaining, NO counter when the budget is unknown (F6)",
-    "src/lib/reviews/__tests__/sentiment.test.ts — the \"invariants\" describe block, the house style for fast-check property tests"
+    "src/lib/solicitation/approval.ts \u2014 approveBatch/haltBatch shape: canonicalBatchId, lockBatchForAction (advisory \u2192 batch row \u2192 run), discriminated result union, validate-before-mutate",
+    "src/app/api/dashboard/solicitation/batch/approve/route.ts + _shared/scoped-batch-route.ts \u2014 thin route, per-route readInput, explicit wire projection",
+    "src/lib/shared/dashboard-regen-rate-limit.ts \u2014 enforceRegenBudgetForReview's advisory-peek 429 shape and fail-open contract",
+    "src/lib/costs/tracker.ts \u2014 enforceRegenBudget's two-named-doors-over-one-mechanism split, to be repeated for the peek",
+    "src/lib/responses/generation-state.ts \u2014 pendingGenerateExists, the in-flight job_outbox read for UI",
+    "src/lib/past-replies/load-replies.ts \u2014 a Redis peek merged into a read model and returned as a plain Record, not a Map (D12)",
+    "src/components/dashboard/reviews/PastReplyCard.tsx \u2014 \"{used} of {limit} today\" counter, disabled at 0 remaining, NO counter when the budget is unknown (F6)",
+    "src/lib/reviews/__tests__/sentiment.test.ts \u2014 the \"invariants\" describe block, the house style for fast-check property tests"
   ],
   "allowed_edit_surface": [
     "src/lib/solicitation/*",
@@ -92,18 +92,26 @@
     "renders no regenerate counter when the budget is unknown",
     "disables approve and every regenerate control while a regeneration is in flight",
     "reports that nothing changed when a regeneration settles without a new attempt",
-    "drops a stale exclusion when a regenerated ask replaces its outreach id",
-    "property: pruning an exclusion set never keeps an id absent from the sendable rows",
-    "says the owner may ask for a new version but may not write one"
+    "keeps an ask excluded when a regeneration replaces its outreach id",
+    "property: every excluded ask resolves to a live outreach id or drops out of the payload",
+    "says the owner may ask for a new version but may not write one",
+    "does not deadlock when a worker completion races a second regeneration request",
+    "keeps approved outreach bytes unchanged when approval races the real regeneration swap",
+    "rolls back the regeneration outbox row when recording ask_regeneration_requested fails",
+    "POST regenerate answers 404 for an over-budget ask belonging to another tenant",
+    "POST regenerate enqueues when the ask budget map has no entry",
+    "peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously",
+    "shows the daily rewrite limit when a regenerate POST is refused 429",
+    "reports a settled regeneration that completed before the first refetch"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "620",
-  "estimated_test_lines": "1200",
+  "estimated_test_lines": "1600",
   "dependencies_added": [],
-  "rollback_plan": "No migration, so rollback is a plain revert of the PR: the regenerate route disappears and REGENERABLE_BATCH_STATES returns to its four-state form. SOLICITATION_SEND_ENABLED is off in every environment, so neither the shipped state nor the reverted state is reachable by any customer. Order: revert on main, then re-sync staging to main per deployment-guide.md §Re-sync staging.",
+  "rollback_plan": "No migration, so rollback is a plain revert of the PR: the regenerate route disappears and REGENERABLE_BATCH_STATES returns to its four-state form. SOLICITATION_SEND_ENABLED is off in every environment, so neither the shipped state nor the reverted state is reachable by any customer. Order: revert on main, then re-sync staging to main per deployment-guide.md \u00a7Re-sync staging.",
   "observability": [
     "New route log ask_regeneration_requested (ids and counts only, never rendered subject or body) plus the matching run step on the send parent",
-    "Existing worker lines [AskRegeneration] \"ask regenerated\" and \"ask regeneration refused\" with their reason field — the refusal vocabulary is how a silent no-op is diagnosed",
+    "Existing worker lines [AskRegeneration] \"ask regenerated\" and \"ask regeneration refused\" with their reason field \u2014 the refusal vocabulary is how a silent no-op is diagnosed",
     "regen_budget_peek_failed warn stream, distinguished by its peek field, when Upstash is unreachable",
     "api_costs rows still record the LLM spend of a swap that was discarded after generation",
     "How I would know it broke: an ask_regeneration_requested step with no ask_generated step carrying regenerated:true on the same run within minutes means the worker path is failing rather than refusing"
