@@ -6,6 +6,8 @@
 
 **Architecture:** One new domain module (`src/lib/solicitation/approval.ts`) owns the two owner verbs as transactional writers behind a small interface — each returns a discriminated result union so the two new routes stay thin (invariant #12). The read model `batch-view.ts` is deepened, not replaced: `readLatestBatch` gains a `sendLane` arm carrying the **Batch state** and approval readiness. The client gains one island, `ApprovalPanel.tsx`, beside the unchanged `BatchReport`. Nothing dispatches — the releaser and send worker are #630, so this feature ships inert behind `SOLICITATION_SEND_ENABLED`.
 
+> **What the readiness gate does and does not buy (round-1 review finding 2).** Refusing approval until every send Ask has a non-cancelled Outreach row closes the *generation* race: no render can land after approval and become releasable unseen. It does **not** make the byte-for-byte contract unconditional, because amendment **B2 deliberately permits post-approval regeneration** of un-excluded `rendered` rows, and `regenerateAsk` (`src/lib/solicitation/ask-generation.ts`) already accepts the `approved`, `veto_window` and `sending` states. Today that path has **no owner entry point** — nothing enqueues a per-ask regenerate — so it is unreachable in this feature's shipped surface. It becomes reachable the moment the deferred regenerate ticket lands, which is why that ticket carries this as a binding constraint: **a post-approval regenerate must either re-open approval for the superseded ask or be refused outright.** Recorded here rather than "fixed" here, because narrowing `regenerateAsk` would reopen a locked amendment.
+
 **Tech Stack:** Next.js 16 App Router, Postgres.js (`sql`/`tx` explicit — invariant #15), vitest + fast-check, migration 108.
 
 **Ticket:** #629 · **Map:** #617 · **Spec:** `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` §10 (#629 bindings), D2/D6a/D9/D10/D11/D22/D23 · **Amendments:** `2026-07-28-send-mode-cross-spec-amendments.md` B2, B11 · **Intake:** `docs/superpowers/plans/feat-629-owner-approval-lane-intake.json`
@@ -137,22 +139,50 @@ describe('invariants', () => {
           send_closed_at: closed,
           halted_at: halted,
         };
+        // EVERY arm names ONE expected state. An earlier draft allowed
+        // "veto_window OR approved" and "built OR expired", which an
+        // implementation that never recognises an elapsed deadline passes —
+        // the property has to constrain the boundary, not restate the
+        // precedence list.
         const state = deriveBatchState(row, EPOCH);
         if (halted !== null) return state === 'halted';
         if (closed !== null) return state === 'closed';
         if (sending !== null) return state === 'sending';
-        if (approved !== null) return state === 'veto_window' || state === 'approved';
+        if (approved !== null) {
+          const inWindow = veto !== null && EPOCH.getTime() < veto.getTime();
+          return state === (inWindow ? 'veto_window' : 'approved');
+        }
         if (built === null) return state === 'pending';
-        return state === 'built' || state === 'expired';
+        const deadline = built.getTime() + 7 * 24 * 60 * 60 * 1000;
+        return state === (EPOCH.getTime() >= deadline ? 'expired' : 'built');
       }),
     );
   });
 
   it('property: the owner halt reason is owner_veto exactly when sending has not started', () => {
+    // Driven from a LIFECYCLE ROW, not from a hand-listed state set: the
+    // helper's contract is about the batch, and a property over five literals
+    // only restates the function body.
+    const stamp = fc.option(fc.date({ min: new Date('2026-01-01'), max: new Date('2027-01-01') }), {
+      nil: null,
+    });
     fc.assert(
-      fc.property(fc.constantFrom('built', 'approved', 'veto_window', 'sending', 'expired'), (state) => {
+      fc.property(stamp, stamp, stamp, stamp, (built, approved, veto, sending) => {
+        const row: BatchLifecycleRow = {
+          built_at: built,
+          approved_at: approved,
+          veto_deadline_at: veto,
+          sending_started_at: sending,
+          send_closed_at: null,
+          halted_at: null,
+        };
+        const state = deriveBatchState(row, EPOCH);
         const reason = ownerHaltReason(state);
-        return state === 'sending' ? reason === 'owner_halt' : reason === 'owner_veto';
+        // A halt is owner_halt exactly when email may already have left, and
+        // `sending` is the only state in which that is true.
+        return sending !== null
+          ? reason === 'owner_halt'
+          : reason === 'owner_veto';
       }),
     );
   });
@@ -188,6 +218,10 @@ describe('approveBatch', () => {
   it.todo('refuses to approve a batch past its 7-day approval window');
   it.todo('excluding every ask closes the batch and terminalizes the send parent completed');
   it.todo('records the approval as a step on the send batch parent');
+  // Added after round-1 plan review (findings 1, 2, 3).
+  it.todo('refuses a stale exclusion list without cancelling any row or approving the batch');
+  it.todo('approves the rendered subset when another send ask is withheld');
+  it.todo('treats a superseded attempt as ready only once its replacement exists');
 });
 
 describe('haltBatch', () => {
@@ -231,7 +265,9 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
 import { describe, it } from 'vitest';
 
 describe('ApprovalPanel', () => {
-  it.todo('shows the approve control only when every ask has rendered');
+  // Retitled after round-1 plan review (finding 2): readiness means every ask
+  // has a finished ATTEMPT, and a withheld attempt is finished.
+  it.todo('shows the approve control only when every ask has an attempt');
   it.todo('excludes an ask when its control is cleared and approves the rest');
   it.todo('shows the stop control while the batch is in its veto window');
   it.todo('shows the expired state with no approve control');
@@ -550,6 +586,13 @@ export async function approveBatch(
     // Asserted in SQL rather than trusted from the client, and inside the same
     // transaction as the approval, so a render committing between the check and
     // the CAS cannot slip through.
+    //
+    // "Non-cancelled", NOT "rendered", and the difference is the point: a
+    // `withheld` row (lint_failed, moderation_high) is a FINISHED attempt with
+    // nothing left to render, so it satisfies readiness and is simply not
+    // approvable copy. Only a `cancelled` row — a superseded attempt — leaves a
+    // hole its replacement must fill. Requiring `rendered` here would wedge
+    // every batch that had one lint failure.
     const [gap] = await tx<{ missing: number }[]>`
       SELECT COUNT(*)::int AS missing
       FROM solicitation_asks a
@@ -562,17 +605,36 @@ export async function approveBatch(
           FROM solicitation_outreach o
           WHERE o.ask_id = a.id
             AND o.batch_id = a.batch_id
+            AND o.account_id = ${input.accountId}::uuid
+            AND o.business_id = ${input.businessId}::uuid
             AND o.delivery_status <> 'cancelled'
         )
     `;
     const missingRenders = gap?.missing ?? 0;
     if (missingRenders > 0) return { status: 'not_ready', missingRenders };
 
-    // Exclusions first: an id that is not a live rendered row of this batch
-    // means the owner acted on a stale screen, so the whole approval is
-    // refused rather than silently approving a message they meant to drop.
+    // Exclusions are VALIDATED BEFORE THEY ARE WRITTEN, and the ordering is
+    // load-bearing: postgres.js COMMITS when the `sql.begin` callback resolves,
+    // so an early `return` after a partial UPDATE would commit that partial
+    // cancellation while telling the caller the approval was refused. Validate
+    // first, mutate second — a refusal then leaves the batch untouched because
+    // nothing was written yet.
     let excludedCount = 0;
     if (input.excludedOutreachIds.length > 0) {
+      const [live] = await tx<{ matched: number }[]>`
+        SELECT COUNT(*)::int AS matched
+        FROM solicitation_outreach
+        WHERE id = ANY(${input.excludedOutreachIds}::uuid[])
+          AND batch_id = ${input.batchId}::uuid
+          AND account_id = ${input.accountId}::uuid
+          AND business_id = ${input.businessId}::uuid
+          AND delivery_status = 'rendered'
+      `;
+      // Distinct ids, because ANY() de-duplicates and a repeated id would
+      // otherwise read as a missing one.
+      const distinctIds = new Set(input.excludedOutreachIds).size;
+      if ((live?.matched ?? 0) !== distinctIds) return { status: 'unknown_exclusion' };
+
       const excluded = await tx<{ id: string }[]>`
         UPDATE solicitation_outreach
         SET delivery_status = 'cancelled',
@@ -585,9 +647,6 @@ export async function approveBatch(
           AND delivery_status = 'rendered'
         RETURNING id
       `;
-      if (excluded.count !== input.excludedOutreachIds.length) {
-        return { status: 'unknown_exclusion' };
-      }
       excludedCount = excluded.count;
     }
 
@@ -684,13 +743,25 @@ In `src/lib/solicitation/__tests__/approval.integration.test.ts`, replace the `a
   });
 ```
 
-Write the remaining six against the same `seedRenderedBatch` helper:
-`a second approval writes nothing and reports the batch as already approved` (call twice, assert the second is `already_approved` and `approved_at` is unchanged);
-`cancels excluded asks owner_excluded in the same transaction as the approval` (exclude one of three, assert `delivery_status='cancelled'` + `disposition_reason='owner_excluded'` and `approvedCount` 2);
-`refuses to approve while a send ask has no outreach row` (seed 3 send asks with 2 renders, assert `not_ready` with `missingRenders: 1` and `approved_at IS NULL`);
-`refuses to approve a batch past its 7-day approval window` (seed `built_at = NOW() - interval '8 days'`, assert `{ status:'not_approvable', state:'expired' }`);
-`excluding every ask closes the batch and terminalizes the send parent completed` (exclude all three, assert `send_closed_at IS NOT NULL` and the parent run is `completed`);
-`records the approval as a step on the send batch parent` (assert one `agent_run_steps` row with `step_key='batch_approved'`, `attributed_agent='solicitation'`, and `detail->>'approved_count'` = `'3'`).
+Write the remaining nine against the same `seedRenderedBatch` helper:
+
+`a second approval writes nothing and reports the batch as already approved` — call twice; assert the second is `already_approved` and `approved_at` is unchanged.
+
+`cancels excluded asks owner_excluded in the same transaction as the approval` — exclude one of three; assert `delivery_status='cancelled'` + `disposition_reason='owner_excluded'` and `approvedCount` 2.
+
+`refuses to approve while a send ask has no outreach row` — seed 3 send asks with 2 renders; assert `not_ready` with `missingRenders: 1` and `approved_at IS NULL`. **Then commit the third render and re-approve in the same test**, asserting it now succeeds with `approvedCount: 3`. That refuse-then-succeed pair is what pins the gate to the *committed* render set. (The stronger "hold a generation transaction open across the approval" form is deliberately NOT written: generation is not one transaction — `persistChildRender` commits per child — so there is no single tx to hold, and a fake one would prove nothing. Recorded in the deviations file.)
+
+`refuses to approve a batch past its 7-day approval window` — seed `built_at = NOW() - interval '8 days'`; assert `{ status:'not_approvable', state:'expired' }`.
+
+`excluding every ask closes the batch and terminalizes the send parent completed` — exclude all three; assert `send_closed_at IS NOT NULL`, the parent run is `completed`, **and** the `send_batch_closed` step carries `detail->>'disposition' = 'exhausted'` with `detail->>'cancelled' = '3'`. The disposition assertion is the one that distinguishes a correct close from a coincidentally-correct parent status.
+
+`records the approval as a step on the send batch parent` — assert one `agent_run_steps` row with `step_key='batch_approved'`, `attributed_agent='solicitation'`, and `detail->>'approved_count'` = `'3'`.
+
+`refuses a stale exclusion list without cancelling any row or approving the batch` — pass one valid rendered id plus one id that is not a live rendered row of this batch (use a `withheld` row's id); assert `{ status:'unknown_exclusion' }`, **`approved_at IS NULL`, and that the valid row is still `rendered`**. This is the test that fails against a validate-after-write implementation, because postgres.js commits on a normal return.
+
+`approves the rendered subset when another send ask is withheld` — seed one `rendered` and one `withheld`/`lint_failed` row; assert approval succeeds with `approvedCount: 1`, and the withheld row keeps `delivery_status='withheld'` with its original reason.
+
+`treats a superseded attempt as ready only once its replacement exists` — seed a `cancelled`/`superseded` attempt with no successor; assert `not_ready` with `missingRenders: 1`. Insert the `attempt_no + 1` replacement, re-approve, and assert success with the replacement's id counted.
 
 - [ ] **Step 6: Run the suite**
 
@@ -825,7 +896,7 @@ export async function haltBatch(
 `halt before sending starts records owner_veto and after it records owner_halt` — two batches, one with `sending_started_at` set; assert both `halt_reason` values.
 `refuses to halt a batch that is already closed` — seed `send_closed_at`; assert `{ status:'not_haltable', state:'closed' }`.
 `halts a built batch that was never approved` — no `approved_at`; assert `owner_veto` and no throw when `send_parent_run_id` is NULL.
-`refuses to approve or halt a batch owned by another account` — call both verbs with a foreign `accountId`; assert `not_found` from each and that the batch row is untouched.
+`refuses to approve or halt a batch owned by another account` — **two boundaries in one test** (round-1 finding 7): call both verbs with a foreign `accountId`, then with the correct `accountId` but a **sibling `businessId` on the same account**. Assert uniform `not_found` in all four calls and that the batch row and every outreach row are byte-identical afterwards. The same-account cross-business case is the one a single-key WHERE clause would pass.
 
 - [ ] **Step 3: Run the whole suite**
 
@@ -922,6 +993,8 @@ Inside `readBuiltBatch`, when `options.sendLane` is true, add one statement to t
                AND NOT EXISTS (
                  SELECT 1 FROM solicitation_outreach o
                  WHERE o.ask_id = a.id AND o.batch_id = a.batch_id
+                   AND o.account_id = ${accountId}::uuid
+                   AND o.business_id = ${businessId}::uuid
                    AND o.delivery_status <> 'cancelled')
            ) AS "pendingRenders",
            (
@@ -1112,12 +1185,12 @@ Same file shape at `.../batch/halt/route.ts`, reading only `batchId`, calling `h
 - [ ] **Step 4: Write the six route tests**
 
 Mock `@/lib/solicitation/approval` and the auth helpers, following `src/app/api/dashboard/solicitation/batch/__tests__/route.test.ts`. Assert:
-`returns 404 from the approve route when send mode is off` — with `SOLICITATION_SEND_ENABLED` unset, status 404 and `approveBatch` never called.
+`returns 404 from the approve route when send mode is off` — **both flag directions** (round-1 finding 8): send off with watch on, AND watch off with send on. Status 404 in both, `approveBatch` never called. The second case is the one a single-flag gate would pass.
 `rejects an approval when the subscription does not grant full access` — `requireWritableOwner` returns its refusal; assert that response is returned verbatim.
 `treats a trialing subscription as full access at approval` — a `trialing` owner reaches `approveBatch`.
 `rejects an approval that carries no location scope` — no `?scope=`, aggregate mode, 400.
 `rejects a cross-origin approval post` — a foreign `Origin` header, and `approveBatch` never called.
-`returns 404 from the halt route when send mode is off`.
+`returns 404 from the halt route when send mode is off` — same both-flag-directions assertion as the approve route, **plus the cross-origin case for halt** (round-1 finding 9): a foreign `Origin` header on the halt POST, asserting `haltBatch` is never called. Halt is as destructive as approval and must not be the one verb whose CSRF guard is unpinned.
 
 - [ ] **Step 5: Run and commit**
 
