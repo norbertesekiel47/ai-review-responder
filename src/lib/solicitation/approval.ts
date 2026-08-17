@@ -68,32 +68,49 @@ async function lockBatchForAction(
 ): Promise<BatchActionRow | null> {
   await acquireSolicitationBatchLock(tx, input.businessId);
 
-  const [batch] = await tx<BatchActionRow[]>`
+  // TWO statements, not one with a scalar subquery, and the split is not
+  // stylistic: `ci:tenant-scope` reads predicates only at the top level of a
+  // statement (`stripSelectSubqueries` blanks parenthesised SELECTs before
+  // `splitTopLevelAnd` runs). Scope keys buried in a subquery are invisible to
+  // it, so the audit cannot tell a correctly-scoped query from an unscoped one.
+  // Hoisting the parent lookup to its own statement makes both tenant keys
+  // top-level on BOTH tables — the same reason batch-view.ts repeats its keys
+  // on the join rather than nesting them. Do not re-nest this.
+  //
+  // Lock order is unchanged and still batch -> run (amendment B11): the row
+  // lock below is taken before the agent_runs read.
+  const [batch] = await tx<BatchLifecycleRow[]>`
     SELECT
       b.built_at,
       b.approved_at,
       b.veto_deadline_at,
       b.sending_started_at,
       b.send_closed_at,
-      b.halted_at,
-      (
-        SELECT r.id
-        FROM agent_runs r
-        WHERE r.kind = 'solicitation_send_batch'
-          AND r.subject_type = 'solicitation_batch'
-          AND r.subject_id = b.id::text
-          AND r.account_id = ${input.accountId}::uuid
-          AND r.business_id = ${input.businessId}::uuid
-        ORDER BY r.started_at DESC
-        LIMIT 1
-      ) AS send_parent_run_id
+      b.halted_at
     FROM solicitation_batches b
     WHERE b.id = ${input.batchId}::uuid
       AND b.account_id = ${input.accountId}::uuid
       AND b.business_id = ${input.businessId}::uuid
     FOR UPDATE OF b
   `;
-  return batch ?? null;
+  if (batch === undefined) return null;
+
+  // `subject_id` is TEXT and the batch row above already proved this id belongs
+  // to this tenant, so matching the input directly is equivalent to the old
+  // correlated `b.id::text`.
+  const [parent] = await tx<{ id: string }[]>`
+    SELECT r.id
+    FROM agent_runs r
+    WHERE r.kind = 'solicitation_send_batch'
+      AND r.subject_type = 'solicitation_batch'
+      AND r.subject_id = ${input.batchId}
+      AND r.account_id = ${input.accountId}::uuid
+      AND r.business_id = ${input.businessId}::uuid
+    ORDER BY r.started_at DESC
+    LIMIT 1
+  `;
+
+  return { ...batch, send_parent_run_id: parent?.id ?? null };
 }
 
 export interface ApproveBatchInput {
@@ -156,22 +173,27 @@ export async function approveBatch(
     // approvable copy. Only a `cancelled` row — a superseded attempt — leaves a
     // hole its replacement must fill. Requiring `rendered` here would wedge
     // every batch that had one lint failure.
+    // Spelled as an anti-join (LEFT JOIN + `o.id IS NULL`) rather than the more
+    // obvious NOT EXISTS, for the tenant-scope reason documented on
+    // `lockBatchForAction`: predicates inside a parenthesised subquery are
+    // invisible to `ci:tenant-scope`, so the outreach scope keys have to sit in
+    // the JOIN's ON clause to be seen. Semantically identical — every join
+    // condition of the NOT EXISTS moved verbatim into ON, and `o.id IS NULL`
+    // keeps exactly the asks that had no surviving attempt.
     const [gap] = await tx<{ missing: number }[]>`
-      SELECT COUNT(*)::int AS missing
+      SELECT COUNT(DISTINCT a.id)::int AS missing
       FROM solicitation_asks a
-      WHERE a.batch_id = ${input.batchId}::uuid
-        AND a.account_id = ${input.accountId}::uuid
-        AND a.business_id = ${input.businessId}::uuid
-        AND a.status = 'send'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM solicitation_outreach o
-          WHERE o.ask_id = a.id
+      LEFT JOIN solicitation_outreach o
+             ON o.ask_id = a.id
             AND o.batch_id = a.batch_id
             AND o.account_id = ${input.accountId}::uuid
             AND o.business_id = ${input.businessId}::uuid
             AND o.delivery_status <> 'cancelled'
-        )
+      WHERE a.batch_id = ${input.batchId}::uuid
+        AND a.account_id = ${input.accountId}::uuid
+        AND a.business_id = ${input.businessId}::uuid
+        AND a.status = 'send'
+        AND o.id IS NULL
     `;
     const missingRenders = gap?.missing ?? 0;
     if (missingRenders > 0) return { status: 'not_ready', missingRenders };

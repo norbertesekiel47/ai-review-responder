@@ -196,3 +196,62 @@ pending STAGING/PRODUCTION line instructing Task 8 to remove it.
 
 **Verdict:** ACCEPT both. Neither changes behaviour or scope; each is the plan
 being less specific than the repo, not the plan being contradicted.
+
+---
+
+## D7 — the plan's literal SQL cannot pass `ci:tenant-scope`; both queries reshaped in `approval.ts` and `batch-view.ts` (owner-decided)
+
+**When:** step 4 (EXECUTION), after Tasks 3 and 5 landed. Hit independently by
+both agents, in their own files, for the same underlying reason.
+
+**The audit's actual rule:** `scripts/ci/tenant-scope-audit.ts` calls
+`stripSelectSubqueries` (line 44) to blank every parenthesised `SELECT` *before*
+reading predicates, and `splitTopLevelAnd` (line 170) skips anything at paren
+depth > 0. **A scope predicate inside a subquery is therefore invisible to it.**
+The audit cannot distinguish a correctly-scoped nested query from an unscoped
+one — it reports the table as unscoped either way.
+
+**What the plan specified:** scope keys inside a scalar subquery
+(`lockBatchForAction`'s `agent_runs` lookup) and inside a `NOT EXISTS`
+(`approveBatch`'s readiness query, and the analogous pair in Task 5's Step-3
+read-model SQL). All four statements were genuinely scoped on both
+`account_id` and `business_id` — verified by reading the SQL — so these were
+**false positives, not tenant leaks**.
+
+**Two ways out, and why one was rejected.** The allowlist
+(`scripts/ci/tenant-scope-allowlist.ts` + `ALLOWLIST_BASELINE`) is the only other
+mechanism — there is no per-line pragma. It was rejected on two grounds: the
+file sits OUTSIDE `allowed_edit_surface`, so it would have cost a surface
+amendment; and an allowlist entry asserts "deliberately cross-tenant", which
+would have been **a false statement committed to the repo** about queries that
+are correctly scoped.
+
+**Applied (owner decision, 2026-08-16):** reshape so the keys are top-level.
+
+- `batch-view.ts` (Task 5, in-task): the two scalar subqueries became three
+  `LEFT JOIN`s carrying the tenant keys, with
+  `COUNT(DISTINCT …) FILTER (WHERE o.id IS NULL)`. Verified against real
+  Postgres including the row-multiplication case (4 asks × 3 moderation rows →
+  `pendingRenders: 2, moderationWithheld: 3`).
+- `approval.ts` (orchestrator, after the fact):
+  1. `lockBatchForAction` split into **two statements** — the `FOR UPDATE OF b`
+     batch read, then the `agent_runs` parent lookup. Lock order is unchanged
+     and still batch → run (B11); the correlated `r.subject_id = b.id::text`
+     became `r.subject_id = ${batchId}`, equivalent because the row above
+     already proved that id belongs to this tenant.
+  2. The readiness `NOT EXISTS` became an **anti-join** — `LEFT JOIN … ON`
+     carrying every former subquery condition verbatim, plus `o.id IS NULL`,
+     with `COUNT(DISTINCT a.id)`.
+
+**Verified after the change:** `pnpm typecheck` clean; `pnpm ci:tenant-scope`
+**passed with the baseline untouched at 392** (no allowlist entry, no amendment);
+`approval.integration.test.ts` 11 passed / 6 todo — the same 11 that passed
+before the reshape, so behaviour is unchanged.
+
+**Why the inline comments matter:** both reshapes look like gratuitous
+complexity to a reader who does not know the audit's parsing rule. Each site now
+carries a comment saying why it is shaped that way and not to re-nest it.
+Without that, the next simplification pass silently reintroduces a CI failure.
+
+**Classification:** stays inside `allowed_edit_surface`. No intake change, no
+surface amendment, no behaviour change. Does not count toward the abort budget.
