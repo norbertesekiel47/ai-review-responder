@@ -301,3 +301,102 @@ export async function approveBatch(
     };
   });
 }
+
+export interface HaltBatchInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  haltedByUserId: string;
+}
+
+export type HaltBatchResult =
+  | {
+      status: 'halted';
+      reason: OwnerHaltReason;
+      cancelledCount: number;
+      close: CloseBatchIfSettledResult;
+    }
+  | { status: 'already_halted' }
+  /** A closed batch is terminal — there is nothing left to stop. */
+  | { status: 'not_haltable'; state: BatchState }
+  | { status: 'not_found' };
+
+/**
+ * One monotone latch (D10). A veto inside the window and a mid-drip halt are
+ * the same write; only the reason differs, and it is derived, never supplied.
+ *
+ * A batch that was never approved is haltable on purpose: that is the owner
+ * discarding a built batch, and routing it through the latch means one code
+ * path closes every batch that ends early.
+ *
+ * There is no resume, and it is structural: `halted_at` is monotone, the
+ * releaser predicate (#630) requires `halted_at IS NULL`, and the rows this
+ * cancels are terminal.
+ */
+export async function haltBatch(
+  sql: Sql,
+  input: HaltBatchInput,
+): Promise<HaltBatchResult> {
+  return sql.begin(async (tx): Promise<HaltBatchResult> => {
+    const batch = await lockBatchForAction(tx, input);
+    if (batch === null) return { status: 'not_found' };
+
+    const state = deriveBatchState(batch, new Date());
+    if (state === 'halted') return { status: 'already_halted' };
+    if (state === 'closed') return { status: 'not_haltable', state };
+
+    const reason = ownerHaltReason(state);
+
+    // CAS on NULL keeps the latch monotone: a second halt returns above, and a
+    // concurrent one writes nothing here.
+    const [latched] = await tx<{ id: string }[]>`
+      UPDATE solicitation_batches
+      SET halted_at = NOW(),
+          halt_reason = ${reason},
+          halted_by = ${input.haltedByUserId}::uuid
+      WHERE id = ${input.batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND halted_at IS NULL
+      RETURNING id
+    `;
+    if (latched === undefined) return { status: 'already_halted' };
+
+    // 'sending' is excluded on purpose: that row is past the point of no
+    // return and resolves itself. Halt means "no further sends", not "undo".
+    const cancelled = await tx<{ id: string }[]>`
+      UPDATE solicitation_outreach
+      SET delivery_status = 'cancelled',
+          disposition_reason = ${reason},
+          updated_at = NOW()
+      WHERE batch_id = ${input.batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND delivery_status IN ('rendered', 'queued')
+      RETURNING id
+    `;
+
+    // The parent may legitimately be absent — an owner can discard a built
+    // batch whose generation never minted one. Skip the step, still join.
+    if (batch.send_parent_run_id !== null) {
+      await recordStep(tx, {
+        runId: batch.send_parent_run_id,
+        stepKey: 'batch_halted',
+        detail: {
+          halt_reason: reason,
+          halted_by: input.haltedByUserId,
+          cancelled_count: cancelled.count,
+          state_at_halt: state,
+        },
+      });
+    }
+
+    const close = await closeBatchIfSettled(tx, {
+      batchId: input.batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+    });
+
+    return { status: 'halted', reason, cancelledCount: cancelled.count, close };
+  });
+}

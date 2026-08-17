@@ -16,21 +16,23 @@ import {
   MIGRATION_108_OUTREACH_OWNER_EXCLUDED,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
+  cleanupLocation,
   cleanupTenantAccount,
+  seedLocation,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { acquireSolicitationBatchLock } from '../batch-builder';
 import { insertOutreachRender, type InsertOutreachRenderInput } from '../outreach';
-import { approveBatch } from '../approval';
+import { approveBatch, haltBatch } from '../approval';
 
-// Live-DB suite for the owner approval writer (#629 T3). Applies NO migration
-// SQL: `pnpm test:db:setup` provisions the schema and this file asserts it with
-// assertSchemaReady (#573). It holds the cross-process live-DB lock because the
-// interleaving case depends on two of its OWN connections contending on one
-// batch's advisory lock — an unrelated writer in another vitest process would
-// make that interleaving unreadable.
+// Live-DB suite for the two owner approval-lane writers (#629 T3/T4). Applies
+// NO migration SQL: `pnpm test:db:setup` provisions the schema and this file
+// asserts it with assertSchemaReady (#573). It holds the cross-process live-DB
+// lock because the interleaving case depends on two of its OWN connections
+// contending on one batch's advisory lock — an unrelated writer in another
+// vitest process would make that interleaving unreadable.
 //
 // Every lifecycle timestamp is written as a SQL interval off NOW(), never as a
 // JS `Date`: postgres.js truncates timestamptz microseconds, so a JS-derived
@@ -39,6 +41,10 @@ import { approveBatch } from '../approval';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
+// A SECOND location under the SAME account. It exists so the tenant-scope case
+// can probe the boundary a single-key `WHERE id = …` would wrongly pass: the
+// right owner, reaching for a batch that belongs to their other location.
+const siblingBusinessId = randomUUID();
 
 let db: postgresType.Sql | undefined;
 // The interleaving case holds an uncommitted child-render transaction open
@@ -48,6 +54,10 @@ let db: postgresType.Sql | undefined;
 let writerDb: postgresType.Sql | undefined;
 let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
+// A genuinely separate billing parent, not a fabricated uuid: the foreign-scope
+// case should fail because the batch belongs to someone else, not because the
+// account it names does not exist.
+let foreignTenant: TenantSeed | undefined;
 
 function sql(): postgresType.Sql {
   if (!db) throw new Error('approval integration database was not initialized');
@@ -67,6 +77,11 @@ function accountId(): string {
 function userId(): string {
   if (!tenant) throw new Error('approval integration tenant was not seeded');
   return tenant.userId;
+}
+
+function foreignTenantSeed(): TenantSeed {
+  if (!foreignTenant) throw new Error('approval integration foreign tenant was not seeded');
+  return foreignTenant;
 }
 
 async function seedUpload(): Promise<string> {
@@ -160,16 +175,23 @@ async function seedSendAsk(batchId: string, uploadId: string): Promise<SeededAsk
 interface AttemptInput {
   batchId: string;
   ask: SeededAsk;
-  deliveryStatus: 'rendered' | 'withheld' | 'cancelled';
+  deliveryStatus: 'rendered' | 'queued' | 'sending' | 'withheld' | 'cancelled';
   dispositionReason?: string | null;
   attemptNo?: number;
 }
 
 /** One attempt row on an existing ask. Withheld rows are seeded bodyless, the
  *  shape the render lane writes for `render_failed`; every other status keeps
- *  its bodies because `solicitation_outreach_body_presence` requires them. */
+ *  its bodies because `solicitation_outreach_body_presence` requires them.
+ *
+ *  The dispatch stamps are derived here rather than through the fixture's
+ *  `deriveDispatchStamps` helper because that one returns JS `Date`s: 091
+ *  requires `queued_at` of every dispatched status and `sending_at` of
+ *  `sending`, and this file resolves every stamp in SQL for the microsecond
+ *  reason in the header. */
 async function seedAttempt(input: AttemptInput): Promise<string> {
   const withheld = input.deliveryStatus === 'withheld';
+  const dispatched = input.deliveryStatus === 'queued' || input.deliveryStatus === 'sending';
   return insertOutreach(sql(), {
     accountId: accountId(),
     businessId,
@@ -181,6 +203,10 @@ async function seedAttempt(input: AttemptInput): Promise<string> {
     deliveryStatus: input.deliveryStatus,
     dispositionReason: input.dispositionReason ?? null,
     renderedAt: sql()`NOW() - INTERVAL '1 minute'`,
+    ...(dispatched ? { queuedAt: sql()`NOW() - INTERVAL '30 seconds'` } : {}),
+    ...(input.deliveryStatus === 'sending'
+      ? { sendingAt: sql()`NOW() - INTERVAL '20 seconds'` }
+      : {}),
   });
 }
 
@@ -274,6 +300,85 @@ async function readBatch(batchId: string): Promise<BatchApprovalRow> {
   return row!;
 }
 
+interface BatchHaltRow {
+  halted_at: string | null;
+  halt_reason: string | null;
+  halted_by: string | null;
+}
+
+async function readHalt(batchId: string): Promise<BatchHaltRow> {
+  const [row] = await sql()<BatchHaltRow[]>`
+    SELECT halted_at::text AS halted_at,
+           halt_reason,
+           halted_by::text AS halted_by
+    FROM solicitation_batches
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  return row!;
+}
+
+/**
+ * Drive a batch into the send lane without a writer. 091's send-ordering CHECK
+ * requires approval before sending and its approval-consistency CHECK requires
+ * an approver whenever `approval_method='owner'`, so the whole prefix is
+ * stamped together or none of it is legal.
+ */
+async function stampSendingBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '20 minutes',
+        approval_method = 'owner',
+        approved_by_user_id = ${userId()}::uuid,
+        veto_deadline_at = NOW() - INTERVAL '5 minutes',
+        sending_started_at = NOW() - INTERVAL '4 minutes'
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** Closure without approval is legal on purpose (091's carve-out): a batch can
+ *  close after generation failed or after it expired unapproved. */
+async function stampClosedBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET send_closed_at = NOW()
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/**
+ * The WHOLE row as text. "Unchanged" has to mean every column, not the handful
+ * a typed reader happens to select — a refused write that still touched, say,
+ * `updated_at` is exactly the leak this assertion exists to catch.
+ */
+async function snapshotBatch(batchId: string): Promise<string> {
+  const [row] = await sql()<{ snapshot: string }[]>`
+    SELECT to_jsonb(b.*)::text AS snapshot
+    FROM solicitation_batches b
+    WHERE b.id = ${batchId}::uuid
+      AND b.account_id = ${accountId()}::uuid
+      AND b.business_id = ${businessId}::uuid
+  `;
+  return row!.snapshot;
+}
+
+async function snapshotOutreach(batchId: string): Promise<string[]> {
+  const rows = await sql()<{ snapshot: string }[]>`
+    SELECT to_jsonb(o.*)::text AS snapshot
+    FROM solicitation_outreach o
+    WHERE o.batch_id = ${batchId}::uuid
+      AND o.account_id = ${accountId()}::uuid
+      AND o.business_id = ${businessId}::uuid
+    ORDER BY o.id
+  `;
+  return rows.map((row) => row.snapshot);
+}
+
 interface OutreachRow {
   id: string;
   delivery_status: string;
@@ -326,7 +431,12 @@ async function readRunStatus(runId: string): Promise<string> {
   return row!.status;
 }
 
-describeWithDb('approveBatch', { enabled: Boolean(testDatabaseUrl), timeout: 90_000 }, () => {
+// One suite, one set of hooks: `haltBatch` and the tenant-scope case are
+// nested below rather than being sibling top-level suites, because a second
+// top-level suite in this file would need its own live-DB lock and its own
+// copy of the upload -> contact -> batch -> ask chain — a parallel fixture path
+// for no gain.
+describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl), timeout: 90_000 }, () => {
   beforeAll(async () => {
     const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
     featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
@@ -340,6 +450,10 @@ describeWithDb('approveBatch', { enabled: Boolean(testDatabaseUrl), timeout: 90_
       userName: 'Approval Owner',
       accountDisplayName: 'Approval Account',
     });
+    foreignTenant = await seedTenantAccount(db, {
+      userName: 'Foreign Owner',
+      accountDisplayName: 'Foreign Account',
+    });
     await db`
       INSERT INTO businesses (
         id, name, owner_name, owner_email, account_id,
@@ -349,6 +463,13 @@ describeWithDb('approveBatch', { enabled: Boolean(testDatabaseUrl), timeout: 90_
         ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active', 'automotive'
       )
     `;
+    // `is_primary` stays FALSE: businesses_account_primary_uniq allows one
+    // primary per account, and the location above already defaults to FALSE.
+    await seedLocation(db, tenant.accountId, {
+      businessId: siblingBusinessId,
+      name: 'Approval Sibling Location',
+      isPrimary: false,
+    });
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
@@ -368,7 +489,9 @@ describeWithDb('approveBatch', { enabled: Boolean(testDatabaseUrl), timeout: 90_
     try {
       if (db) {
         await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        await cleanupLocation(db, siblingBusinessId);
         if (tenant) await cleanupTenantAccount(db, tenant);
+        if (foreignTenant) await cleanupTenantAccount(db, foreignTenant);
       }
     } finally {
       try {
@@ -722,16 +845,220 @@ describeWithDb('approveBatch', { enabled: Boolean(testDatabaseUrl), timeout: 90_
       .map((row) => row.id);
     expect(rendered).toContain(replacementId);
   });
-});
 
-describe('haltBatch', () => {
-  it.todo('halt latches once and a second halt writes nothing');
-  it.todo('halt cancels rendered and queued rows and never a sending row');
-  it.todo('halt before sending starts records owner_veto and after it records owner_halt');
-  it.todo('refuses to halt a batch that is already closed');
-  it.todo('halts a built batch that was never approved');
-});
+  describe('haltBatch', () => {
+    it('halt latches once and a second halt writes nothing', async () => {
+      const { batchId, accountId: account, businessId: business, userId: owner, parentRunId } =
+        await seedRenderedBatch({ renders: 2 });
+      const halt = (): Promise<unknown> =>
+        haltBatch(sql(), {
+          batchId,
+          accountId: account,
+          businessId: business,
+          haltedByUserId: owner,
+        });
 
-describe('tenant scope', () => {
-  it.todo('refuses to approve or halt a batch owned by another account');
+      const first = await halt();
+      const latchedAt = (await readHalt(batchId)).halted_at;
+      const second = await halt();
+
+      // Cancelling both live rows settles the batch, so the halt closes it in
+      // the same transaction and terminalizes the parent `cancelled`.
+      expect(first).toMatchObject({
+        status: 'halted',
+        reason: 'owner_veto',
+        cancelledCount: 2,
+        close: { status: 'closed', disposition: 'halted', parentStatus: 'cancelled' },
+      });
+      expect(second).toEqual({ status: 'already_halted' });
+      // Monotone: the CAS on `halted_at IS NULL` is what makes the second call
+      // inert. Without it the latch would restamp and the audit trail would
+      // record the wrong instant — and a second receipt would appear.
+      expect(latchedAt).not.toBeNull();
+      expect((await readHalt(batchId)).halted_at).toBe(latchedAt);
+      expect(await readSteps(parentRunId, 'batch_halted')).toHaveLength(1);
+    });
+
+    it('halt cancels rendered and queued rows and never a sending row', async () => {
+      const { batchId, uploadId, accountId: account, businessId: business, userId: owner } =
+        await seedRenderedBatch({ renders: 1 });
+      const queuedAsk = await seedSendAsk(batchId, uploadId);
+      const queuedId = await seedAttempt({ batchId, ask: queuedAsk, deliveryStatus: 'queued' });
+      const sendingAsk = await seedSendAsk(batchId, uploadId);
+      const sendingId = await seedAttempt({ batchId, ask: sendingAsk, deliveryStatus: 'sending' });
+      await stampSendingBatch(batchId);
+
+      const result = await haltBatch(sql(), {
+        batchId,
+        accountId: account,
+        businessId: business,
+        haltedByUserId: owner,
+      });
+
+      expect(result).toMatchObject({
+        status: 'halted',
+        reason: 'owner_halt',
+        cancelledCount: 2,
+        // The in-flight row is still live, so the halt does NOT close the batch
+        // — the row that resolves itself is the one that will close it.
+        close: { status: 'not_settled', liveCount: 1 },
+      });
+      const rows = await readOutreach(batchId);
+      expect(rows.find((row) => row.id === queuedId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_halt',
+      });
+      // `sending` is past the point of no return: halt means "no further
+      // sends", not "undo a dispatch the provider may already have accepted".
+      expect(rows.find((row) => row.id === sendingId)).toMatchObject({
+        delivery_status: 'sending',
+        disposition_reason: null,
+      });
+    });
+
+    it('halt before sending starts records owner_veto and after it records owner_halt', async () => {
+      const built = await seedRenderedBatch({ renders: 1 });
+      const sending = await seedRenderedBatch({ renders: 1 });
+      // Only the second batch is approved, so the two never contend for
+      // solicitation_batches_one_active_send_per_business.
+      await stampSendingBatch(sending.batchId);
+
+      const veto = await haltBatch(sql(), {
+        batchId: built.batchId,
+        accountId: built.accountId,
+        businessId: built.businessId,
+        haltedByUserId: built.userId,
+      });
+      const halt = await haltBatch(sql(), {
+        batchId: sending.batchId,
+        accountId: sending.accountId,
+        businessId: sending.businessId,
+        haltedByUserId: sending.userId,
+      });
+
+      expect(veto).toMatchObject({ status: 'halted', reason: 'owner_veto' });
+      expect(halt).toMatchObject({ status: 'halted', reason: 'owner_halt' });
+      // Asserted on the ROW, not just the result: the reason is derived from
+      // the batch state server-side and persisted, so a client that could name
+      // its own reason could file a mid-drip halt as a veto and make the audit
+      // trail lie about whether email had left.
+      expect(await readHalt(built.batchId)).toMatchObject({
+        halt_reason: 'owner_veto',
+        halted_by: built.userId,
+      });
+      expect(await readHalt(sending.batchId)).toMatchObject({
+        halt_reason: 'owner_halt',
+        halted_by: sending.userId,
+      });
+    });
+
+    it('refuses to halt a batch that is already closed', async () => {
+      // A batch whose only ask was withheld: settled with nothing sent, then
+      // closed. Closure without approval is legal (091's carve-out).
+      const { batchId, uploadId } = await seedBatch('1 hour');
+      await seedSendParent(batchId);
+      const ask = await seedSendAsk(batchId, uploadId);
+      await seedAttempt({
+        batchId,
+        ask,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'lint_failed',
+      });
+      await stampClosedBatch(batchId);
+
+      const result = await haltBatch(sql(), {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        haltedByUserId: userId(),
+      });
+
+      // Closed is terminal — there is nothing left to stop, and latching over
+      // it would rewrite the disposition of a batch that already reported.
+      expect(result).toEqual({ status: 'not_haltable', state: 'closed' });
+      expect((await readHalt(batchId)).halted_at).toBeNull();
+    });
+
+    it('halts a built batch that was never approved', async () => {
+      // No send parent on purpose: generation can die before minting one, and
+      // the owner discarding a built batch must still route through the latch.
+      const { batchId, uploadId } = await seedBatch('2 hours');
+      const ask = await seedSendAsk(batchId, uploadId);
+      await seedAttempt({ batchId, ask, deliveryStatus: 'rendered' });
+
+      const result = await haltBatch(sql(), {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        haltedByUserId: userId(),
+      });
+
+      // `no_send_parent` rather than a throw: the join has no run to
+      // terminalize and must leave the batch alone, not fail the halt.
+      expect(result).toMatchObject({
+        status: 'halted',
+        reason: 'owner_veto',
+        cancelledCount: 1,
+        close: { status: 'no_send_parent' },
+      });
+      expect(await readHalt(batchId)).toMatchObject({
+        halt_reason: 'owner_veto',
+        halted_by: userId(),
+      });
+      expect((await readBatch(batchId)).approved_at).toBeNull();
+    });
+  });
+
+  describe('tenant scope', () => {
+    it('refuses to approve or halt a batch owned by another account', async () => {
+      const { batchId, accountId: account, businessId: business, userId: owner } =
+        await seedRenderedBatch({ renders: 2 });
+      const foreign = foreignTenantSeed();
+      const batchBefore = await snapshotBatch(batchId);
+      const outreachBefore = await snapshotOutreach(batchId);
+
+      const results = [
+        await approveBatch(sql(), {
+          batchId,
+          accountId: foreign.accountId,
+          businessId: business,
+          approvedByUserId: foreign.userId,
+          excludedOutreachIds: [],
+        }),
+        await haltBatch(sql(), {
+          batchId,
+          accountId: foreign.accountId,
+          businessId: business,
+          haltedByUserId: foreign.userId,
+        }),
+        await approveBatch(sql(), {
+          batchId,
+          accountId: account,
+          businessId: siblingBusinessId,
+          approvedByUserId: owner,
+          excludedOutreachIds: [],
+        }),
+        await haltBatch(sql(), {
+          batchId,
+          accountId: account,
+          businessId: siblingBusinessId,
+          haltedByUserId: owner,
+        }),
+      ];
+
+      // Two boundaries, both verbs. The foreign account is the obvious one; the
+      // SECOND pair is the point — the right owner reaching for their other
+      // location is what a single-key `WHERE id = …` would wrongly approve.
+      // A uniform `not_found` also keeps a foreign batch id indistinguishable
+      // from an unknown one.
+      expect(results).toEqual([
+        { status: 'not_found' },
+        { status: 'not_found' },
+        { status: 'not_found' },
+        { status: 'not_found' },
+      ]);
+      expect(await snapshotBatch(batchId)).toBe(batchBefore);
+      expect(await snapshotOutreach(batchId)).toEqual(outreachBefore);
+    });
+  });
 });
