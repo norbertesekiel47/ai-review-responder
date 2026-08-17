@@ -14,7 +14,7 @@ workflow file changes to move CI between runners.
 | Variable | Jobs | Value today | Why |
 |---|---|---|---|
 | `CI_RUNNER_HEAVY` | `lint`, `test`, `build`, `llm-eval` (ci.yml) · `e2e` (e2e.yml) · `warm` (cache-warm.yml) | `blacksmith-4vcpu-ubuntu-2404` | the minutes that matter: vitest scales with cores, `next build` too; per-second billing, 3,000 free min/month, then $0.004/min per 2 vCPU (x64) |
-| `CI_RUNNER_LIGHT` | `changes`, `deploy-install`, `fallow` (ci.yml) · `react-doctor` (react-doctor.yml) | `ubuntu-latest` | each is a sub-minute job that GitHub bills as one rounded minute — ~2,400 min/month, inside the plan's 3,000 free minutes, so $0 |
+| `CI_RUNNER_LIGHT` | `changes`, `deploy-install`, `fallow` (ci.yml) · `react-doctor` (react-doctor.yml) | `blacksmith-2vcpu-ubuntu-2404` for now (set 2026-08-17 while this month's GitHub free minutes are exhausted); target `ubuntu-latest` at the next billing reset | each is a sub-minute job that GitHub bills as one rounded minute — ~2,400 min/month, inside the plan's 3,000 free minutes, so $0 once back on GitHub |
 | `CI_RUNNER` (legacy) | fallback for both | unset (was `self-hosted`) | `install.sh` sets it; it only routes jobs when the two above are deleted |
 | — | `claude.yml`, `claude-code-review.yml` | hosted, hard-coded | they hold `CLAUDE_CODE_OAUTH_TOKEN`, the one real secret; it never reaches any other runner |
 
@@ -46,6 +46,13 @@ job), CI coverage writes only the `json` report the fallow gate reads.
 | Free minutes exhausted mid-month (light jobs stall "waiting for a runner" / billing error) | `gh variable set CI_RUNNER_LIGHT --body blacksmith-2vcpu-ubuntu-2404` until the cycle resets, then delete it |
 | Everything back on the Mac VM | `limactl start repworth-ci` (or `install.sh`), then `gh variable delete CI_RUNNER_HEAVY` and `gh variable delete CI_RUNNER_LIGHT`, and `gh variable set CI_RUNNER --body self-hosted` |
 | Everything on GitHub-hosted | delete all three variables; raise the Actions spending limit first |
+
+First Blacksmith run (PR #854 re-run, 2026-08-17): CI wall clock **211s**, E2E
+**102s**, both in parallel — the whole PR in ~3.5 min (Mac VM: 10–14 min serial;
+GitHub-hosted before that: ~8 min). Per job: changes 11s · lint 66s · build 44s ·
+test 140s (vitest 107s) · deploy-install 20s · llm-eval 19s · fallow 27s · e2e 91s
+(build 27s, tests 8s, "29 passed"). Compute per full PR ≈ 6 min at 4 vCPU +
+1 min at 2 vCPU ≈ $0.05 before the free tier.
 
 Measure a change the same way each time: p50/p95 PR completion (`gh run list
 --workflow ci.yml --json createdAt,updatedAt`), per-job billed seconds
