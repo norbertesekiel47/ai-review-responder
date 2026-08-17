@@ -31,16 +31,16 @@ const FEATURES = [
   { id: 'f-guardian',  n: '02', label: 'Guardian',   sub: 'Negative lane',     group: 'Your agent team' },
   { id: 'f-insights',  n: '03', label: 'Insights',   sub: 'Mondays',           group: 'Your agent team' },
   { id: 'f-gate',      n: '04', label: 'The Gate',   sub: 'Copilot',           group: 'Care and control' },
-  { id: 'f-autopilot', n: '05', label: 'Autopilot',  sub: 'Bounded autonomy',  group: 'Care and control' },
+  { id: 'f-autopilot', n: '05', label: 'Autopilot',  sub: 'Within your rules', group: 'Care and control' },
   { id: 'f-watchdogs', n: '06', label: 'Watchdogs',  sub: 'Judge & Governor',  group: 'Care and control' },
   { id: 'f-lang',      n: '07', label: 'Languages',  sub: 'Reach',             group: 'Craft and proof' },
   { id: 'f-voice',     n: '08', label: 'Voice',      sub: 'Over time',         group: 'Craft and proof' },
-  { id: 'f-roi',       n: '09', label: 'ROI',        sub: 'Proof',             group: 'Craft and proof' },
+  { id: 'f-roi',       n: '09', label: 'Results',    sub: 'Proof',             group: 'Craft and proof' },
 ];
 
 const FEATURE_GROUPS = ['Your agent team', 'Care and control', 'Craft and proof'] as const;
 
-const HERO_WORDS_LINE_1 = ['A', 'tireless', 'agent', 'answers', 'every', 'review.'];
+const HERO_WORDS_LINE_1 = ['A', 'tireless', 'agent', 'drafts', 'a', 'reply', 'to', 'every', 'review.'];
 const HERO_WORDS_LINE_2 = ['Nothing', 'goes', 'public', 'without', 'the'];
 const HERO_SERIF_WORD = 'gate.';
 
@@ -161,9 +161,9 @@ function HeroSection({
 
         <div className="md:col-span-4 space-y-4">
           {[
-            { val: m1, target: 58, suffix: 'min', label: 'Avg time from review\nposted to response', delay: '0.9s' },
-            { val: m2, target: 96, suffix: '%', label: 'Response rate\nacross all reviews', delay: '1.15s' },
-            { val: m3, target: 30, suffix: 'sec', label: 'Owner time per\napproval, after week 4', delay: '1.4s' },
+            { val: m1, target: 58, suffix: 'min', label: 'Target: time from review\nposted to reply', delay: '0.9s' },
+            { val: m2, target: 96, suffix: '%', label: 'Goal: response rate\nacross all reviews', delay: '1.15s' },
+            { val: m3, target: 30, suffix: 'sec', label: 'Aim: your time per\napproval, after week 4', delay: '1.4s' },
           ].map((m, i) => (
             <div
               key={m.label}
@@ -185,7 +185,7 @@ function HeroSection({
               {i < 2 && <span className="rw-hero-metric-underline" />}
             </div>
           ))}
-          <p className="text-[10px] italic text-rw-ink-soft pt-1">
+          <p className="text-sm italic text-rw-ink-soft pt-1">
             Illustrative targets, not live performance data.
           </p>
         </div>
@@ -277,12 +277,16 @@ function FeatureTOC({
 interface FeaturesContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
+  /** Label for the /signup CTA when self-serve is on; null keeps the waitlist form. */
+  signupCtaLabel?: string | null;
 }
 
 export function FeaturesContent({
   comingSoon = false,
   selfServeEnabled = false,
+  signupCtaLabel = null,
 }: FeaturesContentProps) {
+  const showSignupCta = selfServeEnabled && signupCtaLabel !== null;
   // Section refs (one per feature) for the dot nav.
   const replyRef = useRef<HTMLElement>(null);
   const guardianRef = useRef<HTMLElement>(null);
@@ -407,30 +411,47 @@ export function FeaturesContent({
               <circle cx="100" cy="100" r="60" stroke="white" strokeWidth="1" />
             </svg>
             <p className="rw-label-mono text-xs uppercase text-white/75 mb-6 relative">
-              Early access
+              {showSignupCta ? 'Get started' : 'Early access'}
             </p>
             <h2 className="text-4xl md:text-6xl font-medium text-white leading-tight mb-5 relative max-w-3xl mx-auto">
-              Join the early access waitlist.
+              {showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}
             </h2>
             <p className="text-white/85 text-lg mb-10 relative max-w-xl mx-auto leading-relaxed">
-              Tell us about your business and we&apos;ll reach out when early access opens for
-              your area.
+              {showSignupCta
+                ? 'Connect your Google Business Profile and get your first drafts in minutes.'
+                : "Tell us about your business and we'll reach out when early access opens for your area."}
             </p>
             <div className="relative w-full max-w-md mx-auto">
               {comingSoon ? (
                 <span className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
                   Coming soon
                 </span>
+              ) : showSignupCta ? (
+                <Link
+                  href="/signup"
+                  className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full font-medium shadow-xl hover:shadow-2xl transition-shadow"
+                >
+                  {signupCtaLabel}
+                </Link>
               ) : (
                 <LeadIntakeForm intent="waitlist" source="features" tone="onTeal" />
               )}
             </div>
-            <div className="relative mt-6">
+            <div className="relative mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
               <Link
                 href="/how-it-works"
                 className="inline-flex items-center gap-1 text-sm text-white/80 underline underline-offset-4 decoration-white/40 hover:text-white hover:decoration-white transition-colors"
               >
                 See how it works
+                <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
+                </svg>
+              </Link>
+              <Link
+                href="/pricing"
+                className="inline-flex items-center gap-1 text-sm text-white/80 underline underline-offset-4 decoration-white/40 hover:text-white hover:decoration-white transition-colors"
+              >
+                See pricing
                 <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
                 </svg>

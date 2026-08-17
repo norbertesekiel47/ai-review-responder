@@ -19,7 +19,7 @@ const AI_REPLIES = {
     label: 'Your response',
     meta: 'Personalized · in your voice',
     borderColor: 'rgba(151,179,174,0.35)',
-    text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot. Our team makes the achiote marinade from scratch every morning. Looking forward to your next visit!"`,
+    text: `"Thank you so much! We're thrilled the al pastor tacos hit the spot; that smoky-sweet balance is exactly what we go for. Looking forward to your next visit!"`,
     diag: [
       ['Written from scratch', 'Yes'],
       ['References detail', 'Al pastor · achiote'],

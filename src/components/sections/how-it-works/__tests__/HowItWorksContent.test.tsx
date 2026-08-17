@@ -44,8 +44,11 @@ describe('HowItWorksContent', () => {
     expect(html).not.toContain('Telegram');
     expect(html).not.toContain('WhatsApp');
 
-    // present, corrected claims
-    expect(html).toContain('edits you make');
+    // present, corrected claims (2026-08-16 truth pass — voice learning
+    // activates after five posted, edited replies; day-one drafts use Brand
+    // Voice settings; see voice-learning.ts MIN_EXAMPLES_FOR_ACTIVATION)
+    expect(html).toContain('edited and posted five replies');
+    expect(html).toContain('Brand Voice settings');
     expect(html).toContain('low, medium, or high');
     expect(html).toContain('fixed safety rubric');
     expect(html).toContain('Multi-location supported on Copilot and Autopilot');
@@ -63,5 +66,37 @@ describe('HowItWorksContent', () => {
     expect(html).not.toContain('15 hrs');
     expect(html).not.toContain('saved weekly');
     expect(html).not.toContain('just four well-behaved services');
+
+    // 2026-08-16 truth pass — claims corrected against the code
+    expect(html).not.toContain('Responds from owner@'); // replies post via GBP, not from an email
+    expect(html).not.toContain('Tripadvisor'); // no such roadmap item; design §2.4 names Yelp/Facebook/Apple
+    expect(html).not.toContain('unflagged'); // internal word → 'pass our safety checks'
+    expect(html).not.toContain('moderation check'); // → 'safety check' (OpenAI moderation add-on is off in prod)
+    expect(html).not.toContain('negative lane'); // → 'reviews of 3★ or less'
+    expect(html).not.toContain('independent AI reviewer'); // same model as the drafter → 'separate AI safety check'
+    expect(html).not.toContain('BullMQ'); // library name, meaningless to an owner
+    expect(html).not.toContain('43 sec'); // judge sweep is every 60 s
+    expect(html).toContain('no made-up facts about your business'); // judge-policy.ts flags fabricated facts
+    expect(html).toContain('up to 3 times a day per review'); // MAX_REGEN_PER_SUBJECT_PER_DAY
+    expect(html).toContain('Email links expire after 48 hours'); // create-link.ts TTL
+    expect(html).toContain('Other review platforms are on the roadmap.');
+    expect(html).toContain('How do I connect my Google reviews?');
+    expect(html).toContain('100 most recent reviews from the past 12 months'); // consented import window
+    expect(html).toContain('safety-checked'); // Autopilot mock chip
+    expect(html).toContain('Review &amp; Approve'); // the real approval email has ONE button
+  });
+
+  it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {
+    const html = renderToStaticMarkup(
+      createElement(HowItWorksContent, {
+        selfServeEnabled: true,
+        signupCtaLabel: 'Start your 30-day free trial',
+      })
+    );
+    expect(html).toContain('href="/signup"');
+    expect(html).toContain('Start your 30-day free trial');
+    expect(html).toContain('Start with Copilot today.');
+    expect(html).not.toContain('value="waitlist"');
+    expect(html).not.toContain('Join the early access waitlist.');
   });
 });

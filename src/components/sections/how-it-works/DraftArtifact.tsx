@@ -43,8 +43,7 @@ export function DraftArtifact() {
           className="hiw-artifact-cap-dot"
           style={{ background: '#F2C3B9', boxShadow: '0 0 0 4px rgba(242,195,185,0.2)' }}
         />
-        <span>Draft generation · voice model</span>
-        <span className="hiw-artifact-cap-tail">~4 sec</span>
+        <span>Draft generation · AI writer</span>
       </div>
       <div className="hiw-draft">
         <div className="hiw-draft-src">
@@ -72,7 +71,7 @@ export function DraftArtifact() {
           </div>
           <div className="hiw-voice-chip">
             <span className="hiw-voice-chip-lbl">Length</span>
-            <span className="hiw-voice-chip-val">28 words</span>
+            <span className="hiw-voice-chip-val">25 words</span>
           </div>
         </div>
       </div>

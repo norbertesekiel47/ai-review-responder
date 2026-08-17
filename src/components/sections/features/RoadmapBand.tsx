@@ -29,7 +29,7 @@ export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | nu
             The same agent, <span className="rw-display-serif text-rw-teal-strong">reaching</span> further.
           </h2>
           <p className="rw-label-mono text-sm uppercase tracking-wider text-rw-teal-strong mb-4">
-            Get reviews · Flag fakes · Watch everywhere
+            Get reviews · Flag fakes · Watch everywhere · Compare with competitors
           </p>
           <p className="text-rw-ink-soft max-w-md leading-relaxed">
             Today RepWorth minds your Google reviews. The roster above is what the agent takes on

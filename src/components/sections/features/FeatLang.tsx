@@ -10,7 +10,7 @@ const FEATURE_LANGS = [
   { code: 'ZH', name: '中文' },
   { code: 'TL', name: 'Tagalog' },
   { code: 'KO', name: '한국어' },
-  { code: '+14', name: 'more' },
+  { code: '30+', name: 'languages' },
 ];
 
 /* ================== 07 LANGUAGES ================== */
@@ -55,7 +55,7 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
                 }}
               >
                 <p className="rw-label-mono text-[10px] text-rw-ink-soft mb-0.5">{l.code}</p>
-                <p className={`text-sm font-medium ${l.name === 'more' ? 'text-rw-teal-strong' : ''}`}>
+                <p className={`text-sm font-medium ${l.name === 'languages' ? 'text-rw-teal-strong' : ''}`}>
                   {l.name}
                 </p>
               </div>
@@ -104,8 +104,8 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
               <span className="ml-auto rw-label-mono text-[10px] text-rw-ink-soft">auto-generated</span>
             </div>
             <p className="text-sm text-rw-ink leading-relaxed">
-              &ldquo;¡Muchísimas gracias! El mole es la receta de mi abuela; tardan tres días
-              en prepararlo. Nos alegra mucho que lo hayas disfrutado. ¡Hasta pronto!&rdquo;
+              &ldquo;¡Muchísimas gracias! Nos alegra mucho que la enchilada y el mole te hayan
+              parecido auténticos. Te esperamos el fin de semana que quieras. ¡Hasta pronto!&rdquo;
             </p>
           </div>
         </div>

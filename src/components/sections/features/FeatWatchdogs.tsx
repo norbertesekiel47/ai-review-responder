@@ -38,10 +38,11 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             Autonomy that is watched, <span className="rw-display-serif text-rw-peach">always</span>.
           </h2>
           <p className="text-white/70 max-w-md leading-relaxed">
-            Every reply that posts without your tap is reviewed by the Judge: an independent AI
-            check on 100% of Autopilot&apos;s public actions. If the Judge is unavailable,
-            auto-posting stops on its own. And if verdicts slip, the Governor suspends that
-            account&apos;s autonomy and tells you.
+            Every reply that posts without your tap is reviewed by the Judge: a separate AI safety
+            check, with its own rulebook, on 100% of Autopilot&apos;s public replies. If the Judge
+            is unavailable, auto-posting stops on its own. And if a reply is flagged, or edits and
+            vetoes pile up over a week, the Governor pauses Autopilot for your whole account, emails
+            you, and RepWorth support switches it back on after a review.
           </p>
         </div>
 
@@ -71,7 +72,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             <div className="mt-4 pt-4 border-t border-white/10 flex items-center gap-3">
               <span className="size-2 rounded-full bg-rw-peach shrink-0" aria-hidden />
               <p className="text-xs text-white/70">
-                Flagged verdict → autonomy is suspended for this account and you are notified.
+                Flagged verdict → Autopilot is paused for this account and you are notified.
                 Replies go back to your approval queue.
               </p>
             </div>

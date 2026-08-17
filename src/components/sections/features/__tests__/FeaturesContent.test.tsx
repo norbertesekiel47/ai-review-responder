@@ -78,6 +78,47 @@ describe('FeaturesContent', () => {
     expect(html).toContain('Craft and proof');
   });
 
+  it('states only claims true to the system (2026-08-16 truth pass)', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+
+    // drafting is what happens on its own; posting depends on the owner or their settings
+    expect(html).toContain('drafts');
+    // sample replies must not invent business facts (prompt-policy.ts forbids it)
+    expect(html).not.toContain('achiote marinade from scratch');
+    expect(html).not.toContain('abuela');
+    // ranking has no radius; the check is centred on the listing
+    expect(html).not.toContain('RADIUS');
+    // '+14 more' mapped to nothing; the drafting rules name 31 languages
+    expect(html).not.toContain('+14');
+    expect(html).toContain('30+');
+    // plain-language pass
+    expect(html).not.toContain('Bounded autonomy');
+    expect(html).not.toContain('unflagged');
+    expect(html).not.toContain('independent AI');
+    expect(html).not.toContain('via webhook');
+    // metrics are labelled as targets in the label itself, not just the footnote
+    expect(html).toContain('Target: time from review');
+    // real digest sections + time-saved estimate now named
+    expect(html).toContain('Estimated time saved this week');
+    expect(html).toContain('Time saved · estimate');
+    // the weekly brief cannot know day/hour; the sample must not claim it
+    expect(html).not.toContain('Saturday nights');
+    // Features gained the pricing link How It Works already had
+    expect(html).toContain('href="/pricing"');
+  });
+
+  it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {
+    const html = renderToStaticMarkup(
+      createElement(FeaturesContent, {
+        selfServeEnabled: true,
+        signupCtaLabel: 'Start your 30-day free trial',
+      })
+    );
+    expect(html).toContain('href="/signup"');
+    expect(html).toContain('Start your 30-day free trial');
+    expect(html).not.toContain('value="waitlist"');
+  });
+
   it('keeps roadmap items as verb phrases, not shipped claims', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
     expect(html).toContain('Get reviews · Flag fakes · Watch everywhere');
@@ -171,14 +212,14 @@ describe('FeaturesContent', () => {
 
   it('introduces Guardian triage and escalation without public actions', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
-    expect(html).toContain('Guardian · the negative lane');
+    expect(html).toContain('Guardian · reviews of 3★ or less');
     expect(html).toContain('Guardian never posts anything, anywhere');
     expect(html).toContain('Severity read');
   });
 
-  it('describes Autopilot as bounded autonomy with a veto window', () => {
+  it('describes Autopilot as autonomy within the owner\'s rules, with a veto window', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
-    expect(html).toContain('Autopilot · bounded autonomy');
+    expect(html).toContain('Autopilot · within your rules');
     expect(html).toContain('veto window');
     expect(html).toContain('Negative reviews are never auto-posted');
   });
@@ -187,6 +228,6 @@ describe('FeaturesContent', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
     expect(html).toContain('Judge &amp; Governor · oversight');
     expect(html).toContain('auto-posting stops');
-    expect(html).toContain('Governor suspends');
+    expect(html).toContain('Governor pauses Autopilot');
   });
 });

@@ -28,7 +28,7 @@ export function WatchArtifact() {
       <div className="hiw-artifact-cap">
         <span className="hiw-artifact-cap-dot" />
         <span>Google Business Profile: Bright Linen Dry Cleaning</span>
-        <span className="hiw-artifact-cap-tail">polling · next in {mins}:{secs}</span>
+        <span className="hiw-artifact-cap-tail">live · backup check in {mins}:{secs}</span>
       </div>
       <div className="hiw-feed">
         {rows.map((r, i) => (
