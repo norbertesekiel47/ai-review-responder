@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,12 +8,19 @@ import {
   tenantScopeAllowlist,
   type TenantScopeAllowlistEntry,
 } from './tenant-scope-allowlist';
-import { TENANT_TABLES, type TenantTable } from './tenant-tables';
+import {
+  TENANT_SCOPE_COLUMNS,
+  TENANT_TABLES,
+  type TenantScopeColumn,
+  type TenantTable,
+} from './tenant-tables';
 
 export interface TenantScopeFinding {
   file: string;
   table: string;
   reason: string;
+  /** Stable identity for one physical table binding. Integrity findings omit it. */
+  sqlIdentity?: string;
 }
 
 export interface ExtractedSqlTemplate {
@@ -20,10 +28,17 @@ export interface ExtractedSqlTemplate {
   sqlText: string;
 }
 
+interface IndexedSqlTemplate extends ExtractedSqlTemplate {
+  sourceIndex: number;
+}
+
 interface NamedSqlTemplate {
   name: string;
   sqlText: string;
   index: number;
+  declarationKind: 'const' | 'let' | 'var';
+  scopePath: readonly number[];
+  functionScopePath: readonly number[];
 }
 
 const SCANNED_ROOTS = ['src', 'worker'] as const;
@@ -35,44 +50,149 @@ function normalizePath(file: string): string {
   return file.split(sep).join('/');
 }
 
-function stripSqlComments(sqlText: string): string {
-  return sqlText
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--.*$/gm, ' ');
-}
-
-function stripSelectSubqueries(sqlText: string): string {
-  let stripped = '';
-  for (let index = 0; index < sqlText.length; index++) {
-    const current = sqlText[index];
-    if (current !== '(') {
-      stripped += current;
-      continue;
-    }
-
-    const afterParen = sqlText.slice(index + 1);
-    const leadingWhitespace = afterParen.match(/^\s*/)?.[0] ?? '';
-    if (!afterParen.slice(leadingWhitespace.length).match(/^select\b/i)) {
-      stripped += current;
-      continue;
-    }
-
-    let depth = 1;
-    index++;
-    while (index < sqlText.length && depth > 0) {
-      const char = sqlText[index];
-      if (char === '(') depth++;
-      if (char === ')') depth--;
-      index++;
-    }
-    index--;
-    stripped += ' (subquery) ';
-  }
-  return stripped;
-}
-
 function normalizeSql(sqlText: string): string {
   return sqlText.replace(/\s+/g, ' ').trim();
+}
+
+function maskCharacters(chars: string[], start: number, end: number): void {
+  for (let index = start; index <= end; index++) {
+    if (chars[index] !== '\n' && chars[index] !== '\r') chars[index] = ' ';
+  }
+}
+
+function findJsExpressionEnd(sourceText: string, expressionStart: number): number | null {
+  return scanJsExpressionEnd(sourceText, expressionStart);
+}
+
+interface SqlLexicalView {
+  /** Strings, comments, dollar quotes, and template expressions cannot supply SQL evidence. */
+  masked: string;
+  /** `masked` plus quoted identifiers, for quote-aware structural keyword discovery. */
+  structureMasked: string;
+  /** Exact SQL with only comments masked, used by exact allowlist normalization. */
+  commentsRemoved: string;
+}
+
+/**
+ * One PostgreSQL-aware lexical pass feeds every structural decision below.
+ * Both outputs preserve source length, which keeps child-block ranges stable.
+ */
+function lexSql(sqlText: string): SqlLexicalView {
+  const masked = sqlText.split('');
+  const structureMasked = sqlText.split('');
+  const commentsRemoved = sqlText.split('');
+
+  for (let index = 0; index < sqlText.length; index++) {
+    const current = sqlText[index];
+    const next = sqlText[index + 1];
+
+    if (current === '-' && next === '-') {
+      let end = index + 2;
+      while (end < sqlText.length && sqlText[end] !== '\n') end++;
+      maskCharacters(masked, index, end - 1);
+      maskCharacters(structureMasked, index, end - 1);
+      maskCharacters(commentsRemoved, index, end - 1);
+      index = end - 1;
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      let depth = 1;
+      let end = index + 2;
+      while (end < sqlText.length && depth > 0) {
+        if (sqlText[end] === '/' && sqlText[end + 1] === '*') {
+          depth++;
+          end += 2;
+          continue;
+        }
+        if (sqlText[end] === '*' && sqlText[end + 1] === '/') {
+          depth--;
+          end += 2;
+          continue;
+        }
+        end++;
+      }
+      maskCharacters(masked, index, end - 1);
+      maskCharacters(structureMasked, index, end - 1);
+      maskCharacters(commentsRemoved, index, end - 1);
+      index = end - 1;
+      continue;
+    }
+
+    if (current === '"') {
+      const start = index;
+      index++;
+      while (index < sqlText.length) {
+        if (sqlText[index] === '"' && sqlText[index + 1] === '"') {
+          index++;
+        } else if (sqlText[index] === '"') {
+          break;
+        }
+        index++;
+      }
+      maskCharacters(structureMasked, start, Math.min(index, sqlText.length - 1));
+      continue;
+    }
+
+    if (current === "'") {
+      const escaped = index > 0
+        && /[eE]/.test(sqlText[index - 1] ?? '')
+        && (index < 2 || !/[\w$]/.test(sqlText[index - 2] ?? ''));
+      let end = index + 1;
+      while (end < sqlText.length) {
+        if (escaped && sqlText[end] === '\\') {
+          end += 2;
+          continue;
+        }
+        if (sqlText[end] === "'" && sqlText[end + 1] === "'") {
+          end += 2;
+          continue;
+        }
+        if (sqlText[end] === "'") break;
+        end++;
+      }
+      maskCharacters(masked, index, Math.min(end, sqlText.length - 1));
+      maskCharacters(structureMasked, index, Math.min(end, sqlText.length - 1));
+      index = end;
+      continue;
+    }
+
+    if (current === '$' && next === '{') {
+      const end = findJsExpressionEnd(sqlText, index + 2);
+      if (end === null) {
+        maskCharacters(masked, index, sqlText.length - 1);
+        break;
+      }
+      maskCharacters(masked, index, end);
+      maskCharacters(structureMasked, index, end);
+      masked[index] = '$';
+      if (index + 1 <= end) masked[index + 1] = '1';
+      structureMasked[index] = '$';
+      if (index + 1 <= end) structureMasked[index + 1] = '1';
+      index = end;
+      continue;
+    }
+
+    if (current === '$') {
+      const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sqlText.slice(index))?.[0];
+      if (!delimiter) continue;
+      const endStart = sqlText.indexOf(delimiter, index + delimiter.length);
+      const end = endStart < 0 ? sqlText.length - 1 : endStart + delimiter.length - 1;
+      maskCharacters(masked, index, end);
+      maskCharacters(structureMasked, index, end);
+      index = end;
+    }
+  }
+
+  return {
+    masked: masked.join(''),
+    structureMasked: structureMasked.join(''),
+    commentsRemoved: commentsRemoved.join(''),
+  };
+}
+
+function stripSqlComments(sqlText: string): string {
+  return lexSql(sqlText).commentsRemoved;
 }
 
 function setOperatorMatch(sqlText: string, index: number): RegExpExecArray | null {
@@ -84,78 +204,164 @@ function setOperatorMatch(sqlText: string, index: number): RegExpExecArray | nul
   return match;
 }
 
-function splitSqlUnits(sqlText: string): string[] {
-  const units: string[] = [];
+function splitTopLevelStatements(sqlText: string): string[] {
+  const masked = lexSql(sqlText).structureMasked;
+  const statements: string[] = [];
   let start = 0;
   let depth = 0;
 
-  for (let index = 0; index < sqlText.length; index++) {
-    const char = sqlText[index];
-
-    if (char === "'") {
-      index++;
-      while (index < sqlText.length) {
-        if (sqlText[index] === "'" && sqlText[index + 1] === "'") {
-          index += 2;
-          continue;
-        }
-        if (sqlText[index] === "'") break;
-        index++;
-      }
-      continue;
-    }
-
+  for (let index = 0; index < masked.length; index++) {
+    const char = masked[index];
     if (char === '(') depth++;
     if (char === ')' && depth > 0) depth--;
-
     if (depth !== 0) continue;
-
     if (char === ';') {
-      units.push(sqlText.slice(start, index));
-      start = index + 1;
-      continue;
-    }
-
-    const setMatch = setOperatorMatch(sqlText, index);
-    if (setMatch) {
-      units.push(sqlText.slice(start, index));
-      index += setMatch[0].length - 1;
+      statements.push(sqlText.slice(start, index));
       start = index + 1;
     }
   }
-
-  units.push(sqlText.slice(start));
-
-  return units
+  statements.push(sqlText.slice(start));
+  return statements
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }
 
-function hasReadOrMutationStatement(sqlText: string): boolean {
-  return /\b(select|update|delete)\b/i.test(sqlText);
+function splitTopLevelSetArms(sqlText: string): string[] {
+  const masked = lexSql(sqlText).structureMasked;
+  const arms: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < masked.length; index++) {
+    const char = masked[index];
+    if (char === '(') depth++;
+    if (char === ')' && depth > 0) depth--;
+    if (depth !== 0) continue;
+    const setMatch = setOperatorMatch(masked, index);
+    if (!setMatch) continue;
+    arms.push(sqlText.slice(start, index));
+    index += setMatch[0].length - 1;
+    start = index + 1;
+  }
+  arms.push(sqlText.slice(start));
+  return arms.map((part) => part.trim()).filter(Boolean);
 }
 
-function predicateClauses(sqlText: string): string[] {
-  const normalizedSql = normalizeSql(stripSelectSubqueries(sqlText));
-  return normalizedSql.match(
-    /\b(?:where|on|having)\b[\s\S]*?(?=\b(?:where|on|having|group\s+by|order\s+by|limit|offset|returning|union|except|intersect)\b|$)/gi,
-  ) ?? [];
+function hasReadOrMutationStatement(sqlText: string): boolean {
+  const structuralSql = lexSql(sqlText).structureMasked;
+  if (/\b(select|update|delete)\b/i.test(structuralSql)) return true;
+  const start = skipSqlWhitespace(structuralSql, 0);
+  if (keywordAt(structuralSql, start, 'table')) return true;
+  if (!keywordAt(structuralSql, start, 'with')) return false;
+
+  let depth = 0;
+  for (let index = start + 4; index < structuralSql.length; index++) {
+    if (structuralSql[index] === '(') depth++;
+    if (structuralSql[index] === ')' && depth > 0) depth--;
+    if (depth === 0 && keywordAt(structuralSql, index, 'table')) return true;
+  }
+  return false;
+}
+
+type PredicateProvenance = 'filter' | 'inner-on' | 'left-on' | 'right-on' | 'full-on';
+
+interface PredicateClause {
+  sqlText: string;
+  provenance: PredicateProvenance;
+  joinedAliases?: ReadonlySet<string>;
+}
+
+function parenthesisDepthAt(sqlText: string, beforeIndex: number): number {
+  let depth = 0;
+  for (let index = 0; index < beforeIndex; index++) {
+    if (sqlText[index] === '(') depth++;
+    if (sqlText[index] === ')' && depth > 0) depth--;
+  }
+  return depth;
+}
+
+function joinContextForOnClause(
+  sqlText: string,
+  structuralSql: string,
+  onIndex: number,
+): Pick<PredicateClause, 'provenance' | 'joinedAliases'> {
+  const prefix = structuralSql.slice(0, onIndex);
+  const joinPattern = /\b(?:(left|right|full)(?:\s+outer)?|inner|cross)?\s*join\b/gi;
+  let nearestJoin: RegExpExecArray | null = null;
+  const onDepth = parenthesisDepthAt(structuralSql, onIndex);
+  for (const match of prefix.matchAll(joinPattern)) {
+    if (parenthesisDepthAt(structuralSql, match.index ?? 0) === onDepth) nearestJoin = match;
+  }
+  if (!nearestJoin) return { provenance: 'inner-on' };
+  const joinType = nearestJoin[1]?.toLowerCase();
+  const provenance: PredicateProvenance = joinType === 'left'
+    ? 'left-on'
+    : joinType === 'right'
+      ? 'right-on'
+      : joinType === 'full'
+        ? 'full-on'
+        : 'inner-on';
+  return {
+    provenance,
+    joinedAliases: relationAliasesAt(sqlText, (nearestJoin.index ?? 0) + nearestJoin[0].length),
+  };
+}
+
+function predicateClauses(sqlText: string): PredicateClause[] {
+  const structuralSql = lexSql(sqlText).structureMasked;
+  const clausePattern = /\b(?:where|on|having)\b[\s\S]*?(?=\b(?:(?:(?:left|right|full)(?:\s+outer)?|inner|cross)?\s*join|where|on|having|group\s+by|order\s+by|limit|offset|returning|for|union|except|intersect)\b|$)/gi;
+  const clauses: PredicateClause[] = [];
+  for (const match of structuralSql.matchAll(clausePattern)) {
+    const index = match.index ?? 0;
+    const sqlClause = sqlText.slice(index, index + match[0].length);
+    if (!/^on\b/i.test(match[0])) {
+      clauses.push({ sqlText: sqlClause, provenance: 'filter' });
+      continue;
+    }
+    clauses.push({
+      sqlText: sqlClause,
+      ...joinContextForOnClause(sqlText, structuralSql, index),
+    });
+  }
+  return clauses;
 }
 
 function boundValuePattern(): string {
-  return String.raw`(?:\$\{[^}]+\}|\$\d+)(?:\s*::\s*[a-z_][\w]*(?:\[\])?)?`;
+  return String.raw`\$\d+(?:\s*::\s*"?[A-Za-z_][\w$]*"?(?:\[\])?)?`;
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function qualifiedIdentifier(alias: string, column: string): string {
-  return String.raw`(?<![\w$])"?${escapeRegExp(alias)}"?\s*\.\s*"?${column}"?`;
+interface SqlIdentifier {
+  /** PostgreSQL lookup value: unquoted names are folded, quoted names retain case. */
+  value: string;
+  quoted: boolean;
+}
+
+function caseInsensitiveAsciiPattern(value: string): string {
+  return Array.from(value, (char) => (
+    /[a-z]/i.test(char) ? `[${char.toLowerCase()}${char.toUpperCase()}]` : escapeRegExp(char)
+  )).join('');
+}
+
+function identifierReferencePattern(identifier: SqlIdentifier): string {
+  const quoted = `"${escapeRegExp(identifier.value.replace(/"/g, '""'))}"`;
+  return identifier.quoted
+    ? quoted
+    : `(?:${caseInsensitiveAsciiPattern(identifier.value)}|${quoted})`;
+}
+
+function databaseColumnPattern(column: string): string {
+  return `(?:${caseInsensitiveAsciiPattern(column)}|"${escapeRegExp(column)}")`;
+}
+
+function qualifiedIdentifier(alias: SqlIdentifier, column: string): string {
+  return String.raw`(?<![\w$"])${identifierReferencePattern(alias)}\s*\.\s*${databaseColumnPattern(column)}`;
 }
 
 function unqualifiedIdentifier(column: string): string {
-  return String.raw`(?<![\w$.])"?${column}"?`;
+  return String.raw`(?<![\w$.])${databaseColumnPattern(column)}`;
 }
 
 function keywordAt(sqlText: string, index: number, keyword: string): boolean {
@@ -168,31 +374,19 @@ function keywordAt(sqlText: string, index: number, keyword: string): boolean {
 }
 
 function splitTopLevelAnd(sqlText: string): string[] {
+  const structuralSql = lexSql(sqlText).structureMasked;
   const parts: string[] = [];
   let start = 0;
   let depth = 0;
 
   for (let index = 0; index < sqlText.length; index++) {
-    const char = sqlText[index];
-
-    if (char === "'") {
-      index++;
-      while (index < sqlText.length) {
-        if (sqlText[index] === "'" && sqlText[index + 1] === "'") {
-          index += 2;
-          continue;
-        }
-        if (sqlText[index] === "'") break;
-        index++;
-      }
-      continue;
-    }
+    const char = structuralSql[index];
 
     if (char === '(') depth++;
     if (char === ')' && depth > 0) depth--;
     if (depth !== 0) continue;
 
-    if (keywordAt(sqlText, index, 'and')) {
+    if (keywordAt(structuralSql, index, 'and')) {
       parts.push(sqlText.slice(start, index));
       index += 'and'.length - 1;
       start = index + 1;
@@ -203,248 +397,764 @@ function splitTopLevelAnd(sqlText: string): string[] {
   return parts.map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
-function hasBoundIdentifierPredicate(clauses: string[], identifiers: string[]): boolean {
+function containsStructuralKeyword(sqlText: string, keyword: string): boolean {
+  const structuralSql = lexSql(sqlText).structureMasked;
+  for (let index = 0; index < structuralSql.length; index++) {
+    if (keywordAt(structuralSql, index, keyword)) return true;
+  }
+  return false;
+}
+
+function containsTopLevelStructuralKeyword(sqlText: string, keyword: string): boolean {
+  const structuralSql = lexSql(sqlText).structureMasked;
+  let depth = 0;
+  for (let index = 0; index < structuralSql.length; index++) {
+    if (structuralSql[index] === '(') depth++;
+    if (structuralSql[index] === ')' && depth > 0) depth--;
+    if (depth === 0 && keywordAt(structuralSql, index, keyword)) return true;
+  }
+  return false;
+}
+
+function completeProofConjunct(sqlText: string): string {
+  let conjunct = sqlText.trim();
+  let structuralSql = lexSql(conjunct).structureMasked;
+  for (const keyword of ['where', 'on', 'having']) {
+    if (!keywordAt(structuralSql, 0, keyword)) continue;
+    conjunct = conjunct.slice(keyword.length).trim();
+    break;
+  }
+
+  // An ON clause inside a parenthesized joined-table group inherits the
+  // group's closing parens from the surrounding SQL. They are delimiters, not
+  // boolean wrappers belonging to the conjunct itself.
+  while (conjunct.endsWith(')')) {
+    structuralSql = lexSql(conjunct).structureMasked;
+    let balance = 0;
+    for (const char of structuralSql) {
+      if (char === '(') balance++;
+      if (char === ')') balance--;
+    }
+    if (balance >= 0) break;
+    conjunct = conjunct.slice(0, -1).trimEnd();
+  }
+
+  while (conjunct.startsWith('(')) {
+    structuralSql = lexSql(conjunct).structureMasked;
+    const closing = findMatchingParen(structuralSql, 0);
+    if (closing !== conjunct.length - 1) break;
+    conjunct = conjunct.slice(1, -1).trim();
+  }
+  return conjunct;
+}
+
+function hasBoundIdentifierPredicate(
+  clauses: readonly PredicateClause[],
+  identifiers: string[],
+): boolean {
   const boundValue = boundValuePattern();
   const patterns = identifiers.flatMap((identifier) => [
-    new RegExp(String.raw`${identifier}\s*=\s*${boundValue}(?=\s|,|\)|;|$)`, 'i'),
-    new RegExp(String.raw`${identifier}\s+\bin\b\s*\(\s*${boundValue}`, 'i'),
-    new RegExp(String.raw`${identifier}\s*=\s*\b(?:any|some)\s*\(\s*${boundValue}`, 'i'),
-    new RegExp(String.raw`${boundValue}\s*=\s*${identifier}(?=\s|,|\)|;|$)`, 'i'),
+    new RegExp(String.raw`^${identifier}\s*=\s*${boundValue}$`),
+    new RegExp(String.raw`^${identifier}\s+\b[iI][nN]\b\s*\(\s*${boundValue}\s*\)$`),
+    new RegExp(String.raw`^${identifier}\s*=\s*\b(?:[aA][nN][yY]|[sS][oO][mM][eE])\s*\(\s*${boundValue}\s*\)$`),
+    new RegExp(String.raw`^${boundValue}\s*=\s*${identifier}$`),
   ]);
 
   return clauses
+    .map((clause) => clause.sqlText)
+    .filter((clause) => !containsTopLevelStructuralKeyword(clause, 'or'))
     .flatMap(splitTopLevelAnd)
     .some((part) => {
-      if (/\bor\b/i.test(part) || /\bnot\b/i.test(part)) return false;
-      return patterns.some((pattern) => pattern.test(part));
+      if (containsStructuralKeyword(part, 'or') || containsStructuralKeyword(part, 'not')) return false;
+      const conjunct = completeProofConjunct(part);
+      return patterns.some((pattern) => pattern.test(conjunct));
     });
-}
-
-function tableAliases(sqlText: string, table: string): string[] {
-  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const tableName = `(?:"${escapedTable}"|${escapedTable})`;
-  const schemaPrefix = `(?:(?:"public"|public)\\s*\\.\\s*)?`;
-  const tableRef = String.raw`\b(?:from|join|update|delete\s+from|using)\s+(?:only\s+)?${schemaPrefix}${tableName}(?:\s+(?:as\s+)?("?[\w$]+"?))?`;
-  const aliases = new Set<string>([table]);
-
-  for (const match of sqlText.matchAll(new RegExp(tableRef, 'gi'))) {
-    const alias = match[1]?.replace(/^"|"$/g, '');
-    if (!alias) continue;
-    if (/^(where|on|join|left|right|inner|outer|full|cross|using|set|returning|for|order|group|limit|offset)$/i.test(alias)) {
-      continue;
-    }
-    aliases.add(alias);
-  }
-
-  return Array.from(aliases);
 }
 
 function hasIdentifierRelationship(
-  clauses: string[],
+  clauses: readonly PredicateClause[],
   leftIdentifier: string,
   rightIdentifier: string,
 ): boolean {
-  const leftToRight = new RegExp(String.raw`${leftIdentifier}\s*=\s*${rightIdentifier}`, 'i');
-  const rightToLeft = new RegExp(String.raw`${rightIdentifier}\s*=\s*${leftIdentifier}`, 'i');
+  const leftToRight = new RegExp(String.raw`^${leftIdentifier}\s*=\s*${rightIdentifier}$`);
+  const rightToLeft = new RegExp(String.raw`^${rightIdentifier}\s*=\s*${leftIdentifier}$`);
   return clauses
+    .map((clause) => clause.sqlText)
+    .filter((clause) => !containsTopLevelStructuralKeyword(clause, 'or'))
     .flatMap(splitTopLevelAnd)
     .some((part) => {
-      if (/\bor\b/i.test(part) || /\bnot\b/i.test(part)) return false;
-      return leftToRight.test(part) || rightToLeft.test(part);
+      if (containsStructuralKeyword(part, 'or') || containsStructuralKeyword(part, 'not')) return false;
+      const conjunct = completeProofConjunct(part);
+      return leftToRight.test(conjunct) || rightToLeft.test(conjunct);
     });
 }
 
-function referencedTenantTables(sqlText: string): TenantTable[] {
-  return TENANT_TABLES.filter((table) => referencesTenantTable(sqlText, table));
+interface QueryChildRange {
+  start: number;
+  end: number;
 }
 
-function accountAliasScoped(clauses: string[], alias: string, allowUnqualified: boolean): boolean {
-  const identifiers = [qualifiedIdentifier(alias, 'id')];
-  if (allowUnqualified) identifiers.push(unqualifiedIdentifier('id'));
-  return hasBoundIdentifierPredicate(clauses, identifiers);
+interface TableBinding {
+  table: TenantTable;
+  alias: SqlIdentifier;
+  bindingOrdinal: number;
 }
 
-function businessAliasDirectlyScoped(
-  clauses: string[],
-  alias: string,
-  allowUnqualified: boolean,
-): boolean {
-  const identifiers = [
-    qualifiedIdentifier(alias, 'id'),
-    qualifiedIdentifier(alias, 'account_id'),
-  ];
-  if (allowUnqualified) {
-    identifiers.push(unqualifiedIdentifier('id'), unqualifiedIdentifier('account_id'));
+interface ProvenBinding extends TableBinding {}
+
+interface RawScopeFinding extends TenantScopeFinding {
+  allowlistSqlText: string;
+}
+
+interface AnalysisResult {
+  findings: RawScopeFinding[];
+  references: Array<{ table: TenantTable; allowlistSqlText: string }>;
+}
+
+const RESERVED_ALIAS_WORDS = new Set([
+  'where', 'on', 'join', 'left', 'right', 'inner', 'outer', 'full', 'cross',
+  'using', 'set', 'returning', 'for', 'order', 'group', 'limit', 'offset',
+  'union', 'except', 'intersect', 'lateral', 'window', 'having', 'from', 'as',
+  'select', 'update', 'delete', 'materialized', 'with', 'ordinality',
+]);
+
+function findMatchingParen(maskedSql: string, openIndex: number): number | null {
+  let depth = 0;
+  for (let index = openIndex; index < maskedSql.length; index++) {
+    if (maskedSql[index] === '(') depth++;
+    if (maskedSql[index] !== ')') continue;
+    depth--;
+    if (depth === 0) return index;
   }
-  return hasBoundIdentifierPredicate(clauses, identifiers);
+  return null;
 }
 
-function businessAliasScoped(
-  sqlText: string,
-  clauses: string[],
-  businessAlias: string,
-  allowUnqualified: boolean,
-): boolean {
-  if (businessAliasDirectlyScoped(clauses, businessAlias, allowUnqualified)) return true;
-
-  for (const accountAlias of tableAliases(sqlText, 'accounts')) {
-    const accountScoped = accountAliasScoped(
-      clauses,
-      accountAlias,
-      tableAliases(sqlText, 'accounts').length === 1,
-    );
-    if (!accountScoped) continue;
-    if (hasIdentifierRelationship(
-      clauses,
-      qualifiedIdentifier(businessAlias, 'account_id'),
-      qualifiedIdentifier(accountAlias, 'id'),
-    )) {
-      return true;
+function directQueryChildren(maskedSql: string): QueryChildRange[] {
+  const stack: number[] = [];
+  const candidates: QueryChildRange[] = [];
+  for (let index = 0; index < maskedSql.length; index++) {
+    if (maskedSql[index] === '(') {
+      stack.push(index);
+      continue;
+    }
+    if (maskedSql[index] !== ')') continue;
+    const start = stack.pop();
+    if (start === undefined) continue;
+    const content = maskedSql.slice(start + 1, index).trimStart();
+    if (/^(?:select|with|update|delete|table)\b/i.test(content)) {
+      candidates.push({ start: start + 1, end: index });
     }
   }
-
-  return false;
+  return candidates
+    .filter((candidate) => !candidates.some((outer) => (
+      outer !== candidate && outer.start < candidate.start && outer.end > candidate.end
+    )))
+    .sort((left, right) => left.start - right.start);
 }
 
-function tenantAliasDirectlyScoped(
-  clauses: string[],
-  alias: string,
-  allowUnqualified: boolean,
-): boolean {
-  const identifiers = [
-    qualifiedIdentifier(alias, 'account_id'),
-    qualifiedIdentifier(alias, 'business_id'),
-  ];
-  if (allowUnqualified) {
-    identifiers.push(unqualifiedIdentifier('account_id'), unqualifiedIdentifier('business_id'));
-  }
-  return hasBoundIdentifierPredicate(clauses, identifiers);
+function maskChildRanges(maskedSql: string, ranges: readonly QueryChildRange[]): string {
+  const chars = maskedSql.split('');
+  // Keep the parentheses so relation parsing can distinguish a derived/LATERAL
+  // relation from a physical table whose name happens to equal its alias.
+  for (const range of ranges) maskCharacters(chars, range.start, range.end - 1);
+  return chars.join('');
 }
 
-type PredicateClauses = ReturnType<typeof predicateClauses>;
-
-// `accounts` is scoped either directly (a.id = ...) or transitively through a
-// directly-scoped `businesses` row whose account_id ties back to this alias.
-function accountTableScoped(
-  sqlText: string,
-  clauses: PredicateClauses,
-  aliases: string[],
-): boolean {
-  if (aliases.some((alias) => accountAliasScoped(clauses, alias, aliases.length === 1))) {
-    return true;
-  }
-  for (const businessAlias of tableAliases(sqlText, 'businesses')) {
-    if (!businessAliasDirectlyScoped(clauses, businessAlias, false)) continue;
-    if (aliases.some((accountAlias) => hasIdentifierRelationship(
-      clauses,
-      qualifiedIdentifier(businessAlias, 'account_id'),
-      qualifiedIdentifier(accountAlias, 'id'),
-    ))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// A non-account/business tenant table is scoped if it joins to a scoped
-// `accounts` (via account_id) or a scoped `businesses` (via business_id).
-function tenantTableTransitivelyScoped(
-  sqlText: string,
-  clauses: PredicateClauses,
-  aliases: string[],
-): boolean {
-  for (const alias of aliases) {
-    for (const accountAlias of tableAliases(sqlText, 'accounts')) {
-      const relatedToAccount = hasIdentifierRelationship(
-        clauses,
-        qualifiedIdentifier(alias, 'account_id'),
-        qualifiedIdentifier(accountAlias, 'id'),
-      );
-      if (!relatedToAccount) continue;
-      if (accountAliasScoped(clauses, accountAlias, false)) return true;
-    }
-
-    for (const businessAlias of tableAliases(sqlText, 'businesses')) {
-      const relatedToBusiness = hasIdentifierRelationship(
-        clauses,
-        qualifiedIdentifier(alias, 'business_id'),
-        qualifiedIdentifier(businessAlias, 'id'),
-      );
-      if (!relatedToBusiness) continue;
-      if (businessAliasScoped(sqlText, clauses, businessAlias, false)) return true;
-    }
-  }
-  return false;
-}
-
-function offboardingTokenTableScoped(
-  sqlText: string,
-  clauses: PredicateClauses,
-  aliases: string[],
-): boolean {
-  for (const tokenAlias of aliases) {
-    for (const offboardingAlias of tableAliases(sqlText, 'account_offboardings')) {
-      const relatedToOffboarding = hasIdentifierRelationship(
-        clauses,
-        qualifiedIdentifier(tokenAlias, 'account_offboarding_id'),
-        qualifiedIdentifier(offboardingAlias, 'id'),
-      );
-      if (!relatedToOffboarding) continue;
-
-      if (tenantAliasDirectlyScoped(clauses, offboardingAlias, false)) {
-        return true;
+function readSqlIdentifier(
+  maskedSql: string,
+  start: number,
+): (SqlIdentifier & { end: number }) | null {
+  if (maskedSql[start] === '"') {
+    let end = start + 1;
+    while (end < maskedSql.length) {
+      if (maskedSql[end] === '"' && maskedSql[end + 1] === '"') {
+        end += 2;
+        continue;
       }
+      if (maskedSql[end] === '"') {
+        return {
+          value: maskedSql.slice(start + 1, end).replace(/""/g, '"'),
+          quoted: true,
+          end: end + 1,
+        };
+      }
+      end++;
+    }
+    return null;
+  }
+  const match = /^[A-Za-z_][\w$]*/.exec(maskedSql.slice(start));
+  return match ? {
+    value: match[0].toLowerCase(),
+    quoted: false,
+    end: start + match[0].length,
+  } : null;
+}
 
-      if (tenantTableTransitivelyScoped(sqlText, clauses, [offboardingAlias])) {
-        return true;
+function skipSqlWhitespace(maskedSql: string, start: number): number {
+  let index = start;
+  while (index < maskedSql.length && /\s/.test(maskedSql[index] ?? '')) index++;
+  return index;
+}
+
+interface CteDefinition {
+  name: SqlIdentifier;
+  bodyStart: number;
+  bodyEnd: number;
+  visibleNames: ReadonlySet<string>;
+}
+
+interface CteCollection {
+  definitions: CteDefinition[];
+  allNames: ReadonlySet<string>;
+}
+
+function identifierKey(identifier: SqlIdentifier): string {
+  return identifier.value;
+}
+
+function collectCtes(maskedSql: string): CteCollection {
+  const definitions: CteDefinition[] = [];
+  const priorNames = new Set<string>();
+  const structuralSql = lexSql(maskedSql).structureMasked;
+  let index = skipSqlWhitespace(maskedSql, 0);
+  if (!keywordAt(structuralSql, index, 'with')) {
+    return { definitions, allNames: priorNames };
+  }
+  index = skipSqlWhitespace(maskedSql, index + 4);
+  const recursive = keywordAt(structuralSql, index, 'recursive');
+  if (recursive) {
+    index = skipSqlWhitespace(maskedSql, index + 9);
+  }
+
+  while (index < maskedSql.length) {
+    const name = readSqlIdentifier(maskedSql, index);
+    if (!name) break;
+    index = skipSqlWhitespace(maskedSql, name.end);
+    if (maskedSql[index] === '(') {
+      const columnListEnd = findMatchingParen(maskedSql, index);
+      if (columnListEnd === null) break;
+      index = skipSqlWhitespace(maskedSql, columnListEnd + 1);
+    }
+    if (!keywordAt(structuralSql, index, 'as')) break;
+    index = skipSqlWhitespace(maskedSql, index + 2);
+    if (keywordAt(structuralSql, index, 'not')) {
+      index = skipSqlWhitespace(maskedSql, index + 3);
+    }
+    if (keywordAt(structuralSql, index, 'materialized')) {
+      index = skipSqlWhitespace(maskedSql, index + 12);
+    }
+    if (maskedSql[index] !== '(') break;
+    const bodyEnd = findMatchingParen(maskedSql, index);
+    if (bodyEnd === null) break;
+    const visibleNames = new Set(priorNames);
+    if (recursive) visibleNames.add(identifierKey(name));
+    definitions.push({
+      name,
+      bodyStart: index + 1,
+      bodyEnd,
+      visibleNames,
+    });
+    priorNames.add(identifierKey(name));
+    index = skipSqlWhitespace(maskedSql, bodyEnd + 1);
+    if (maskedSql[index] !== ',') break;
+    index = skipSqlWhitespace(maskedSql, index + 1);
+  }
+  return { definitions, allNames: priorNames };
+}
+
+interface ParsedRelation {
+  alias: SqlIdentifier;
+  relationName?: SqlIdentifier;
+  schemaName?: SqlIdentifier;
+  isFunctionOrDerived: boolean;
+  shadowsAllAncestors?: boolean;
+}
+
+interface RelationCandidate extends ParsedRelation {
+  index: number;
+}
+
+interface BindingCollection {
+  tenantBindings: TableBinding[];
+  localAliases: ReadonlySet<string>;
+}
+
+interface JoinedTableGroup {
+  contentStart: number;
+  contentEnd: number;
+}
+
+function relationTokenStart(maskedSql: string, start: number): number {
+  const structuralSql = lexSql(maskedSql).structureMasked;
+  let index = skipSqlWhitespace(maskedSql, start);
+  if (keywordAt(structuralSql, index, 'lateral')) {
+    index = skipSqlWhitespace(maskedSql, index + 7);
+  }
+  if (keywordAt(structuralSql, index, 'only')) {
+    index = skipSqlWhitespace(maskedSql, index + 4);
+  }
+  return index;
+}
+
+function joinedTableGroupAt(maskedSql: string, start: number): JoinedTableGroup | null {
+  const open = relationTokenStart(maskedSql, start);
+  if (maskedSql[open] !== '(') return null;
+  const close = findMatchingParen(maskedSql, open);
+  if (close === null) return null;
+  const contentStart = skipSqlWhitespace(maskedSql, open + 1);
+  const content = lexSql(maskedSql.slice(contentStart, close)).structureMasked.trimStart();
+  if (/^(?:select|with|update|delete|table|values)\b/i.test(content)) return null;
+  return { contentStart, contentEnd: close };
+}
+
+function aliasAfterRelation(
+  maskedSql: string,
+  start: number,
+  defaultAlias: SqlIdentifier,
+): SqlIdentifier {
+  const structuralSql = lexSql(maskedSql).structureMasked;
+  let index = skipSqlWhitespace(maskedSql, start);
+  if (keywordAt(structuralSql, index, 'as')) {
+    index = skipSqlWhitespace(maskedSql, index + 2);
+    return readSqlIdentifier(maskedSql, index) ?? defaultAlias;
+  }
+  const candidate = readSqlIdentifier(maskedSql, index);
+  if (!candidate || (!candidate.quoted && RESERVED_ALIAS_WORDS.has(candidate.value))) {
+    return defaultAlias;
+  }
+  return candidate;
+}
+
+function aliasAfterFunctionRelation(
+  maskedSql: string,
+  start: number,
+  defaultAlias: SqlIdentifier,
+): Pick<ParsedRelation, 'alias' | 'shadowsAllAncestors'> {
+  const structuralSql = lexSql(maskedSql).structureMasked;
+  let index = skipSqlWhitespace(maskedSql, start);
+  if (keywordAt(structuralSql, index, 'with')) {
+    index = skipSqlWhitespace(maskedSql, index + 4);
+    if (!keywordAt(structuralSql, index, 'ordinality')) {
+      return { alias: defaultAlias, shadowsAllAncestors: true };
+    }
+    index = skipSqlWhitespace(maskedSql, index + 10);
+  }
+
+  let aliasStart = index;
+  if (keywordAt(structuralSql, aliasStart, 'as')) {
+    aliasStart = skipSqlWhitespace(maskedSql, aliasStart + 2);
+    if (!readSqlIdentifier(maskedSql, aliasStart)) {
+      return { alias: defaultAlias, shadowsAllAncestors: true };
+    }
+  }
+  const explicitAlias = readSqlIdentifier(maskedSql, aliasStart);
+  const alias = aliasAfterRelation(maskedSql, index, defaultAlias);
+  if (!explicitAlias || (!explicitAlias.quoted && RESERVED_ALIAS_WORDS.has(explicitAlias.value))) {
+    return { alias };
+  }
+
+  const columnAliasesStart = skipSqlWhitespace(maskedSql, explicitAlias.end);
+  if (maskedSql[columnAliasesStart] !== '(') return { alias };
+  return findMatchingParen(maskedSql, columnAliasesStart) === null
+    ? { alias, shadowsAllAncestors: true }
+    : { alias };
+}
+
+function parseRelation(maskedSql: string, start: number): ParsedRelation | null {
+  let index = relationTokenStart(maskedSql, start);
+
+  if (maskedSql[index] === '(') {
+    const end = findMatchingParen(maskedSql, index);
+    if (end === null) return null;
+    const fallback: SqlIdentifier = { value: `(derived@${index})`, quoted: true };
+    return {
+      alias: aliasAfterRelation(maskedSql, end + 1, fallback),
+      isFunctionOrDerived: true,
+    };
+  }
+
+  const first = readSqlIdentifier(maskedSql, index);
+  if (!first) return null;
+  index = skipSqlWhitespace(maskedSql, first.end);
+  let schemaName: SqlIdentifier | undefined;
+  let relationName: SqlIdentifier = first;
+  if (maskedSql[index] === '.') {
+    const secondStart = skipSqlWhitespace(maskedSql, index + 1);
+    const second = readSqlIdentifier(maskedSql, secondStart);
+    if (!second) return null;
+    schemaName = first;
+    relationName = second;
+    index = skipSqlWhitespace(maskedSql, second.end);
+  }
+
+  if (maskedSql[index] === '(') {
+    const end = findMatchingParen(maskedSql, index);
+    if (end === null) return null;
+    const relationAlias = aliasAfterFunctionRelation(maskedSql, end + 1, relationName);
+    return {
+      ...relationAlias,
+      relationName,
+      schemaName,
+      isFunctionOrDerived: true,
+    };
+  }
+
+  return {
+    alias: aliasAfterRelation(maskedSql, index, relationName),
+    relationName,
+    schemaName,
+    isFunctionOrDerived: false,
+  };
+}
+
+function collectRelationCandidates(maskedSql: string): RelationCandidate[] {
+  const structuralSql = lexSql(maskedSql).structureMasked;
+  const candidates: RelationCandidate[] = [];
+  const addCandidate = (index: number): void => {
+    const relation = parseRelation(maskedSql, index);
+    if (relation) candidates.push({ ...relation, index });
+    const joinedGroup = joinedTableGroupAt(maskedSql, index);
+    if (joinedGroup) addCandidate(joinedGroup.contentStart);
+  };
+
+  const introducer = /\b(?:delete\s+from|from|join|update|using|table)\b/gi;
+  for (const match of structuralSql.matchAll(introducer)) {
+    addCandidate((match.index ?? 0) + match[0].length);
+  }
+
+  // FROM permits comma-separated bindings. Discover their heads from the
+  // quote-aware structural view, then parse identifiers from the lexical view.
+  const fromClause = /\bfrom\b([\s\S]*?)(?=\b(?:where|group\s+by|order\s+by|having|limit|offset|returning|union|except|intersect)\b|$)/gi;
+  for (const clauseMatch of structuralSql.matchAll(fromClause)) {
+    const clause = clauseMatch[1] ?? '';
+    const clauseOffset = (clauseMatch.index ?? 0) + clauseMatch[0].indexOf(clause);
+    let depth = 0;
+    for (let index = 0; index < clause.length; index++) {
+      if (clause[index] === '(') depth++;
+      if (clause[index] === ')' && depth > 0) depth--;
+      if (clause[index] === ',' && depth === 0) addCandidate(clauseOffset + index + 1);
+    }
+  }
+
+  return candidates;
+}
+
+function relationAliasesAt(maskedSql: string, start: number): ReadonlySet<string> {
+  const aliases = new Set<string>();
+  const relation = parseRelation(maskedSql, start);
+  if (relation) aliases.add(identifierKey(relation.alias));
+  const joinedGroup = joinedTableGroupAt(maskedSql, start);
+  if (!joinedGroup) return aliases;
+
+  const groupSql = `FROM ${maskedSql.slice(joinedGroup.contentStart, joinedGroup.contentEnd)}`;
+  for (const candidate of collectRelationCandidates(groupSql)) {
+    aliases.add(identifierKey(candidate.alias));
+  }
+  return aliases;
+}
+
+function tableBindings(maskedSql: string, cteNames: ReadonlySet<string>): BindingCollection {
+  const candidates = collectRelationCandidates(maskedSql);
+
+  candidates.sort((left, right) => left.index - right.index);
+  const seenCandidates = new Set<string>();
+  const localAliases = new Set<string>();
+  const tenantBindings: TableBinding[] = [];
+  for (const candidate of candidates) {
+    const relationKey = candidate.relationName ? identifierKey(candidate.relationName) : '';
+    const schemaKey = candidate.schemaName ? identifierKey(candidate.schemaName) : '';
+    const candidateKey = `${candidate.index}\0${relationKey}\0${identifierKey(candidate.alias)}`;
+    if (seenCandidates.has(candidateKey)) continue;
+    seenCandidates.add(candidateKey);
+    localAliases.add(identifierKey(candidate.alias));
+    if (candidate.shadowsAllAncestors) localAliases.add('*');
+
+    const schemaTargetsPublic = candidate.schemaName === undefined || schemaKey === 'public';
+    const cteReference = candidate.schemaName === undefined && cteNames.has(relationKey);
+    if (candidate.isFunctionOrDerived
+      || !schemaTargetsPublic
+      || cteReference
+      || !TENANT_TABLES.includes(relationKey as TenantTable)) {
+      continue;
+    }
+    tenantBindings.push({
+      table: relationKey as TenantTable,
+      alias: candidate.alias,
+      bindingOrdinal: tenantBindings.length + 1,
+    });
+  }
+  return { tenantBindings, localAliases };
+}
+
+function directlyScoped(
+  binding: TableBinding,
+  clauses: readonly PredicateClause[],
+  allowUnqualified: boolean,
+): boolean {
+  // Only a column the table PHYSICALLY has can be proof. Inside a subquery an
+  // unqualified name the local table lacks resolves to an OUTER relation's
+  // column (`EXISTS (SELECT 1 FROM reviews WHERE account_id = $1)` compiles and
+  // restricts nothing), so the schema map, not the tenant vocabulary, decides
+  // which predicates count.
+  const columns = TENANT_SCOPE_COLUMNS[binding.table];
+  const identifiers = columns.map((column) => qualifiedIdentifier(binding.alias, column));
+  if (allowUnqualified) {
+    identifiers.push(...columns.map(unqualifiedIdentifier));
+  }
+  const alias = identifierKey(binding.alias);
+  const applicableClauses = clauses.filter((clause) => {
+    if (clause.provenance === 'filter' || clause.provenance === 'inner-on') return true;
+    if (clause.provenance === 'left-on') return clause.joinedAliases?.has(alias) ?? false;
+    if (clause.provenance === 'right-on') return !(clause.joinedAliases?.has(alias) ?? true);
+    return false;
+  });
+  return hasBoundIdentifierPredicate(applicableClauses, identifiers);
+}
+
+function bindingsRelated(
+  clauses: readonly PredicateClause[],
+  target: TableBinding,
+  targetColumn: string,
+  source: TableBinding,
+  sourceColumn: string,
+): boolean {
+  const targetAlias = identifierKey(target.alias);
+  const sourceAlias = identifierKey(source.alias);
+  const applicableClauses = clauses.filter((clause) => {
+    if (clause.provenance === 'filter' || clause.provenance === 'inner-on') return true;
+    if (clause.provenance === 'left-on') {
+      return (clause.joinedAliases?.has(targetAlias) ?? false)
+        && !(clause.joinedAliases?.has(sourceAlias) ?? true);
+    }
+    if (clause.provenance === 'right-on') {
+      return (clause.joinedAliases?.has(sourceAlias) ?? false)
+        && !(clause.joinedAliases?.has(targetAlias) ?? true);
+    }
+    return false;
+  });
+  return hasIdentifierRelationship(
+    applicableClauses,
+    qualifiedIdentifier(target.alias, targetColumn),
+    qualifiedIdentifier(source.alias, sourceColumn),
+  );
+}
+
+function localScopedBindings(
+  bindings: readonly TableBinding[],
+  clauses: readonly PredicateClause[],
+): Set<TableBinding> {
+  const scoped = new Set<TableBinding>();
+  const allowUnqualified = bindings.length === 1;
+  for (const binding of bindings) {
+    if (directlyScoped(binding, clauses, allowUnqualified)) scoped.add(binding);
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const binding of bindings) {
+      if (scoped.has(binding)) continue;
+
+      const viaAccount = bindings.some((account) => (
+        account.table === 'accounts'
+        && scoped.has(account)
+        && binding.table !== 'accounts'
+        && hasScopeColumn(binding.table, 'account_id')
+        && bindingsRelated(clauses, binding, 'account_id', account, 'id')
+      ));
+      const viaBusiness = bindings.some((business) => (
+        business.table === 'businesses'
+        && scoped.has(business)
+        && (
+          (binding.table === 'accounts' && bindingsRelated(clauses, business, 'account_id', binding, 'id'))
+          || (binding.table !== 'accounts'
+            && binding.table !== 'businesses'
+            && hasScopeColumn(binding.table, 'business_id')
+            && bindingsRelated(clauses, binding, 'business_id', business, 'id'))
+        )
+      ));
+      const viaOffboarding = binding.table === 'account_offboarding_tokens'
+        && bindings.some((offboarding) => (
+          offboarding.table === 'account_offboardings'
+          && scoped.has(offboarding)
+          && bindingsRelated(clauses, binding, 'account_offboarding_id', offboarding, 'id')
+        ));
+
+      if (viaAccount || viaBusiness || viaOffboarding) {
+        scoped.add(binding);
+        changed = true;
+      }
+    }
+  }
+  return scoped;
+}
+
+function hasScopeColumn(table: TenantTable, column: TenantScopeColumn): boolean {
+  return TENANT_SCOPE_COLUMNS[table].includes(column);
+}
+
+interface TenantIdentityColumn {
+  kind: 'account' | 'business';
+  column: TenantScopeColumn;
+}
+
+function tenantIdentityColumns(binding: TableBinding): TenantIdentityColumn[] {
+  if (binding.table === 'accounts') return [{ kind: 'account', column: 'id' }];
+  if (binding.table === 'businesses') {
+    return [
+      { kind: 'business', column: 'id' },
+      { kind: 'account', column: 'account_id' },
+    ];
+  }
+  const identities: TenantIdentityColumn[] = [];
+  for (const column of TENANT_SCOPE_COLUMNS[binding.table]) {
+    if (column === 'account_id') identities.push({ kind: 'account', column });
+    if (column === 'business_id') identities.push({ kind: 'business', column });
+  }
+  return identities;
+}
+
+function scopedFromAncestor(
+  binding: TableBinding,
+  localAliases: ReadonlySet<string>,
+  ancestors: readonly ProvenBinding[],
+  clauses: readonly PredicateClause[],
+): boolean {
+  if (localAliases.has('*')) return false;
+  for (const ancestor of ancestors) {
+    if (localAliases.has(identifierKey(ancestor.alias))) continue;
+    for (const localIdentity of tenantIdentityColumns(binding)) {
+      for (const ancestorIdentity of tenantIdentityColumns(ancestor)) {
+        if (localIdentity.kind !== ancestorIdentity.kind) continue;
+        if (bindingsRelated(
+          clauses,
+          binding,
+          localIdentity.column,
+          ancestor,
+          ancestorIdentity.column,
+        )) return true;
       }
     }
   }
   return false;
 }
 
-function hasTenantScopeForTable(
-  sqlText: string,
-  table: TenantTable,
-  referencedTables: readonly TenantTable[],
-): boolean {
-  const clauses = predicateClauses(sqlText);
-  const aliases = tableAliases(sqlText, table);
-  const allowUnqualified = aliases.length === 1 && referencedTables.length === 1;
-
-  if (table === 'accounts') {
-    return accountTableScoped(sqlText, clauses, aliases);
-  }
-
-  if (table === 'businesses') {
-    return aliases.some((alias) => businessAliasScoped(sqlText, clauses, alias, aliases.length === 1));
-  }
-
-  if (aliases.some((alias) => tenantAliasDirectlyScoped(clauses, alias, allowUnqualified))) {
-    return true;
-  }
-
-  if (table === 'account_offboarding_tokens' && offboardingTokenTableScoped(sqlText, clauses, aliases)) {
-    return true;
-  }
-
-  return tenantTableTransitivelyScoped(sqlText, clauses, aliases);
+function templateFingerprint(sqlText: string): string {
+  return createHash('sha256')
+    .update(normalizeSql(stripSqlComments(sqlText)))
+    .digest('hex')
+    .slice(0, 16);
 }
 
-function referencesTenantTable(sqlText: string, table: string): boolean {
-  const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const tableName = `(?:"${escapedTable}"|${escapedTable})`;
-  const schemaPrefix = `(?:(?:"public"|public)\\s*\\.\\s*)?`;
-  const tableBoundary = '(?=\\s|\\(|,|;|$)';
-  const patterns = [
-    `\\bfrom\\s+(?:only\\s+)?${schemaPrefix}${tableName}${tableBoundary}`,
-    `\\bjoin\\s+${schemaPrefix}${tableName}${tableBoundary}`,
-    `\\bupdate\\s+(?:only\\s+)?${schemaPrefix}${tableName}${tableBoundary}`,
-    `\\bdelete\\s+from\\s+(?:only\\s+)?${schemaPrefix}${tableName}${tableBoundary}`,
-    `\\busing\\s+${schemaPrefix}${tableName}${tableBoundary}`,
-  ];
+interface AnalyzeBlockInput {
+  sqlText: string;
+  normalizedFile: string;
+  templateHash: string;
+  templateOccurrence: number;
+  statementOrdinal: number;
+  armPath: string;
+  blockPath: string;
+  ancestors: readonly ProvenBinding[];
+  visibleCtes: ReadonlySet<string>;
+  allowlistSqlText: string;
+}
 
-  return patterns.some((pattern) => new RegExp(pattern, 'i').test(sqlText));
+function analyzeQueryBlock(input: AnalyzeBlockInput): AnalysisResult {
+  const lexical = lexSql(input.sqlText);
+  const children = directQueryChildren(lexical.structureMasked);
+  const directSql = maskChildRanges(lexical.masked, children);
+  const ctes = collectCtes(lexical.masked);
+  const visibleCtes = new Set([...input.visibleCtes, ...ctes.allNames]);
+  const { tenantBindings: bindings, localAliases } = tableBindings(directSql, visibleCtes);
+  const clauses = predicateClauses(directSql);
+  const scoped = localScopedBindings(bindings, clauses);
+  for (const binding of bindings) {
+    if (scoped.has(binding)) continue;
+    if (scopedFromAncestor(binding, localAliases, input.ancestors, clauses)) scoped.add(binding);
+  }
+
+  const identityPrefix = `template:${input.templateHash}:occurrence:${input.templateOccurrence}`
+    + `:statement:${input.statementOrdinal}:arm:${input.armPath}:block:${input.blockPath}`;
+  const findings: RawScopeFinding[] = bindings
+    .filter((binding) => !scoped.has(binding))
+    .map((binding) => ({
+      file: input.normalizedFile,
+      table: binding.table,
+      reason: UNSCOPED_REASON,
+      sqlIdentity: `${identityPrefix}:table:${binding.table}:alias:${binding.alias.value}:binding:${binding.bindingOrdinal}`,
+      allowlistSqlText: input.allowlistSqlText,
+    }));
+  const references = bindings.map((binding) => ({
+    table: binding.table,
+    allowlistSqlText: input.allowlistSqlText,
+  }));
+  const provenHere = bindings.filter((binding) => scoped.has(binding));
+  // A descendant resolves an alias to the NEAREST enclosing block that binds
+  // it. Every alias this block binds therefore hides the same-named ancestor
+  // from every descendant, and a relation whose alias could not be determined
+  // (`*`) may hide any of them — so only unshadowed ancestors travel down.
+  const inheritableAncestors = localAliases.has('*')
+    ? []
+    : input.ancestors.filter((ancestor) => !localAliases.has(identifierKey(ancestor.alias)));
+
+  children.forEach((child, index) => {
+    const childSql = input.sqlText.slice(child.start, child.end);
+    const cteDefinition = ctes.definitions.find((cte) => (
+      cte.bodyStart === child.start && cte.bodyEnd === child.end
+    ));
+    const childVisibleCtes = cteDefinition
+      ? new Set([...input.visibleCtes, ...cteDefinition.visibleNames])
+      : visibleCtes;
+    const result = analyzeSqlStructure({
+      sqlText: childSql,
+      normalizedFile: input.normalizedFile,
+      templateHash: input.templateHash,
+      templateOccurrence: input.templateOccurrence,
+      statementOrdinal: input.statementOrdinal,
+      blockPath: `${input.blockPath}.${index + 1}`,
+      armPathPrefix: input.armPath,
+      // A CTE body precedes the main query's FROM bindings and cannot borrow
+      // their aliases. Ordinary scalar/LATERAL children can correlate to them.
+      ancestors: cteDefinition
+        ? input.ancestors
+        : [...inheritableAncestors, ...provenHere],
+      visibleCtes: childVisibleCtes,
+      allowlistSqlText: input.allowlistSqlText,
+    });
+    findings.push(...result.findings);
+    references.push(...result.references);
+  });
+
+  return { findings, references };
+}
+
+interface AnalyzeStructureInput extends Omit<AnalyzeBlockInput, 'armPath'> {
+  armPathPrefix?: string;
+}
+
+function analyzeSqlStructure(input: AnalyzeStructureInput): AnalysisResult {
+  const findings: RawScopeFinding[] = [];
+  const references: AnalysisResult['references'] = [];
+  const arms = splitTopLevelSetArms(input.sqlText);
+  const statementCtes = collectCtes(lexSql(input.sqlText).masked);
+  arms.forEach((arm, index) => {
+    const result = analyzeQueryBlock({
+      ...input,
+      sqlText: arm,
+      armPath: input.armPathPrefix
+        ? `${input.armPathPrefix}.${index + 1}`
+        : `${index + 1}`,
+      // A leading WITH belongs to the entire set expression. The first arm
+      // parses its definitions (and therefore their ordered body visibility);
+      // later arms see every completed CTE name from that WITH clause.
+      visibleCtes: index === 0
+        ? input.visibleCtes
+        : new Set([...input.visibleCtes, ...statementCtes.allNames]),
+    });
+    findings.push(...result.findings);
+    references.push(...result.references);
+  });
+  return { findings, references };
 }
 
 function allowlistKey(entry: TenantScopeAllowlistEntry): string {
@@ -535,46 +1245,76 @@ export function findAllowlistIntegrityFindings(
   return findings;
 }
 
+function auditSqlTextOccurrence(
+  file: string,
+  sqlText: string,
+  usedAllowlistKeys?: Set<string>,
+  options: { applyAllowlist: boolean; templateOccurrence: number } = {
+    applyAllowlist: true,
+    templateOccurrence: 1,
+  },
+): TenantScopeFinding[] {
+  const normalizedFile = normalizePath(file);
+  const lexical = lexSql(sqlText);
+  if (!hasReadOrMutationStatement(lexical.masked)) return [];
+
+  const templateHash = templateFingerprint(sqlText);
+  const allFindings: RawScopeFinding[] = [];
+  const allReferences: AnalysisResult['references'] = [];
+  const statements = splitTopLevelStatements(sqlText);
+  statements.forEach((statement, index) => {
+    if (!hasReadOrMutationStatement(lexSql(statement).masked)) return;
+    const result = analyzeSqlStructure({
+      sqlText: statement,
+      normalizedFile,
+      templateHash,
+      templateOccurrence: options.templateOccurrence,
+      statementOrdinal: index + 1,
+      blockPath: 'root',
+      ancestors: [],
+      visibleCtes: new Set(),
+      allowlistSqlText: statement,
+    });
+    allFindings.push(...result.findings);
+    allReferences.push(...result.references);
+  });
+
+  const applyAllowlist = options.applyAllowlist;
+  const exactTemplateEntries = new Map<TenantTable, TenantScopeAllowlistEntry>();
+  for (const { table } of allReferences) {
+    const entry = getAllowlistEntry(normalizedFile, table, sqlText);
+    if (entry) exactTemplateEntries.set(table, entry);
+  }
+
+  for (const reference of allReferences) {
+    const entry = exactTemplateEntries.get(reference.table)
+      ?? getAllowlistEntry(normalizedFile, reference.table, reference.allowlistSqlText);
+    if (entry && applyAllowlist) usedAllowlistKeys?.add(allowlistKey(entry));
+  }
+
+  return allFindings
+    .filter((finding) => {
+      if (!applyAllowlist) return true;
+      return !(exactTemplateEntries.get(finding.table as TenantTable)
+        ?? getAllowlistEntry(normalizedFile, finding.table, finding.allowlistSqlText));
+    })
+    .map(({ allowlistSqlText: _allowlistSqlText, ...finding }) => finding)
+    .sort((left, right) => (
+      TENANT_TABLES.indexOf(left.table as TenantTable)
+      - TENANT_TABLES.indexOf(right.table as TenantTable)
+    ));
+}
+
 export function auditSqlText(
   file: string,
   sqlText: string,
   usedAllowlistKeys?: Set<string>,
+  options: { applyAllowlist?: boolean } = {},
 ): TenantScopeFinding[] {
-  const normalizedFile = normalizePath(file);
-  const sqlForScan = stripSqlComments(sqlText);
-  if (!hasReadOrMutationStatement(sqlForScan)) return [];
-
-  const findings: TenantScopeFinding[] = [];
-  for (const sqlUnit of splitSqlUnits(sqlForScan)) {
-    if (!hasReadOrMutationStatement(sqlUnit)) continue;
-    const referencedTables = referencedTenantTables(sqlUnit);
-    for (const table of referencedTables) {
-      const unitAllowlistEntry = getAllowlistEntry(normalizedFile, table, sqlUnit);
-      if (unitAllowlistEntry) {
-        usedAllowlistKeys?.add(allowlistKey(unitAllowlistEntry));
-      }
-      if (hasTenantScopeForTable(sqlUnit, table, referencedTables)) continue;
-      if (unitAllowlistEntry) {
-        continue;
-      }
-
-      findings.push({
-        file: normalizedFile,
-        table,
-        reason: UNSCOPED_REASON,
-      });
-    }
-  }
-
-  const templateReferencedTables = referencedTenantTables(sqlForScan);
-  for (const table of templateReferencedTables) {
-    const templateAllowlistEntry = getAllowlistEntry(normalizedFile, table, sqlForScan);
-    if (templateAllowlistEntry && findings.every((finding) => finding.table !== table)) {
-      usedAllowlistKeys?.add(allowlistKey(templateAllowlistEntry));
-    }
-  }
-
-  return findings;
+  return auditSqlTextOccurrence(file, sqlText, usedAllowlistKeys, {
+    applyAllowlist: options.applyAllowlist ?? true,
+    templateOccurrence: 1,
+  });
 }
 
 function shouldScanFile(file: string): boolean {
@@ -601,104 +1341,491 @@ async function collectSourceFiles(root: string): Promise<string[]> {
   return files;
 }
 
-// Replace the characters of JS/TS line (`//`) and block (`/* */`) comments
-// with spaces so the tag scanners never read a backtick-wrapped tag word in a
-// comment (e.g. `(`tx`)`) as a template-literal opener. `//` and `/*` inside
-// string or template literals (e.g. `https://`, or `/*` in a query string) are
-// left untouched. Positions and length are preserved so callers can keep using
-// raw source offsets.
-function stripJsComments(sourceText: string): string {
-  const chars = Array.from(sourceText);
-  type ScanState =
-    | 'default'
-    | 'single-quote'
-    | 'double-quote'
-    | 'backtick'
-    | 'line-comment'
-    | 'block-comment';
-  let state: ScanState = 'default';
+const REGEX_PREFIX_KEYWORDS = new Set([
+  'await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'new', 'of',
+  'return', 'throw', 'typeof', 'void', 'yield',
+]);
 
-  for (let index = 0; index < chars.length; index++) {
-    const current = chars[index];
-    const next = chars[index + 1];
+const CONTROL_HEADER_KEYWORDS = new Set([
+  'catch', 'for', 'if', 'switch', 'while', 'with',
+]);
 
-    if (state === 'single-quote' || state === 'double-quote' || state === 'backtick') {
-      if (current === '\\') {
-        index++;
+interface JsWordToken {
+  value: string;
+  start: number;
+}
+
+interface JsLiteralToken {
+  kind: 'string' | 'template';
+  start: number;
+  end: number;
+  text: string;
+  /**
+   * First index of the enclosing `${ ... }` expression body when this literal
+   * sits inside another template's placeholder; undefined at the top level. A
+   * tag token found BEFORE this boundary belongs to the enclosing template.
+   */
+  expressionStart?: number;
+  cookedText: string | null;
+}
+
+interface JsLexicalView {
+  sourceText: string;
+  /** Only executable JS/TS remains. Non-code is space-masked at stable offsets. */
+  codeMasked: string;
+  literals: readonly JsLiteralToken[];
+  templates: readonly JsLiteralToken[];
+}
+
+interface JsTemplateExpressionRange {
+  markerStart: number;
+  end: number;
+}
+
+const JS_SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
+  b: '\b',
+  f: '\f',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+  v: '\v',
+  '0': '\0',
+};
+
+function cookJsStaticText(rawText: string): string | null {
+  let cooked = '';
+  for (let index = 0; index < rawText.length; index++) {
+    const current = rawText[index];
+    if (current !== '\\') {
+      cooked += current;
+      continue;
+    }
+
+    index++;
+    const escaped = rawText[index];
+    if (escaped === undefined) return null;
+    if (escaped === '\n' || escaped === '\u2028' || escaped === '\u2029') continue;
+    if (escaped === '\r') {
+      if (rawText[index + 1] === '\n') index++;
+      continue;
+    }
+
+    const simpleEscape = JS_SIMPLE_ESCAPES[escaped];
+    if (simpleEscape !== undefined) {
+      if (escaped === '0' && /\d/.test(rawText[index + 1] ?? '')) return null;
+      cooked += simpleEscape;
+      continue;
+    }
+    if (escaped === 'x') {
+      const hex = rawText.slice(index + 1, index + 3);
+      if (!/^[\dA-Fa-f]{2}$/.test(hex)) return null;
+      cooked += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 2;
+      continue;
+    }
+    if (escaped === 'u') {
+      if (rawText[index + 1] === '{') {
+        const close = rawText.indexOf('}', index + 2);
+        if (close < 0) return null;
+        const hex = rawText.slice(index + 2, close);
+        const codePoint = Number.parseInt(hex, 16);
+        if (!/^[\dA-Fa-f]{1,6}$/.test(hex) || codePoint > 0x10ffff) return null;
+        cooked += String.fromCodePoint(codePoint);
+        index = close;
         continue;
       }
-      const closer = state === 'single-quote' ? "'" : state === 'double-quote' ? '"' : '`';
-      if (current === closer) state = 'default';
+      const hex = rawText.slice(index + 1, index + 5);
+      if (!/^[\dA-Fa-f]{4}$/.test(hex)) return null;
+      cooked += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 4;
       continue;
     }
+    if (/[1-9]/.test(escaped)) return null;
 
-    if (state === 'line-comment') {
-      if (current === '\n') {
-        state = 'default';
-        continue;
-      }
-      chars[index] = ' ';
-      continue;
-    }
+    // Quotes, backslashes, backticks, and JavaScript NonEscapeCharacters all
+    // cook to the escaped character with the reverse solidus removed.
+    cooked += escaped;
+  }
+  return cooked;
+}
 
-    if (state === 'block-comment') {
-      if (current === '*' && next === '/') {
-        chars[index] = ' ';
-        chars[index + 1] = ' ';
-        index++;
-        state = 'default';
-        continue;
-      }
-      if (current !== '\n') chars[index] = ' ';
-      continue;
-    }
+function cookJsTemplateText(
+  sourceText: string,
+  contentStart: number,
+  contentEnd: number,
+  expressions: readonly JsTemplateExpressionRange[],
+): string | null {
+  let cooked = '';
+  let cursor = contentStart;
+  for (const expression of expressions) {
+    const segment = cookJsStaticText(sourceText.slice(cursor, expression.markerStart));
+    if (segment === null) return null;
+    cooked += segment;
+    cooked += sourceText.slice(expression.markerStart, expression.end + 1);
+    cursor = expression.end + 1;
+  }
+  const tail = cookJsStaticText(sourceText.slice(cursor, contentEnd));
+  return tail === null ? null : cooked + tail;
+}
 
-    if (current === "'") { state = 'single-quote'; continue; }
-    if (current === '"') { state = 'double-quote'; continue; }
-    if (current === '`') { state = 'backtick'; continue; }
-    if (current === '/' && next === '/') {
-      chars[index] = ' ';
-      chars[index + 1] = ' ';
-      index++;
-      state = 'line-comment';
-      continue;
-    }
-    if (current === '/' && next === '*') {
-      chars[index] = ' ';
-      chars[index + 1] = ' ';
-      index++;
-      state = 'block-comment';
-      continue;
-    }
+function precedingJsWord(chars: readonly string[], beforeIndex: number): JsWordToken | null {
+  let index = beforeIndex - 1;
+  while (index >= 0 && /\s/.test(chars[index] ?? '')) index--;
+  if (!/[\w$]/.test(chars[index] ?? '')) return null;
+  const wordEnd = index + 1;
+  while (index >= 0 && /[\w$]/.test(chars[index] ?? '')) index--;
+  return { value: chars.slice(index + 1, wordEnd).join(''), start: index + 1 };
+}
+
+function isControlHeaderOpen(chars: readonly string[], openParenIndex: number): boolean {
+  let token = precedingJsWord(chars, openParenIndex);
+  if (token?.value === 'await') token = precedingJsWord(chars, token.start);
+  if (!token || !CONTROL_HEADER_KEYWORDS.has(token.value)) return false;
+
+  let precedingIndex = token.start - 1;
+  while (precedingIndex >= 0 && /\s/.test(chars[precedingIndex] ?? '')) precedingIndex--;
+  return chars[precedingIndex] !== '.';
+}
+
+class JsLexicalScanner {
+  private readonly codeChars: string[];
+  private readonly literals: JsLiteralToken[] = [];
+  private readonly parenStack: boolean[] = [];
+  private readonly expressionStarts: number[] = [];
+
+  constructor(private readonly sourceText: string) {
+    // Every parser offset in this module is a JavaScript UTF-16 string index.
+    // `split('')` preserves that indexing; `Array.from` would collapse astral
+    // characters and shift every token after an emoji or other surrogate pair.
+    this.codeChars = sourceText.split('');
   }
 
-  return chars.join('');
+  scan(): JsLexicalView {
+    this.scanCode(0, false);
+    const literals = this.literals.sort((left, right) => left.start - right.start);
+    return {
+      sourceText: this.sourceText,
+      codeMasked: this.codeChars.join(''),
+      literals,
+      templates: literals.filter((literal) => literal.kind === 'template'),
+    };
+  }
+
+  findExpressionEnd(expressionStart: number): number | null {
+    return this.scanCode(expressionStart, true);
+  }
+
+  private mask(start: number, end: number): void {
+    maskCharacters(this.codeChars, start, Math.min(end, this.sourceText.length - 1));
+  }
+
+  private scanQuotedString(start: number, quote: "'" | '"'): number {
+    let end = start + 1;
+    for (; end < this.sourceText.length; end++) {
+      if (this.sourceText[end] === '\\') {
+        end++;
+        continue;
+      }
+      if (this.sourceText[end] === quote) break;
+    }
+    end = Math.min(end, this.sourceText.length - 1);
+    const text = this.sourceText.slice(start + 1, end);
+    this.literals.push({
+      kind: 'string',
+      start,
+      end,
+      text,
+      cookedText: cookJsStaticText(text),
+    });
+    this.mask(start, end);
+    return end;
+  }
+
+  private scanRegexLiteral(start: number): number | null {
+    let inCharacterClass = false;
+    let end = start + 1;
+    for (; end < this.sourceText.length; end++) {
+      if (this.sourceText[end] === '\n' || this.sourceText[end] === '\r') return null;
+      if (this.sourceText[end] === '\\') {
+        end++;
+        continue;
+      }
+      if (this.sourceText[end] === '[') {
+        inCharacterClass = true;
+        continue;
+      }
+      if (this.sourceText[end] === ']' && inCharacterClass) {
+        inCharacterClass = false;
+        continue;
+      }
+      if (this.sourceText[end] === '/' && !inCharacterClass) break;
+    }
+    if (this.sourceText[end] !== '/') return null;
+    while (/[A-Za-z]/.test(this.sourceText[end + 1] ?? '')) end++;
+    this.mask(start, end);
+    return end;
+  }
+
+  private scanTemplate(start: number): number {
+    const expressions: JsTemplateExpressionRange[] = [];
+    this.mask(start, start);
+    for (let index = start + 1; index < this.sourceText.length; index++) {
+      const current = this.sourceText[index];
+      const next = this.sourceText[index + 1];
+      if (current === '\\') {
+        this.mask(index, Math.min(index + 1, this.sourceText.length - 1));
+        index++;
+        continue;
+      }
+      if (current === '$' && next === '{') {
+        this.expressionStarts.push(index + 2);
+        const expressionEnd = this.scanCode(index + 2, true);
+        this.expressionStarts.pop();
+        if (expressionEnd === null) {
+          this.mask(index, this.sourceText.length - 1);
+          return this.sourceText.length - 1;
+        }
+        this.mask(index, index + 1);
+        this.mask(expressionEnd, expressionEnd);
+        expressions.push({ markerStart: index, end: expressionEnd });
+        index = expressionEnd;
+        continue;
+      }
+      if (current === '`') {
+        this.mask(index, index);
+        const text = this.sourceText.slice(start + 1, index);
+        this.literals.push({
+          kind: 'template',
+          start,
+          end: index,
+          text,
+          expressionStart: this.expressionStarts.at(-1),
+          cookedText: cookJsTemplateText(
+            this.sourceText,
+            start + 1,
+            index,
+            expressions,
+          ),
+        });
+        return index;
+      }
+      this.mask(index, index);
+    }
+    return this.sourceText.length - 1;
+  }
+
+  private scanCode(start: number, stopAtExpressionEnd: boolean): number | null {
+    let braceDepth = 0;
+    let canEndExpression = false;
+    let statementRegexAllowed = false;
+    for (let index = start; index < this.sourceText.length; index++) {
+      const current = this.sourceText[index];
+      const next = this.sourceText[index + 1];
+      if (/\s/.test(current ?? '')) continue;
+      if (current === '/' && next === '/') {
+        let end = index + 2;
+        while (end < this.sourceText.length && this.sourceText[end] !== '\n') end++;
+        this.mask(index, end - 1);
+        index = end - 1;
+        continue;
+      }
+      if (current === '/' && next === '*') {
+        let end = index + 2;
+        while (end < this.sourceText.length
+          && !(this.sourceText[end] === '*' && this.sourceText[end + 1] === '/')) end++;
+        end = Math.min(end + 1, this.sourceText.length - 1);
+        this.mask(index, end);
+        index = end;
+        continue;
+      }
+      if (current === "'" || current === '"') {
+        index = this.scanQuotedString(index, current);
+        canEndExpression = true;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (current === '`') {
+        index = this.scanTemplate(index);
+        canEndExpression = true;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(current ?? '')) {
+        let end = index + 1;
+        while (/[\w$]/.test(this.sourceText[end] ?? '')) end++;
+        const word = this.sourceText.slice(index, end);
+        canEndExpression = !REGEX_PREFIX_KEYWORDS.has(word);
+        statementRegexAllowed = false;
+        index = end - 1;
+        continue;
+      }
+      if (/\d/.test(current ?? '')) {
+        let end = index + 1;
+        while (/[\w.]/.test(this.sourceText[end] ?? '')) end++;
+        canEndExpression = true;
+        statementRegexAllowed = false;
+        index = end - 1;
+        continue;
+      }
+      if (current === '(') {
+        this.parenStack.push(isControlHeaderOpen(this.codeChars, index));
+        canEndExpression = false;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (current === ')') {
+        statementRegexAllowed = this.parenStack.pop() ?? false;
+        canEndExpression = true;
+        continue;
+      }
+      if (current === '[') {
+        canEndExpression = false;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (current === ']') {
+        canEndExpression = true;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (current === '/' && (statementRegexAllowed || !canEndExpression)) {
+        const regexEnd = this.scanRegexLiteral(index);
+        if (regexEnd !== null) {
+          index = regexEnd;
+          canEndExpression = true;
+          statementRegexAllowed = false;
+          continue;
+        }
+      }
+      if (current === '{') {
+        if (stopAtExpressionEnd) braceDepth++;
+        canEndExpression = false;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if (current === '}') {
+        if (stopAtExpressionEnd && braceDepth === 0) return index;
+        if (stopAtExpressionEnd) braceDepth--;
+        canEndExpression = true;
+        statementRegexAllowed = false;
+        continue;
+      }
+      if ((current === '+' && next === '+') || (current === '-' && next === '-')) {
+        statementRegexAllowed = false;
+        index++;
+        continue;
+      }
+      if (current === '!' && next !== '=') {
+        statementRegexAllowed = false;
+        continue;
+      }
+
+      canEndExpression = false;
+      statementRegexAllowed = false;
+    }
+    return null;
+  }
+}
+
+function lexJs(sourceText: string): JsLexicalView {
+  return new JsLexicalScanner(sourceText).scan();
+}
+
+function scanJsExpressionEnd(sourceText: string, expressionStart: number): number | null {
+  return new JsLexicalScanner(sourceText).findExpressionEnd(expressionStart);
+}
+
+function literalAfter(view: JsLexicalView, afterIndex: number): JsLiteralToken | null {
+  for (const literal of view.literals) {
+    if (literal.start < afterIndex) continue;
+    if (view.codeMasked.slice(afterIndex, literal.start).trim().length > 0) return null;
+    return literal;
+  }
+  return null;
+}
+
+function literalSqlText(literal: JsLiteralToken): string {
+  // Invalid escape syntax cannot produce a runtime query in the scanned
+  // TypeScript modules. Keep auditing its raw spelling instead of silently
+  // dropping the literal, while valid literals use their runtime-cooked text.
+  return literal.cookedText ?? literal.text;
+}
+
+function identifierBefore(codeMasked: string, beforeIndex: number): JsWordToken | null {
+  let index = beforeIndex - 1;
+  while (index >= 0 && /\s/.test(codeMasked[index] ?? '')) index--;
+  if (!/[\w$]/.test(codeMasked[index] ?? '')) return null;
+  const end = index + 1;
+  while (index >= 0 && /[\w$]/.test(codeMasked[index] ?? '')) index--;
+  return { value: codeMasked.slice(index + 1, end), start: index + 1 };
+}
+
+function genericTypeStartBefore(codeMasked: string, beforeIndex: number): number | null {
+  let index = beforeIndex - 1;
+  while (index >= 0 && /\s/.test(codeMasked[index] ?? '')) index--;
+  if (codeMasked[index] !== '>') return null;
+
+  let angleDepth = 1;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (index--; index >= 0; index--) {
+    const current = codeMasked[index];
+    if (current === '}') { braceDepth++; continue; }
+    if (current === '{' && braceDepth > 0) { braceDepth--; continue; }
+    if (current === ']') { bracketDepth++; continue; }
+    if (current === '[' && bracketDepth > 0) { bracketDepth--; continue; }
+    if (current === ')') { parenDepth++; continue; }
+    if (current === '(' && parenDepth > 0) { parenDepth--; continue; }
+    if (braceDepth > 0 || bracketDepth > 0 || parenDepth > 0) continue;
+    if (current === '>' && codeMasked[index - 1] !== '=') {
+      angleDepth++;
+      continue;
+    }
+    if (current !== '<') continue;
+    angleDepth--;
+    if (angleDepth === 0) return index;
+  }
+  return null;
+}
+
+function sqlTagBeforeTemplate(
+  codeMasked: string,
+  template: JsLiteralToken,
+  sqlTagNames: ReadonlySet<string>,
+): { tag: string; sourceIndex: number } | null {
+  const genericStart = genericTypeStartBefore(codeMasked, template.start);
+  const tagToken = identifierBefore(codeMasked, genericStart ?? template.start);
+  if (!tagToken || !sqlTagNames.has(tagToken.value)) return null;
+  // The enclosing template's text and `${` are masked to whitespace, so a
+  // plain literal nested in a placeholder (`sql\`... ${\`key:${id}\`} ...\``)
+  // would otherwise walk back to the OUTER tag and be audited as SQL. Its
+  // runtime value is a bind parameter, not a statement.
+  if (template.expressionStart !== undefined && tagToken.start < template.expressionStart) {
+    return null;
+  }
+  return { tag: tagToken.value, sourceIndex: tagToken.start };
 }
 
 export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] {
-  const scanText = stripJsComments(sourceText);
-  const templates: ExtractedSqlTemplate[] = [];
-  const sqlTagNames = extractSqlTagNames(scanText);
-  const tagPattern = Array.from(sqlTagNames).map(escapeRegExp).join('|');
-  const tagRegex = new RegExp(
-    `(?<![\\w$])(${tagPattern})(?:\\s*<[^\`]+>)?\\s*\``,
-    'g',
-  );
-  let match: RegExpExecArray | null;
-
-  while ((match = tagRegex.exec(scanText)) !== null) {
-    const templateStart = scanText.indexOf('`', match.index);
-    if (templateStart < 0) continue;
-    const tag = match[1] ?? 'sql';
-    const parsed = parseTemplateLiteral(scanText, templateStart);
-    if (!parsed) continue;
-    templates.push({ tag, sqlText: parsed.sqlText });
-    tagRegex.lastIndex = parsed.endIndex + 1;
+  const lexical = lexJs(sourceText);
+  const templates: IndexedSqlTemplate[] = [];
+  const sqlTagNames = extractSqlTagNames(lexical);
+  for (const template of lexical.templates) {
+    const tag = sqlTagBeforeTemplate(lexical.codeMasked, template, sqlTagNames);
+    if (!tag) continue;
+    templates.push({
+      tag: tag.tag,
+      sqlText: literalSqlText(template),
+      sourceIndex: tag.sourceIndex,
+    });
   }
 
-  templates.push(...extractUnsafeSqlTemplates(scanText, sqlTagNames));
+  templates.push(...extractUnsafeSqlTemplates(lexical, sqlTagNames));
 
-  return templates;
+  return templates
+    .sort((left, right) => left.sourceIndex - right.sourceIndex)
+    .map(({ sourceIndex: _sourceIndex, ...template }) => template);
 }
 
 // db/server SQL-tag exports that behave like postgres.js tagged-template
@@ -710,13 +1837,14 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
 // in the same PR, or queries tagged with it silently escape this audit.
 const DB_SERVER_SQL_TAG_SOURCE_NAMES = new Set(['sql', 'sqlRead', 'sqlUnsubscribe']);
 
-function extractSqlTagNames(sourceText: string): Set<string> {
+function extractSqlTagNames(lexical: JsLexicalView): Set<string> {
   const tagNames = new Set<string>(['sql', 'tx', 'db']);
-  const importRegex = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g;
+  const importRegex = /import\s*\{([^}]+)\}\s*from\b/g;
   let match: RegExpExecArray | null;
 
-  while ((match = importRegex.exec(sourceText)) !== null) {
-    const source = match[2] ?? '';
+  while ((match = importRegex.exec(lexical.codeMasked)) !== null) {
+    const sourceLiteral = literalAfter(lexical, importRegex.lastIndex);
+    const source = sourceLiteral?.kind === 'string' ? literalSqlText(sourceLiteral) : '';
     if (!isDbServerImportSource(source)) continue;
     const imports = match[1] ?? '';
     for (const specifier of imports.split(',')) {
@@ -738,107 +1866,123 @@ function isDbServerImportSource(source: string): boolean {
     || /(?:^|\/)db\/server$/.test(source);
 }
 
-function parseTemplateLiteral(
-  sourceText: string,
-  templateStart: number,
-): { sqlText: string; endIndex: number } | null {
-  let depth = 0;
-  let template = '';
-  for (let index = templateStart + 1; index < sourceText.length; index++) {
-    const current = sourceText[index];
-    const next = sourceText[index + 1];
-
-    if (current === '\\') {
-      template += current;
-      if (next !== undefined) {
-        template += next;
-        index++;
-      }
-      continue;
-    }
-
-    if (current === '$' && next === '{') {
-      depth++;
-      template += '${';
-      index++;
-      continue;
-    }
-
-    if (current === '}' && depth > 0) {
-      depth--;
-      template += current;
-      continue;
-    }
-
-    if (current === '`' && depth === 0) {
-      return { sqlText: template, endIndex: index };
-    }
-
-    template += current;
-  }
-
-  return null;
-}
-
-function parseStringLiteral(
-  sourceText: string,
-  stringStart: number,
-): { sqlText: string; endIndex: number } | null {
-  const quote = sourceText[stringStart];
-  if (quote !== '"' && quote !== "'") return null;
-
-  let value = '';
-  for (let index = stringStart + 1; index < sourceText.length; index++) {
-    const current = sourceText[index];
-    const next = sourceText[index + 1];
-    if (current === '\\') {
-      value += current;
-      if (next !== undefined) {
-        value += next;
-        index++;
-      }
-      continue;
-    }
-    if (current === quote) {
-      return { sqlText: value, endIndex: index };
-    }
-    value += current;
-  }
-
-  return null;
-}
-
-function extractNamedSqlTemplates(sourceText: string): NamedSqlTemplate[] {
+function extractNamedSqlTemplates(lexical: JsLexicalView): NamedSqlTemplate[] {
   const namedTemplates: NamedSqlTemplate[] = [];
-  const declarationRegex = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*([`"'])/g;
+  const declarationRegex = /\b(const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=/g;
   let match: RegExpExecArray | null;
 
-  while ((match = declarationRegex.exec(sourceText)) !== null) {
-    const name = match[1];
-    if (!name) continue;
-    const literalStart = skipWhitespace(sourceText, declarationRegex.lastIndex - 1);
-    const literalStartChar = sourceText[literalStart];
-    const parsed = literalStartChar === '`'
-      ? parseTemplateLiteral(sourceText, literalStart)
-      : parseStringLiteral(sourceText, literalStart);
-    if (!parsed) continue;
-    namedTemplates.push({ name, sqlText: parsed.sqlText, index: match.index });
-    declarationRegex.lastIndex = parsed.endIndex + 1;
+  while ((match = declarationRegex.exec(lexical.codeMasked)) !== null) {
+    const declarationKind = match[1] as NamedSqlTemplate['declarationKind'] | undefined;
+    const name = match[2];
+    if (!declarationKind || !name) continue;
+    const literal = literalAfter(lexical, declarationRegex.lastIndex);
+    if (!literal) continue;
+    const scope = lexicalScopeContextAt(lexical.codeMasked, match.index);
+    namedTemplates.push({
+      name,
+      sqlText: literalSqlText(literal),
+      index: match.index,
+      declarationKind,
+      scopePath: scope.scopePath,
+      functionScopePath: scope.functionScopePath,
+    });
+    declarationRegex.lastIndex = literal.end + 1;
   }
 
   return namedTemplates;
 }
 
-function resolveNamedSqlTemplate(
+function resolveNamedSqlTemplates(
   namedTemplates: readonly NamedSqlTemplate[],
   name: string,
   beforeIndex: number,
-): string | null {
+  useScope: JsScopeContext,
+): string[] {
   const matching = namedTemplates
-    .filter((template) => template.name === name && template.index < beforeIndex)
-    .sort((left, right) => right.index - left.index);
+    .filter((template) => template.name === name
+      && template.index < beforeIndex
+      && (template.declarationKind === 'var'
+        ? isScopePrefix(template.functionScopePath, useScope.functionScopePath)
+        : isScopePrefix(template.scopePath, useScope.scopePath)))
+    .sort((left, right) => {
+      const leftDepth = left.declarationKind === 'var'
+        ? left.functionScopePath.length
+        : left.scopePath.length;
+      const rightDepth = right.declarationKind === 'var'
+        ? right.functionScopePath.length
+        : right.scopePath.length;
+      return rightDepth - leftDepth || right.index - left.index;
+    });
 
-  return matching[0]?.sqlText ?? null;
+  const nearest = matching[0];
+  if (!nearest) return [];
+  if (nearest.declarationKind !== 'var') return [nearest.sqlText];
+
+  return matching
+    .filter((template) => template.declarationKind === 'var'
+      && template.functionScopePath.length === nearest.functionScopePath.length
+      && template.functionScopePath.every(
+        (scope, index) => nearest.functionScopePath[index] === scope,
+      ))
+    .sort((left, right) => left.index - right.index)
+    .map((template) => template.sqlText);
+}
+
+interface JsScopeContext {
+  scopePath: readonly number[];
+  functionScopePath: readonly number[];
+}
+
+interface JsScopeFrame {
+  id: number;
+  functionBody: boolean;
+}
+
+function isScopePrefix(candidate: readonly number[], use: readonly number[]): boolean {
+  return candidate.length <= use.length
+    && candidate.every((scope, index) => use[index] === scope);
+}
+
+function isFunctionBodyOpen(sourceText: string, braceIndex: number): boolean {
+  const prefix = sourceText.slice(Math.max(0, braceIndex - 1000), braceIndex);
+  if (/\bstatic\s*$/.test(prefix)) return true;
+  if (/=>\s*$/.test(prefix)) return true;
+  const returnType = String.raw`(?:\s*:\s*[^{};=]+)?`;
+  if (new RegExp(
+    String.raw`\bfunction\b\s*\*?\s*(?:[A-Za-z_$][\w$]*)?(?:\s*<[^{};]*>)?\s*\([^{};]*\)${returnType}\s*$`,
+  ).test(prefix)) return true;
+
+  const method = new RegExp(
+    String.raw`\b([A-Za-z_$][\w$]*)(?:\s*<[^{};]*>)?\s*\([^{};]*\)${returnType}\s*$`,
+  ).exec(prefix);
+  if (!method) return false;
+  return !new Set(['catch', 'for', 'if', 'switch', 'while', 'with']).has(method[1] ?? '');
+}
+
+function lexicalScopeContextAt(codeMasked: string, beforeIndex: number): JsScopeContext {
+  const scopePath = [0];
+  const functionScopePath = [0];
+  const frames: JsScopeFrame[] = [];
+  let nextScopeId = 1;
+  for (let index = 0; index < beforeIndex; index++) {
+    const current = codeMasked[index];
+    if (current === '{') {
+      const frame = {
+        id: nextScopeId++,
+        functionBody: isFunctionBodyOpen(codeMasked, index),
+      };
+      frames.push(frame);
+      scopePath.push(frame.id);
+      if (frame.functionBody) functionScopePath.push(frame.id);
+      continue;
+    }
+    if (current === '}' && scopePath.length > 1) {
+      const frame = frames.pop();
+      scopePath.pop();
+      if (frame?.functionBody) functionScopePath.pop();
+    }
+  }
+  return { scopePath, functionScopePath };
 }
 
 function skipWhitespace(sourceText: string, startIndex: number): number {
@@ -853,79 +1997,108 @@ function readIdentifier(sourceText: string, startIndex: number): string | null {
 }
 
 function extractUnsafeSqlTemplates(
-  sourceText: string,
+  lexical: JsLexicalView,
   sqlTagNames: ReadonlySet<string>,
-): ExtractedSqlTemplate[] {
-  const templates: ExtractedSqlTemplate[] = [];
-  const namedTemplates = extractNamedSqlTemplates(sourceText);
+): IndexedSqlTemplate[] {
+  const templates: IndexedSqlTemplate[] = [];
+  const namedTemplates = extractNamedSqlTemplates(lexical);
   const unsafeRegex = new RegExp(
     String.raw`(?<![\w$])(${Array.from(sqlTagNames).map(escapeRegExp).join('|')})\s*\.\s*unsafe(?:\s*<[^>(]+(?:\([^)]*\))?[^>]*>)?\s*\(`,
     'g',
   );
   let match: RegExpExecArray | null;
 
-  while ((match = unsafeRegex.exec(sourceText)) !== null) {
+  while ((match = unsafeRegex.exec(lexical.codeMasked)) !== null) {
     const tag = `${match[1] ?? 'sql'}.unsafe`;
-    const argStart = skipWhitespace(sourceText, unsafeRegex.lastIndex);
-    const argStartChar = sourceText[argStart];
-    if (argStartChar === '`') {
-      const parsed = parseTemplateLiteral(sourceText, argStart);
-      if (parsed) {
-        templates.push({ tag, sqlText: parsed.sqlText });
-        unsafeRegex.lastIndex = parsed.endIndex + 1;
-      }
+    const argumentLiteral = literalAfter(lexical, unsafeRegex.lastIndex);
+    if (argumentLiteral) {
+      templates.push({
+        tag,
+        sqlText: literalSqlText(argumentLiteral),
+        sourceIndex: match.index,
+      });
+      unsafeRegex.lastIndex = argumentLiteral.end + 1;
       continue;
     }
 
-    if (argStartChar === '"' || argStartChar === "'") {
-      const parsed = parseStringLiteral(sourceText, argStart);
-      if (parsed) {
-        templates.push({ tag, sqlText: parsed.sqlText });
-        unsafeRegex.lastIndex = parsed.endIndex + 1;
-      }
-      continue;
-    }
-
-    const identifier = readIdentifier(sourceText, argStart);
+    const argStart = skipWhitespace(lexical.codeMasked, unsafeRegex.lastIndex);
+    const identifier = readIdentifier(lexical.codeMasked, argStart);
     if (!identifier) continue;
-    const sqlText = resolveNamedSqlTemplate(namedTemplates, identifier, match.index);
-    if (sqlText) templates.push({ tag, sqlText });
+    const sqlTexts = resolveNamedSqlTemplates(
+      namedTemplates,
+      identifier,
+      match.index,
+      lexicalScopeContextAt(lexical.codeMasked, match.index),
+    );
+    for (const sqlText of sqlTexts) {
+      templates.push({ tag, sqlText, sourceIndex: match.index });
+    }
   }
 
   return templates;
 }
 
-async function auditRepository(): Promise<TenantScopeFinding[]> {
+/**
+ * Audit one source file exactly as the repository walk does. Occurrence
+ * ordinals belong to extraction ordering, so the single-template seam above
+ * intentionally cannot override them.
+ */
+export function auditSourceText(
+  file: string,
+  sourceText: string,
+  usedAllowlistKeys?: Set<string>,
+  options: { applyAllowlist?: boolean } = {},
+): TenantScopeFinding[] {
+  const fingerprintOccurrences = new Map<string, number>();
+  const findings: TenantScopeFinding[] = [];
+  for (const { sqlText } of extractSqlTemplates(sourceText)) {
+    const fingerprint = templateFingerprint(sqlText);
+    const templateOccurrence = (fingerprintOccurrences.get(fingerprint) ?? 0) + 1;
+    fingerprintOccurrences.set(fingerprint, templateOccurrence);
+    findings.push(...auditSqlTextOccurrence(file, sqlText, usedAllowlistKeys, {
+      applyAllowlist: options.applyAllowlist ?? true,
+      templateOccurrence,
+    }));
+  }
+  return findings;
+}
+
+async function auditRepository(options: { applyAllowlist?: boolean } = {}): Promise<TenantScopeFinding[]> {
+  const applyAllowlist = options.applyAllowlist ?? true;
   const allFiles = (await Promise.all(SCANNED_ROOTS.map((root) => collectSourceFiles(root)))).flat();
   const findings: TenantScopeFinding[] = [];
   const usedAllowlistKeys = new Set<string>();
 
   for (const file of allFiles.sort()) {
     const sourceText = await readFile(file, 'utf8');
-    for (const { sqlText } of extractSqlTemplates(sourceText)) {
-      findings.push(...auditSqlText(
-        normalizePath(relative(process.cwd(), file)),
-        sqlText,
-        usedAllowlistKeys,
-      ));
-    }
+    findings.push(...auditSourceText(
+      normalizePath(relative(process.cwd(), file)),
+      sourceText,
+      usedAllowlistKeys,
+      { applyAllowlist },
+    ));
   }
 
-  return [
-    ...findAllowlistIntegrityFindings(),
-    ...findDuplicateAllowlistEntries(),
-    ...findUnusedAllowlistEntries(usedAllowlistKeys),
-    ...findings,
-  ];
+  return applyAllowlist
+    ? [
+        ...findAllowlistIntegrityFindings(),
+        ...findDuplicateAllowlistEntries(),
+        ...findUnusedAllowlistEntries(usedAllowlistKeys),
+        ...findings,
+      ]
+    : findings;
 }
 
 async function main(): Promise<void> {
-  const findings = await auditRepository();
+  const applyAllowlist = !process.argv.includes('--no-allowlist');
+  const findings = await auditRepository({ applyAllowlist });
   const countSummary = `entries: ${tenantScopeAllowlist.length} (baseline: ${ALLOWLIST_BASELINE})`;
   if (findings.length > 0) {
-    console.error(`tenant-scope-audit: failed — ${countSummary}`);
+    const mode = applyAllowlist ? '' : ' (allowlists disabled)';
+    console.error(`tenant-scope-audit: failed${mode} — ${countSummary}; findings: ${findings.length}`);
     for (const finding of findings) {
-      console.error(`${finding.file}: ${finding.table}: ${finding.reason}`);
+      const identity = finding.sqlIdentity ? ` [${finding.sqlIdentity}]` : '';
+      console.error(`${finding.file}: ${finding.table}: ${finding.reason}${identity}`);
     }
     process.exit(1);
   }

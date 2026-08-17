@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "The changed CI gate protects app-enforced tenant isolation for service-role SQL.",
+    "An unsound parser can silently accept cross-tenant reads or mutations."
+  ],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Tenant-scope auditing independently proves every tenant-table alias occurrence inside outer queries, subqueries, CTEs, LATERAL blocks, and set-operation arms, allowing #629's naturally scoped SQL without scope laundering.",
+  "non_goals": [
+    "Replace the heuristic audit with a full PostgreSQL parser dependency.",
+    "Change runtime solicitation behavior.",
+    "Broaden OR or NOT predicate acceptance.",
+    "Eliminate legitimate cross-tenant allowlist entries.",
+    "Add a per-line ignore pragma."
+  ],
+  "user_visible_behavior": [
+    "Repository CI accepts naturally scoped nested SQL and rejects nested tenant-table occurrences that borrow unrelated outer or sibling scope.",
+    "Requests approval and batch reads preserve their existing results while shedding SQL shapes used only to appease the old audit.",
+    "Every repository finding carries a deterministic template/statement/arm/block/binding identity so allowlist triage cannot confuse duplicate statements, aliases, or blocks in the same file."
+  ],
+  "invariants": [
+    "Every service-role tenant-table alias occurrence requires its own proof in its lexical query block.",
+    "One scoped alias cannot lend scope to another alias of the same tenant table.",
+    "Sibling or unrelated subqueries cannot lend scope to one another.",
+    "Only explicit tenant-identity correlation may inherit proven ancestor scope.",
+    "OR and NOT remain fail-closed.",
+    "Every set-operation arm is audited independently.",
+    "Block discovery, table bindings, predicates, boolean operators, and set arms consume one shared lexical representation.",
+    "Exact allowlist entries remain full-template-and-table exceptions and are applied only after occurrence analysis.",
+    "All #629 approval and batch-view behavior and performance guarantees remain unchanged.",
+    "Allowlist count and baseline move together only after repository-wide triage."
+  ],
+  "edge_cases": [
+    "A scoped outer occurrence cannot mask an unscoped nested occurrence of the same table.",
+    "A scoped alias cannot mask an unscoped second alias of the same table in one block.",
+    "A child alias that shadows a scoped ancestor alias receives no inherited proof by name alone.",
+    "A tenant predicate in one sibling subquery cannot scope another sibling.",
+    "Correlation by a non-tenant row id does not confer tenant scope.",
+    "Single-quoted and E-strings, tagged and untagged dollar-quoted strings, nested block comments, and line comments cannot contribute table or predicate evidence.",
+    "Balanced placeholders remain bind atoms, quoted identifiers remain identifiers, and ordinary function parentheses are traversed so nested scalar queries remain visible.",
+    "LATERAL children may inherit only explicit tenant-identity correlation, and data-modifying CTE bodies are audited like SELECT bodies.",
+    "A CTE name shadowing a tenant table is not mistaken for a physical tenant-table reference.",
+    "Independent scalar aggregates do not reintroduce the rejected solicitation cross product."
+  ],
+  "existing_patterns_to_follow": [
+    "scripts/ci/tenant-scope-audit.ts preserves conservative OR and NOT handling.",
+    "scripts/ci/__tests__/tenant-scope-audit.test.ts pins scope-laundering failures.",
+    "docs/security/tenant-isolation.md prefers tightening repeatable scanner limitations over adding suppressions.",
+    "src/lib/solicitation/__tests__/batch-view.test.ts pins independent send-lane aggregation."
+  ],
+  "test_seams": [
+    "auditSqlText over nested SQL fixtures.",
+    "pnpm ci:tenant-scope over every repository SQL template.",
+    "approveBatch and readLatestBatch through their existing unit and live-database suites."
+  ],
+  "allowed_edit_surface": [
+    "scripts/ci/tenant-scope-audit.ts",
+    "scripts/ci/__tests__/tenant-scope-audit.test.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/solicitation/approval.ts",
+    "src/lib/solicitation/batch-view.ts",
+    "src/lib/solicitation/__tests__/approval.test.ts",
+    "src/lib/solicitation/__tests__/batch-view.test.ts",
+    "src/lib/solicitation/__tests__/approval.integration.test.ts",
+    "src/lib/solicitation/__tests__/batch-view.integration.test.ts",
+    "docs/security/tenant-isolation.md",
+    ".claude/reference/lab-notes.md",
+    "docs/reviews/codex-859-tenant-scope-subqueries/repo-audit-triage.md",
+    "scripts/ci/tenant-tables.ts",
+    "scripts/ci/__tests__/tenant-tables.integration.test.ts",
+    "docs/directory.md"
+  ],
+  "tests_to_add": [
+    "passes a directly scoped tenant table inside NOT EXISTS",
+    "passes a directly scoped tenant table inside a scalar subquery",
+    "passes directly scoped tenant tables inside separate CTE bodies",
+    "passes a child correlated by business_id to a proven-scoped outer alias",
+    "fails a nested tenant table correlated only by a non-tenant row id",
+    "fails an unscoped nested occurrence when the same table is scoped in the outer query",
+    "fails an unscoped CTE occurrence when the same table is scoped outside the CTE",
+    "fails an unscoped second alias of the same tenant table in one query block",
+    "fails a child alias that shadows a scoped ancestor alias",
+    "does not combine scope and relationship evidence from sibling subqueries",
+    "fails a nested tenant predicate broadened by OR",
+    "fails a negated nested tenant predicate",
+    "audits every set-operation arm inside a subquery",
+    "does not accept tenant-looking scope text inside single-quoted E-strings or dollar-quoted strings",
+    "does not report table-looking text inside single-quoted E-strings or dollar-quoted strings",
+    "does not parse nested block comments or line comments as query blocks",
+    "balances nested-brace placeholders with quoted closing braces during SQL template extraction",
+    "audits a scalar subquery nested inside ordinary function parentheses",
+    "passes a LATERAL child explicitly correlated by tenant identity",
+    "fails a LATERAL child correlated only by a non-tenant row id",
+    "audits scoped and unscoped data-modifying CTE bodies",
+    "does not treat a CTE name shadowing a tenant table as a physical table reference",
+    "reports a deterministic duplicate-template statement arm block and binding identity for every unscoped occurrence",
+    "pins the restored approval scalar parent and NOT EXISTS readiness queries",
+    "rejects an unqualified scope column the table does not carry",
+    "does not let a subquery prove itself on a scope column its table lacks",
+    "does not let a grandchild inherit an ancestor alias that an intermediate block shadows",
+    "extracts a nested TAGGED fragment but not a plain literal nested in a placeholder",
+    "lists exactly the tenant-identity columns each tenant table carries"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run scripts/ci/__tests__/tenant-scope-audit.test.ts",
+    "pnpm ci:tenant-scope",
+    "pnpm exec vitest run src/lib/solicitation/__tests__/approval.test.ts src/lib/solicitation/__tests__/batch-view.test.ts",
+    "pnpm exec vitest run src/lib/solicitation/__tests__/approval.integration.test.ts src/lib/solicitation/__tests__/batch-view.integration.test.ts",
+    "pnpm exec vitest run scripts/ci/__tests__/tenant-tables.integration.test.ts"
+  ],
+  "estimated_prod_lines": 1400,
+  "estimated_test_lines": 1250,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the parser, allowlist baseline, documentation, and solicitation SQL-shape cleanup together. No migration, data repair, flag change, or deployment ordering is required.",
+  "observability": [
+    "ci:tenant-scope reports the post-change entry count and every newly exposed finding.",
+    "Solicitation unit and live-database suites prove runtime behavior preservation."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "merge"
+  ],
+  "open_questions": []
+}

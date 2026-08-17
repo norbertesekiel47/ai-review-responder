@@ -138,7 +138,15 @@ export interface TenantScopeAllowlistEntry {
 //     follow it are keyed on the id that read returned, inside the same
 //     transaction. Same `provider-ingress` shape as the 5 sibling
 //     `worker/ingress/resend.ts` entries above it.
-export const ALLOWLIST_BASELINE = 397;
+//   - 2026-08-17 (397 → 381): #859's query-block parser made the allowlist more
+//     honest in both directions. It added one admin cost-report `api_costs`
+//     entry whose account filter is optional and composed in a placeholder, and
+//     removed 17 entries justified only by the old scanner's inability to prove
+//     nested/subquery scope. Every removal was clean with allowlists disabled;
+//     the other 66 context-based entries that are currently provable remain for
+//     separate semantic review. Net change: +1 honest exception, -17 obsolete
+//     parser limitations.
+export const ALLOWLIST_BASELINE = 381;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -275,14 +283,6 @@ const SUSPENDED_POLICIES_SQL =
 const SUSPENSION_FLAG_EVIDENCE_SQL =
   "WITH ranked_flags AS ( SELECT verdict.id, verdict.account_id, verdict.business_id, verdict.review_id, verdict.response_id, ARRAY( SELECT jsonb_array_elements_text( CASE WHEN jsonb_typeof(verdict.reasons) = 'array' THEN verdict.reasons ELSE '[]'::jsonb END ) ) AS reason_categories, verdict.created_at, ROW_NUMBER() OVER ( PARTITION BY verdict.account_id ORDER BY verdict.created_at DESC, verdict.id DESC ) AS flag_rank FROM judge_verdicts verdict WHERE verdict.account_id = ANY(${accountIds}::uuid[]) AND verdict.verdict = 'flag' ) SELECT id, account_id, business_id, review_id, response_id, reason_categories, created_at FROM ranked_flags WHERE flag_rank <= 5 ORDER BY account_id, created_at DESC, id DESC";
 
-// #546 Competitor Delta lane. One statement on purpose: RankingTrackingWorker
-// replaces the pack wholesale and overwrites search_location on a same-day
-// re-run, so sequential reads can observe a pack that does not match the dates
-// just read (READ COMMITTED makes a wrapping transaction no help). Every leg is
-// bound to ${businessId}; two of the three predicates sit inside CTE bodies.
-const NAMED_RIVAL_LANE_SQL =
-  "WITH ctx AS ( SELECT ${primaryTrackedKeywordSql(db)} AS keyword, CASE WHEN b.google_place_lat IS NOT NULL AND b.google_place_lng IS NOT NULL THEN b.google_place_lat::text || ',' || b.google_place_lng::text ELSE b.ranking_search_location END AS search_location, b.rival_place_id, b.rival_title_snapshot FROM businesses b WHERE b.id = ${businessId} ), dates AS ( SELECT rs.snapshot_date FROM ranking_snapshots rs, ctx WHERE rs.business_id = ${businessId} AND rs.keyword = ctx.keyword AND rs.search_location = ctx.search_location ORDER BY rs.snapshot_date DESC LIMIT 2 ) SELECT ctx.keyword, ctx.search_location, ctx.rival_place_id, ctx.rival_title_snapshot, d.snapshot_date::text AS window_date, cs.snapshot_date::text AS snapshot_date, cs.rank_position, cs.place_id, cs.title, cs.review_count, cs.is_self FROM ctx LEFT JOIN dates d ON true LEFT JOIN competitor_snapshots cs ON cs.business_id = ${businessId} AND cs.keyword = ctx.keyword AND cs.search_location IS NOT DISTINCT FROM ctx.search_location AND cs.snapshot_date = d.snapshot_date ORDER BY d.snapshot_date DESC, cs.rank_position ASC NULLS LAST, cs.place_id ASC NULLS LAST";
-
 // #645 §7.3 admin servicing lookup. One statement the audit attributes to two
 // tables (solicitation_suppressions + the accounts display-name join), so it is
 // hoisted here once rather than copy-pasted into both entries.
@@ -389,13 +389,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Authenticated flow uses account id as the tenant-root lookup key for this statement.",
   },
   {
-    file: "src/lib/accounts/tier-change.ts",
-    table: "account_offboardings",
-    sqlSnippet: "SELECT a.owner_user_id, a.price_variant, a.stripe_subscription_id, a.subscription_status, a.subscription_tier, a.locations_overage_price_cents, ao.id AS offboarding_id, ao.account_id AS offboarding_account_id, ao.mode AS offboarding_mode, ao.status AS offboarding_status, ao.failed_step AS offboarding_failed_step, ao.access_ends_at AS offboarding_access_ends_at, ao.teardown_started_at AS offboarding_teardown_started_at, ao.purge_after AS offboarding_purge_after, ao.purge_started_at AS offboarding_purge_started_at, ao.purge_cancelled_at AS offboarding_purge_cancelled_at FROM accounts a LEFT JOIN LATERAL ( SELECT active.* FROM account_offboardings active WHERE active.account_id = a.id AND active.terminal_at IS NULL ORDER BY active.created_at DESC LIMIT 1 ) ao ON TRUE WHERE a.id = ${accountId}::uuid",
-    category: 'tenant-root-lookup',
-    reason: "The tier-change transaction first locks the owner-resolved account id, then projects only that account's latest active offboarding row through a correlated lateral join; the scanner intentionally strips the correlated subquery predicate.",
-  },
-  {
     file: "src/app/api/dashboard/past-replies/draft-status/route.ts",
     table: "responses",
     sqlSnippet: "SELECT id, status, response_text, business_id, ${openFlagExistsSql(sqlRead, sqlRead`responses.id`)} AS held FROM responses WHERE review_id = ${outbox.aggregate_id} AND status IN ('pending_approval', 'approved', 'edited') ORDER BY version DESC LIMIT 1",
@@ -471,6 +464,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT provider, SUM(cost_usd)::float AS total_usd, COUNT(*)::float AS call_count FROM api_costs WHERE ${optionalAccountPrefix(sql, accountId)}${dateFilter(sql, days)} GROUP BY provider ORDER BY total_usd DESC",
     category: 'admin-after-require-role',
     reason: "Admin-only cost report; account_id/date predicates are composed from shared sql fragments (optionalAccountPrefix/dateFilter) after requireRole(admin), so the literal snippet no longer inlines the predicate text.",
+  },
+  {
+    file: "src/lib/admin/cost-report-service.ts",
+    table: "api_costs",
+    sqlSnippet: "SELECT ac.business_id, b.name, a.subscription_tier, SUM(ac.cost_usd)::float AS total_usd, COUNT(ac.id)::float AS call_count, SUM(CASE WHEN ac.created_at >= CURRENT_DATE THEN ac.cost_usd ELSE 0 END)::float AS today_usd FROM api_costs ac JOIN businesses b ON b.id = ac.business_id JOIN accounts a ON a.id = b.account_id WHERE ${ accountId ? sql`ac.account_id = ${accountId}::uuid AND ` : sql`` }ac.created_at >= CURRENT_DATE - ${days}::int * INTERVAL '1 day' GROUP BY ac.business_id, b.name, a.subscription_tier ORDER BY total_usd DESC, ac.business_id ASC LIMIT ${limit} OFFSET ${offset}",
+    category: 'admin-after-require-role',
+    reason: "Admin-only cost report byBusiness non-rollup query; the account_id predicate is optional and composed inside a placeholder after requireRole(admin), so the static template is intentionally cross-account when the filter is absent.",
   },
   {
     file: "src/lib/admin/cost-report-service.ts",
@@ -564,13 +564,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Admin-only cost report rollupDay query; the account_id/rollup-boundary predicate is composed from a shared sql fragment (optionalRollupAcctPrefix) after requireRole(admin), so the literal snippet no longer inlines the predicate text.",
   },
   {
-    file: "src/lib/admin/cost-report-service.ts",
-    table: "businesses",
-    sqlSnippet: "business_id IN (SELECT id FROM businesses WHERE account_id = ${accountId}::uuid)",
-    category: 'admin-after-require-role',
-    reason: "Admin-only cost report's businessIdInAccount sql fragment, scanned standalone by the static audit: the SAME literal is nested into several parent queries (all separately allowlisted above) that already resolve account_id to the caller's requireRole(admin)-authorized scope.",
-  },
-  {
     file: "src/lib/admin/margin-service.ts",
     table: "accounts",
     sqlSnippet: `SELECT a.id, a.display_name, a.subscription_tier, a.subscription_status,
@@ -643,25 +636,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'tenant-root-lookup',
     reason: "Account is joined on the already-scoped business/location id (b.id = ${businessId}) only to read the account-level digest opt-in toggles (migration 063); no cross-account fan-out.",
   },
-  // Reputation summary (PR2): windowed metrics folded into the per-location
-  // dashboard response. Scoped by business_id; the scanner strips SELECT
-  // subqueries so it cannot see the scope inside the rate query's
-  // EXISTS(responses) or the trend query's LEFT JOIN(reviews). businessId is
-  // IDOR-checked in the dashboard route before the service runs.
-  {
-    file: "src/lib/dashboard/service.ts",
-    table: "responses",
-    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - make_interval(days => ${windowDays}) )::int AS received_current, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - make_interval(days => ${windowDays}) AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) ) )::int AS handled_current, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - make_interval(days => ${priorEndDays}) AND r.detected_at < NOW() - make_interval(days => ${windowDays}) )::int AS received_prior, COUNT(*) FILTER ( WHERE r.detected_at >= NOW() - make_interval(days => ${priorEndDays}) AND r.detected_at < NOW() - make_interval(days => ${windowDays}) AND EXISTS ( SELECT 1 FROM responses resp WHERE resp.review_id = r.id AND resp.business_id = ${businessId} AND resp.status = ANY(${HANDLED}::text[]) AND resp.approved_at IS NOT NULL AND resp.approved_at <= NOW() - make_interval(days => ${windowDays}) ) )::int AS handled_prior FROM reviews r WHERE r.business_id = ${businessId} AND r.status <> ${REVIEW_STATUS.DELETED} AND r.detected_at >= NOW() - make_interval(days => ${priorEndDays})",
-    category: 'tenant-root-lookup',
-    reason: "Reputation rate metric; responses accessed via correlated EXISTS (resp.review_id = r.id AND resp.business_id = ${businessId}) inside the reviews scan scoped by r.business_id = ${businessId}. businessId is IDOR-checked in the route.",
-  },
-  {
-    file: "src/lib/dashboard/service.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, agg.avg_score::float AS avg_score, COALESCE(agg.cnt, 0)::int AS cnt FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, AVG(sentiment_score) AS avg_score, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND status <> ${REVIEW_STATUS.DELETED} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) agg ON agg.wk = gs::date ORDER BY week_start ASC",
-    category: 'tenant-root-lookup',
-    reason: "Reputation trend metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
-  },
+  // #859's query-block parser now proves the reputation summary's correlated
+  // EXISTS(responses) and nested LEFT JOIN(reviews) scopes directly. Neither
+  // statement retains an allowlist entry.
   {
     file: "src/lib/db/account-guard.ts",
     table: "accounts",
@@ -1003,21 +980,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "reviews",
     sqlSnippet: "SELECT b.account_id, EXISTS ( SELECT 1 FROM reviews r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = b.account_id AND r2.id <> ${input.reviewId}::uuid AND r2.detected_at IS NOT NULL LIMIT 1 ) AS earlier_exists FROM businesses b WHERE b.id = ${input.businessId}::uuid LIMIT 1",
     category: 'worker-job-scoped',
-    reason: "first_review_ingested activation check is account-scoped (b2.account_id = b.account_id) inside an EXISTS subquery the static scanner cannot see; the business is resolved by id for a durable ingest job.",
-  },
-  {
-    file: "worker/jobs/response-generation/analytics.ts",
-    table: "responses",
-    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
-    category: 'worker-job-scoped',
-    reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
-  },
-  {
-    file: "worker/jobs/response-generation/analytics.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM responses r2 JOIN businesses b2 ON b2.id = r2.business_id WHERE b2.account_id = ${input.accountId}::uuid AND r2.id <> ${input.responseId}::uuid AND r2.created_at IS NOT NULL LIMIT 1 ) AS earlier_exists, ( SELECT occurred_at FROM analytics_events WHERE event_name = 'email_verified' AND account_id = ${input.accountId}::uuid ORDER BY occurred_at ASC LIMIT 1 ) AS email_verified_at",
-    category: 'worker-job-scoped',
-    reason: "first_response_drafted activation check is account-scoped (b2.account_id = input.accountId) inside an EXISTS subquery the static scanner cannot see; runs in the response-generation worker for a durable job.",
+    reason: "first_review_ingested activation check resolves the durable job's business by id, restricts b2 to that business's account, then reaches r2 through b2.id = r2.business_id; the audit intentionally does not transfer tenant proof between sibling bindings.",
   },
   {
     file: "worker/jobs/billing/UpdateStripeOverageWorker.ts",
@@ -1618,33 +1581,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'tenant-root-lookup',
     reason: "Dashboard service receives an owner-scoped accountId or businessId and uses it as the tenant boundary for joined data; the NOT EXISTS clause excludes drafts held by an open moderation flag from owner view.",
   },
-  {
-    file: "src/lib/dashboard/service.ts",
-    table: "review_escalations",
-    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity FROM reviews rev LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = ${businessId} AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT ${openFlagExistsSql(sql, sql`responses.id`)} ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = ${businessId} AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE rev.business_id = ${businessId} AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 10",
-    category: 'tenant-root-lookup',
-    reason: "Open-escalation badge read (WS3); review_escalations accessed inside a LEFT JOIN LATERAL scoped by e.business_id = ${businessId} (mirrors the resp lateral). Scanner strips SELECT subqueries before predicate analysis. businessId is IDOR-checked in the dashboard route.",
-  },
   // Account-wide recent-reviews feed (100-business perf pass, 2026-07-16):
   // one LIMIT 20 query replaces the aggregate view's fetch-10-per-location
   // composition. responses/review_escalations are accessed inside LEFT JOIN
-  // LATERAL subqueries correlated on rev.business_id, which the scanner
-  // strips before predicate analysis; the tenant boundary is
-  // b.account_id = ${accountId} with rev.business_id = b.id. accountId is
-  // owner-scoped by requireOwnerWithAccount in the dashboard route.
+  // LATERAL subqueries under the tenant boundary b.account_id = ${accountId}
+  // with rev.business_id = b.id. The responses correlation leaves its child
+  // business_id unqualified, so the fail-closed audit will not assign that
+  // tenant column to a physical binding. accountId is owner-scoped by
+  // requireOwnerWithAccount in the dashboard route.
   {
     file: "src/lib/dashboard/aggregate-service.ts",
     table: "responses",
     sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity, b.id AS location_id, b.name AS location_name, b.display_label AS location_display_label FROM reviews rev JOIN businesses b ON b.id = rev.business_id LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = rev.business_id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT ${openFlagExistsSql(sql, sql`responses.id`)} ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = rev.business_id AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 20",
     category: 'tenant-root-lookup',
-    reason: "Aggregate recent-reviews feed; responses accessed via LEFT JOIN LATERAL correlated on rev.business_id inside a scan bounded by b.account_id = ${accountId}. Scanner strips SELECT subqueries before predicate analysis.",
-  },
-  {
-    file: "src/lib/dashboard/aggregate-service.ts",
-    table: "review_escalations",
-    sqlSnippet: "SELECT rev.id, rev.reviewer_name, rev.star_rating, rev.review_text, rev.review_date, rev.status, resp.response_text, resp.status AS response_status, resp.approval_method, resp.auto_post_scheduled_at, esc.id AS escalation_id, esc.status AS escalation_status, esc.triage_severity AS escalation_severity, b.id AS location_id, b.name AS location_name, b.display_label AS location_display_label FROM reviews rev JOIN businesses b ON b.id = rev.business_id LEFT JOIN LATERAL ( SELECT COALESCE(approved_text, response_text) AS response_text, status, approval_method, auto_post_scheduled_at FROM responses WHERE review_id = rev.id AND business_id = rev.business_id AND status = ANY(${[...RECENT_REVIEW_DISPLAY_STATUSES] as string[]}::text[]) AND NOT ${openFlagExistsSql(sql, sql`responses.id`)} ORDER BY version DESC LIMIT 1 ) resp ON true LEFT JOIN LATERAL ( SELECT id, status, triage_severity FROM review_escalations e WHERE e.review_id = rev.id AND e.business_id = rev.business_id AND e.status <> 'resolved' LIMIT 1 ) esc ON true WHERE b.account_id = ${accountId}::uuid AND b.archived_at IS NULL AND rev.status <> ${REVIEW_STATUS.DELETED} ORDER BY rev.detected_at DESC LIMIT 20",
-    category: 'tenant-root-lookup',
-    reason: "Aggregate recent-reviews feed; review_escalations accessed via LEFT JOIN LATERAL correlated on rev.business_id inside a scan bounded by b.account_id = ${accountId}. Scanner strips SELECT subqueries before predicate analysis.",
+    reason: "Aggregate recent-reviews feed bounded by b.account_id = ${accountId}; the responses LATERAL is correlated on business_id = rev.business_id, but its child tenant column is unqualified, so the fail-closed audit does not assign it to the responses binding.",
   },
   {
     file: "src/lib/db/auth.ts",
@@ -1750,13 +1700,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT resp.id AS response_id, r.reviewer_name, r.star_rating FROM responses resp JOIN reviews r ON r.id = resp.review_id WHERE resp.business_id = ${business.id} AND resp.status = 'pending_approval' ORDER BY resp.created_at ASC LIMIT 5",
     category: 'worker-job-scoped',
     reason: "Onboarding drip worker first selects a business/account candidate, then uses that business id for report and reminder evidence queries.",
-  },
-  {
-    file: "src/lib/dashboard/service.ts",
-    table: "reviews",
-    sqlSnippet: "SELECT gs::date AS week_start, COALESCE(r.cnt, 0)::int AS count FROM generate_series( DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})), DATE_TRUNC('week', NOW()), INTERVAL '1 week' ) gs LEFT JOIN ( SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, COUNT(*) AS cnt FROM reviews WHERE business_id = ${businessId} AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks}) AND status <> ${REVIEW_STATUS.DELETED} GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')}) ) r ON r.wk = gs::date ORDER BY week_start ASC",
-    category: 'tenant-root-lookup',
-    reason: "Review-velocity metric; reviews accessed inside a LEFT JOIN subquery scoped by business_id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis, so it cannot see that scope. businessId is IDOR-checked in the route. Buckets on the Review-time anchor ${reviewTimeAnchor(sql, '')} = LEAST(review_date, detected_at) (ADR 0019 / #757); the tenant scope is unchanged.",
   },
   {
     file: "worker/background/pollers/EngagementMonitorPoller.ts",
@@ -2038,13 +1981,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Edit publisher path derives sibling response ids from the same business-scoped publish job before superseding posted rows.",
   },
   {
-    file: "worker/jobs/publisher/auto-policy-publish.ts",
-    table: "auto_approval_policies",
-    sqlSnippet: "SELECT subscription_status, subscription_tier, past_due_at, flags, EXISTS ( SELECT 1 FROM auto_approval_policies p WHERE p.account_id = ${business.account_id}::uuid AND p.suspended_at IS NOT NULL AND (p.location_id IS NULL OR p.location_id = ${input.businessId}::uuid) ) AS autonomy_suspended FROM accounts WHERE id = ${business.account_id}::uuid",
-    category: 'worker-job-scoped',
-    reason: "Publish-time WS6 suspension recheck rides the entitlement-lane accounts read; the auto_approval_policies EXISTS subquery IS account-scoped (p.account_id = the locked lane's account id param) and location-scoped via the OR override arm — the static analyzer cannot see through the parenthesized OR.",
-  },
-  {
     file: "worker/jobs/publisher/edit-publish-tx.ts",
     table: "responses",
     sqlSnippet: "UPDATE responses SET status = 'superseded', updated_at = NOW() WHERE id = ${siblingId} AND status = 'posted' RETURNING 1",
@@ -2312,30 +2248,10 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'pre-auth-token',
     reason: "WhatsApp enrollment ingress updates the row id locked by verification token in the same transaction.",
   },
-  // --- Named rival / Competitor Delta lane (src/lib/competitors/named-rival.ts) ---
-  // Every leg of the single lane query IS bound to ${businessId}:
-  // `WHERE b.id = ${businessId}` in the ctx CTE, `rs.business_id = ${businessId}`
-  // in the dates CTE (further correlated to ctx.keyword / ctx.search_location),
-  // and `cs.business_id = ${businessId}` in the outer LEFT JOIN — which is why
-  // competitor_snapshots needs no entry. The first two are invisible to the
-  // scanner because it strips SELECT subqueries (CTE bodies included) before
-  // predicate analysis. Collapsing the lane into one statement is deliberate
-  // (torn-read fix, see NAMED_RIVAL_LANE_SQL above) and "latest two snapshot
-  // dates" needs a LIMIT, so the subquery cannot be flattened away.
-  {
-    file: "src/lib/competitors/named-rival.ts",
-    table: "businesses",
-    sqlSnippet: NAMED_RIVAL_LANE_SQL,
-    category: 'tenant-root-lookup',
-    reason: "Competitor Delta lane; businesses is read inside the ctx CTE scoped by b.id = ${businessId}. Scanner strips SELECT subqueries before predicate analysis. Today the only caller is the WeeklySummaryWorker composition root, which takes businessId from its durable outbox job payload (tenant context fixed upstream by the weekly-summary scheduler); the owner-scoped settings route that will also call it lands in #546 Task 4 and resolves the location under the session's account_id before passing the id.",
-  },
-  {
-    file: "src/lib/competitors/named-rival.ts",
-    table: "ranking_snapshots",
-    sqlSnippet: NAMED_RIVAL_LANE_SQL,
-    category: 'tenant-root-lookup',
-    reason: "Competitor Delta lane; ranking_snapshots is read inside the dates CTE scoped by rs.business_id = ${businessId} and correlated to the same location's ctx.keyword / ctx.search_location. Scanner strips SELECT subqueries before predicate analysis. Today the only caller is the WeeklySummaryWorker composition root, which takes businessId from its durable outbox job payload (tenant context fixed upstream by the weekly-summary scheduler); the owner-scoped settings route that will also call it lands in #546 Task 4 and resolves the location under the session's account_id before passing the id.",
-  },
+  // #859's query-block parser now proves `businesses` in the ctx CTE and
+  // `ranking_snapshots` in the dates CTE of NAMED_RIVAL_LANE_SQL. The outer
+  // competitor_snapshots occurrence was already directly scoped, so that
+  // statement now needs no allowlist entry at all.
   {
     // force_drain connection lookup — businesses is joined only for account_id;
     // it is not value-bound (b.id = zc.business_id is a join), so the scanner
@@ -2408,13 +2324,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Zernio disconnect follows a route business id, then joins only that business account to the active offboarding gate.",
   },
   {
-    file: "src/lib/account-offboarding/confirm.ts",
-    table: "account_audit_log",
-    sqlSnippet: "SELECT ao.id, ao.mode, ao.status, EXISTS ( SELECT 1 FROM account_audit_log aal WHERE aal.account_id = ${accountId}::uuid AND aal.account_id = ao.account_id AND aal.entity_type = 'account_offboarding' AND aal.entity_id = ao.id::text AND aal.event_type = 'account_offboarding_requested' AND aal.payload->>'idempotency_key_hash' = ${idempotencyKeyHash} ) AS idempotency_key_matches FROM account_offboardings ao WHERE ao.account_id = ${accountId}::uuid AND ao.terminal_at IS NULL ORDER BY ao.created_at DESC LIMIT 1",
-    category: 'tenant-root-lookup',
-    reason: "Owner offboarding idempotency lookup is account-scoped; the scanner cannot prove the nested audit EXISTS relationship.",
-  },
-  {
     file: "src/lib/account-offboarding/keep-my-data.ts",
     table: "account_offboardings",
     sqlSnippet: "SELECT t.id AS token_id, t.token_hash, t.token_type, t.expires_at, t.consumed_at, t.revoked_at, ao.id, ao.account_id, ao.mode, ao.status, ao.teardown_completed_at, ao.purge_started_at, ao.purge_cancelled_at, ao.terminal_at FROM account_offboarding_tokens t JOIN account_offboardings ao ON ao.id = t.account_offboarding_id WHERE t.token_hash = ${tokenHash} AND t.token_type = 'keep_my_data' LIMIT 1 FOR UPDATE OF t, ao",
@@ -2427,13 +2336,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT t.id AS token_id, t.token_hash, t.token_type, t.expires_at, t.consumed_at, t.revoked_at, ao.id, ao.account_id, ao.mode, ao.status, ao.teardown_completed_at, ao.purge_started_at, ao.purge_cancelled_at, ao.terminal_at FROM account_offboarding_tokens t JOIN account_offboardings ao ON ao.id = t.account_offboarding_id WHERE t.token_hash = ${tokenHash} AND t.token_type = 'keep_my_data' LIMIT 1 FOR UPDATE OF t, ao",
     category: 'pre-auth-token',
     reason: "Opaque keep-my-data token lookup must resolve the token row before tenant scope is known; only hashed tokens are stored.",
-  },
-  {
-    file: "src/lib/account-offboarding/keep-my-data.ts",
-    table: "account_audit_log",
-    sqlSnippet: "SELECT ao.id, ao.mode, ao.status, ao.terminal_at FROM account_offboardings ao WHERE ao.account_id = ${accountId}::uuid AND ao.mode = 'delete_data' AND ao.purge_cancelled_at IS NOT NULL AND EXISTS ( SELECT 1 FROM account_audit_log aal WHERE aal.account_id = ${accountId}::uuid AND aal.account_id = ao.account_id AND aal.entity_type = 'account_offboarding' AND aal.entity_id = ao.id::text AND aal.event_type = 'account_offboarding_keep_my_data' AND aal.payload->>'idempotency_key_hash' = ${idempotencyKeyHash} ) ORDER BY ao.purge_cancelled_at DESC NULLS LAST, ao.created_at DESC LIMIT 1",
-    category: 'tenant-root-lookup',
-    reason: "Owner keep-my-data idempotency lookup is account-scoped; the scanner cannot prove the nested audit EXISTS relationship.",
   },
   {
     file: "src/lib/shared/writable-subscription.ts",
@@ -2485,32 +2387,11 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     reason: "Background scheduler scans failed-teardown rows globally before claiming one row and re-enqueueing scoped teardown work transactionally (bounded re-drive).",
   },
   {
-    file: "worker/jobs/account-offboarding/purge-helpers.ts",
-    table: "businesses",
-    sqlSnippet: "DELETE FROM ${tx(tableName)} WHERE business_id IN ( SELECT id FROM businesses WHERE account_id = ${accountId}::uuid )",
-    category: 'tenant-root-lookup',
-    reason: "Purge deletes account-owned rows by business; businesses is scoped by account_id inside the IN-subquery, which the scanner strips before predicate analysis.",
-  },
-  {
     file: "worker/jobs/account-offboarding/purge-stages.ts",
     table: "notification_deliveries",
     sqlSnippet: "DELETE FROM notification_deliveries nd WHERE nd.account_id = ${row.account_id}::uuid OR nd.business_id IN ( SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid )",
     category: 'tenant-root-lookup',
-    reason: "Purge deletes the account's notification deliveries; both branches are account-scoped (direct account_id, or business_id IN the account's businesses), but the scanner rejects OR predicates and strips the subquery.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "businesses",
-    sqlSnippet: "DELETE FROM notification_deliveries nd WHERE nd.account_id = ${row.account_id}::uuid OR nd.business_id IN ( SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid )",
-    category: 'tenant-root-lookup',
-    reason: "Purge deletes the account's notification deliveries; the businesses reference is the account-scoped business_id IN-subquery, which the scanner strips before predicate analysis.",
-  },
-  {
-    file: "worker/jobs/account-offboarding/purge-stages.ts",
-    table: "businesses",
-    sqlSnippet: "UPDATE analytics_events SET event_key = 'scrubbed:' || id::text, distinct_id = 'scrubbed:' || id::text, anonymous_id = NULL, account_id = NULL, user_id = NULL, business_id = NULL, properties = '{}'::jsonb, last_error = NULL WHERE account_id = ${row.account_id}::uuid OR business_id IN (SELECT id FROM businesses WHERE account_id = ${row.account_id}::uuid) OR user_id IN (SELECT id FROM users WHERE account_id = ${row.account_id}::uuid) OR distinct_id IN (${row.account_id}, ${`account:${row.account_id}`})",
-    category: 'tenant-root-lookup',
-    reason: "Purge scrubs the account's analytics events by FK or raw account distinct_id; every branch is account-scoped but the scanner rejects OR predicates and strips the business/user subqueries.",
+    reason: "Purge deletes the account's notification deliveries; both OR branches are account-scoped (direct account_id, or business_id IN the account's businesses), but the audit deliberately rejects tenant proof beneath OR even when each branch is safe.",
   },
   {
     file: "worker/background/pollers/CancellationGracePoller.ts",
@@ -2791,8 +2672,8 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   // adds them to TENANT_TABLES so ci:rls-audit guards them. None carry an
   // account/business column, so every read/mutation below is exempt for a
   // STRUCTURAL reason (provider event id, opaque demo slug, global retention,
-  // admin role, or an offboarding job whose account scope is applied via an
-  // account_id-derived subquery the audit cannot see through). Server reaches
+  // admin role, or an offboarding job whose account scope crosses the non-tenant
+  // prospect_demos.created_by -> users.id ownership bridge). Server reaches
   // all of them via the RLS-bypassing Postgres.js `postgres` role.
   // google_connections has no direct SQL touchpoint (all access flows through
   // identifier-interpolating purge helpers), so it needs no entry here.
@@ -2899,7 +2780,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     table: "prospect_demos",
     sqlSnippet: "DELETE FROM prospect_demos WHERE created_by IN ( SELECT id FROM users WHERE account_id = ${row.account_id}::uuid )",
     category: 'worker-job-scoped',
-    reason: "Owner-offboarding purge worker following a durable job: the DELETE IS account-scoped via the users.account_id subquery, but the audit strips subqueries; prospect_demos has no direct account column (deny-all RLS, migration 066).",
+    reason: "Owner-offboarding purge worker following a durable job: users.account_id scopes the owning users, but prospect_demos has no direct tenant column and is reached through the non-tenant created_by -> users.id bridge the audit intentionally does not infer (deny-all RLS, migration 066).",
   },
   {
     file: "worker/jobs/account-offboarding/purge-stages.ts",

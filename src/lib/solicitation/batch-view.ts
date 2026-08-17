@@ -344,16 +344,18 @@ function toGroups(rows: AskAggregateRow[]): WithholdGroup[] {
 }
 
 /**
- * Q5's lifecycle row: the raw `Date` columns `deriveBatchState` compares, plus
- * the `::text` forms the view ships. Extending `BatchLifecycleRow` rather than
- * re-listing six columns keeps this row and the function that consumes it from
- * drifting apart.
+ * Q5's lifecycle row: the raw `Date` columns `deriveBatchState` compares, the
+ * `::text` forms the view ships, and two independent scalar aggregates.
+ * Extending `BatchLifecycleRow` rather than re-listing six columns keeps this
+ * row and the function that consumes it from drifting apart.
  */
 interface SendLaneLifecycleRow extends BatchLifecycleRow {
   approvedAtText: string | null;
   vetoDeadlineAtText: string | null;
   haltedAtText: string | null;
   haltReason: HaltReason | null;
+  pendingRenders: number;
+  moderationWithheld: number;
 }
 
 /**
@@ -364,11 +366,11 @@ interface SendLaneLifecycleRow extends BatchLifecycleRow {
  * work inline behind an `options.sendLane` branch. The caller owns the FLAG
  * decision (whether to call at all); this function owns the READ.
  *
- * FOUR statements, all issued on the caller's transaction, which is REPEATABLE
- * READ: every one of them therefore reads the SAME snapshot as the funnel
- * numbers above. That is what makes the split free — a `ready: true` rendered
- * beside attempts that disagree with it is exactly the tear the transaction
- * exists to prevent, and statements inside one snapshot cannot reintroduce it.
+ * TWO statements, both issued on the caller's transaction, which is REPEATABLE
+ * READ: each therefore reads the SAME snapshot as the funnel numbers above.
+ * A `ready: true` rendered beside attempts that disagree with it is exactly the
+ * tear the transaction exists to prevent, and statements inside one snapshot
+ * cannot reintroduce it.
  */
 async function readSendLane(
   tx: TransactionSql,
@@ -418,28 +420,49 @@ async function readSendLane(
      ORDER BY o.rendered_at, o.id
   `;
 
-  // Q5 — the lifecycle row, and NOTHING else. Every timestamp is selected
-  // TWICE on purpose: `deriveBatchState` compares JS `Date`s, so it needs the
-  // raw columns; the VIEW ships the `::text` form because postgres.js
-  // truncates microseconds when it decodes timestamptz — only the text ever
-  // reaches the wire.
+  // Q5 — the lifecycle row plus two independent scalar aggregates. Every
+  // timestamp is selected TWICE on purpose: `deriveBatchState` compares JS
+  // `Date`s, so it needs the raw columns; the VIEW ships the `::text` form
+  // because postgres.js truncates microseconds when it decodes timestamptz —
+  // only the text ever reaches the wire.
   //
-  // The two readiness counts used to ride this statement as LEFT JOINs onto
-  // `b`, and one of them (`solicitation_outreach` filtered to moderation_high)
-  // correlated to the BATCH rather than to the ask join beside it. Every
-  // moderation-withheld row therefore multiplied every (ask, outreach) pair
-  // before COUNT(DISTINCT …) collapsed it again: the answers were right, but a
-  // full batch could build a multi-million-row intermediate on the one screen
-  // that has to stay available, and the blow-up scaled with exactly the
-  // moderation-heavy batches an owner most needs to read. Each count is now
-  // aggregated on its own base relation below.
+  // Never turn these aggregates into child-table JOINs on `b`. The former join
+  // shape multiplied every pending-render candidate by every moderation-held
+  // row before COUNT(DISTINCT ...) hid the wrong intermediate. Scalar
+  // subqueries keep the two child relations independent, while the query-block
+  // aware tenant audit (#859) can now prove their tenant correlations directly.
   const [lane] = await tx<SendLaneLifecycleRow[]>`
     SELECT b.built_at, b.approved_at, b.veto_deadline_at,
            b.sending_started_at, b.send_closed_at, b.halted_at,
            b.approved_at::text       AS "approvedAtText",
            b.veto_deadline_at::text  AS "vetoDeadlineAtText",
            b.halted_at::text         AS "haltedAtText",
-           b.halt_reason             AS "haltReason"
+           b.halt_reason             AS "haltReason",
+           (
+             SELECT COUNT(*)::int
+               FROM solicitation_asks a
+              WHERE a.batch_id = b.id
+                AND a.account_id = b.account_id
+                AND a.business_id = b.business_id
+                AND a.status = 'send'
+                AND NOT EXISTS (
+                  SELECT 1
+                    FROM solicitation_outreach o
+                   WHERE o.ask_id = a.id
+                     AND o.batch_id = a.batch_id
+                     AND o.account_id = ${accountId}::uuid
+                     AND o.business_id = ${businessId}::uuid
+                     AND o.delivery_status <> 'cancelled'
+                )
+           ) AS "pendingRenders",
+           (
+             SELECT COUNT(*)::int
+               FROM solicitation_outreach mo
+              WHERE mo.batch_id = b.id
+                AND mo.account_id = b.account_id
+                AND mo.business_id = b.business_id
+                AND mo.disposition_reason = ${MODERATION_HIGH}
+           ) AS "moderationWithheld"
       FROM solicitation_batches b
      WHERE b.id = ${batchId}::uuid
        AND b.account_id = ${accountId}::uuid
@@ -453,48 +476,6 @@ async function readSendLane(
     throw new Error(`solicitation batch ${batchId} is unreadable in its own snapshot`);
   }
 
-  // Q6 — send Asks with no live Outreach row. Separate statements rather than
-  // scalar subqueries or CTE bodies, and the split is not stylistic:
-  // `ci:tenant-scope` blanks parenthesised SELECTs before it reads predicates,
-  // so a tenant table reachable ONLY from inside one is seen as referenced but
-  // never as scoped. Both keys must therefore sit in a top-level WHERE or a
-  // JOIN … ON, which is also why the anti-join is a LEFT JOIN … IS NULL rather
-  // than the obvious NOT EXISTS — approval.ts:176 spells its readiness check
-  // the same way for the same reason. Do not re-nest these.
-  const [pending] = await tx<{ n: number }[]>`
-    SELECT COUNT(*)::int AS n
-      FROM solicitation_asks a
-      LEFT JOIN solicitation_outreach o
-        ON o.ask_id = a.id
-       AND o.batch_id = a.batch_id
-       AND o.account_id = ${accountId}::uuid
-       AND o.business_id = ${businessId}::uuid
-       AND o.delivery_status <> 'cancelled'
-     WHERE a.account_id = ${accountId}::uuid
-       AND a.business_id = ${businessId}::uuid
-       AND a.batch_id = ${batchId}::uuid
-       AND a.status = 'send'
-       AND o.id IS NULL
-  `;
-
-  // Q7 — the held rows themselves, counted on their own table. Deliberately
-  // NOT filtered by delivery_status: 108's status↔reason CHECK already pins
-  // `moderation_high` to `withheld`, so a filter would restate the constraint
-  // and quietly change the answer if that ever widened.
-  const [moderation] = await tx<{ n: number }[]>`
-    SELECT COUNT(*)::int AS n
-      FROM solicitation_outreach mo
-     WHERE mo.account_id = ${accountId}::uuid
-       AND mo.business_id = ${businessId}::uuid
-       AND mo.batch_id = ${batchId}::uuid
-       AND mo.disposition_reason = ${MODERATION_HIGH}
-  `;
-
-  // An unfiltered aggregate always yields exactly one row, so `?? 0` is the
-  // same defensive spelling readLatestBatch uses for contactsOnFile — not a
-  // silent default for a missing batch, which Q5 above already refused.
-  const pendingRenders = pending?.n ?? 0;
-
   return {
     attempts: toAttempts(attemptRows),
     sendLane: {
@@ -502,13 +483,13 @@ async function readSendLane(
       // Advisory only: approveBatch re-asserts this precondition under its own
       // lock, because a render can land between this read and the owner's
       // click.
-      ready: pendingRenders === 0,
-      pendingRenders,
+      ready: lane.pendingRenders === 0,
+      pendingRenders: lane.pendingRenders,
       approvedAt: lane.approvedAtText,
       vetoDeadlineAt: lane.vetoDeadlineAtText,
       haltedAt: lane.haltedAtText,
       haltReason: lane.haltReason,
-      moderationWithheld: moderation?.n ?? 0,
+      moderationWithheld: lane.moderationWithheld,
     },
   };
 }
@@ -534,8 +515,9 @@ async function readBuiltBatch(
   // `ranked` carries ids and rank only: the payload columns (evidence JSONB,
   // contact name) are joined back for the <= 6 x EVIDENCE_ROWS_PER_REASON rows
   // that survive, instead of being dragged through the window sort. Repeating
-  // the tenant keys on that join is also what keeps the scope check visible to
-  // ci:tenant-scope, which cannot see inside a CTE body.
+  // the tenant keys on the later joins independently scopes each new physical
+  // binding; the audit deliberately will not transfer the `ranked` CTE's proof
+  // through a row-id correlation such as a.id = r.id.
   //
   // The LEFT JOIN chain is load-bearing: `totals` always yields exactly one
   // row, so a batch with zero asks (or zero withholds) still returns its
