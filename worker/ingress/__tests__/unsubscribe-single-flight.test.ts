@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The single-flight seam is what keeps one genuinely-delivered token from
-// occupying the SHARED write pool with unbounded concurrent replays on a route
-// §9.2 forbids rate-limiting. These tests drive the injectable factory with a
-// controllable promise — no timers, no HTTP, no ordering luck — exactly the shape
-// unknown-token-window.test.ts established for the other bounded seam in this file.
+// occupying both slots of the dedicated redemption pool with concurrent replays
+// on a route §9.2 forbids rate-limiting. These tests drive the injectable factory
+// with a controllable promise — no timers, no HTTP, no ordering luck — exactly the
+// shape unknown-token-window.test.ts established for the other bounded seam.
 //
-// `sql` is imported for side effect by the module under test; stub it so no
-// Postgres client is constructed for a suite that never touches one.
+// `sqlUnsubscribe` is imported for side effect by the module under test; stub it
+// so no Postgres client is constructed for a suite that never touches one.
 vi.mock('../../../src/lib/db/server', () => ({
-  sql: { begin: vi.fn() },
+  sqlUnsubscribe: { begin: vi.fn() },
   jsonb: (value: unknown) => value,
 }));
 

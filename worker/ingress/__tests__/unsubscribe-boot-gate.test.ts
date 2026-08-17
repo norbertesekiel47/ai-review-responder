@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/lib/db/server', () => ({
   sql: { begin: vi.fn() },
+  sqlUnsubscribe: { begin: vi.fn() },
   jsonb: (value: unknown) => value,
 }));
 vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));

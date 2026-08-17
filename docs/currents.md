@@ -315,7 +315,8 @@ Three things now stand between us and that:
    `sql` and `sqlRead` are wrapped so in-flight work never exceeds the pool; excess
    callers **queue** (30s deadline) instead of being pipelined. A transaction takes
    **one** slot for its whole duration. Applied at the client, not at call sites —
-   `src/app/**` alone has 153 files importing `sql`.
+   `src/app/**` alone has 153 files importing `sql`. (#651 later added a third
+   gated singleton, `sqlUnsubscribe`, fixed at cap 2 — see ADR 0009's addendum.)
 3. **A permanent alert** (`checkWedgedClientRead`) — fires on ClientRead **age > 10s**,
    never on presence, because sub-100ms ClientRead is ordinary protocol traffic.
 
@@ -334,7 +335,7 @@ The new shape:
 
 ```
 src/lib/db/admission.ts              ← NEW: the chokepoint (semaphore + Query seam + ALS)
-src/lib/db/server.ts                 ← sql and sqlRead now wrapped at cap == pool
+src/lib/db/server.ts                 ← sql and sqlRead now wrapped at cap == pool (+ sqlUnsubscribe, #651)
 src/lib/shared/pool-wait.ts          ← probe now measures admission wait too
 worker/background/pollers/health-alert/checks.ts ← checkWedgedClientRead, first in the run
 ```

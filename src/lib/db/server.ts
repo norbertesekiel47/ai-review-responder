@@ -81,12 +81,13 @@ export const sql = withAdmissionControl(
 // (KPI ≤6) must run one-connection-per-query (#505). Config can never set below
 // this floor, so a mis-set low env cannot reintroduce the wedge (codex #6).
 export const WEDGE_SAFE_READ_MIN = 8;
-// Capacity-budgeted MAXIMUM. ADR 0009's ≤16-warm-Vercel-isolate Supavisor budget
-// is derived from read max = 8 per isolate (write 3 + read 8 = 11 client conns
-// each) against the shared 57-conn backend. A larger read pool multiplies client
-// connections across isolates and can starve the write path (both clients share
-// the SAME backend pool), so DB_READ_POOL_MAX is capped here — an oversized env
-// cannot silently invalidate the documented budget (codex adversarial #1).
+// Capacity-budgeted MAXIMUM. ADR 0009's current Supavisor budget permits at
+// most 15 aggregate warm Vercel isolates in worker steady state and 13 during a
+// two-worker rolling overlap. Both derive from read max = 8 per isolate (write
+// 3 + read 8 = 11 client connections each). A larger read pool multiplies
+// client connections across isolates and can starve the write path (all clients
+// share the SAME backend pool), so DB_READ_POOL_MAX is capped here — an
+// oversized env cannot silently invalidate the documented budget.
 // Raising this is a deliberate capacity change: bump the constant AND re-run the
 // ADR 0009 staging burst-drill to re-derive the isolate budget.
 export const READ_POOL_MAX_CEILING = 8;
@@ -117,10 +118,11 @@ function readReadPoolMax(): number {
  * but never queries sqlRead, so zero connections there.
  *
  * Also behind the #773 admission chokepoint, at its OWN cap — a separate pool
- * needs a separate gate, and a transaction on `sql` does not exempt it. The
- * dedicated poller clients from `createDedicatedPostgresClient` are
- * deliberately NOT gated: each is a small single-flight bulkhead whose caller
- * already controls its own fan-out.
+ * needs a separate gate, and a transaction on `sql` does not exempt it. Every
+ * MODULE-OWNED singleton here (`sql`, `sqlRead`, `sqlUnsubscribe`) is gated.
+ * The CALLER-OWNED poller clients built via `createDedicatedPostgresClient`
+ * (e.g. the HealthAlertPoller's) are deliberately NOT gated: each is a small
+ * single-flight bulkhead whose caller already controls its own fan-out.
  */
 const READ_POOL_MAX = readReadPoolMax();
 export const sqlRead = withAdmissionControl(
@@ -129,6 +131,32 @@ export const sqlRead = withAdmissionControl(
     connection: { application_name: 'repworth_reads', statement_timeout: 8000 },
   }),
   { cap: READ_POOL_MAX, clientName: 'sqlRead' },
+);
+
+/**
+ * Dedicated LOCAL pool for recipient-facing Unsubscribe redemption (#651).
+ *
+ * The fixed ceiling is deliberately not environment-tunable: raising it changes
+ * ADR 0009's shared Supavisor/backend capacity budget and requires a new staging
+ * compound-pressure drill. Like `sqlRead`, this is local-slot isolation only —
+ * it still uses the same DATABASE_POOL_URL and backend pool as `sql`.
+ *
+ * The #773 admission chokepoint is mandatory here. Excess distinct-token
+ * redemptions queue at this client instead of Postgres.js pipelining them onto a
+ * busy connection; the existing 30-second queue deadline remains the route's
+ * accepted sanitized retryable-503 infrastructure failure path.
+ *
+ * Lazy: postgres.js connects only on first use. Vercel imports this module but
+ * no Vercel composition root queries this client, so it opens connections only
+ * on the Railway one-click redemption path.
+ */
+export const UNSUBSCRIBE_POOL_MAX = 2;
+export const sqlUnsubscribe = withAdmissionControl(
+  createDedicatedPostgresClient(process.env.DATABASE_POOL_URL!, {
+    max: UNSUBSCRIBE_POOL_MAX,
+    connection: { application_name: 'repworth_unsubscribe' },
+  }),
+  { cap: UNSUBSCRIBE_POOL_MAX, clientName: 'sqlUnsubscribe' },
 );
 
 /** Tight overrides a dedicated client may pass; both are optional. */
@@ -149,11 +177,11 @@ type DedicatedClientOverrides = {
  * timeouts, 30s statement_timeout), but pointed at `url` (not DATABASE_POOL_URL)
  * with tight per-caller overrides.
  *
- * Purpose: give a poller its OWN small, isolated pool so a wedged connection on
- * it cannot starve the shared singleton (bulkhead). Callers own the returned
- * client's lifecycle and MUST `.end()` it in the worker shutdown path
- * (invariant #15). Created only here (the DB-client owner) and passed down to
- * composition-root pollers.
+ * Purpose: give a narrow workload its OWN small local pool so a wedged or busy
+ * connection cannot consume the shared singleton's slots. Module-owned
+ * singletons are closed by `closeAllPostgresClients`; composition-root callers
+ * that create a client own its lifecycle and MUST pass a closer into worker
+ * shutdown (invariant #15).
  *
  * Postgres.js does not connect until the first query, so constructing a client
  * is side-effect-free (safe offline / in tests).
@@ -173,9 +201,9 @@ export function createDedicatedPostgresClient(
 }
 
 /**
- * Close every Postgres client for worker shutdown: the caller's dedicated
- * clients FIRST (best-effort, in parallel, alongside `sqlRead`), then the
- * shared `sql` singleton.
+ * Close every Postgres client for worker shutdown: caller-owned and module-owned
+ * dedicated clients FIRST (best-effort, in parallel), then the shared `sql`
+ * singleton.
  *
  * This is the shutdown close-order contract, owned here because `server.ts`
  * owns `sql`. `dedicatedClosers` are the dedicated pollers' `.end()` wrappers
@@ -187,12 +215,16 @@ export function createDedicatedPostgresClient(
 export async function closeAllPostgresClients(
   dedicatedClosers: Array<() => Promise<void>>,
 ): Promise<void> {
-  // sqlRead JOINS the best-effort closers (its .end() rejection can't skip
-  // sql.end()); sql.end() stays AWAITED DIRECTLY so its rejection still
-  // propagates — preserving the existing shutdown contract (codex #13).
-  // It bounds its own close ({ timeout: 5 }, matching closeHealthSql) so a
-  // TCP-wedged read pool can't stall the subsequent awaited sql.end().
-  await Promise.allSettled([...dedicatedClosers.map((close) => close()), sqlRead.end({ timeout: 5 })]);
+  // Module-owned dedicated singletons JOIN the best-effort closers (one
+  // rejecting .end() cannot skip sql.end()); sql.end() stays AWAITED DIRECTLY
+  // so its rejection still propagates — preserving the shutdown contract.
+  // Each close is bounded so a TCP-wedged dedicated pool cannot stall the
+  // subsequent shared-pool close.
+  await Promise.allSettled([
+    ...dedicatedClosers.map((close) => close()),
+    sqlRead.end({ timeout: 5 }),
+    sqlUnsubscribe.end({ timeout: 5 }),
+  ]);
   await sql.end();
 }
 

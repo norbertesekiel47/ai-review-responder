@@ -1,5 +1,15 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeAllPostgresClients, createDedicatedPostgresClient, sql, sqlRead, SHARED_POOL_MAX } from '../server';
+import {
+  closeAllPostgresClients,
+  createDedicatedPostgresClient,
+  sql,
+  sqlRead,
+  sqlUnsubscribe,
+  SHARED_POOL_MAX,
+  UNSUBSCRIBE_POOL_MAX,
+} from '../server';
 import { admissionStats } from '../admission';
 
 // Constructing a postgres.js client does NOT open a connection (it connects
@@ -110,14 +120,29 @@ describe('closeAllPostgresClients', () => {
     expect(endSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('a rejecting sql.end() still propagates out of closeAllPostgresClients (shutdown contract preserved)', async () => {
+  it('a rejecting unsubscribe-client close cannot skip shared sql shutdown', async () => {
+    const endSpy = vi.spyOn(sql, 'end').mockResolvedValue(undefined);
+    vi.spyOn(sqlRead, 'end').mockResolvedValue(undefined);
+    const sqlUnsubscribeEndSpy = vi
+      .spyOn(sqlUnsubscribe, 'end')
+      .mockRejectedValue(new Error('unsubscribe pool wedged'));
+
+    await expect(closeAllPostgresClients([])).resolves.toBeUndefined();
+
+    expect(sqlUnsubscribeEndSpy).toHaveBeenCalledWith({ timeout: 5 });
+    expect(endSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the redemption client during closeAllPostgresClients without weakening shared-client shutdown failure propagation', async () => {
     const endSpy = vi.spyOn(sql, 'end').mockRejectedValue(new Error('shared pool wedged'));
     const sqlReadEndSpy = vi.spyOn(sqlRead, 'end').mockResolvedValue(undefined);
+    const sqlUnsubscribeEndSpy = vi.spyOn(sqlUnsubscribe, 'end').mockResolvedValue(undefined);
 
     await expect(closeAllPostgresClients([])).rejects.toThrow('shared pool wedged');
 
-    // sqlRead's best-effort close still ran even though sql.end() ultimately rejects.
+    // Both dedicated best-effort closes still ran even though sql.end() ultimately rejects.
     expect(sqlReadEndSpy).toHaveBeenCalledTimes(1);
+    expect(sqlUnsubscribeEndSpy).toHaveBeenCalledWith({ timeout: 5 });
     expect(endSpy).toHaveBeenCalledTimes(1);
   });
 });
@@ -171,5 +196,35 @@ describe('sqlRead read bulkhead', () => {
       vi.unstubAllEnvs();
       vi.resetModules();
     }
+  });
+});
+
+describe('sqlUnsubscribe redemption bulkhead', () => {
+  it('exports a fixed two-connection unsubscribe pool distinct from sql and sqlRead', () => {
+    expect(sqlUnsubscribe).not.toBe(sql);
+    expect(sqlUnsubscribe).not.toBe(sqlRead);
+    expect(UNSUBSCRIBE_POOL_MAX).toBe(2);
+    expect((sqlUnsubscribe as unknown as { options: { max: number } }).options.max).toBe(
+      UNSUBSCRIBE_POOL_MAX,
+    );
+  });
+
+  it('gates the unsubscribe client at its fixed pool size', () => {
+    expect(admissionStats(sqlUnsubscribe)).toMatchObject({ cap: UNSUBSCRIBE_POOL_MAX });
+  });
+
+  it('pins the revised 15-isolate steady-state and 13-isolate rollout ADR-0009 Max-Clients bounds, the roughly 54-of-57 compound backend case, and the fixed redemption-pool maximum', () => {
+    const adr = readFileSync(
+      path.join(process.cwd(), 'docs/adr/0009-split-postgres-pools.md'),
+      'utf8',
+    );
+
+    expect(UNSUBSCRIBE_POOL_MAX).toBe(2);
+    expect(adr).toContain('**15 warm isolates**');
+    expect(adr).toContain('`24 + 15×11 = 189`');
+    expect(adr).toContain('**13 aggregate warm Vercel isolates**');
+    expect(adr).toContain('`48 + 13×11 = 191`');
+    expect(adr).toContain('**54/57 (~95%)**');
+    expect(adr).toContain('fixed local maximum is **2**');
   });
 });

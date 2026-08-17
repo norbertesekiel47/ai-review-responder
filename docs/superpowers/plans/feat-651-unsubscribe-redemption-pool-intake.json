@@ -11,7 +11,7 @@
   "db_touching": true,
   "goal": "Isolate one-click unsubscribe redemption behind a dedicated, tightly bounded Postgres client so valid-token replays cannot consume the shared worker pool used by webhooks and jobs.",
   "non_goals": [
-    "No rate limit, semaphore rejection, admission-control rejection, or other shed path for well-formed unsubscribe requests.",
+    "No rate limit, immediate pool-full response, bounded request-count bulkhead, or other intentional shed path for well-formed unsubscribe requests; the mandatory #773 database admission deadline remains an accepted infrastructure-failure path.",
     "No change to token validation, redemption transaction semantics, response-status mapping, or per-token single-flight behavior.",
     "No replay cache; its value and invalidation contract require a separate decision.",
     "No schema migration, remote migration, deployment, environment-variable change, or production operation in this feature run.",
@@ -23,8 +23,8 @@
     "Malformed or unknown token behavior remains unchanged: malformed tokens open no database connection, and an unknown ledger token returns retryable 503."
   ],
   "invariants": [
-    "A statutory unsubscribe request is never intentionally shed, throttled, or rejected because the redemption pool is busy.",
-    "The dedicated redemption pool has a fixed, reviewed bound and is independently admission-controlled at cap equal to its pool size, preventing Postgres.js pipelining wedges.",
+    "A statutory unsubscribe request is never rate-limited or immediately rejected because the redemption pool is busy; excess work waits behind the mandatory #773 admission gate, whose existing 30-second deadline fails through the route's sanitized retryable 503 infrastructure path.",
+    "The dedicated redemption pool has a fixed maximum of two and is independently admission-controlled at cap two, preventing Postgres.js pipelining wedges.",
     "The client uses the same DATABASE_POOL_URL and therefore is local-slot isolation, not backend isolation; its capacity must remain within ADR-0009's 57 usable backend-session and 200 Supavisor-client constraints.",
     "Invariant #15 remains intact: src/lib/db/server.ts owns client construction; worker ingress only consumes the exported composition-root client.",
     "Each worker-owned dedicated Postgres client is closed during orderly shutdown.",
@@ -33,9 +33,9 @@
   "edge_cases": [
     "The redemption client is lazy, so importing src/lib/db/server.ts from Vercel code must not open a third connection unless the worker redemption path actually queries it.",
     "A transaction failure on the dedicated client remains fail-closed as a 503 and reports through the existing sanitized error path.",
-    "Concurrent requests above the dedicated pool's local capacity wait rather than receiving a synthetic 503; the worker remains single-replica by invariant.",
+    "Concurrent requests above the dedicated pool's local capacity wait rather than receiving an immediate busy response; a wait exceeding the existing 30-second admission deadline follows the same sanitized retryable 503 path as other database infrastructure failures.",
     "The existing same-token single-flight must call the dedicated client exactly once while preserving its capped bypass behavior for many distinct in-flight tokens.",
-    "The re-derived connection budget must account for Vercel's write pool (3), read pool (8), the new lazy redemption client, worker write pool (20), health client (2), and warm-isolate multiplication."
+    "The re-derived connection budget must account for Vercel's write pool (3), read pool (8), the new lazy redemption client, worker write pool (20), health client (2), warm-isolate multiplication, and the two-worker overlap of a zero-downtime Railway deployment."
   ],
   "existing_patterns_to_follow": [
     "src/lib/db/server.ts — sqlRead bulkhead, admission wrapping, createDedicatedPostgresClient, and closeAllPostgresClients lifecycle owner.",
@@ -48,43 +48,47 @@
   "test_seams": [
     "worker/ingress/__tests__/unsubscribe.test.ts through Fastify injection and mocked exported redemption client transaction boundary.",
     "src/lib/db/__tests__/server.test.ts through exported client options, admission statistics, and shutdown lifecycle.",
-    "A bounded local burst-drill/test seam that holds redemption transactions while proving a shared sql write can acquire and commit."
+    "The combined deterministic proof: ingress tests establish that distinct tokens do not collapse through single-flight, while db-server and admission tests pin a separate fixed-two client whose excess work queues instead of reaching the raw pool."
   ],
   "allowed_edit_surface": [
     "src/lib/db/server.ts",
     "src/lib/db/__tests__/server.test.ts",
     "worker/ingress/unsubscribe.ts",
-    "worker/ingress/__tests__/unsubscribe.test.ts",
-    "worker/index.ts",
-    "scripts/burst-drill-load.ts",
-    "scripts/__tests__/burst-drill-load.test.ts",
+    "worker/ingress/__tests__/unsubscribe*.test.ts",
     "docs/adr/0009-split-postgres-pools.md",
-    "docs/runbooks/evidence/2026-08-16-651-unsubscribe-redemption-pool.md",
     "docs/directory.md",
+    ".claude/reference/env-vars.md",
     "docs/superpowers/plans/feat-651-unsubscribe-redemption-pool.md",
-    "docs/reviews/feat-651-unsubscribe-redemption-pool/**"
+    "docs/superpowers/plans/feat-651-unsubscribe-redemption-pool-deviations.md",
+    "docs/reviews/feat-651-unsubscribe-redemption-pool/**",
+    "scripts/ci/tenant-scope-audit.ts",
+    "scripts/ci/__tests__/tenant-scope-audit.test.ts",
+    ".claude/CLAUDE.md",
+    ".claude/reference/lab-notes.md",
+    "docs/currents.md"
   ],
   "tests_to_add": [
+    "extracts sqlUnsubscribe-tagged templates (redemption-pool export, #651) — an un-aliased sqlUnsubscribe import registers as tag sqlUnsubscribe, not sql",
     "routes a well-formed one-click redemption through the dedicated unsubscribe client rather than the shared sql client",
     "keeps malformed-token rejection before every redemption-client transaction attempt",
-    "admits only the reviewed number of concurrent redemption-client operations and queues excess work without a synthetic response",
+    "exports a fixed two-connection unsubscribe pool distinct from sql and sqlRead",
+    "gates the unsubscribe client at its fixed pool size",
+    "routes three distinct well-formed tokens into three unsubscribe-client transaction attempts rather than collapsing them through single-flight",
     "closes the redemption client during closeAllPostgresClients without weakening shared-client shutdown failure propagation",
-    "preserves the shared-pool write path while a bounded distinct-token redemption burst is in flight",
-    "pins the ADR-0009 capacity arithmetic and fixed redemption-pool maximum in the configuration contract"
+    "pins the revised 15-isolate steady-state and 13-isolate rollout ADR-0009 Max-Clients bounds, the roughly 54-of-57 compound backend case, and the fixed redemption-pool maximum"
   ],
   "verification_commands": [
-    "pnpm exec vitest run src/lib/db/__tests__/server.test.ts worker/ingress/__tests__/unsubscribe.test.ts",
-    "pnpm exec vitest run scripts/__tests__/burst-drill-load.test.ts",
+    "pnpm exec vitest run src/lib/db/__tests__/server.test.ts worker/ingress/__tests__/unsubscribe.test.ts worker/ingress/__tests__/unsubscribe-single-flight.test.ts worker/ingress/__tests__/unsubscribe-rate-limit.test.ts worker/ingress/__tests__/unsubscribe-boot-gate.test.ts",
     "pnpm typecheck",
     "pnpm build"
   ],
-  "estimated_prod_lines": 220,
-  "estimated_test_lines": 420,
+  "estimated_prod_lines": 190,
+  "estimated_test_lines": 180,
   "dependencies_added": [],
   "rollback_plan": "Revert the application deployment before changing any environment configuration. The new client is code-only and lazy; reverting removes the dedicated pool and restores the previously verified shared-pool path without schema or data rollback. Do not raise any pool-size environment variable as part of rollback or release.",
   "observability": [
     "The existing sanitized Unsubscribe redemption log remains the durable per-request outcome signal, with only outcome and hash prefix.",
-    "The staging burst-drill evidence records redemption-burst concurrency, unrelated-write availability, worker pool wait, and observed backend-session peak against the 57-session ceiling.",
+    "The staging burst-drill evidence records a positive two-held-plus-one-queued redemption admission proof, unrelated-write availability, worker pool wait, zero-downtime worker overlap, and observed backend-session peak against the 57-session ceiling.",
     "Client construction and pool bounds are mechanically pinned by db-server tests so a future size increase cannot silently invalidate the capacity calculation."
   ],
   "required_approvals": [

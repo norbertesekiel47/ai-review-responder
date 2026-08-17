@@ -19,7 +19,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requiresProductionConfig } from '../../src/lib/config/deployment-lane';
 import { getWorkerConfig } from '../../src/lib/config/worker';
-import { sql } from '../../src/lib/db/server';
+import { sqlUnsubscribe } from '../../src/lib/db/server';
 import { createWorkerLogger, toError } from '../../src/lib/shared/logger';
 import { isMockMode } from '../../src/lib/shared/mock-mode';
 import { reportCaughtError } from '../../src/lib/shared/report-caught-error';
@@ -294,12 +294,10 @@ function sanitizeText(text: string, rawToken: string): string {
 
 // ── per-token single-flight ─────────────────────────────────────────────────
 // The HMAC gate stops forged strings for free, but every replay of ONE genuinely
-// delivered token passes it and opens a transaction on the SHARED write pool
-// (`src/lib/db/server`, DB_POOL_MAX=20 on the worker, against which the hot-four
-// BullMQ workers already sum to 18 concurrent slots). §9.2 forbids throttling a
-// statutory opt-out, so unlike every other public route this one has no limiter —
-// which leaves a single recipient able to occupy the pool with concurrent replays
-// and starve unrelated webhooks and jobs.
+// delivered token passes it and can open a transaction on `sqlUnsubscribe`, the
+// dedicated fixed-two local pool. §9.2 forbids throttling a statutory opt-out,
+// so unlike every other public route this one has no limiter; single-flight keeps
+// one delivered token from repeatedly occupying both redemption slots.
 //
 // So concurrent in-flight redemptions of the same token collapse to ONE round
 // trip; later arrivals await the promise already running and share its outcome.
@@ -309,16 +307,13 @@ function sanitizeText(text: string, rawToken: string): string {
 // every caller alike — so no waiter can receive an answer the adapter would have
 // given differently. Re-check that mapping before widening this.
 //
-// It is NOT admission control. An earlier revision bounded concurrency and
-// answered 503 when full; owner review deleted it, because shedding a well-formed
-// request is an intentional silent loss of a statutory opt-out. Single-flight
-// sheds nothing, so it does not reintroduce that path — and the cap below
-// BYPASSES rather than rejects for the same reason. Do not add a semaphore, a
-// limiter, or a 503-when-busy branch here.
-//
-// A dedicated bounded pool for this route is the complementary fix and is
-// deliberately NOT here: it needs src/lib/db/server.ts, ADR-0009's connection
-// budget re-derived, and a staging burst drill. Tracked as a follow-up.
+// It is NOT the client admission gate. Distinct-token transactions reach
+// `sqlUnsubscribe`, whose mandatory #773 gate admits two and queues excess work
+// rather than pipelining it onto busy connections. The existing 30-second slot
+// deadline is an accepted sanitized retryable-503 infrastructure failure, not an
+// immediate pool-full shed path. Single-flight sheds nothing, and the cap below
+// BYPASSES rather than rejects for the same reason. Do not add a route semaphore,
+// limiter, or immediate 503-when-busy branch here.
 
 /**
  * Memory bound only. Entries live exactly as long as one transaction, so the map
@@ -381,10 +376,13 @@ export function createRedemptionSingleFlight(
 const redemptionSingleFlight = createRedemptionSingleFlight({
   maxEntries: MAX_IN_FLIGHT_REDEMPTIONS,
   // postgres.js resolves `begin` only after COMMIT is acknowledged, so nothing
-  // may answer from inside the callback (§9.1) — the shared promise settles on
-  // the commit, which is exactly what every waiter needs to hear.
+  // may answer from inside the callback (§9.1). The dedicated two-slot client
+  // isolates genuine-token replay traffic from unrelated worker writes, while
+  // the shared single-flight promise settles on the commit for every waiter.
   redeem: async (rawToken) =>
-    sql.begin((tx) => redeemUnsubscribeToken(tx, { rawToken, source: 'unsubscribe_one_click' })),
+    sqlUnsubscribe.begin((tx) =>
+      redeemUnsubscribeToken(tx, { rawToken, source: 'unsubscribe_one_click' }),
+    ),
 });
 
 // ── bounded observability for unknown tokens ────────────────────────────────

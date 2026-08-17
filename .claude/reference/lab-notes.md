@@ -2363,6 +2363,10 @@ the caller's client as a union — `SubscriptionSql` in
   wraps the `sql`/`sqlRead` singletons at cap == pool, which is exactly the
   no-pipelining condition: with N ≤ max in flight `handler()` always finds an
   `open` or `closed` connection and never reaches `go(busy.shift(), query)`.
+  (#651 added a third module-owned singleton, `sqlUnsubscribe`, gated the same
+  way at its fixed cap of 2 — every db/server client export is wrapped; a new
+  one must also join `DB_SERVER_SQL_TAG_SOURCE_NAMES` in
+  `scripts/ci/tenant-scope-audit.ts` or its tagged queries escape that audit.)
 - [2026-08-13] Wrapping a postgres.js client is NOT a matter of proxying the
   returned query — a Proxy over the `Query` breaks `.raw()`/`.values()`/
   `.simple()`/`.forEach()` chaining, and gating at call sites is not an option

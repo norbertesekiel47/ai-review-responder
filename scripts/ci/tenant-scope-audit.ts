@@ -702,11 +702,13 @@ export function extractSqlTemplates(sourceText: string): ExtractedSqlTemplate[] 
 }
 
 // db/server SQL-tag exports that behave like postgres.js tagged-template
-// clients (`sql\`...\`` / `sqlRead\`...\``). Both need to be recognized here
-// so the scanner sees tenant-scoped queries regardless of which pool a route
-// uses (#477 read bulkhead — sqlRead is a distinct export, never `sql as X`,
-// so the source-side name check must accept it too).
-const DB_SERVER_SQL_TAG_SOURCE_NAMES = new Set(['sql', 'sqlRead']);
+// clients (`sql\`...\`` / `sqlRead\`...\`` / `sqlUnsubscribe\`...\``). Every
+// one needs to be recognized here so the scanner sees tenant-scoped queries
+// regardless of which pool a route uses (#477 read bulkhead, #651 redemption
+// pool — each is a distinct export, never `sql as X`, so the source-side name
+// check must accept it too). A new db/server client export MUST be added here
+// in the same PR, or queries tagged with it silently escape this audit.
+const DB_SERVER_SQL_TAG_SOURCE_NAMES = new Set(['sql', 'sqlRead', 'sqlUnsubscribe']);
 
 function extractSqlTagNames(sourceText: string): Set<string> {
   const tagNames = new Set<string>(['sql', 'tx', 'db']);
