@@ -14,3 +14,25 @@ export function getResend(): Resend {
   }
   return _resend;
 }
+
+let _solicitationResend: Resend | null = null;
+
+/**
+ * Domain-scoped Resend client for the solicitation lane (spec §1.6). Same lazy
+ * shape as getResend() with one deliberate difference: it FAILS CLOSED. An unset
+ * key throws rather than constructing a client with `undefined`, because a
+ * solicitation send that silently proceeds without its own key would be a send
+ * on the transactional identity.
+ */
+export function getSolicitationResend(): Resend {
+  if (!_solicitationResend) {
+    const key = getServerConfig().SOLICITATION_RESEND_API_KEY?.trim();
+    if (!key) {
+      throw new Error(
+        'SOLICITATION_RESEND_API_KEY is not set — the solicitation lane cannot send (fail-closed, spec §1.6/§9)',
+      );
+    }
+    _solicitationResend = new Resend(key);
+  }
+  return _solicitationResend;
+}

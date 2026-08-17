@@ -960,6 +960,155 @@ describe('assertAccountOffboardingEnv', () => {
   });
 });
 
+import { assertSolicitationSendEnv } from '../startup-assert';
+
+// #657 Task 2 — the solicitation Sending identity's boot gate. RED until
+// `assertSolicitationSendEnv` exists. Copies the assertChannelsWhatsAppEnv shape
+// exactly: flag gate, MOCK bypass, required-list check, then a format check that
+// never logs the value.
+//
+// A worker that boots with sending enabled and no From address is a worker that
+// fails at dispatch time instead of boot time — and a dispatch-time failure in
+// this lane strands an approved batch mid-send.
+describe('assertSolicitationSendEnv', () => {
+  const SOLICITATION_REQUIRED = [
+    'SOLICITATION_RESEND_API_KEY',
+    'SOLICITATION_SEND_FROM_ADDRESS',
+    'SOLICITATION_PLATFORM_DAILY_CAP',
+    'SOLICITATION_UNSUBSCRIBE_MAILTO',
+  ];
+  const SNAP: Record<string, string | undefined> = {};
+  const KEYS = [
+    'SOLICITATION_SEND_ENABLED',
+    'MOCK_EXTERNAL_APIS',
+    'RAILWAY_ENVIRONMENT_NAME',
+    ...SOLICITATION_REQUIRED,
+  ];
+  const API_KEY_VALUE = 're_solicitation_boot_gate_secret_value';
+
+  function setAllRequired(): void {
+    process.env.SOLICITATION_RESEND_API_KEY = API_KEY_VALUE;
+    process.env.SOLICITATION_SEND_FROM_ADDRESS = 'reviews@feedback.test.repworth.net';
+    process.env.SOLICITATION_PLATFORM_DAILY_CAP = '250';
+    process.env.SOLICITATION_UNSUBSCRIBE_MAILTO = 'unsubscribe@feedback.test.repworth.net';
+  }
+
+  beforeEach(() => {
+    for (const k of KEYS) { SNAP[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (SNAP[k] === undefined) delete process.env[k]; else process.env[k] = SNAP[k];
+    }
+  });
+
+  it('assertSolicitationSendEnv is a no-op when SOLICITATION_SEND_ENABLED is off', () => {
+    // Unset and explicit-false are the same lane: no sends, so nothing to check.
+    expect(() => assertSolicitationSendEnv()).not.toThrow();
+    process.env.SOLICITATION_SEND_ENABLED = 'false';
+    expect(() => assertSolicitationSendEnv()).not.toThrow();
+  });
+
+  it('assertSolicitationSendEnv is a no-op when MOCK_EXTERNAL_APIS is true', () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    process.env.MOCK_EXTERNAL_APIS = 'true';
+    expect(() => assertSolicitationSendEnv()).not.toThrow();
+  });
+
+  it('assertSolicitationSendEnv throws naming every missing solicitation env var', () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    try {
+      assertSolicitationSendEnv();
+      throw new Error('should have thrown');
+    } catch (err) {
+      const msg = (err as Error).message;
+      for (const k of SOLICITATION_REQUIRED) expect(msg).toContain(k);
+    }
+
+    // Whitespace-only is not a value — the same collapsing rule the config
+    // schema applies to these four vars.
+    setAllRequired();
+    process.env.SOLICITATION_SEND_FROM_ADDRESS = '   ';
+    expect(() => assertSolicitationSendEnv()).toThrow(/SOLICITATION_SEND_FROM_ADDRESS/);
+  });
+
+  it('assertSolicitationSendEnv accepts an explicit zero platform daily cap', () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    setAllRequired();
+    process.env.SOLICITATION_PLATFORM_DAILY_CAP = '0';
+
+    // 0 is the warm-up dial at rest and the emergency brake, not a
+    // misconfiguration. Rejecting it would make the brake unusable.
+    expect(() => assertSolicitationSendEnv()).not.toThrow();
+  });
+
+  it('assertSolicitationSendEnv throws on an unparseable platform daily cap', () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    setAllRequired();
+
+    // Presence alone would let a typo reach dispatch, where §9's
+    // "unparseable ⇒ 0" would silently stop every send.
+    for (const bad of ['abc', '10/day', '1e3x', '2.5']) {
+      process.env.SOLICITATION_PLATFORM_DAILY_CAP = bad;
+      expect(() => assertSolicitationSendEnv()).toThrow(/SOLICITATION_PLATFORM_DAILY_CAP/);
+    }
+  });
+
+  it('assertSolicitationSendEnv throws on a negative platform daily cap', () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    setAllRequired();
+    process.env.SOLICITATION_PLATFORM_DAILY_CAP = '-1';
+
+    expect(() => assertSolicitationSendEnv()).toThrow(/SOLICITATION_PLATFORM_DAILY_CAP/);
+  });
+
+  it('assertSolicitationSendEnv never logs the solicitation Resend API key', () => {
+    const written: string[] = [];
+    const capture = (...args: unknown[]): void => { written.push(args.map(String).join(' ')); };
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(capture);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(capture);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(capture);
+    const thrownMessages: string[] = [];
+
+    function messageOf(run: () => void): string {
+      try {
+        run();
+      } catch (err) {
+        return (err as Error).message;
+      }
+      throw new Error('should have thrown');
+    }
+
+    try {
+      process.env.SOLICITATION_SEND_ENABLED = 'true';
+      setAllRequired();
+      // The success path...
+      assertSolicitationSendEnv();
+
+      // ...and both failure paths, which are where a value is most likely to be
+      // interpolated into a message. The assertion names the VAR, never the value.
+      process.env.SOLICITATION_PLATFORM_DAILY_CAP = 'nope';
+      thrownMessages.push(messageOf(() => assertSolicitationSendEnv()));
+
+      setAllRequired();
+      delete process.env.SOLICITATION_SEND_FROM_ADDRESS;
+      thrownMessages.push(messageOf(() => assertSolicitationSendEnv()));
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+
+    expect(thrownMessages).toHaveLength(2);
+    expect(thrownMessages[0]).toContain('SOLICITATION_PLATFORM_DAILY_CAP');
+    expect(thrownMessages[1]).toContain('SOLICITATION_SEND_FROM_ADDRESS');
+    for (const message of thrownMessages) {
+      expect(message).not.toContain(API_KEY_VALUE);
+    }
+    expect(written.join('\n')).not.toContain(API_KEY_VALUE);
+  });
+});
+
 describe('assertSingleConcurrencyWorker', () => {
   it('passes when the effective concurrency is exactly 1', () => {
     expect(() =>

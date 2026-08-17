@@ -73,7 +73,7 @@ import {
   registerUnsubscribeRoutes,
   stopUnknownUnsubscribeTokenWindow,
 } from './ingress/unsubscribe';
-import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
+import { assertAccountOffboardingEnv, assertChannelsTelegramEnv, assertChannelsWhatsAppEnv, assertSelfServeSignupEnv, assertSingleConcurrencyWorker, assertSolicitationSendEnv, assertSummedLlmWorkerSlots, assertZernioPublishingEnv, warnMissingProductionEnv } from './config/startup-assert';
 import { assertWorkerConfig, getWorkerConfig } from '../src/lib/config/worker';
 import { readReplicaIdentity, replicaIdentityFields } from './config/replica-identity';
 import { deploymentLaneFields, requiresProductionConfig } from '../src/lib/config/deployment-lane';
@@ -533,6 +533,7 @@ async function main(): Promise<void> {
     assertSelfServeSignupEnv();
     assertZernioPublishingEnv();
     assertAccountOffboardingEnv();
+    assertSolicitationSendEnv();
     // #644 / deviations D4. Neither var the opt-out path needs is asserted on a
     // deployed lane today — assertAccountOffboardingEnv returns early while
     // ACCOUNT_OFFBOARDING_ENABLED is off, and every existing NEXT_PUBLIC_APP_URL

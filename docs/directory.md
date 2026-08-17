@@ -969,8 +969,8 @@ Sending approval notifications to business owners.
 | File | What it does |
 |------|--------------|
 | `email.ts` | Barrel re-export of the modularized email layer. New code should import directly from `email/client`, `email/headers`, or `email/templates/<family>`. |
-| `email/client.ts` | `getResend()` — lazy Resend client (constructed on first use). |
-| `email/headers.ts` | Shared email header helpers (List-Unsubscribe, etc.). |
+| `email/client.ts` | `getResend()` — lazy Resend client (constructed on first use) — plus **(#657)** `getSolicitationResend()`, the domain-scoped client for the solicitation lane's **Sending identity** (spec §1.6). Same lazy shape, one deliberate difference: it **fails closed** — an unset `SOLICITATION_RESEND_API_KEY` throws rather than constructing a client with `undefined`, because a solicitation send that silently proceeded without its own key would be a send on the transactional identity. Both clients are cached per process, so an env change needs a worker restart (which Railway does automatically). |
+| `email/headers.ts` | Shared email header helpers (List-Unsubscribe, etc.) over the `EmailCategory` union. Only `marketing` gets the degrading fallback chain (`LIST_UNSUBSCRIBE_URL` → mailto → the RFC 2606 `example.com` warning). **(#657)** adds `'solicitation'` (spec §7.3) as a **fail-closed** category returning from its own branch before that body: no per-ask `unsubscribeUrl`, a non-HTTPS URL, or no `SOLICITATION_UNSUBSCRIBE_MAILTO` each **throw** — there is deliberately no fallback, because the degraded form is a compliance violation that fails silently. The mailto var stores a **bare address**, prefixed with `mailto:` here exactly as the **Neutral page** prefixes it, so the one advertised address stays identical across both code paths. |
 | `email/templates/approval.ts` | HTML template for the approval request email. |
 | `email/templates/internal.ts` | HTML template for internal admin notification emails. |
 | `email/templates/monthly-impact.ts` | HTML template for monthly impact report emails. |
@@ -1188,6 +1188,33 @@ Owner offboarding domain (`cancel_only` / `delete_data` / purge) — the confirm
 | `generate-responses.ts` | `generateResponsesForReviews(sql, reviews, businessContext)` — `Promise.allSettled` over `generateResponse` in `demo` mode (or `generateMockResponse`), mapping a failed review to `null` and returning success/failure/cost/duration metadata. Extracted from `generator.ts`. |
 | `lifecycle.ts` | Demo-row state machine over `onboarding_demos` / `prospect_demos`: `claimDemo` (queued → running CAS, >5-min stale-running reset; returns `claimed` / `already_terminal` / `not_found` / `reset_to_queued` / `race_lost`), `completeDemo` (row + outbox in one tx; the 23505 race-loser archives itself and closes its outbox), `failDemo`. Called by `DemoGenerationWorker`. |
 | `select-qualifying.ts` | `selectQualifyingReviews(reviews, opts)` — picks ≤3 demo reviews: `newest` (first three) or `positive-with-moderate-tail` (rating ≥3; a substantive 5-star anchor, up to two 4-stars, one trailing 3-star; returns `[]` when no ≥4 anchor so the caller falls back to curated content). |
+
+### `messaging/`
+
+The **Messaging adapter** seam (#657, map decision 14) — the channel-neutral
+outbound-send surface for the solicitation lane. Deliberately mirrors
+`publishing/review-publisher.ts` below: one interface, one method, a lazy
+singleton factory that IS the selection point, so **WhatsApp arrives as a second
+adapter, never as a rewrite** of the email path.
+
+> **Honest scope, recorded rather than hidden:** one adapter exists and #657 ships
+> **zero production callers** — #630's dispatch worker is the first. That makes
+> this a *hypothetical seam*, accepted deliberately by map decision 14. The
+> mitigation is the narrowness: ONE method, whose `OutboundMessage` type is
+> *derived* from spec §7.1's locked envelope rather than invented, so a WhatsApp
+> adapter that wants a different shape has almost nothing to unpick. Solicitation
+> is the seam's first tenant, not its owner.
+
+| File | What it does |
+|------|--------------|
+| `lane-tag.ts` | **(#657)** The two constants naming the **Solicitation lane**'s routing discriminant — the Resend tag name (`lane`) and the value (`solicitation`) — and the single authoritative owner of that cross-module contract. The tag is EMITTED by `email-adapter.ts` and READ by `worker/ingress/resend/solicitation-lane.ts`; the halves sit in different module trees with no compiler check binding them, so a rename on either side would route every solicitation webhook into the `notification_deliveries` lane, whose UPDATEs match zero rows and ack 200 — losing the bounce or complaint with no alert. `resend-solicitation-routing.test.ts` binds both halves through these constants so drift fails a test. **Its own file, and import-free by design:** hosting them on `messaging-adapter.ts` would make the webhook ingress pull the Resend SDK, `sendEmail` and `getServerConfig` transitively just to read two strings, and close an import cycle — breaking the plan's rule that the lane "shares nothing with the adapter" and "works whether or not the adapter ever sends". Same extraction reasoning as `worker/ingress/resend/bounce-classifier.ts`. |
+| `messaging-adapter.ts` | **(#657)** The seam itself: the `MessagingAdapter` interface (one method, `send`), the `OutboundMessage` DTO (every field required — the adapter refuses to build an envelope from a partial message rather than defaulting), and `getMessagingAdapter()`, the lazy singleton that selects the adapter once instead of at every call site. `send` returns the provider message id the caller MUST persist as `solicitation_outreach.provider_message_id` — it is the join key the **Solicitation lane** attributes webhook events on, so a caller that discards it makes every later bounce and complaint unattributable. `outreachId` doubles as the provider idempotency key (amendments A/B: §7.1's `solicitation-ask/<ask_id>` collides across attempts, and a timeout-retry is a routine path here). Throws on every failure, matching the `ReviewPublisher` transport-method precedent; #630 classifies for retry. |
+| `email-adapter.ts` | **(#657)** `EmailAdapter` — the first and today only adapter (spec §7.1). Owns the WHOLE envelope so no caller has to know it: `formatFrom` (business name as display name, no "via RepWorth" suffix — DKIM `d=` alignment suppresses Gmail's "via" annotation), `Reply-To: businesses.owner_email`, the `'solicitation'` `getEmailHeaders` category, the Resend tags including the `lane` discriminant the ingress routes on, and the **Sending identity**'s client via `getSolicitationResend()`. `assertSendable` is the header-injection and one-recipient guard: CR/LF rejected in recipient, subject and Reply-To, and a recipient containing a comma or internal whitespace refused — "exactly one recipient" is a rule, not a shape, and `to: ['a@x, b@y']` is one string and two mailboxes. Requires a non-empty plain-text part (HTML-only is a spam signal). `resolveFromAddress()` throws without `SOLICITATION_SEND_FROM_ADDRESS` (fail-closed, §9); the Resend SDK's `{data, error}` result is converted to a throw so every failure reaches the caller one way. The client is resolved per send, not at construction, so building the adapter never needs the key to exist. |
+
+**Connection:** nothing calls `getMessagingAdapter()` in production yet. #630's
+dispatch worker builds an `OutboundMessage` per **Outreach row**, calls `send`,
+and persists the returned id — which is what makes `worker/ingress/resend/solicitation-lane.ts`
+able to attribute anything at all. Unit tests colocate in `__tests__/`.
 
 ### `publishing/`
 
@@ -1651,6 +1678,20 @@ Per-event handlers `stripe.ts` dispatches to after signature verification and de
 | `shared.ts` | Utilities for the Stripe handlers: `LOG_PREFIX`, re-exported `getStripe`, `extractCustomerId`/`extractSubscriptionId`/`invoiceSubscriptionId` (across API-version shapes), `UUID_RE`, and `AccountNotProvisionedYetError` (thrown when a subscription.* event precedes its checkout — the wrapper answers 500 so Stripe redelivers). `resumePrimaryBusinessBackfill(businessId)` is the ONE post-commit "activation → resume Zernio import" hook (**#266**): best-effort; in one tx holding the `businesses` row lock it creates the Import offer and, if `zernioPublishingEnabled()` and consent is `accepted`, calls `enqueueInitialImport`. |
 | `subscription-deleted.ts` | `processSubscriptionDeleted(sub)` — loads every account under the customer; none → throws `AccountNotProvisionedYetError` (retry); acts on the one whose CURRENT `stripe_subscription_id` matches, skipping a subscription that only matches an active offboarding snapshot; then under the entitlement lock runs the applier (→ `cancelled`). |
 | `subscription-updated.ts` | `processSubscriptionUpdated(eventSnapshot)` → `SubscriptionUpdatedOutcome` (`updated | variant_mismatch | status_only | ignored`). Resolves the account by customer + subscription (stale/offboarding-snapshot subscriptions ignored; none → `AccountNotProvisionedYetError`), then in one tx under `acquireTierAndBillingLocks` retrieves the provider-current subscription, runs the status applier (a resolved no-op still enqueues mirror sync), resolves base/overage items via `resolveSubscriptionBilling` and writes the tier snapshot + `locations_paid`. Post-commit `synchronizeBusinessTierMirror`; alerts (unmapped price, variant mismatch, untrusted overage, Autopilot-while-unavailable) → Sentry. |
+
+#### `worker/ingress/resend/` — the Solicitation lane and its shared classifier
+
+`resend.ts` above serves **two** lanes on ONE endpoint. The
+`notification_deliveries` path is unchanged; the **Solicitation lane** is selected
+by the echoed `lane` tag **before any DB lookup**, so a genuinely-unknown
+`email_id` stays distinguishable from a lane mismatch. Per glossary rule **DR1**
+the lane is **not** flag-gated: `SOLICITATION_SEND_ENABLED` masters *sending*
+only, and a webhook arriving while sending is off must still be recorded.
+
+| File | What it does |
+|------|--------------|
+| `bounce-classifier.ts` | **(#657)** `extractBounceType` / `isHardBounceType` / `classifyBounce`, moved **verbatim** out of `resend.ts`. It moved for exactly one reason: the Solicitation lane must reuse it, and exporting it from `resend.ts` would make the lane import its own parent — a cycle. A second classifier would be a second owner of "what counts as permanent". Behaviour unchanged: `'unknown'` classifies **soft** (fail-safe), and `classifyBounce` normalizes to the `bounced:hard:<raw>` / `bounced:soft:<raw>` prefixes the admin overview SQL filters on, so the webhook and the admin red-state query cannot disagree. |
+| `solicitation-lane.ts` | **(#657, spec §5)** `isSolicitationLane(data)` (the tag discriminant, tolerant of Resend's object-map *and* array tag shapes) + `handleSolicitationResendEvent(sql, eventType, emailId, data)` over the seven subscribed events. **Write surface is deliberately narrow:** only `bounced_at`, `complained_at`, `provider_error` and the **Suppression ledger** — never `delivery_status` or `sent_at` (#630 owns the send lifecycle, and a webhook write would race migration 091's ladder CHECKs) and never `unsubscribed_at` (that is `worker/ingress/unsubscribe.ts`'s RFC 8058 POST). §5.3's `delivered_at` effect is dropped — no such column, no migration. `withAttribution` is the ONE transaction owner: the `FOR UPDATE OF o` attribution read, the outreach UPDATE and the optional ledger write are one commit or none, and it returns a value **only on a committed write** so nothing logs a fact the database does not hold. Unmatched ids split by event: suppression-bearing ones (hard bounce, complaint, `email.suppressed`) **throw** → 503 → Resend retries, closing the window before #630 commits `provider_message_id`, bounded for free by the 300s stale-`svix-timestamp` rejection; soft bounce and `email.failed` warn and ack. Two rows on one `provider_message_id` throws rather than mutating an arbitrary one. `email.suppressed` emits the loud §6.2 divergence warning **only when a ledger row was really written** — a first-write-wins no-op means the two lists agree, the one case where the divergence claim is false. Logs the bounce **kind**, never the raw provider string (it can carry an address); the full value lands in `provider_error`, a column, not a log. Takes `sql` as a parameter (invariant #15); the attribution `SELECT` is cross-account by construction and allowlisted in the tenant-scope audit. |
 
 
 ---

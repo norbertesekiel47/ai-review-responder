@@ -9,6 +9,8 @@ import {
 } from './shared';
 import { sendInternalEmail } from '../../src/lib/notifications/email';
 import { escapeHtml } from '../../src/lib/shared/html';
+import { classifyBounce, extractBounceType } from './resend/bounce-classifier';
+import { handleSolicitationResendEvent, isSolicitationLane } from './resend/solicitation-lane';
 
 const LOG_PREFIX = '[ingress/resend]';
 
@@ -76,60 +78,6 @@ function verifySignature(rawBody: string, headers: Record<string, string | undef
 }
 
 /**
- * Extracts the bounce type string from a Resend email.bounced payload.
- * Supports multiple payload shapes defensively:
- *   - data.bounce.type     (Resend documented shape)
- *   - data.reason          (legacy/alternate)
- *   - data.status          (legacy/alternate)
- * Returns lowercase string, or 'unknown' if nothing matches.
- */
-function extractBounceType(data: unknown): string {
-  if (!isRecord(data)) return 'unknown';
-
-  const bounceType = isRecord(data.bounce)
-    ? lowerNonEmptyString(data.bounce.type)
-    : null;
-
-  return bounceType
-    ?? lowerNonEmptyString(data.reason)
-    ?? lowerNonEmptyString(data.status)
-    ?? 'unknown';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object';
-}
-
-function lowerNonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0
-    ? value.toLowerCase()
-    : null;
-}
-
-/**
- * Returns true if the bounce type indicates a hard/permanent failure.
- * 'unknown' is treated as soft to avoid flagging businesses on ambiguity.
- *
- * Matches: permanent, hard, hardbounce, hard_bounce, permanent_failure,
- * or any string containing "permanent" (e.g. smtp_permanent_failure).
- *
- * NOTE: The admin overview SQL in src/app/api/admin/overview/route.ts
- * MUST filter on the normalized prefix 'bounced:hard:' so its red-state
- * metrics match this function's decision. See `classifyBounce()` below.
- */
-function isHardBounceType(type: string): boolean {
-  const t = type.toLowerCase();
-  return (
-    t === 'permanent' ||
-    t === 'hard' ||
-    t === 'hardbounce' ||
-    t === 'hard_bounce' ||
-    t === 'permanent_failure' ||
-    t.includes('permanent')
-  );
-}
-
-/**
  * Owner-directed notification_deliveries.template values. Only these
  * templates go to the business owner's email — so only hard bounces
  * on these templates should flag `businesses.owner_email_bounced`.
@@ -170,22 +118,6 @@ function isOwnerDirectedTemplate(template: string | null | undefined): boolean {
   if (OWNER_DIRECTED_TEMPLATES.has(template)) return true;
   if (template.startsWith('onboarding_drip_')) return true;
   return false;
-}
-
-/**
- * Normalizes a raw Resend bounce type into one of two stored kinds:
- *   bounced:hard:<raw>   — flags the business, counts in admin red state
- *   bounced:soft:<raw>   — transient/unknown, logged but no flag
- * Centralizing the classification here guarantees the webhook and the
- * admin red-state query never disagree.
- */
-function classifyBounce(rawType: string): { reason: string; isHard: boolean } {
-  const isHard = isHardBounceType(rawType);
-  const kind = isHard ? 'hard' : 'soft';
-  return {
-    reason: `bounced:${kind}:${rawType}`,
-    isHard,
-  };
 }
 
 export async function handleResendWebhook(
@@ -251,6 +183,14 @@ async function processResendEvent(
   body: ResendWebhookBody,
 ): Promise<void> {
   if (!emailId) {
+    return;
+  }
+
+  // Lane selection by echoed tag, BEFORE any delivery-row lookup (§5.1). The
+  // claimInboundEvent above is idempotency, not a lane lookup — it is the same
+  // write for both lanes and must stay shared.
+  if (isSolicitationLane(body.data)) {
+    await handleSolicitationResendEvent(sql, eventType, emailId, body.data);
     return;
   }
 

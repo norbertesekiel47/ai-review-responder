@@ -129,7 +129,16 @@ export interface TenantScopeAllowlistEntry {
 //     the equivalent `responses` + `notification_deliveries` entries — with a
 //     one-element id array. The 2 now-dead `queries.ts` metrics entries were
 //     removed; its 2 batch-1 entries (reviews/responses) stay.
-export const ALLOWLIST_BASELINE = 392;
+//   - 2026-08-16 (392 → 397): #657's Solicitation lane
+//     (`worker/ingress/resend/solicitation-lane.ts`). A Resend webhook arrives
+//     with a provider message id and NO tenant context, so 1 locked attribution
+//     read establishes the account scope — counted twice, once per table it
+//     touches (`solicitation_outreach` + the `solicitation_contacts` join that
+//     supplies the Normalized handle) — and the 3 signal-column UPDATEs that
+//     follow it are keyed on the id that read returned, inside the same
+//     transaction. Same `provider-ingress` shape as the 5 sibling
+//     `worker/ingress/resend.ts` entries above it.
+export const ALLOWLIST_BASELINE = 397;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -279,6 +288,17 @@ const NAMED_RIVAL_LANE_SQL =
 // hoisted here once rather than copy-pasted into both entries.
 const ADMIN_SUPPRESSION_LOOKUP_SQL =
   "SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source, s.account_id, a.display_name AS account_name, s.created_by_user_id, s.note, s.suppressed_at::text FROM solicitation_suppressions s LEFT JOIN accounts a ON a.id = s.account_id WHERE s.channel = 'email' AND s.normalized_handle = ${handle} ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC";
+
+// #657 §5.1 Solicitation lane attribution. A Resend webhook arrives carrying a
+// provider message id and NO tenant context, so this statement is what
+// ESTABLISHES the account scope every later write in the lane uses. It is one
+// statement the audit attributes to two tables (solicitation_outreach + the
+// solicitation_contacts join that supplies the Normalized handle), so it is
+// hoisted here once rather than copy-pasted into both entries. It runs inside
+// sql.begin with FOR UPDATE OF o — the lock is what stops the row being deleted
+// between this read and the UPDATE that follows it.
+const SOLICITATION_LANE_ATTRIBUTION_SQL =
+  "SELECT o.id, o.account_id, o.business_id, c.email FROM solicitation_outreach o JOIN solicitation_contacts c ON c.id = o.contact_id WHERE o.provider_message_id = ${emailId} LIMIT 2 FOR UPDATE OF o";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -837,6 +857,41 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "UPDATE businesses SET owner_email_bounced = TRUE, updated_at = NOW() WHERE id = ${delivery.business_id} AND owner_email_bounced IS DISTINCT FROM TRUE RETURNING id",
     category: 'provider-ingress',
     reason: "Provider webhook resolves delivery state from provider identifiers before tenant scope is available.",
+  },
+  {
+    file: "worker/ingress/resend/solicitation-lane.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: SOLICITATION_LANE_ATTRIBUTION_SQL,
+    category: 'provider-ingress',
+    reason: "Solicitation lane attribution (#657 §5.1): a Resend webhook carries a provider message id and no tenant context, so this locked read ESTABLISHES the account scope every later write in the lane uses. Runs inside sql.begin with FOR UPDATE OF o, and LIMIT 2 so an ambiguous id is refused rather than silently mutating an arbitrary row.",
+  },
+  {
+    file: "worker/ingress/resend/solicitation-lane.ts",
+    table: "solicitation_contacts",
+    sqlSnippet: SOLICITATION_LANE_ATTRIBUTION_SQL,
+    category: 'provider-ingress',
+    reason: "Same attribution statement as the solicitation_outreach entry above: the contacts join supplies the Normalized handle (solicitation_contacts.email, migration 086) the Suppression ledger write is keyed on. The join is already bound to the outreach row this webhook resolved, so it inherits that row's tenant scope.",
+  },
+  {
+    file: "worker/ingress/resend/solicitation-lane.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "UPDATE solicitation_outreach SET bounced_at = COALESCE(bounced_at, NOW()), provider_error = COALESCE(provider_error, ${reason}), updated_at = NOW() WHERE id = ${attribution.id}",
+    category: 'provider-ingress',
+    reason: "Solicitation lane bounce effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived.",
+  },
+  {
+    file: "worker/ingress/resend/solicitation-lane.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "UPDATE solicitation_outreach SET complained_at = COALESCE(complained_at, NOW()), updated_at = NOW() WHERE id = ${attribution.id}",
+    category: 'provider-ingress',
+    reason: "Solicitation lane complaint effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived.",
+  },
+  {
+    file: "worker/ingress/resend/solicitation-lane.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "UPDATE solicitation_outreach SET provider_error = COALESCE(provider_error, ${`failed:${reason}`}), updated_at = NOW() WHERE id = ${attribution.id}",
+    category: 'provider-ingress',
+    reason: "Solicitation lane send-failure effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived.",
   },
   {
     file: "worker/ingress/stripe/checkout-completed.ts",

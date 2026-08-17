@@ -9,10 +9,21 @@
 //   Gmail/Outlook bulk-sender rules require List-Unsubscribe one-click for these.
 // - internal: admin/sales-partner alerts (exceptions,
 //   partner engagement alerts). Not customer-facing, no unsubscribe needed.
+// - solicitation: the review-ask lane (#657, spec §7.3). Carries a PER-ASK
+//   List-Unsubscribe and is fail-closed — see solicitationHeaders() below.
 
 import { getServerConfig } from '@/lib/config/server';
 
-export type EmailCategory = 'transactional' | 'marketing' | 'internal';
+export type EmailCategory = 'transactional' | 'marketing' | 'internal' | 'solicitation';
+
+/**
+ * Per-call header inputs. `unsubscribeUrl` is REQUIRED for 'solicitation' (it
+ * carries that recipient's Unsubscribe token, so it can never be a shared or
+ * per-sender URL) and is ignored by every other category.
+ */
+export interface EmailHeaderOptions {
+  unsubscribeUrl?: string;
+}
 
 /**
  * Extracts a mailbox from RESEND_FROM_EMAIL, supporting both "Display <addr>"
@@ -46,8 +57,38 @@ export function extractMailbox(fromEmail: string | undefined): string | null {
  * If an HTTPS URL is configured, we send both forms plus the Post header.
  * Otherwise we send ONLY the mailto form — still valid per the pre-RFC-8058
  * standard, which Gmail/Outlook accept as a fallback for low-volume senders.
+ *
+ * The 'solicitation' category does NOT share any of the above: it returns from
+ * its own fail-closed branch before this body, because none of these fallbacks
+ * are legal on that lane. See solicitationHeaders().
+ *
+ * OVERLOADED so `getEmailHeaders('solicitation')` is a COMPILE error rather than
+ * a runtime throw on the live send path (round-1 review). The runtime throw in
+ * solicitationHeaders() stays as defence in depth — it still covers a JS caller,
+ * an `any`-typed value, and the non-HTTPS/missing-mailbox cases a type cannot
+ * express — and has its own test.
+ *
+ * The requirement is expressed as a CONDITIONAL REST PARAMETER, not as two flat
+ * overload signatures. Two flat signatures would break the one call site that
+ * passes a *variable* category: src/lib/notifications/email/templates/internal.ts
+ * calls getEmailHeaders(category) with `category: EmailCategory`, which is
+ * assignable to neither `'solicitation'` nor `Exclude<EmailCategory,
+ * 'solicitation'>`. The conditional distributes over that union, so the widened
+ * call keeps compiling while the literal `'solicitation'` call does not.
  */
-export function getEmailHeaders(category: EmailCategory): Record<string, string> {
+type EmailHeaderArgs<C extends EmailCategory> = C extends 'solicitation'
+  ? [opts: { unsubscribeUrl: string }]
+  : [opts?: EmailHeaderOptions];
+
+export function getEmailHeaders<C extends EmailCategory>(
+  category: C,
+  ...opts: EmailHeaderArgs<C>
+): Record<string, string>;
+export function getEmailHeaders(
+  category: EmailCategory,
+  opts: EmailHeaderOptions = {},
+): Record<string, string> {
+  if (category === 'solicitation') return solicitationHeaders(opts.unsubscribeUrl);
   if (category !== 'marketing') return {};
 
   const cfg = getServerConfig();
@@ -95,6 +136,56 @@ export function getEmailHeaders(category: EmailCategory): Record<string, string>
   // Mailto-only fallback: no Post header (it wouldn't function anyway).
   return {
     'List-Unsubscribe': `<mailto:${mailbox}>`,
+  };
+}
+
+/**
+ * Solicitation List-Unsubscribe (spec §7.3). Fail-closed on every path:
+ *   - no per-ask URL          -> throw (never the global LIST_UNSUBSCRIBE_URL)
+ *   - a non-HTTPS URL         -> throw (RFC 8058 §3 requires HTTPS for one-click)
+ *   - no configured mailbox   -> throw (never the repworth.example.com RFC 2606 address)
+ *
+ * There is deliberately no fallback branch. The marketing category above may
+ * degrade to a mailto-only header; this one may not, because the degraded form
+ * is a compliance violation that fails silently.
+ *
+ * SOLICITATION_UNSUBSCRIBE_MAILTO stores a BARE address, not a `mailto:` URI —
+ * the Neutral page (`src/app/(public)/u/[token]/page.tsx`) prefixes `mailto:`
+ * itself in the href and renders the bare value as the link text. This header
+ * prefixes it the same way, so the one advertised address stays identical
+ * across both code paths.
+ */
+function solicitationHeaders(unsubscribeUrl: string | undefined): Record<string, string> {
+  const raw = unsubscribeUrl?.trim();
+  if (!raw) {
+    throw new Error(
+      "[email/headers] the 'solicitation' category requires a per-ask unsubscribeUrl — refusing to ship a List-Unsubscribe header that cannot work",
+    );
+  }
+
+  let httpsUrl: string;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') throw new Error('non-https');
+    httpsUrl = u.toString();
+  } catch {
+    // Not a swallow — a parse failure and a non-HTTPS scheme are the same
+    // compliance defect, rethrown as one specific error.
+    throw new Error(
+      "[email/headers] the 'solicitation' unsubscribeUrl must be an HTTPS URL (RFC 8058 §3 one-click)",
+    );
+  }
+
+  const mailbox = getServerConfig().SOLICITATION_UNSUBSCRIBE_MAILTO?.trim();
+  if (!mailbox) {
+    throw new Error(
+      "[email/headers] SOLICITATION_UNSUBSCRIBE_MAILTO is required for the 'solicitation' category — the mailto: member of List-Unsubscribe has no fallback",
+    );
+  }
+
+  return {
+    'List-Unsubscribe': `<${httpsUrl}>, <mailto:${mailbox}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
   };
 }
 
