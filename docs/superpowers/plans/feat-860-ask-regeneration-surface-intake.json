@@ -59,7 +59,8 @@
     "src/lib/costs/*",
     "src/lib/shared/dashboard-regen-rate-limit.ts",
     "src/app/api/dashboard/solicitation/batch/*",
-    "src/app/(authenticated)/dashboard/requests/*"
+    "src/app/(authenticated)/dashboard/requests/*",
+    "src/lib/agents/*"
   ],
   "tests_to_add": [
     "refuses a regenerate once the batch is approved, leaving the live render untouched",
