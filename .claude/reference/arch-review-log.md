@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0** — reset by the **2026-08-15 pass**
+**Merges since last architecture pass: 1** — reset by the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
 (entries below). **Not counted, and correctly so** — #830 (marketing copy),
@@ -29,6 +29,41 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #853** — #657 Messaging adapter seam + solicitation Sending identity +
+  Resend **Solicitation lane** (2026-08-17, squash `ad185edb`). **Entropy-positive
+  and knowingly so: a new top-level seam with ZERO production callers.** No
+  migration, no dependency; net **+976/−76 production lines**, tests **+2377**
+  (2.4× production — a DB-contract feature, the #643 band).
+  **New folder `src/lib/messaging/`** — three files: `messaging-adapter.ts` (the
+  one-method `MessagingAdapter` interface + `getMessagingAdapter()` lazy
+  singleton), `email-adapter.ts` (`EmailAdapter`, the whole §7.1 envelope), and
+  `lane-tag.ts` (the `lane`/`solicitation` discriminant, **import-free by design**
+  so the webhook ingress does not transitively load the Resend SDK). Mirrors
+  `src/lib/publishing/review-publisher.ts`. **This is a hypothetical seam** (map
+  decision 14) — #630's dispatch worker is its first caller. *The next pass should
+  ask whether that caller arrived, and if not, whether the seam earned its keep.*
+  **New folder `worker/ingress/resend/`** — `bounce-classifier.ts` (moved
+  byte-for-byte out of `resend.ts` to break an import cycle; the three functions
+  keep ONE owner of "what counts as permanent") and `solicitation-lane.ts` (the
+  tag-discriminated lane, one transaction owner via `withAttribution`).
+  **Three new env vars**, all server-only and fail-closed:
+  `SOLICITATION_RESEND_API_KEY`, `SOLICITATION_SEND_FROM_ADDRESS`,
+  `SOLICITATION_PLATFORM_DAILY_CAP`, boot-asserted by
+  `assertSolicitationSendEnv()`. **No new feature flag** — the lane deliberately
+  has no flag gate (glossary rule DR1: `SOLICITATION_SEND_ENABLED` masters
+  *sending* only). **Allowlist baseline moved 392 → 397** (one attribution SELECT
+  counted per-table, plus three signal UPDATEs; all `provider-ingress`).
+  **Widened, not forked:** `getEmailHeaders` gained a fail-closed `'solicitation'`
+  category (typed so a missing URL is a *compile* error, runtime throw kept as
+  defence in depth) and `sendEmail` gained an optional `client` — the 10s timeout
+  and idempotency plumbing keep one owner. **Three CONTEXT.md terms coined:**
+  Messaging adapter, Sending identity, Solicitation lane.
+  **Ships inert**: `SOLICITATION_SEND_ENABLED` is off everywhere and no Outreach
+  row carries a `provider_message_id` until #630 sends, so the lane's discriminant
+  cannot match in prod. *Next pass should also check the two follow-ups this left:
+  the `provider_message_id` index (#630 owns it) and whether #630 closed the
+  unmatched-attribution retry window at source.*
 
 - **PR #833** — portal audit PR 3, Overview spec-alignment (2026-08-15, squash
   `51ad51eb`). **Entropy-negative: a duplicated query collapsed to one owner and a

@@ -2955,3 +2955,46 @@ fail-open/retry matrix", the timestamptz #520 note).
   end-to-end. JS-Date-seeded fixtures carry zero µs and CANNOT catch this —
   seed with `+ interval '419 microseconds'`.
 
+---
+
+## 2026-08-17 — #657 ship: the self-hosted runner is YOUR machine, and a fallow rule that was already written down
+
+Both notes below cost real time on PR #853. Neither is about the feature.
+
+- **[2026-08-17] Running the local verify gate while CI runs STARVES CI, and the
+  failure looks exactly like a code defect.** CI runs on the Lima VM on the
+  founder's Mac (2026-08-16 cost pass), so `scripts/verify-gate.sh` and the CI
+  `test` job are **the same finite CPU and the same Postgres**. Running both at
+  once drove load average to ~13 and produced: a CI `test` job **`cancelled`**
+  for exceeding its 15-minute cap, with unrelated React component suites
+  (`OffboardingsClient`, `ImpersonationStartClient`) timing out at their default
+  5000 ms — plus a local gate RED on `live-db-suites-audit` (a repo-wide
+  sequential scan, 5531 ms against a 5000 ms default) that passed **43/43 twice
+  in isolation**. **None of it was the branch.** The diagnosis inverted twice
+  before the evidence settled, which is the real cost: contention and a genuine
+  over-budget test are indistinguishable from the failure text alone.
+  → **CORRECT APPROACH: serialise.** Never overlap a local gate with a CI run on
+  this repo. Check `uptime` before starting either. When a test times out at
+  exactly the default 5000 ms and passes in isolation, suspect the machine
+  BEFORE the code, and confirm with a second run on an idle box rather than
+  re-running under the same load. (The eventual real fix was infrastructural —
+  #854's weight-based cloud runners moved the heavy jobs off the shared Mac.)
+
+- **[2026-08-17] The pre-PR fallow run is not optional when a diff MOVES an
+  exported function — and this note already existed.** `ci:fallow` failed #853 on
+  `worker/ingress/resend/bounce-classifier.ts:52 isHardBounceType` — *"exported
+  symbols with no known consumers."* Task 6 moved the classifier out of
+  `resend.ts` and exported all three "public entry points"; only two had callers.
+  `isHardBounceType` was private before the move, is used solely by
+  `classifyBounce` one function below it, and exporting it published a **second
+  way to ask "what counts as permanent"** — the exact second-owner problem that
+  moving the classifier *intact* was meant to prevent. **27 green local gate rows
+  did not see it**, because `verify-gate.sh` excludes `ci:fallow*` by design.
+  → **CORRECT APPROACH:** the index entry at the top of this file already said
+  *"a verify-gate GREEN branch can still fail CI's fallow job… run
+  `npx fallow audit --gate new-only --base origin/main` before opening a PR"*
+  (#675, 2026-08-06). It was not run. **A move that changes an identifier's
+  visibility is exactly the diff shape that entry is about.** Reproduce the real
+  gate with `pnpm test:coverage && pnpm ci:fallow:coverage` — a bare
+  `fallow audit` does not predict it in either direction.
+
