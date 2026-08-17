@@ -26,10 +26,22 @@ worktree reverted the shared DB twice mid-run. Full account: deviations **D10**.
 
 ## Where we are
 
-Step 4 (EXECUTION) — plan complete, review loop closed, owner released it to
-execution on 2026-08-16. Two substantive codex rounds ran; round 2's single open
-finding (the interleaving test) was accepted and fixed at `91ba9a4c`.
-Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
+**Step 8 (SHIP). Everything up to it is DONE.** `phase=reviewed`, gate GREEN at
+`e9a673b4`, tree clean, 33/33 promised tests present, `pnpm test` 12,376 passing.
+
+- Steps 1–4 complete: all eight plan tasks landed, each verified independently.
+- Step 5 gate: GREEN. One standing `reclassify` **WARN** — see D14; it is
+  recorded and owner-decided, not something a re-run clears.
+- Step 6: deviations read-back done, all entries triaged (verdict table at the
+  top of the deviations file).
+- Step 7: **two full review rounds, closed.** Round 1 = three parallel axes
+  (spec, standards, adversarial-Codex), 21 findings, all triaged and fixed.
+  Round 2 = verification-only per axis: spec and adversarial returned **empty
+  tables**, standards found two D13 fixes that had never landed — both since
+  fixed and pinned by tests. `branchReviewRounds` = 2.
+
+**Nothing is left but shipping.** Do not re-open review; the cap allows one more
+round only if new work is added.
 
 ## Artifacts (read in this order)
 
@@ -37,9 +49,11 @@ Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
 |---|---|
 | Locked intake contract | `docs/superpowers/plans/feat-629-owner-approval-lane-intake.json` (committed audit copy; `.feature/intake.json` is the arming copy — keep both in step) |
 | Implementation plan | `docs/superpowers/plans/2026-08-16-629-owner-approval-lane.md` |
-| Deviations (D1–D3) | `docs/superpowers/plans/feat-629-owner-approval-lane-deviations.md` |
-| Plan review round 1 | `docs/reviews/feat-629-owner-approval-lane/plan-round1-codex.md` |
-| Plan review round 2 | `docs/reviews/feat-629-owner-approval-lane/plan-round2-codex.md` |
+| Deviations **D1–D15** — read the verdict table at the top first | `docs/superpowers/plans/feat-629-owner-approval-lane-deviations.md` |
+| Plan review rounds 1–2 | `docs/reviews/feat-629-owner-approval-lane/plan-round{1,2}-codex.md` |
+| **Branch review round 1** (spec · standards) | `docs/reviews/feat-629-owner-approval-lane/branch-round1-{spec,standards}.md` |
+| **Branch review round 2** (spec · standards · adversarial) | `docs/reviews/feat-629-owner-approval-lane/branch-round2-{spec,standards,adversarial}.md` |
+| Blast radius | `docs/reviews/feat-629-owner-approval-lane/blast-radius.md` |
 | Spec (#619) | `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` — §10 row "#629", D2/D6a/D9/D10/D11/D22/D23 |
 | Binding amendments | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` — B2, B11 |
 | Glossary | `CONTEXT.md` — Batch state, Halt latch, Outreach row, Settled batch, Send batch parent, Requests, Spoilage report |
@@ -64,15 +78,65 @@ Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
 5. Exclude-all approves and closes the batch (`closeBatchIfSettled` in the approval tx).
 6. **Admin halt** surface deferred; `admin_halt` stays a CHECK member with no writer.
 
-## Next actions
+## Next actions — step 8 SHIP, RISK = high lane
 
-1. ~~Read the round-2 verdict.~~ DONE — verdict `REVISE`, its one finding accepted
-   and fixed; owner released the plan, `phase=plan_approved` at `91ba9a4c`.
-2. Step 4: `set-phase executing`, then dispatch per-task subagents. **Task 1 runs alone** (first-task enforcement spot check: diff `git status --porcelain` against `allowed_edit_surface`). Task 2 alone (migration). Then Tasks 3 and 5 may run concurrently; 4 follows 3 (same file); then 6, 7, 8.
-3. Step 5 gate: `scripts/verify-gate.sh`, `--review` on the last run. Export `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` first or the live-DB rows SKIP.
-4. Step 8 lane: **RISK = high** → staging ride first, migration 108 to staging Supabase before prod, PR to `main`, pause for owner merge approval.
+Re-arm first (`bash scripts/arm-check.sh`), export the two DB vars above, and
+confirm `phase=reviewed` with `lastGreenGateSha` == HEAD before touching anything.
 
-## Two follow-up tickets to file on map #617 after merge
+1. **Ride staging.** Land the branch on `staging` (push → full stack
+   auto-deploys). **Migration 108 applies to the staging Supabase project
+   FIRST**, before prod — "applied to prod, not staging" is a bug per CLAUDE.md.
+2. **Drop the `LOCAL-ONLY` marker** on 108's entry in
+   `.claude/reference/migrations-log.md` as part of promotion, replacing it with
+   the *Applied to STAGING …* sentence. **This re-arms
+   `migration-immutability-guard.sh` and freezes 108** — after that, any change
+   to it needs migration 109. Do not drop the marker before the migration is
+   actually applied.
+3. **Smoke the touched path on staging.** Note the constraint below about what
+   can actually be exercised.
+4. **Open the PR to `main`**, confirm every GitHub CI check is green — including
+   the advisory `fallow` job, which is NOT a required check but should be read —
+   then **PAUSE for explicit owner merge approval.** Apply 108 to prod Supabase
+   in lockstep at promotion.
+5. **After merge**, work the step-8 post-merge list in feature.md: `git pull
+   --ff-only`, re-sync `staging` (a squash merge means `--ff-only` aborts and the
+   runbook's answer is `reset --hard` + `--force-with-lease` — never a sync
+   merge), `scripts/feature-cleanup.sh` (dry run, then `--apply`), promote the
+   durable lessons out of the deviations file into `.claude/reference/lab-notes.md`,
+   invoke `document-feature`, do the domain sweep, and bump the entropy counter in
+   `.claude/reference/arch-review-log.md`.
 
-- Per-ask regenerate surface (route + 3/day budget UI) — must satisfy deviations D3.
-- Admin/support halt surface (`admin_halt`, AAL2-gated).
+### What the staging ride can and cannot prove
+
+**The feature ships inert.** `SOLICITATION_SEND_ENABLED` is unset in every
+environment including staging, and the releaser and send worker are #630, so
+**nothing sends**. With the flag off, the Requests screen must be byte-identical
+to watch-mode today — that is itself the most valuable thing to verify.
+
+Exercising the approval lane end to end requires flipping the flag **in staging**,
+which is a `flag-flip` skill decision and was left explicitly **out of scope** by
+the owner at the step-7/8 boundary. Confirm the intent before flipping anything.
+
+### Promotion lessons worth carrying (from the deviations file)
+
+- **D10** — this branch uses an isolated `test_629` database. That is local-only
+  and irrelevant to staging/prod, but the underlying lesson (seven worktrees, one
+  shared test DB, `test:db:setup` rebuilds from the *running* branch) belongs in
+  lab-notes at the post-merge promotion step.
+- **D14** — the epic-shaped verdict. #630 is at least this size; size it as an
+  epic at step 0 and decompose.
+
+## Follow-ups — FILED 2026-08-17 on map #617
+
+- **#858** — `closeBatchIfSettled` case-sensitive `subject_id` compare, all
+  callers. #629 fixed only its own two verbs. **Resolve before #630**, whose
+  releaser tick is a backstop caller of the same function.
+- **#859** — `ci:tenant-scope` subquery blindness; fixing it reverts #629's SQL
+  workarounds. May unmask findings elsewhere and move `ALLOWLIST_BASELINE`.
+- **#860** — per-ask regenerate surface, carrying **D3** as a binding constraint
+  (re-open approval for the ask, or refuse once `approved_at` is set).
+- **#861** — pin the load-failure copy so it cannot regress to a write-scoped
+  claim.
+
+**Still unfiled:** the admin/support halt surface (`admin_halt`, AAL2-gated) —
+carried from the original handoff and never opened.
