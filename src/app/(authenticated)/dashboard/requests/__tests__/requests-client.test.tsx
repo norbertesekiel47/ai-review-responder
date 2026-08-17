@@ -389,6 +389,181 @@ describe('RequestsClient — completion announcement', () => {
   });
 });
 
+// ── The approval lane's sentence in the live region ─────────────────────────
+
+/**
+ * The lane sentence and the loop's completion announcement share one live
+ * region, and the lane sentence used to be neither scope-keyed nor cleared —
+ * so the FIRST approve or stop silenced every later "your batch is ready" for
+ * the rest of the session.
+ */
+describe('RequestsClient — the approval lane and the live region', () => {
+  const APPROVED = {
+    status: 'approved',
+    approvedCount: 1,
+    excludedCount: 0,
+    vetoDeadlineAt: '2026-07-25 12:15:00+00',
+    close: null,
+  };
+
+  function sendLaneView(): NonNullable<Extract<BatchView, { state: 'built' }>['sendLane']> {
+    return {
+      batchState: 'built',
+      ready: true,
+      pendingRenders: 0,
+      approvedAt: null,
+      vetoDeadlineAt: null,
+      haltedAt: null,
+      haltReason: null,
+      moderationWithheld: 0,
+    };
+  }
+
+  function approvableView(batchId: string): BatchView {
+    return builtView({
+      batchId,
+      queued: 1,
+      evaluated: 1,
+      attempts: [
+        {
+          outreachId: 'a1b2c3d4-0000-7000-8000-000000000001',
+          askId: 'ask-1',
+          contactId: 'contact-1',
+          contactName: 'Dana Reeve',
+          attemptNo: 1,
+          deliveryStatus: 'rendered',
+          dispositionReason: null,
+          renderedAt: '2026-07-25 11:00:00+00',
+          redacted: false,
+          subject: 'Quick favour, Dana?',
+          body: 'Hi Dana, would you leave us a review?',
+          lintClasses: [],
+          moderationStatus: 'clean',
+          moderationDetail: {},
+          interpolationInputs: null,
+        },
+      ],
+      sendLane: sendLaneView(),
+    });
+  }
+
+  /** `routedFetch`, plus the approve POST — which does NOT consume a view, so a
+   *  test can still script the read sequence by index. */
+  function laneFetch(views: BatchView[], approve: () => Promise<Response>) {
+    const reads = routedFetch(views);
+    return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes('/batch/approve')) return approve();
+      return reads(url, init);
+    });
+  }
+
+  const approveButton = () => screen.getByRole('button', { name: /approve and send/i });
+
+  it('clears the lane sentence on a location switch so the next batch is still announced', async () => {
+    // The counter-example the old inline comment called impossible: the loop's
+    // building → built announcement CAN follow an approval — on another
+    // location.
+    vi.stubGlobal(
+      'fetch',
+      laneFetch(
+        [
+          buildingView(),
+          approvableView('batch-1'),
+          approvableView('batch-1'),
+          buildingView(),
+          builtView({ batchId: 'batch-2' }),
+        ],
+        () => Promise.resolve(jsonResponse(200, APPROVED)),
+      ),
+    );
+
+    const { rerender } = render(<RequestsClient />);
+    await flush();
+    await advance(POLL_INTERVAL_MS);
+    expect(screen.getByRole('status').textContent).toMatch(/your batch is ready/i);
+
+    fireEvent.click(approveButton());
+    await flush();
+    await flush();
+    expect(screen.getByRole('status').textContent).toMatch(/1 message will send/i);
+
+    scope.current = 'loc-2';
+    rerender(<RequestsClient />);
+    await flush();
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    // The masked announcement. Before the fix the region still held "Approved…"
+    // and this transition was inaudible.
+    await advance(POLL_INTERVAL_MS);
+    expect(screen.getByRole('status').textContent).toMatch(/your batch is ready/i);
+  });
+
+  it('never announces an in-flight approval against the location switched to', async () => {
+    // edge_cases[13]. The write was made about loc-1; it may not speak for
+    // loc-2 just because it landed late.
+    let settle: ((value: Response) => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      laneFetch(
+        [approvableView('batch-1'), builtView({ batchId: 'batch-2' })],
+        () =>
+          new Promise<Response>((resolve) => {
+            settle = resolve;
+          }),
+      ),
+    );
+
+    const { rerender } = render(<RequestsClient />);
+    await flush();
+
+    fireEvent.click(approveButton());
+    await flush();
+
+    scope.current = 'loc-2';
+    rerender(<RequestsClient />);
+    await flush();
+
+    settle?.(jsonResponse(200, APPROVED));
+    await flush();
+    await flush();
+
+    expect(screen.getByRole('status').textContent).toBe('');
+    expect(screen.queryByText(/will send/i)).toBeNull();
+  });
+
+  it('shows an unconfirmed write as an alert and refetches the authoritative state', async () => {
+    const fetchMock = laneFetch(
+      [approvableView('batch-1'), approvableView('batch-1')],
+      () => Promise.reject(new Error('network down')),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RequestsClient />);
+    await flush();
+
+    const readsBefore = fetchMock.mock.calls.filter(
+      ([url]) => !String(url).includes('/batch/'),
+    ).length;
+    fireEvent.click(approveButton());
+    await flush();
+    await flush();
+
+    // Visible AND announced by its own role, and it does not claim the write
+    // failed — only that we do not know.
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/could not confirm whether that went through/i);
+    expect(alert.textContent).not.toMatch(/nothing changed/i);
+    // Not repeated into the polite region as well.
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    // The server's own state is what answers the question.
+    const readsAfter = fetchMock.mock.calls.filter(
+      ([url]) => !String(url).includes('/batch/'),
+    ).length;
+    expect(readsAfter).toBeGreaterThan(readsBefore);
+  });
+});
+
 // ── reviewed_at ping ────────────────────────────────────────────────────────
 
 describe('RequestsClient — reviewed_at ping', () => {

@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
-import type { AskAttemptView, SendLaneView } from '@/lib/solicitation/batch-view';
+import type { ApproveBatchResult, HaltBatchResult } from '@/lib/solicitation/approval';
+import type {
+  AskAttemptView,
+  HaltReason,
+  SendLaneView,
+} from '@/lib/solicitation/batch-view';
 import { ApprovalActions, type ApprovalVerb } from './ApprovalActions';
 import { AskList, SelectableAskList, type AskRowView } from './AskList';
 import './requests.css';
@@ -13,26 +18,34 @@ import './requests.css';
  * A client island owning exactly THREE things: which asks the owner has
  * deselected, whether a write is in flight, and the resulting error copy. It
  * renders from `sendLane` + `attempts` and never mutates the view it was given;
- * after every settled write it calls `onChanged(message)` and the parent
- * refetches through its existing `retry()`, so the fetch loop stays the single
- * owner of what is on screen.
+ * after every settled write it calls `onChanged(message, outcome)` and the
+ * parent refetches through its existing `retry()`, so the fetch loop stays the
+ * single owner of what is on screen.
  *
- * REDACTION (invariant #4 ported to the send lane; design D6a). A
- * `moderation_high` attempt is not owner-readable, and this lane is structurally
- * unable to leak it. `toRows` below is the ONE place an `AskAttemptView` is
- * touched anywhere in the lane: it drops every `redacted` attempt AND projects
- * the survivors onto {id, name, status}, and `AskRowView` — that projection — is
- * the only shape `AskList`/`SelectableAskList` accept. So no attempt's `subject`
- * or `body` is read anywhere below: not into markup, not into a title/aria/data
- * attribute, not into a key. (`body` below is only ever this panel's own prose
- * or a request body.) The held rows surface as a reason plus the
- * `sendLane.moderationWithheld` count, and nothing else. Handing a child the
- * unprojected attempt is exactly how this guarantee would be lost — if a child
- * ever seems to need one, the seam is wrong, not the projection.
+ * WHAT THE OWNER READS. Every rendered Outreach row is listed WITH its subject
+ * and body (intake `user_visible_behavior[0]`). That is not decoration: the
+ * 15-minute veto window is an undo rather than a review window *because* the
+ * owner has already read every message they approved (CONTEXT.md "Owner
+ * approval"), and a panel showing a name and a status would falsify the stated
+ * basis for the short window. `toRows` carries the copy through.
  *
- * There is no edit affordance and no regenerate control anywhere here (D22);
- * `ApprovalActions` is the one file in the lane that renders a control at all.
- * Approve or exclude, and nothing else.
+ * REDACTION (invariant #4 ported to the send lane; design D6a). The rule is
+ * CONDITIONAL, and only the redacted half is a secret. A `moderation_high`
+ * attempt is not owner-readable, so `toRows` drops it before any component can
+ * touch it — its bytes reach neither markup nor a title/aria/data attribute nor
+ * a React key — and it surfaces ONLY as the `sendLane.moderationWithheld` count
+ * beside its reason. `toRows` is the ONE place an `AskAttemptView` is read
+ * anywhere in the lane, and `AskRowView` — its projection — is the only shape
+ * `AskList`/`SelectableAskList` accept, so the projection is where both halves
+ * of the rule are decided. Handing a child the unprojected attempt is exactly
+ * how the redacted half would be lost: if a child ever seems to need one, the
+ * seam is wrong, not the projection.
+ *
+ * There is no edit affordance and no regenerate control anywhere here (D22).
+ * The lane renders exactly two kinds of control — the approve/stop button in
+ * `ApprovalActions`, and the per-ask exclude checkbox in `SelectableAskList` —
+ * so widening D22 means widening `ApprovalVerb`, which is the point of naming
+ * the verbs. Approve or exclude, and nothing else.
  */
 
 const APPROVE_PATH = '/api/dashboard/solicitation/batch/approve';
@@ -44,50 +57,80 @@ const HALT_PATH = '/api/dashboard/solicitation/batch/halt';
 const MODERATION_REASON = 'moderation_high';
 
 /**
- * `redacted` rows are dropped outright, not rendered with their reason: their
- * count already rides `sendLane.moderationWithheld`, which is the ONE thing the
- * owner is allowed to learn about them. The filter is belt-and-braces — 091's
- * status↔reason CHECK means a `moderation_high` row is always `withheld`, never
- * `rendered` — but it costs nothing and removes the whole class of leak.
+ * The lane's one projection, and the one place the conditional redaction rule
+ * is applied.
+ *
+ * `redacted` rows are dropped outright: their count already rides
+ * `sendLane.moderationWithheld`, which — with the reason — is the ONE thing the
+ * owner is allowed to learn about them. Every surviving row carries its subject
+ * and body, because those are exactly the rows the owner is being asked to
+ * approve. The discriminant is checked here rather than trusted from the shape:
+ * `AskRowView` has no redacted arm at all, so nothing downstream can render a
+ * held message even if the read model regressed and handed one over with its
+ * bytes attached.
  */
 function toRows(attempts: AskAttemptView[]): AskRowView[] {
-  return attempts
-    .filter((attempt) => !attempt.redacted)
-    .map((attempt) => ({
+  const rows: AskRowView[] = [];
+  for (const attempt of attempts) {
+    if (attempt.redacted) continue;
+    rows.push({
       outreachId: attempt.outreachId,
       contactName: attempt.contactName,
       deliveryStatus: attempt.deliveryStatus,
-    }));
+      subject: attempt.subject,
+      body: attempt.body,
+    });
+  }
+  return rows;
 }
 
+/**
+ * The three Batch states that offer the stop control, named so `panelCopy`'s
+ * haltable arm can be exhaustive over exactly them. A fourth state routed here
+ * is then a compile error in BOTH places, instead of inheriting the `approved`
+ * sentence and telling the owner nothing has left while it is sending.
+ */
+type HaltableState = Extract<
+  SendLaneView['batchState'],
+  'veto_window' | 'approved' | 'sending'
+>;
+
 type PanelMode =
-  | 'preparing'
-  | 'approvable'
-  | 'stoppable'
-  | 'expired'
-  | 'halted'
-  | 'settled';
+  | { kind: 'preparing' }
+  | { kind: 'approvable' }
+  /** Ready, but nothing was written for anyone — no approve control (edge case 9). */
+  | { kind: 'nothing_to_send' }
+  | { kind: 'haltable'; state: HaltableState }
+  | { kind: 'expired' }
+  | { kind: 'halted' }
+  | { kind: 'settled' };
 
 /**
  * The render rule, in one place. Exhaustive over `BatchState` with no
  * `default`, so a new lifecycle state fails to compile here rather than
  * silently rendering the settled screen.
+ *
+ * `sendableRows` is a parameter rather than a second lane field because
+ * readiness and sendability are different facts: readiness asks whether every
+ * ask has a FINISHED attempt, and a withheld attempt is finished — so a batch
+ * whose every attempt was withheld is vacuously `ready` with nothing to send.
  */
-function panelMode(lane: SendLaneView): PanelMode {
+function panelMode(lane: SendLaneView, sendableRows: number): PanelMode {
   switch (lane.batchState) {
     case 'built':
-      return lane.ready ? 'approvable' : 'preparing';
+      if (!lane.ready) return { kind: 'preparing' };
+      return sendableRows > 0 ? { kind: 'approvable' } : { kind: 'nothing_to_send' };
     case 'veto_window':
     case 'approved':
     case 'sending':
-      return 'stoppable';
+      return { kind: 'haltable', state: lane.batchState };
     case 'expired':
-      return 'expired';
+      return { kind: 'expired' };
     case 'halted':
-      return 'halted';
+      return { kind: 'halted' };
     case 'closed':
     case 'pending':
-      return 'settled';
+      return { kind: 'settled' };
   }
 }
 
@@ -98,12 +141,13 @@ function panelMode(lane: SendLaneView): PanelMode {
  * rather than inheriting "no button" by omission.
  */
 function actionVerb(mode: PanelMode): ApprovalVerb | null {
-  switch (mode) {
+  switch (mode.kind) {
     case 'approvable':
       return 'approve';
-    case 'stoppable':
+    case 'haltable':
       return 'halt';
     case 'preparing':
+    case 'nothing_to_send':
     case 'expired':
     case 'halted':
     case 'settled':
@@ -115,8 +159,59 @@ function countPhrase(count: number): string {
   return `${count} ${count === 1 ? 'message' : 'messages'}`;
 }
 
+/**
+ * Exhaustive over the three haltable states, no `default` and no re-read of
+ * `lane.batchState`: the state was decided by `panelMode` and travels on the
+ * mode, so this cannot disagree with the control that is on screen.
+ *
+ * The veto window is an undo, not a review window, so every arm says what has
+ * and has not left — never "review these before they send".
+ */
+function haltableBody(state: HaltableState): string {
+  switch (state) {
+    case 'veto_window':
+      return 'Approved. Nothing has left yet, and you can still stop this batch.';
+    case 'approved':
+      return 'Approved and waiting to go out. Stopping cancels everything that has not left yet.';
+    case 'sending':
+      return 'These messages are going out now. Stopping cancels everything that has not left yet.';
+  }
+}
+
+/**
+ * Who stopped the batch, as the owner reads it. Total over `HaltReason` — the
+ * READ side's union, which names all five writers of the one latch — so a sixth
+ * reason is a tsc error here, and only the two reasons the owner can actually
+ * cause say "you". The other three exist today with no owner entry point
+ * (`admin_halt`) or no writer yet (#630's `send_window_elapsed`,
+ * `batch_expired`); hard-coding "You stopped this batch" for all five is how
+ * this screen would start lying the moment #630 lands.
+ */
+const HALT_BODY: Readonly<Record<HaltReason, string>> = {
+  owner_veto: 'You stopped this batch before anything left. It cannot be resumed.',
+  owner_halt:
+    'You stopped this batch while it was sending. Whatever had already left has gone; nothing further will send.',
+  admin_halt:
+    'RepWorth support stopped this batch. It cannot be resumed — get in touch if that was not expected.',
+  send_window_elapsed:
+    'This batch ran out of time before everything went out, so the rest was cancelled. It cannot be resumed.',
+  batch_expired:
+    'This batch expired before it was approved, so it was stopped. Nothing was sent.',
+};
+
+/** The read model ASSERTS `halt_reason` against its CHECK rather than
+ *  re-validating it, so a value from outside the union is possible in
+ *  principle. It must read as a stop, never as a blank line. */
+const UNKNOWN_HALT_BODY = 'This batch was stopped. It cannot be resumed.';
+
+function haltedBody(reason: HaltReason | null): string {
+  return reason !== null && Object.hasOwn(HALT_BODY, reason)
+    ? HALT_BODY[reason]
+    : UNKNOWN_HALT_BODY;
+}
+
 function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body: string } {
-  switch (mode) {
+  switch (mode.kind) {
     case 'preparing':
       return {
         heading: 'Getting your messages ready',
@@ -125,30 +220,22 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
     case 'approvable':
       return {
         heading: 'Ready for your approval',
-        body: 'Nothing sends until you approve. Deselect anyone you would rather skip — messages cannot be edited here.',
+        body: 'Read each message below — this is exactly what will be sent. Nothing sends until you approve, and messages cannot be edited here. Deselect anyone you would rather skip.',
       };
-    case 'stoppable':
+    case 'nothing_to_send':
       return {
-        heading: 'Approved',
-        // The veto window is an undo, not a review window: the copy says what
-        // has and has not left, never "review these before they send".
-        body:
-          lane.batchState === 'veto_window'
-            ? 'Approved. Nothing has left yet, and you can still stop this batch.'
-            : lane.batchState === 'sending'
-              ? 'These messages are going out now. Stopping cancels everything that has not left yet.'
-              : 'Approved and waiting to go out. Stopping cancels everything that has not left yet.',
+        heading: 'Nothing to send in this batch',
+        body: 'No message was written for anyone in this batch, so there is nothing to approve. The report below shows what was held back, and why.',
       };
+    case 'haltable':
+      return { heading: 'Approved', body: haltableBody(mode.state) };
     case 'expired':
       return {
         heading: 'This batch expired',
         body: 'This batch expired before it was approved. Nothing was sent.',
       };
     case 'halted':
-      return {
-        heading: 'You stopped this batch',
-        body: 'You stopped this batch. It cannot be resumed.',
-      };
+      return { heading: 'This batch was stopped', body: haltedBody(lane.haltReason) };
     case 'settled':
       return {
         heading: 'This batch is finished',
@@ -184,17 +271,30 @@ function includedCount(
 
 // ── The write ───────────────────────────────────────────────────────────────
 
-type LaneOutcome =
-  /** The server settled the request: 2xx, carrying its result discriminant. */
-  | { kind: 'done'; status: string }
-  /** The server refused with a reason worth repeating (400 / 409). */
-  | { kind: 'refused'; status: string }
-  /** Anything else, including transport failure. */
-  | { kind: 'failed' };
+/**
+ * Every discriminant either owner route can answer with, taken from the two
+ * result unions themselves rather than re-spelled as strings here. That is the
+ * whole point of the type: the record below is TOTAL over it, so a new refusal
+ * added to `ApproveBatchResult` or `HaltBatchResult` is a tsc error in this
+ * file instead of silently degrading to the generic copy.
+ */
+type LaneStatus = ApproveBatchResult['status'] | HaltBatchResult['status'];
 
-/** Refusals the owner can act on. Anything unmapped degrades to the generic
- *  copy rather than surfacing a raw discriminant. */
-const REFUSAL_COPY: Record<string, string> = {
+/**
+ * What the owner reads when a write did not settle as done. `null` marks the
+ * statuses a 2xx carries: those settled, and the verb's own sentence speaks for
+ * them, so they have no refusal copy to give.
+ *
+ * "Nothing was approved" is safe to say in every arm here because a refusal IS
+ * a refusal: `approveBatch` validates the exclusion list BEFORE it writes
+ * anything, so a 400/409 leaves the batch untouched. The uncertain case is the
+ * `unconfirmed` outcome below, and it deliberately claims nothing.
+ */
+const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
+  approved: null,
+  already_approved: null,
+  halted: null,
+  already_halted: null,
   not_ready:
     'Some messages are still being prepared. Nothing was approved — try again in a moment.',
   not_approvable:
@@ -202,9 +302,38 @@ const REFUSAL_COPY: Record<string, string> = {
   unknown_exclusion:
     'We could not match one of the people you deselected. Nothing was approved.',
   not_haltable: 'This batch has already finished. There is nothing left to stop.',
+  not_found: 'We could not find this batch any more. Reload the page to see where it stands.',
 };
 
-const GENERIC_FAILURE = 'Something went wrong. Nothing changed — try again.';
+/** A discriminant this build knows, or null for anything else on the wire — a
+ *  server deployed ahead of the browser is a real case, and `in`-checking the
+ *  record's OWN keys keeps `toString` and friends off the lookup path. */
+function toLaneStatus(value: unknown): LaneStatus | null {
+  return typeof value === 'string' && Object.hasOwn(LANE_REFUSAL_COPY, value)
+    ? (value as LaneStatus)
+    : null;
+}
+
+type LaneOutcome =
+  /** The server settled the request: 2xx, carrying its result discriminant. */
+  | { kind: 'done'; status: LaneStatus | null }
+  /** The server refused with a reason worth repeating (400 / 409). */
+  | { kind: 'refused'; status: LaneStatus | null }
+  /**
+   * The client never read an answer: transport failure, or a response whose
+   * body carries no discriminant. NOT a failure — the transaction may already
+   * have committed, in which case the batch is approved and its veto clock is
+   * running. The one thing that is certainly wrong here is "nothing changed".
+   */
+  | { kind: 'unconfirmed' };
+
+const GENERIC_REFUSAL = 'Something went wrong. Nothing changed — try again.';
+
+/** Deliberately claims nothing about the write. The refetch it triggers is what
+ *  answers the question, and both verbs are safe to repeat: approval is CAS'd
+ *  on `approved_at IS NULL` and the Halt latch is monotone. */
+const UNCONFIRMED_OUTCOME =
+  'We could not confirm whether that went through. Reloading the batch now — check the state below before trying again.';
 
 async function postLaneAction(
   path: string,
@@ -218,29 +347,30 @@ async function postLaneAction(
       body: JSON.stringify(body),
     });
     // 400 and 409 are the only refusals that carry a result discriminant; every
-    // other non-2xx is `errorResponse`, whose body says nothing useful here.
+    // other non-2xx is `errorResponse`, whose body says nothing about whether
+    // the transaction committed. So it is unconfirmed, not failed.
     if (response.ok || response.status === 400 || response.status === 409) {
       const result = (await response.json()) as { status?: unknown };
-      const status = typeof result.status === 'string' ? result.status : '';
+      const status = toLaneStatus(result.status);
       return response.ok ? { kind: 'done', status } : { kind: 'refused', status };
     }
-    console.error(`[requests] lane action failed with ${response.status}`);
-    return { kind: 'failed' };
+    console.error(`[requests] lane action answered ${response.status}`);
+    return { kind: 'unconfirmed' };
   } catch (error) {
     console.error('[requests] lane action could not reach the server', error);
-    return { kind: 'failed' };
+    return { kind: 'unconfirmed' };
   }
 }
 
-/** What the owner reads when a write did not settle as done. */
-function failureCopy(outcome: LaneOutcome): string {
-  return outcome.kind === 'refused'
-    ? (REFUSAL_COPY[outcome.status] ?? GENERIC_FAILURE)
-    : GENERIC_FAILURE;
+/** The copy for a refusal. A status outside this build's union, or one whose
+ *  arm is `null`, is still a refusal — the server validated and declined — so
+ *  the generic sentence may honestly say nothing changed. */
+function refusalCopy(status: LaneStatus | null): string {
+  return (status === null ? null : LANE_REFUSAL_COPY[status]) ?? GENERIC_REFUSAL;
 }
 
 /** The sentence the parent announces, from the route's result discriminant. */
-type Announce = (status: string) => string;
+type Announce = (status: LaneStatus | null) => string;
 
 /** The approve sentence. The count is bound here so the shared settle path
  *  below stays free of either route's copy. */
@@ -258,6 +388,14 @@ const haltedAnnounce: Announce = (status) =>
     ? 'This batch was already stopped.'
     : 'Batch stopped. Nothing further will send.';
 
+/**
+ * How a write ended, for the parent. `settled` means the server answered and
+ * the sentence describes what it did; `unconfirmed` means the sentence describes
+ * only that we do not know — the parent refetches either way, but must not
+ * present the second as a report of what happened.
+ */
+export type LaneWriteOutcome = 'settled' | 'unconfirmed';
+
 interface LaneWriteInputs {
   batchId: string;
   /** The location scope the view was read for — the write must name the same
@@ -267,13 +405,13 @@ interface LaneWriteInputs {
   excluded: ReadonlySet<string>;
   /** Only for the approve sentence — the server recounts under its own lock. */
   sendCount: number;
-  onChanged: (message: string) => void;
+  onChanged: (message: string, outcome: LaneWriteOutcome) => void;
 }
 
 interface LaneWrites {
   /** True while either write is in flight. */
   busy: boolean;
-  /** Copy for the last write that did not settle as done; '' when there is none. */
+  /** Copy for the last write the server REFUSED; '' when there is none. */
   error: string;
   approve: () => void;
   halt: () => void;
@@ -303,11 +441,20 @@ function useLaneWrites({
       setError('');
       const outcome = await postLaneAction(path, scope, requestBody);
       setBusy(false);
-      if (outcome.kind !== 'done') {
-        setError(failureCopy(outcome));
+      if (outcome.kind === 'refused') {
+        setError(refusalCopy(outcome.status));
         return;
       }
-      onChanged(announce(outcome.status));
+      // An unconfirmed outcome is handed UP rather than shown here, and the
+      // difference is not cosmetic: the batch may be approved with its veto
+      // clock already running, so the only honest next screen is the server's
+      // own state. The parent refetches, and the panel this error box belongs
+      // to is replaced by whatever is actually true.
+      if (outcome.kind === 'unconfirmed') {
+        onChanged(UNCONFIRMED_OUTCOME, 'unconfirmed');
+        return;
+      }
+      onChanged(announce(outcome.status), 'settled');
     },
     [onChanged, scope],
   );
@@ -338,9 +485,10 @@ export interface ApprovalPanelProps {
   /** The location scope the view was read for — the write must name the same
    *  location, or it lands on the owner's default one. */
   scope: string;
-  /** Called after every settled write, with the sentence to announce. The
-   *  parent turns this into its existing refetch. */
-  onChanged: (message: string) => void;
+  /** Called after every write that left the panel, with the sentence to
+   *  announce and whether that sentence is a report or an admission. The parent
+   *  turns both into its existing refetch. */
+  onChanged: (message: string, outcome: LaneWriteOutcome) => void;
 }
 
 export function ApprovalPanel({
@@ -358,7 +506,9 @@ export function ApprovalPanel({
     [rows],
   );
 
-  const mode = panelMode(sendLane);
+  // Sendability, not readiness: an all-withheld batch is `ready` with nothing
+  // to approve, and must not be offered a control that would send 0 messages.
+  const mode = panelMode(sendLane, sendable.length);
   const { heading, body } = panelCopy(mode, sendLane);
   const sendCount = includedCount(sendable, excluded);
 
@@ -384,7 +534,7 @@ export function ApprovalPanel({
       </h2>
       <p className="rq-state-body">{body}</p>
 
-      {mode === 'approvable' && (
+      {mode.kind === 'approvable' && (
         <SelectableAskList
           rows={sendable}
           excluded={excluded}
@@ -393,9 +543,11 @@ export function ApprovalPanel({
         />
       )}
 
-      {(mode === 'stoppable' || mode === 'halted') && <AskList rows={rows} />}
+      {(mode.kind === 'haltable' ||
+        mode.kind === 'halted' ||
+        mode.kind === 'nothing_to_send') && <AskList rows={rows} />}
 
-      {mode === 'settled' && (
+      {mode.kind === 'settled' && (
         <p className="rq-approval-summary">{countPhrase(rows.length)} in this batch.</p>
       )}
 

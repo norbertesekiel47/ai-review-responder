@@ -351,6 +351,53 @@
   white-space: nowrap;
 }
 
+/* The message itself — what the owner is actually approving. `flex: 1 0 100%`
+   drops it onto its own line under the name/status pair rather than competing
+   with them for width, and the recess reads as "this is the artefact", the same
+   way the AI-reply panel does elsewhere in the console. */
+.rq-ask-message {
+  flex: 1 0 100%;
+  margin: 2px 0 8px 0;
+  padding: 10px 12px;
+  border-radius: var(--rw-radius-md);
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-hair);
+}
+
+.rq-ask-subject {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  /* Rendered copy is arbitrary text: a long unbroken token must not push the
+     card sideways. */
+  overflow-wrap: anywhere;
+}
+
+.rq-ask-body {
+  margin: 6px 0 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--rw-app-text);
+  /* The body is written with its own line breaks — it must read as the email
+     the contact will receive, not as one reflowed paragraph. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rq-ask-subject + .rq-ask-body { margin-top: 6px; }
+
+/* A row whose attempt was never written (render_failed) or whose bytes are
+   past their retention window. Quiet, and worded so it can never be mistaken
+   for a redacted message. */
+.rq-ask-empty {
+  flex: 1 0 100%;
+  margin: 2px 0 8px 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--rw-app-text-muted);
+}
+
 .rq-approval-summary {
   margin: 0;
   font-size: 13px;
@@ -389,6 +436,21 @@
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 18px;
+}
+
+/* The unconfirmed-write banner: a write whose outcome the client never read.
+   Deliberately NOT the danger wash — the batch below may well be approved, and
+   an alarm would claim as much certainty as "nothing changed" did. It sits
+   above the screen it is about, and outlives the refetch it triggered so the
+   owner can read it after the panel has been replaced. */
+.rq-lane-unsure {
+  margin: 0 0 20px 0;
+  padding: 12px 14px;
+  border-radius: var(--rw-radius-md);
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-hair-2);
+  font-size: 13px;
+  color: var(--rw-app-text);
 }
 
 /* ---------- Loading / error / gone ---------- */

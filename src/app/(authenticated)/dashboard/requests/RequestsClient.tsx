@@ -6,7 +6,7 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { BatchView } from '@/lib/solicitation/batch-view';
-import { ApprovalPanel } from './ApprovalPanel';
+import { ApprovalPanel, type LaneWriteOutcome } from './ApprovalPanel';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
 import './requests.css';
@@ -46,32 +46,64 @@ type Phase =
 
 const LOADING: Phase = { kind: 'loading' };
 
+/**
+ * The last thing the approval lane had to say, and which location it was said
+ * about. Scope-keyed for the same reason the phase is: an approval that lands
+ * after the owner switched location must not be announced against the location
+ * they switched to (edge case 13).
+ */
+interface LaneSentence {
+  scope: string;
+  /** '' when there is nothing to say. */
+  message: string;
+  outcome: LaneWriteOutcome;
+}
+
+function noLaneSentence(scope: string): LaneSentence {
+  return { scope, message: '', outcome: 'settled' };
+}
+
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
   const { phase, announcement, retry } = useLatestBatch(currentScope);
-  const [laneMessage, setLaneMessage] = useState('');
+  const [lane, setLane] = useState<LaneSentence>(() => noLaneSentence(currentScope));
 
   const builtBatchId =
     phase.kind === 'ready' && phase.view.state === 'built' ? phase.view.batchId : null;
   useReviewedPing(builtBatchId, currentScope);
+
+  // Keyed by scope exactly like the loop's own announcement (`superseded`
+  // below): a sentence about the location the owner just left is never said
+  // against the one they switched to, including when the write that produced it
+  // was still in flight at the switch.
+  const laneSentence = lane.scope === currentScope ? lane.message : '';
+  const laneUnsure = laneSentence !== '' && lane.outcome === 'unconfirmed';
 
   /**
    * The approval panel writes, then hands the refetch straight back to
    * `retry()` — the fetch loop stays the single owner of `phase`, so the panel
    * never has to reconcile a view it just changed.
    *
-   * Its sentence takes precedence in the live region because it reports
-   * something the owner just DID. It cannot mask the loop's own announcement:
-   * that one fires only on a building → built transition, which cannot follow
-   * an approval of an already-built batch.
+   * An `unconfirmed` write is announced AND shown: the panel that would have
+   * carried the message is about to be replaced by the refetch, and this is the
+   * one outcome where the owner has to be told something the new screen cannot
+   * say by itself.
    */
   const onLaneChanged = useCallback(
-    (message: string) => {
-      setLaneMessage(message);
+    (message: string, outcome: LaneWriteOutcome) => {
+      setLane({ scope: currentScope, message, outcome });
       retry();
     },
-    [retry],
+    [currentScope, retry],
   );
+
+  /** Every other refetch clears the lane sentence. Without this, a sentence
+   *  about a write that has since been superseded gets re-announced the moment
+   *  something else clears the loop's announcement. */
+  const onRetry = useCallback(() => {
+    setLane(noLaneSentence(currentScope));
+    retry();
+  }, [currentScope, retry]);
 
   return (
     <>
@@ -88,15 +120,28 @@ export function RequestsClient() {
       <div className="content rq-surface">
         {/* Mounted unconditionally: a live region only announces changes to a
             region already in the DOM, and the building screen it reports on is
-            gone by the time there is anything to say. */}
-        <LiveRegion message={laneMessage !== '' ? laneMessage : announcement} />
+            gone by the time there is anything to say.
+
+            The loop's announcement outranks the lane sentence, and the lane
+            sentence is cleared by every refetch that does not carry a new one,
+            so neither can mask the other for good. The unsure banner below is
+            already a role="alert" and speaks for itself, so it is withheld here
+            rather than announced twice. */}
+        <LiveRegion
+          message={announcement !== '' ? announcement : laneUnsure ? '' : laneSentence}
+        />
+        {laneUnsure && (
+          <p className="rq-lane-unsure" role="alert">
+            {laneSentence}
+          </p>
+        )}
         {currentScope === 'all' ? (
           <ChooseLocation />
         ) : (
           <Screen
             phase={phase}
             scope={currentScope}
-            onRetry={retry}
+            onRetry={onRetry}
             onLaneChanged={onLaneChanged}
           />
         )}
@@ -114,7 +159,7 @@ function Screen({
   phase: Phase;
   scope: string;
   onRetry: () => void;
-  onLaneChanged: (message: string) => void;
+  onLaneChanged: (message: string, outcome: LaneWriteOutcome) => void;
 }) {
   switch (phase.kind) {
     case 'loading':
