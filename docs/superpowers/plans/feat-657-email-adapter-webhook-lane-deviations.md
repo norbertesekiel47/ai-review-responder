@@ -301,3 +301,43 @@ therefore fails with 4 findings after this task — 2 mine, 2 for Task 5's
 `src/lib/messaging/` pair — and goes green when Task 7 adds the rows. Not a
 deviation from the plan; recorded so a reviewer running the audits mid-ticket
 does not mistake it for one.
+
+---
+
+## Orchestrator triage — step 6 read-back, 2026-08-16
+
+Every entry above carries an implementer's own ACCEPT. That is the author grading
+their own work, so each gets an independent verdict here. **Nothing is RE-PLAN**;
+no entry invalidates a locked intake decision, `allowed_edit_surface` was never
+amended (**0** of the 2 budget), and no promised title moved.
+
+Sections above appear out of order (D1, D3, D4, D5, D7, D2, D6) because three
+subagents appended concurrently. Cosmetic; left as the historical record of a
+parallel fan-out rather than renumbered after the fact.
+
+| # | Verdict | Basis — verified independently, not read off the entry |
+|---|---|---|
+| D1 | **ACCEPT** | Plan-phase triage, already closed across rounds 1–3. |
+| D2 | **ACCEPT** | Wording only. DR1 is correct: no flag gate reached the lane — grep confirms `solicitation-lane.ts` reads no flag. |
+| D3 | **ACCEPT** | Plan-phase. The three formerly-vacuous bodies now carry real assertions. |
+| D4 | **ACCEPT** | Plan-phase. F10's CFA fix is in the shipped code: the value returns from the `sql.begin` callback with an explicit `Promise<Committed \| null>` annotation, no closure `let`, no cast. |
+| D5.1 | **ACCEPT** | The strongest entry on the branch. The plan's own F2 body asserted `ledger` had **1** row while its title said "writes **nothing**" — self-contradictory, and racy besides. The rewrite holds the lock from the second connection first, asserts the parked statement is a **locking SELECT** (the F12 discriminator a buggy out-of-transaction read would fail), and asserts no artifact and no ledger row. Deterministic and still mutation-sensitive. |
+| D5.2 | **ACCEPT** | Arithmetic confirmed mechanically: 87 `it()` blocks introduced = 74 promised + 13 extras, distribution matching the plan's Step 2 table file by file. |
+| D5.3 | **ACCEPT** | Poison raises a real SQLSTATE 23514 on the very table the case is about, holds no schema, and leaves nothing behind — satisfies the house rule against forcing failure with a temporary constraint. |
+| D5.4 | **ACCEPT** | Driving the real `handleResendWebhook` is right for two ingress-level facts; follows the `zernio-fanout-archived` precedent for import-order and client teardown. |
+| D6.1 | **ACCEPT** | Verified: 392 + 5 = 397. Five not four is correct — one attribution `SELECT` the audit attributes per-table, plus three signal `UPDATE`s. Every `UPDATE` keys on `attribution.id` from the locked read **in the same transaction**, so tenant scope is inherited, never re-derived. Category matches the five sibling `resend.ts` entries. |
+| D6.2 | **ACCEPT** | Sequencing note, not a deviation. Now green (553 files, no stale rows). |
+| D7.1 | **ACCEPT** | Correct call, and the reasoning generalises: `ci:directory-map` gates coverage and staleness but **not accuracy**, so a row that hides `getSolicitationResend()` is precisely how a second one gets written. Fixing the two stale rows in the same change is the cheap moment. |
+| D7.2 | **ACCEPT** | The plan's filename is the more accurate of the two — the document is domain bring-up, not send-mode rollout. The spec's parenthetical resolves to nothing. |
+| D7.3 | **ACCEPT, with a carried-forward item** | Refusing to invent a DMARC `rua` address is the right posture. **This is a real open input, not a doc gap**: #633 cannot execute section 3 until the mailbox-or-vendor decision is made (spec §12). Flagged to the owner rather than buried in a runbook placeholder. |
+
+### One observation not logged by any task
+
+Task 3 surfaced, and correctly declined to act on: `src/lib/notifications/email/templates/internal.ts:52` types its parameter as `category?: EmailCategory`, so after the widening a caller *could* pass `'solicitation'` into the internal-alert template and get a runtime throw.
+
+**Verdict: ACCEPT the non-action.** The behaviour is fail-closed, so it is not a
+defect. Narrowing to `Exclude<EmailCategory, 'solicitation'>` would convert a
+runtime throw into a compile-time error, which is strictly better — but
+`templates/internal.ts` is **not** in `allowed_edit_surface`, so it would have
+cost a surface amendment for a type nicety with no live caller. Correct to leave.
+Recorded here so the option is visible to #630, which adds the first real caller.
