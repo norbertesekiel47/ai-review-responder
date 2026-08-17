@@ -9,17 +9,17 @@ function AutopilotGateCard() {
     <div className="hiw-artifact">
       <div className="hiw-artifact-cap">
         <span className="hiw-artifact-cap-dot" />
-        <span>Autopilot · policy check + veto window</span>
+        <span>Autopilot · settings check + veto window</span>
         <span className="hiw-artifact-cap-tail">{vetoed ? 'held for your review' : 'posting in 14:32'}</span>
       </div>
       <div className="hiw-draft">
         <div className="hiw-receipt">
           <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Policy</span>
-            <span className="hiw-receipt-val">4–5★ · unflagged</span>
+            <span className="hiw-receipt-lbl">Ratings allowed</span>
+            <span className="hiw-receipt-val">4–5★ · safety-checked</span>
           </div>
           <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Daily cap</span>
+            <span className="hiw-receipt-lbl">Daily limit</span>
             <span className="hiw-receipt-val">3 of 10 used</span>
           </div>
           <div className="hiw-receipt-cell">

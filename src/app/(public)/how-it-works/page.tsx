@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/flags';
 import { HowItWorksContent } from '@/components/sections/how-it-works/HowItWorksContent';
 
 export const metadata: Metadata = {
@@ -10,5 +11,13 @@ export const metadata: Metadata = {
 
 export default function HowItWorksPage() {
   const selfServeEnabled = selfServeSignupEnabled();
-  return <HowItWorksContent selfServeEnabled={selfServeEnabled} />;
+  // Same door as the landing page and /pricing: with self-serve on the CTA is
+  // /signup (trial label only when the trial is also on); with it off the
+  // lead-capture form is the only door there is.
+  const signupCtaLabel = selfServeEnabled
+    ? isTrialEnabled()
+      ? `Start your ${trialPeriodDays()}-day free trial`
+      : 'Create account'
+    : null;
+  return <HowItWorksContent selfServeEnabled={selfServeEnabled} signupCtaLabel={signupCtaLabel} />;
 }

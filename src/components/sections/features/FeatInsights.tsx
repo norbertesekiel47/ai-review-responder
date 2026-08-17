@@ -31,13 +31,16 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
           </h2>
           <p className="text-rw-ink-soft max-w-md leading-relaxed mb-6">
             Insights is the reporting agent. It sends a short, plain-language summary of what
-            customers said this week: what they loved, what they complained about, and one thing
-            worth looking at on the ops side.
+            customers said this week: what they loved, what they complained about, and, when there
+            is enough to say, one thing worth looking at on the ops side.
           </p>
           <ul className="space-y-3 text-sm">
             {[
               'Review volume and trend',
               'A plain-language brief with one concrete suggestion',
+              'Estimated time saved this week',
+              'Reviews that need your eye',
+              'How you compare with a competitor you name',
             ].map((t) => (
               <li key={t} className="flex items-start gap-3">
                 <span className="mt-1.5 size-1.5 rounded-full bg-rw-teal shrink-0" />
@@ -108,8 +111,8 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
             <div className="border-t border-rw-teal/20 pt-5">
               <p className="rw-label-mono text-[10px] uppercase text-rw-teal-strong mb-2">One thing to look at</p>
               <p className="text-rw-ink rw-display-serif text-lg leading-snug">
-                &ldquo;Wait time came up in 4 reviews this week; all on Saturday nights. Worth looking at
-                7–9pm staffing.&rdquo;
+                &ldquo;Wait time came up in 4 reviews this week. Worth a look at how pickups are staffed
+                on your busiest days.&rdquo;
               </p>
             </div>
           </article>

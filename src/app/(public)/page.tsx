@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
-import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
+import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/flags';
 import { LandingExperience } from '@/components/sections/landing/LandingExperience';
-import { getServerConfig } from '@/lib/config/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,11 +10,6 @@ export const metadata: Metadata = {
   description:
     'RepWorth drafts on-brand replies to your Google reviews and posts them only after your approval, or inside the bounds you set. Reply to every review without the busywork.',
 };
-
-function resolveTrialDays(): number {
-  const parsed = Number.parseInt(getServerConfig().TRIAL_PERIOD_DAYS ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
-}
 
 export default function LandingPage() {
   const selfServeEnabled = selfServeSignupEnabled();
@@ -28,7 +22,7 @@ export default function LandingPage() {
   // back to the lead-capture route in that state.
   const primaryCtaHref = selfServeEnabled ? '/signup' : '/book-a-demo';
   const primaryCtaLabel = trialEnabled
-    ? `Start your ${resolveTrialDays()}-day free trial`
+    ? `Start your ${trialPeriodDays()}-day free trial`
     : 'Get early access';
 
   return (

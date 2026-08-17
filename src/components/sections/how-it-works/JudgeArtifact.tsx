@@ -6,7 +6,7 @@ export function JudgeArtifact() {
       <div className="hiw-artifact-cap">
         <span className="hiw-artifact-cap-dot" />
         <span>Judge review · after auto-post</span>
-        <span className="hiw-artifact-cap-tail">43 sec after posting</span>
+        <span className="hiw-artifact-cap-tail">within a minute of posting</span>
       </div>
       <div className="hiw-draft">
         <div className="hiw-draft-out">
@@ -30,7 +30,7 @@ export function JudgeArtifact() {
           </div>
           <div className="hiw-receipt-cell">
             <span className="hiw-receipt-lbl">Governor</span>
-            <span className="hiw-receipt-val">Autonomy active</span>
+            <span className="hiw-receipt-val">Autopilot active</span>
           </div>
         </div>
       </div>

@@ -5,13 +5,12 @@ export function TriageArtifact() {
     <div className="hiw-artifact">
       <div className="hiw-artifact-cap">
         <span className="hiw-artifact-cap-dot" style={{ background: '#F2C3B9', boxShadow: '0 0 0 4px rgba(242,195,185,0.2)' }} />
-        <span>Guardian triage · negative lane</span>
-        <span className="hiw-artifact-cap-tail">~1 sec</span>
+        <span>Guardian triage · reviews of 3★ or less</span>
       </div>
       <div className="hiw-draft">
         <div className="hiw-draft-src">
           <div className="hiw-draft-src-meta">
-            Input · negative lane ·{' '}
+            Input · 2★ review ·{' '}
             <span aria-label="2 out of 5 stars">
               <span aria-hidden="true" style={{ color: '#97B3AE' }}>★★</span>
               <span aria-hidden="true" style={{ color: '#e5e5e5' }}>★★★</span>

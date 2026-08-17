@@ -12,7 +12,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
     <section
       ref={innerRef}
       id="f-roi"
-      aria-label="ROI dashboard"
+      aria-label="Results dashboard"
       className="px-8 md:px-16 py-20 bg-rw-cream/50 relative"
     >
       <div ref={headRef} className={`rw-reveal flex items-start gap-6 mb-10 ${headSeen ? 'in' : ''}`}>
@@ -23,8 +23,9 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             Numbers to show your <span className="rw-display-serif text-rw-teal-strong">accountant</span>.
           </h2>
           <p className="text-rw-ink-soft mt-4 leading-relaxed">
-            Response rate before and after. Your average rating over time. Where you sit in local
-            search. The kind of numbers that justify the line item.
+            Response rate before and after. Your average rating over time. Where you sit on the
+            local map for the search terms we track for you. Estimated time saved. The kind of
+            numbers that justify the line item.
           </p>
           <p className="text-[10px] italic text-rw-ink-soft mt-2">
             Sample dashboard with illustrative numbers. Yours shows your own.
@@ -92,6 +93,17 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
           </svg>
         </div>
 
+        <div className="md:col-span-12 bg-white rounded-3xl p-6 border border-rw-teal/15 flex flex-wrap items-baseline justify-between gap-4">
+          <div>
+            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-1">Time saved · estimate</p>
+            <p className="text-sm text-rw-ink-soft">About 7 minutes per handled review, shown on your dashboard and in the weekly brief.</p>
+          </div>
+          <div className="flex items-baseline gap-3">
+            <span className="rw-num-tag text-4xl text-rw-ink">1.6<span className="text-lg"> hrs</span></span>
+            <span className="text-xs rw-label-mono text-rw-ink-soft">this week · 14 reviews</span>
+          </div>
+        </div>
+
         <div className="md:col-span-12 bg-rw-ink text-white rounded-3xl p-8 relative overflow-hidden">
           <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
             <div>
@@ -100,7 +112,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             </div>
             <div className="text-right">
               <p className="rw-label-mono text-[10px] text-white/50">SEARCH: &ldquo;taqueria near me&rdquo;</p>
-              <p className="rw-label-mono text-[10px] text-white/50">RADIUS: 2mi</p>
+              <p className="rw-label-mono text-[10px] text-white/50">GOOGLE MAPS · LOCAL PACK</p>
             </div>
           </div>
           <div className="relative h-36">
