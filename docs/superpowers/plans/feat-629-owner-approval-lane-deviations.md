@@ -33,10 +33,20 @@ budget.
 **What:** codex asked for a test that holds the generation transaction after it
 takes the advisory/batch locks, starts an approval, then commits generation.
 **Why not:** generation is **not a single transaction** — `persistChildRender`
-commits per child, so there is no transaction to hold and the test would be
-staging a fiction. The refuse-then-succeed pair across a genuinely committed
-render pins the real contract: readiness is evaluated against the committed row
-set, inside the approval transaction, under the batch lock.
+(`ask-generation.ts:705`) opens its own `sql.begin` per child — so there is no
+transaction to hold and the test would be staging a fiction. The
+refuse-then-succeed pair across a genuinely committed render pins the real
+contract: readiness is evaluated against the committed row set, inside the
+approval transaction, under the batch lock.
+
+**Verified while writing this entry, and it strengthens the design:**
+`persistChildRender` takes the same advisory batch lock, re-reads the batch
+`FOR UPDATE`, and **refuses to insert unless `deriveBatchState(batch) === 'built'`**
+(returns `{ kind: 'stopped', state }`). So the whole-batch generation lane
+already declines to add a render to an approved batch. The readiness gate in
+`approveBatch` and this guard are two independent locks on the same door, taken
+in the same order — neither is redundant, because readiness is what stops a
+*premature* approval and this is what stops a *late* render.
 
 ---
 
@@ -44,9 +54,13 @@ set, inside the approval transaction, under the batch lock.
 
 **When:** plan review round 1 (finding 5).
 **What:** amendment B2 permits per-ask regeneration of un-excluded `rendered`
-rows *after* approval, and `regenerateAsk` (`src/lib/solicitation/ask-generation.ts`)
-already accepts the `approved`, `veto_window` and `sending` states. So approved
-bytes can in principle be replaced without a fresh approval decision.
+rows *after* approval. Verified in code: `REGENERABLE_BATCH_STATES`
+(`ask-generation.ts:1222`) is `{ built, approved, veto_window, sending }`, with a
+doc comment naming B2 — #628 built this deliberately, it is not an oversight.
+The swap then inserts `attempt_no + 1` and cancels the prior row `superseded`.
+So approved bytes can in principle be replaced without a fresh approval
+decision, and the guard that protects the whole-batch lane (`persistChildRender`
+requiring state `built`, see D2) deliberately does **not** apply here.
 **Why not fixed here:** no owner entry point enqueues a per-ask regenerate today
 (#629 defers that surface with owner sign-off), so the path is unreachable in the
 shipped product. Narrowing `regenerateAsk` would reopen a locked amendment,
