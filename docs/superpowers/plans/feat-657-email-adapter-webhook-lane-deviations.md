@@ -341,3 +341,53 @@ runtime throw into a compile-time error, which is strictly better — but
 `templates/internal.ts` is **not** in `allowed_edit_surface`, so it would have
 cost a surface amendment for a type nicety with no live caller. Correct to leave.
 Recorded here so the option is visible to #630, which adds the first real caller.
+
+---
+
+## D8 — Step 7 review round 1, 2026-08-16
+
+Three review agents (adversarial-approach, spec-correctness, standards-maintainability;
+full reports under `docs/reviews/feat-657-email-adapter-webhook-lane/`) produced ten
+findings. The orchestrator triaged **eight ACCEPT, two REJECT**. All eight are applied
+below. No promised title moved, `allowed_edit_surface` is unchanged, and the amendment
+count remains **0** of the 2 budget.
+
+### Applied
+
+| # | Sev | Finding | Fix |
+|---|---|---|---|
+| R1 | high | The lane discriminant (`lane` / `'solicitation'`) was spelled as a bare literal on BOTH sides of a cross-module contract — `src/lib/messaging/email-adapter.ts` emits it, `worker/ingress/resend/solicitation-lane.ts` reads it — with no shared constant and no test binding the halves. A one-sided rename routes every solicitation webhook into the `notification_deliveries` lane, whose UPDATEs match zero rows and ack 200: the hard bounce or complaint is lost with no error, no `inbound_events` failure row and therefore no alert. Violates the working rule "no string literals — import the constant from its single authoritative TS file". | `LANE_TAG_NAME` and `SOLICITATION_LANE_TAG_VALUE` are exported from `src/lib/messaging/messaging-adapter.ts`, which the doc comment names as their single owner, and imported by both halves. New test `the tag the email adapter emits is the tag the solicitation lane routes on` drives the **real** `EmailAdapter` through a fake Resend client and feeds its captured tags to the **real** `isSolicitationLane` (plus end-to-end through `handleResendWebhook`), so a one-sided re-spelling fails a test instead of production. |
+| R2 | high | `assertSendable` validated the **trimmed** recipient while `send()` put the **untrimmed** `message.recipient` on the wire, so `'a@b.test\r\n'` passed both the CR/LF and `/[,\s;]/` guards and reached `to:` with the CR/LF intact. The existing case uses an *internal* CRLF, which trim does not remove — so it never exercised the hole. | The recipient is now validated **raw**, exactly as `subject` and `ownerEmail` always were, and `assertSendable` **returns** the validated value, which is what `send()` puts on the wire — so no future edit can validate one string and send another. New test `the email adapter rejects a recipient whose CR or LF is trailing`. |
+| R3 | medium | `result.error?.message` — provider-controlled text — was embedded verbatim in a thrown `Error` the contract says the caller must catch and will log. The lane states and enforces the opposite standard twice ("reason is provider-controlled text — stored, never logged"), because Resend's validation errors quote the offending field and can carry a recipient address. | The thrown **message** now names the failure only; the raw provider error rides on `cause`, where #630 can persist it to a COLUMN. The two cases stay distinguishable: `Resend refused the solicitation send` vs `Resend accepted the solicitation send but returned no message id`. No promised title asserts on this text (grep: the only reference was the source line itself). |
+| R4 | medium | `getEmailHeaders('solicitation')` compiled and threw only at runtime, on the live send path — an invariant expressible in the type system, in a file already inside the edit surface. | Overloaded. **Not** two flat signatures, which would have broken the one call site passing a *variable* category — `src/lib/notifications/email/templates/internal.ts:52` calls `getEmailHeaders(category)` with `category: EmailCategory`, assignable to neither `'solicitation'` nor `Exclude<EmailCategory, 'solicitation'>`, and that file is outside `allowed_edit_surface`. The shipped form is a conditional REST parameter (`EmailHeaderArgs<C>`), which distributes over the union so the widened call still compiles while the literal call does not. Verified with `rg -n "getEmailHeaders\(" src/ worker/`: no other call site moved. The runtime throw **stays** as defence in depth. |
+| R5 | low | `SuppressionSourceToRecord` hand-rolled a subset of the canonical `SuppressionSource` union exported by the very module the file already imports `recordSuppression` from. | `Extract<SuppressionSource, 'bounce_permanent' \| 'complaint' \| 'provider_suppressed'>`. |
+| R6 | low | `assertUpdatedOne` was `async` with no `await` in its body; a future missed `await` would turn a hard assertion inside `sql.begin` into an unhandled rejection and let the transaction commit the state the assertion forbids. | Synchronous; the three `await`s dropped. |
+| R7 | high | `throwUnmatched`'s doc comment claimed the retry is "bounded for free" by the 300s stale-`svix-timestamp` window. **False.** Resend re-delivers any non-2xx on its published schedule (~27h). The window guarantees only that the event can never be REPROCESSED — `verifySignature` runs in `worker/ingress/resend.ts` before lane dispatch, so later attempts are 401'd at the signature layer. | **Comment only, no behaviour change.** Rewritten to state: the throw → 503 recovers the common case; retries continue on Resend's schedule and are NOT bounded by the window; the compliance fact is not lost either way because `claimInboundEvent` persists the raw payload into `inbound_events` before processing and leaves the row `status='failed'` for replay; the residual is a sustained-failure tail on an endpoint SHARED with the notification path, and closing it at source belongs to **#630**. Deliberately **no** retry cap, counter or terminal-ack path — the intake scopes them out and the durable row already prevents the loss. |
+| R8 | medium | The intake's unmatched-attribution edge case still read "structured warn, ack 200" unconditionally, but the shipped lane throws → 503 → retry for permanent bounce, complaint and `email.suppressed`. D1/F1 corrected only `rollback_plan`, so the locked contract contradicted the code — and the intake is the drift detector. | The edge case now states the split (observability-only warn-and-ack vs suppression-bearing throw → 503) and preserves the "we never suppress a handle we cannot attribute" clause. Changed **byte-identically** in `.feature/intake.json` and `docs/superpowers/plans/feat-657-email-adapter-webhook-lane-intake.json`; `diff` confirms the two files are still identical and both parse as JSON. `allowed_edit_surface` untouched. |
+
+### Rejected
+
+- **REJECTED — `withAttribution`'s `onMissing` callback → boolean** (standards, L2).
+  The smell is real: two call sites, 1:1 with a boolean. But `withAttribution` is the
+  single transaction owner and was the landing site of three plan-review findings —
+  F9 (post-commit logging), F10 (the CFA build break), F11 (the conditional divergence
+  warn). Churning its signature for a parameter-count reduction risks re-opening
+  settled ground for no behavioural gain. Revisit if a third policy appears.
+- **REJECTED — extract the 1,107-line integration suite's ~430 lines of fixtures**
+  (standards, L4). The suite is this ticket's definition of done and passes 33/33.
+  #573 permits non-DDL helpers so the move is safe but not free — a shared helpers
+  module invites future DDL creep into exactly the place that deadlocks (40P01).
+  Recorded for a later test-hygiene pass, not done on green code at review stage.
+
+### One consequence worth recording
+
+R1 makes `src/lib/messaging/` an import cycle at the *value* level:
+`messaging-adapter.ts` → `email-adapter.ts` (for `getMessagingAdapter`'s
+`new EmailAdapter()`) and now `email-adapter.ts` → `messaging-adapter.ts` (for the two
+constants, previously a type-only import that erased). Benign under ESM in both
+evaluation orders — neither side *reads* the other's binding at module-evaluation time
+(`EmailAdapter` is referenced only inside `getMessagingAdapter`'s body; the constants
+only inside `send()`), and no lint rule or CI audit in this repo forbids cycles. The
+alternative — a third file owning two string constants — would have cost a new file and
+a `docs/directory.md` row against the "default is no new file" rule, for a weaker
+outcome: the seam file naming its own discriminant is where a reader looks for it.

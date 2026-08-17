@@ -61,7 +61,29 @@ export function extractMailbox(fromEmail: string | undefined): string | null {
  * The 'solicitation' category does NOT share any of the above: it returns from
  * its own fail-closed branch before this body, because none of these fallbacks
  * are legal on that lane. See solicitationHeaders().
+ *
+ * OVERLOADED so `getEmailHeaders('solicitation')` is a COMPILE error rather than
+ * a runtime throw on the live send path (round-1 review). The runtime throw in
+ * solicitationHeaders() stays as defence in depth — it still covers a JS caller,
+ * an `any`-typed value, and the non-HTTPS/missing-mailbox cases a type cannot
+ * express — and has its own test.
+ *
+ * The requirement is expressed as a CONDITIONAL REST PARAMETER, not as two flat
+ * overload signatures. Two flat signatures would break the one call site that
+ * passes a *variable* category: src/lib/notifications/email/templates/internal.ts
+ * calls getEmailHeaders(category) with `category: EmailCategory`, which is
+ * assignable to neither `'solicitation'` nor `Exclude<EmailCategory,
+ * 'solicitation'>`. The conditional distributes over that union, so the widened
+ * call keeps compiling while the literal `'solicitation'` call does not.
  */
+type EmailHeaderArgs<C extends EmailCategory> = C extends 'solicitation'
+  ? [opts: { unsubscribeUrl: string }]
+  : [opts?: EmailHeaderOptions];
+
+export function getEmailHeaders<C extends EmailCategory>(
+  category: C,
+  ...opts: EmailHeaderArgs<C>
+): Record<string, string>;
 export function getEmailHeaders(
   category: EmailCategory,
   opts: EmailHeaderOptions = {},

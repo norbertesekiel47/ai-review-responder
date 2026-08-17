@@ -13,15 +13,30 @@
 // ticket carries no migration.
 
 import type { Sql, TransactionSql } from 'postgres';
-import { recordSuppression } from '../../../src/lib/solicitation/suppression';
+import {
+  LANE_TAG_NAME,
+  SOLICITATION_LANE_TAG_VALUE,
+} from '../../../src/lib/messaging/messaging-adapter';
+import {
+  recordSuppression,
+  type SuppressionSource,
+} from '../../../src/lib/solicitation/suppression';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
 import { classifyBounce, extractBounceType } from './bounce-classifier';
 
 const logger = createWorkerLogger('ingress/resend/solicitation');
 
-/** True when this payload belongs to the Solicitation lane (§5.1). */
+/**
+ * True when this payload belongs to the Solicitation lane (§5.1).
+ *
+ * The tag name and value are IMPORTED, never spelled here: the adapter that
+ * emits them (`src/lib/messaging/email-adapter.ts`) is on the other side of a
+ * cross-module contract that `src/lib/messaging/messaging-adapter.ts` owns. A
+ * re-spelling here is exactly how the two halves drift apart and every
+ * solicitation webhook silently falls through to the notification lane.
+ */
 export function isSolicitationLane(data: unknown): boolean {
-  return readTag(data, 'lane') === 'solicitation';
+  return readTag(data, LANE_TAG_NAME) === SOLICITATION_LANE_TAG_VALUE;
 }
 
 function readTag(data: unknown, name: string): string | null {
@@ -105,12 +120,27 @@ function warnUnmatched(emailId: string, event: string): void {
 
 /**
  * Suppression-bearing events (permanent bounce, complaint, provider-suppressed):
- * throw so handleResendWebhook returns 503 and Resend retries. This closes the
- * window where #630 has not yet committed provider_message_id.
+ * throw so handleResendWebhook returns 503 and Resend retries. This recovers the
+ * common case — the window where #630 has committed the send but not yet its
+ * provider_message_id is seconds wide, so the next attempt matches.
  *
- * The retry is bounded for free: verifySignature already rejects any event whose
- * svix-timestamp is more than 300s old, so a genuinely-unknown id gets 401'd rather
- * than retrying forever. No new constant, no new env var.
+ * WHAT THE 300s WINDOW DOES AND DOES NOT BOUND. It does NOT stop the retries:
+ * Resend re-delivers any non-2xx on its published schedule (roughly 27 hours).
+ * What it guarantees is that the event can never be REPROCESSED — verifySignature
+ * runs in worker/ingress/resend.ts BEFORE lane dispatch, so every attempt past
+ * 300s is 401'd at the signature layer and never reaches this lane again.
+ *
+ * THE COMPLIANCE FACT IS NOT LOST EITHER WAY. claimInboundEvent
+ * (worker/ingress/shared.ts) persists the raw payload into inbound_events before
+ * processing, and a failed event is left status='failed' for replay — which is
+ * also what raises checkFailedInboundEvents.
+ *
+ * RESIDUAL RISK, stated honestly: a sustained-failure tail on an endpoint SHARED
+ * with the notification_deliveries path, which a provider may disable. Closing it
+ * at source belongs to #630 — persist provider_message_id atomically with the
+ * send and there is no unmatched window to retry into. Deliberately no retry cap,
+ * no counter and no terminal-ack path here: the durable inbound_events row
+ * already prevents the loss those would be protecting against.
  */
 function throwUnmatched(emailId: string, event: string): never {
   logger.warn({
@@ -175,7 +205,17 @@ interface Committed {
   suppressionWritten: boolean;
 }
 
-type SuppressionSourceToRecord = 'bounce_permanent' | 'complaint' | 'provider_suppressed';
+/**
+ * The three ledger sources this lane can write, BOUND to the canonical union
+ * rather than re-spelled. `src/lib/solicitation/suppression.ts` is the single
+ * owner of the vocabulary (CONTEXT.md: "never string literals at call sites"), so
+ * `Extract` makes a change to that union surface here instead of silently
+ * leaving a second, unowned enumeration behind.
+ */
+type SuppressionSourceToRecord = Extract<
+  SuppressionSource,
+  'bounce_permanent' | 'complaint' | 'provider_suppressed'
+>;
 
 async function withAttribution(
   sql: Sql,
@@ -214,8 +254,15 @@ async function withAttribution(
   });
 }
 
-/** The UPDATE must hit the row the lock protects. Zero rows is a bug, not a no-op. */
-async function assertUpdatedOne(count: number, outreachId: string): Promise<void> {
+/**
+ * The UPDATE must hit the row the lock protects. Zero rows is a bug, not a no-op.
+ *
+ * SYNCHRONOUS on purpose. Declared `async`, a call site that forgot the `await`
+ * would turn this hard assertion — which runs inside `sql.begin` — into an
+ * unhandled rejection, letting the transaction commit the very state it exists to
+ * forbid. A synchronous throw cannot be missed that way.
+ */
+function assertUpdatedOne(count: number, outreachId: string): void {
   if (count !== 1) {
     throw new Error(`expected to update exactly 1 outreach row, updated ${count}: ${outreachId}`);
   }
@@ -239,7 +286,7 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
                updated_at = NOW()
          WHERE id = ${attribution.id}
       `;
-      await assertUpdatedOne(updated.count, attribution.id);
+      assertUpdatedOne(updated.count, attribution.id);
       // Permanent only. Soft and 'unknown' record the fact and never suppress.
       return isHard ? 'bounce_permanent' : null;
     },
@@ -270,7 +317,7 @@ async function recordComplaint(sql: Sql, emailId: string): Promise<void> {
                updated_at = NOW()
          WHERE id = ${attribution.id}
       `;
-      await assertUpdatedOne(updated.count, attribution.id);
+      assertUpdatedOne(updated.count, attribution.id);
       return 'complaint';
     },
   );
@@ -341,7 +388,7 @@ async function recordFailure(sql: Sql, emailId: string, data: unknown): Promise<
                updated_at = NOW()
          WHERE id = ${attribution.id}
       `;
-      await assertUpdatedOne(updated.count, attribution.id);
+      assertUpdatedOne(updated.count, attribution.id);
       return null;
     },
   );

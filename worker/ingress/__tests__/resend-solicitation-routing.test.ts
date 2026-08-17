@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Resend } from 'resend';
 
 // Lane routing in the Resend webhook ingress (#657 Task 6, spec §5.1/§5.2). RED
 // until `worker/ingress/resend/solicitation-lane.ts` exists.
@@ -55,6 +56,13 @@ vi.mock('../resend/solicitation-lane', async () => {
 import { handleResendWebhook } from '../resend';
 import { isSolicitationLane } from '../resend/solicitation-lane';
 import { resetWorkerConfigForTests } from '../../../src/lib/config/worker';
+import { resetServerConfigForTests } from '../../../src/lib/config/server';
+import { EmailAdapter } from '../../../src/lib/messaging/email-adapter';
+import {
+  LANE_TAG_NAME,
+  SOLICITATION_LANE_TAG_VALUE,
+  type OutboundMessage,
+} from '../../../src/lib/messaging/messaging-adapter';
 
 // The handler only reads .body, .headers and .rawBody; the mock supplies all
 // three. Cast because FastifyRequest's generics are awkward from an ad-hoc object.
@@ -247,5 +255,96 @@ describe('handleResendWebhook — solicitation lane routing', () => {
     expect(isSolicitationLane({ tags: { lane: 'notification' } })).toBe(false);
     expect(isSolicitationLane({})).toBe(false);
     expect(isSolicitationLane(null)).toBe(false);
+  });
+
+  // ── The cross-module contract, bound (round-1 review, H1) ──────────────────
+  //
+  // Every other case in this file re-spells the discriminant on the reader side,
+  // and every case in email-adapter.test.ts re-spells it on the writer side. The
+  // two suites can therefore never disagree with each other — only with
+  // production. This one drives the REAL adapter and the REAL reader, so a
+  // rename on either half fails here instead of silently routing solicitation
+  // bounces and complaints into the notification_deliveries lane.
+  describe('the lane discriminant is one contract, not two spellings', () => {
+    const SOLICITATION_ENV: Record<string, string> = {
+      SOLICITATION_SEND_FROM_ADDRESS: 'reviews@feedback.test.repworth.net',
+      SOLICITATION_UNSUBSCRIBE_MAILTO: 'unsubscribe@feedback.test.repworth.net',
+    };
+    const SNAP: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      for (const [key, value] of Object.entries(SOLICITATION_ENV)) {
+        SNAP[key] = process.env[key];
+        process.env[key] = value;
+      }
+      resetServerConfigForTests();
+    });
+
+    afterEach(() => {
+      for (const key of Object.keys(SOLICITATION_ENV)) {
+        if (SNAP[key] === undefined) delete process.env[key];
+        else process.env[key] = SNAP[key];
+      }
+      resetServerConfigForTests();
+    });
+
+    function outboundMessage(): OutboundMessage {
+      return {
+        outreachId: '0198f0c0-0000-7000-8000-000000000657',
+        accountId: '0198f0c0-0000-7000-8000-0000000000ac',
+        businessId: '0198f0c0-0000-7000-8000-0000000000b1',
+        batchId: '0198f0c0-0000-7000-8000-0000000000ba',
+        businessName: 'Bright Smile Dental',
+        ownerEmail: 'owner@brightsmile.test',
+        recipient: 'customer@example.test',
+        subject: 'How did we do?',
+        bodyHtml: '<p>Would you mind leaving a review?</p>',
+        bodyText: 'Would you mind leaving a review?',
+        unsubscribeUrl: 'https://worker.test.repworth.net/u/tok_657_roundtrip',
+      };
+    }
+
+    it('the tag the email adapter emits is the tag the solicitation lane routes on', async () => {
+      // The WRITER, for real — a fake Resend client captures what actually went
+      // on the wire rather than what a fixture claims went on it.
+      let emitted: Array<{ name: string; value: string }> = [];
+      const fakeResend = {
+        emails: {
+          send: (payload: Record<string, unknown>) => {
+            emitted = payload.tags as Array<{ name: string; value: string }>;
+            return Promise.resolve({ data: { id: 'msg-roundtrip' }, error: null });
+          },
+        },
+      };
+
+      await new EmailAdapter(() => fakeResend as unknown as Resend).send(outboundMessage());
+
+      // Both halves import these; nothing else in the repo may spell them.
+      expect(emitted).toContainEqual({
+        name: LANE_TAG_NAME,
+        value: SOLICITATION_LANE_TAG_VALUE,
+      });
+
+      // The READER, for real, fed the writer's own output. This is the assertion
+      // a one-sided rename breaks.
+      expect(isSolicitationLane({ tags: emitted })).toBe(true);
+
+      // And end-to-end through the ingress: Resend echoes the tags it was sent,
+      // so the same array is what a real webhook carries back.
+      sqlReturnQueue.push({ count: 1 }); // inbound_events claim
+      sqlReturnQueue.push([]); // UPDATE inbound_events SET status='processed'
+      const { reply, captured } = makeReply();
+      await handleResendWebhook(
+        makeReq({
+          type: 'email.complained',
+          data: { email_id: 'msg-roundtrip', tags: emitted },
+        }),
+        reply,
+      );
+
+      expect(captured.status).toBe(200);
+      expect(laneHandler).toHaveBeenCalledTimes(1);
+      expect(joinSql(mockSql.mock.calls)).not.toContain('notification_deliveries');
+    });
   });
 });

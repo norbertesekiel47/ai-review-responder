@@ -13,6 +13,22 @@
 import { EmailAdapter } from './email-adapter';
 
 /**
+ * The Solicitation lane's routing discriminant (§5.2) — a CROSS-MODULE CONTRACT,
+ * and this file is its single authoritative owner.
+ *
+ * The tag is EMITTED by `./email-adapter.ts` and READ by
+ * `worker/ingress/resend/solicitation-lane.ts` (`isSolicitationLane`). The two
+ * halves live in different module trees and no compiler check binds them, so a
+ * rename on either side would silently route every solicitation webhook into the
+ * `notification_deliveries` lane — whose UPDATEs match zero rows, ack 200, and
+ * lose the bounce/complaint permanently. Import these; never re-spell them.
+ * `worker/ingress/__tests__/resend-solicitation-routing.test.ts` binds the two
+ * halves through these constants so a drift fails a test rather than production.
+ */
+export const LANE_TAG_NAME = 'lane';
+export const SOLICITATION_LANE_TAG_VALUE = 'solicitation';
+
+/**
  * One ask, ready to put on the wire. Every field is required — the adapter
  * refuses to build an envelope from a partial message rather than defaulting.
  */

@@ -9,7 +9,12 @@ import { getServerConfig } from '@/lib/config/server';
 import { getSolicitationResend, type getResend } from '@/lib/notifications/email/client';
 import { getEmailHeaders, getEmailTags } from '@/lib/notifications/email/headers';
 import { sendEmail } from '@/lib/notifications/email/send-email';
-import type { MessagingAdapter, OutboundMessage } from './messaging-adapter';
+import {
+  LANE_TAG_NAME,
+  SOLICITATION_LANE_TAG_VALUE,
+  type MessagingAdapter,
+  type OutboundMessage,
+} from './messaging-adapter';
 
 type ResendClient = ReturnType<typeof getResend>;
 
@@ -25,7 +30,9 @@ export class EmailAdapter implements MessagingAdapter {
   constructor(private readonly resolveClient: () => ResendClient = getSolicitationResend) {}
 
   async send(message: OutboundMessage): Promise<{ providerMessageId: string }> {
-    assertSendable(message);
+    // The RETURNED value is what goes on the wire, so no future edit can
+    // validate one string and send another (round-1 review).
+    const recipient = assertSendable(message);
 
     const headers = getEmailHeaders('solicitation', {
       unsubscribeUrl: message.unsubscribeUrl,
@@ -34,7 +41,7 @@ export class EmailAdapter implements MessagingAdapter {
     const result = await sendEmail(
       {
         from: formatFrom(message.businessName, resolveFromAddress()),
-        to: [message.recipient],
+        to: [recipient],
         replyTo: message.ownerEmail,
         subject: message.subject,
         html: message.bodyHtml,
@@ -42,9 +49,11 @@ export class EmailAdapter implements MessagingAdapter {
         headers,
         tags: [
           ...getEmailTags('solicitation'),
-          // The routing discriminant the Solicitation lane reads (§5.2). Values
-          // are ASCII letters/digits/_/- per Resend's tag constraint; UUIDs pass.
-          { name: 'lane', value: 'solicitation' },
+          // The routing discriminant the Solicitation lane reads (§5.2). Both
+          // halves import the constants from messaging-adapter.ts — never spell
+          // either one here. Values are ASCII letters/digits/_/- per Resend's
+          // tag constraint; UUIDs pass.
+          { name: LANE_TAG_NAME, value: SOLICITATION_LANE_TAG_VALUE },
           { name: 'account_id', value: message.accountId },
           { name: 'business_id', value: message.businessId },
           { name: 'batch_id', value: message.batchId },
@@ -55,17 +64,35 @@ export class EmailAdapter implements MessagingAdapter {
 
     // The Resend SDK returns { data, error } rather than throwing on an API
     // error. Convert to a throw so every failure reaches the caller one way.
-    if (result.error || !result.data?.id) {
-      throw new Error(
-        `Resend refused the solicitation send: ${result.error?.message ?? 'no message id returned'}`,
-      );
+    //
+    // The MESSAGE is safe to log: it names the failure and nothing else. Resend's
+    // error text is provider-controlled and its validation errors quote the
+    // offending field, so it can carry a recipient address — the same rule the
+    // Solicitation lane applies to bounce/failure reasons ("stored, never
+    // logged"). It rides on `cause`, where #630 can persist it to a COLUMN
+    // (solicitation_outreach.provider_error) without the default `err.message`
+    // log path carrying it.
+    if (result.error) {
+      throw new Error('Resend refused the solicitation send', { cause: result.error });
+    }
+    if (!result.data?.id) {
+      throw new Error('Resend accepted the solicitation send but returned no message id');
     }
 
     return { providerMessageId: result.data.id };
   }
 }
 
-function assertSendable(message: OutboundMessage): void {
+/**
+ * Validates every header-bound field and RETURNS the recipient that goes on the
+ * wire, so the validated value and the sent value cannot drift apart.
+ *
+ * The recipient is checked RAW — exactly as `subject` and `ownerEmail` are.
+ * Checking `message.recipient.trim()` instead let `'a@b.test\r\n'` through: trim
+ * erases the trailing CR/LF before either guard sees it, and the UNtrimmed value
+ * then reached `to:` with the CR/LF intact (round-1 review).
+ */
+function assertSendable(message: OutboundMessage): string {
   if (!message.bodyText.trim()) {
     throw new Error(
       'solicitation send requires a plain-text part — HTML-only is a spam signal (§7.1)',
@@ -73,7 +100,9 @@ function assertSendable(message: OutboundMessage): void {
   }
   // "Exactly one recipient" is a RULE, not a shape. Wrapping one string in an array
   // does not enforce it: 'a@x.test, b@y.test' is one string and two mailboxes.
-  const recipient = message.recipient.trim();
+  // `/[,\s;]/` also rejects surrounding whitespace, which is correct: the stored
+  // handle is normalizeEmail-normalized, so padding is a defect, not a nicety.
+  const recipient = message.recipient;
   if (!recipient || CRLF.test(recipient) || /[,\s;]/.test(recipient)) {
     throw new Error('solicitation send requires exactly one well-formed recipient (§7.1)');
   }
@@ -84,6 +113,8 @@ function assertSendable(message: OutboundMessage): void {
   if (!message.ownerEmail.trim() || CRLF.test(message.ownerEmail)) {
     throw new Error('solicitation Reply-To must be a single well-formed address (§2.4)');
   }
+
+  return recipient;
 }
 
 /**

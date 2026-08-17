@@ -43,7 +43,7 @@
     "Signature verification, claimInboundEvent idempotency, the 503-retry contract and the stale-svix-timestamp window are unchanged and reused by both lanes"
   ],
   "edge_cases": [
-    "A webhook payload carries lane=solicitation but its provider_message_id matches no Outreach row — structured warn, ack 200, and NO suppression is written; we never suppress a handle we cannot attribute",
+    "A webhook payload carries lane=solicitation but its provider_message_id matches no Outreach row — the response splits by event (D1/F1): observability-only events (soft or unknown bounce, email.failed) take a structured warn and ack 200, while suppression-bearing events (permanent bounce, complaint, provider-suppressed) throw so the handler returns 503 and Resend retries into #630's provider_message_id commit window. Either way NO suppression is written; we never suppress a handle we cannot attribute",
     "A webhook payload carries no tags at all — it reaches the existing notification_deliveries path, exactly as today",
     "A payload's tags are an array of {name,value} rather than an object — the lane discriminant must read Resend's actual echoed shape, not an assumed one",
     "email.bounced with a Temporary or unknown bounce type — bounced_at and provider_error are recorded, and NO suppression is written",

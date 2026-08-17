@@ -112,7 +112,13 @@ describe('getEmailHeaders — solicitation category', () => {
 
     // Fail closed. The marketing branch degrades to mailto-only; this one may
     // not, because the degraded form is a silent compliance violation.
-    expect(() => getEmailHeaders('solicitation')).toThrow(/unsubscribeUrl/i);
+    expect(() =>
+      // @ts-expect-error — deliberately ill-typed. Since round-1 review the
+      // overload REQUIRES { unsubscribeUrl } for 'solicitation', so this call no
+      // longer compiles; the case asserts the runtime guard that stands BEHIND
+      // the compile-time one (a JS caller, or an `any`-typed value).
+      getEmailHeaders('solicitation'),
+    ).toThrow(/unsubscribeUrl/i);
     expect(() => getEmailHeaders('solicitation', { unsubscribeUrl: '   ' })).toThrow(
       /unsubscribeUrl/i,
     );
@@ -141,7 +147,11 @@ describe('getEmailHeaders — solicitation category', () => {
 
     // ...and without one, the configured global URL is NOT a substitute. It
     // unsubscribes from owner reports, not from this recipient's asks.
-    expect(() => getEmailHeaders('solicitation')).toThrow();
+    expect(() =>
+      // @ts-expect-error — deliberately ill-typed, same as above: the runtime
+      // guard behind the compile-time one is what this line asserts.
+      getEmailHeaders('solicitation'),
+    ).toThrow();
   });
 
   it('getEmailHeaders never falls back to the example.com mailbox for the solicitation category', async () => {

@@ -315,6 +315,20 @@ describe('EmailAdapter — the §7.1 envelope', () => {
     expect(client.sendCalls).toBe(0);
   });
 
+  it('the email adapter rejects a recipient whose CR or LF is trailing', async () => {
+    const client = fakeResend();
+    // The gap round-1 review found: assertSendable validated `recipient.trim()`
+    // while `send()` put the UNtrimmed value on the wire. `.trim()` erases a
+    // TRAILING CR/LF before either guard sees it, so this address passed
+    // validation and reached `to:` with the CR/LF still attached — the internal
+    // form above (`a@b.test\r\nBcc: …`) survives trim and therefore never
+    // exercised the hole.
+    await expect(
+      adapterFor(client).send(message({ recipient: 'a@b.test\r\n' })),
+    ).rejects.toThrow(/recipient/i);
+    expect(client.sendCalls).toBe(0);
+  });
+
   it('the email adapter rejects a subject containing CR or LF', async () => {
     const client = fakeResend();
     await expect(
