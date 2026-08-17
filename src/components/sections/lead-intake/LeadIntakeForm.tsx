@@ -67,8 +67,11 @@ const TONE_STYLES = {
   onTeal: {
     form: 'max-w-md mx-auto space-y-4',
     label: 'block text-sm font-medium text-white mb-1.5',
+    // Opaque white fields with ink text: typed values and placeholders clear AA on any
+    // dark band (white-on-translucent measured 3.5:1 on teal-strong, ~2:1 on teal).
+    // Labels, required marks and errors stay white on the band (≥5.4:1 on teal-strong).
     input:
-      'w-full rounded-lg bg-white/20 border border-white/40 px-4 py-3 text-white placeholder-white/80 focus:outline-none focus:ring-2 focus:ring-white/60 transition-all aria-[invalid=true]:border-white aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-white/70',
+      'w-full rounded-lg bg-white border border-white px-4 py-3 text-rw-ink placeholder-rw-ink-soft focus:outline-none focus:ring-2 focus:ring-rw-cream focus:ring-offset-2 focus:ring-offset-rw-teal-strong transition-all aria-[invalid=true]:border-rw-error aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-rw-error/50',
     required: 'text-white',
     error: 'mt-1.5 text-sm font-medium text-white',
     button:

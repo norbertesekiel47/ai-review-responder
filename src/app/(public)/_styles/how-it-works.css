@@ -559,9 +559,11 @@
 }
 .hiw-faq-item.is-open .hiw-faq-toggle {
   transform: rotate(45deg);
-  background: var(--rw-teal);
+  /* teal-strong, not decorative teal: white on --rw-teal is 2.2:1 (ADR 0004). */
+  background: var(--rw-teal-strong);
   color: white;
 }
+.hiw-faq-q:focus-visible { outline: 2px solid var(--rw-teal-strong); outline-offset: 2px; }
 .hiw-faq-a {
   display: grid;
   grid-template-rows: 0fr;
@@ -577,7 +579,13 @@
 
 /* CTA */
 .hiw-cta {
-  background: linear-gradient(135deg, var(--rw-teal), rgba(151,179,174,0.85));
+  /* Island CTA-band recipe (island/DESIGN.md "CTA (last section)", ADR 0004 case 2):
+     a band that carries white copy darkens to --rw-teal-strong (→ -hover, the same
+     pair island.css uses for the landing .rw-cta; both ends clear AA for the cream
+     body line — the lighter teal-strong/90 end measured 3.78:1). The previous
+     --rw-teal band measured 2.0:1 under white text — and in the waitlist posture this
+     band holds the only door on the page. */
+  background: linear-gradient(135deg, var(--rw-teal-strong), var(--rw-teal-strong-hover));
   color: white;
   padding: 64px 48px 72px;
   border-radius: 0 0 3rem 3rem;
@@ -591,7 +599,7 @@
   color: white;
   text-wrap: balance;
 }
-.hiw-cta p { font-size: 17px; max-width: 34em; color: rgba(255,255,255,0.88); margin: 0; }
+.hiw-cta p { font-size: 17px; max-width: 34em; color: var(--rw-cream); margin: 0; }
 .hiw-cta-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
 .hiw-cta-btn {
   background: white; color: var(--rw-teal-strong);
@@ -604,11 +612,12 @@
   display: inline-block;
 }
 .hiw-cta-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 20px 40px color-mix(in srgb, var(--rw-ink) 20%, transparent); }
+.hiw-cta-btn:focus-visible { outline: 2px solid var(--rw-cream); outline-offset: 4px; }
 .hiw-cta-btn.is-ghost {
   background: transparent; color: white;
-  border: 1px solid rgba(255,255,255,0.4);
+  border: 1px solid color-mix(in srgb, white 55%, transparent);
 }
-.hiw-cta-btn.is-ghost:hover { background: rgba(255,255,255,0.1); }
+.hiw-cta-btn.is-ghost:hover { background: color-mix(in srgb, white 12%, transparent); }
 .hiw-cta-btn.is-disabled { opacity: 0.6; cursor: default; }
 .hiw-cta-btn.is-disabled:hover { transform: none; box-shadow: none; }
 
