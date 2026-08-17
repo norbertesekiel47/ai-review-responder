@@ -1054,8 +1054,20 @@ Revisit triggers:
   warns about — a `check_violation` handler catches the WRONG check unless every
   sibling CHECK (`moderation_status`, `body_presence`, `channel`, `source`) is
   satisfied first. `solicitation_outreach` held 0 rows at apply time, so the
-  widening touched nothing. **PRODUCTION (`udeyaqnvpojbwgoaxwdg`): pending** —
-  applies in lockstep at #629's promotion to `main`.
+  widening touched nothing. **and PRODUCTION (`udeyaqnvpojbwgoaxwdg`)
+  2026-08-17**, same change window, applied through the Supabase SQL Editor
+  after two `psql` attempts died on shell quoting. The second failed
+  **silently** — no error, no output — and the only reason that was caught is
+  that this log demands validation by introspection rather than by reading the
+  terminal. Verified on prod without writing to it at all: `pg_get_constraintdef`
+  is **byte-identical to staging's, 821 bytes each**, the COMMENT landed and
+  `convalidated` is true, so the object that passed staging's live probe is the
+  object prod now holds. The probe was deliberately NOT re-run against
+  production — an INSERT inside a rolled-back transaction is still a write, and
+  definition equivalence against an already-probed twin is stronger evidence for
+  the weaker action. Prod also held 0 rows. Prod pre-state was checked first and
+  matched this file's record exactly: 107 and 105 applied, **078 absent** per the
+  standing exception in `.claude/CLAUDE.md`.
 
 - **107** — `drop_legacy_ensure_rls_event_trigger`: removes the DDL event
   trigger `ensure_rls` and its function `public.rls_auto_enable()`, which
