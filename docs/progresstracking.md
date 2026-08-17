@@ -1355,9 +1355,9 @@ set on prod, which is the lane that went live at merge.
 **Carried forward**: `SOLICITATION_UNSUBSCRIBE_MAILTO` is unset by choice — the
 Neutral page omits the line rather than advertising an unserviced address, and
 setting it creates a §7.2 daily business-day servicing obligation. Follow-ups
-**#651** (dedicated bounded DB pool for redemption) and **#652**
-(`redeemUnsubscribeToken` takes `Sql` and owns its transaction) are filed with
-full context. The staging-reconcile item carried from #643 **recurred exactly as
+**#651** (dedicated bounded DB pool for redemption, PR #857) and **#652**
+(`redeemUnsubscribeToken` takes `Sql` and owns its transaction) have both since
+**landed**. The staging-reconcile item carried from #643 **recurred exactly as
 predicted** — `staging` ended 61 ahead / 1 behind and needed `reset --hard
 origin/main` + `--force-with-lease`.
 

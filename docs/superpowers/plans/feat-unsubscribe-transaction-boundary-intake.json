@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "A statutory opt-out redemption must preserve its claim-first transaction semantics under concurrent requests.",
+    "The transaction boundary controls row-lock scope and PostgreSQL isolation behavior on a public compliance path."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Ensure each Unsubscribe redemption uses a module-owned plain transaction so callers cannot select an unsafe isolation level or extend the token row lock around remote work.",
+  "non_goals": [
+    "Change the four existing redemption outcomes or their HTTP mappings.",
+    "Change token admission, receipt, suppression, correction, or single-flight semantics beyond using the new redemption interface.",
+    "Add a migration, dependency, deployment, or remote database action."
+  ],
+  "user_visible_behavior": [
+    "Concurrent and replayed valid unsubscribe requests retain their current redemption outcomes while the module guarantees a plain transaction boundary."
+  ],
+  "invariants": [
+    "Claim the unsubscribe token before recording suppression, using only provenance returned by that claim.",
+    "A redeemed token returns a domain outcome rather than exposing a caller-selected transaction isolation failure.",
+    "No receipt or success response is emitted before the redemption transaction commits.",
+    "The domain module receives its Sql client explicitly and never imports the database singleton.",
+    "Raw unsubscribe tokens are not persisted or logged."
+  ],
+  "edge_cases": [
+    "A forged token returns unknown_token without opening a transaction.",
+    "Overlapping valid redemptions block then resolve as redeemed and already_suppressed without duplicate suppression rows.",
+    "A token minted after the claim snapshot remains unknown_token and can be retried.",
+    "A purge that commits before a blocked redemption leaves null provenance on the resulting suppression."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/solicitation/unsubscribe.ts redeemUnsubscribeToken claim-first ordering and explicit Sql injection.",
+    "src/lib/solicitation/__tests__/unsubscribe.integration.test.ts live concurrency and transaction-boundary tests.",
+    "worker/ingress/unsubscribe.ts createRedemptionSingleFlight commit-before-response contract.",
+    "src/app/api/u/[token]/route.ts receipt minting after redemption resolves."
+  ],
+  "test_seams": [
+    "redeemUnsubscribeToken(Sql, input)",
+    "src/lib/solicitation/__tests__/unsubscribe.integration.test.ts redemption helper",
+    "worker/ingress/__tests__/unsubscribe.test.ts ingress redemption mock seam"
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/unsubscribe.ts",
+    "src/lib/solicitation/__tests__/unsubscribe.test.ts",
+    "src/lib/solicitation/__tests__/unsubscribe.integration.test.ts",
+    "worker/ingress/unsubscribe.ts",
+    "worker/ingress/__tests__/unsubscribe.test.ts",
+    "src/app/api/u/[token]/route.ts",
+    "src/app/__tests__/unsubscribe-landing.test.tsx",
+    "docs/currents.md",
+    "docs/progresstracking.md",
+    "docs/directory.md",
+    "docs/superpowers/plans/feat-unsubscribe-transaction-boundary-intake.json",
+    "docs/superpowers/plans/feat-unsubscribe-transaction-boundary.md",
+    "docs/superpowers/plans/feat-unsubscribe-transaction-boundary-plan-review.md",
+    "docs/superpowers/plans/feat-unsubscribe-transaction-boundary-review-triage.md"
+  ],
+  "tests_to_add": [
+    "redeemUnsubscribeToken opens its own transaction only after the token admission gate passes",
+    "two overlapping redemptions write exactly one ledger row and one redeemed_at",
+    "POST mints a receipt only after module-owned redemption commits",
+    "single-flight redemption shares the module-owned committed outcome"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/lib/solicitation/__tests__/unsubscribe.test.ts src/lib/solicitation/__tests__/unsubscribe.integration.test.ts worker/ingress/__tests__/unsubscribe.test.ts src/app/__tests__/unsubscribe-landing.test.tsx",
+    "pnpm ci:db-imports",
+    "pnpm ci:tenant-scope",
+    "pnpm ci:rls-audit",
+    "pnpm build"
+  ],
+  "estimated_prod_lines": 170,
+  "estimated_test_lines": 150,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the feature commit to restore the prior caller-owned transaction wrapper; no schema or persisted-data rollback is required.",
+  "observability": [
+    "The existing ingress outcome telemetry continues to distinguish redeem failures from committed outcomes, while tests prove the single-flight promise resolves only after the module-owned transaction commits."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "staging_deploy",
+    "worktree_cleanup"
+  ],
+  "open_questions": []
+}

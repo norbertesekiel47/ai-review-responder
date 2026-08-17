@@ -354,47 +354,19 @@ export async function findRedeemableUnsubscribeToken(
  * No ABBA deadlock: `recordSuppression` only inserts into the ledger, and this
  * holds the token row lock before that insert — consistently in one direction.
  *
- * ⚠️ CALLER OBLIGATIONS — contracts, not preferences, and **NOTHING ENFORCES
- * THEM**. Not the type system, not CI, not the test suite: `TransactionSql` is
- * the same type whatever isolation level opened it. Prose is the only guard,
- * which is why it is stated this bluntly. **The safe way to call this is
- * `sql.begin((tx) => redeemUnsubscribeToken(tx, …))` with the callback body
- * containing nothing else.** Both shipped callers do exactly that
- * (`worker/ingress/unsubscribe.ts`, `src/app/api/u/[token]/route.ts`); copy one
- * of them rather than composing something new.
+ * The module owns a plain `db.begin()` transaction rather than exposing a
+ * `TransactionSql` boundary. That makes READ COMMITTED structural and limits
+ * the token-row lock to this claim-first algorithm: callers receive an outcome
+ * only after commit, then may perform remote work.
  *
- *  1. `tx` MUST be a READ COMMITTED transaction, which is what a plain
- *     `sql.begin()` gives you. Do NOT call this inside a REPEATABLE READ
- *     transaction — and note that **this domain already builds one**:
- *     `src/lib/solicitation/batch-view.ts` opens a REPEATABLE READ snapshot for
- *     its read-only view, so it is the nearest thing to hand and it is the wrong
- *     thing. Under REPEATABLE READ the claim raises a 40001 serialization
- *     failure instead of blocking on the row lock, which breaks this function's
- *     "domain outcomes are returned, not thrown" contract; and because the
- *     snapshot is pinned at the transaction's FIRST statement, a caller that read
- *     anything beforehand gets `unknown_token` for a token that WAS redeemed —
- *     an "invalid link" shown to someone who successfully opted out, with no
- *     error anywhere.
- *  2. The claim takes a ROW LOCK the caller's transaction holds until it
- *     commits. No remote call — provider HTTP, Sentry, analytics flush — may sit
- *     between this call and the commit (production.md: never hold a lock across
- *     a remote call). Commit, then do the remote work.
- *
- * WHY THE BOUNDARY IS STILL THE CALLER'S, and what would remove obligation 1
- * entirely: taking `db: Sql` and owning `sql.begin()` here would make the wrong
- * isolation level unrepresentable (invariant #15 is satisfied either way — the
- * executor stays an explicit parameter). That is the better shape and it is a
- * known, deliberate follow-up, not an oversight. It was not taken in this pass
- * because it is an interface change across both surfaces plus the ingress
- * single-flight, and there is no third caller today to force it. A runtime
- * isolation assertion was also considered and rejected: the only zero-extra-
- * round-trip hook is a `current_setting('transaction_isolation')` column on a
- * RETURNING/SELECT, and both are absent on exactly the no-row path where
- * obligation 1's failure lands — so it would cost a query per redemption on a
- * statutory hot path to detect the case it cannot see.
+ * A plain `begin()` is deliberately the only transaction constructor here.
+ * Under REPEATABLE READ, the losing claim may raise `40001` instead of blocking
+ * or may observe a stale snapshot and return `unknown_token` for a successful
+ * redemption. Keeping the boundary here makes that invalid caller state
+ * unrepresentable and prevents callers from holding the lock across remote work.
  */
 export async function redeemUnsubscribeToken(
-  tx: TransactionSql,
+  db: Sql,
   input: { rawToken: string; source: UnsubscribeRedemptionSource },
 ): Promise<UnsubscribeRedemption> {
   if (!isWellFormedUnsubscribeToken(input.rawToken)) {
@@ -412,53 +384,49 @@ export async function redeemUnsubscribeToken(
     return { status: 'unknown_token', tokenHashPrefix: '' };
   }
 
-  const tokenHash = hashUnsubscribeToken(input.rawToken);
-  const tokenHashPrefix = logPrefix(tokenHash);
+  return db.begin(async (tx) => {
+    const tokenHash = hashUnsubscribeToken(input.rawToken);
+    const tokenHashPrefix = logPrefix(tokenHash);
 
-  const [claimed] = await tx<ClaimedTokenRow[]>`
-    UPDATE solicitation_unsubscribe_tokens
-       SET redeemed_at = NOW()
-     WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL
-     RETURNING account_id, normalized_handle, channel
-  `;
+    const [claimed] = await tx<ClaimedTokenRow[]>`
+      UPDATE solicitation_unsubscribe_tokens
+         SET redeemed_at = NOW()
+       WHERE token_hash = ${tokenHash} AND redeemed_at IS NULL
+       RETURNING account_id, normalized_handle, channel
+    `;
 
-  if (claimed !== undefined) {
-    // The RETURNED values, never anything read before the claim: if the purge
-    // committed its scrub first they are already NULL, and the ledger row then
-    // correctly carries account_id = NULL.
-    await recordSuppression(tx, {
-      scope: 'global',
-      channel: toSuppressionChannel(claimed.channel),
-      normalizedHandle: claimed.normalized_handle,
-      accountId: claimed.account_id,
-      source: input.source,
-    });
-    // recordSuppression returns null when an existing row won first-write-wins.
-    // That MUST NOT gate the outcome or the stamp — the claim already made it,
-    // and a handle a complaint had already suppressed would otherwise leave this
-    // token redeemable forever.
-    return { status: 'redeemed', tokenHashPrefix };
-  }
+    if (claimed !== undefined) {
+      // The RETURNED values, never anything read before the claim: if the purge
+      // committed its scrub first they are already NULL, and the ledger row then
+      // correctly carries account_id = NULL.
+      await recordSuppression(tx, {
+        scope: 'global',
+        channel: toSuppressionChannel(claimed.channel),
+        normalizedHandle: claimed.normalized_handle,
+        accountId: claimed.account_id,
+        source: input.source,
+      });
+      // recordSuppression returns null when an existing row won first-write-wins.
+      // That MUST NOT gate the outcome or the stamp — the claim already made it.
+      return { status: 'redeemed', tokenHashPrefix };
+    }
 
-  // Nothing claimed. Disambiguate on `redeemed_at`, NEVER on bare existence: at
-  // Read Committed this read takes a FRESH snapshot, so a token minted after the
-  // UPDATE's snapshot surfaces here UNREDEEMED. Calling that success would be
-  // exactly the mint-race lost opt-out this path exists to prevent; reporting it
-  // as unknown lets the caller fail retryably instead.
-  const target = await loadTokenTarget(tx, tokenHash);
-  if (target === undefined || target.redeemedAt === null) {
-    return { status: 'unknown_token', tokenHashPrefix };
-  }
+    // Nothing claimed. Disambiguate on `redeemed_at`, NEVER on bare existence:
+    // Read Committed gives this follow-up read a fresh snapshot.
+    const target = await loadTokenTarget(tx, tokenHash);
+    if (target === undefined || target.redeemedAt === null) {
+      return { status: 'unknown_token', tokenHashPrefix };
+    }
 
-  // Spent — which proves only that it was once redeemed, not that a suppression
-  // exists NOW. Ask the ledger; there is NO write on this path either way, so a
-  // Correction path removal stands.
-  return {
-    status: (await hasLiveGlobalSuppression(tx, target))
-      ? 'already_suppressed'
-      : 'already_redeemed_not_suppressed',
-    tokenHashPrefix,
-  };
+    // Spent proves only that it was once redeemed. Ask the live ledger so an
+    // audited Correction path removal remains authoritative.
+    return {
+      status: (await hasLiveGlobalSuppression(tx, target))
+        ? 'already_suppressed'
+        : 'already_redeemed_not_suppressed',
+      tokenHashPrefix,
+    };
+  });
 }
 
 /**

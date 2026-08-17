@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import type { TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TEST_SECRET = 'test-session-cookie-secret-at-least-32-chars';
@@ -89,7 +89,7 @@ describe('unsubscribe token', () => {
     }
   });
 
-  it('a forged token is rejected without opening a database connection', async () => {
+  it('redeemUnsubscribeToken opens its own transaction only after the token admission gate passes', async () => {
     const {
       findRedeemableUnsubscribeToken,
       hasLiveGlobalSuppressionForToken,
@@ -109,7 +109,7 @@ describe('unsubscribe token', () => {
     const executor = new Proxy(() => undefined, {
       apply: refuseToBeUsed,
       get: refuseToBeUsed,
-    }) as unknown as TransactionSql;
+    }) as unknown as Sql;
 
     // Every entry point, not just the mutating one.
     await expect(findRedeemableUnsubscribeToken(executor, forged)).resolves.toBeNull();
@@ -124,6 +124,18 @@ describe('unsubscribe token', () => {
       // correlate with anyway.
       tokenHashPrefix: '',
     });
+
+    const tx = vi.fn().mockResolvedValue([]);
+    const begin = vi.fn(async (run: (transaction: unknown) => Promise<unknown>) => run(tx));
+    const db = { begin } as unknown as Sql;
+
+    await expect(
+      redeemUnsubscribeToken(db, {
+        rawToken: mintUnsubscribeRawToken(),
+        source: 'unsubscribe_one_click',
+      }),
+    ).resolves.toMatchObject({ status: 'unknown_token' });
+    expect(begin).toHaveBeenCalledTimes(1);
   });
 
   it('reports no token hash prefix for input the gate rejected on length', async () => {
@@ -134,7 +146,7 @@ describe('unsubscribe token', () => {
     const executor = new Proxy(() => undefined, {
       apply: refuse,
       get: refuse,
-    }) as unknown as TransactionSql;
+    }) as unknown as Sql;
 
     const outcome = await redeemUnsubscribeToken(executor, {
       rawToken: 'x'.repeat(2_000_000),
@@ -252,7 +264,7 @@ describe('unsubscribe signing key rollover', () => {
     const executor = new Proxy(() => undefined, {
       apply: refuseToBeUsed,
       get: refuseToBeUsed,
-    }) as unknown as TransactionSql;
+    }) as unknown as Sql;
 
     await expect(findRedeemableUnsubscribeToken(executor, forged)).resolves.toBeNull();
     await expect(

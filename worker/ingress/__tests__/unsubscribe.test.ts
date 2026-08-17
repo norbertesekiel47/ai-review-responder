@@ -40,6 +40,22 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 const TX = Symbol('tx');
 
+/**
+ * The client each redemption was handed. #652 moved `begin` INSIDE
+ * `redeemUnsubscribeToken`, and this suite stubs that core — so
+ * `mockUnsubscribeBegin` is never called and its call count can no longer prove
+ * which pool the adapter chose. `expect(mockSharedBegin).not.toHaveBeenCalled()`
+ * cannot carry that evidence either: with the core stubbed, NO begin runs, so it
+ * passes even if the adapter injected the wrong client. The injected argument is
+ * where the choice is still observable, and #651's fixed-two isolation depends on
+ * it holding for EVERY request, not just the first.
+ */
+const DEDICATED_CLIENT = { begin: mockUnsubscribeBegin };
+
+function redeemClients(): unknown[] {
+  return mockRedeem.mock.calls.map((call) => call[0]);
+}
+
 type ConsoleSink = { lines: () => string; restore: () => void };
 
 /** createWorkerLogger writes JSON through console.*, not through Fastify's pino. */
@@ -109,7 +125,7 @@ describe('unsubscribe ingress — POST', () => {
     const response = await postToken(validToken);
 
     expect(response.statusCode).toBe(200);
-    expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(1);
+    expect(redeemClients()).toEqual([DEDICATED_CLIENT]);
     expect(mockSharedBegin).not.toHaveBeenCalled();
   });
 
@@ -119,10 +135,13 @@ describe('unsubscribe ingress — POST', () => {
     // a handler that replied from inside the transaction callback would still
     // return 200 and would still be wrong.
     const order: string[] = [];
-    mockRedeem.mockImplementation(async () => {
-      order.push('redeem');
-      return { status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' };
-    });
+    mockRedeem.mockImplementation(
+      async (db: { begin: (run: (tx: unknown) => Promise<unknown>) => Promise<unknown> }) =>
+        db.begin(async () => {
+          order.push('redeem');
+          return { status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' };
+        }),
+    );
     mockUnsubscribeBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
       const result = await run(TX);
       order.push('commit');
@@ -173,8 +192,10 @@ describe('unsubscribe ingress — POST', () => {
     const core = await vi.importActual<typeof import('../../../src/lib/solicitation/unsubscribe')>(
       '../../../src/lib/solicitation/unsubscribe',
     );
-    const emptyTx = (() => Promise.resolve([])) as never;
-    const fromCore = await core.redeemUnsubscribeToken(emptyTx, {
+    const emptySql = {
+      begin: async (run: (tx: unknown) => Promise<unknown>) => run(() => Promise.resolve([])),
+    } as never;
+    const fromCore = await core.redeemUnsubscribeToken(emptySql, {
       rawToken: validToken,
       source: 'unsubscribe_one_click',
     });
@@ -225,11 +246,13 @@ describe('unsubscribe ingress — POST', () => {
 
       expect(first.statusCode).toBe(200);
       expect(second.statusCode).toBe(200);
-      // One transaction per request and no retry loop: whether a second ledger row
+      // One redemption per request and no retry loop: whether a second ledger row
       // exists is decided by redeemUnsubscribeToken's claim-first ordering, and the
-      // adapter must not second-guess it by re-running the redemption.
-      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(2);
+      // adapter must not second-guess it by re-running the redemption. BOTH
+      // requests must also reach the dedicated pool — a replay that fell back to
+      // the shared client would spend a shared write slot on statutory traffic.
       expect(mockRedeem).toHaveBeenCalledTimes(2);
+      expect(redeemClients()).toEqual([DEDICATED_CLIENT, DEDICATED_CLIENT]);
     } finally {
       sink.restore();
     }
@@ -496,7 +519,7 @@ describe('unsubscribe ingress — concurrent replays of one token', () => {
     return { settle, fail, responses };
   }
 
-  it('opens exactly one transaction and answers every waiter 200', async () => {
+  it('single-flight redemption shares the module-owned committed outcome', async () => {
     const sink = captureWorkerLog();
     try {
       const race = await raceOneToken();
@@ -505,8 +528,15 @@ describe('unsubscribe ingress — concurrent replays of one token', () => {
       // DELIVERED token passes it and opens one transaction on the dedicated
       // fixed-two pool. Single-flight keeps same-token replays to one slot on a
       // route §9.2 forbids rate-limiting.
-      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(1);
       expect(mockRedeem).toHaveBeenCalledTimes(1);
+      expect(redeemClients()).toEqual([DEDICATED_CLIENT]);
+
+      let responsesSettled = false;
+      void race.responses.then(() => {
+        responsesSettled = true;
+      });
+      await drainMicrotasks();
+      expect(responsesSettled).toBe(false);
 
       race.settle({ status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' });
       const settled = await race.responses;
@@ -582,9 +612,10 @@ describe('unsubscribe ingress — concurrent replays of one token', () => {
       await barrier.allArrived;
       await drainMicrotasks();
 
-      // Keyed on the token HASH, so distinct delivered tokens never share.
+      // Keyed on the token HASH, so distinct delivered tokens never share — and
+      // all three land on the dedicated pool rather than the shared client.
       expect(mockRedeem).toHaveBeenCalledTimes(3);
-      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(3);
+      expect(redeemClients()).toEqual([DEDICATED_CLIENT, DEDICATED_CLIENT, DEDICATED_CLIENT]);
       expect(mockSharedBegin).not.toHaveBeenCalled();
       const settled = await responses;
       expect(settled.map((response) => response.statusCode)).toEqual([200, 200, 200]);
