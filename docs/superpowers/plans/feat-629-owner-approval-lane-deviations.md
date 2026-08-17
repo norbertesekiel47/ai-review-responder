@@ -104,8 +104,15 @@ tests:
 round-1 amendment (which added three approveBatch titles) nor the round-2
 amendment (which added one) updated any of these running totals. Every
 "Expected: N passing" line in the plan is therefore suspect on sight; the
-authoritative source is the intake's `tests_to_add` (34 titles) and the per-test
-specifications in the Step bodies, never a total in prose.
+authoritative source is the intake's `tests_to_add` (**33** titles, counted from
+the file) and the per-test specifications in the Step bodies, never a total in
+prose. The 33 distribute as: 3 in `approval.test.ts`, 17 in
+`approval.integration.test.ts` (11 + 5 + 1), 6 in `approval-routes.test.ts`,
+5 in `approval-panel.test.tsx`, 2 in `batch-view.test.ts`. Note that
+`reports the derived batch state and approval readiness on the built batch view`
+is one title asserted in two places by design (Task 1 over the pure function,
+Task 5 over the live read model), so file counts sum to 33 without it being
+double-counted in the intake.
 
 **Why it matters:** an agent that trusts Step 6 stops at 7 green and reports the
 task done, leaving up to four promised tests unwritten. The verify gate's
