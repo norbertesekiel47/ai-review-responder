@@ -168,7 +168,14 @@ function Screen({
       return (
         <FailureCard
           title="Could not load your latest batch"
-          body="Something went wrong reading it. Nothing was sent, and nothing changed."
+          // READ-SCOPED on purpose. This card may claim only what a failed READ
+          // can honestly support. It used to add "Nothing was sent, and nothing
+          // changed" — a write-scoped promise a read failure cannot make, and
+          // the very claim the unconfirmed-write path was changed to stop
+          // making. The owner most likely to see this is the one whose approve
+          // POST came back unreadable and whose refetch then failed too: the
+          // one person for whom "nothing changed" is most likely to be false.
+          body="We could not read the latest state of this batch. That does not tell you whether anything changed — try again."
           actionLabel="Try again"
           onAction={onRetry}
         />

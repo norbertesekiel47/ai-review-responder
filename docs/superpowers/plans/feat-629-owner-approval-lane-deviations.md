@@ -451,3 +451,161 @@ its live-DB suites fail against a 107 schema.
 963 files / 12,356 tests passed with **zero** failures, `ci:fallow:coverage`
 `✓ No issues in 36 changed files`. The three failures seen before isolation were
 entirely the race.
+
+---
+
+## D11 — the intake contradicted ITSELF on the halt reason; `edge_cases` amended to match the code (owner-decided)
+
+**When:** step 7 round 1. Codex flagged the code as violating `edge_cases[7]`
+("a never-approved discard records `owner_halt`"). The spec agent found the
+sharper truth: `tests_to_add[18]` — `property: the owner halt reason is
+owner_veto exactly when sending has not started` — **mandates the opposite**.
+Both are locked intake fields. The code satisfied one and violated the other, so
+this was a contract defect, not a code defect.
+
+**An earlier note in this run said "Codex is right, the code is wrong." That was
+too clean and is corrected here.**
+
+**Owner decision (2026-08-17): keep `owner_veto`.** CONTEXT.md's **Halt latch**
+defines a veto as "halt at zero sends", which is exactly what discarding an
+unapproved batch is — no email has left. `edge_cases[7]` amended in both intake
+copies with the reasoning inline. `ownerHaltReason` unchanged; the fix agents
+were told explicitly not to "fix" it.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D12 — `stop` is on the **Halt latch** Avoid list but the intake requires a "stop control" (owner-decided, one part UNRESOLVED)
+
+**When:** step 7 round 1, standards axis.
+
+**The conflict:** `CONTEXT.md` **Halt latch** carries `_Avoid_: pause, stop,
+cancel batch, resume`, while intake `user_visible_behavior[4]` requires "a single
+**stop** control". Two locked artifacts, and `CONTEXT.md` was edited in this very
+branch without either honouring the list or amending it.
+
+**Owner decision:** amend the Avoid list to carve out **exactly one word** —
+`stop`, and only in owner-facing copy. `halt` is domain jargon an owner does not
+read. `pause`, `resume` and `cancel batch` stay banned everywhere including copy,
+because each implies a reversibility the latch does not have, which is the thing
+the list actually protects. Internal vocabulary still obeys the term: the panel's
+mode member was renamed `stoppable` → `haltable`.
+
+**UNRESOLVED, and deliberately left visible rather than quietly settled:** the
+carve-out as written bans `resume` "everywhere including copy", but intake
+`user_visible_behavior[7]` requires a halted batch to "state that it cannot be
+resumed", the shipped copy says exactly that, and a contract test title does too.
+The panel agent flagged the tension and kept the sentence, reasoning that it
+*denies* reversibility rather than offering it — which is almost certainly the
+right reading of what the Avoid list is for. **The owner was offered an amendment
+narrowing the ban to `resume`-as-an-affordance and did not take it**, so
+`CONTEXT.md` stands as written and the contradiction is live: the glossary bans a
+word in copy that the intake requires in copy. Nothing was changed on either side.
+Resolve before the terminology pass; it is cosmetic, not behavioural.
+
+**Verdict:** ACCEPT the carve-out; the `resume` sub-issue is OPEN.
+
+---
+
+## D13 — round-1 review found 21 findings across three axes; all accepted, all fixed
+
+**When:** step 7 round 1 (spec, standards, adversarial-Codex in parallel).
+
+**Two findings were feature-defeating and both were missed by every gate:**
+
+1. **The panel never rendered `subject`/`body`.** `toRows` projected every
+   attempt — redacted or not — onto `{outreachId, contactName, deliveryStatus}`,
+   so the owner approved messages they could not read, violating
+   `user_visible_behavior[0]` and falsifying the stated basis for the veto window
+   (an *undo*, not a review window, **because** the owner has already read every
+   message). **Cause: the orchestrator's Task 7 brief stated the D6a redaction
+   rule unconditionally.** The rule is conditional — redacted rows contribute a
+   count, unredacted rows show their copy. Worse, the orchestrator then *verified
+   the over-application as a success*, grepping for the absence of `subject`/
+   `body` and reporting the security property as holding while the feature's
+   primary user-visible behaviour was missing. **The reusable lesson: verifying
+   that the dangerous thing is absent is not the same as verifying the required
+   thing is present.** The fix keeps one projection choke point, carries copy for
+   the unredacted arm only, and is now enforced by the type system —
+   `AskRowView` has no redacted arm, so reading `attempt.subject` without
+   narrowing is a `tsc` error. The test feeds the projection a fixture that
+   *carries* bytes it should not have, so it proves the code drops them rather
+   than proving the type forbade the fixture.
+2. **A zero-send-ask batch 500'd.** `batch-builder.ts:810` skips the generation
+   enqueue when `sendCount === 0`, so no send parent exists; readiness passes
+   *vacuously*; the CAS approves; the `send_parent_run_id === null` throw then
+   fires. UI-reachable ("Approve and send 0 messages") and unrecoverable. Fixed
+   as a refusal — approving would also have held the location's one active-send
+   slot (091's `solicitation_batches_one_active_send_per_business`) with no parent
+   able to close it.
+
+**A regression the orchestrator introduced in D7 and shipped:** hoisting the
+parent lookup replaced the correlated `r.subject_id = b.id::text` with the raw
+request string. `agent_runs.subject_id` is `text`, so the compare is
+case-sensitive, while `isValidUuid` accepts uppercase — a mixed-case id matched
+the batch row and missed its parent, 500ing `approveBatch` and silently dropping
+`haltBatch`'s audit step. The D7 equivalence argument reasoned about *tenancy*
+and never about *text normalisation*. Fixed by canonicalising at each verb's
+entry point, which also covers `closeBatchIfSettled`'s identical text compare.
+
+**Also fixed:** transport failure no longer claims "Nothing changed" (now an
+`unconfirmed` outcome that refetches, with a total `Record` over the real result
+unions so a new discriminant is a `tsc` error) · an all-withheld batch offers no
+approve control · `laneMessage` is scope-keyed and clearable · the `haltable` arm
+is exhaustive over three states · the send-lane counts no longer Cartesian-
+multiply (three statements, no `COUNT(DISTINCT)`) · `readBuiltBatch` 241 → 100
+lines · `HaltReason` is a typed closed union so the halted copy stops saying
+"**you**" for `admin_halt`/`send_window_elapsed`/`batch_expired` · the internal
+`agent_runs` UUID no longer ships to the browser · the false "only file that
+renders a control" claim is gone · the copied-and-false FK lock premise is struck
+at all three sites · the read-failure card no longer makes a write-scoped promise.
+
+**An honest limitation recorded by the read-model agent:** no data-driven test
+can fail against the old cross-joined query, because `COUNT(DISTINCT …)` produced
+*correct* answers — the cross product was observable only in shape and cost. The
+anti-regression guard is therefore a statement-shape assertion, not a behavioural
+one.
+
+**Verdict:** ACCEPT all.
+
+---
+
+## D14 — the reclassify trigger fired; owner chose record-and-continue
+
+**When:** step 5 gate after the fix round. `GATE: GREEN` with a `reclassify`
+WARN.
+
+| Bucket | Estimated | Actual |
+|---|---|---|
+| Production | 1,000 | **2,192** |
+| Test | 2,000 | 2,827 |
+
+Both of the rule's triggers are met: production exceeds ~2× its estimate, **and**
+`allowed_edit_surface` has already been amended once (D8). feature.md's
+instruction is to STOP and re-run step 0.
+
+**This is NOT the abort criteria** and should not be read as one: abort requires
+3 full gate-fail rounds, a *second* surface amendment, or a deviation that
+invalidates a locked decision. None hold — every gate run against a settled tree
+passed, one amendment is spent, and all deviations triaged ACCEPT.
+
+**Re-classification performed in place.** RISK = high, SURFACE = mixed,
+db_touching — already the heaviest non-epic lane, already routed to staging ride
+→ PR → owner merge approval. Re-classifying adds no control the branch lacks.
+
+**The honest finding, recorded rather than glossed:** by step 0's own test this
+branch was **epic-shaped** and should have been decomposed. Sixteen production
+files spanning UI, routes, domain modules, the run spine and a migration is more
+than one tracer ticket. The estimate that put it in the feature lane was wrong by
+2.2×, and the under-estimate is exactly the systematic failure step 0 warns
+about. **Owner decision (2026-08-17): record and continue** — the work is built,
+reviewed and green, and tearing down a green branch to re-run it as three tickets
+costs more than it returns here.
+
+**Carry forward:** the next send-lane ticket in this map (#630 releaser + send
+worker) is at least this size. Size it as an epic at step 0 and decompose, rather
+than repeating this.
+
+**Verdict:** ACCEPT, with the epic-shaped verdict recorded above so the estimate
+miss is not lost.
