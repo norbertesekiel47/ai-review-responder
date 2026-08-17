@@ -423,6 +423,8 @@ describe('RequestsClient — the approval lane and the live region', () => {
       haltedAt: null,
       haltReason: null,
       moderationWithheld: 0,
+      regeneratingAskId: null,
+      regenBudgets: {},
     };
   }
 

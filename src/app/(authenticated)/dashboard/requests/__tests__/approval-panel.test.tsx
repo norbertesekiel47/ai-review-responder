@@ -45,7 +45,6 @@ function sendLane(overrides: Partial<SendLaneView> = {}): SendLaneView {
     haltedAt: null,
     haltReason: null,
     moderationWithheld: 0,
-    // @ts-expect-error until Task 5 widens SendLaneView
     regeneratingAskId: null,
     regenBudgets: {},
     ...overrides,

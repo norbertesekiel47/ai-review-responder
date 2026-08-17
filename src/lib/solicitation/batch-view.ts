@@ -23,6 +23,8 @@
  */
 
 import type { Sql, TransactionSql } from 'postgres';
+import { peekAskRegenBudgetBatch, type RegenBudgetStatus } from '@/lib/costs/tracker';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { AskLintClass } from './ask-compliance-lint';
 import type { AskInterpolationInputs } from './ask-prompt-policy';
 import {
@@ -173,6 +175,24 @@ export interface SendLaneView {
   /** moderation_high attempts as a COUNT (D6a) — the owner sees that some were
    *  held without ever seeing the bytes. */
   moderationWithheld: number;
+  /**
+   * The ask whose regeneration is in flight, or null. Read from the in-flight
+   * `job_outbox` row, so it survives a reload and cannot disagree with the
+   * enqueue's `already_in_flight` refusal — both read the same row.
+   *
+   * At most ONE per batch: the dedup is keyed `(topic, aggregate_id = batchId)`
+   * by migration 091's partial unique index. A WHOLE-BATCH generation row
+   * carries no `ask_id`, so this is null during `preparing`, where the panel
+   * offers no per-ask control anyway.
+   */
+  regeneratingAskId: string | null;
+  /**
+   * Per-ask daily regenerate budget, keyed by ask id. An ABSENT key means
+   * UNKNOWN (Redis unreachable), never "0 remaining" — the panel renders no
+   * counter and leaves the control enabled. A plain Record rather than the Map
+   * `peekAskRegenBudgetBatch` returns, because this crosses the wire (D12).
+   */
+  regenBudgets: Record<string, RegenBudgetStatus>;
 }
 
 export type BatchView =
@@ -359,6 +379,53 @@ interface SendLaneLifecycleRow extends BatchLifecycleRow {
 }
 
 /**
+ * The ask id of the one in-flight per-ask regeneration for this batch, or null.
+ *
+ * NO tenant predicate, and that is correct rather than an oversight:
+ * `job_outbox` is absent from `scripts/ci/tenant-tables.ts`, so a statement
+ * referencing only that table is not audited by `ci:tenant-scope` and needs no
+ * allowlist entry. Its safety comes from the CALLER — `readLatestBatch` has
+ * already resolved this batch through account- and business-scoped reads, so
+ * `batchId` is proven, and the only value returned is an ask id belonging to a
+ * batch the caller owns.
+ *
+ * Do NOT "fix" this by joining `solicitation_batches` to make it look scoped:
+ * that pulls a tenant table into the statement, makes it auditable, and demands
+ * scope keys on a query whose proof lives upstream.
+ *
+ * `aggregate_id` IS that proven batch id — migration 091's comment contract for
+ * this topic — and the partial unique index it backs allows at most one
+ * in-flight row per batch, so `LIMIT 1` is the whole answer rather than a
+ * truncation.
+ *
+ * A WHOLE-BATCH generation row's payload has no `ask_id`, so `->>` yields SQL
+ * NULL and this returns null: the panel reads that as "preparing", not as a
+ * spinning row. `payload->>'ask_id'` returns TEXT, so this is OUTSIDE the
+ * PgBouncer JSONB-as-string carve-out — no parse, no guard, and `parseEvidence`
+ * above is deliberately not reused here.
+ *
+ * The status list is spelled by hand, in this order. `ci:outbox-status` checks
+ * members AND order at every site, and the set cannot be parameterized (a bind
+ * parameter inside an `ON CONFLICT … WHERE` defeats partial-index inference, so
+ * every site in the repo re-spells it identically — see
+ * `src/lib/shared/job-outbox-status.ts`, the owner of that contract).
+ */
+async function readRegeneratingAskId(
+  db: Sql | TransactionSql,
+  batchId: string,
+): Promise<string | null> {
+  const [row] = await db<{ askId: string | null }[]>`
+    SELECT payload->>'ask_id' AS "askId"
+      FROM job_outbox
+     WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+       AND aggregate_id = ${batchId}::uuid
+       AND status IN ('pending', 'dispatching', 'dispatched')
+     LIMIT 1
+  `;
+  return row?.askId ?? null;
+}
+
+/**
  * The whole owner-facing send lane: each send-ask's current outreach attempt
  * plus the batch's lifecycle row and its two readiness counts.
  *
@@ -366,11 +433,17 @@ interface SendLaneLifecycleRow extends BatchLifecycleRow {
  * work inline behind an `options.sendLane` branch. The caller owns the FLAG
  * decision (whether to call at all); this function owns the READ.
  *
- * TWO statements, both issued on the caller's transaction, which is REPEATABLE
+ * THREE statements, all issued on the caller's transaction, which is REPEATABLE
  * READ: each therefore reads the SAME snapshot as the funnel numbers above.
  * A `ready: true` rendered beside attempts that disagree with it is exactly the
  * tear the transaction exists to prevent, and statements inside one snapshot
  * cannot reintroduce it.
+ *
+ * The third (#860) and the Redis peek beside it are ADVISORY presentation
+ * facts, not inputs to any gate — the authoritative refusals are the enqueue's
+ * `ON CONFLICT` dedup and the worker's Lua INCR. They are read AFTER the
+ * tenant-scoped statements rather than woven into them, so neither can widen
+ * or weaken a scoped predicate.
  */
 async function readSendLane(
   tx: TransactionSql,
@@ -476,8 +549,34 @@ async function readSendLane(
     throw new Error(`solicitation batch ${batchId} is unreadable in its own snapshot`);
   }
 
+  const attempts = toAttempts(attemptRows);
+
+  // Q6 — the in-flight regeneration row. See readRegeneratingAskId for why it
+  // carries no tenant predicate and must not grow one.
+  const regeneratingAskId = await readRegeneratingAskId(tx, batchId);
+
+  // Only a RENDERED attempt can be regenerated (a withheld row ends the attempt
+  // line, rule 6), so only those need a counter — and an empty id list
+  // short-circuits inside the peek without touching Redis at all.
+  //
+  // NO catch here, deliberately: `peekAskRegenBudgetBatch` has no rejection
+  // path. A transport failure AND a synchronous client-construction throw both
+  // resolve to an EMPTY map, logged there on the shared
+  // `regen_budget_peek_failed` stream. Empty means every key is UNKNOWN, which
+  // renders no counter and leaves every control ENABLED — the inverse ("0
+  // remaining") would disable the whole lane during an Upstash outage. The
+  // authoritative gate is unaffected: the worker's `checkAskRegenBudget` still
+  // refuses over-budget work before any spend.
+  const regenBudgets = Object.fromEntries(
+    await peekAskRegenBudgetBatch(
+      attempts
+        .filter((attempt) => attempt.deliveryStatus === 'rendered')
+        .map((attempt) => attempt.askId),
+    ),
+  );
+
   return {
-    attempts: toAttempts(attemptRows),
+    attempts,
     sendLane: {
       batchState: deriveBatchState(lane, new Date()),
       // Advisory only: approveBatch re-asserts this precondition under its own
@@ -490,6 +589,8 @@ async function readSendLane(
       haltedAt: lane.haltedAtText,
       haltReason: lane.haltReason,
       moderationWithheld: lane.moderationWithheld,
+      regeneratingAskId,
+      regenBudgets,
     },
   };
 }
