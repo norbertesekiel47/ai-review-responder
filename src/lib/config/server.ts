@@ -207,6 +207,18 @@ const serverSchema = z.object({
   // LIST_UNSUBSCRIBE_EMAIL above (different sender, different §7.2 servicing
   // obligation) — do not collapse them.
   SOLICITATION_UNSUBSCRIBE_MAILTO: opt,
+  // #657 spec §1.6/§9: the solicitation lane's Sending identity. All four
+  // solicitation vars FAIL CLOSED — unset means no solicitation sends, never a
+  // degraded send. The key is deliberately NOT RESEND_API_KEY: a key leaked from
+  // this lane cannot send transactional mail, so it cannot forge an approval
+  // email or an approval link (invariants #3 and #5 reached sideways).
+  // Server-only, NO NEXT_PUBLIC_ companion (invariant #13).
+  SOLICITATION_RESEND_API_KEY: opt,
+  SOLICITATION_SEND_FROM_ADDRESS: opt,
+  // Platform-wide daily ceiling (§3.2A) — the warm-up dial and the emergency
+  // brake. Default 0 at read time; this ticket registers and boot-asserts it and
+  // enforces nothing (#630 owns enforcement).
+  SOLICITATION_PLATFORM_DAILY_CAP: opt,
   // ── Stage-3 out-of-guard batch (scattered src/app server-side route config) ──
   // Migrated raw reads from server-side process.env reads in src/app/** (Next route
   // handlers + one landing Server Component) that live OUTSIDE the process-env

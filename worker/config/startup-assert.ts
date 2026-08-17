@@ -457,3 +457,42 @@ export function assertAccountOffboardingEnv(): void {
     throw new Error('SESSION_COOKIE_SECRET must be at least 32 bytes (256-bit HMAC key)');
   }
 }
+
+/**
+ * Boot-time assertion for the solicitation Sending identity (#657, spec §9).
+ * A worker that boots with sending enabled and no From address is a worker that
+ * fails at dispatch time instead of boot time.
+ *
+ * When SOLICITATION_SEND_ENABLED=true:
+ *   - verify all 4 solicitation env vars are non-empty
+ *   - verify SOLICITATION_PLATFORM_DAILY_CAP parses as a non-negative integer
+ *
+ * An explicit 0 is VALID — that is the warm-up dial at rest, not a
+ * misconfiguration. Unparseable is not: presence alone would let a typo reach
+ * dispatch, where §9's "unparseable ⇒ 0" would silently stop every send.
+ *
+ * No-op when the flag is off or in MOCK_EXTERNAL_APIS=true.
+ */
+export function assertSolicitationSendEnv(): void {
+  if (process.env.SOLICITATION_SEND_ENABLED !== 'true') return;
+  if (process.env.MOCK_EXTERNAL_APIS === 'true') return;
+  const required = [
+    'SOLICITATION_RESEND_API_KEY',
+    'SOLICITATION_SEND_FROM_ADDRESS',
+    'SOLICITATION_PLATFORM_DAILY_CAP',
+    'SOLICITATION_UNSUBSCRIBE_MAILTO',
+  ];
+  const missing = required.filter((k) => !process.env[k] || process.env[k]!.trim().length === 0);
+  if (missing.length > 0) {
+    throw new Error(
+      `SOLICITATION_SEND_ENABLED=true but missing required env vars: ${missing.join(', ')}`,
+    );
+  }
+  // Names the var, never the value — the key is in the same required list.
+  const cap = Number(process.env.SOLICITATION_PLATFORM_DAILY_CAP!.trim());
+  if (!Number.isInteger(cap) || cap < 0) {
+    throw new Error(
+      'SOLICITATION_SEND_ENABLED=true but SOLICITATION_PLATFORM_DAILY_CAP is not a non-negative integer',
+    );
+  }
+}
