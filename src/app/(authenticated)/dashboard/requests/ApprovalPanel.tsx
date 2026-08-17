@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { AskAttemptView, SendLaneView } from '@/lib/solicitation/batch-view';
+import { ApprovalActions, type ApprovalVerb } from './ApprovalActions';
+import { AskList, SelectableAskList, type AskRowView } from './AskList';
 import './requests.css';
 
 /**
@@ -16,15 +18,20 @@ import './requests.css';
  * owner of what is on screen.
  *
  * REDACTION (invariant #4 ported to the send lane; design D6a). A
- * `moderation_high` attempt is not owner-readable, and this component is
- * structurally unable to leak it: `toRows` drops every `redacted` attempt AND
- * projects the survivors onto {id, name, status}, so no attempt's `subject` or
- * `body` is read anywhere below — not into markup, not into a title/aria/data
+ * `moderation_high` attempt is not owner-readable, and this lane is structurally
+ * unable to leak it. `toRows` below is the ONE place an `AskAttemptView` is
+ * touched anywhere in the lane: it drops every `redacted` attempt AND projects
+ * the survivors onto {id, name, status}, and `AskRowView` — that projection — is
+ * the only shape `AskList`/`SelectableAskList` accept. So no attempt's `subject`
+ * or `body` is read anywhere below: not into markup, not into a title/aria/data
  * attribute, not into a key. (`body` below is only ever this panel's own prose
  * or a request body.) The held rows surface as a reason plus the
- * `sendLane.moderationWithheld` count, and nothing else.
+ * `sendLane.moderationWithheld` count, and nothing else. Handing a child the
+ * unprojected attempt is exactly how this guarantee would be lost — if a child
+ * ever seems to need one, the seam is wrong, not the projection.
  *
- * There is no edit affordance and no regenerate control anywhere here (D22).
+ * There is no edit affordance and no regenerate control anywhere here (D22);
+ * `ApprovalActions` is the one file in the lane that renders a control at all.
  * Approve or exclude, and nothing else.
  */
 
@@ -35,31 +42,6 @@ const HALT_PATH = '/api/dashboard/solicitation/batch/halt';
  *  withhold-reason chips in BatchReport — the code is the thing support and the
  *  owner can both point at. */
 const MODERATION_REASON = 'moderation_high';
-
-type DeliveryStatus = AskAttemptView['deliveryStatus'];
-
-/** Keyed on the union so a widened `delivery_status` vocabulary is a compile
- *  error here rather than a blank cell in the list. */
-const STATUS_LABEL: Record<DeliveryStatus, string> = {
-  rendered: 'Ready to send',
-  queued: 'Queued',
-  sending: 'Sending',
-  sent: 'Sent',
-  withheld: 'Held back',
-  failed: 'Could not send',
-  unknown: 'Unknown',
-};
-
-/**
- * One list row. Deliberately NOT the attempt itself — projecting first is what
- * makes the redaction rule structural instead of a habit: nothing downstream of
- * `toRows` can reach a rendered message even by accident.
- */
-interface AskRowView {
-  outreachId: string;
-  contactName: string;
-  deliveryStatus: DeliveryStatus;
-}
 
 /**
  * `redacted` rows are dropped outright, not rendered with their reason: their
@@ -109,6 +91,26 @@ function panelMode(lane: SendLaneView): PanelMode {
   }
 }
 
+/**
+ * Which verb the mode offers, if any — the lifecycle half of the question
+ * `ApprovalActions` answers visually. Exhaustive with no `default` for the same
+ * reason as `panelMode`: a new mode has to state whether it is actionable,
+ * rather than inheriting "no button" by omission.
+ */
+function actionVerb(mode: PanelMode): ApprovalVerb | null {
+  switch (mode) {
+    case 'approvable':
+      return 'approve';
+    case 'stoppable':
+      return 'halt';
+    case 'preparing':
+    case 'expired':
+    case 'halted':
+    case 'settled':
+      return null;
+  }
+}
+
 function countPhrase(count: number): string {
   return `${count} ${count === 1 ? 'message' : 'messages'}`;
 }
@@ -153,6 +155,31 @@ function panelCopy(mode: PanelMode, lane: SendLaneView): { heading: string; body
         body: 'This batch is finished. Nothing more will send from it.',
       };
   }
+}
+
+// ── The exclusion set ───────────────────────────────────────────────────────
+
+/** Exclusion is an act, not a default: an id in the set is a deselected ask, so
+ *  the set IS the approve payload. Toggling a second time removes it again. */
+function toggleExclusion(
+  current: ReadonlySet<string>,
+  outreachId: string,
+): ReadonlySet<string> {
+  const next = new Set(current);
+  if (!next.delete(outreachId)) next.add(outreachId);
+  return next;
+}
+
+/** How many sendable rows are still selected — the live count the approve
+ *  button carries and the approved message repeats. */
+function includedCount(
+  rows: readonly AskRowView[],
+  excluded: ReadonlySet<string>,
+): number {
+  return rows.reduce(
+    (total, row) => (excluded.has(row.outreachId) ? total : total + 1),
+    0,
+  );
 }
 
 // ── The write ───────────────────────────────────────────────────────────────
@@ -205,6 +232,103 @@ async function postLaneAction(
   }
 }
 
+/** What the owner reads when a write did not settle as done. */
+function failureCopy(outcome: LaneOutcome): string {
+  return outcome.kind === 'refused'
+    ? (REFUSAL_COPY[outcome.status] ?? GENERIC_FAILURE)
+    : GENERIC_FAILURE;
+}
+
+/** The sentence the parent announces, from the route's result discriminant. */
+type Announce = (status: string) => string;
+
+/** The approve sentence. The count is bound here so the shared settle path
+ *  below stays free of either route's copy. */
+function approvedAnnounce(sendCount: number): Announce {
+  return (status) =>
+    status === 'already_approved'
+      ? 'This batch was already approved.'
+      : `Approved. ${countPhrase(sendCount)} will send. You can still stop this batch.`;
+}
+
+/** The halt sentence. Both routes are idempotent, so each has an "already" arm
+ *  that must not claim anything new happened. */
+const haltedAnnounce: Announce = (status) =>
+  status === 'already_halted'
+    ? 'This batch was already stopped.'
+    : 'Batch stopped. Nothing further will send.';
+
+interface LaneWriteInputs {
+  batchId: string;
+  /** The location scope the view was read for — the write must name the same
+   *  location, or it lands on the owner's default one. */
+  scope: string;
+  /** Outreach ids the owner deselected; the set IS the approve payload. */
+  excluded: ReadonlySet<string>;
+  /** Only for the approve sentence — the server recounts under its own lock. */
+  sendCount: number;
+  onChanged: (message: string) => void;
+}
+
+interface LaneWrites {
+  /** True while either write is in flight. */
+  busy: boolean;
+  /** Copy for the last write that did not settle as done; '' when there is none. */
+  error: string;
+  approve: () => void;
+  halt: () => void;
+}
+
+/**
+ * The lane's two writes and the two pieces of state they own.
+ *
+ * They settle identically — busy on, error cleared, POST, busy off, then either
+ * the parent's announcement or the refusal copy — and differ only in route,
+ * body, and sentence, so `perform` is the one settle path. Nothing here
+ * refetches: `onChanged` is the parent's cue to run its existing `retry()`.
+ */
+function useLaneWrites({
+  batchId,
+  scope,
+  excluded,
+  sendCount,
+  onChanged,
+}: LaneWriteInputs): LaneWrites {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const perform = useCallback(
+    async (path: string, requestBody: Record<string, unknown>, announce: Announce) => {
+      setBusy(true);
+      setError('');
+      const outcome = await postLaneAction(path, scope, requestBody);
+      setBusy(false);
+      if (outcome.kind !== 'done') {
+        setError(failureCopy(outcome));
+        return;
+      }
+      onChanged(announce(outcome.status));
+    },
+    [onChanged, scope],
+  );
+
+  const approve = useCallback(() => {
+    void perform(
+      APPROVE_PATH,
+      { batchId, excludedOutreachIds: [...excluded] },
+      approvedAnnounce(sendCount),
+    );
+  }, [batchId, excluded, perform, sendCount]);
+
+  // The halt body carries ONLY the batch id: the halt reason is derived
+  // server-side so the audit trail cannot be told what to say.
+  const halt = useCallback(() => {
+    void perform(HALT_PATH, { batchId }, haltedAnnounce);
+  }, [batchId, perform]);
+
+  return { busy, error, approve, halt };
+}
+
 // ── The panel ───────────────────────────────────────────────────────────────
 
 export interface ApprovalPanelProps {
@@ -227,8 +351,6 @@ export function ApprovalPanel({
   onChanged,
 }: ApprovalPanelProps) {
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
 
   const rows = useMemo(() => toRows(attempts), [attempts]);
   const sendable = useMemo(
@@ -238,63 +360,19 @@ export function ApprovalPanel({
 
   const mode = panelMode(sendLane);
   const { heading, body } = panelCopy(mode, sendLane);
-  const sendCount = sendable.reduce(
-    (total, row) => (excluded.has(row.outreachId) ? total : total + 1),
-    0,
-  );
+  const sendCount = includedCount(sendable, excluded);
 
   const toggle = useCallback((outreachId: string) => {
-    setExcluded((current) => {
-      const next = new Set(current);
-      if (!next.delete(outreachId)) next.add(outreachId);
-      return next;
-    });
+    setExcluded((current) => toggleExclusion(current, outreachId));
   }, []);
 
-  const approve = useCallback(async () => {
-    setBusy(true);
-    setError('');
-    const outcome = await postLaneAction(APPROVE_PATH, scope, {
-      batchId,
-      excludedOutreachIds: [...excluded],
-    });
-    setBusy(false);
-    if (outcome.kind !== 'done') {
-      setError(
-        outcome.kind === 'refused'
-          ? (REFUSAL_COPY[outcome.status] ?? GENERIC_FAILURE)
-          : GENERIC_FAILURE,
-      );
-      return;
-    }
-    onChanged(
-      outcome.status === 'already_approved'
-        ? 'This batch was already approved.'
-        : `Approved. ${countPhrase(sendCount)} will send. You can still stop this batch.`,
-    );
-  }, [batchId, excluded, onChanged, scope, sendCount]);
-
-  const halt = useCallback(async () => {
-    setBusy(true);
-    setError('');
-    // Body carries ONLY the batch id: the halt reason is derived server-side so
-    // the audit trail cannot be told what to say.
-    const outcome = await postLaneAction(HALT_PATH, scope, { batchId });
-    setBusy(false);
-    if (outcome.kind !== 'done') {
-      setError(
-        outcome.kind === 'refused'
-          ? (REFUSAL_COPY[outcome.status] ?? GENERIC_FAILURE)
-          : GENERIC_FAILURE,
-      );
-      return;
-    }
-    onChanged(
-      outcome.status === 'already_halted'
-        ? 'This batch was already stopped.'
-        : 'Batch stopped. Nothing further will send.',
-    );
-  }, [batchId, onChanged, scope]);
+  const { busy, error, approve, halt } = useLaneWrites({
+    batchId,
+    scope,
+    excluded,
+    sendCount,
+    onChanged,
+  });
 
   return (
     <section
@@ -306,36 +384,16 @@ export function ApprovalPanel({
       </h2>
       <p className="rq-state-body">{body}</p>
 
-      {mode === 'approvable' && sendable.length > 0 && (
-        <ul className="rq-asks">
-          {sendable.map((row) => (
-            <li key={row.outreachId} className="rq-ask">
-              <label className="rq-ask-label">
-                <input
-                  type="checkbox"
-                  className="rq-ask-check"
-                  checked={!excluded.has(row.outreachId)}
-                  onChange={() => toggle(row.outreachId)}
-                  disabled={busy}
-                />
-                <span className="rq-ask-name">Send to {displayName(row)}</span>
-              </label>
-              <span className="rq-ask-status">{STATUS_LABEL[row.deliveryStatus]}</span>
-            </li>
-          ))}
-        </ul>
+      {mode === 'approvable' && (
+        <SelectableAskList
+          rows={sendable}
+          excluded={excluded}
+          onToggle={toggle}
+          disabled={busy}
+        />
       )}
 
-      {(mode === 'stoppable' || mode === 'halted') && rows.length > 0 && (
-        <ul className="rq-asks">
-          {rows.map((row) => (
-            <li key={row.outreachId} className="rq-ask">
-              <span className="rq-ask-name">{displayName(row)}</span>
-              <span className="rq-ask-status">{STATUS_LABEL[row.deliveryStatus]}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {(mode === 'stoppable' || mode === 'halted') && <AskList rows={rows} />}
 
       {mode === 'settled' && (
         <p className="rq-approval-summary">{countPhrase(rows.length)} in this batch.</p>
@@ -355,37 +413,13 @@ export function ApprovalPanel({
         </p>
       )}
 
-      {mode === 'approvable' && (
-        <div className="rq-approval-actions">
-          <button
-            type="button"
-            className="btn btn-primary rq-action"
-            onClick={() => void approve()}
-            disabled={busy}
-          >
-            {busy ? 'Approving…' : `Approve and send ${countPhrase(sendCount)}`}
-          </button>
-        </div>
-      )}
-
-      {mode === 'stoppable' && (
-        <div className="rq-approval-actions">
-          <button
-            type="button"
-            className="btn btn-secondary rq-action"
-            onClick={() => void halt()}
-            disabled={busy}
-          >
-            {busy ? 'Stopping…' : 'Stop this batch'}
-          </button>
-        </div>
-      )}
+      <ApprovalActions
+        verb={actionVerb(mode)}
+        busy={busy}
+        sendPhrase={countPhrase(sendCount)}
+        onApprove={approve}
+        onHalt={halt}
+      />
     </section>
   );
-}
-
-/** `solicitation_contacts.name` is nullable-ish TEXT upstream; an empty string
- *  must still produce a usable checkbox label. */
-function displayName(row: AskRowView): string {
-  return row.contactName || 'Unnamed contact';
 }
