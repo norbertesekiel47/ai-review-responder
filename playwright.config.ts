@@ -29,17 +29,18 @@ export default defineConfig({
   ],
   // One owner for app boot, locally AND in CI (the CI `e2e` job relies on
   // this block — see .github/workflows/e2e.yml). Locally the dev server, so a
-  // running `pnpm dev` is reused. In CI a production build: `next dev`
+  // running `pnpm dev` is reused. In CI the production server: `next dev`
   // compiles each route on its first hit, and on a loaded runner that first
   // hit alone exceeded the 30s test timeout — every run showed 1–2 "flaky"
   // tests that were really compile stalls, each costing a 30s timeout plus a
-  // retry. `next build` compiles everything once (~40s on 4 vCPU), then every
-  // page is served prebuilt. The timeout covers the build.
+  // retry. The e2e job runs `pnpm build` as its own step (visible output, own
+  // timing) right before Playwright, so `pnpm start` here serves prebuilt
+  // pages and opens the port in seconds.
   webServer: {
-    command: process.env.CI ? 'pnpm build && pnpm start' : 'pnpm dev',
+    command: process.env.CI ? 'pnpm start' : 'pnpm dev',
     port: 3000,
     reuseExistingServer: !process.env.CI,
-    timeout: process.env.CI ? 300_000 : 180_000,
+    timeout: 180_000,
     // When E2E tests use a dedicated test DB, the app under test must
     // read from the same database so it can find seeded approval tokens.
     env: {

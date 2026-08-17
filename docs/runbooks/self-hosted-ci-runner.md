@@ -30,9 +30,10 @@ once per fix push instead of once per WIP push (~600 runs/month before this).
 nothing; a draft cannot merge, so a skipped required check on a draft is
 harmless.
 
-Runner-independent trims that landed with the cutover: e2e boots
-`next build && next start` under CI (the dev server's compile-on-first-hit blew
-the 30s test timeout on a loaded runner and read as "flaky"), Postgres service
+Runner-independent trims that landed with the cutover: e2e runs against a
+production build under CI — a `pnpm build` step, then `webServer` = `pnpm start`
+(the dev server's compile-on-first-hit blew the 30s test timeout on a loaded
+runner and read as "flaky"), Postgres service
 containers use a tmpfs data dir and 2s health probes (was ~8s of pure wait per
 job), CI coverage writes only the `json` report the fallow gate reads.
 
