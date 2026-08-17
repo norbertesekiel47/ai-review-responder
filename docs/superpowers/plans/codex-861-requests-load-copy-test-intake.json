@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "size": "trivial",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "ui",
+  "db_touching": false,
+  "goal": "A Requests batch-read failure is regression-tested so its alert cannot make a write-scoped claim.",
+  "non_goals": [
+    "Change production copy.",
+    "Add a shared assertion before a second read-failure consumer exists.",
+    "Implement #630 send-lane surfaces."
+  ],
+  "user_visible_behavior": [
+    "A failed Requests batch read still offers retry and never tells the owner that nothing was sent or nothing changed."
+  ],
+  "invariants": [
+    "Assertions are scoped to the load-failure alert.",
+    "Honest rephrasing remains allowed.",
+    "Retry behavior remains pinned."
+  ],
+  "edge_cases": [
+    "A 500 followed by a successful retry renders the recovered state.",
+    "Legitimate settled-state copy elsewhere is unaffected."
+  ],
+  "existing_patterns_to_follow": [
+    "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx pins the failed-load retry.",
+    "The same test file separately pins unconfirmed write outcomes without conflating the two invariants."
+  ],
+  "test_seams": [
+    "The rendered role=alert after GET batch returns 500, followed by the existing retry flow."
+  ],
+  "allowed_edit_surface": [
+    "src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx"
+  ],
+  "tests_to_add": [
+    "offers a retry after a failed load without claiming nothing was sent or changed"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run 'src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx'"
+  ],
+  "estimated_prod_lines": 0,
+  "estimated_test_lines": 8,
+  "dependencies_added": [],
+  "rollback_plan": "",
+  "observability": [],
+  "required_approvals": [
+    "commit",
+    "push",
+    "merge"
+  ],
+  "open_questions": []
+}
