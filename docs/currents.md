@@ -7,7 +7,58 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-17 (#629 owner approval lane — Quick summary immediately below. Prior entry: #657 messaging seam + solicitation Sending identity + Resend Solicitation lane.)
+Last updated: 2026-08-17 (#859 query-block tenant-scope audit + #858 case-safe batch closure + #861 read-failure copy pin — Quick summary immediately below. Prior entry: #629 owner approval lane.)
+
+## Quick summary — #859 `ci:tenant-scope` reads query blocks · #858 case-safe batch closure · #861 read-failure copy pin (2026-08-17, PRs #870, #868, #869)
+
+**The three follow-ups #629 filed on its way out have all landed, and the one
+that mattered most changed how a security gate reads SQL.**
+
+**#859 (PR #870).** `ci:tenant-scope` used to blank every parenthesised `SELECT`
+before it read predicates, so a correctly-scoped `NOT EXISTS`, scalar subquery,
+`LATERAL` or CTE body was indistinguishable from an unscoped one — and #629 had
+to contort `approval.ts` and `batch-view.ts` into scanner-shaped joins and split
+statements just to be seen. The audit now lexes SQL once (strings, dollar
+quotes, nested comments, `${…}` placeholders) and proves **every physical
+tenant-table binding in every query block** — CTE bodies, `EXISTS`/scalar/
+`LATERAL` children, every set arm. A child inherits scope only through an
+explicit account/business identity equality to a proven, unshadowed ancestor;
+row-id correlation, siblings, `OR`/`NOT` fail closed. Two rules the branch review
+added before merge: a scope predicate counts **only on a column the table
+physically carries** (`TENANT_SCOPE_COLUMNS`, asserted against
+`information_schema` — inside a subquery PostgreSQL resolves a missing column to
+the OUTER row, so `EXISTS (SELECT 1 FROM reviews WHERE account_id = $1)` restricts
+nothing), and an alias re-bound in an intermediate block hides the same-named
+ancestor from every descendant. Every finding now carries a stable
+`sqlIdentity`; `--no-allowlist` prints the same occurrence proof for triage.
+`ALLOWLIST_BASELINE` **397 → 381** (17 obsolete "scanner cannot see" entries
+removed, one honest admin exception added — a false negative of the OLD parser).
+`approval.ts` and `batch-view.ts` are back to their natural SQL.
+
+**#858 (PR #868).** `closeBatchIfSettled` lowercases its batch id once; a
+mixed-case request id can no longer strand a Settled batch with a running Send
+parent (`agent_runs.subject_id` is TEXT — case-sensitive — while every `::uuid`
+cast normalises). Fixed in the callee for all seven callers, ahead of #630's
+releaser tick.
+
+**#861 (PR #869).** The Requests load-failure card is pinned: a read failure may
+not claim "nothing was sent" or "nothing changed" — any tense. Test only.
+
+**The new shape**
+
+| File | What changed |
+|---|---|
+| `scripts/ci/tenant-scope-audit.ts` | Rewritten (942 → ~2,100 lines): PostgreSQL-aware lexer, query-block analyzer, JS template lexer, `sqlIdentity`, `--no-allowlist`. |
+| `scripts/ci/tenant-tables.ts` | Gains `TENANT_SCOPE_COLUMNS` — the per-table scope-column map the audit consults. |
+| `scripts/ci/__tests__/tenant-tables.integration.test.ts` | **New.** Read-only live-DB suite: the map must match `information_schema` at migration head. |
+| `scripts/ci/tenant-scope-allowlist.ts` | 397 → 381 entries. |
+| `src/lib/solicitation/approval.ts` | One-statement lock with a correlated scalar send-parent lookup; readiness gate is `NOT EXISTS`. |
+| `src/lib/solicitation/batch-view.ts` | Send-lane counts are two independent scalar aggregates on the lifecycle row. |
+| `src/lib/solicitation/outreach.ts` | `closeBatchIfSettled` canonicalizes its batch id. |
+| `docs/security/tenant-isolation.md` | Describes the block analyzer, the column rule, and the identity format. |
+
+**Still open from #629's list:** #860 (per-ask regenerate surface, in flight —
+merge order was #859 first, done) and the admin/support halt surface (#865).
 
 ## Quick summary — #629 owner approval lane (2026-08-17, PR #863)
 
@@ -52,9 +103,10 @@ Three rules decide the whole design:
 
 **Known gaps, all filed:** `closeBatchIfSettled` compares ids case-sensitively and
 was fixed here for these two verbs only — **#858**, which must be resolved before
-#630. Per-request re-drafting has no owner entry point — **#860**. The
-admin/support stop surface exists in the database as a permitted value with
-nothing that writes it, and is still unfiled.
+#630 (**landed** the same day, PR #868 — the callee now canonicalises for every
+caller). Per-request re-drafting has no owner entry point — **#860** (in flight).
+The admin/support stop surface exists in the database as a permitted value with
+nothing that writes it — since filed as **#865**.
 
 ## Quick summary — #657 email adapter + solicitation webhook lane (2026-08-17, PR #853)
 

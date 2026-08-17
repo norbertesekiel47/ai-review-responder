@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — reset by the **2026-08-15 pass**
+**Merges since last architecture pass: 4** — reset by the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
 (entries below). **Not counted, and correctly so** — #830 (marketing copy),
@@ -29,6 +29,42 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #870** — #859 `ci:tenant-scope` reads query blocks (2026-08-17, squash
+  `649c43b5`). **Entropy-negative in production, entropy-positive in tooling,
+  and it moves a security-gate baseline.** No migration, env var, flag or
+  dependency. `scripts/ci/tenant-scope-audit.ts` rewritten 942 → 2,076 lines —
+  a hand-rolled PostgreSQL lexer + query-block analyzer + JS template lexer in
+  ONE file (the next pass should ask whether it wants a `scripts/ci/lib/`
+  split: sql-lexer / js-lexer / analyzer). **New single owner:
+  `TENANT_SCOPE_COLUMNS` in `scripts/ci/tenant-tables.ts`** — the per-table
+  scope-column map, schema-asserted by a new read-only live-DB suite; the FIRST
+  live-DB suite under `scripts/ci/__tests__/`. **`ALLOWLIST_BASELINE` 397 →
+  381** (17 obsolete parser-limitation entries out, 1 honest admin entry in).
+  **Deleted concept:** "the audit cannot see inside a subquery" — #629's D7
+  workarounds in `approval.ts` and `batch-view.ts` reverted to natural SQL, and
+  the trap stops shaping production query structure. **What the next pass
+  should look at:** (a) the one-file size of the audit; (b) the 66 allowlist
+  entries that are now statically provable but kept for their trust-boundary
+  reasons — a candidate for a "provable" category or a pruning pass;
+  (c) whether the analyzer's fail-closed boundaries (unqualified correlated
+  columns, sibling-only correlation) are costing authors real allowlist churn.
+- **PR #868** — #858 `closeBatchIfSettled` canonicalises its batch id
+  (2026-08-17, squash `d9ea8801`). **Entropy-neutral, seam-strengthening.** No
+  migration, env var, flag or dependency; +8 production lines. Closes the
+  per-caller-fix seam #863's entry flagged as "under strain": the single owner
+  of Settled-batch closure now defends itself against a TEXT `subject_id`
+  compare, so #630's releaser tick joins as a third caller with no
+  canonicalisation obligation. Entry-point canonicalisation in `approval.ts`
+  stays (defence in depth, not duplication).
+- *Not counted:* **PR #869** (#861, test-only, zero production lines) — same
+  policy as docs/marketing PRs.
+
+  > **Counter caveat carried forward:** **PR #866** (#652, `redeemUnsubscribeToken`
+  > owns its transaction) merged 2026-08-17 with **no entry here** either, so the
+  > count now excludes TWO production merges (#857, #866). If both should have
+  > counted, the true figure is **6**, past the ≥ 5 threshold. Surfaced for the
+  > owner; not back-filled by this sweep.
 
 - **PR #863** — #629 owner approval lane (2026-08-17, squash `71b1bd88`).
   **Moderate entropy, and it CLOSES more concept than it opens.** Migration
