@@ -254,7 +254,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     await seedBatch({ batchId: loserId, createdAt: '2026-07-02T10:00:00Z', builtAt: '2026-07-02T10:05:00Z' });
     await seedBatch({ batchId: winnerId, createdAt: '2026-07-02T10:00:00Z', builtAt: '2026-07-02T10:06:00Z' });
 
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
 
     expect(view.state).toBe('built');
     if (view.state !== 'built') throw new Error('expected a built batch');
@@ -280,7 +280,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     const sendContactId = await seedContact('Queued One');
     await seedAsk({ batchId, contactId: sendContactId, status: 'send', decidedAt: '2026-07-10T10:00:00Z' });
 
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     const stale = view.groups.find((group) => group.reason === 'stale_visit');
@@ -347,7 +347,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
       lintDetail: ['incentive_language', 'review_steering'],
     });
 
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     expect(view.attempts).toHaveLength(3);
@@ -392,7 +392,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
   it('returns hasBatch false when the location\'s uploads completed before watch-mode was enabled', async () => {
     await seedContact('Pre Flip');
 
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
 
     expect(view).toEqual({ state: 'no_batch', contactsOnFile: 1 });
   });
@@ -408,7 +408,9 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
       decidedAt: '2026-07-11T10:05:00Z',
     });
 
-    const view = await readLatestBatch(sql(), otherTenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), otherTenant!.accountId, businessId, {
+      sendLane: true,
+    });
 
     expect(view).toEqual({ state: 'no_batch', contactsOnFile: 0 });
     expect(await markBatchReviewed(sql(), otherTenant!.accountId, businessId, batchId)).toBe(0);
@@ -509,7 +511,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     await sql()`ANALYZE solicitation_asks`;
 
     const startedAt = Date.now();
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
     const elapsedMs = Date.now() - startedAt;
 
     if (view.state !== 'built') throw new Error('expected a built batch');

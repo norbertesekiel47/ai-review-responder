@@ -1502,7 +1502,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     });
 
     // Round-trip through the real read model: parseEvidence is its parse boundary.
-    const view = await readLatestBatch(sql(), tenant!.accountId, businessId);
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch view');
     const group = view.groups.find((candidate) => candidate.reason === 'no_consent');
     expect(group?.total).toBe(2);

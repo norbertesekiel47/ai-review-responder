@@ -152,10 +152,14 @@ describe('GET/POST /api/dashboard/solicitation/batch', () => {
     const response = await GET(getRequest(withSolicitationScope('', OTHER_LOCATION_ID)));
 
     expect(response.status).toBe(200);
+    // The 4th argument pins invariant #13's default: SOLICITATION_SEND_ENABLED is
+    // unset in the test environment, so the route must pass the flag through as
+    // false rather than let the read model decide for itself.
     expect(mockReadLatestBatch).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
       OTHER_LOCATION_ID,
+      { sendLane: false },
     );
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({ state: 'built', batchId: BATCH_ID }),
