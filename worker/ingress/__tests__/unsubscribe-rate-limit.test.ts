@@ -12,6 +12,7 @@ const { mockCheckRateLimit, mockBegin, mockRedeem } = vi.hoisted(() => ({
 vi.mock('@/lib/shared/rate-limit', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('../../../src/lib/db/server', () => ({
   sql: { begin: mockBegin },
+  sqlUnsubscribe: { begin: mockBegin },
   jsonb: (value: unknown) => value,
 }));
 vi.mock('@sentry/node', () => ({ captureException: vi.fn() }));

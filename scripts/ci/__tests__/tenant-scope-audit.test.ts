@@ -400,6 +400,30 @@ describe('tenant-scope-audit', () => {
     expect(templates.flatMap((template) => auditSqlText('src/example.ts', template.sqlText))).toEqual([]);
   });
 
+  it('extracts sqlUnsubscribe-tagged templates (redemption-pool export, #651) — an un-aliased sqlUnsubscribe import registers as tag sqlUnsubscribe, not sql', () => {
+    // #651 added a third db/server client. Every tagged-template client export
+    // must be in DB_SERVER_SQL_TAG_SOURCE_NAMES or a query tagged with it
+    // silently escapes this audit — the exact gap #477 closed for sqlRead.
+    expect(extractSqlTemplates(`
+      import { sql, sqlUnsubscribe } from '@/lib/db/server';
+      await sql\`SELECT * FROM reviews WHERE business_id = \${businessId}\`;
+      await sqlUnsubscribe\`SELECT * FROM reviews WHERE business_id != \${businessId}\`;
+    `)).toEqual([
+      { tag: 'sql', sqlText: 'SELECT * FROM reviews WHERE business_id = ${businessId}' },
+      { tag: 'sqlUnsubscribe', sqlText: 'SELECT * FROM reviews WHERE business_id != ${businessId}' },
+    ]);
+  });
+
+  it('a non-scoping predicate on a sqlUnsubscribe-tagged query is a finding, not a silent skip', () => {
+    const templates = extractSqlTemplates(`
+      import { sqlUnsubscribe } from '@/lib/db/server';
+      await sqlUnsubscribe\`SELECT * FROM reviews WHERE business_id != \${businessId}\`;
+    `);
+    expect(templates.flatMap((template) => auditSqlText('src/example.ts', template.sqlText))).toEqual(
+      finding('src/example.ts', 'reviews'),
+    );
+  });
+
   it('extracts sql.unsafe and tx.unsafe templates from local query variables', () => {
     expect(extractSqlTemplates(`
       const query = \`UPDATE businesses SET tone = $2 WHERE id = $1\`;

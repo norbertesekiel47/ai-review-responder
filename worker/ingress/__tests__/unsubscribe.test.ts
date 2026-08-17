@@ -6,14 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // outcome→status mapping, commit ordering, redaction, and the bounded telemetry.
 // Database truth stays in src/lib/solicitation/__tests__/unsubscribe.integration.test.ts,
 // which is where it can be asserted against a real Postgres.
-const { mockBegin, mockRedeem, mockCaptureException } = vi.hoisted(() => ({
-  mockBegin: vi.fn(),
+const { mockSharedBegin, mockUnsubscribeBegin, mockRedeem, mockCaptureException } = vi.hoisted(() => ({
+  mockSharedBegin: vi.fn(),
+  mockUnsubscribeBegin: vi.fn(),
   mockRedeem: vi.fn(),
   mockCaptureException: vi.fn(),
 }));
 
 vi.mock('../../../src/lib/db/server', () => ({
-  sql: { begin: mockBegin },
+  sql: { begin: mockSharedBegin },
+  sqlUnsubscribe: { begin: mockUnsubscribeBegin },
   jsonb: (value: unknown) => value,
 }));
 vi.mock('@sentry/node', () => ({ captureException: mockCaptureException }));
@@ -76,7 +78,10 @@ beforeEach(() => {
   resetServerConfigForTests();
   resetWorkerConfigForTests();
 
-  mockBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => run(TX));
+  mockSharedBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => run(TX));
+  mockUnsubscribeBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) =>
+    run(TX),
+  );
   mockRedeem.mockResolvedValue({ status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' });
 
   validToken = mintUnsubscribeRawToken();
@@ -100,6 +105,14 @@ function postToken(token: string, payload?: string) {
 }
 
 describe('unsubscribe ingress — POST', () => {
+  it('routes a well-formed one-click redemption through the dedicated unsubscribe client rather than the shared sql client', async () => {
+    const response = await postToken(validToken);
+
+    expect(response.statusCode).toBe(200);
+    expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(1);
+    expect(mockSharedBegin).not.toHaveBeenCalled();
+  });
+
   it('returns 200 only after the suppression row commits', async () => {
     // §9.1's hardest requirement: a 2xx on an uncommitted write is a lost opt-out
     // the provider believes it delivered. Assert the ORDER, not just the status —
@@ -110,7 +123,7 @@ describe('unsubscribe ingress — POST', () => {
       order.push('redeem');
       return { status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' };
     });
-    mockBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
+    mockUnsubscribeBegin.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
       const result = await run(TX);
       order.push('commit');
       return result;
@@ -215,7 +228,7 @@ describe('unsubscribe ingress — POST', () => {
       // One transaction per request and no retry loop: whether a second ledger row
       // exists is decided by redeemUnsubscribeToken's claim-first ordering, and the
       // adapter must not second-guess it by re-running the redemption.
-      expect(mockBegin).toHaveBeenCalledTimes(2);
+      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(2);
       expect(mockRedeem).toHaveBeenCalledTimes(2);
     } finally {
       sink.restore();
@@ -286,14 +299,15 @@ describe('unsubscribe ingress — POST', () => {
     }
   });
 
-  it('a forged token never opens a transaction', async () => {
+  it('keeps malformed-token rejection before every redemption-client transaction attempt', async () => {
     const sink = captureWorkerLog();
     try {
       const response = await postToken('forged.token');
       expect(response.statusCode).toBe(503);
       // §1.4a: the admission gate runs FIRST, so a forged string costs one HMAC
       // compare and no connection at all.
-      expect(mockBegin).not.toHaveBeenCalled();
+      expect(mockUnsubscribeBegin).not.toHaveBeenCalled();
+      expect(mockSharedBegin).not.toHaveBeenCalled();
       expect(mockRedeem).not.toHaveBeenCalled();
     } finally {
       sink.restore();
@@ -386,7 +400,7 @@ describe('unsubscribe ingress — POST', () => {
     });
 
     expect(response.statusCode).toBe(413);
-    expect(mockBegin).not.toHaveBeenCalled();
+    expect(mockUnsubscribeBegin).not.toHaveBeenCalled();
   });
 
   it('redeems and writes a ledger row while SOLICITATION_SEND_ENABLED is off', async () => {
@@ -488,10 +502,10 @@ describe('unsubscribe ingress — concurrent replays of one token', () => {
       const race = await raceOneToken();
 
       // The finding: the HMAC gate blocks forged strings, but every replay of one
-      // DELIVERED token passes it and opens a transaction on the shared write pool
-      // (DB_POOL_MAX=20 on the worker, against 18 concurrent BullMQ slots) — on a
+      // DELIVERED token passes it and opens one transaction on the dedicated
+      // fixed-two pool. Single-flight keeps same-token replays to one slot on a
       // route §9.2 forbids rate-limiting.
-      expect(mockBegin).toHaveBeenCalledTimes(1);
+      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(1);
       expect(mockRedeem).toHaveBeenCalledTimes(1);
 
       race.settle({ status: 'redeemed', tokenHashPrefix: 'a1b2c3d4e5f6' });
@@ -556,21 +570,24 @@ describe('unsubscribe ingress — concurrent replays of one token', () => {
     }
   });
 
-  it('does not collapse two different tokens into one redemption', async () => {
+  it('routes three distinct well-formed tokens into three unsubscribe-client transaction attempts rather than collapsing them through single-flight', async () => {
     const sink = captureWorkerLog();
     try {
-      const other = mintUnsubscribeRawToken();
-      const barrier = buildArrivalBarrier(2);
+      const second = mintUnsubscribeRawToken();
+      const third = mintUnsubscribeRawToken();
+      const barrier = buildArrivalBarrier(3);
       harness.app.addHook('preHandler', barrier.hook);
 
-      const responses = Promise.all([postToken(validToken), postToken(other)]);
+      const responses = Promise.all([postToken(validToken), postToken(second), postToken(third)]);
       await barrier.allArrived;
       await drainMicrotasks();
 
-      // Keyed on the token HASH, so two distinct delivered tokens never share.
-      expect(mockRedeem).toHaveBeenCalledTimes(2);
+      // Keyed on the token HASH, so distinct delivered tokens never share.
+      expect(mockRedeem).toHaveBeenCalledTimes(3);
+      expect(mockUnsubscribeBegin).toHaveBeenCalledTimes(3);
+      expect(mockSharedBegin).not.toHaveBeenCalled();
       const settled = await responses;
-      expect(settled.map((response) => response.statusCode)).toEqual([200, 200]);
+      expect(settled.map((response) => response.statusCode)).toEqual([200, 200, 200]);
     } finally {
       sink.restore();
     }
@@ -587,7 +604,7 @@ describe('unsubscribe ingress — GET', () => {
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe(`${APP_URL}/u/${encodeURIComponent(validToken)}`);
     // The redirect writes nothing — §5.4's neutral page decides what the human sees.
-    expect(mockBegin).not.toHaveBeenCalled();
+    expect(mockUnsubscribeBegin).not.toHaveBeenCalled();
   });
 
   it('encodes reserved characters when building the landing page redirect', async () => {

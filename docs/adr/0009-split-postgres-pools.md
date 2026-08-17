@@ -318,3 +318,50 @@ force. But the tenant roster this document describes is historical:
 
 Re-derive the budget from the #773 campaign evidence, not this document's
 KPI-wave arithmetic, if the clamp is ever revisited.
+
+## Addendum — 2026-08-16 (#651): dedicated Unsubscribe redemption pool
+
+Ticket #651 adds a third module-owned Postgres.js singleton,
+`sqlUnsubscribe`, for Railway's recipient-facing
+`POST /ingress/unsubscribe/:token` path. Its fixed local maximum is **2**, with
+no environment override, and the #773 admission chokepoint is applied at cap 2.
+This isolates valid-token replay traffic from the worker's shared write slots;
+it does **not** isolate Supavisor clients, backend sessions, or database CPU.
+
+The current capacity model is therefore:
+
+- Railway potential local clients: shared write 20 + health 2 + Unsubscribe 2
+  = **24**. `sqlRead` remains lazy and unused by worker paths.
+- Fully expanded Vercel isolate: unchanged at write 3 + read 8 = **11**.
+  `sqlUnsubscribe` is lazy and no Vercel composition root queries it.
+- Supavisor Max Clients in worker steady state: keep
+  `24 + isolates × 11 < 200`, so the bound is **15 warm isolates**
+  (`24 + 15×11 = 189`). Sixteen equals the approximate ceiling
+  (`24 + 16×11 = 200`).
+- Supavisor Max Clients during a normal zero-downtime Railway rollout: two
+  24-slot workers can overlap, so keep `48 + isolates × 11 < 200`. The
+  deployment-safe bound is **13 aggregate warm Vercel isolates**
+  (`48 + 13×11 = 191`); fourteen reaches 202. Fifteen is a steady-state bound,
+  not deployment headroom. The historical ≤16 statements above describe the
+  pre-#651 budget and are superseded by this addendum.
+- The prior untested compound backend case was approximately 52/57. Adding two
+  potential worker sessions makes the conservative case approximately
+  **54/57 (~95%)**. This is arithmetic, not a measurement.
+
+**Release gate:** before #651 reaches production, staging must confirm
+`DB_ADMISSION_ENABLED` is on and combine (a) a held-row proof with exactly two
+redemption transactions blocked in the database and a third waiting outside it,
+(b) same-token replay, (c) the existing 1,000-row worker headroom arm, (d) the
+authenticated Vercel pressure arm, and (e) a real two-worker rolling overlap of
+the reviewed artifact. Release the held rows before 15 seconds and require every
+redemption to complete with 200. Abort on more than 13 aggregate warm Vercel
+isolates during rollout, accepted clients at or above 192, any redemption
+failure/timeout, shared-pool saturation, growing `ClientRead` above 1 second, or
+backend sessions at or above **46 of 57**. If the combined gate fails, raise
+Supabase compute before production; do not raise an application pool to buy back
+latency.
+
+The 30-second #773 admission deadline remains an explicit accepted
+infrastructure failure mode: callers queue rather than pipeline, and expiry
+uses Unsubscribe's existing sanitized retryable `503` path. It is not an
+immediate pool-full shed response or a route rate limit.
