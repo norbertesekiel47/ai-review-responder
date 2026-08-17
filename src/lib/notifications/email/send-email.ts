@@ -1,4 +1,5 @@
-// Single sanctioned Resend send path. Every email send goes through here so a
+// Single sanctioned Resend send path, shared by the transactional and
+// solicitation sending identities. Every email send goes through here so a
 // hung Resend request cannot head-of-line-block the concurrency-1 notification
 // worker (the approval rail AND the auto-post FYI rail). The Resend SDK exposes
 // no AbortSignal on emails.send, so we bound it with a Promise.race timeout: the
@@ -30,10 +31,20 @@ function resolveTimeoutMs(): number {
 
 export async function sendEmail(
   payload: SendPayload,
-  opts: { timeoutMs?: number; idempotencyKey?: string } = {},
+  opts: {
+    timeoutMs?: number;
+    idempotencyKey?: string;
+    /**
+     * Which Resend client sends this. Defaults to the transactional getResend().
+     * The solicitation lane passes getSolicitationResend() so the two identities
+     * never share a key — while the 10s timeout and the idempotency-key plumbing
+     * below stay single-owner. Do NOT fork this function for a second lane.
+     */
+    client?: ReturnType<typeof getResend>;
+  } = {},
 ): Promise<SendResult> {
   const timeoutMs = opts.timeoutMs ?? resolveTimeoutMs();
-  const resend = getResend();
+  const resend = opts.client ?? getResend();
   // A stable idempotency key lets a timeout-retry or failover re-send of the same
   // logical email dedupe at Resend instead of double-sending. The Resend SDK's
   // request-options shape stays hidden here — callers pass a flat key.
