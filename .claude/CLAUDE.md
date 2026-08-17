@@ -154,7 +154,7 @@ decide *where new worker code goes*:
 - **Background loops** split by trigger: `background/pollers/` (Postgres-state-driven)
   vs `background/schedulers/` (time-cadence-driven) — new loop → pick by trigger.
 - **Webhook ingress** terminates in `worker/ingress/`: `{stripe,resend,shared}.ts`
-  + per-provider subfolders (`stripe/`, `twilio/`, `telegram/`, `zernio/`).
+  + per-provider subfolders (`stripe/`, `twilio/`, `telegram/`, `zernio/`, `resend/`).
   `unsubscribe.ts` is the one **recipient-facing** ingress route, not a provider
   webhook: no signature, no `rawBody`, no `claimInboundEvent`, and deliberately
   **exempt from the ingress rate limiter** (§9.2 forbids throttling a statutory

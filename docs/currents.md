@@ -7,7 +7,52 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-16 (Architecture pass 2026-08-15 + its six handoff PRs — Quick summary immediately below. Prior entry: Overview spec-alignment.)
+Last updated: 2026-08-17 (#657 messaging seam + solicitation Sending identity + Resend Solicitation lane — Quick summary immediately below. Prior entry: Architecture pass 2026-08-15 executed.)
+
+## Quick summary — #657 email adapter + solicitation webhook lane (2026-08-17, PR #853)
+
+**The machinery to send review requests by email now exists, and nothing calls
+it.** That is deliberate. #657 shipped three pieces that only meet at the
+adapter, all of them inert until #630's dispatch worker arrives.
+
+- **Messaging adapter** — a channel-neutral send seam with exactly **one** method,
+  `send`. `EmailAdapter` (Resend) is its first and today only adapter; a WhatsApp
+  adapter would be a *second adapter*, never a rewrite. It has **zero production
+  callers**, which is an accepted trade (map decision 14) mitigated by keeping the
+  interface to one method over the spec's already-locked envelope.
+- **Sending identity** — review requests send from `reviews@feedback.<env>.repworth.net`
+  on their own `feedback.` domain with their own API key, deliberately separate
+  from the transactional sender. The point is blast radius: a key leaked from this
+  lane **cannot forge an approval email or mint an approval link**. Three new
+  server-only env vars, all fail-closed, and a boot assertion that refuses to
+  start a worker with sending enabled and no From address.
+- **Solicitation lane** — a branch of the Resend webhook ingress chosen by an
+  echoed `lane=solicitation` tag **before any database lookup**. It records
+  bounce, complaint and provider-suppressed facts onto the **Outreach row** and
+  writes `global`-scope rows to the **Suppression ledger**, in one transaction.
+  Its write surface is deliberately narrow — never `delivery_status`, `sent_at`
+  or `unsubscribed_at`, which belong to other owners.
+
+**Nothing sends yet and nothing can.** `SOLICITATION_SEND_ENABLED` is off in every
+environment, and no Outreach row carries a `provider_message_id` until #630 sends —
+so the lane's discriminant cannot match in production. The existing
+`notification_deliveries` webhook path is byte-for-byte unchanged apart from two
+imports and one guard clause.
+
+**The new shape:**
+
+| Where | What |
+|---|---|
+| `src/lib/messaging/messaging-adapter.ts` | the seam: `MessagingAdapter` (one method), `OutboundMessage`, `getMessagingAdapter()` |
+| `src/lib/messaging/email-adapter.ts` | `EmailAdapter` — the whole envelope, plus the header-injection and one-recipient guards |
+| `src/lib/messaging/lane-tag.ts` | the `lane`/`solicitation` discriminant, **import-free** so the ingress never loads the Resend SDK to read two strings |
+| `worker/ingress/resend/solicitation-lane.ts` | the lane: discriminant, locked attribution lookup, seven event effects, one transaction owner |
+| `worker/ingress/resend/bounce-classifier.ts` | the bounce classifier, moved out of `resend.ts` intact so "what counts as permanent" keeps one owner |
+| `docs/runbooks/solicitation-sending-domain.md` | domain, DNS, DMARC, mailbox, warm-up — **authored here, executed at #633** |
+
+**Still open:** the DMARC `rua` address is an unresolved input (spec §12) and #633
+cannot create the DNS record without it. The `provider_message_id` index is
+deliberately deferred to #630, which produces the rows.
 
 ## Quick summary — Architecture pass 2026-08-15, executed (2026-08-16, PRs #836–#841)
 

@@ -4086,3 +4086,163 @@ remote refs by `origin/<branch>:refs/heads/<target>` instead of resetting a work
 and use the Edit tool for doc edits. (d) An agent that skips `ci:fallow:coverage`
 should be assumed to fail it — H3 ran it unprompted and found real findings; H5 did
 not and had three.
+
+## 2026-08-17 — #657: Messaging adapter seam, solicitation Sending identity, Resend Solicitation lane (PR #853)
+
+Squash `ad185edb`. 33 files, **+976/−76 production lines**, **+2377 test lines**
+(2.4× production — the #643 DB-contract band). **No migration. No new dependency.
+No new feature flag.** Ships inert.
+
+### What landed
+
+**1. Messaging adapter** (`src/lib/messaging/`, new folder, 3 files).
+`messaging-adapter.ts` holds the interface — ONE method, `send(OutboundMessage)`
+returning the provider message id the caller must persist as
+`solicitation_outreach.provider_message_id` — plus `getMessagingAdapter()`, a lazy
+singleton mirroring `getReviewPublisher()`. `email-adapter.ts` holds `EmailAdapter`,
+which owns the entire envelope so no caller has to know it: From-line construction
+(business name as display name, **no "via RepWorth" suffix** — DKIM `d=` alignment
+suppresses Gmail's annotation), `Reply-To: businesses.owner_email`, the
+`'solicitation'` header category, Resend tags including the lane discriminant, the
+Outreach row id as idempotency key (amendments A/B supersede §7.1's
+`solicitation-ask/<ask_id>`, which collides across attempts), and the Sending
+identity's client. `lane-tag.ts` holds the two discriminant constants and
+**imports nothing** — see "the cycle" below.
+
+**Honest scope:** zero production callers. #630's dispatch worker is the first.
+Accepted as a hypothetical seam (map decision 14); the mitigation is the
+one-method interface over spec §7.1's already-locked envelope, so a WhatsApp
+adapter wanting a different shape commits almost nothing.
+
+**2. Sending identity.** Three server-only vars —
+`SOLICITATION_RESEND_API_KEY`, `SOLICITATION_SEND_FROM_ADDRESS`,
+`SOLICITATION_PLATFORM_DAILY_CAP` — added to `src/lib/config/server.ts` with the
+collapsing `opt` helper, and **not** to `worker.ts` (nothing reads them through
+`getWorkerConfig()`; an unused schema entry is dead config).
+`assertSolicitationSendEnv()` in `worker/config/startup-assert.ts` copies
+`assertChannelsWhatsAppEnv`'s shape: flag gate, `MOCK_EXTERNAL_APIS` bypass,
+required-list check, then a format check that never logs a value. An explicit `0`
+cap boots (the warm-up dial at rest); an unparseable one fails boot.
+`getSolicitationResend()` fails **closed** — an unset key throws rather than
+falling back to the transactional client, which is the whole point of the split:
+a key leaked here cannot forge an approval email (invariants #3/#5 sideways).
+
+**3. `getEmailHeaders('solicitation')`** — a fail-closed category on the existing
+builder, never a forked second one. Throws on a missing per-ask URL, a non-HTTPS
+URL (RFC 8058 §3 one-click), or a missing configured mailbox. **No fallback** to
+`LIST_UNSUBSCRIBE_URL` and none to the RFC 2606 address: for a marketing digest a
+missing URL is a degraded header, for a solicitation ask it ships a legally
+required opt-out that cannot work. Typed with a conditional rest parameter so
+`getEmailHeaders('solicitation')` is a **compile** error while the union call in
+`templates/internal.ts` still compiles; the runtime throw is kept as defence in
+depth for a JS or `any`-typed caller.
+
+**4. Solicitation lane** (`worker/ingress/resend/`, new folder, 2 files).
+`bounce-classifier.ts` is `extractBounceType`/`isHardBounceType`/`classifyBounce`
+moved **byte-for-byte** out of `resend.ts` — they had to move because exporting
+them in place would make `solicitation-lane.ts` import its own parent. `'unknown'`
+still classifies **soft**: an ambiguous bounce must not permanently suppress a
+real customer. `solicitation-lane.ts` is the lane itself: `isSolicitationLane`
+reads the echoed tag in **both** shapes Resend uses (object map and
+`{name,value}` array), the attribution lookup runs **inside** `sql.begin` with
+`FOR UPDATE OF o` and `LIMIT 2`, and `withAttribution` is the single transaction
+owner — attribution, the outreach UPDATE and the optional ledger write are one
+commit or none.
+
+`worker/ingress/resend.ts` changed by **two imports and a seven-line guard
+clause**, plus the classifier removal. The `notification_deliveries` path is
+otherwise untouched, and `isOwnerDirectedTemplate` stays an allowlist so an ask
+can never flip `businesses.owner_email_bounced`.
+
+### Decisions worth re-reading
+
+- **The lane has NO flag gate.** Per glossary rule DR1, `SOLICITATION_SEND_ENABLED`
+  masters *sending* only — the webhook lane, the unsubscribe ingress and the
+  landing page stay live when it is off. Adding a gate would lose ledger writes.
+- **Write surface deliberately narrow:** only `bounced_at`, `complained_at`,
+  `provider_error` and the Suppression ledger. Never `delivery_status`/`sent_at`
+  (#630 owns the send lifecycle; a webhook write would race migration 091's ladder
+  CHECKs) and never `unsubscribed_at` (the RFC 8058 POST lands on
+  `worker/ingress/unsubscribe.ts`). Spec §5.3's `delivered_at` effect is
+  **dropped** — no such column, and this ticket carries no migration.
+- **Unmatched attribution splits two ways:** suppression-bearing events (permanent
+  bounce, complaint, provider-suppressed) throw → 503 → Resend retries, closing
+  the window where #630 has not yet committed `provider_message_id`.
+  Observability-only events keep warn-and-ack. **The plan's claim that this retry
+  is "bounded for free" by the 300 s stale-timestamp window is false and was
+  corrected in the shipped comment** — Resend retries any non-2xx on its own
+  schedule; the window only guarantees the event is never *reprocessed*. The fact
+  is not lost either way: `claimInboundEvent` persists the raw payload before
+  processing.
+- **`provider_error` writes are COALESCE-preserving**, matching the #736 Watchdog
+  rule — #630 writes a bounded error class at dispatch and a generic webhook
+  string must not erase it.
+- **`email.suppressed`'s loud §6.2 warning is conditional** on a ledger row
+  actually being written. A first-write-wins no-op means the handle was already
+  suppressed here — the two lists *agree*, the one case where the divergence claim
+  is false. Warning anyway would page an admin about the healthy state.
+- **Allowlist baseline 392 → 397** in `scripts/ci/tenant-scope-allowlist.ts`: one
+  attribution SELECT the audit attributes per-table, plus three signal UPDATEs.
+  Every UPDATE keys on the id the locked read returned **in the same transaction**,
+  so tenant scope is inherited, never re-derived.
+
+### Review findings worth keeping
+
+Plan review ran 3 rounds (cap) and produced 13 findings, all fixed before any
+implementation. Branch review ran 3 parallel axes → 10 findings, 8 fixed, 2
+rejected with recorded reasoning. Three are worth remembering:
+
+1. **A CR/LF injection bypass that six guards and three review rounds missed.**
+   `assertSendable` validated the **trimmed** recipient while `send()` put the
+   **untrimmed** value on the wire, so `'a@b.test\r\n'` passed every check and
+   reached `to:` with the CRLF intact. The existing test used an *internal* CRLF,
+   which `trim()` does not strip. Fixed by validating raw and sending the
+   validated value; regression test added for the trailing case.
+2. **The intake contradicted the shipped code.** Plan finding F1 changed unmatched
+   suppression-bearing events from ack-200 to throw-503 and corrected
+   `rollback_plan` — but not the `edge_cases` entry describing that exact
+   behaviour. The intake is the drift detector; a stale one silently blesses
+   drift. Both copies corrected.
+3. **A review fix introduced an import cycle, and the cycle was the smaller
+   problem.** Hosting the lane discriminant on `messaging-adapter.ts` (which
+   imports `EmailAdapter`) made `solicitation-lane.ts` transitively load the
+   Resend SDK, `sendEmail` and `getServerConfig` **to read two strings** —
+   contradicting the plan's rule that the lane "works whether or not the adapter
+   ever sends". Fixed with the import-free `lane-tag.ts`, same extraction
+   reasoning as `bounce-classifier.ts`. Recorded as deviations D9.
+
+Rejected, with reasoning: collapsing `withAttribution`'s `onMissing` callback to a
+boolean (it is the single transaction owner and absorbed three plan-review
+findings — churn for no behavioural gain), and extracting the 1,107-line
+integration suite's fixtures (green 33/33; a shared helpers module invites DDL
+creep into exactly the place that deadlocks, #573).
+
+### Shipping traps (the expensive part)
+
+- **`ci:fallow` caught a real unused export that 27 green local gate rows could
+  not** — `isHardBounceType` was exported by the move but has no importer outside
+  its own file. `verify-gate.sh` excludes `ci:fallow*` by design; the lab-notes
+  index already said to run fallow before opening such a PR, and it was not run.
+- **Running the local gate while CI runs starves CI**, because CI is the Lima VM
+  on the same Mac. Produced a `cancelled` CI job (15-min cap) with unrelated React
+  suites timing out at 5000 ms, and two local RED gates on `live-db-suites-audit`
+  that passed 43/43 in isolation. Diagnosis inverted twice before the evidence
+  settled. Fixed infrastructurally by #854's weight-based cloud runners.
+- **`main` moved three times mid-PR** (#851, #852, #854); all merged clean,
+  including two files both sides touched (`docs/directory.md`,
+  `scripts/ci/tenant-scope-allowlist.ts` — the allowlist still audited 397/397).
+- Staging rode before the PR (Railway `91fd8646`): worker boots clean, health 200,
+  and `POST /ingress/resend` returns 401 both untagged and **solicitation-tagged**,
+  confirming signature verification precedes lane dispatch.
+
+### Follow-ups
+
+- **DMARC `rua` address is unresolved** (spec §12) — #633 cannot create the DNS
+  record without it. The runbook carries a placeholder and says so rather than
+  inventing an address. Apex `_dmarc.repworth.net` currently reports to
+  `dmarc_rua@onsecureserver.net` (GoDaddy's default); do not copy it.
+- **Index on `provider_message_id`** deferred to #630, which produces the rows.
+- **`templates/internal.ts:52`** types its parameter as `category?: EmailCategory`,
+  so a caller could pass `'solicitation'` and get a runtime throw. Fail-closed and
+  therefore not a defect; narrowing it would have cost a surface amendment for a
+  type nicety with no live caller. Visible to #630, the first real caller.
