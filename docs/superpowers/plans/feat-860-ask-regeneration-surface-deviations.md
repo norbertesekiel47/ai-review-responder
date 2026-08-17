@@ -232,3 +232,84 @@ that runs two tasks of this plan at once.
 
 **Verdict: ACCEPT** — a plan-wide instruction defect, worked around per-task
 rather than by editing six commit steps.
+
+---
+
+## D10 — there were TWO `SendLaneView` fixtures; D1's `#861` assessment is void
+
+**When:** step 4 (EXECUTE), Task 5.
+
+**What:** Task 1 Step 7 widened the `sendLane()` fixture in
+`approval-panel.test.tsx`, believing it was the only one. A second lives at
+`src/app/(authenticated)/dashboard/requests/__tests__/requests-client.test.tsx:409`,
+building `NonNullable<Extract<BatchView,{state:'built'}>['sendLane']>`. It broke
+typecheck with **TS2739** the instant Task 5 widened the interface.
+
+**Shipped:** the same two mechanical lines (`regeneratingAskId: null`,
+`regenBudgets: {}`). No design content. The file is inside
+`allowed_edit_surface` (`src/app/(authenticated)/dashboard/requests/*`), so
+`ci:feature-surface` passed and **no amendment was spent (still 1 of 2)**.
+Leaving it would have left the branch non-compiling and blocked Task 6.
+
+**This voids D1's clearance of `codex-861-requests-load-copy-test`**, which
+reasoned "**No** — one test file this feature does not touch". This feature now
+touches it. `#861` has since merged to `main` (`0276ca7c`, +11 lines to that
+file); this branch was rebased onto it and the two edits auto-merged in
+different regions. Post-rebase regression is green.
+
+**Verdict: ACCEPT.** Lesson for a future plan: when an eval task widens a shared
+DTO fixture, `grep` for **every** construction site of that type, not the one
+the plan names.
+
+---
+
+## D11 — Task 4's snippets: an unreachable rollback setup and three missing helpers
+
+**When:** step 4 (EXECUTE), Task 4.
+
+**What:** four snippet defects, each resolved rather than worked around.
+
+1. **The rollback test could not reject.** The plan calls
+   `requestAskRegeneration` on an ordinary seeded batch expecting
+   `.rejects.toThrow()`, commenting that "a run id that does not exist makes
+   `recordStep` throw". Unreachable — the parent run id is read inside the same
+   transaction that uses it, so a non-existent id is unrepresentable without a
+   race. **Shipped:** re-point the send parent's `subject_id` at a fresh UUID so
+   `lockBatchForAction`'s correlated lookup no longer resolves it. The run row
+   **survives**, which keeps `readSteps(parentRunId, …)` a real oracle instead
+   of a vacuous read of a cascade-deleted parent.
+2. **`capturedStatements()` did not exist** and no live-DB handle records SQL
+   text. **Shipped:** a local `captureStatements(run)` opening a short-lived
+   `postgres()` connection with a `debug` hook, closed after one call. The two
+   shared handles are untouched.
+3. **`job_outbox` had no cleanup.** The suite's `afterEach` owns the
+   solicitation tables and `agent_runs` only, so regeneration rows would leak
+   into the shared test DB and corrupt unrelated outbox suites' counts.
+   **Shipped:** a nested `afterEach` keyed on `payload->>'business_id'`, so it
+   is independent of table-delete ordering. No existing hook modified.
+4. **The route test needed an unnamed mock.** `enforceDashboardRegenRateLimit`
+   reaches real Redis because Vitest loads `.env.local` and `REDIS_CACHE_URL` is
+   set there. **Shipped:** `importActual` + single-key override, so
+   `askRegenLimitResponse` stays real — the 429 test asserts its body verbatim.
+
+**Verdict: ACCEPT.** The guard ordering was mutation-checked: inserting
+`pg_advisory_xact_lock` ahead of the enqueue fails the deadlock test
+(`expected 3 to be less than 2`), then reverted. The oracle is real.
+
+---
+
+## D12 — `scoped-batch-route.ts`'s header now undercounts its adapters (follow-up)
+
+**When:** step 4 (EXECUTE), Task 4.
+
+**What:** `src/app/api/dashboard/solicitation/batch/_shared/scoped-batch-route.ts`
+opens "the write preamble shared by the **three** POST routes" and lists
+`approve`/`halt`/`reviewed`. With `regenerate` it is **four**.
+
+The file is **outside** this feature's `allowed_edit_surface`. Task 4 correctly
+left it and corrected only the `docs/directory.md` row it does own.
+
+**Verdict: ACCEPT, with an open follow-up.** A one-line comment fix needs either
+a second surface amendment (budget 1 of 2) or a separate sweep PR. Recommend the
+sweep: it is a stale comment, not a defect, and spending this feature's last
+amendment on prose is a poor trade with Task 6 still unrun.
