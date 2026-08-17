@@ -17,8 +17,8 @@ import {
  *
  * ── Why this exists (WCAG 2.2.2, Level A) ─────────────────────────────────
  * Eight clips auto-start and loop indefinitely on this page: the hero
- * backdrop, the CTA backdrop, and six agent avatars. Three CSS animations do
- * the same (the hero scroll cue, and the fleet's pulse and flow). 2.2.2
+ * backdrop, the CTA backdrop, and six agent avatars. Two CSS animations do
+ * the same (the fleet's pulse and flow). 2.2.2
  * requires that any motion which starts automatically and runs for more than
  * five seconds can be paused, and every one of these runs forever.
  *
@@ -151,15 +151,11 @@ function ToggleGlyph({ paused }: { paused: boolean }) {
 /**
  * The control.
  *
- * It is rendered inside the nav's markup but styled `position: fixed` from
- * 901px up, so on a wide viewport it floats at the bottom-left and stays
- * reachable while the avatars and the CTA backdrop are looping further down.
- * Below 901px there is no free corner to float into — the hero copy runs to
- * within ~36px of the bottom edge — so it stays docked in the nav. The full
- * measurement and the trade-off are written up in landing-experience.css.
- *
- * It is deliberately NOT folded into `ChapterRail`: that is a `<nav
- * aria-label="Page sections">`, and a media control is not a page section.
+ * Rendered in the footer's bottom bar (LandingFooter.tsx), in flow, at every
+ * viewport width. Until 2026-08-16 it floated `position: fixed` bottom-left
+ * on wide viewports and docked in the nav below 901px; the floating box sat
+ * on top of the closing band's note text at 1440x900. The placement note and
+ * the trade-off are written up in landing-experience.css.
  */
 export function AmbientMotionToggle() {
   const { paused, toggle } = useAmbientMotion();

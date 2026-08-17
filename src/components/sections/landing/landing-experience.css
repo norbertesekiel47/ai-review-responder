@@ -39,7 +39,6 @@
   /* Derived from the channels above rather than restated as hex, so the two
      forms of each colour cannot drift apart. `rgb(244 242 236)` IS `#f4f2ec`. */
   --rw-lp-text: rgb(var(--rw-lp-text-rgb));
-  --rw-lp-text-soft: rgb(var(--rw-lp-text-rgb) / 0.62);
   --rw-lp-ink: rgb(var(--rw-lp-ink-rgb));
   /* The RW mark's gold, lifted for contrast. Single owner for the landing
      page — hero.css consumes it for `--rw-lp-hero-accent`. Also the focus-ring
@@ -56,20 +55,36 @@
   --rw-lp-accent: rgb(var(--rw-lp-accent-rgb));
   /* Content gutter — used by contained blocks (the footer's inner row). */
   --rw-lp-gutter: clamp(1.5rem, 4vw, 4rem);
-  /* Width of the narrative sections' content column (2-5). Single owner, so
-     the four sections cannot drift apart — a mismatched column is visible as a
-     jolt when scrolling between them.
+  /* Width of the narrative sections' content column (2-5) and the footer.
+     Single owner, so the four sections cannot drift apart — a mismatched
+     column is visible as a jolt when scrolling between them.
 
-     102rem is a MEASURED ceiling, not a round number. Every section here is
-     also bound to `100svh`, and the persona/watchdog cards are `aspect-ratio:
-     3/4`, so width buys height: at 1920x812 the persona row keeps 48px of
-     vertical slack at 102rem and only 6px at 110rem. Going wider overflows the
-     shortest 16:9 viewports before it looks any better. Re-measure (§4 of
-     docs/design/landing/measurements.md) before raising it. */
-  --rw-lp-inner-max: 102rem;
+     75rem (1200px) since the 2026-08-16 Linear pass — a READING ceiling, not
+     a fit-the-viewport one. The old 102rem was measured against sections bound
+     to `100svh`, where width was spent as card height and the column had to
+     be wide enough to keep the persona row inside a 16:9 viewport. That bind
+     is gone (sections are as tall as their content), so the column is sized
+     for line length and rhythm instead: at 1200px the persona grid gives four
+     264px cards, the fleet's four persona nodes fit one row at their 13rem
+     basis, and the future section's prose column stays inside its 34rem
+     measure. Re-measure the fleet tier fit before going narrower. */
+  --rw-lp-inner-max: 75rem;
+  /* Vertical rhythm of the narrative sections (2-5): the section's own top and
+     bottom padding. 96px at desktop, scaling down to 64px on narrow viewports.
+     Replaces the `100svh` bind — a section is now as tall as its content plus
+     this, never as tall as the screen. */
+  --rw-lp-section-gap: clamp(4rem, 8vw, 6rem);
+  /* The label role — section eyebrows and the tier labels under them. One
+     style for every small caps label on the page: the mono face at 12px with
+     a hair of tracking, instead of the 10-11px display face at 0.24-0.28em
+     that read as a second layer of chrome. Uppercase is applied at the call
+     site so a label can opt out. */
+  --rw-lp-label-font: var(--rw-font-mono);
+  --rw-lp-label-size: 0.75rem;
+  --rw-lp-label-tracking: 0.04em;
   /* Page-EDGE gutter — used by the full-bleed chrome that sits in the viewport
-     corners (nav, hero scroll cue). Deliberately tighter than the content
-     gutter so the corners read as corners. */
+     corners (the nav). Deliberately tighter than the content gutter so the
+     corners read as corners. */
   --rw-lp-edge: clamp(1.25rem, 3vw, 3rem);
 
   position: relative;
@@ -215,11 +230,12 @@
 
 /* ---------- mobile menu ---------- */
 
-/* ---------- owner auth cluster ----------
-   Only rendered when SELF_SERVE_SIGNUP_ENABLED is on — see the prop note in
-   LandingExperience.tsx. Sits after the link list, which already carries
-   `margin-right: auto` on the wordmark, so this lands hard against the right
-   edge gutter with the nav links to its left. */
+/* ---------- nav action cluster ----------
+   Always rendered — see the note in LandingExperience.tsx for what it holds in
+   each flag state (Log in + Sign up, or the lead-capture pill). Sits after the
+   link list, which already carries `margin-right: auto` on the wordmark, so
+   this lands hard against the right edge gutter with the nav links to its
+   left. */
 
 .rw-lp-nav-auth {
   display: flex;
@@ -228,30 +244,32 @@
 }
 
 /* Log in is the quieter of the pair: it is for people who already decided, so
-   it does not compete with Sign up for a first-time visitor's attention. */
+   it does not compete with the pill for a first-time visitor's attention. */
 .rw-lp-nav-login {
   opacity: 0.72;
 }
 
-/* The one filled control in the nav. Gold on ink, matching the hero CTA's
-   hover state rather than inventing a third button style for the page. */
-.rw-lp-nav-signup {
+/* The one filled control in the nav — the same pill grammar as the hero CTA
+   and the closing band's action (`.rw-lp-hero-cta`, `.rw-lp-cta-action`),
+   one step smaller because it shares a row with 11px nav links. Gold fill,
+   ink text: 9.82:1, the same pair as the page's other two filled controls.
+
+   36px, stated as a constraint rather than derived from padding: it clears
+   the 24px WCAG 2.5.8 minimum with room, and the hero and closing pills carry
+   the 44px size for the same control on their own bands. */
+.rw-lp-nav-cta {
   display: inline-flex;
   align-items: center;
-  /* An explicit 44px minimum, not padding arithmetic. Padding alone left this
-     at 39px — the target height is a constraint, so it is stated as one rather
-     than derived from a font size that can change underneath it. Matches the
-     `min-h-[44px]` SiteNav uses for the same pair. */
-  min-height: 2.75rem;
-  padding: 0 1.125rem;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0 1rem;
   border-radius: 999px;
   background: var(--rw-lp-accent);
   color: var(--rw-lp-ink);
   font-family: var(--rw-font-display);
   font-weight: 600;
-  font-size: 0.6875rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
+  letter-spacing: -0.005em;
   text-decoration: none;
   white-space: nowrap;
   transition:
@@ -259,7 +277,7 @@
     transform 200ms ease;
 }
 
-.rw-lp-nav-signup:hover {
+.rw-lp-nav-cta:hover {
   background: #e8d3a1;
   transform: translateY(-1px);
 }
@@ -267,7 +285,7 @@
 /* Asserted by src/__tests__/focus-visible-marketing.test.ts — adding a new
    control here means adding it there too. Offset outward, since the pill's own
    fill would otherwise swallow an inset ring. */
-.rw-lp-nav-signup:focus-visible {
+.rw-lp-nav-cta:focus-visible {
   outline: 2px solid var(--rw-lp-accent);
   outline-offset: 3px;
 }
@@ -353,10 +371,9 @@
 }
 
 @media (max-width: 900px) {
-  /* Tighter than the desktop `clamp(1.5rem, 4vw, 3rem)`. Down here the nav
-     carries three fixed-width items — the lockup, the motion toggle and the
-     hamburger — and the desktop gap does not leave room for them at 320px,
-     which WCAG 1.4.10 Reflow requires to work without horizontal scroll. */
+  /* Tighter than the desktop `clamp(1.5rem, 4vw, 3rem)` so the lockup and the
+     hamburger fit at 320px, which WCAG 1.4.10 Reflow requires to work without
+     horizontal scroll. */
   .rw-lp-nav {
     gap: 0.75rem;
   }
@@ -365,8 +382,9 @@
     display: none;
   }
 
-  /* The menu panel carries Log in / Sign up down here. Leaving the cluster
-     visible would put the pill next to the hamburger AND inside the panel. */
+  /* The menu panel carries the same door down here (Log in / Sign up, or the
+     lead-capture CTA). Leaving the cluster visible would put the pill next to
+     the hamburger AND inside the panel. */
   .rw-lp-nav-auth {
     display: none;
   }
@@ -377,11 +395,10 @@
 }
 
 /* The 320px case specifically — the narrowest viewport WCAG 1.4.10 Reflow
-   requires to work without horizontal scroll. The lockup (185px), the toggle
-   and the hamburger are all fixed width, so the only give left is the gutter
-   and the gap. Measured at 320px: the row ends at exactly 304px inside a 304px
-   content box — it fits, the toggle keeps its full 44px, and there is no slack
-   left. Anything else added to this row needs the lockup to give way first. */
+   requires to work without horizontal scroll. The lockup (185px) and the
+   hamburger (40px) are fixed width. Since the motion toggle moved to the
+   footer (2026-08-16) the row has ~70px of slack here; the tighter edge and
+   gap are kept so the corners still read as corners at this width. */
 @media (max-width: 380px) {
   .rw-lp {
     --rw-lp-edge: 1rem;
@@ -403,32 +420,20 @@
 /* ==========================================================================
    Ambient motion toggle (WCAG 2.2.2, Level A).
 
-   ── Placement, and why it changes at 901px ────────────────────────────────
-   From 901px up it FLOATS, fixed at the bottom-left, so it stays reachable
-   while the visitor is looking at the six avatar clips and the CTA backdrop
-   further down. The nav is `position: absolute` over the hero by design, so a
-   control that only lived in the nav would scroll out of reach.
+   ── Placement ─────────────────────────────────────────────────────────────
+   It lives in the footer's bottom bar (LandingFooter.tsx), leading the
+   copyright, at every viewport width. Until the 2026-08-16 Linear pass it
+   floated `position: fixed` at the bottom-left from 901px up, and at 1440x900
+   that box sat on top of the closing band's note text — the one visible
+   overlap on the page. In the footer it is in flow, so it cannot overlap
+   anything, and it is one control in one place rather than one control with
+   two placements.
 
-   Bottom-LEFT specifically, because it is the only free corner on a wide
-   viewport: `.rw-lp-rail` is fixed at the vertical centre of the right edge,
-   and the hero's scroll cue occupies `right: var(--rw-lp-edge)` from 2.5rem to
-   roughly 7.8rem off the bottom. Measured at 1440x900 and 1920x834, the
-   bottom-left box intersects no glyph in the hero copy and no part of the CTA
-   copy block.
-
-   Below 901px it DOCKS INTO THE NAV instead, because on a narrow viewport
-   there is no free corner at all. The layout stacks and the hero copy runs to
-   within ~36px of the bottom edge at 360, 390, 414 and 768 wide — measured,
-   and both bottom corners intersect the last line of the hero note at one size
-   or another. This is the same constraint that already hides `.rw-lp-rail`
-   below 901px: there is no gutter down here to put chrome in.
-
-   The trade is deliberate and worth stating: docked in the nav, the control
-   scrolls away with the nav on narrow viewports. That still satisfies 2.2.2 —
-   the mechanism is available, and it sits ahead of the moving content rather
-   than after it — and it is strictly better than a floating button that covers
-   the copy it is floating over. If the nav ever becomes sticky, move this back
-   to floating at all widths.
+   The trade is deliberate and worth stating: the control now sits AFTER the
+   moving content rather than fixed beside it. That still satisfies 2.2.2 (a
+   mechanism exists, reachable by scroll and by keyboard), and every clip and
+   animation on the page also honours `prefers-reduced-motion`. If the nav
+   ever becomes sticky, this is the control to move into it.
    ========================================================================== */
 
 .rw-lp-motion-toggle {
@@ -436,23 +441,20 @@
   align-items: center;
   justify-content: center;
   /* 44px, stated as a constraint rather than derived from padding — this is
-     the only control on the page a visitor reaches while something is moving,
-     so it gets a full-size target (WCAG 2.5.5 AAA, not just the 24px AA). */
+     the one control on the page a visitor reaches because something is
+     moving, so it gets a full-size target (WCAG 2.5.5 AAA, not just the 24px
+     AA). */
   flex: 0 0 auto;
   width: 2.75rem;
   height: 2.75rem;
   padding: 0;
   border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.16);
   border-radius: 50%;
-  /* 0.74, and the alpha is measured, not chosen for looks. The button floats
-     over the hero and CTA clips, whose brightest frames approach white. At
-     0.74 the icon still measures 6.36:1 against the composited ground even
-     over a pure-white pixel — clear of the 3:1 that 1.4.11 asks of a control's
-     graphical parts — and 14.97:1 over the page ink. Below ~0.55 it stops
-     clearing 3:1 on a bright frame. */
+  /* 0.74 was measured for the floating placement over the hero and CTA clips
+     (6.36:1 for the icon over a pure-white pixel). In the footer it sits on
+     the page ink, where the same alpha reads at 14.97:1; kept as-is so the
+     control looks the same wherever it is placed. */
   background: rgb(var(--rw-lp-ink-rgb) / 0.74);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   color: var(--rw-lp-text);
   cursor: pointer;
   transition:
@@ -470,18 +472,6 @@
   height: 1.25rem;
 }
 
-/* 901px is not a new breakpoint — it is the one `.rw-lp-rail` and the nav's
-   own mobile collapse already use, and it means the same thing here: at or
-   above it there is a gutter to put chrome in. */
-@media (min-width: 901px) {
-  .rw-lp-motion-toggle {
-    position: fixed;
-    z-index: 20;
-    bottom: clamp(1rem, 2.6vh, 2rem);
-    left: var(--rw-lp-edge);
-  }
-}
-
 /* Round control, so it does not join the shared ring block below — that one
    squares the corner off with `border-radius: 2px`. Asserted separately in
    src/__tests__/focus-visible-marketing.test.ts. */
@@ -493,9 +483,9 @@
 /* The CSS half of the pause. Videos are paused imperatively (only script can
    stop a media element); every keyframe animation on the page is stopped here.
 
-   The universal selector is deliberate. Three infinite animations exist today
-   — the hero scroll cue, and the fleet's pulse and flow — and enumerating them
-   means a fourth one added next month silently escapes the control. Every
+   The universal selector is deliberate. Two infinite animations exist today
+   — the fleet's pulse and flow — and enumerating them means a third one added
+   next month silently escapes the control. Every
    animation on this page is decorative and infinite (checked: there is not one
    finite keyframe animation under `sections/landing/`), so there is nothing
    here that freezing mid-flight would strand. `!important` because this has to

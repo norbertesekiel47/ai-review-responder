@@ -29,11 +29,12 @@
 
   position: relative;
   isolation: isolate;
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: clamp(1.5rem, 3.7vh, 3rem) 0;
+  /* As tall as its content plus the page's section rhythm — never bound to
+     the viewport (the `100svh` bind and the snap that needed it were removed
+     2026-08-16; docs/design/landing/measurements.md §2). */
+  padding: var(--rw-lp-section-gap, 6rem) 0;
   background: var(--rw-lp-ink, #14201c);
   overflow: hidden;
 }
@@ -93,12 +94,15 @@
   text-align: center;
 }
 
+/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. One eyebrow per
+   section, in the mono face; the tags inside the diagram are components, not
+   labels, and keep their own type. */
 .rw-lp-fleet-eyebrow {
   margin: 0 0 1.125rem;
-  font-family: var(--rw-font-display);
-  font-weight: 500;
-  font-size: 0.6875rem;
-  letter-spacing: 0.28em;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
   color: var(--rw-lp-accent, #dcc489);
 }

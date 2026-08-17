@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { Reveal } from '../reveal';
 import {
@@ -9,7 +9,6 @@ import {
   CLOSING_LEAD,
   CLOSING_TAIL,
   COMMITTED,
-  COMMITTED_HINT,
   COMMITTED_LABEL,
   COMMITTED_NOTE,
   EYEBROW,
@@ -23,51 +22,31 @@ import {
  * Where RepWorth is going.
  *
  * Two columns: the argument on the left (heading, lead, and the closing line
- * that reframes the roadmap), the committed work on the right as a 2x2 of flip
- * cards. The split exists because the single-column version left roughly a
- * third of the row empty at 16:9 while the card bodies were wrapping to four
- * lines.
+ * that reframes the roadmap), the committed work on the right as a 2x2 of
+ * static cards. The split exists because the single-column version left
+ * roughly a third of the row empty at 16:9 while the card bodies were wrapping
+ * to four lines.
  *
  * Only committed direction appears here — the exploring tier was cut. The rule
  * that survives is that a card must never make an unbuilt thing look shipped,
- * which is now carried by three things at once: the tier disclaimer, the
- * dashed card edge, and the `Planned` tag on every card FRONT. That last one
- * matters more than it looks: the flip hides the body, and the body is where
- * all the future-tense "will" lives. See future-copy.ts.
+ * which is carried by three things at once: the tier disclaimer, the dashed
+ * card edge, and the `Planned` tag on every card. Until 2026-08-16 these were
+ * flip cards and the body — where every future-tense "will" lives — was
+ * hidden behind the flip; a roadmap does not need a reveal, so the body is now
+ * simply on the card. See future-copy.ts.
  */
 
 function FutureCard({ agent }: { agent: FutureAgent }) {
-  const [flipped, setFlipped] = useState(false);
-  const toggle = useCallback(() => setFlipped((value) => !value), []);
-
   return (
     <li className="rw-lp-future-card">
-      {/*
-        A real <button>, for the same reason AgentFlipCard is one: a hover-only
-        flip hides the body from every touch device and every keyboard user.
-        Pointer gets :hover, touch toggles `flipped`, keyboard gets
-        :focus-visible plus Enter/Space. Both faces stay in the DOM and neither
-        is aria-hidden, so a screen reader reads name then body in order.
-      */}
-      <button
-        type="button"
-        className="rw-lp-future-flip"
-        data-flipped={flipped ? 'true' : 'false'}
-        aria-pressed={flipped}
-        onClick={toggle}
-      >
-        <span className="rw-lp-future-flip-inner">
-          <span className="rw-lp-future-flip-face rw-lp-future-flip-front">
-            <span className="rw-lp-future-card-tag">{CARD_TAG}</span>
-            <span className="rw-lp-future-card-name">{agent.name}</span>
-          </span>
-
-          <span className="rw-lp-future-flip-face rw-lp-future-flip-back">
-            <span className="rw-lp-future-card-back-name">{agent.name}</span>
-            <span className="rw-lp-future-card-body">{agent.body}</span>
-          </span>
-        </span>
-      </button>
+      {/* Static: tag, name, body, all visible. Not a button — there is nothing
+          to toggle any more, and a card that is not interactive must not look
+          or read as one. */}
+      <div className="rw-lp-future-card-face">
+        <span className="rw-lp-future-card-tag">{CARD_TAG}</span>
+        <h4 className="rw-lp-future-card-name">{agent.name}</h4>
+        <p className="rw-lp-future-card-body">{agent.body}</p>
+      </div>
     </li>
   );
 }
@@ -94,6 +73,11 @@ export function FutureSection() {
    * cursor, which is exactly the kind of movement that preference asks us to
    * drop. The custom properties then keep their off-screen defaults and the
    * cards render with their static edge (see future.css).
+   *
+   * `background-attachment: fixed` also needs NO transformed ancestor. Nothing
+   * above this section carries one since the scroll-linked section transforms
+   * were removed (2026-08-16); if a transform is ever reintroduced above it,
+   * the glow silently downgrades to `scroll` and stops tracking the cursor.
    */
   useEffect(() => {
     if (prefersReducedMotion) return;
@@ -156,7 +140,6 @@ export function FutureSection() {
               <div className="rw-lp-future-tier-head">
                 <h3 className="rw-lp-future-tier-label">{COMMITTED_LABEL}</h3>
                 <p className="rw-lp-future-tier-note">{COMMITTED_NOTE}</p>
-                <p className="rw-lp-future-tier-hint">{COMMITTED_HINT}</p>
               </div>
             </Reveal>
 

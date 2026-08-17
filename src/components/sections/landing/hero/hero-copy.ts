@@ -75,6 +75,3 @@ export const SCOPE_NOTE_LINES = [
   'Google reviews, end to end, today.',
   'Growing to everywhere else you show up.',
 ] as const;
-
-/** Scroll affordance label. */
-export const SCROLL_LABEL = 'Scroll';

@@ -8,7 +8,6 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { AmbientVideo } from '../ambient-motion';
 import {
   SCOPE_NOTE_LINES,
-  SCROLL_LABEL,
   SUBHEAD_LINES,
   TITLE_ACCENT,
   TITLE_LEAD,
@@ -137,7 +136,7 @@ function BrokenLines({ lines }: { lines: readonly string[] }) {
   );
 }
 
-/** The circular-arrow glyph on the primary CTA. Inline SVG per brand rules. */
+/** The arrow that trails the primary CTA's label. Inline SVG per brand rules. */
 function ArrowGlyph() {
   return (
     <svg
@@ -182,24 +181,17 @@ export function HeroSection({ primaryCtaHref, primaryCtaLabel }: HeroSectionProp
             <BrokenLines lines={SUBHEAD_LINES} />
           </p>
 
+          {/* One filled pill, the page's primary action. The nav and the
+              closing band carry the same control. */}
           <Link href={primaryCtaHref} className="rw-lp-hero-cta">
-            <span className="rw-lp-hero-cta-ring" aria-hidden="true">
-              <ArrowGlyph />
-            </span>
             <span className="rw-lp-hero-cta-label">{primaryCtaLabel}</span>
+            <ArrowGlyph />
           </Link>
 
           <p className="rw-lp-hero-note">
             <BrokenLines lines={SCOPE_NOTE_LINES} />
           </p>
         </div>
-      </div>
-
-      <div className="rw-lp-hero-scroll" aria-hidden="true">
-        <span className="rw-lp-hero-scroll-label">{SCROLL_LABEL}</span>
-        <span className="rw-lp-hero-scroll-track">
-          <span className="rw-lp-hero-scroll-dot" />
-        </span>
       </div>
     </section>
   );
