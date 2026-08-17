@@ -145,6 +145,7 @@
 }
 .pr-plan-cta {
   margin-top: 22px; padding: 13px 20px; border-radius: 9999px; border: 0;
+  min-height: 44px; box-sizing: border-box;
   font: 500 14px var(--rw-font-body); cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
   text-decoration: none; text-align: center; display: block;
