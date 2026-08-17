@@ -152,10 +152,14 @@ describe('GET/POST /api/dashboard/solicitation/batch', () => {
     const response = await GET(getRequest(withSolicitationScope('', OTHER_LOCATION_ID)));
 
     expect(response.status).toBe(200);
+    // The 4th argument pins invariant #13's default: SOLICITATION_SEND_ENABLED is
+    // unset in the test environment, so the route must pass the flag through as
+    // false rather than let the read model decide for itself.
     expect(mockReadLatestBatch).toHaveBeenCalledWith(
       expect.anything(),
       ACCOUNT_ID,
       OTHER_LOCATION_ID,
+      { sendLane: false },
     );
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({ state: 'built', batchId: BATCH_ID }),
@@ -172,6 +176,28 @@ describe('GET/POST /api/dashboard/solicitation/batch', () => {
     const response = await POST(
       reviewedRequest(withSolicitationScope('', OTHER_LOCATION_ID)),
     );
+
+    expect(response.status).toBe(204);
+    expect(mockMarkBatchReviewed).toHaveBeenCalledWith(
+      expect.anything(),
+      ACCOUNT_ID,
+      OTHER_LOCATION_ID,
+      BATCH_ID,
+    );
+  });
+
+  it('records reviewed_at with SOLICITATION_SEND_ENABLED off', async () => {
+    // The reviewed ping is WATCH-ONLY. It shares withScopedBatch
+    // (batch/_shared/scoped-batch-route.ts) with the two send-lane verbs but NOT
+    // their gate: it binds requireContactsWriteAccess (watch flag alone), while
+    // approve/halt bind requireSolicitationSendWriteAccess (watch AND send). If
+    // the shared runner ever collapsed the two gates, this route would 404 for
+    // every existing watch-mode customer — SOLICITATION_SEND_ENABLED is unset in
+    // every environment today. Stubbed explicitly off rather than left absent,
+    // so the assertion cannot be weakened by a change in test-env defaults.
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', undefined);
+
+    const response = await POST(reviewedRequest(withSolicitationScope('', OTHER_LOCATION_ID)));
 
     expect(response.status).toBe(204);
     expect(mockMarkBatchReviewed).toHaveBeenCalledWith(

@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **107** — next migration is **108**
+Current head: **108** — next migration is **109**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -1005,6 +1005,69 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **108** — `outreach_owner_excluded_disposition`: adds `owner_excluded` to
+  `solicitation_outreach`'s **cancel** disposition set for the owner approval
+  lane (#629; executor spec D23,
+  `docs/superpowers/plans/2026-08-16-629-owner-approval-lane.md` Task 2). 091
+  shipped `solicitation_outreach_status_reason_consistency` with the cancel arm
+  as `owner_veto / owner_halt / admin_halt / batch_expired /
+  send_window_elapsed / superseded` — `owner_excluded` existed only in the
+  spec, so a **partial** approval (owner keeps some asks, drops others) had no
+  writable disposition at all. **The whole predicate is RE-SPELLED, not
+  patched:** a CHECK cannot be widened in place, and re-spelling keeps this file
+  legible next to 091. Verified line-by-line against 091: the withheld, failed
+  and unknown arms, the `IN ('rendered','queued','sending','sent') AND
+  disposition_reason IS NULL` arm, the member order within every arm and the
+  outer `IS TRUE` wrapper (091's NULL-passes-CHECK guard) are **byte-for-byte
+  identical**; the only difference is `'owner_excluded',` inserted into the
+  cancelled arm. `disposition_reason` is a bare `TEXT` column with **no**
+  standalone enum CHECK, so this one constraint is its entire domain — nothing
+  else needs widening. **No new relation, column or index → no RLS change and no
+  retention-policy row**; existing rows all satisfy the wider predicate (it is a
+  strict superset), so no preflight. DROP-then-ADD of the named CHECK keeps the
+  file re-runnable and REPAIRS a stale definition (077/105's rationale).
+  Schema requirement: `MIGRATION_108_OUTREACH_OWNER_EXCLUDED` (schema-ready.ts)
+  — and it is deliberately a **weak** one: the constraint NAME has existed since
+  091, so presence proves nothing about the new member (the same false-proof
+  hazard 105's entry describes). A 091-only container fails a suite at the
+  INSERT (`23514`), not at `assertSchemaReady`; the export exists so the
+  migration is *named* in that suite's dependency list, not because it can
+  detect the widening. Rollback: re-apply 091's constraint text verbatim — safe
+  while no row carries the new value, which stays true until #629's writer
+  (`approveBatch`, Task 3) ships.
+  **Applied to STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-17** — verified the way
+  this log's header demands, by schema introspection and never the migration
+  ledger. Pre-state was 091 verbatim (`owner_excluded` absent from the cancelled
+  arm); post-state `pg_get_constraintdef` carries it with every other arm
+  unchanged and `convalidated` true, and the constraint COMMENT landed. Plus a
+  live probe inside a deliberately-aborted transaction, on the 097 precedent:
+  with `session_replication_role = replica` suppressing the FK triggers (the
+  CHECKs still fire), a `cancelled`/`owner_excluded` row was **accepted** and a
+  `cancelled`/`not_a_real_reason` row was **rejected by this constraint by
+  name** — so the widening is real and is not merely a constraint gone permissive
+  — with 1 row inside the transaction and **zero residue** after the ROLLBACK.
+  Two probe attempts were discarded before those: the first never reached this
+  CHECK (NOT NULL on `account_id`), the second was rejected by
+  `solicitation_outreach_moderation_status_check` for an invalid
+  `moderation_status`, which is the false-negative this constraint's own entry
+  warns about — a `check_violation` handler catches the WRONG check unless every
+  sibling CHECK (`moderation_status`, `body_presence`, `channel`, `source`) is
+  satisfied first. `solicitation_outreach` held 0 rows at apply time, so the
+  widening touched nothing. **and PRODUCTION (`udeyaqnvpojbwgoaxwdg`)
+  2026-08-17**, same change window, applied through the Supabase SQL Editor
+  after two `psql` attempts died on shell quoting. The second failed
+  **silently** — no error, no output — and the only reason that was caught is
+  that this log demands validation by introspection rather than by reading the
+  terminal. Verified on prod without writing to it at all: `pg_get_constraintdef`
+  is **byte-identical to staging's, 821 bytes each**, the COMMENT landed and
+  `convalidated` is true, so the object that passed staging's live probe is the
+  object prod now holds. The probe was deliberately NOT re-run against
+  production — an INSERT inside a rolled-back transaction is still a write, and
+  definition equivalence against an already-probed twin is stronger evidence for
+  the weaker action. Prod also held 0 rows. Prod pre-state was checked first and
+  matched this file's record exactly: 107 and 105 applied, **078 absent** per the
+  standing exception in `.claude/CLAUDE.md`.
 
 - **107** — `drop_legacy_ensure_rls_event_trigger`: removes the DDL event
   trigger `ensure_rls` and its function `public.rls_auto_enable()`, which

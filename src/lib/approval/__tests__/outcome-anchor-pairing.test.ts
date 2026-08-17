@@ -29,6 +29,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/escalations/transitions.ts', // in-file reviews FOR UPDATE as tx statement #1
   'src/lib/reviews/process-review.ts', // in-file reviews FOR UPDATE as tx statement #1 (canonical order owner)
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
+  'src/lib/solicitation/approval.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
@@ -100,7 +101,45 @@ const LOCK_HELD_BY_CALLER = new Set([
 // taken. Same forward-looking warning: growing a reviews/businesses lock, or
 // any path that locks the send parent before the batch, requires leaving this
 // carve-out and re-entering the global order.
+// solicitation/approval.ts (#629) is the OWNER-triggered lane for the same
+// solicitation_send_batch subject: approveBatch and haltBatch. It is the third
+// file in this lane and rests on the identical argument as the two above, which
+// is why it belongs in the carve-out rather than in the global order.
+//
+// Its lock order is per-business advisory lock → solicitation_batches row
+// FOR UPDATE → spine — batch → run, the SAME single order ask-generation.ts and
+// outreach.ts rest on, so it introduces no ABBA pair against either. Both verbs
+// route through one helper (lockBatchForAction) that takes the advisory lock and
+// the batch row lock before any agent_runs read or write, and every run-spine
+// call in the file — recordStep, and closeBatchIfSettled which terminalizes —
+// happens strictly after that. reviews is never touched: the subject is a
+// solicitation_batch and the only agent_runs row either verb reads or writes is
+// that batch's own send parent. It INSERTs no agent_runs/agent_outcomes row.
+//
+// Here it DIVERGES from the outreach.ts entry above, and the divergence is
+// recorded because the original wording of this paragraph copied outreach.ts's
+// premise verbatim and that premise is FALSE in approval.ts: this file holds no
+// agent_runs lock of its own, so recordStep's own SELECT … FOR UPDATE on the
+// send parent is the transaction's FIRST lock on that row — not a re-take of
+// one "the transaction already holds". The step INSERT's implicit FK
+// FOR KEY SHARE then lands on a row recordStep just took. The conclusion is
+// unchanged and in fact holds a fortiori: that lock is acquired strictly after
+// both batch locks, so batch → run still holds, and no businesses/accounts
+// parent-row lock is taken at all. Do not restore the copied sentence — a lock
+// analysis resting on an untrue premise is worthless even when its conclusion
+// happens to be right.
+//
+// One thing to watch that the other two entries do not have: approval.ts is
+// reached from HTTP routes, not from a worker, so it is the lane's only
+// user-latency-bearing caller of the advisory lock. That affects blocking time,
+// not lock ORDER, and the order is what this carve-out is about.
+//
+// Same forward-looking warning as the entries above: it must not grow a
+// reviews/businesses lock, and must not gain any path that locks the send parent
+// before the batch, without leaving this carve-out and re-entering the global
+// reviews → businesses → child rows → agent_runs order.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
+  'src/lib/solicitation/approval.ts',
   'src/lib/solicitation/ask-generation.ts',
   'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
@@ -152,6 +191,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
 
   it('pins the non-review-subject carve-out to exactly the weekly account_week and solicitation send-batch callers', () => {
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
+      'src/lib/solicitation/approval.ts',
       'src/lib/solicitation/ask-generation.ts',
       'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',

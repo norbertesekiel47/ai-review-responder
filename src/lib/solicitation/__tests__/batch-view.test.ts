@@ -12,7 +12,14 @@ import {
 // of src/lib/solicitation/__tests__/uploads.test.ts. Results are returned in
 // statement order, which readLatestBatch fixes deterministically:
 // SET TRANSACTION -> Q1 latest batch -> Q2 contacts on file -> Q3 asks
-// -> Q4 attempts (built batches only).
+// -> Q4 attempts -> Q5 send-lane lifecycle -> Q6 pending renders
+// -> Q7 moderation withheld.
+//
+// Q4-Q7 are ALL gated on `options.sendLane` (#629) and reached only for a built
+// batch, so a `{ sendLane: false }` read stops after Q3 and its fixture array
+// holds four entries, not eight. Every added statement shifts every later
+// result: this comment, the fixtures, and the statementAt() indices below are
+// one fact and move together.
 type QueryResult = unknown[];
 
 interface MockTx {
@@ -82,6 +89,59 @@ function withholdRow(overrides: {
   };
 }
 
+/**
+ * Q5's lifecycle row (#629). Every timestamp is present twice on purpose: the
+ * raw `Date` columns feed deriveBatchState, the `*Text` columns are what the
+ * view ships — postgres.js truncates microseconds decoding timestamptz, so
+ * only the ::text form is trustworthy on the wire.
+ *
+ * The two readiness counts are NOT on this row: each is aggregated on its own
+ * base relation in its own statement (Q6, Q7), so that a moderation-withheld
+ * row can no longer multiply the ask/outreach join beside it.
+ */
+function laneRow(
+  overrides: {
+    approved_at?: Date | null;
+    veto_deadline_at?: Date | null;
+    halted_at?: Date | null;
+    haltReason?: string | null;
+  } = {},
+) {
+  return {
+    built_at: new Date('2026-07-20T11:00:00Z'),
+    approved_at: overrides.approved_at ?? null,
+    veto_deadline_at: overrides.veto_deadline_at ?? null,
+    sending_started_at: null,
+    send_closed_at: null,
+    halted_at: overrides.halted_at ?? null,
+    approvedAtText: overrides.approved_at?.toISOString() ?? null,
+    vetoDeadlineAtText: overrides.veto_deadline_at?.toISOString() ?? null,
+    haltedAtText: overrides.halted_at?.toISOString() ?? null,
+    haltReason: overrides.haltReason ?? null,
+  };
+}
+
+/** Q6 / Q7: a bare `SELECT COUNT(*)::int AS n` result. */
+function countRow(n: number) {
+  return [{ n }];
+}
+
+/** The Q3 aggregate for a batch with one send ask and nothing withheld. */
+function emptyFunnelRow(queued = 1) {
+  return {
+    queued,
+    held: 0,
+    evaluated: queued,
+    askId: null,
+    contactId: null,
+    contactName: null,
+    decidedAt: null,
+    evidence: null,
+    reason: null,
+    groupTotal: null,
+  };
+}
+
 describe('readLatestBatch', () => {
   it('returns the most recent batch when a location has several', async () => {
     const { sql, tx } = createMockSql([
@@ -91,7 +151,7 @@ describe('readLatestBatch', () => {
       [{ queued: 2, held: 0, evaluated: 2, askId: null, contactId: null, contactName: null, decidedAt: null, evidence: null, reason: null, groupTotal: null }],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
 
     // The "most recent" rule lives in SQL: newest created_at, UUIDv7 id as the
     // tie-break (created_at is not unique — migration 088).
@@ -124,7 +184,7 @@ describe('readLatestBatch', () => {
       [...staleRows, ...bankedRows],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     const stale = view.groups.find((group) => group.reason === 'stale_visit');
@@ -150,7 +210,7 @@ describe('readLatestBatch', () => {
     // no batch was ever built because the flag was off when it finished.
     const { sql, tx } = createMockSql([[], [], [{ n: 1240 }]]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
 
     expect(view).toEqual({ state: 'no_batch', contactsOnFile: 1240 });
     // Short-circuit: no ask query is issued when there is no batch.
@@ -165,7 +225,7 @@ describe('readLatestBatch', () => {
       [withholdRow({ askId: 'stale-0', reason: 'stale_visit', groupTotal: 1 })],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     expect(view.groups.map((group) => group.reason)).toEqual([...WITHHOLD_REASONS]);
@@ -184,7 +244,7 @@ describe('readLatestBatch', () => {
       [{ queued: 0, held: 0, evaluated: 0, askId: null, contactId: null, contactName: null, decidedAt: null, evidence: null, reason: null, groupTotal: null }],
     ]);
 
-    await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
 
     expect(sqlText(statementAt(tx, 0))).toContain(
       'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY',
@@ -201,7 +261,7 @@ describe('readLatestBatch', () => {
   it('scopes contacts on file by account through the businesses join', async () => {
     const { sql, tx } = createMockSql([[], [], [{ n: 0 }]]);
 
-    await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
 
     // solicitation_contacts carries no account_id (migration 086) — the join
     // IS the account-scope check (invariant #8).
@@ -235,7 +295,7 @@ describe('readLatestBatch', () => {
       ],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     const group = view.groups.find((candidate) => candidate.reason === 'already_reviewed');
@@ -268,7 +328,7 @@ describe('readLatestBatch', () => {
       ],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     const group = view.groups.find((candidate) => candidate.reason === 'no_consent');
@@ -282,7 +342,7 @@ describe('readLatestBatch', () => {
       [{ n: 7 }],
     ]);
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
 
     expect(view).toEqual({
       state: 'building',
@@ -291,6 +351,203 @@ describe('readLatestBatch', () => {
       contactsOnFile: 7,
     });
     expect(tx.mock.calls).toHaveLength(3);
+  });
+
+  it('omits every send-lane field from the batch view when send mode is off', async () => {
+    // Both send-lane results are queued deliberately, with bytes in them: with
+    // the flag off neither statement is issued, so neither result may reach
+    // the view. This is the #628 narrowing — `attempts` used to be
+    // unconditional, and a batch drafted while send mode was ON must stop
+    // surfacing message bodies the moment the flag goes off.
+    const { sql, tx } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 3 }],
+      [emptyFunnelRow()],
+      [
+        {
+          outreachId: 'o-1',
+          askId: 'ask-1',
+          contactId: 'c-1',
+          contactName: 'Dana Scully',
+          attemptNo: 1,
+          deliveryStatus: 'rendered',
+          dispositionReason: null,
+          renderedAt: '2026-07-29 10:00:00+00',
+          subject: 'FORBIDDEN-SUBJECT',
+          body: 'FORBIDDEN-BODY',
+          lintDetail: [],
+          moderationStatus: 'clean',
+          moderationDetail: {},
+          interpolationInputs: null,
+        },
+      ],
+      [laneRow()],
+      countRow(4),
+      countRow(2),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    // `null` is the whole flag signal the browser gets (invariant #13) — there
+    // is no NEXT_PUBLIC companion for it to read.
+    expect(view.sendLane).toBeNull();
+    expect(view.attempts).toEqual([]);
+    expect(JSON.stringify(view)).not.toContain('FORBIDDEN');
+
+    // The funnel is untouched: only the send lane is gated.
+    expect(view.queued).toBe(1);
+    expect(view.contactsOnFile).toBe(3);
+
+    // Gated at the QUERY, not at the mapper: the read stops after the asks
+    // aggregate, so neither queued send-lane result is ever consumed.
+    expect(tx.mock.calls).toHaveLength(4);
+  });
+
+  it('reports a moderation_high attempt without its subject or body', async () => {
+    const { sql } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow()],
+      [
+        {
+          outreachId: 'o-1',
+          askId: 'ask-1',
+          contactId: 'c-1',
+          contactName: 'Dana Scully',
+          attemptNo: 1,
+          deliveryStatus: 'withheld',
+          dispositionReason: 'moderation_high',
+          renderedAt: '2026-07-29 10:00:00+00',
+          subject: 'FORBIDDEN-SUBJECT',
+          body: 'FORBIDDEN-BODY',
+          lintDetail: ['incentive_language'],
+          moderationStatus: 'flagged',
+          moderationDetail: { sexual: 0.99 },
+          interpolationInputs: { visit_note: 'FORBIDDEN-NOTE' },
+        },
+      ],
+      [laneRow()],
+      countRow(0),
+      countRow(1),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    // Exact equality: the redacted arm carries the marker and NOTHING
+    // content-shaped (SPEC §3.3).
+    expect(view.attempts).toEqual([
+      {
+        outreachId: 'o-1',
+        askId: 'ask-1',
+        contactId: 'c-1',
+        contactName: 'Dana Scully',
+        attemptNo: 1,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'moderation_high',
+        renderedAt: '2026-07-29 10:00:00+00',
+        redacted: true,
+      },
+    ]);
+
+    // Absent KEYS, not undefined values — an `undefined`-valued key still
+    // tells a reader of the payload that the field exists.
+    const attempt = view.attempts[0];
+    if (!attempt) throw new Error('expected one attempt');
+    expect(Object.keys(attempt)).not.toContain('subject');
+    expect(Object.keys(attempt)).not.toContain('body');
+    expect(JSON.stringify(view)).not.toContain('FORBIDDEN');
+
+    // A COUNT is the owner's ONLY signal that anything was held (D6a).
+    expect(view.sendLane?.moderationWithheld).toBe(1);
+  });
+
+  it('aggregates each send-lane count on its own base relation, never one cross-joined statement', async () => {
+    // The regression this pins: Q5 used to LEFT JOIN solicitation_asks, then
+    // solicitation_outreach correlated to the ask, then solicitation_outreach
+    // AGAIN correlated only to the batch. The third join multiplied every
+    // (ask, outreach) pair by every moderation-withheld row, and only
+    // COUNT(DISTINCT …) made the answers come out right — at full batch size
+    // the intermediate reached tens of millions of rows on the one screen that
+    // has to stay available. Distinct counts fed to distinct statements below
+    // cannot be produced by that shape.
+    const { sql, tx } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 9 }],
+      [emptyFunnelRow(7)],
+      [], // no attempts
+      [laneRow()],
+      countRow(7),
+      countRow(2),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.pendingRenders).toBe(7);
+    expect(view.sendLane?.moderationWithheld).toBe(2);
+    expect(view.sendLane?.ready).toBe(false);
+
+    // Q5 reads the lifecycle row and NOTHING else: no child table, no
+    // aggregate, no GROUP BY. Reintroducing the cross product means putting a
+    // child join back here, which these three assertions refuse.
+    const laneQuery = sqlText(statementAt(tx, 5));
+    expect(laneQuery).toContain('FROM solicitation_batches b');
+    expect(laneQuery).not.toContain('solicitation_asks');
+    expect(laneQuery).not.toContain('solicitation_outreach');
+    expect(laneQuery).not.toContain('COUNT(');
+    expect(laneQuery).not.toContain('GROUP BY');
+
+    // Q6 counts send Asks with no live Outreach — one anti-join, one table
+    // pair. Both tenant keys ride the top level (invariant #8), which is also
+    // what keeps them visible to ci:tenant-scope.
+    const pendingQuery = sqlText(statementAt(tx, 6));
+    expect(pendingQuery).toContain('FROM solicitation_asks a');
+    expect(pendingQuery).toContain('LEFT JOIN solicitation_outreach o');
+    expect(pendingQuery).toContain('o.id IS NULL');
+    expect(pendingQuery).not.toContain('solicitation_batches');
+    expect(statementAt(tx, 6).slice(1)).toEqual([
+      ACCOUNT_ID, BUSINESS_ID, ACCOUNT_ID, BUSINESS_ID, BATCH_ID,
+    ]);
+
+    // Q7 counts the held rows on their own table — no ask join at all, so an
+    // ask can no longer multiply it.
+    const moderationQuery = sqlText(statementAt(tx, 7));
+    expect(moderationQuery).toContain('FROM solicitation_outreach mo');
+    expect(moderationQuery).not.toContain('JOIN');
+    expect(statementAt(tx, 7).slice(1)).toEqual([
+      ACCOUNT_ID, BUSINESS_ID, BATCH_ID, 'moderation_high',
+    ]);
+
+    expect(tx.mock.calls).toHaveLength(8);
+  });
+
+  it('reports the halt latch reason verbatim from the closed five-reason set', async () => {
+    // `haltReason` is typed `HaltReason | null`, not `string | null`: three of
+    // the five reasons are NOT owner-caused, so a consumer that branches on it
+    // must be able to tell `admin_halt` from `owner_halt` exhaustively.
+    const haltedAt = new Date('2026-07-21T09:00:00Z');
+    const { sql } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow()],
+      [],
+      [laneRow({ halted_at: haltedAt, haltReason: 'admin_halt' })],
+      countRow(0),
+      countRow(0),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.batchState).toBe('halted');
+    expect(view.sendLane?.haltReason).toBe('admin_halt');
+    expect(view.sendLane?.haltedAt).toBe(haltedAt.toISOString());
   });
 });
 
@@ -335,13 +592,20 @@ describe('readLatestBatch attempts join (#628)', () => {
     };
   }
 
+  // Eight entries because this block reads with `{ sendLane: true }`: the
+  // attempts join is Q4, the send-lane lifecycle row is Q5, and the two
+  // readiness counts are Q6/Q7 (#629). Dropping the trailing laneRow() would
+  // leave Q5 unfed and the read would throw.
   function builtBatchResults(attemptRows: unknown[]): QueryResult[] {
     return [
       [], // SET TRANSACTION
       [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
       [{ n: 3 }],
-      [{ queued: 1, held: 0, evaluated: 1, askId: null, contactId: null, contactName: null, decidedAt: null, evidence: null, reason: null, groupTotal: null }],
+      [emptyFunnelRow()],
       attemptRows,
+      [laneRow()],
+      countRow(0),
+      countRow(0),
     ];
   }
 
@@ -355,7 +619,7 @@ describe('readLatestBatch attempts join (#628)', () => {
       }),
     ]));
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     expect(view.attempts).toEqual([
@@ -405,7 +669,7 @@ describe('readLatestBatch attempts join (#628)', () => {
       }),
     ]));
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     // Exact equality: the redacted arm carries the marker and NOTHING content-shaped.
@@ -447,7 +711,7 @@ describe('readLatestBatch attempts join (#628)', () => {
       }),
     ]));
 
-    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID);
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
     if (view.state !== 'built') throw new Error('expected a built batch');
 
     const attempt = view.attempts[0];
@@ -468,7 +732,7 @@ describe('readLatestBatch attempts join (#628)', () => {
       attemptDbRow({ outreachId: 'o-2', askId: 'ask-1', attemptNo: 2 }),
     ]));
 
-    await expect(readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID)).rejects.toThrow(
+    await expect(readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true })).rejects.toThrow(
       /more than one non-cancelled outreach attempt/,
     );
   });

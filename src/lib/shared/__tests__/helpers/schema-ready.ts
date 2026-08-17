@@ -448,6 +448,22 @@ export const MIGRATION_105_CHECKOUT_ATTEMPT_COUPON: SchemaRequirement = {
 };
 
 /**
+ * 108 REPLACES 091's status/reason CHECK with one that admits
+ * `owner_excluded`. The constraint NAME is unchanged, so naming it here proves
+ * only what 091 already guarantees — the distinguishing fact is the new member,
+ * which no catalogue view exposes cheaply. Suites that write an exclusion must
+ * therefore name this requirement AND accept that a 091-only database fails at
+ * the INSERT rather than at assertSchemaReady. That is the honest bound: a
+ * behavioural assertion, not a schema one.
+ */
+export const MIGRATION_108_OUTREACH_OWNER_EXCLUDED: SchemaRequirement = {
+  migration: '108_outreach_owner_excluded_disposition',
+  constraints: [
+    { table: 'solicitation_outreach', name: 'solicitation_outreach_status_reason_consistency' },
+  ],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,

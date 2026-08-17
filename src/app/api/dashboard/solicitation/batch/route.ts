@@ -13,7 +13,7 @@ import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse } from '@/lib/auth/route-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { readLatestBatch } from '@/lib/solicitation/batch-view';
-import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
+import { solicitationSendEnabled, solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import { withDashboardOwnerRead } from '@/app/api/dashboard/policy';
 import { requireContactsLocationScope } from '@/app/api/dashboard/contacts/location-scope';
 
@@ -38,7 +38,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
     if (!location.ok) return location.response;
 
-    const view = await readLatestBatch(sql, accountId, location.locationId);
+    // The send lane is server-authoritative (invariant #13): the route reads
+    // the flag and the read model returns `sendLane: null` when it is off, so
+    // the browser learns the flag state from the response shape alone — never
+    // from a NEXT_PUBLIC companion.
+    const view = await readLatestBatch(sql, accountId, location.locationId, {
+      sendLane: solicitationSendEnabled(),
+    });
 
     // The ONLY signal separating a correct empty state from a read bug that
     // renders one: hasBatch:false here next to a batch row in Postgres IS the
@@ -49,6 +55,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         hasBatch: view.state !== 'no_batch',
         askCount: view.state === 'built' ? view.evaluated : 0,
         sendCount: view.state === 'built' ? view.queued : 0,
+        // null in both flag-off and no-batch cases — the lane is the only
+        // owner of this fact, so the log never re-derives it.
+        batchState: view.state === 'built' ? (view.sendLane?.batchState ?? null) : null,
         businessId: location.locationId,
       });
     }
