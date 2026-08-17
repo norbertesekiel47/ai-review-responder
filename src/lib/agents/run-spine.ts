@@ -68,6 +68,8 @@ export const STEP_PERSONA = {
   batch_built: 'solicitation',
   ask_generated: 'solicitation',
   send_batch_closed: 'solicitation',
+  batch_approved: 'solicitation',
+  batch_halted: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;
