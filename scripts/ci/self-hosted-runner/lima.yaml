@@ -2,9 +2,11 @@
 #
 # One Ubuntu 24.04 VM on the founder's Mac (Apple Virtualization framework,
 # native arm64), with Docker + the Postgres client + git inside, and the GitHub
-# Actions runner installed by register-runner.sh as a systemd service. Every job
-# in ci.yml / e2e.yml / react-doctor.yml lands here while the repo variable
-# CI_RUNNER=self-hosted is set; self-hosted minutes are free.
+# Actions runner installed by register-runner.sh as a systemd service. Jobs in
+# ci.yml / e2e.yml / react-doctor.yml land here while the repo variable
+# CI_RUNNER=self-hosted is set AND no CI_RUNNER_HEAVY / CI_RUNNER_LIGHT variable
+# overrides it (2026-08-17 cloud cutover; runbook § Routing). Self-hosted
+# minutes are free; the VM is parked, not deleted.
 #
 # Why a Linux VM and not the macOS runner: `services: postgres` blocks need
 # Docker on Linux, and CI must stay Linux (case-sensitive FS, GNU userland)

@@ -8,7 +8,10 @@
 #      VM as a systemd service (register-runner.sh)
 #   4. waits until GitHub reports the runner online
 #   5. sets the repo variable CI_RUNNER=self-hosted so ci.yml/e2e.yml/
-#      react-doctor.yml route to it   (skip with SET_REPO_VAR=0)
+#      react-doctor.yml route to it   (skip with SET_REPO_VAR=0). Since the
+#      2026-08-17 cloud cutover CI_RUNNER is the LOWEST-precedence knob: the
+#      workflows read CI_RUNNER_HEAVY / CI_RUNNER_LIGHT first, so this step
+#      only routes jobs here once those two are deleted (runbook § Routing).
 #   6. installs a LaunchAgent that starts the VM at login (skip with AUTOSTART=0)
 #
 # Re-run any time: every step is a no-op when already done, except (3), which
@@ -86,6 +89,7 @@ echo "runner status: ${rstatus:-not registered}"
 if [ "$SET_REPO_VAR" = "1" ]; then
   log "setting repo variable CI_RUNNER=self-hosted on $REPO"
   gh variable set CI_RUNNER --repo "$REPO" --body self-hosted
+  log "note: CI_RUNNER_HEAVY / CI_RUNNER_LIGHT take precedence — 'gh variable delete' both to route every job here"
 else
   log "SET_REPO_VAR=0 — not touching the CI_RUNNER repo variable"
 fi
@@ -121,4 +125,4 @@ else
   log "AUTOSTART=0 — no LaunchAgent installed (start the VM by hand: limactl start $VM)"
 fi
 
-log "done. CI now runs on '$RUNNER_NAME' (VM '$VM'). Status: gh api repos/$REPO/actions/runners -q '.runners[]|{name,status,busy}'"
+log "done. Runner '$RUNNER_NAME' (VM '$VM') is online; jobs land here only where no CI_RUNNER_HEAVY/LIGHT variable overrides CI_RUNNER. Status: gh api repos/$REPO/actions/runners -q '.runners[]|{name,status,busy}'"
