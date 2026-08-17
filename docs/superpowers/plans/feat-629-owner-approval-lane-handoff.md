@@ -5,7 +5,9 @@ needs the prior transcript. Resume with `/feature-resume feat-629-owner-approval
 
 ## Where we are
 
-Step 3 (PLAN) — plan written and revised once; codex verification round in flight.
+Step 4 (EXECUTION) — plan complete, review loop closed, owner released it to
+execution on 2026-08-16. Two substantive codex rounds ran; round 2's single open
+finding (the interleaving test) was accepted and fixed at `91ba9a4c`.
 Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
 
 ## Artifacts (read in this order)
@@ -16,6 +18,7 @@ Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
 | Implementation plan | `docs/superpowers/plans/2026-08-16-629-owner-approval-lane.md` |
 | Deviations (D1–D3) | `docs/superpowers/plans/feat-629-owner-approval-lane-deviations.md` |
 | Plan review round 1 | `docs/reviews/feat-629-owner-approval-lane/plan-round1-codex.md` |
+| Plan review round 2 | `docs/reviews/feat-629-owner-approval-lane/plan-round2-codex.md` |
 | Spec (#619) | `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` — §10 row "#629", D2/D6a/D9/D10/D11/D22/D23 |
 | Binding amendments | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` — B2, B11 |
 | Glossary | `CONTEXT.md` — Batch state, Halt latch, Outreach row, Settled batch, Send batch parent, Requests, Spoilage report |
@@ -42,7 +45,8 @@ Machine state: `.feature/state.json` (`phase`, `planReviewRounds`).
 
 ## Next actions
 
-1. Read the round-2 verdict. On `APPROVED`, `bash scripts/feature-state.sh set-phase plan_approved`, then step 4.
+1. ~~Read the round-2 verdict.~~ DONE — verdict `REVISE`, its one finding accepted
+   and fixed; owner released the plan, `phase=plan_approved` at `91ba9a4c`.
 2. Step 4: `set-phase executing`, then dispatch per-task subagents. **Task 1 runs alone** (first-task enforcement spot check: diff `git status --porcelain` against `allowed_edit_surface`). Task 2 alone (migration). Then Tasks 3 and 5 may run concurrently; 4 follows 3 (same file); then 6, 7, 8.
 3. Step 5 gate: `scripts/verify-gate.sh`, `--review` on the last run. Export `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` first or the live-DB rows SKIP.
 4. Step 8 lane: **RISK = high** → staging ride first, migration 108 to staging Supabase before prod, PR to `main`, pause for owner merge approval.
