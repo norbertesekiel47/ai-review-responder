@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **107** — next migration is **108**
+Current head: **108** — next migration is **109**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -1005,6 +1005,41 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **108** — `outreach_owner_excluded_disposition`: adds `owner_excluded` to
+  `solicitation_outreach`'s **cancel** disposition set for the owner approval
+  lane (#629; executor spec D23,
+  `docs/superpowers/plans/2026-08-16-629-owner-approval-lane.md` Task 2). 091
+  shipped `solicitation_outreach_status_reason_consistency` with the cancel arm
+  as `owner_veto / owner_halt / admin_halt / batch_expired /
+  send_window_elapsed / superseded` — `owner_excluded` existed only in the
+  spec, so a **partial** approval (owner keeps some asks, drops others) had no
+  writable disposition at all. **The whole predicate is RE-SPELLED, not
+  patched:** a CHECK cannot be widened in place, and re-spelling keeps this file
+  legible next to 091. Verified line-by-line against 091: the withheld, failed
+  and unknown arms, the `IN ('rendered','queued','sending','sent') AND
+  disposition_reason IS NULL` arm, the member order within every arm and the
+  outer `IS TRUE` wrapper (091's NULL-passes-CHECK guard) are **byte-for-byte
+  identical**; the only difference is `'owner_excluded',` inserted into the
+  cancelled arm. `disposition_reason` is a bare `TEXT` column with **no**
+  standalone enum CHECK, so this one constraint is its entire domain — nothing
+  else needs widening. **No new relation, column or index → no RLS change and no
+  retention-policy row**; existing rows all satisfy the wider predicate (it is a
+  strict superset), so no preflight. DROP-then-ADD of the named CHECK keeps the
+  file re-runnable and REPAIRS a stale definition (077/105's rationale).
+  Schema requirement: `MIGRATION_108_OUTREACH_OWNER_EXCLUDED` (schema-ready.ts)
+  — and it is deliberately a **weak** one: the constraint NAME has existed since
+  091, so presence proves nothing about the new member (the same false-proof
+  hazard 105's entry describes). A 091-only container fails a suite at the
+  INSERT (`23514`), not at `assertSchemaReady`; the export exists so the
+  migration is *named* in that suite's dependency list, not because it can
+  detect the widening. Rollback: re-apply 091's constraint text verbatim — safe
+  while no row carries the new value, which stays true until #629's writer
+  (`approveBatch`, Task 3) ships.
+  **LOCAL-ONLY** — applied to the rebuildable local test container only
+  (`pnpm test:db:setup`, 2026-08-16). **Applied to STAGING … / PRODUCTION …:**
+  pending #629 Task 8's staging ride; that change removes this LOCAL-ONLY
+  marker and re-arms `migration-immutability-guard.sh` for 108.
 
 - **107** — `drop_legacy_ensure_rls_event_trigger`: removes the DDL event
   trigger `ensure_rls` and its function `public.rls_auto_enable()`, which
