@@ -964,7 +964,14 @@ export const POST = withSameOrigin()(
 
 - [ ] **Step 6: Write the six integration tests**
 
-In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpers (`seedRenderedBatch`, `seedSendParent`, `readSteps`, `stepDetail`, `snapshotOutreach`, `foreignTenantSeed`) — do not write new seeding.
+In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpers — do not write new seeding. Their **verified** shapes (checked against the file, not assumed):
+
+- `seedRenderedBatch({ renders: number; builtAgo?: string })` → `{ batchId, uploadId, accountId, businessId, userId, parentRunId, asks, outreachIds }`. Note `parentRunId`, **not** `sendParentRunId`, and that it takes an options object, **not** a bare string.
+- `snapshotOutreach(batchId)` → `string[]`, called before and after to prove nothing moved.
+- `readSteps(runId, stepKey)` → rows; `stepDetail(row)` → the detail object.
+- `foreignTenantSeed()` → `{ accountId, businessId, userId }`.
+
+The destructuring style below (`accountId: account`) is the house pattern from this file's existing `describe('tenant scope', …)` — it avoids shadowing the module-level `accountId()` helper.
 
 ```ts
   describe('requestAskRegeneration', () => {
@@ -979,7 +986,8 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
     }
 
     it('enqueues one generate_solicitation_asks outbox row carrying the ask id for a built batch', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const outreachBefore = await snapshotOutreach(seeded.batchId);
 
       const result = await requestAskRegeneration(sql(), {
         batchId: seeded.batchId,
@@ -995,11 +1003,11 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
       expect(rows[0].payload.ask_id).toBe(seeded.asks[0].askId);
       // The request writes NO domain state: the live render is untouched and
       // the worker owns every mutation.
-      expect(await snapshotOutreach(seeded.batchId)).toEqual(seeded.outreachSnapshot);
+      expect(await snapshotOutreach(seeded.batchId)).toEqual(outreachBefore);
     });
 
     it('records ask_regeneration_requested on the send parent with the requesting owner', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
 
       await requestAskRegeneration(sql(), {
         batchId: seeded.batchId,
@@ -1009,7 +1017,7 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
         requestedByUserId: userId(),
       });
 
-      const steps = await readSteps(seeded.sendParentRunId, 'ask_regeneration_requested');
+      const steps = await readSteps(seeded.parentRunId, 'ask_regeneration_requested');
       expect(steps).toHaveLength(1);
       expect(stepDetail(steps[0])).toMatchObject({
         ask_id: seeded.asks[0].askId,
@@ -1018,7 +1026,7 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
     });
 
     it('refuses a regenerate for an approved batch without writing an outbox row', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
       await approveBatch(sql(), {
         batchId: seeded.batchId,
         accountId: accountId(),
@@ -1042,7 +1050,7 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
     });
 
     it('refuses a regenerate for an ask whose current attempt is withheld', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
       await writerSql()`
         UPDATE solicitation_outreach
         SET delivery_status = 'withheld', disposition_reason = 'lint_failed'
@@ -1064,7 +1072,7 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
     });
 
     it('returns already_in_flight when a generation is already in flight for the batch', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
       const first = await requestAskRegeneration(sql(), {
         batchId: seeded.batchId,
         askId: seeded.asks[0].askId,
@@ -1089,14 +1097,18 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
     });
 
     it('refuses a regenerate for a batch belonging to another tenant', async () => {
-      const seeded = await seedRenderedBatch('1 hour');
+      const seeded = await seedRenderedBatch({ renders: 2 });
       const foreign = foreignTenantSeed();
 
       const result = await requestAskRegeneration(sql(), {
         batchId: seeded.batchId,
         askId: seeded.asks[0].askId,
+        // The foreign ACCOUNT with the REAL business id, matching this file's
+        // existing `describe('tenant scope', ...)`. Mismatching both keys is
+        // the weaker probe: it would still pass if the account predicate were
+        // missing entirely, because the business predicate alone would refuse.
         accountId: foreign.accountId,
-        businessId: foreign.businessId,
+        businessId,
         requestedByUserId: foreign.userId,
       });
 
@@ -1107,7 +1119,7 @@ In `approval.integration.test.ts`, replacing the todos. Reuse the existing helpe
   });
 ```
 
-If `seedRenderedBatch` does not already return `sendParentRunId`, `asks[]` or an `outreachSnapshot`, read its current signature and adapt these tests to what it does return — **do not** change the helper, five existing tests depend on it.
+Every helper above was verified against the file at plan time. **Do not** change any of them — the existing `approveBatch` / `haltBatch` / tenant-scope suites depend on all of them.
 
 - [ ] **Step 7: Write the six route tests**
 
@@ -1794,4 +1806,4 @@ Expected: PASS, 0 todo repo-wide.
 
 **Type consistency.** `RequestAskRegenerationResult` (Task 4) is imported by the route (Task 4, Step 5) and by `LaneStatus` (Task 6, Step 5). `RegenBudgetStatus` flows `tracker.ts` (Task 3) → `SendLaneView` (Task 5) → `SelectableAskListProps` (Task 6). `isRegenerableBatchState` is defined and exported in Task 2 and used by its own property test only. `pruneExclusions` is defined in Task 6, Step 4 and used in Step 11. `regeneratingAskId` and `regenBudgets` are named identically in Tasks 1 (fixture), 5 (definition) and 6 (consumption).
 
-**Known soft spots, flagged rather than papered over.** Task 4, Step 6 assumes `seedRenderedBatch` returns `sendParentRunId`, `asks[]` and an `outreachSnapshot`; the step says to read the real signature and adapt the tests rather than change the helper. Task 6, Step 10 gives CSS structure but not final values — the `repworth-brand-design` Console reference owns those and must be read first.
+**Known soft spots, flagged rather than papered over.** Task 4, Step 6's helper shapes were **verified against the file** after the first draft got all three wrong (it assumed a bare-string argument, `sendParentRunId`, and an `outreachSnapshot` field; the real API is `{ renders }`, `parentRunId`, and a separate `snapshotOutreach(batchId)` call). Task 6, Step 10 gives CSS structure but not final values — the `repworth-brand-design` Console reference owns those and must be read first. Task 5, Step 4's three tests are sketched at the assertion level rather than fully seeded, because `batch-view.test.ts`'s fixture style must be read before adding to it.
