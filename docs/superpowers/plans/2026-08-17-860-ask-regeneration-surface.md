@@ -1320,20 +1320,40 @@ The destructuring style below (`accountId: account`) is the house pattern from t
       });
       const [inflight] = await readInflightOutbox(seeded.batchId);
 
-      // Reproduce the worker's opening move in its OWN transaction and hold it:
-      // `markOutboxCompletedIfOwned` locks the outbox row, and the worker then
-      // wants the advisory lock. A request path that took the advisory lock
-      // first would deadlock here (40P01) instead of completing.
+      // PART 1 — the ordering assertion. This is the part that actually guards
+      // round 1's critical defect, and it is deterministic.
+      //
+      // A provoked ABBA is NOT used here, and the reason is worth stating so
+      // nobody "improves" this test into one: reproducing it needs a third
+      // session holding the advisory lock while the worker waits for it, and
+      // which side Postgres kills is nondeterministic. A flaky deadlock test is
+      // worse than none, because the failure mode people learn to ignore is
+      // exactly the failure mode this bug has.
+      //
+      // So assert the ORDER instead: the outbox INSERT must be the first
+      // statement, before any advisory lock. That is the whole invariant.
+      const stmts = capturedStatements();
+      const outboxAt = stmts.findIndex((s) => s.includes('INSERT INTO job_outbox'));
+      const advisoryAt = stmts.findIndex((s) => s.includes('pg_advisory_xact_lock'));
+      expect(outboxAt).toBeGreaterThanOrEqual(0);
+      expect(advisoryAt).toBeGreaterThanOrEqual(0);
+      expect(outboxAt).toBeLessThan(advisoryAt);
+
+      // PART 2 — the serialization, proving the order it settled on does not
+      // self-deadlock against a real worker holding that row.
       const worker = writerSql();
+      let second!: Promise<RequestAskRegenerationResult>;
+
       await worker.begin(async (tx) => {
+        // The worker's opening move, in the worker's real order: outbox row
+        // first, advisory lock second.
         await tx`
           UPDATE job_outbox SET status = 'completed'
           WHERE id = ${inflight.id}::uuid
         `;
+        await acquireSolicitationBatchLock(tx, businessId);
 
-        // With the enqueue-first order this must simply WAIT on the outbox row
-        // and then proceed once the worker commits — never deadlock.
-        const second = requestAskRegeneration(sql(), {
+        second = requestAskRegeneration(sql(), {
           batchId: seeded.batchId,
           askId: seeded.asks[1].askId,
           accountId: accountId(),
@@ -1342,19 +1362,22 @@ The destructuring style below (`accountId: account`) is the house pattern from t
           budgetRemaining: 3,
         });
 
-        // Give the second request time to reach the outbox row and block on it,
-        // then release the worker. `acquireSolicitationBatchLock` is what the
-        // worker would be waiting for in the broken ordering.
+        // Let it reach the outbox row and block there. NOT awaited inside this
+        // callback: postgres.js commits when the callback resolves, so awaiting
+        // a promise that cannot settle until this transaction commits would
+        // hang the test under the CORRECT ordering too.
         await new Promise((resolve) => setTimeout(resolve, 250));
-        await acquireSolicitationBatchLock(tx, businessId);
-
-        await expect(second).resolves.toEqual({ status: 'accepted' });
       });
+
+      // Commit released both locks; the blocked request now completes.
+      await expect(second).resolves.toEqual({ status: 'accepted' });
     });
   });
 ```
 
-> The deadlock test is the one that would have caught round 1's critical defect, so it must fail loudly rather than skip. If the exact interleaving proves flaky in CI, DO NOT weaken it to a sequential call — that is the shape the round-1 plan already had, and it cannot expose this. Raise it as a deviation instead.
+Add a `capturedStatements()` helper if this suite has none — the live-DB suites do not record SQL text, so the ordering half may instead live in the mocked `ask-generation.test.ts`-style harness, which already collects `sqlCalls[].text`. Put it wherever statement text is actually observable; **do not drop it**, because it is the only deterministic guard on the enqueue-first order.
+
+> Round 1's critical defect is what this test exists for. If the serialization half proves flaky in CI, weaken THAT half — never the ordering assertion, and never back to a plain sequential call, which is the shape round 1 already had and cannot expose anything.
 
 Every helper above was verified against the file at plan time. **Do not** change any of them — the existing `approveBatch` / `haltBatch` / tenant-scope suites depend on all of them.
 
@@ -1397,6 +1420,10 @@ describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
 
   it('POST regenerate answers 429 when the ask has spent its daily regenerate budget', async () => {
     mockPeekAskRegenBudget.mockResolvedValue(new Map([[ASK_ID, { used: 3, limit: 3, remaining: 0 }]]));
+    // REQUIRED: the domain decides exhaustion now, so the 429 exists only if it
+    // says so. Without this the `beforeEach` default returns `accepted` and the
+    // route answers 202.
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'budget_exhausted' });
 
     const response = await REGENERATE(post('regenerate', { query: `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}` }));
 
@@ -2197,3 +2224,20 @@ pre-review.
 | Stale counts ("six", "two", "26 todo") | Corrected to eight / eight / three, and 31 todo + 9 live-DB = 40 |
 
 The deadlock reproduction (Task 4, Step 6) is the test that would have caught round 1's critical defect. It carries an explicit instruction never to weaken it into a sequential call — that is the shape the round-1 plan already had, and it cannot expose the bug.
+
+## Review appendix — round 3 (final round)
+
+`VERDICT: REVISE`. Full report: `scratchpad/codex-round3.md` (session-local).
+
+Confirmed resolved: all eight titles now have owning implementation steps; every shown `requestAskRegeneration` call passes `budgetRemaining`; the counts are consistent; and the live-DB byte-finality test is substantive (it compares `{ subject, body }`, pins `attempt_no === 1`, and asserts no `superseded` row).
+
+Two blocking defects found, **both accepted and fixed**:
+
+1. **The 429 route test never stubbed the domain result.** It asserted `budgetRemaining: 0` reached `requestAskRegeneration` but left the `beforeEach` default in place, so the route would have answered 202. A revision-2 edit anchored too narrowly and dropped the line. Fixed.
+2. **The deadlock test hung under the CORRECT ordering.** It awaited the blocked second request *inside* `worker.begin`'s callback; postgres.js commits when that callback resolves, so the request could never unblock. Fixed by capturing the promise and awaiting it after the transaction commits.
+
+Working through (2) surfaced a problem round 3 did not state, and it changed the test's design: **even once un-hung, that interleaving cannot distinguish the two orderings.** Under the broken advisory-first order the worker is not waiting for anything, so it commits after the sleep and the request proceeds — no deadlock either way. A true ABBA needs a third session holding the advisory lock while the worker waits on it, and which side Postgres kills is nondeterministic.
+
+So the test was split. **Part 1 asserts the statement order directly** — the `INSERT INTO job_outbox` must precede `pg_advisory_xact_lock` — which is deterministic and is the actual invariant. **Part 2 keeps the serialization** as a self-deadlock check. The instruction attached to it says to weaken Part 2 if it proves flaky and never Part 1, because a flaky deadlock test teaches people to ignore precisely the failure this bug produces.
+
+**Round cap reached.** Per the workflow, after round 3 the loop stops and the owner's call substitutes for `APPROVED`. There is no live disagreement to adjudicate — both round-3 findings were accepted and fixed — so what is being asked of the owner is a go/no-go on the plan as it now stands, not a tie-break.
