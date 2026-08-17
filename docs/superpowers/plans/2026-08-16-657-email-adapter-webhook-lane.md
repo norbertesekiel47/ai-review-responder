@@ -104,7 +104,7 @@ Author every promised test as a **failing** test, committed before any implement
 - Modify: `src/lib/notifications/email/__tests__/send-email.test.ts`
 - Modify: `worker/config/__tests__/startup-assertion.test.ts`
 
-- [ ] **Step 1: Read the four precedent suites before writing a line**
+- [x] **Step 1: Read the four precedent suites before writing a line**
 
 Read these in full. Match their mocking style, their `describe` nesting, and their assertion vocabulary. Do not invent a new house style.
 
@@ -113,7 +113,7 @@ Read these in full. Match their mocking style, their `describe` nesting, and the
 - `worker/config/__tests__/startup-assertion.test.ts` — how `process.env` is saved/restored around boot asserts
 - `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts` — the live-DB suite shape, and a solicitation one: `acquireLiveDbLock` from `src/lib/shared/__tests__/helpers/live-db-lock.ts`, `assertSchemaReady` from `helpers/schema-ready.ts`
 
-- [ ] **Step 2: Write all 74 promised test titles VERBATIM**
+- [x] **Step 2: Write all 74 promised test titles VERBATIM**
 
 The titles are the contract. `scripts/verify-gate.sh`'s `promised-tests` row greps for each string, so a retitle is a gate failure. Copy them from `.feature/intake.json`'s `tests_to_add` array — do not retype them.
 
@@ -130,7 +130,7 @@ Distribution:
 | `resend-solicitation-routing.test.ts` | 7 (titles 41–47) |
 | `resend-solicitation-lane.integration.test.ts` | 27 (titles 48–74) |
 
-- [ ] **Step 3: Add eleven unpromised tests**
+- [x] **Step 3: Add eleven unpromised tests** _(thirteen bodies as of D4 — see deviations D5.2)_
 
 Four from planning, seven from plan review round 1. All are already recorded in
 `docs/superpowers/plans/feat-657-email-adapter-webhook-lane-deviations.md` § D1 as
@@ -337,15 +337,15 @@ contact, batch, ask and one Outreach row, and returns `{ outreachId, handle }`. 
 it from the fixtures `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts`
 already uses — do not invent a second seeding vocabulary.
 
-- [ ] **Step 4: Write real assertions — no bare `expect(true)`**
+- [x] **Step 4: Write real assertions — no bare `expect(true)`** _(no `.todo` was needed)_
 
 Every test asserts observable behaviour. Where the implementation does not exist yet, the test fails on the missing import, which is a legitimate red. Use `.todo` ONLY where a slice is genuinely unbuildable until a later task, and name the task in the todo string.
 
-- [ ] **Step 5: Name the integration suite correctly**
+- [x] **Step 5: Name the integration suite correctly** _(`pnpm ci:live-db-suites` passes)_
 
 `resend-solicitation-lane.integration.test.ts` — the `.integration.test.ts` suffix selects vitest's serialized `integration` project. It must call `assertSchemaReady` and **must not execute DDL at run time** (40P01 deadlock across concurrent suites). `ci:live-db-suites` enforces both.
 
-- [ ] **Step 6: Run the suites and confirm they FAIL**
+- [x] **Step 6: Run the suites and confirm they FAIL** _(22 failed / 155 passed; integration suite fails at import — deviations D5)_
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-657-email-adapter-webhook-lane && pnpm vitest run src/lib/messaging src/lib/notifications/email worker/ingress/__tests__/resend-solicitation worker/config 2>&1 | tail -30
@@ -353,7 +353,7 @@ cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-657-email-ad
 
 Expected: failures citing missing modules `src/lib/messaging/*`, `worker/ingress/resend/solicitation-lane`, and missing exports `getSolicitationResend`, `assertSolicitationSendEnv`. A PASS here means the test asserts nothing.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A && git commit -m "test(657): failing eval suite for the messaging adapter, sending identity and solicitation lane"

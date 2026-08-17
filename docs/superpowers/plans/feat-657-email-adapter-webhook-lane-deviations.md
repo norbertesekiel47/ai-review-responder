@@ -135,6 +135,82 @@ Edit. No repeat.
 
 ---
 
+## D5 — Task 1 (eval) execution notes, 2026-08-16
+
+Four things the plan did not anticipate. **All ACCEPT** — none changes a promised
+title, the allowed edit surface, or a production contract. Amendment count
+remains **0**. All 74 promised titles appear VERBATIM; the distribution matches
+the plan's Step 2 table exactly (10 / 3 / 4 / 2 / 14 / 7 / 7 / 27).
+
+### D5.1 — the F2 race test's body was racy; the title is what it now asserts
+
+The plan's Step 3 body starts the handler, THEN starts a competing `DELETE`, then
+waits for the DELETE to park. That is only observable if the handler's
+transaction is still open when the DELETE arrives — and the handler is a
+sub-millisecond transaction with nothing holding it, so the wait would usually
+time out. The body also asserted `ledger` has **1** row, which contradicts its
+own title ("writes **nothing** when its attributed outreach row is removed").
+
+**ACCEPT, rewritten to the title.** The lock is now held from the SECOND
+connection first (`SELECT … FOR UPDATE` inside an open transaction on `otherDb`),
+the handler starts and provably parks behind it, and the holder then `DELETE`s
+and commits. Two assertions carry the F12 property:
+
+- the parked statement (read from `pg_stat_activity` where
+  `wait_event_type = 'Lock'`) is a **locking SELECT**, not the later `UPDATE` —
+  which is exactly what a version reading attribution outside the transaction
+  would have parked on instead;
+- when the lock is granted the row is gone, so the lane throws and writes
+  **nothing** — no artifact, no ledger row.
+
+Deterministic (the test controls the blocker) and still mutation-sensitive.
+Verified against the live test DB in a scratch harness before it was written:
+postgres.js issues a query only when it is awaited, so the blocked statement must
+come from a real call — which the handler is.
+
+### D5.2 — the extras are THIRTEEN test bodies, not eleven
+
+D1's list of 11 predates D4. F12 **split** the F2 test into two (race +
+atomicity) and F13 **added** an `email.failed` log-leak test. The plan's Step 3
+code blocks are the final form and contain 13 `it()` bodies; all 13 are written.
+The count in D1 is left as the historical record of that round.
+
+### D5.3 — `abortingExecutor` takes a poison; the plan's snippet passed none
+
+`abortingExecutor(base, poison)` — the plan wrote `abortingExecutor(sql)`. The
+poison supplied is an INSERT into `solicitation_suppressions` with
+`scope='account'` and a NULL `account_id`, which violates
+`solicitation_suppressions_account_scope_pairing`. Chosen because it raises a
+REAL Postgres error (**verified SQLSTATE 23514**) on the very table whose write
+the case is about, holds no schema, and leaves nothing behind on timeout — the
+#694 rule. Two cases use it (`email.bounced` and `email.complained`), so the two
+recorders are both covered rather than the same path twice.
+
+### D5.4 — titles 71 and 73 drive the REAL `handleResendWebhook`
+
+"returns 503 so Resend retries" and "a duplicate svix id acks without
+reprocessing" are ingress-level facts, and the plan assigns both to the live-DB
+suite. They are exercised against the real handler with a real svix signature,
+following the `worker/ingress/zernio/__tests__/zernio-fanout-archived.integration.test.ts`
+precedent: `DATABASE_POOL_URL` is set before any import evaluates (a `vi.hoisted`
+block), the handler is imported dynamically in `beforeAll`, and `afterAll` closes
+the shared `db/server` client so the vitest fork cannot hang on its sockets.
+
+### Eval result — RED for the right reasons
+
+`pnpm vitest run --project parallel …` → **22 failed, 155 passed**; the
+integration suite fails at import. Every failure cites a missing module
+(`src/lib/messaging/email-adapter`, `worker/ingress/resend/solicitation-lane`) or
+a missing export (`getSolicitationResend`, `assertSolicitationSendEnv`,
+`sendEmail`'s `opts.client`, `getEmailHeaders`'s `'solicitation'` branch). No
+pre-existing test regressed (533 pass across `worker/ingress`, `worker/config`
+and `email-headers.test.ts`). Four promised titles pass ALREADY and are meant to
+— they are the regression anchors the widening must not move: titles 1 and 2
+(transactional/marketing unchanged), 10 (`getEmailTags` is already generic over
+`EmailCategory`) and 14 (`sendEmail`'s default path).
+
+---
+
 ## D2 — Secondary note accepted from round 1
 
 Codex observed that the plan's Architecture line ("config + boot assert gate the
