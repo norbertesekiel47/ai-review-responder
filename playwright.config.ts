@@ -28,13 +28,18 @@ export default defineConfig({
     },
   ],
   // One owner for app boot, locally AND in CI (the CI `e2e` job relies on
-  // this block — see .github/workflows/ci.yml). CI cold-boots the dev server
-  // and compiles routes on first hit, hence the generous timeout.
+  // this block — see .github/workflows/e2e.yml). Locally the dev server, so a
+  // running `pnpm dev` is reused. In CI a production build: `next dev`
+  // compiles each route on its first hit, and on a loaded runner that first
+  // hit alone exceeded the 30s test timeout — every run showed 1–2 "flaky"
+  // tests that were really compile stalls, each costing a 30s timeout plus a
+  // retry. `next build` compiles everything once (~40s on 4 vCPU), then every
+  // page is served prebuilt. The timeout covers the build.
   webServer: {
-    command: 'pnpm dev',
+    command: process.env.CI ? 'pnpm build && pnpm start' : 'pnpm dev',
     port: 3000,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: process.env.CI ? 300_000 : 180_000,
     // When E2E tests use a dedicated test DB, the app under test must
     // read from the same database so it can find seeded approval tokens.
     env: {

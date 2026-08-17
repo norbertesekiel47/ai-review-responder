@@ -21,9 +21,11 @@ concurrency:
 
 jobs:
   react-doctor:
-    # Same runner switch as ci.yml: `vars.CI_RUNNER` (self-hosted) or hosted fallback.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Same runner routing as ci.yml's light jobs (see its header): CI_RUNNER_LIGHT,
+    # then the legacy CI_RUNNER, then hosted. Draft PRs skip, same as ci.yml.
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
+    if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

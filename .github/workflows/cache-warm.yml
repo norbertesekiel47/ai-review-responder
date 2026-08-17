@@ -23,9 +23,10 @@ permissions:
 jobs:
   warm:
     name: warm
-    # Same runner switch as ci.yml: warm the caches on whichever runner CI
-    # actually uses (cache keys carry runner.arch, so the two never mix).
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Same runner routing as ci.yml's heavy jobs: warm the caches on the runner
+    # the install-heavy jobs actually use (cache keys carry runner.arch, so an
+    # x64 entry never lands on an arm runner or vice versa).
+    runs-on: ${{ vars.CI_RUNNER_HEAVY || vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
