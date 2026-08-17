@@ -12,11 +12,12 @@ import {
 // of src/lib/solicitation/__tests__/uploads.test.ts. Results are returned in
 // statement order, which readLatestBatch fixes deterministically:
 // SET TRANSACTION -> Q1 latest batch -> Q2 contacts on file -> Q3 asks
-// -> Q4 attempts -> Q5 send lane.
+// -> Q4 attempts -> Q5 send-lane lifecycle -> Q6 pending renders
+// -> Q7 moderation withheld.
 //
-// Q4 and Q5 are BOTH gated on `options.sendLane` (#629) and reached only for a
-// built batch, so a `{ sendLane: false }` read stops after Q3 and its fixture
-// array holds four entries, not six. Every added statement shifts every later
+// Q4-Q7 are ALL gated on `options.sendLane` (#629) and reached only for a built
+// batch, so a `{ sendLane: false }` read stops after Q3 and its fixture array
+// holds four entries, not eight. Every added statement shifts every later
 // result: this comment, the fixtures, and the statementAt() indices below are
 // one fact and move together.
 type QueryResult = unknown[];
@@ -93,24 +94,36 @@ function withholdRow(overrides: {
  * raw `Date` columns feed deriveBatchState, the `*Text` columns are what the
  * view ships — postgres.js truncates microseconds decoding timestamptz, so
  * only the ::text form is trustworthy on the wire.
+ *
+ * The two readiness counts are NOT on this row: each is aggregated on its own
+ * base relation in its own statement (Q6, Q7), so that a moderation-withheld
+ * row can no longer multiply the ask/outreach join beside it.
  */
 function laneRow(
-  overrides: { pendingRenders?: number; moderationWithheld?: number } = {},
+  overrides: {
+    approved_at?: Date | null;
+    veto_deadline_at?: Date | null;
+    halted_at?: Date | null;
+    haltReason?: string | null;
+  } = {},
 ) {
   return {
     built_at: new Date('2026-07-20T11:00:00Z'),
-    approved_at: null,
-    veto_deadline_at: null,
+    approved_at: overrides.approved_at ?? null,
+    veto_deadline_at: overrides.veto_deadline_at ?? null,
     sending_started_at: null,
     send_closed_at: null,
-    halted_at: null,
-    approvedAtText: null,
-    vetoDeadlineAtText: null,
-    haltedAtText: null,
-    haltReason: null,
-    pendingRenders: overrides.pendingRenders ?? 0,
-    moderationWithheld: overrides.moderationWithheld ?? 0,
+    halted_at: overrides.halted_at ?? null,
+    approvedAtText: overrides.approved_at?.toISOString() ?? null,
+    vetoDeadlineAtText: overrides.veto_deadline_at?.toISOString() ?? null,
+    haltedAtText: overrides.halted_at?.toISOString() ?? null,
+    haltReason: overrides.haltReason ?? null,
   };
+}
+
+/** Q6 / Q7: a bare `SELECT COUNT(*)::int AS n` result. */
+function countRow(n: number) {
+  return [{ n }];
 }
 
 /** The Q3 aggregate for a batch with one send ask and nothing withheld. */
@@ -369,7 +382,9 @@ describe('readLatestBatch', () => {
           interpolationInputs: null,
         },
       ],
-      [laneRow({ pendingRenders: 4, moderationWithheld: 2 })],
+      [laneRow()],
+      countRow(4),
+      countRow(2),
     ]);
 
     const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: false });
@@ -414,7 +429,9 @@ describe('readLatestBatch', () => {
           interpolationInputs: { visit_note: 'FORBIDDEN-NOTE' },
         },
       ],
-      [laneRow({ moderationWithheld: 1 })],
+      [laneRow()],
+      countRow(0),
+      countRow(1),
     ]);
 
     const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
@@ -446,6 +463,91 @@ describe('readLatestBatch', () => {
 
     // A COUNT is the owner's ONLY signal that anything was held (D6a).
     expect(view.sendLane?.moderationWithheld).toBe(1);
+  });
+
+  it('aggregates each send-lane count on its own base relation, never one cross-joined statement', async () => {
+    // The regression this pins: Q5 used to LEFT JOIN solicitation_asks, then
+    // solicitation_outreach correlated to the ask, then solicitation_outreach
+    // AGAIN correlated only to the batch. The third join multiplied every
+    // (ask, outreach) pair by every moderation-withheld row, and only
+    // COUNT(DISTINCT …) made the answers come out right — at full batch size
+    // the intermediate reached tens of millions of rows on the one screen that
+    // has to stay available. Distinct counts fed to distinct statements below
+    // cannot be produced by that shape.
+    const { sql, tx } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 9 }],
+      [emptyFunnelRow(7)],
+      [], // no attempts
+      [laneRow()],
+      countRow(7),
+      countRow(2),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.pendingRenders).toBe(7);
+    expect(view.sendLane?.moderationWithheld).toBe(2);
+    expect(view.sendLane?.ready).toBe(false);
+
+    // Q5 reads the lifecycle row and NOTHING else: no child table, no
+    // aggregate, no GROUP BY. Reintroducing the cross product means putting a
+    // child join back here, which these three assertions refuse.
+    const laneQuery = sqlText(statementAt(tx, 5));
+    expect(laneQuery).toContain('FROM solicitation_batches b');
+    expect(laneQuery).not.toContain('solicitation_asks');
+    expect(laneQuery).not.toContain('solicitation_outreach');
+    expect(laneQuery).not.toContain('COUNT(');
+    expect(laneQuery).not.toContain('GROUP BY');
+
+    // Q6 counts send Asks with no live Outreach — one anti-join, one table
+    // pair. Both tenant keys ride the top level (invariant #8), which is also
+    // what keeps them visible to ci:tenant-scope.
+    const pendingQuery = sqlText(statementAt(tx, 6));
+    expect(pendingQuery).toContain('FROM solicitation_asks a');
+    expect(pendingQuery).toContain('LEFT JOIN solicitation_outreach o');
+    expect(pendingQuery).toContain('o.id IS NULL');
+    expect(pendingQuery).not.toContain('solicitation_batches');
+    expect(statementAt(tx, 6).slice(1)).toEqual([
+      ACCOUNT_ID, BUSINESS_ID, ACCOUNT_ID, BUSINESS_ID, BATCH_ID,
+    ]);
+
+    // Q7 counts the held rows on their own table — no ask join at all, so an
+    // ask can no longer multiply it.
+    const moderationQuery = sqlText(statementAt(tx, 7));
+    expect(moderationQuery).toContain('FROM solicitation_outreach mo');
+    expect(moderationQuery).not.toContain('JOIN');
+    expect(statementAt(tx, 7).slice(1)).toEqual([
+      ACCOUNT_ID, BUSINESS_ID, BATCH_ID, 'moderation_high',
+    ]);
+
+    expect(tx.mock.calls).toHaveLength(8);
+  });
+
+  it('reports the halt latch reason verbatim from the closed five-reason set', async () => {
+    // `haltReason` is typed `HaltReason | null`, not `string | null`: three of
+    // the five reasons are NOT owner-caused, so a consumer that branches on it
+    // must be able to tell `admin_halt` from `owner_halt` exhaustively.
+    const haltedAt = new Date('2026-07-21T09:00:00Z');
+    const { sql } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow()],
+      [],
+      [laneRow({ halted_at: haltedAt, haltReason: 'admin_halt' })],
+      countRow(0),
+      countRow(0),
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.batchState).toBe('halted');
+    expect(view.sendLane?.haltReason).toBe('admin_halt');
+    expect(view.sendLane?.haltedAt).toBe(haltedAt.toISOString());
   });
 });
 
@@ -490,9 +592,10 @@ describe('readLatestBatch attempts join (#628)', () => {
     };
   }
 
-  // Six entries because this block reads with `{ sendLane: true }`: the
-  // attempts join is Q4 and the send-lane lifecycle row is Q5 (#629). Dropping
-  // the trailing laneRow() would leave Q5 unfed and the read would throw.
+  // Eight entries because this block reads with `{ sendLane: true }`: the
+  // attempts join is Q4, the send-lane lifecycle row is Q5, and the two
+  // readiness counts are Q6/Q7 (#629). Dropping the trailing laneRow() would
+  // leave Q5 unfed and the read would throw.
   function builtBatchResults(attemptRows: unknown[]): QueryResult[] {
     return [
       [], // SET TRANSACTION
@@ -501,6 +604,8 @@ describe('readLatestBatch attempts join (#628)', () => {
       [emptyFunnelRow()],
       attemptRows,
       [laneRow()],
+      countRow(0),
+      countRow(0),
     ];
   }
 

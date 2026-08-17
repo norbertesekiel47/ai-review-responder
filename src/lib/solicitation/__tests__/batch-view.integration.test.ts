@@ -389,6 +389,108 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     expect(serialized).not.toContain('SUPERSEDED');
   });
 
+  // The pure-function half of this title lives in approval.test.ts over
+  // deriveBatchState; this is the read-model half the plan promised. The batch
+  // is seeded relative to NOW because the derivation is clock-sensitive: a
+  // fixed 2026-07 built_at is past the 7-day approval window and would report
+  // `expired`, which is a real state but not the one under test.
+  it('reports the derived batch state and approval readiness on the built batch view', async () => {
+    const now = Date.now();
+    const batchId = await seedBatch({
+      createdAt: new Date(now - 120_000).toISOString(),
+      builtAt: new Date(now - 60_000).toISOString(),
+    });
+    const contactId = await seedContact('Readiness Rita');
+    const askId = await seedAsk({
+      batchId, contactId, status: 'send',
+      decidedAt: new Date(now - 60_000).toISOString(),
+    });
+
+    // Generation has not settled: one send Ask still has no Outreach row.
+    const pending = await readLatestBatch(sql(), tenant!.accountId, businessId, {
+      sendLane: true,
+    });
+    if (pending.state !== 'built') throw new Error('expected a built batch');
+    expect(pending.sendLane?.batchState).toBe('built');
+    expect(pending.sendLane?.ready).toBe(false);
+    expect(pending.sendLane?.pendingRenders).toBe(1);
+
+    await seedOutreach({
+      batchId, askId, contactId, deliveryStatus: 'rendered',
+      subject: 'Thanks for having us out', body: 'Hi Rita — thanks for choosing us.',
+    });
+
+    const ready = await readLatestBatch(sql(), tenant!.accountId, businessId, {
+      sendLane: true,
+    });
+    if (ready.state !== 'built') throw new Error('expected a built batch');
+    expect(ready.sendLane?.batchState).toBe('built');
+    expect(ready.sendLane?.ready).toBe(true);
+    expect(ready.sendLane?.pendingRenders).toBe(0);
+
+    // The state is DERIVED from the timestamps (there is no status column), so
+    // stamping approval must move the read model with no other write.
+    await sql()`
+      UPDATE solicitation_batches
+         SET approved_at = NOW(),
+             approval_method = 'owner',
+             approved_by_user_id = ${tenant!.userId}::uuid,
+             veto_deadline_at = NOW() + INTERVAL '15 minutes'
+       WHERE id = ${batchId}::uuid
+    `;
+
+    const approved = await readLatestBatch(sql(), tenant!.accountId, businessId, {
+      sendLane: true,
+    });
+    if (approved.state !== 'built') throw new Error('expected a built batch');
+    expect(approved.sendLane?.batchState).toBe('veto_window');
+    expect(approved.sendLane?.ready).toBe(true);
+    expect(approved.sendLane?.approvedAt).not.toBeNull();
+    expect(approved.sendLane?.vetoDeadlineAt).not.toBeNull();
+    expect(approved.sendLane?.haltReason).toBeNull();
+  });
+
+  it('counts pending renders and moderation-withheld attempts independently of each other', async () => {
+    // N x M by construction: 3 send Asks awaiting a render and 2 held rows on
+    // two OTHER send Asks. The counts are aggregated on separate base
+    // relations, so neither multiplies the other — and the read model must
+    // report 3 and 2, never 6, and never the same number twice.
+    const now = Date.now();
+    const batchId = await seedBatch({
+      createdAt: new Date(now - 120_000).toISOString(),
+      builtAt: new Date(now - 60_000).toISOString(),
+    });
+    const decidedAt = new Date(now - 60_000).toISOString();
+
+    for (let index = 0; index < 3; index += 1) {
+      const contactId = await seedContact(`Awaiting ${index}`);
+      await seedAsk({ batchId, contactId, status: 'send', decidedAt });
+    }
+    for (let index = 0; index < 2; index += 1) {
+      const contactId = await seedContact(`Held ${index}`);
+      const askId = await seedAsk({ batchId, contactId, status: 'send', decidedAt });
+      await seedOutreach({
+        batchId, askId, contactId,
+        deliveryStatus: 'withheld', dispositionReason: 'moderation_high',
+        subject: 'FORBIDDEN-SUBJECT', body: 'FORBIDDEN-BODY',
+        moderationStatus: 'flagged', moderationDetail: { harassment: 0.99 },
+      });
+    }
+
+    const view = await readLatestBatch(sql(), tenant!.accountId, businessId, {
+      sendLane: true,
+    });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.pendingRenders).toBe(3);
+    expect(view.sendLane?.moderationWithheld).toBe(2);
+    expect(view.sendLane?.ready).toBe(false);
+    // The held rows are the only attempts, and they carry no bytes (D6a).
+    expect(view.attempts).toHaveLength(2);
+    expect(view.attempts.every((attempt) => attempt.redacted)).toBe(true);
+    expect(JSON.stringify(view)).not.toContain('FORBIDDEN');
+  });
+
   it('returns hasBatch false when the location\'s uploads completed before watch-mode was enabled', async () => {
     await seedContact('Pre Flip');
 
