@@ -1061,4 +1061,12 @@ describe('regenerateAsk', () => {
     expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
     expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledTimes(1);
   });
+
+  it.todo('refuses a regenerate once the batch is approved, leaving the live render untouched');
+  it.todo('refuses a regenerate in veto_window and in sending, the two states amendment B2 previously allowed');
+  it.todo('aborts the swap when the batch is approved between the pre-check and the locked re-check');
+
+  describe('invariants', () => {
+    it.todo('property: regeneration is accepted for the built batch state and refused for every other');
+  });
 });

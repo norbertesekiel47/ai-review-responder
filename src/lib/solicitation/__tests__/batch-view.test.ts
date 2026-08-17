@@ -525,6 +525,10 @@ describe('readLatestBatch', () => {
     expect(view.sendLane?.haltReason).toBe('admin_halt');
     expect(view.sendLane?.haltedAt).toBe(haltedAt.toISOString());
   });
+
+  it.todo('reports the ask id of an in-flight per-ask regeneration on the send lane');
+  it.todo('reports no in-flight regeneration for a whole-batch generation row');
+  it.todo('carries the per-ask regenerate budget on the send lane, omitting asks whose counter is unknown');
 });
 
 describe('readLatestBatch attempts join (#628)', () => {

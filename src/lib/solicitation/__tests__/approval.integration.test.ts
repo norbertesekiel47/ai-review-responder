@@ -1069,6 +1069,17 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
     });
   });
 
+  describe('requestAskRegeneration', () => {
+    it.todo('enqueues one generate_solicitation_asks outbox row carrying the ask id for a built batch');
+    it.todo('records ask_regeneration_requested on the send parent with the requesting owner');
+    it.todo('refuses a regenerate for an approved batch without writing an outbox row');
+    it.todo('refuses a regenerate for an ask whose current attempt is withheld');
+    it.todo('returns already_in_flight when a generation is already in flight for the batch');
+    it.todo('refuses a regenerate for a batch belonging to another tenant');
+    it.todo('rolls back the regeneration outbox row when recording ask_regeneration_requested fails');
+    it.todo('does not deadlock when a worker completion races a second regeneration request');
+  });
+
   describe('mixed-case batch id', () => {
     it('finds the send parent for an upper-cased batch id, for both verbs', async () => {
       // `agent_runs.subject_id` is TEXT, so matching it is case-SENSITIVE while

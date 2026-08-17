@@ -409,6 +409,12 @@ describe('checkAskRegenBudget', () => {
   });
 });
 
+describe('peekAskRegenBudgetBatch', () => {
+  it.todo('peekAskRegenBudgetBatch reads the ask-keyed counter and never the review-keyed one');
+  it.todo('peekAskRegenBudgetBatch resolves to an empty map when Redis is unavailable');
+  it.todo('peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously');
+});
+
 // #731: the single-key advisory peek was deleted (one caller, nothing varying
 // behind it, and the OPPOSITE failure contract to the batched one). Its three
 // cases now live in regen-budget-batch.test.ts, which is the only suite whose

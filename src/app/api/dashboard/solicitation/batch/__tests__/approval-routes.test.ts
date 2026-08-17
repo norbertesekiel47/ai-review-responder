@@ -373,3 +373,14 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     expect(mockHaltBatch).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
+  it.todo('POST regenerate enqueues for a built batch and answers 202');
+  it.todo('POST regenerate answers 409 when the batch is already approved');
+  it.todo('POST regenerate answers 429 when the ask has spent its daily regenerate budget');
+  it.todo('POST regenerate answers 409 when a regeneration is already in flight for the batch');
+  it.todo('POST regenerate answers 404 when the body carries no valid ask id');
+  it.todo('POST regenerate is refused when SOLICITATION_SEND_ENABLED is off');
+  it.todo('POST regenerate answers 404 for an over-budget ask belonging to another tenant');
+  it.todo('POST regenerate enqueues when the ask budget map has no entry');
+});

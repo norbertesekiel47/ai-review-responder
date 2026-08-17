@@ -539,5 +539,7 @@ describeWithDb(
         `;
       }
     });
+
+    it.todo('keeps approved outreach bytes unchanged when approval races the real regeneration swap');
   },
 );

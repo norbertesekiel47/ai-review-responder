@@ -45,6 +45,9 @@ function sendLane(overrides: Partial<SendLaneView> = {}): SendLaneView {
     haltedAt: null,
     haltReason: null,
     moderationWithheld: 0,
+    // @ts-expect-error until Task 5 widens SendLaneView
+    regeneratingAskId: null,
+    regenBudgets: {},
     ...overrides,
   };
 }
@@ -589,5 +592,24 @@ describe('ApprovalPanel — failure honesty', () => {
     expect(onChanged).toHaveBeenCalledWith(expect.stringMatching(/could not confirm/i), 'unconfirmed');
     // Retrying is safe: the Halt latch is monotone and approval is CAS'd.
     expect(haltButton()).toBeEnabled();
+  });
+});
+
+describe('regenerate control', () => {
+  it.todo('offers a regenerate control on every rendered ask while the batch is approvable');
+  it.todo('offers no regenerate control on a withheld ask');
+  it.todo('offers no regenerate control once the batch is approved');
+  it.todo('disables the regenerate control on an ask the owner has deselected');
+  it.todo('renders the per-ask regenerate counter and disables the control once the budget is spent');
+  it.todo('renders no regenerate counter when the budget is unknown');
+  it.todo('disables approve and every regenerate control while a regeneration is in flight');
+  it.todo('reports that nothing changed when a regeneration settles without a new attempt');
+  it.todo('keeps an ask excluded when a regeneration replaces its outreach id');
+  it.todo('shows the daily rewrite limit when a regenerate POST is refused 429');
+  it.todo('reports a settled regeneration that completed before the first refetch');
+  it.todo('says the owner may ask for a new version but may not write one');
+
+  describe('invariants', () => {
+    it.todo('property: every excluded ask resolves to a live outreach id or drops out of the payload');
   });
 });
