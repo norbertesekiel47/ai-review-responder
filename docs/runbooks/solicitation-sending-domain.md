@@ -108,7 +108,7 @@ For staging, every name gains the `staging` label (`bounce.feedback.staging`,
 
 ```
 _dmarc.feedback.repworth.net  →  v=DMARC1; p=reject; adkim=s; aspf=r;
-                                 rua=mailto:<a mailbox we control>; pct=100
+                                 rua=mailto:re+ywyu7bdater@dmarc.postmarkapp.com; pct=100
 ```
 
 - **`aspf=r` must stay relaxed.** §1's custom return path makes the envelope
@@ -126,13 +126,46 @@ _dmarc.feedback.repworth.net  →  v=DMARC1; p=reject; adkim=s; aspf=r;
   new with exactly one authorized sender; there are none to discover. A permissive
   window on the domain we are about to use for unsolicited commercial mail is the
   worst possible place to leave spoofable.
-- **`rua` to a mailbox we control**, so aggregate reports for the sending domain
-  actually reach us. The apex `_dmarc.repworth.net` currently sends its `rua` to a
-  third party, which is why we do not see our own reports today; do not copy that
-  address. **This value is an open input, not a decision this runbook makes** —
-  spec §12 records it as unresolved (a real address or a DMARC reporting vendor).
-  Resolve it before creating the record; a `rua` nobody reads is the apex's
-  problem repeated.
+- **`rua` — RESOLVED 2026-08-17, no longer an open input.** Spec §12 recorded this
+  as unresolved (a real address or a DMARC reporting vendor). The decision is
+  **Postmark DMARC Digests**, free tier, digests delivered to
+  `norbert.esekiel@repworth.net`. Postmark parses the gzipped XML nobody reads and
+  emails a weekly summary; that readability is the whole reason a vendor beat a
+  plain mailbox here, on a subdomain sending unsolicited commercial mail where
+  alignment failures must be noticed early. Registered addresses:
+
+  | Domain | `rua` |
+  |---|---|
+  | `feedback.repworth.net` | `re+ywyu7bdater@dmarc.postmarkapp.com` (in the record above) |
+  | `repworth.net` (apex, separate concern) | `re+zidxljbfmt1@dmarc.postmarkapp.com` |
+
+  The addresses **differ by design** — Postmark keys each digest to the domain it
+  was registered for, so reusing the apex address here would fold solicitation
+  reports into the wrong digest or drop them. (Authorisation is *not* the reason:
+  Postmark publishes a wildcard `_report._dmarc` record, so reuse would pass
+  RFC 7489 §7.1 verification and still give you the wrong report.)
+
+  The apex previously reported to `dmarc_rua@onsecureserver.net` — GoDaddy's
+  default, which is why we saw none of our own reports. It was replaced on
+  2026-08-17. **Only its `rua` changed**; `p=quarantine`, `adkim=r` and `aspf=r`
+  are untouched, because those govern how receivers treat approval emails
+  (invariant #3). Retuning the apex *policy* is still follow-up FU-2.
+
+  > **TRAP — do not paste Postmark's suggested record.** Its signup returns
+  > `v=DMARC1; p=none; pct=100; rua=…; sp=none; aspf=r;`. **Take only the `rua`
+  > value.** `p=none` and `sp=none` are wrong here for the reasons in the two
+  > bullets above and below: a permissive window on this subdomain is precisely
+  > what we refuse, and `sp=none` would hand any future sub-subdomain a
+  > permissive policy by inheritance. `adkim=s` is absent from their suggestion
+  > and we want it.
+
+  Before creating the record, confirm the authorisation exists, or reports fail
+  **silently** — no bounce, no error, just nothing:
+
+  ```bash
+  dig +short TXT feedback.repworth.net._report._dmarc.dmarc.postmarkapp.com
+  # expect: "v=DMARC1;"
+  ```
 
 The explicit record on the subdomain **overrides** the apex's inherited policy and
 insulates the solicitation domain from any future apex change. Leave the apex

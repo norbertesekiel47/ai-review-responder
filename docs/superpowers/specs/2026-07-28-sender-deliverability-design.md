@@ -639,8 +639,15 @@ third party — **we do not currently see our own aggregate reports.** There is 
 
 ```
 _dmarc.feedback.repworth.net  →  v=DMARC1; p=reject; adkim=s; aspf=r;
-                                 rua=mailto:<a mailbox we control>; pct=100
+                                 rua=mailto:re+ywyu7bdater@dmarc.postmarkapp.com; pct=100
 ```
+
+> **`rua` RESOLVED 2026-08-17** (was §12's open input): Postmark DMARC Digests,
+> free tier, delivered to `norbert.esekiel@repworth.net`. Do **not** paste
+> Postmark's own suggested record — it returns `p=none; sp=none` and omits
+> `adkim=s`; take only the `rua` value. Full rationale, the apex's separate
+> address, and the authorisation check:
+> `docs/runbooks/solicitation-sending-domain.md` §3.
 
 - **`p=reject` from day one — no `p=none` ramp.** The only reason to start permissive is
   to discover unknown legitimate senders. This subdomain is brand new with exactly one
@@ -653,8 +660,10 @@ _dmarc.feedback.repworth.net  →  v=DMARC1; p=reject; adkim=s; aspf=r;
   `bounce.feedback.repworth.net`, which is **not** an exact match for the From domain.
   **`aspf=s` would fail SPF alignment on every single message.** This is the one place
   where reflexive strictness silently breaks sending.
-- **`rua` to a mailbox we control**, so aggregate reports for the sending domain actually
-  reach us — unlike the apex today.
+- **`rua` to a destination we control**, so aggregate reports for the sending domain
+  actually reach us. *(Written when the apex reported to GoDaddy's default and we saw
+  none of our own data. That is no longer true — the apex was repointed to Postmark on
+  2026-08-17, FU-2's first half. Both domains now report to us, on separate addresses.)*
 
 Explicit record on the subdomain **overrides** the apex's inherited policy, and insulates
 the solicitation domain from any future apex change.
@@ -704,7 +713,7 @@ Flipping any of these follows the **`flag-flip` skill**.
 | ID | Item | Why deferred |
 |---|---|---|
 | **FU-1** | Move transactional off the apex to `notify.repworth.net`, making the two lanes siblings rather than parent/child (§1.2) | Changes the approval-email lane — invariant #3 blast radius. Needs its own ticket and its own staging ride. |
-| **FU-2** | Add `sp=reject` to `_dmarc.repworth.net`; repoint the apex `rua` to a mailbox we control (§8.1) | Touches the DMARC policy governing transactional/approval mail. Same reasoning as FU-1. |
+| **FU-2** | ~~repoint the apex `rua`~~ **DONE 2026-08-17** → `re+ywyu7bdater`'s sibling `re+zidxljbfmt1@dmarc.postmarkapp.com`, replacing GoDaddy's default `dmarc_rua@onsecureserver.net`. **Still open:** add `sp=reject` to `_dmarc.repworth.net` (§8.1) | The `rua` half was safe to land early: it changes only where aggregate reports go, not authentication or policy — `p=quarantine`, `adkim=r`, `aspf=r` are untouched. The `sp=` half remains gated because it DOES touch the policy governing transactional/approval mail. Same reasoning as FU-1. |
 | **FU-3** | Investigate the stray `brevo-code:` TXT on the apex — a second email vendor verified on our domain (§8.1) | Unknown provenance; possibly stale, possibly an active third-party sender. Audit, don't guess. |
 | **FU-4** | Automate reply-based opt-out capture from `reviews@` (§2.2) | v1 handles it manually inside the 10-business-day bar. Automating needs Resend inbound parsing + an intent classifier — its own effort. |
 | **FU-5** | Per-location daily send cap (§4.3) | Account-level is the bound decision 6 asked for. Add only on a concrete multi-location need. |
