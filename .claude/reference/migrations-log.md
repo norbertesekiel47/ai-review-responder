@@ -1036,10 +1036,26 @@ Revisit triggers:
   detect the widening. Rollback: re-apply 091's constraint text verbatim — safe
   while no row carries the new value, which stays true until #629's writer
   (`approveBatch`, Task 3) ships.
-  **LOCAL-ONLY** — applied to the rebuildable local test container only
-  (`pnpm test:db:setup`, 2026-08-16). **Applied to STAGING … / PRODUCTION …:**
-  pending #629 Task 8's staging ride; that change removes this LOCAL-ONLY
-  marker and re-arms `migration-immutability-guard.sh` for 108.
+  **Applied to STAGING (`kubdiqdhqbhwmqfditeg`) 2026-08-17** — verified the way
+  this log's header demands, by schema introspection and never the migration
+  ledger. Pre-state was 091 verbatim (`owner_excluded` absent from the cancelled
+  arm); post-state `pg_get_constraintdef` carries it with every other arm
+  unchanged and `convalidated` true, and the constraint COMMENT landed. Plus a
+  live probe inside a deliberately-aborted transaction, on the 097 precedent:
+  with `session_replication_role = replica` suppressing the FK triggers (the
+  CHECKs still fire), a `cancelled`/`owner_excluded` row was **accepted** and a
+  `cancelled`/`not_a_real_reason` row was **rejected by this constraint by
+  name** — so the widening is real and is not merely a constraint gone permissive
+  — with 1 row inside the transaction and **zero residue** after the ROLLBACK.
+  Two probe attempts were discarded before those: the first never reached this
+  CHECK (NOT NULL on `account_id`), the second was rejected by
+  `solicitation_outreach_moderation_status_check` for an invalid
+  `moderation_status`, which is the false-negative this constraint's own entry
+  warns about — a `check_violation` handler catches the WRONG check unless every
+  sibling CHECK (`moderation_status`, `body_presence`, `channel`, `source`) is
+  satisfied first. `solicitation_outreach` held 0 rows at apply time, so the
+  widening touched nothing. **PRODUCTION (`udeyaqnvpojbwgoaxwdg`): pending** —
+  applies in lockstep at #629's promotion to `main`.
 
 - **107** — `drop_legacy_ensure_rls_event_trigger`: removes the DDL event
   trigger `ensure_rls` and its function `public.rls_auto_enable()`, which
