@@ -4237,10 +4237,17 @@ creep into exactly the place that deadlocks, #573).
 
 ### Follow-ups
 
-- **DMARC `rua` address is unresolved** (spec §12) — #633 cannot create the DNS
-  record without it. The runbook carries a placeholder and says so rather than
-  inventing an address. Apex `_dmarc.repworth.net` currently reports to
-  `dmarc_rua@onsecureserver.net` (GoDaddy's default); do not copy it.
+- ~~**DMARC `rua` address is unresolved** (spec §12)~~ — **RESOLVED 2026-08-17,
+  one day later.** Postmark DMARC Digests, free tier, to
+  `norbert.esekiel@repworth.net`. `feedback.repworth.net` →
+  `re+ywyu7bdater@dmarc.postmarkapp.com` (recorded in the runbook and spec §8.2;
+  DNS still created by #633, after §1/§2). The apex was repointed the same day
+  from GoDaddy's default `dmarc_rua@onsecureserver.net` to
+  `re+zidxljbfmt1@dmarc.postmarkapp.com` — **`rua` only**, policy untouched at
+  `p=quarantine`, which closes half of spec follow-up **FU-2**. Two addresses,
+  not one: Postmark keys each digest to its registered domain, so reuse would
+  file solicitation reports under the wrong digest (authorisation is not the
+  constraint — Postmark's `_report._dmarc` record is a wildcard).
 - **Index on `provider_message_id`** deferred to #630, which produces the rows.
 - **`templates/internal.ts:52`** types its parameter as `category?: EmailCategory`,
   so a caller could pass `'solicitation'` and get a runtime throw. Fail-closed and
