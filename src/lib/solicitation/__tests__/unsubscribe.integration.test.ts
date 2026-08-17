@@ -142,7 +142,7 @@ function redeem(
   rawToken: string,
   source: UnsubscribeRedemptionSource,
 ): Promise<UnsubscribeRedemption> {
-  return sql().begin((tx) => redeemUnsubscribeToken(tx, { rawToken, source }));
+  return redeemUnsubscribeToken(sql(), { rawToken, source });
 }
 
 async function countGlobalRows(handle: string): Promise<number> {
@@ -248,6 +248,49 @@ function commitBetweenStatements(
     },
   };
   return new Proxy(tx, handler);
+}
+
+/**
+ * A test-only `Sql` whose `begin` interposes on the transaction the module hands
+ * its OWN callback. #652 moved transaction ownership into
+ * `redeemUnsubscribeToken`, so a probe can no longer inject a `TransactionSql`:
+ * `tsc` rejects that argument now, which is the point of the change. Interposing
+ * on `begin` keeps both deterministic race probes below without production code
+ * knowing anything about the interposition.
+ */
+function sqlWithInterposedTransaction(
+  interpose: (
+    tx: postgresType.TransactionSql,
+    run: (transaction: postgresType.TransactionSql) => Promise<UnsubscribeRedemption>,
+  ) => Promise<UnsubscribeRedemption>,
+): postgresType.Sql {
+  return new Proxy(sql(), {
+    get(target, property, receiver) {
+      if (property !== 'begin') return Reflect.get(target, property, receiver);
+      return (callback: (tx: postgresType.TransactionSql) => Promise<UnsubscribeRedemption>) =>
+        target.begin((tx) => interpose(tx, callback));
+    },
+  });
+}
+
+/** Parks the redemption inside its own transaction, immediately before COMMIT. */
+function sqlWithBeforeCommit(
+  beforeCommit: (tx: postgresType.TransactionSql) => Promise<void>,
+): postgresType.Sql {
+  return sqlWithInterposedTransaction(async (tx, run) => {
+    const result = await run(tx);
+    await beforeCommit(tx);
+    return result;
+  });
+}
+
+/**
+ * One macrotask turn — the same drain the ingress suite uses. `await
+ * Promise.resolve()` clears a single microtask, so it would call a promise
+ * "pending" that is in fact one tick from settling.
+ */
+function drainMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function assertClaimUpdate(argArray: unknown[]): void {
@@ -498,12 +541,8 @@ describeWithDb(
 
       let firstOutcome: UnsubscribeRedemption | undefined;
       let stampInsideFirst: string | null = null;
-      const first = sql()
-        .begin(async (tx) => {
-          firstOutcome = await redeemUnsubscribeToken(tx, {
-            rawToken: seeded.rawToken,
-            source: 'unsubscribe_one_click',
-          });
+      const first = redeemUnsubscribeToken(
+        sqlWithBeforeCommit(async (tx) => {
           const [row] = await tx<{ redeemed_at: string | null }[]>`
             SELECT redeemed_at::text AS redeemed_at FROM solicitation_unsubscribe_tokens
             WHERE token_hash = ${seeded.tokenHash}
@@ -511,24 +550,33 @@ describeWithDb(
           stampInsideFirst = row!.redeemed_at;
           firstClaimed.resolve();
           await firstMayCommit.promise;
-        })
-        .then(() => {
-          order.push('first');
-        });
+        }),
+        { rawToken: seeded.rawToken, source: 'unsubscribe_one_click' },
+      ).then((result) => {
+        firstOutcome = result;
+        order.push('first');
+      });
 
       await firstClaimed.promise;
 
+      // The module-owned promise must still be PENDING here: its transaction is
+      // parked before COMMIT, and #652's contract is that no caller — receipt
+      // minting, RFC 8058 reply — hears an outcome before that commit lands.
+      let firstSettled = false;
+      void first.then(() => {
+        firstSettled = true;
+      });
+      await drainMicrotasks();
+      expect(firstSettled).toBe(false);
+
       let secondOutcome: UnsubscribeRedemption | undefined;
-      const second = sql()
-        .begin(async (tx) => {
-          secondOutcome = await redeemUnsubscribeToken(tx, {
-            rawToken: seeded.rawToken,
-            source: 'unsubscribe_link',
-          });
-        })
-        .then(() => {
-          order.push('second');
-        });
+      const second = redeemUnsubscribeToken(sql(), {
+        rawToken: seeded.rawToken,
+        source: 'unsubscribe_link',
+      }).then((result) => {
+        secondOutcome = result;
+        order.push('second');
+      });
 
       // The second must be BLOCKED on the first's row lock, not merely slow.
       // `finally`, so a probe failure fails this test in seconds instead of
@@ -557,18 +605,18 @@ describeWithDb(
       const rawToken = mintUnsubscribeRawToken();
       const handle = freshHandle();
 
-      let outcome: UnsubscribeRedemption | undefined;
-      await sql().begin(async (tx) => {
-        const racing = commitBetweenStatements(tx, async () => {
-          await seedToken({ rawToken, handle });
-        });
-        outcome = await redeemUnsubscribeToken(racing, {
-          rawToken,
-          source: 'unsubscribe_one_click',
-        });
-      });
+      const outcome = await redeemUnsubscribeToken(
+        sqlWithInterposedTransaction((tx, run) =>
+          run(
+            commitBetweenStatements(tx, async () => {
+              await seedToken({ rawToken, handle });
+            }),
+          ),
+        ),
+        { rawToken, source: 'unsubscribe_one_click' },
+      );
 
-      expect(outcome?.status).toBe('unknown_token');
+      expect(outcome.status).toBe('unknown_token');
       expect(await countGlobalRows(handle)).toBe(0);
       // Retryable, not a permanent dead end: the provider's next attempt lands.
       const retry = await redeem(rawToken, 'unsubscribe_one_click');
@@ -593,11 +641,11 @@ describeWithDb(
 
       await scrubbed.promise;
       let outcome: UnsubscribeRedemption | undefined;
-      const redemption = sql().begin(async (tx) => {
-        outcome = await redeemUnsubscribeToken(tx, {
-          rawToken: seeded.rawToken,
-          source: 'unsubscribe_link',
-        });
+      const redemption = redeemUnsubscribeToken(sql(), {
+        rawToken: seeded.rawToken,
+        source: 'unsubscribe_link',
+      }).then((result) => {
+        outcome = result;
       });
 
       // The claim parks behind the purge's row lock, then re-evaluates against

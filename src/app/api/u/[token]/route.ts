@@ -40,9 +40,10 @@ export async function POST(
   // and never opens a connection, which is what lets this route stay unthrottled.
   if (!isWellFormedUnsubscribeToken(token)) return seeOther(landingPath);
 
-  const outcome = await sql.begin((tx) =>
-    redeemUnsubscribeToken(tx, { rawToken: token, source: 'unsubscribe_link' }),
-  );
+  const outcome = await redeemUnsubscribeToken(sql, {
+    rawToken: token,
+    source: 'unsubscribe_link',
+  });
 
   // The ONLY sanctioned success test. `status !== 'unknown_token'` reads as a
   // reasonable substitute and is wrong for `already_redeemed_not_suppressed` —
@@ -50,8 +51,8 @@ export async function POST(
   // be handed evidence that lets the page claim success.
   if (!redemptionConfirmsSuppression(outcome)) return seeOther(landingPath);
 
-  // Minted only now: `sql.begin` resolves after COMMIT returns, so a receipt
-  // cannot exist for a write that never landed.
+  // Minted only now: redeemUnsubscribeToken resolves after its internal COMMIT,
+  // so a receipt cannot exist for a write that never landed.
   const receipt = mintUnsubscribeReceipt(token, Date.now());
   return seeOther(`${landingPath}?ok=${encodeURIComponent(receipt)}`);
 }

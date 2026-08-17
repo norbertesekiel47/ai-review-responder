@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "size": "small",
+  "size": "standard",
   "risk": "high",
   "risk_reasons": [
     "A statutory opt-out redemption must preserve its claim-first transaction semantics under concurrent requests.",
@@ -48,7 +48,9 @@
     "worker/ingress/unsubscribe.ts",
     "worker/ingress/__tests__/unsubscribe.test.ts",
     "src/app/api/u/[token]/route.ts",
-    "src/app/__tests__/unsubscribe-landing.test.ts",
+    "src/app/__tests__/unsubscribe-landing.test.tsx",
+    "docs/currents.md",
+    "docs/progresstracking.md",
     "docs/directory.md",
     "docs/superpowers/plans/feat-unsubscribe-transaction-boundary-intake.json",
     "docs/superpowers/plans/feat-unsubscribe-transaction-boundary.md",
@@ -68,8 +70,8 @@
     "pnpm ci:rls-audit",
     "pnpm build"
   ],
-  "estimated_prod_lines": 35,
-  "estimated_test_lines": 75,
+  "estimated_prod_lines": 170,
+  "estimated_test_lines": 150,
   "dependencies_added": [],
   "rollback_plan": "Revert the feature commit to restore the prior caller-owned transaction wrapper; no schema or persisted-data rollback is required.",
   "observability": [

@@ -29,6 +29,16 @@ const APP_ORIGIN = 'https://app.example.com';
 const MAILTO = 'unsubscribe@feedback.repworth.net';
 const BUSINESS_NAME = 'Blue Bottle Coffee';
 
+/**
+ * What the fake redemption returns, and the shape of the client #652 makes the
+ * route inject. The fake owns its own `begin` call for the same reason the real
+ * module does: the receipt may only be minted after that callback resolves.
+ */
+type FakeRedemption = { status: string; tokenHashPrefix: string };
+type FakeRedemptionSql = {
+  begin: (callback: (tx: unknown) => Promise<FakeRedemption>) => Promise<FakeRedemption>;
+};
+
 const ledger = vi.hoisted(() => {
   interface FakeTokenRow {
     businessName: string | null;
@@ -119,35 +129,38 @@ const ledger = vi.hoisted(() => {
       return { businessName: row.businessName };
     },
     async redeemUnsubscribeToken(
-      _tx: unknown,
+      db: FakeRedemptionSql,
       input: { rawToken: string; source: string },
-    ): Promise<{ status: string; tokenHashPrefix: string }> {
-      events.push('redeem');
-      sources.push(input.source);
-      const row = rowFor(input.rawToken);
-      if (row === undefined) return { status: 'unknown_token', tokenHashPrefix: '' };
-      if (!row.redeemed) {
-        row.redeemed = true;
-        suppressedHandles.add(row.handle);
-        redemptionWrites += 1;
-        return { status: 'redeemed', tokenHashPrefix: 'fakehash' };
-      }
-      // The SPENT branch. Which of the two spent statuses applies is the real
-      // module's rule, not this fake's, so it is asked rather than re-spelled:
-      // pick the status the REAL partition classifies to match whether a global
-      // row actually still stands. Hard-coding the two literals here gave §1.8's
-      // false-success suite its own private copy of the branch under test — the
-      // core could have collapsed the two and every test would still have passed.
-      //
-      // Full delegation to the real `redeemUnsubscribeToken` was considered and
-      // rejected: it would need a fake postgres.js tagged-template executor to
-      // answer three queries, and the real core is already proven against real
-      // Postgres in unsubscribe.integration.test.ts. Binding the fake to the
-      // partition §1.8 actually depends on is the part that was missing.
-      return {
-        status: spentStatusFor(suppressedHandles.has(row.handle)),
-        tokenHashPrefix: 'fakehash',
-      };
+    ): Promise<FakeRedemption> {
+      return db.begin(async () => {
+        events.push('redeem');
+        sources.push(input.source);
+        const row = rowFor(input.rawToken);
+        if (row === undefined) return { status: 'unknown_token', tokenHashPrefix: '' };
+        if (!row.redeemed) {
+          row.redeemed = true;
+          suppressedHandles.add(row.handle);
+          redemptionWrites += 1;
+          return { status: 'redeemed', tokenHashPrefix: 'fakehash' };
+        }
+        // The SPENT branch. Which of the two spent statuses applies is the real
+        // module's rule, not this fake's, so it is asked rather than re-spelled:
+        // pick the status the REAL partition classifies to match whether a global
+        // row actually still stands. Hard-coding the two literals here gave
+        // §1.8's false-success suite its own private copy of the branch under
+        // test — the core could have collapsed the two and every test would
+        // still have passed.
+        //
+        // Full delegation to the real `redeemUnsubscribeToken` was considered and
+        // rejected: it would need a fake postgres.js tagged-template executor to
+        // answer three queries, and the real core is already proven against real
+        // Postgres in unsubscribe.integration.test.ts. Binding the fake to the
+        // partition §1.8 actually depends on is the part that was missing.
+        return {
+          status: spentStatusFor(suppressedHandles.has(row.handle)),
+          tokenHashPrefix: 'fakehash',
+        };
+      });
     },
     async hasLiveGlobalSuppressionForToken(_db: unknown, rawToken: string): Promise<boolean> {
       const row = rowFor(rawToken);
@@ -220,7 +233,7 @@ describe('/u/<token> unsubscribe landing', () => {
     mockBegin.mockClear();
   });
 
-  it('POST commits the suppression row then 303s with a signed receipt', async () => {
+  it('POST mints a receipt only after module-owned redemption commits', async () => {
     const token = mintUnsubscribeRawToken();
     ledger.mint(token, BUSINESS_NAME);
 

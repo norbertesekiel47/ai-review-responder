@@ -375,14 +375,12 @@ export function createRedemptionSingleFlight(
 
 const redemptionSingleFlight = createRedemptionSingleFlight({
   maxEntries: MAX_IN_FLIGHT_REDEMPTIONS,
-  // postgres.js resolves `begin` only after COMMIT is acknowledged, so nothing
-  // may answer from inside the callback (§9.1). The dedicated two-slot client
-  // isolates genuine-token replay traffic from unrelated worker writes, while
-  // the shared single-flight promise settles on the commit for every waiter.
-  redeem: async (rawToken) =>
-    sqlUnsubscribe.begin((tx) =>
-      redeemUnsubscribeToken(tx, { rawToken, source: 'unsubscribe_one_click' }),
-    ),
+  // redeemUnsubscribeToken resolves only after its internal postgres.js
+  // transaction commit is acknowledged. The dedicated two-slot client isolates
+  // genuine-token replay traffic, while the shared promise settles on the
+  // durable outcome every waiter needs to hear (§9.1).
+  redeem: (rawToken) =>
+    redeemUnsubscribeToken(sqlUnsubscribe, { rawToken, source: 'unsubscribe_one_click' }),
 });
 
 // ── bounded observability for unknown tokens ────────────────────────────────

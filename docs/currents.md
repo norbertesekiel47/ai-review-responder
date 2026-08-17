@@ -1551,8 +1551,12 @@ it took a raw-socket test to see it.
 **Not built, deliberately:** nothing mints these tokens yet — that is #630, the
 sender. `SOLICITATION_UNSUBSCRIBE_MAILTO` is unset, so the Neutral page omits the
 mailto line rather than advertising an address nobody services; setting it creates
-a §7.2 daily servicing obligation. Follow-ups **#651** (dedicated bounded DB pool)
-and **#652** (`redeemUnsubscribeToken` owns its transaction) are filed with context.
+a §7.2 daily servicing obligation. Follow-ups **#651** (dedicated bounded DB pool,
+PR #857) and **#652** (`redeemUnsubscribeToken` takes `Sql` and owns its
+transaction) have both since **landed**. After #652 a caller cannot choose the
+redemption's isolation level or hold the token row lock around remote work:
+`TransactionSql` no longer type-checks as that argument, because postgres.js
+declares `begin` on `Sql` alone.
 
 ## Quick summary — Suppression ledger: schema + domain core (2026-08-03, PR #647)
 
