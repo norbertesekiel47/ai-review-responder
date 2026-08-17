@@ -352,16 +352,69 @@ export async function checkAskRegenBudget(
 }
 
 export interface RegenBudgetStatus {
-  /** Regenerations already consumed for this review today (UTC). */
+  /** Regenerations already consumed for this subject (review or ask) today (UTC). */
   used: number;
-  /** Per-review daily cap (MAX_REGEN_PER_SUBJECT_PER_DAY). */
+  /** Per-subject daily cap (MAX_REGEN_PER_SUBJECT_PER_DAY). */
   limit: number;
   /** Regenerations still available today; 0 once the cap is reached. */
   remaining: number;
 }
 
 /**
- * The per-review daily cap's **advisory peek** — the only one. Two callers: the
+ * The shared MGET-with-fail-open primitive behind both peek doors. One
+ * mechanism, two named entry points — the same shape `enforceRegenBudget`
+ * already gives the two ENFORCE doors in this file, and this is its second
+ * use, which is when the extraction is earned rather than speculative.
+ *
+ * `keyFor` is what decides which per-subject daily counter is read; nothing
+ * else differs between the doors.
+ *
+ * `peek` is the failure log's discriminator. The review door keeps its
+ * historical `'batch'` value on purpose — `regen-budget-batch.test.ts` pins the
+ * warn payload key-for-key, including `peek: 'batch'` — so the ask door takes
+ * `'ask'` rather than renaming the existing stream (#860).
+ *
+ * NEVER REJECTS. `getCacheRedis()` is called inside the try, so a synchronous
+ * throw from it is caught here too, and callers need no catch of their own.
+ */
+async function peekBudgetBatch(
+  subjectIds: readonly string[],
+  keyFor: (subjectId: string) => string,
+  peek: 'batch' | 'ask',
+): Promise<Map<string, RegenBudgetStatus>> {
+  const out = new Map<string, RegenBudgetStatus>();
+  if (subjectIds.length === 0) return out;
+
+  let raw: (string | null)[];
+  try {
+    // Key building is inside the try as well, so "never rejects" holds for the
+    // whole body rather than only for the MGET.
+    const keys = subjectIds.map(keyFor);
+    raw = await getCacheRedis().mget(...keys);
+  } catch (err) {
+    createWorkerLogger('[RegenBudgetPeek]').warn({
+      event: 'regen_budget_peek_failed',
+      peek,
+      subject_count: subjectIds.length,
+      reason: err instanceof Error ? err.message : 'unknown',
+    });
+    return out;
+  }
+
+  subjectIds.forEach((subjectId, i) => {
+    const parsed = Number.parseInt(raw[i] ?? '', 10);
+    const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    out.set(subjectId, {
+      used,
+      limit: MAX_REGEN_PER_SUBJECT_PER_DAY,
+      remaining: Math.max(0, MAX_REGEN_PER_SUBJECT_PER_DAY - used),
+    });
+  });
+  return out;
+}
+
+/**
+ * The per-review daily cap's **advisory peek**. Two callers: the
  * **Reviews list** page load, which needs a counter per ANSWERED row (a first
  * `Generate` is free by construction — the door charges only `version > 1`, so
  * unanswered rows are never passed in), and the Regenerate route, which passes
@@ -375,7 +428,9 @@ export interface RegenBudgetStatus {
  * that path from a page-sized batch.
  *
  * `regenBudgetKey` embeds `todayDateStr()` (UTC), so the whole batch shares one
- * date.
+ * date. #860 added the ask-keyed sibling `peekAskRegenBudgetBatch`; both are
+ * thin names over the one `peekBudgetBatch` mechanism, and the key builder is
+ * the only difference.
  *
  * FAILS OPEN (D-F, #678): a Redis outage resolves to an EMPTY map rather than
  * throwing or reporting zeros, so no counter renders and every Regenerate stays
@@ -394,33 +449,25 @@ export interface RegenBudgetStatus {
 export async function peekRegenBudgetBatch(
   reviewIds: readonly string[],
 ): Promise<Map<string, RegenBudgetStatus>> {
-  const out = new Map<string, RegenBudgetStatus>();
-  if (reviewIds.length === 0) return out;
+  return peekBudgetBatch(reviewIds, regenBudgetKey, 'batch');
+}
 
-  let raw: (string | null)[];
-  try {
-    // Key building is inside the try as well, so "never rejects" holds for the
-    // whole body rather than only for the MGET.
-    const keys = reviewIds.map(regenBudgetKey);
-    raw = await getCacheRedis().mget(...keys);
-  } catch (err) {
-    createWorkerLogger('[RegenBudgetPeek]').warn({
-      event: 'regen_budget_peek_failed',
-      peek: 'batch',
-      subject_count: reviewIds.length,
-      reason: err instanceof Error ? err.message : 'unknown',
-    });
-    return out;
-  }
-
-  reviewIds.forEach((reviewId, i) => {
-    const parsed = Number.parseInt(raw[i] ?? '', 10);
-    const used = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-    out.set(reviewId, {
-      used,
-      limit: MAX_REGEN_PER_SUBJECT_PER_DAY,
-      remaining: Math.max(0, MAX_REGEN_PER_SUBJECT_PER_DAY - used),
-    });
-  });
-  return out;
+/**
+ * The per-ASK daily cap's advisory peek (#860) — the send lane's counterpart to
+ * `peekRegenBudgetBatch`. Keyed `regen:ask:{askId}:{date}` via
+ * `askRegenBudgetKey`, so review and ask counters never collide.
+ *
+ * Two callers: the Requests read model, which needs one counter per rendered
+ * ask on the batch, and the regenerate route, which passes exactly one id.
+ * Read-only — no INCR, no eval, no LLM spend.
+ *
+ * FAILS OPEN, exactly like the review door: an outage yields an EMPTY map, and
+ * a MISSING entry means UNKNOWN, never "0 remaining". Inverting that would
+ * disable every Regenerate control during an Upstash outage. The authoritative
+ * gate stays the worker's `checkAskRegenBudget`.
+ */
+export async function peekAskRegenBudgetBatch(
+  askIds: readonly string[],
+): Promise<Map<string, RegenBudgetStatus>> {
+  return peekBudgetBatch(askIds, askRegenBudgetKey, 'ask');
 }

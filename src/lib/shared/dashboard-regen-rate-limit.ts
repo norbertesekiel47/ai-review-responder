@@ -5,8 +5,9 @@ import { peekRegenBudgetBatch } from '@/lib/costs/tracker';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
 
-// Per-owner regenerate limiter shared by BOTH authenticated "regenerate an AI
-// draft" entrypoints. Two fixed-window layers keyed by the authenticated owner
+// Per-owner regenerate limiter shared by the THREE authenticated "regenerate an
+// AI draft" entrypoints (the two review lanes plus the #860 ask lane). Two
+// fixed-window layers keyed by the authenticated owner
 // account, on DISTINCT Redis keys: checkRateLimit is one counter per key, so a
 // single shared key would double-increment and corrupt the window.
 // The HOUR layer is the spend bound (30 × the 15¢ pessimistic reserve ≈ $4.50/hr
@@ -110,6 +111,37 @@ export async function enforceRegenBudgetForReview(
       message: REGEN_LIMIT_MESSAGE,
       remaining: 0,
       limit: status.limit,
+    },
+    { status: 429, headers: NO_STORE_HEADERS },
+  );
+}
+
+// User-facing copy for the per-ASK daily cap (#860). Owner-facing language says
+// "rewrite" because that is what the control offers; the code name stays
+// `regenerate` everywhere, exactly as `halt` reads as "stop" on screen.
+const ASK_REGEN_LIMIT_MESSAGE =
+  'Daily rewrite limit reached for this message — you can try again tomorrow.';
+
+/**
+ * The 429 an exhausted per-ask budget answers with — a RESPONSE BUILDER, not an
+ * enforcer, and the difference is load-bearing.
+ *
+ * Its review-lane sibling `enforceRegenBudgetForReview` peeks AND decides AND
+ * shapes, which is safe there because a review id is scoped by the surrounding
+ * route before it is ever reached. An ASK id is not: the counter is keyed on
+ * the bare id, so a peek-and-refuse before tenant validation lets an
+ * authenticated owner tell a foreign ask from an unknown one (codex round 1,
+ * finding 4). So the ask lane splits the three jobs — the route PEEKS,
+ * `requestAskRegeneration` DECIDES after it has proven ownership, and this
+ * shapes. Do not "unify" it with the review door.
+ */
+export function askRegenLimitResponse(limit: number): NextResponse {
+  return NextResponse.json(
+    {
+      error: 'regen_limit_reached',
+      message: ASK_REGEN_LIMIT_MESSAGE,
+      remaining: 0,
+      limit,
     },
     { status: 429, headers: NO_STORE_HEADERS },
   );

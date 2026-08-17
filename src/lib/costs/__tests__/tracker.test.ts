@@ -28,6 +28,7 @@ const mockRedis = {
   decr: vi.fn(),
   expire: vi.fn(),
   eval: vi.fn(),
+  mget: vi.fn(),
   pipeline: vi.fn().mockReturnValue(mockPipeline),
 };
 
@@ -40,6 +41,7 @@ vi.mock('ioredis', () => ({
     decr = mockRedis.decr;
     expire = mockRedis.expire;
     eval = mockRedis.eval;
+    mget = mockRedis.mget;
     pipeline = mockRedis.pipeline;
   },
 }));
@@ -410,15 +412,72 @@ describe('checkAskRegenBudget', () => {
 });
 
 describe('peekAskRegenBudgetBatch', () => {
-  it.todo('peekAskRegenBudgetBatch reads the ask-keyed counter and never the review-keyed one');
-  it.todo('peekAskRegenBudgetBatch resolves to an empty map when Redis is unavailable');
-  it.todo('peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously');
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('peekAskRegenBudgetBatch reads the ask-keyed counter and never the review-keyed one', async () => {
+    mockRedis.mget.mockResolvedValue(['2', null]);
+
+    const { peekAskRegenBudgetBatch } = await import('../tracker');
+    const result = await peekAskRegenBudgetBatch(['ask-1', 'ask-2']);
+
+    // The key namespace is the WHOLE point of the second door: `regen:ask:...`
+    // and `regen:...` are different counters, and a door reading the wrong one
+    // would silently report a review's spend against an ask.
+    const keys = mockRedis.mget.mock.calls[0] as string[];
+    expect(keys[0]).toMatch(/^regen:ask:ask-1:/);
+    expect(keys[1]).toMatch(/^regen:ask:ask-2:/);
+    expect(keys.some((key) => /^regen:(?!ask:)/.test(key))).toBe(false);
+
+    expect(result.get('ask-1')).toEqual({ used: 2, limit: 3, remaining: 1 });
+    // An absent Redis KEY is "nothing spent yet", NOT unknown.
+    expect(result.get('ask-2')).toEqual({ used: 0, limit: 3, remaining: 3 });
+
+    // Advisory means READ-ONLY: rendering a counter must never charge budget.
+    expect(mockRedis.incr).not.toHaveBeenCalled();
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+
+  it('peekAskRegenBudgetBatch resolves to an empty map when Redis is unavailable', async () => {
+    mockRedis.mget.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const { peekAskRegenBudgetBatch } = await import('../tracker');
+    const result = await peekAskRegenBudgetBatch(['ask-1']);
+
+    // Fails OPEN: an EMPTY map means UNKNOWN, so no counter renders and every
+    // control stays enabled. Reporting `{ used: 0 }` here would be a lie, and
+    // reporting `remaining: 0` would disable every control during an outage.
+    expect(result.size).toBe(0);
+    await expect(peekAskRegenBudgetBatch(['ask-1'])).resolves.toBeInstanceOf(Map);
+  });
+
+  it('peekAskRegenBudgetBatch fails open when getCacheRedis throws synchronously', async () => {
+    // The contract says this function has NO rejection path, which is why its
+    // callers carry no catch of their own. A REJECTED mget only proves half of
+    // that: the client factory can throw SYNCHRONOUSLY, which is exactly why it
+    // is called INSIDE the try. Without this test the primitive could be
+    // "tidied" to hoist the client above the try and still pass every other
+    // case, turning a fail-open peek into a route-level 500.
+    //
+    // The cache client is memoised per module, so a synchronous throw from the
+    // mocked `mget` is the stand-in for that construction failure — the same
+    // substitution `regen-budget-batch.test.ts` makes for the review door. Both
+    // calls sit inside the one try, so they share a failure path.
+    mockRedis.mget.mockImplementation(() => {
+      throw new Error('cache redis unavailable');
+    });
+
+    const { peekAskRegenBudgetBatch } = await import('../tracker');
+    await expect(peekAskRegenBudgetBatch(['ask-1'])).resolves.toEqual(new Map());
+  });
 });
 
 // #731: the single-key advisory peek was deleted (one caller, nothing varying
 // behind it, and the OPPOSITE failure contract to the batched one). Its three
-// cases now live in regen-budget-batch.test.ts, which is the only suite whose
-// mockRedis has `mget`.
+// cases live in regen-budget-batch.test.ts, which owns the REVIEW door's
+// used/limit/remaining derivation and its warn-payload privacy pin; the ask
+// door's three cases above only need this suite's `mget` mock.
 
 describe('recordApiCost', () => {
   beforeEach(() => {
