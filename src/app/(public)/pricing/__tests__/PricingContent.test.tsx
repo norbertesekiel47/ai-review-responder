@@ -83,11 +83,15 @@ describe('PricingContent', () => {
     expect(html).toContain('Negative and flagged reviews are never auto-posted');
   });
 
-  it('keeps the two-column comparison keyboard reachable and the site footer present', () => {
+  it('labels the comparison region, self-labels each value cell for the stacked phone layout, and keeps the site footer present', () => {
     const html = renderPricing();
 
-    expect(html).toContain('aria-label="Plan comparison, scroll horizontally to compare both plans"');
-    expect(html).toMatch(/class="pr-matrix"[^>]*tabindex="0"/);
+    // The matrix no longer scrolls horizontally at any width (it stacks ≤720px), so it
+    // is neither focusable nor labelled as scrollable.
+    expect(html).toContain('aria-label="Plan comparison"');
+    expect(html).not.toMatch(/class="pr-matrix"[^>]*tabindex=/);
+    expect(html).toContain('data-plan="Copilot"');
+    expect(html).toContain('data-plan="Autopilot"');
     expect(html).toContain('class="rw-foot');
     expect(html).toContain('href="/legal/privacy"');
     expect(html).toContain('href="/legal/terms"');

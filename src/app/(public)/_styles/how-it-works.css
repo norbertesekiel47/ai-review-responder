@@ -228,7 +228,9 @@
 /* Step 1 — feed */
 .hiw-feed { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .hiw-feed-row {
-  display: grid; grid-template-columns: 36px 1fr auto;
+  /* minmax(0, 1fr), not 1fr: the nowrap excerpt otherwise sets the track's min-content
+     width and the row overflows its frame on phones (times pushed out, text chopped). */
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto;
   gap: 12px; align-items: center;
   padding: 12px 14px;
   border: 1px solid rgba(151,179,174,0.1);

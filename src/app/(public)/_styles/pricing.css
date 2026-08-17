@@ -221,17 +221,10 @@
   background: var(--rw-cream); border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
   overflow: hidden;
-  /* Horizontal scroll on narrow viewports; overflow-y stays hidden so the
-     rounded corners keep clipping and all three columns remain legible. */
-  overflow-x: auto;
   box-shadow: 0 10px 24px -14px color-mix(in srgb, var(--rw-ink) 14%, transparent);
-}
-.pr-matrix:focus-visible {
-  outline: 2px solid var(--rw-teal-strong); outline-offset: 2px;
 }
 .pr-matrix-grid {
   display: grid; grid-template-columns: 1.6fr 1fr 1fr;
-  min-width: 560px;
 }
 .pr-matrix-row { display: contents; }
 .pr-matrix-cell {
@@ -379,10 +372,46 @@
 @media (max-width: 720px) {
   .pr-hero { padding: 48px 24px 16px; }
   .pr-plans { grid-template-columns: 1fr; max-width: 440px; }
-  /* Matrix keeps its readable type size and scrolls horizontally below its
-     intrinsic three-column width. */
   .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 32px 32px; }
   .pr-cta h2 { font-size: 32px; }
+
+  /* Comparison matrix stacks: the three-column grid used to hide the Autopilot
+     column off-screen with no swipe affordance on a phone. Each row becomes
+     label → [Copilot value | Autopilot value], the header row goes away and each
+     value cell labels itself from data-plan. */
+  .pr-matrix-wrap { padding: 0 16px; }
+  .pr-matrix-grid { display: block; }
+  .pr-matrix-row { display: grid; grid-template-columns: 1fr 1fr; }
+  .pr-matrix-row.hdr-row { display: none; }
+  .pr-matrix-cell { font-size: 14px; }
+  .pr-matrix-cell.first {
+    grid-column: 1 / -1;
+    position: static;
+    padding: 16px 16px 6px;
+    border-bottom: 0;
+    font-weight: 500;
+  }
+  .pr-matrix-cell.section.first {
+    padding: 22px 16px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
+  }
+  .pr-matrix-cell.num {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 0 16px 16px;
+    min-height: 0;
+  }
+  .pr-matrix-cell.num::before {
+    content: attr(data-plan);
+    font: 600 11px var(--rw-font-body);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--rw-ink-soft);
+  }
+  .pr-matrix-cell.num.featured { background: transparent; }
+  .pr-matrix-cell.num.featured::before { color: var(--rw-teal-strong); }
+  .pr-matrix-row:last-child .pr-matrix-cell.num { border-bottom: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

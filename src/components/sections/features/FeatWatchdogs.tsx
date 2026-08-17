@@ -30,8 +30,11 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
         }}
         aria-hidden
       />
+      {/* `min-w-0` on both grid children: without it the nowrap ledger excerpts set the
+          implicit column's min-content width (~467px on a 390px phone) and the whole
+          chapter is clipped by `overflow-hidden` — heading, body and ledger cut off. */}
       <div className="relative grid md:grid-cols-12 gap-10 items-start">
-        <div ref={headRef} className={`rw-reveal md:col-span-5 ${headSeen ? 'in' : ''}`}>
+        <div ref={headRef} className={`rw-reveal min-w-0 md:col-span-5 ${headSeen ? 'in' : ''}`}>
           <span className="rw-num-tag text-7xl leading-none text-white/20 block mb-4" aria-hidden="true">06</span>
           <p className="rw-label-mono text-xs uppercase text-rw-peach mb-3">Judge &amp; Governor · oversight</p>
           <h2 className="text-4xl md:text-5xl font-medium leading-tight mb-4">
@@ -46,17 +49,17 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
           </p>
         </div>
 
-        <div ref={ledgerRef} className={`rw-reveal md:col-span-7 ${ledgerSeen ? 'in' : ''}`}>
+        <div ref={ledgerRef} className={`rw-reveal min-w-0 md:col-span-7 ${ledgerSeen ? 'in' : ''}`}>
           <div className="rounded-3xl border border-white/15 bg-white/5 p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between gap-3 mb-4">
               <p className="rw-label-mono text-xs uppercase text-white/60">Judge verdicts · sample week</p>
-              <span className="rw-label-mono text-[10px] uppercase text-rw-peach">100% of auto-posts</span>
+              <span className="rw-label-mono text-[10px] uppercase text-rw-peach whitespace-nowrap shrink-0">100% of auto-posts</span>
             </div>
             <div className="space-y-2">
               {VERDICT_ROWS.map((r) => (
                 <div key={r.time} className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 text-sm">
-                  <span className="rw-label-mono text-[10px] text-white/50 w-20 shrink-0">{r.time}</span>
-                  <span className="flex-1 text-white/85 truncate">{r.excerpt}</span>
+                  <span className="rw-label-mono text-[10px] text-white/50 w-16 md:w-20 shrink-0">{r.time}</span>
+                  <span className="flex-1 min-w-0 text-white/85 truncate">{r.excerpt}</span>
                   <span
                     className={`rw-label-mono text-[10px] uppercase px-2 py-0.5 rounded-full ${
                       r.verdict === 'pass'

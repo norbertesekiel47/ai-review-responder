@@ -196,15 +196,17 @@ function PlanCard({
   );
 }
 
-function MatrixCell({ value, featured }: { value: string | boolean; featured: boolean }) {
+// `data-plan` feeds the per-cell plan label that pricing.css shows on phones, where the
+// header row is hidden and each row stacks as label → Copilot value → Autopilot value.
+function MatrixCell({ value, plan, featured }: { value: string | boolean; plan: string; featured: boolean }) {
   const className = `pr-matrix-cell num ${featured ? 'featured' : ''}`;
   if (value === true) {
-    return <div className={className}><span className="pr-check-yes" aria-label="Included"><CheckIcon /></span></div>;
+    return <div className={className} data-plan={plan}><span className="pr-check-yes" aria-label="Included"><CheckIcon /></span></div>;
   }
   if (value === false) {
-    return <div className={className}><span className="pr-check-no" aria-label="Not included" /></div>;
+    return <div className={className} data-plan={plan}><span className="pr-check-no" aria-label="Not included" /></div>;
   }
-  return <div className={className}>{value}</div>;
+  return <div className={className} data-plan={plan}>{value}</div>;
 }
 
 export function PricingContent({
@@ -267,15 +269,12 @@ export function PricingContent({
           <h2>Compare the control boundary</h2>
           <p>The agent team is the same. The authority you grant it is different.</p>
         </div>
-        <section
-          className="pr-matrix"
-          aria-label="Plan comparison, scroll horizontally to compare both plans"
-          // Intentional: the horizontally-scrollable comparison must be keyboard reachable.
-          // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex
-          tabIndex={0}
-        >
+        {/* No horizontal scroll at any width: ≥721px the three columns fit the 880px wrap;
+            ≤720px each row stacks (label, then the two plan values, each self-labelled via
+            data-plan) so the Autopilot column is never off-screen on a phone. */}
+        <section className="pr-matrix" aria-label="Plan comparison">
           <div className="pr-matrix-grid">
-            <div className="pr-matrix-row">
+            <div className="pr-matrix-row hdr-row">
               <div className="pr-matrix-cell hdr first">Feature</div>
               <div className="pr-matrix-cell hdr">Copilot</div>
               <div className="pr-matrix-cell hdr featured">Autopilot</div>
@@ -291,8 +290,8 @@ export function PricingContent({
               return (
                 <div key={row.label} className="pr-matrix-row">
                   <div className="pr-matrix-cell first">{row.label}</div>
-                  <MatrixCell value={row.values[0]} featured={false} />
-                  <MatrixCell value={row.values[1]} featured />
+                  <MatrixCell value={row.values[0]} plan="Copilot" featured={false} />
+                  <MatrixCell value={row.values[1]} plan="Autopilot" featured />
                 </div>
               );
             })}
