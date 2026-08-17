@@ -78,3 +78,35 @@ which is not this ticket's call.
 (a) a post-approval regenerate re-opens approval for that ask, or (b) it is
 refused once `approved_at` is set. Recorded in the plan's Architecture note so
 the constraint is not lost with this file.
+
+---
+
+## D4 — the round-2 amendment left two stale counts in the prose around it (plan defect, found during execution)
+
+**When:** step 4 (EXECUTION), after Task 1 committed, before Task 3 was dispatched.
+
+**What:** round 2 added the test `blocks approval on the batch lock until an
+in-flight render commits, then counts it` to the intake and to Task 3's Step 5
+body. It did **not** update two pieces of surrounding prose that count the same
+tests:
+
+1. **Task 1 Step 2's stub list** (plan ~213–238) omits the new title, so the
+   committed `approval.integration.test.ts` has 16 `it.todo`s, not 17. Verified:
+   the title is absent from the stub file and present at `.feature/intake.json:91`.
+2. **Task 3 Step 5** says "write the remaining **nine**" and **Step 6** says
+   "Expected: **7** passing". The describe actually holds **eleven** titles.
+
+**Why it matters:** an agent that trusts Step 6 stops at 7 green and reports the
+task done, leaving up to four promised tests unwritten. The verify gate's
+`promised-tests` row matches the intake file-wide, so the miss would surface —
+but at the gate, after the commit, not during the task.
+
+**Resolution:** no plan edit and no intake change. The counts are prose, the test
+bodies in Step 5 are the contract, and all eleven are specified there. Task 3's
+brief carries the corrected count (**11**, not 7) and names the missing todo
+explicitly. The end state is unchanged: Task 3 writes the interleaving test as a
+real `it(...)`, so the stub file's omission never reaches the gate.
+
+**Classification:** plan-internal inconsistency, not a scope change.
+`allowed_edit_surface` and `tests_to_add` are both untouched, so this does not
+count toward the two-amendment abort budget.
