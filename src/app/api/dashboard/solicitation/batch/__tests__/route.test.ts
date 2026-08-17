@@ -186,6 +186,28 @@ describe('GET/POST /api/dashboard/solicitation/batch', () => {
     );
   });
 
+  it('records reviewed_at with SOLICITATION_SEND_ENABLED off', async () => {
+    // The reviewed ping is WATCH-ONLY. It shares withScopedBatch
+    // (batch/_shared/scoped-batch-route.ts) with the two send-lane verbs but NOT
+    // their gate: it binds requireContactsWriteAccess (watch flag alone), while
+    // approve/halt bind requireSolicitationSendWriteAccess (watch AND send). If
+    // the shared runner ever collapsed the two gates, this route would 404 for
+    // every existing watch-mode customer — SOLICITATION_SEND_ENABLED is unset in
+    // every environment today. Stubbed explicitly off rather than left absent,
+    // so the assertion cannot be weakened by a change in test-env defaults.
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', undefined);
+
+    const response = await POST(reviewedRequest(withSolicitationScope('', OTHER_LOCATION_ID)));
+
+    expect(response.status).toBe(204);
+    expect(mockMarkBatchReviewed).toHaveBeenCalledWith(
+      expect.anything(),
+      ACCOUNT_ID,
+      OTHER_LOCATION_ID,
+      BATCH_ID,
+    );
+  });
+
   it('logs the reviewed row count so a zero-row update is diagnosable', async () => {
     // markBatchReviewed's whole contract is that 0 must not look like a failure
     // NOR like a success. The route keeps answering 204 (0 rows is a legitimate
