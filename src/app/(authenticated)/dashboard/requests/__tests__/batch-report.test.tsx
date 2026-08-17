@@ -120,6 +120,9 @@ function builtBatch(overrides: Partial<BuiltBatch> = {}): BuiltBatch {
     held: 21,
     groups: groups(),
     attempts: [],
+    // Send mode off is the default posture (#629); BatchReport renders the
+    // funnel and the ledger only, so the lane stays null here.
+    sendLane: null,
     ...overrides,
   };
 }

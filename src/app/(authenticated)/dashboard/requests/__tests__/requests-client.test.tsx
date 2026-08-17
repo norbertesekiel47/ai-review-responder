@@ -68,6 +68,10 @@ function builtView(overrides: Partial<Extract<BatchView, { state: 'built' }>> = 
     held: 0,
     groups: WITHHOLD_REASONS.map((reason) => ({ reason, total: 0, sample: [] })),
     attempts: [],
+    // Send mode off is the default posture (#629) — the read model returns
+    // `null` here whenever SOLICITATION_SEND_ENABLED is off. Cases that need a
+    // lane pass one through `overrides`.
+    sendLane: null,
     ...overrides,
   } satisfies BatchView;
 }

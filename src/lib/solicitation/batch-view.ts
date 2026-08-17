@@ -2,7 +2,12 @@
  * Read model for the owner-facing Requests screen (#544): the most recent
  * Solicitation batch for one location, as a funnel plus its spoilage report,
  * plus each send-ask's current outreach attempt (#628) with app-enforced
- * `moderation_high` redaction (SPEC §3.3 — see AskAttemptView).
+ * `moderation_high` redaction (SPEC §3.3 — see AskAttemptView), plus the
+ * owner-facing send lane (#629 — see SendLaneView).
+ *
+ * The send lane and the attempts are one presentation, gated together on the
+ * caller's `options.sendLane`. The flag itself is never read here (invariant
+ * #13); the route resolves it and passes it in.
  *
  * Domain module — receives its DB client explicitly (invariant #15); it never
  * imports the singleton. Every query carries BOTH account_id and business_id
@@ -21,9 +26,11 @@ import type { Sql, TransactionSql } from 'postgres';
 import type { AskLintClass } from './ask-compliance-lint';
 import type { AskInterpolationInputs } from './ask-prompt-policy';
 import {
+  deriveBatchState,
   parseOutreachInterpolationInputs,
   parseOutreachLintDetail,
   parseOutreachModerationDetail,
+  type BatchState,
   type OutreachModerationStatus,
   type RenderWithholdReason,
 } from './outreach';
@@ -123,6 +130,27 @@ export type AskAttemptView =
       interpolationInputs: AskInterpolationInputs | null;
     });
 
+/**
+ * The send lane as the owner reads it. `null` on the BatchView when
+ * SOLICITATION_SEND_ENABLED is off — invariant #13: the browser learns flag
+ * state from the response shape, never from a NEXT_PUBLIC companion.
+ */
+export interface SendLaneView {
+  batchState: BatchState;
+  /** True when every send Ask has a non-cancelled Outreach row — the
+   *  precondition approveBatch re-asserts under its lock. */
+  ready: boolean;
+  /** Send Asks with no Outreach row yet; 0 once generation settles. */
+  pendingRenders: number;
+  approvedAt: string | null;
+  vetoDeadlineAt: string | null;
+  haltedAt: string | null;
+  haltReason: string | null;
+  /** moderation_high attempts as a COUNT (D6a) — the owner sees that some were
+   *  held without ever seeing the bytes. */
+  moderationWithheld: number;
+}
+
 export type BatchView =
   | { state: 'no_batch'; contactsOnFile: number }
   | { state: 'building'; batchId: string; createdAt: string; contactsOnFile: number }
@@ -140,8 +168,14 @@ export type BatchView =
        * Each send-ask's current outreach attempt (#628), at most one per ask.
        * Bounded by the batch builder's send cap; asks not yet generated have
        * no entry.
+       *
+       * ALWAYS `[]` when `sendLane` is null (#629): the flag masters the whole
+       * send-lane presentation, so a batch rendered while send mode was on
+       * stops surfacing message bodies the moment it goes off.
        */
       attempts: AskAttemptView[];
+      /** null when SOLICITATION_SEND_ENABLED is off — see SendLaneView. */
+      sendLane: SendLaneView | null;
     };
 
 interface LatestBatchRow {
@@ -291,6 +325,7 @@ async function readBuiltBatch(
   businessId: string,
   batch: LatestBatchRow & { built_at: string },
   contactsOnFile: number,
+  options: { sendLane: boolean },
 ): Promise<BatchView> {
   // EVERY ask-derived number in ONE statement — funnel totals, per-reason
   // totals and the bounded evidence sample from a single snapshot.
@@ -353,48 +388,158 @@ async function readBuiltBatch(
      ORDER BY a.withheld_reason, r.rn
   `;
 
-  // Each send-ask's current outreach attempt (#628). `delivery_status !=
-  // 'cancelled'` deliberately, NOT the live-only set: `withheld` rows are
-  // terminal yet owner-visible — a lint block teaches the owner (SPEC §5.2).
-  // At most one such row exists per ask (withheld ends the attempt line —
-  // no regen, rule 6 — and a rendered row is only replaced via the atomic
-  // supersede swap), so the result is bounded by the batch's send-ask count.
+  // Everything below is the SEND LANE, and it is flag-mastered end to end
+  // (#629). `options.sendLane` arrives from the ROUTE — the one place
+  // SOLICITATION_SEND_ENABLED is read (invariant #13): a read model that read
+  // env could not be tested without mutating process.env, and a NEXT_PUBLIC
+  // companion is forbidden outright.
   //
-  // The CASE redaction is the first of two in-process-leak guards: for a
-  // `moderation_high` row the content columns (subject, body, lint detail,
-  // moderation detail, interpolation inputs — the last carries the visit
-  // note's prose) never leave the database (SPEC §3.3). toAttempts() is the
-  // second; 091's owner-SELECT RLS carve-out backstops direct client reads.
-  // Same snapshot as the funnel numbers — same REPEATABLE READ transaction.
-  const attemptRows = await tx<AskAttemptDbRow[]>`
-    SELECT o.id                 AS "outreachId",
-           o.ask_id             AS "askId",
-           o.contact_id         AS "contactId",
-           LEFT(c.name, ${CONTACT_NAME_MAX}) AS "contactName",
-           o.attempt_no         AS "attemptNo",
-           o.delivery_status    AS "deliveryStatus",
-           o.disposition_reason AS "dispositionReason",
-           o.rendered_at::text  AS "renderedAt",
-           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
-                THEN NULL ELSE o.rendered_subject END      AS "subject",
-           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
-                THEN NULL ELSE o.rendered_body END         AS "body",
-           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
-                THEN NULL ELSE o.lint_detail END           AS "lintDetail",
-           o.moderation_status  AS "moderationStatus",
-           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
-                THEN NULL ELSE o.moderation_detail END     AS "moderationDetail",
-           CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
-                THEN NULL ELSE o.interpolation_inputs END  AS "interpolationInputs"
-      FROM solicitation_outreach o
-      JOIN solicitation_contacts c
-        ON c.id = o.contact_id AND c.business_id = ${businessId}
-     WHERE o.account_id = ${accountId}
-       AND o.business_id = ${businessId}
-       AND o.batch_id = ${batch.id}
-       AND o.delivery_status <> 'cancelled'
-     ORDER BY o.rendered_at, o.id
-  `;
+  // With the flag off NEITHER statement is issued and the view carries
+  // `sendLane: null` WITH `attempts: []`. #628 shipped `attempts`
+  // unconditional; this narrows it on purpose, so a batch whose drafts were
+  // rendered while send mode was on stops surfacing message bodies the instant
+  // the flag goes off.
+  let attempts: AskAttemptView[] = [];
+  let sendLane: SendLaneView | null = null;
+
+  if (options.sendLane) {
+    // Each send-ask's current outreach attempt (#628). `delivery_status !=
+    // 'cancelled'` deliberately, NOT the live-only set: `withheld` rows are
+    // terminal yet owner-visible — a lint block teaches the owner (SPEC §5.2).
+    // At most one such row exists per ask (withheld ends the attempt line —
+    // no regen, rule 6 — and a rendered row is only replaced via the atomic
+    // supersede swap), so the result is bounded by the batch's send-ask count.
+    //
+    // The CASE redaction is the first of two in-process-leak guards: for a
+    // `moderation_high` row the content columns (subject, body, lint detail,
+    // moderation detail, interpolation inputs — the last carries the visit
+    // note's prose) never leave the database (SPEC §3.3). toAttempts() is the
+    // second; 091's owner-SELECT RLS carve-out backstops direct client reads.
+    // Same snapshot as the funnel numbers — same REPEATABLE READ transaction.
+    const attemptRows = await tx<AskAttemptDbRow[]>`
+      SELECT o.id                 AS "outreachId",
+             o.ask_id             AS "askId",
+             o.contact_id         AS "contactId",
+             LEFT(c.name, ${CONTACT_NAME_MAX}) AS "contactName",
+             o.attempt_no         AS "attemptNo",
+             o.delivery_status    AS "deliveryStatus",
+             o.disposition_reason AS "dispositionReason",
+             o.rendered_at::text  AS "renderedAt",
+             CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                  THEN NULL ELSE o.rendered_subject END      AS "subject",
+             CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                  THEN NULL ELSE o.rendered_body END         AS "body",
+             CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                  THEN NULL ELSE o.lint_detail END           AS "lintDetail",
+             o.moderation_status  AS "moderationStatus",
+             CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                  THEN NULL ELSE o.moderation_detail END     AS "moderationDetail",
+             CASE WHEN o.disposition_reason = ${MODERATION_HIGH}
+                  THEN NULL ELSE o.interpolation_inputs END  AS "interpolationInputs"
+        FROM solicitation_outreach o
+        JOIN solicitation_contacts c
+          ON c.id = o.contact_id AND c.business_id = ${businessId}
+       WHERE o.account_id = ${accountId}
+         AND o.business_id = ${businessId}
+         AND o.batch_id = ${batch.id}
+         AND o.delivery_status <> 'cancelled'
+       ORDER BY o.rendered_at, o.id
+    `;
+    attempts = toAttempts(attemptRows);
+
+    // The lifecycle row and both readiness counts in ONE statement, in the
+    // SAME snapshot as the funnel and the attempts above: a `ready: true`
+    // rendered beside attempts that disagree with it is exactly the tear this
+    // transaction exists to prevent.
+    //
+    // Every timestamp is selected TWICE on purpose. `deriveBatchState`
+    // compares JS `Date`s, so it needs the raw columns; the VIEW ships the
+    // `::text` form because postgres.js truncates microseconds when it decodes
+    // timestamptz — only the text ever reaches the wire.
+    //
+    // The two counts are LEFT JOINs rather than the obvious scalar subqueries,
+    // and every join repeats the tenant keys as bind parameters. That shape is
+    // load-bearing twice over: ci:tenant-scope replaces any parenthesised
+    // SELECT with a placeholder before it reads predicates, so a tenant table
+    // reachable ONLY from inside a subquery is seen as referenced but never as
+    // scoped — the audit's whole view is the top-level clauses. Same reason
+    // the funnel query above repeats its keys on the `ranked` join.
+    //
+    // `mo` multiplies the `a`/`o` rows, so both counts are COUNT(DISTINCT …):
+    // `pendingRenders` counts send Asks whose live-Outreach join found nothing,
+    // `moderationWithheld` counts the held rows themselves. A batch with no
+    // asks yields COUNT(DISTINCT NULL) = 0 rather than a missing row, which is
+    // why these are LEFT joins onto the single `b` row.
+    const [lane] = await tx<{
+      built_at: Date | null;
+      approved_at: Date | null;
+      veto_deadline_at: Date | null;
+      sending_started_at: Date | null;
+      send_closed_at: Date | null;
+      halted_at: Date | null;
+      approvedAtText: string | null;
+      vetoDeadlineAtText: string | null;
+      haltedAtText: string | null;
+      haltReason: string | null;
+      pendingRenders: number;
+      moderationWithheld: number;
+    }[]>`
+      SELECT b.built_at, b.approved_at, b.veto_deadline_at,
+             b.sending_started_at, b.send_closed_at, b.halted_at,
+             b.approved_at::text       AS "approvedAtText",
+             b.veto_deadline_at::text  AS "vetoDeadlineAtText",
+             b.halted_at::text         AS "haltedAtText",
+             b.halt_reason             AS "haltReason",
+             (COUNT(DISTINCT a.id) FILTER (WHERE o.id IS NULL))::int
+               AS "pendingRenders",
+             (COUNT(DISTINCT mo.id))::int
+               AS "moderationWithheld"
+        FROM solicitation_batches b
+        LEFT JOIN solicitation_asks a
+          ON a.batch_id = b.id
+         AND a.account_id = ${accountId}::uuid
+         AND a.business_id = ${businessId}::uuid
+         AND a.status = 'send'
+        LEFT JOIN solicitation_outreach o
+          ON o.ask_id = a.id
+         AND o.batch_id = a.batch_id
+         AND o.account_id = ${accountId}::uuid
+         AND o.business_id = ${businessId}::uuid
+         AND o.delivery_status <> 'cancelled'
+        LEFT JOIN solicitation_outreach mo
+          ON mo.batch_id = b.id
+         AND mo.account_id = ${accountId}::uuid
+         AND mo.business_id = ${businessId}::uuid
+         AND mo.disposition_reason = ${MODERATION_HIGH}
+       WHERE b.id = ${batch.id}::uuid
+         AND b.account_id = ${accountId}::uuid
+         AND b.business_id = ${businessId}::uuid
+       GROUP BY b.built_at, b.approved_at, b.veto_deadline_at,
+                b.sending_started_at, b.send_closed_at, b.halted_at,
+                b.halt_reason
+    `;
+
+    // readLatestBatch already read this row in this snapshot, so absence is
+    // not a lost race — it means the tenant predicate disagreed with the one
+    // that selected the batch. Loud beats a blank lane rendered as `pending`.
+    if (!lane) {
+      throw new Error(`solicitation batch ${batch.id} is unreadable in its own snapshot`);
+    }
+
+    sendLane = {
+      batchState: deriveBatchState(lane, new Date()),
+      // Advisory only: approveBatch re-asserts this precondition under its own
+      // lock, because a render can land between this read and the owner's
+      // click.
+      ready: lane.pendingRenders === 0,
+      pendingRenders: lane.pendingRenders,
+      approvedAt: lane.approvedAtText,
+      vetoDeadlineAt: lane.vetoDeadlineAtText,
+      haltedAt: lane.haltedAtText,
+      haltReason: lane.haltReason,
+      moderationWithheld: lane.moderationWithheld,
+    };
+  }
 
   // `totals` is an unfiltered aggregate, so the LEFT JOIN always yields >= 1
   // row and every row repeats the same funnel numbers.
@@ -412,7 +557,8 @@ async function readBuiltBatch(
     queued,
     held,
     groups: toGroups(rows),
-    attempts: toAttempts(attemptRows),
+    attempts,
+    sendLane,
   };
 }
 
@@ -427,11 +573,16 @@ async function readBuiltBatch(
  *
  * `contactsOnFile` is deliberately a present-tense fact, not a funnel rung, so
  * it is allowed to move independently of the batch it is shown beside.
+ *
+ * `options.sendLane` is SOLICITATION_SEND_ENABLED, resolved by the CALLER
+ * (invariant #13). It is a required parameter rather than a defaulted one on
+ * purpose: a caller that forgets it should not silently get either answer.
  */
 export async function readLatestBatch(
   sql: Sql,
   accountId: string,
   businessId: string,
+  options: { sendLane: boolean },
 ): Promise<BatchView> {
   return sql.begin(async (tx): Promise<BatchView> => {
     await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
@@ -479,6 +630,7 @@ export async function readLatestBatch(
       businessId,
       { ...batch, built_at: batch.built_at },
       contactsOnFile,
+      options,
     );
   });
 }
