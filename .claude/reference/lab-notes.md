@@ -2398,6 +2398,25 @@ the caller's client as a union — `SubscriptionSql` in
   stable or `vi.spyOn` breaks); merely constructing a wrapper must never assume
   the wrapped object is real.
 
+- [2026-08-13] Step B — the accepted trade-off is LATENCY, deliberately (moved
+  from CLAUDE.md 2026-08-16, context diet). The gate converts over-subscription
+  into WAITING, so p95 rises under load: staging measured owner forced-miss p95
+  **4.8s at concurrency 8 / 4.3s at 12** against a pool of 3, versus ~1.3s on
+  the cached path. That is the deal — a queued request is the price of never
+  pipelining, and it replaces a hang that lasted 16.6s–374.5s and killed a pool
+  slot permanently. **Do NOT "fix" that latency by raising `DB_POOL_MAX`.** The
+  same run measured backend sessions peaking at **44 of 57** at concurrency 12,
+  because the gate bounds work per Fluid Compute isolate and does nothing about
+  how many isolates Vercel warms (each holding write-3 + read-8). Raising the
+  pool multiplies per-isolate sessions against a budget already near its
+  ceiling — it is a worse lever after #773 than it was before. Fix slow queries
+  or cache instead. Excess callers QUEUE with a 30s deadline
+  (`DbSlotTimeoutError`); per-request sequencing (#761/#767/#779/#809/#810) is
+  NECESSARY BUT NOT SUFFICIENT — the pool is per Fluid Compute isolate and an
+  isolate serves overlapping requests, so a fan-out of 2 wedged a pool of 3.
+  Evidence: `docs/runbooks/evidence/2026-08-13-773-vercel-capacity-decision.md`
+  (step B addendum, 520 requests, 631 observer samples).
+
 ## 2026-08-14 — admin invite funnel: four ways a mocked provider lies
 
 - [2026-08-14] **A mocked provider client cannot validate the provider's contract
@@ -2831,3 +2850,86 @@ is PR count, not pushes per PR (2.5). Fix shipped as one PR; runbook
   repo, 2026-08): Linux x64 2-core $0.006/min, arm64 $0.005, `ubuntu-slim`
   1-core $0.002; self-hosted $0. `claude.yml`'s 584 skipped runs, Dependabot's
   "dynamic" runs and the Copilot-review ruleset bill no Actions minutes.
+
+## 2026-08-16 — CLAUDE.md gotcha trim (context diet): mechanics moved here
+
+Eight "Non-obvious gotchas" over 60 words were cut to symptom → rule → pointer
+(the PR after #848). Every sentence removed from CLAUDE.md that had no verbatim
+home in these notes lives below; the rest already did (#573, #694, #706, #581,
+"Single-replica worker", "PgBouncer JSONB parse-site allowlist", "Cost-guard
+fail-open/retry matrix", the timestamptz #520 note).
+
+### [2026-08-16] live-DB lane CI gating — `pnpm test` is the gate, not `pnpm test:integration` (moved from CLAUDE.md, context diet)
+
+- [2026-08-15] A 2026-08-15 architecture pass filed a false "correct tests that
+  no gate runs" finding → it read `pnpm test:integration`'s one-suite list as
+  "CI's coverage" → CORRECT: the live-DB lane IS gated in CI, by `pnpm test`.
+  ci.yml's `test` job (a required check) stands up a `postgres:16` service,
+  sets `TEST_DATABASE_POOL_URL` and provisions the schema via
+  `.github/actions/test-db`, so `vitest run` executes both projects: 91 of 92
+  integration suites run per PR (the abstainer, `trial-test-clock`, needs live
+  Stripe credentials). `pnpm test:integration` hard-gates only the publisher
+  edit-existing-reply suite and is a **developer fast-path, never the gate**.
+  Because every suite degrades to a SILENT SKIP rather than a failure when the
+  DB is absent, deleting four lines of that YAML would un-gate all 92 and leave
+  CI green; `src/__tests__/ci-audit-wiring.test.ts` pins the wiring against
+  exactly that. Locally, `pnpm test` runs them too (the `.env.local` fallback,
+  see the 2026-08-03 note above). When touching governor/judge/publisher paths
+  you can still run one file directly — export `TEST_DATABASE_POOL_URL` **and**
+  `DATABASE_POOL_URL` first, or a singleton-backed suite dials the wrong host.
+
+### [2026-08-16] #573/#706 detection notes and the fallow static-vs-coverage asymmetry (moved from CLAUDE.md, context diet)
+
+- Live-DB DDL detection is AST extraction of **executed SQL** — every tagged
+  template and `.unsafe()` call — never a text marker (#694: the
+  `supabase/migrations` + `.unsafe(` conjunction missed three sites, one of
+  which stranded a CHECK constraint and cost 14 spurious failures). The audited
+  set is every `.ts`/`.tsx` under `__tests__/`, not just the suites (#706):
+  Postgres.js splices a nested `Query` substitution in as raw SQL text, so a
+  helper can build a DDL fragment a suite executes — **the finding lands on the
+  file that BUILDS it**. Helpers reach the DB by importing `postgres` (they are
+  handed the handle, so they name no env var); the `e2e/` Playwright lane is
+  deliberately out of scope. Two sanctioned escapes, BOTH lock-enforced
+  allowlists in `scripts/ci/live-db-suites-audit.ts`: migration-**shape** files
+  (applying the migration IS the subject) and **DDL-probe** suites
+  (session-scoped `auth.uid()` redefinition inside a rolled-back tx) — each
+  must hold `acquireLiveDbLock` AND roll back any unconditional re-apply.
+  Safety that is statically invisible takes a per-line
+  `-- live-db-ddl-ignore: <reason>` (a `CREATE INDEX` on a `pg_temp` table
+  reads exactly like one on the shared table). To force a transaction abort use
+  `helpers/abort-injection.ts`, NEVER a temporary constraint — a vitest timeout
+  skips the `finally` that would drop it. Provision once with
+  `pnpm test:db:setup`; assert with `assertSchemaReady`.
+- fallow: the coverage input is the `test` job's own `pnpm test:coverage` run
+  (live-DB lane included), handed to the `fallow` job as an artifact, so a
+  module covered only by an integration suite no longer reads 0% with inflated
+  CRAP (#581). A bare `fallow audit` estimates CRAP from export references, so
+  it **both invents findings CI lacks and misses ones CI has** (#783: a
+  0%-covered component passed locally, failed CI at CRAP 420).
+- Cost guard: pre-LLM Redis **transport** failures are RETRYABLE
+  (`CostInfraUnavailableError` → BullMQ retry + outbox watchdog; #255 — do not
+  re-terminalize); **budget-exceeded** decisions stay TERMINAL (never
+  reclassify as infra); post-LLM finalize failures are governed by
+  `withCostGuard`'s `onFinalizeError`, never a job-level retry (would
+  re-spend). Upstash is a single-instance **SPOF** (cache + rate-limit +
+  cost-reserve + regen-budget + idempotent-generation).
+- Single-replica worker: four boot guards + the in-process LLM circuit breaker
+  are only correct with one replica; `ci:static-policy` blocks
+  `numReplicas`/`multiRegionConfig` in `railway.toml`, and replicas register in
+  Redis so `HealthAlertPoller` pages when >1 is live (#587) — deliberately a
+  registry, NOT a boot-gating lease (a Redis outage must never stop the worker
+  starting). Before ever scaling: clear the P2 list in
+  `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`.
+- JSONB carve-out: `typeof x === 'string' ? JSON.parse(x) : x` then narrow is
+  the *only* sanctioned exception to the no-`any` rule (never paper over it
+  with `: any`); the allowlist (19 sites today) is the note above; HTTP/request
+  bodies, provider responses, LLM output, Redis/cache values, local storage and
+  `TEXT[]` reads do NOT belong on it (different parsing boundaries).
+- timestamptz: any SQL comparison against a value that round-tripped through JS
+  can mis-order by <1ms; fatal when a row is compared against a window/anchor
+  derived FROM that same row (governor permanent re-suspension immunity #520;
+  wedge-reaper `backend_start` equality before it). Truncate the DB side
+  (`date_trunc('milliseconds', col) > ${jsDate}`) or keep the value `::text`
+  end-to-end. JS-Date-seeded fixtures carry zero µs and CANNOT catch this —
+  seed with `+ interval '419 microseconds'`.
+
