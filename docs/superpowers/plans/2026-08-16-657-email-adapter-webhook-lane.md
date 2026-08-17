@@ -211,23 +211,77 @@ it('the solicitation lane retries rather than acknowledging an unmatched suppres
 });
 
 it('the solicitation lane writes nothing when its attributed outreach row is removed mid-transaction', async () => {
-  // Seed, then delete inside a competing transaction that commits first.
-  // Assert: zero suppressions for the handle, and the outreach row stays gone.
+  // The real property: outreach signal and ledger row commit together or not at
+  // all. Force the abort AFTER the UPDATE, via helpers/abort-injection.ts — read
+  // that helper for its exact API. Never use a temporary constraint (house rule).
+  const { outreachId, handle } = await seedOutreach({ providerMessageId: 'msg_atomic' });
+
+  await expect(
+    withInjectedAbortAfterUpdate(() =>
+      handleSolicitationResendEvent(sql, 'email.complained', 'msg_atomic', {}),
+    ),
+  ).rejects.toThrow();
+
+  const [row] = await sql`SELECT complained_at FROM solicitation_outreach WHERE id = ${outreachId}`;
+  expect(row!.complained_at).toBeNull();
+
+  const ledger = await sql`
+    SELECT 1 FROM solicitation_suppressions WHERE channel = 'email' AND normalized_handle = ${handle}
+  `;
+  expect(ledger).toHaveLength(0);
 });
 
 it('the solicitation lane refuses an ambiguous provider message id without mutating an arbitrary outreach row', async () => {
-  // Seed TWO outreach rows sharing one provider_message_id (no unique index stops it).
+  // No unique index on provider_message_id stops two rows from sharing one.
+  const a = await seedOutreach({ providerMessageId: 'msg_dup' });
+  const b = await seedOutreach({ providerMessageId: 'msg_dup' });
+
   await expect(
-    handleSolicitationResendEvent(sql, 'email.complained', sharedId, {}),
+    handleSolicitationResendEvent(sql, 'email.complained', 'msg_dup', {}),
   ).rejects.toThrow(/ambiguous/i);
-  // Neither row gained complained_at; no suppression row exists.
+
+  const rows = await sql`
+    SELECT complained_at FROM solicitation_outreach WHERE id IN (${a.outreachId}, ${b.outreachId})
+  `;
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.complained_at === null)).toBe(true);
+
+  const ledger = await sql`
+    SELECT 1 FROM solicitation_suppressions
+     WHERE channel = 'email' AND normalized_handle IN (${a.handle}, ${b.handle})
+  `;
+  expect(ledger).toHaveLength(0);
 });
 
 it('the solicitation lane never logs a raw provider bounce or failure reason', async () => {
-  // Feed a reason embedding victim@example.test; assert captured logs contain
-  // neither the address nor the raw reason, while provider_error DOES store it.
+  // createWorkerLogger emits one JSON object per line to stdout, so capture there.
+  const written: string[] = [];
+  const spy = vi.spyOn(console, 'log').mockImplementation((line: string) => { written.push(line); });
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation((line: string) => { written.push(line); });
+
+  const { outreachId } = await seedOutreach({ providerMessageId: 'msg_leak' });
+  await handleSolicitationResendEvent(sql, 'email.bounced', 'msg_leak', {
+    bounce: { type: 'Permanent: victim@example.test mailbox unavailable' },
+  });
+
+  spy.mockRestore();
+  warnSpy.mockRestore();
+
+  const all = written.join('\n');
+  expect(all).not.toContain('victim@example.test');
+  expect(all).not.toContain('mailbox unavailable');
+  expect(all).toContain('"bounce_kind":"hard"');
+
+  // The full classified value is still STORED — a column is not a log.
+  const [row] = await sql`SELECT provider_error FROM solicitation_outreach WHERE id = ${outreachId}`;
+  expect(row!.provider_error).toContain('victim@example.test');
 });
 ```
+
+`seedOutreach` is a local helper in this suite: it inserts an account, business,
+contact, batch, ask and one Outreach row, and returns `{ outreachId, handle }`. Build
+it from the fixtures `src/lib/solicitation/__tests__/owner-do-not-contact.integration.test.ts`
+already uses — do not invent a second seeding vocabulary.
 
 - [ ] **Step 4: Write real assertions — no bare `expect(true)`**
 
@@ -1062,6 +1116,10 @@ export async function handleSolicitationResendEvent(
  *
  * `onMissing` decides what an unmatched id means for THIS event (Step 4b).
  * `apply` returns the ledger source to record, or null to record none.
+ *
+ * RETURNS the attribution only on a COMMITTED write, and null when the id was
+ * unmatched. That return value is what makes post-commit logging possible — see
+ * the note below, which is load-bearing.
  */
 async function withAttribution(
   sql: Sql,
@@ -1072,7 +1130,9 @@ async function withAttribution(
     tx: TransactionSql,
     attribution: OutreachAttribution,
   ) => Promise<SuppressionSourceToRecord | null>,
-): Promise<void> {
+): Promise<OutreachAttribution | null> {
+  let committed: OutreachAttribution | null = null;
+
   await sql.begin(async (tx) => {
     const attribution = await loadAttribution(tx, emailId);
     if (!attribution) {
@@ -1091,7 +1151,14 @@ async function withAttribution(
         source,
       });
     }
+
+    // Assigned LAST, and read only after sql.begin RESOLVES. A rollback — a failed
+    // ledger insert, a failed UPDATE assertion, a failed COMMIT — rejects before
+    // the read, so the caller logs nothing.
+    committed = attribution;
   });
+
+  return committed;
 }
 
 type SuppressionSourceToRecord = 'bounce_permanent' | 'complaint' | 'provider_suppressed';
@@ -1108,7 +1175,7 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
   // is suppression-bearing and therefore whether an unmatched id may be acked.
   const { reason, isHard } = classifyBounce(extractBounceType(data));
 
-  await withAttribution(
+  const committed = await withAttribution(
     sql,
     emailId,
     'email.bounced',
@@ -1122,58 +1189,69 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
          WHERE id = ${attribution.id}
       `;
       await assertUpdatedOne(updated.count, attribution.id);
-
-      logger.log({
-        msg: 'solicitation bounce recorded',
-        outreach_id: attribution.id,
-        account_id: attribution.account_id,
-        business_id: attribution.business_id,
-        // The KIND only. `reason` embeds provider-controlled text that can carry a
-        // recipient address; it belongs in provider_error (a column) not a log.
-        bounce_kind: isHard ? 'hard' : 'soft',
-      });
-
       // Permanent only. Soft and 'unknown' record the fact and never suppress.
       return isHard ? 'bounce_permanent' : null;
     },
   );
+
+  if (!committed) return; // unmatched — onMissing already warned or threw
+  logger.log({
+    msg: 'solicitation bounce recorded',
+    outreach_id: committed.id,
+    account_id: committed.account_id,
+    business_id: committed.business_id,
+    // The KIND only. `reason` embeds provider-controlled text that can carry a
+    // recipient address; it belongs in provider_error (a column) not a log.
+    bounce_kind: isHard ? 'hard' : 'soft',
+  });
 }
 
 async function recordComplaint(sql: Sql, emailId: string): Promise<void> {
-  await withAttribution(sql, emailId, 'email.complained', throwUnmatched, async (tx, attribution) => {
-    const updated = await tx`
-      UPDATE solicitation_outreach
-         SET complained_at = COALESCE(complained_at, NOW()),
-             updated_at = NOW()
-       WHERE id = ${attribution.id}
-    `;
-    await assertUpdatedOne(updated.count, attribution.id);
+  const committed = await withAttribution(
+    sql,
+    emailId,
+    'email.complained',
+    throwUnmatched,
+    async (tx, attribution) => {
+      const updated = await tx`
+        UPDATE solicitation_outreach
+           SET complained_at = COALESCE(complained_at, NOW()),
+               updated_at = NOW()
+         WHERE id = ${attribution.id}
+      `;
+      await assertUpdatedOne(updated.count, attribution.id);
+      return 'complaint';
+    },
+  );
 
-    logger.log({
-      msg: 'solicitation complaint recorded',
-      outreach_id: attribution.id,
-      account_id: attribution.account_id,
-      business_id: attribution.business_id,
-    });
-
-    return 'complaint';
+  if (!committed) return;
+  logger.log({
+    msg: 'solicitation complaint recorded',
+    outreach_id: committed.id,
+    account_id: committed.account_id,
+    business_id: committed.business_id,
   });
 }
 
 async function recordProviderSuppressed(sql: Sql, emailId: string): Promise<void> {
-  await withAttribution(sql, emailId, 'email.suppressed', throwUnmatched, async (_tx, attribution) => {
-    // No Outreach column exists for this — the ledger IS the record.
-    //
-    // Loud by design (§6.2): Resend's suppression list is team-wide across every
-    // domain and API key INCLUDING transactional, so a divergence between their
-    // list and ours is an admin-attention condition, not routine traffic.
-    logger.warn({
-      msg: 'Resend independently suppressed a solicitation recipient — team-wide list diverging from our ledger (§6.2)',
-      outreach_id: attribution.id,
-      account_id: attribution.account_id,
-      business_id: attribution.business_id,
-    });
-    return 'provider_suppressed';
+  // No Outreach column exists for this — the ledger IS the record.
+  const committed = await withAttribution(
+    sql,
+    emailId,
+    'email.suppressed',
+    throwUnmatched,
+    async () => 'provider_suppressed',
+  );
+
+  if (!committed) return;
+  // Loud by design (§6.2): Resend's suppression list is team-wide across every
+  // domain and API key INCLUDING transactional, so a divergence between their list
+  // and ours is an admin-attention condition, not routine traffic.
+  logger.warn({
+    msg: 'Resend independently suppressed a solicitation recipient — team-wide list diverging from our ledger (§6.2)',
+    outreach_id: committed.id,
+    account_id: committed.account_id,
+    business_id: committed.business_id,
   });
 }
 
@@ -1182,24 +1260,30 @@ async function recordFailure(sql: Sql, emailId: string, data: unknown): Promise<
 
   // Send-side failure. NEVER suppresses, never touches bounced_at, and an unmatched
   // id is genuinely ack-able: nothing is lost that a later event cannot re-establish.
-  await withAttribution(sql, emailId, 'email.failed', warnUnmatched, async (tx, attribution) => {
-    const updated = await tx`
-      UPDATE solicitation_outreach
-         SET provider_error = COALESCE(provider_error, ${`failed:${reason}`}),
-             updated_at = NOW()
-       WHERE id = ${attribution.id}
-    `;
-    await assertUpdatedOne(updated.count, attribution.id);
+  const committed = await withAttribution(
+    sql,
+    emailId,
+    'email.failed',
+    warnUnmatched,
+    async (tx, attribution) => {
+      const updated = await tx`
+        UPDATE solicitation_outreach
+           SET provider_error = COALESCE(provider_error, ${`failed:${reason}`}),
+               updated_at = NOW()
+         WHERE id = ${attribution.id}
+      `;
+      await assertUpdatedOne(updated.count, attribution.id);
+      return null;
+    },
+  );
 
-    logger.log({
-      msg: 'solicitation send failure recorded',
-      outreach_id: attribution.id,
-      account_id: attribution.account_id,
-      // Reason is provider-controlled text — stored, never logged.
-      has_reason: reason !== 'unknown',
-    });
-
-    return null;
+  if (!committed) return;
+  logger.log({
+    msg: 'solicitation send failure recorded',
+    outreach_id: committed.id,
+    account_id: committed.account_id,
+    // Reason is provider-controlled text — stored, never logged.
+    has_reason: reason !== 'unknown',
   });
 }
 

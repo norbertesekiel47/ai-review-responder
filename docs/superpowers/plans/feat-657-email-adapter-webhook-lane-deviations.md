@@ -64,6 +64,51 @@ title exists, so extras are free. Eight from planning and this review round:
 
 ---
 
+## D3 — Plan review round 2 (Codex, same session, 2026-08-16)
+
+Verification-only re-submit. **Verdict returned: `REVISE`.** Every round-1 fix was
+verified correct on the code side — C1, C2, C3, F1, F4, F5, F6, F7 all `yes`,
+including independent confirmation that `FOR UPDATE OF o` is valid for the joined
+query and that `/[,\s;]/` rejects no address `normalizeEmail` can produce. Two
+classes of problem remained. **Both accepted.**
+
+### F9 (new, introduced by the round-1 fix) — success logged before commit
+
+`recordBounce`, `recordComplaint` and `recordProviderSuppressed` logged inside
+`apply`, which runs **before** `recordSuppression` and before COMMIT. A failed
+ledger insert rolls the transaction back while the log line still claims the
+bounce/complaint/suppression was recorded — a log that asserts a fact the database
+does not hold.
+
+**ACCEPT.** `withAttribution` now returns the attribution **only on a committed
+write** (assigned last inside the callback, read only after `sql.begin` resolves),
+and every recorder logs after it returns. A rollback rejects before the read, so
+nothing is logged. This is the same class as the house rule that observability must
+never poison the success path — here it is the inverse: the success path must never
+poison observability.
+
+### F2/F3/F8 partial — three test bodies were comments, not assertions
+
+The specified *code* was correct in all three, but the tests I added to prove it had
+placeholder bodies. That violates this plan's own "No placeholders" rule, and a
+comments-only test passes vacuously — exactly the "eval green while the feature is
+wrong" failure this review round exists to catch.
+
+**ACCEPT.** All three now carry real assertions:
+
+- **F2** — forces an abort after the UPDATE via `helpers/abort-injection.ts` (never a
+  temporary constraint, per the house rule), then asserts `complained_at IS NULL`
+  **and** zero ledger rows.
+- **F3** — seeds two Outreach rows sharing one `provider_message_id`, asserts the
+  throw, then asserts neither row was mutated and no ledger row exists.
+- **F8** — captures the structured-log lines, asserts they contain neither the
+  address nor the raw provider text while carrying `bounce_kind`, and asserts
+  `provider_error` **does** store the full value. A column is not a log.
+
+`allowed_edit_surface` still unchanged. Amendment count remains **0**.
+
+---
+
 ## D2 — Secondary note accepted from round 1
 
 Codex observed that the plan's Architecture line ("config + boot assert gate the
