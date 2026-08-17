@@ -4361,14 +4361,147 @@ this size** — size it as an epic.
 
 - **#858** — `closeBatchIfSettled` case-sensitive `subject_id` compare, all
   callers. #629 fixed only its own two verbs. **Resolve before #630**, whose
-  releaser tick is a backstop caller of the same function.
-- **#859** — `ci:tenant-scope` subquery blindness.
+  releaser tick is a backstop caller of the same function. **Landed the same
+  day, PR #868** (entry below).
+- **#859** — `ci:tenant-scope` subquery blindness. **Landed the same day, PR
+  #870** (entry below).
 - **#860** — per-ask regenerate surface, carrying **D3** as a binding constraint:
   it must either re-open approval for the superseded ask or be refused once
   `approved_at` is set. `regenerateAsk` already accepts
   `approved`/`veto_window`/`sending`, so the path exists and is merely
   unreachable from the shipped surface.
 - **#861** — pin the load-failure copy so it cannot regress to a write-scoped
-  claim.
+  claim. **Landed the same day, PR #869** (entry below).
 - **Still unfiled:** the admin/support halt surface. `admin_halt` remains a CHECK
-  member with no writer — a live-but-dead enum arm.
+  member with no writer — a live-but-dead enum arm. **Since filed as #865.**
+
+## 2026-08-17 — #859 / #858 / #861: query-block tenant-scope audit, case-safe batch closure, read-failure copy pin (PRs #870, #868, #869)
+
+The three follow-ups #629 filed (map #617) landed the same day, in that merge
+order. Combined diff: **+1,869/−779 production lines, +1,491/−107 test lines**
+across 22 files. No migration, no env var, no flag, no dependency.
+
+### #859 — `ci:tenant-scope` reads query blocks (PR #870, squash `649c43b5`)
+
+**Problem.** `stripSelectSubqueries` blanked every parenthesised `SELECT` before
+`splitTopLevelAnd` read predicates, while `referencesTenantTable` still matched
+the raw text — so a table inside a subquery was *seen* but its scope was not,
+and a correctly-scoped query and an unscoped one were indistinguishable. #629
+paid for it with a two-statement `lockBatchForAction`, a `LEFT JOIN … IS NULL`
+anti-join, a three-statement send-lane read, and ~40 lines of "do not
+re-nest" comments (D7).
+
+**Analyzer** (`scripts/ci/tenant-scope-audit.ts`, 942 → 2,076 lines):
+- One PostgreSQL-aware lexer masks strings (incl. doubled quotes), E-string
+  escapes, tagged/untagged dollar quotes, nested block comments and line
+  comments; preserves quoted identifiers; canonicalises balanced `${…}`
+  expressions to bind atoms. It feeds block discovery, table binding, predicate
+  reading, AND/OR/NOT handling, set-arm splitting and allowlist normalisation.
+- Query blocks are the proof unit. Direct children (`SELECT`/`WITH`/`UPDATE`/
+  `DELETE`/`TABLE` in parens) are removed from their parent before the parent is
+  analysed; each physical tenant binding is keyed by block path + alias and
+  proven individually — a self-join's two aliases are two occurrences.
+- Proof: a bound `account_id`/`business_id`/root-id predicate on the binding
+  itself; or a relationship to a proven sibling (`businesses.id`,
+  `accounts.id`, the `account_offboarding_tokens` bridge); or an explicit tenant
+  identity equality to a proven ancestor. `LEFT`/`RIGHT` `ON` clauses only
+  count for the side they restrict; `FULL` never. `OR` and `NOT` fail closed.
+  Unqualified correlated columns and row-id correlation are not proof.
+- CTE names participate in lexical resolution: `WITH reviews AS (…)` shadows the
+  physical table only where PostgreSQL makes it visible (ordered, recursive
+  self-visibility, later set arms). Data-modifying CTE bodies are children.
+- Every finding carries `template:<fingerprint>:occurrence:<n>:statement:<n>:arm:<path>:block:<path>:table:<t>:alias:<a>:binding:<n>`;
+  `pnpm exec tsx scripts/ci/tenant-scope-audit.ts --no-allowlist` prints the
+  same identities with exceptions disabled (evidence collection, not a green
+  mode — 342 identity-bearing findings today).
+- JS extractor: one lexical pass over TS (regex/template/comment aware,
+  nested-brace placeholders, generic type args, `sql.unsafe(<literal|named>)`
+  with lexical-scope resolution). Strict superset of the old extractor across the
+  repo; nested *tagged* fragments extract, nested plain literals do not.
+
+**Allowlist 397 → 381.** 17 obsolete parser-limitation entries removed, each
+re-audited with allowlists disabled and its now-visible proof recorded in
+`docs/reviews/codex-859-tenant-scope-subqueries/repo-audit-triage.md`; one
+honest `admin-after-require-role` entry added (`cost-report-service.ts`
+`api_costs`: the OLD parser read scope from inside a conditional `${…}`
+placeholder — a false negative this PR fixed). Sixty-six other exact entries
+are now statically provable but were deliberately left alone: their reasons
+describe trust boundaries, not the retired limitation.
+
+**Runtime SQL restored** (behaviour unchanged, 30 live-DB cases green):
+`approval.ts` — one statement, correlated scalar send-parent lookup
+(`r.subject_id = b.id::text`, `FOR UPDATE OF b`; batch → run lock order kept),
+readiness gate `NOT EXISTS` (`COUNT(*)` ≡ the anti-join's
+`COUNT(DISTINCT a.id)`). `batch-view.ts` — the two send-lane counts are
+independent scalar aggregates on the lifecycle row; the shape test forbids
+child-table joins / `COUNT(DISTINCT)` / `GROUP BY` so the rejected cross
+product cannot return.
+
+**Branch review round (deviation D2)** — two analyzer false negatives the
+flattened scanner did NOT have, both closed before merge with regression tests:
+1. Unqualified proof on a column the table lacks, inside a child block.
+   `reviews`, `responses` and 20 other tenant tables carry only `business_id`;
+   `auto_approval_policies`, `account_audit_log` and others only `account_id`.
+   PostgreSQL resolves the missing column to the OUTER row, so
+   `EXISTS (SELECT 1 FROM reviews WHERE account_id = $1)` compiles and restricts
+   nothing (`EXPLAIN`: filterless `Seq Scan on reviews`). Fix:
+   `TENANT_SCOPE_COLUMNS` in `scripts/ci/tenant-tables.ts` — an exhaustive
+   `Record<TenantTable, …>` (typecheck-enforced), consulted by `directlyScoped`,
+   `tenantIdentityColumns` and the via-account/via-business rules; a read-only
+   live-DB suite (`scripts/ci/__tests__/tenant-tables.integration.test.ts`)
+   asserts it against `information_schema` at migration head (43/43).
+2. A grandchild inherited a root alias that an intermediate block re-bound
+   (non-tenant table, derived table, aliased table function). Fix: children
+   receive only ancestors the current block does not re-bind (none when an
+   alias is undeterminable).
+Plus a cosmetic third: a plain literal nested in a `${…}` placeholder no longer
+inherits the enclosing tag (bind parameter, not statement; repo template count
+1,115 → 1,106). Neither fix moved a repository finding. Parser suite 107 → 111.
+
+**Gotchas recorded**
+- The old rule "one tenant binding → accept an unqualified scope column" was
+  safe only because a missing column is a compile error at the ROOT; the moment
+  the analyzer descended into subqueries it became a false-negative generator.
+  Any static SQL scope check that descends must know the schema.
+- The rebase onto `main` hit one adjacent-row conflict in `docs/directory.md`
+  (#866's `unsubscribe.ts` row sits directly under the `approval.ts` row this PR
+  rewrote) — resolved keeping both.
+- Merge order D1: #859 before #860 (`feat-860` rebases its `approval.ts` /
+  `batch-view.ts` work onto this result). Done.
+
+### #858 — `closeBatchIfSettled` canonicalises its batch id (PR #868, squash `d9ea8801`)
+
+`agent_runs.subject_id` is TEXT (071), so the send-parent lookup is a
+case-sensitive compare while every `::uuid` cast normalises; `isValidUuid` is
+`/i`. A request-supplied mixed-case id matched the batch row and missed its
+parent — the batch could never close. #629 (D13) fixed this only for
+`approveBatch`/`haltBatch` via entry-point `canonicalBatchId`. Now the callee
+lowercases once at the top and uses the canonical id in every statement and
+diagnostic; all seven callers audited (approval.ts ×2 canonicalize at entry,
+ask-generation.ts ×5 read the id from Postgres); the write side is canonical
+(`startOrGetSolicitationSendBatchRun` receives `row.id`). Regression:
+`closes the Send batch parent when the batch id uses mixed case` — red on
+`no_send_parent` without the fix. Landed ahead of #630's releaser tick, the
+backstop caller of the same function.
+
+### #861 — pin the Requests load-failure copy (PR #869, squash `0276ca7c`)
+
+Test only. `RequestsClient`'s failure card once said "Nothing was sent, and
+nothing changed" after a failed READ — a write-scoped promise the owner most
+likely to see it (approve POST unreadable, refetch failed) cannot rely on. #629
+fixed the copy; the retry test now asserts the ABSENCE of the claim on the
+`role="alert"` card — any tense of "nothing was/has been sent", "nothing
+(has|was) changed", "no changes were made" — red-checked against three
+regressing phrasings. No shared assertion yet (second consumer arrives with
+#630).
+
+### Ship record
+
+All three: feature gate `--review` GREEN before push (fingerprints `fa2c9902…`,
+`8ec3e066…`, `5f52f98c…`); lefthook pre-push gate green; PR CI green (strict
+up-to-date ruleset → each later branch rebased and re-run before merge). Staging
+fast-forwarded to `main` after the last merge (`0276ca7c`, staging == main).
+Merged worktrees removed via `scripts/feature-cleanup.sh --apply`. #858
+touches a function the worker calls and did NOT ride staging first (owner
+decision to merge directly; the change is a defensive lowercase covered by the
+live-DB suite).
