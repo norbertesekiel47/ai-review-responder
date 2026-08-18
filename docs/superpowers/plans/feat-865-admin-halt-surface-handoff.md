@@ -18,7 +18,7 @@ restatement — read the referenced file, do not trust a summary of it.
 | Intake contract (audit copy) | `docs/superpowers/plans/feat-865-admin-halt-surface-intake.json` |
 | Intake contract (arming copy) | `.feature/intake.json` — verified byte-identical to the audit copy |
 | Plan | `docs/superpowers/plans/feat-865-admin-halt-surface.md` (**revision 3, LOCKED**) |
-| Deviations | `docs/superpowers/plans/feat-865-admin-halt-surface-deviations.md` (D1, D2) |
+| Deviations | `docs/superpowers/plans/feat-865-admin-halt-surface-deviations.md` (D1–D5) |
 | Review reports | `docs/reviews/feat-865-admin-halt-surface/` (plan rounds 1, 2, 3) |
 | Machine state | `.feature/state.json` |
 | Glossary excerpt | `CONTEXT.md` — **Halt latch**, **Batch state**, **Send batch parent**, **Settled batch**, **Outreach row**, **Ask**, **Lazy child**. Re-read these before any task; do not paraphrase them. |
@@ -45,7 +45,7 @@ this table, but a table that disagrees with git is itself a finding.
 |---|---|---|---|
 | 0 | eval — all 30 `tests_to_add` titles as executable failing tests | none | see git log |
 | 1 | `latchHalt` extraction + `adminHaltBatch` | 0 | **done** — 16 titles green |
-| 2 | the admin route | 1 | not started |
+| 2 | the admin route | 1 | **done** — the 7 `the admin halt route …` titles green |
 | 3 | `readAdminBatchSummary` + the panel + page wiring | 2 | not started |
 | 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | 1 | not started |
 

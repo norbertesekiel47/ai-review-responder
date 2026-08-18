@@ -247,3 +247,67 @@ these six files. `pnpm exec eslint` on all six is clean, and
    not the first time it is known to work.
 
 **Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D5 — Task 2: writing the route turned the eval file into a TYPECHECK failure
+
+Plan §3.3 says "follows `api/admin/autonomy/unsuspend/route.ts` exactly", and
+that route's export is the house shape shared by all 33 admin routes:
+
+```ts
+export const POST = withSameOrigin()(handler);
+```
+
+`withSameOrigin`'s wrapper type widens every handler's return to
+`Promise<Response>` (`src/lib/auth/route-helpers.ts:13-16`), because it is
+shared with routes that return a bare `Response`. The eval's route suite
+annotates its `Promise.all` map callbacks as
+`(response: NextResponse) => response.status` (routes.test.ts:167,184). `map`'s
+`callbackfn` is a **function-type** parameter, so `strictFunctionTypes` checks
+it contravariantly and `Response` is not assignable to `NextResponse` — two
+fresh **TS2345** errors.
+
+They did not exist during the Task 0 red run (D4 records typecheck as reporting
+"only the same missing symbols"), because `typeof import('../halt/route')` on a
+module that does not exist degrades to `any`. **Writing the module is what
+surfaced them.** Nothing in the plan anticipated this: §3.3 pins the export
+shape and Task 0 pins the annotation, and the two only become compatible once
+the module is real.
+
+Resolution, and why it is not the obvious one:
+
+- **Editing the test is out of surface** (Task 2 is
+  `src/app/api/admin/solicitation/**`), and the annotation is also the eval
+  author's stated intent — the suite expects the route to hand back a
+  `NextResponse`.
+- **Widening `WrappedNextHandler`** would fix it at the true source, but
+  `src/lib/auth/route-helpers.ts` is out of surface for every task on this
+  branch, and it retypes all 33 admin routes plus the dashboard ones for the
+  sake of one test annotation.
+- **Not fixing it** leaves the branch with a typecheck failure no later task
+  owns — Task 3's surface is the panel, Task 4's is docs — so
+  `verify-gate.sh` would fail at step 5 with nobody assigned to it.
+
+So the route keeps the canonical export and re-narrows at it:
+
+```ts
+export const POST = withSameOrigin()(halt) as typeof halt;
+```
+
+This is a **narrowing** assertion. Both arms reachable through the wrapper
+return a `NextResponse` — the handler's own returns, and the wrapper's 403,
+which is `NextResponse.json` (route-helpers.ts:33) — so no value flowing out of
+this export can be a plain `Response`. `ci:admin-aal2` still resolves the
+exported handler through the assertion and finds the `requireAdminWithAal2`
+call (audit passes, 33 admin route files scanned), so the recognized-gate shape
+is intact. The reasoning is repeated at the use site, because a reviewer meeting
+an `as` on a route export should not have to find this file to judge it.
+
+**Follow-up worth considering, not taken here:** `withSameOrigin` could be made
+return-type-preserving with one generic parameter, which would delete this
+assertion and every future one like it. That is a route-helpers change touching
+every wrapped route, so it belongs to its own ticket rather than to this
+branch's Task 2.
+
+**Verdict:** _(pending step 6 read-back)_
