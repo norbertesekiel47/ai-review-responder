@@ -43,14 +43,19 @@ this table, but a table that disagrees with git is itself a finding.
 
 | Task | What | Blocking edges | State |
 |---|---|---|---|
-| 0 | eval — all 30 `tests_to_add` titles as executable failing tests | none | see git log |
+| 0 | eval — all 30 `tests_to_add` titles as executable failing tests | none | **done** — `834457a3`, red run in deviations D4 |
 | 1 | `latchHalt` extraction + `adminHaltBatch` | 0 | **done** — 16 titles green |
-| 2 | the admin route | 1 | **done** — the 7 `the admin halt route …` titles green |
-| 3 | `readAdminBatchSummary` + the panel + page wiring | 2 | not started |
-| 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | 1 | not started |
+| 2 | the admin route | 1 | **done** — `6efae3a3`; export assertion reverted in `0e4d2cc9`, see D5 |
+| 3 | `readAdminBatchSummary` + the panel + page wiring | 2 | in progress — owns the deviations file |
+| 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | 1 | in progress — owns those two files only |
 
-Tasks 3 and 4 are marked mutually independent by the plan and may be dispatched
-in parallel once Tasks 1 and 2 have landed.
+Tasks 3 and 4 are marked mutually independent by the plan and were dispatched in
+parallel once Tasks 1 and 2 landed. **File ownership was partitioned to avoid a
+concurrent-write collision**, and a resumed session should keep that split if it
+re-dispatches either: Task 3 owns the deviations file, Task 4 owns `CONTEXT.md`
+and `docs/directory.md`, and the ORCHESTRATOR owns this handoff doc. Task 4 also
+writes the `batch-view.ts` directory row from **plan §3.2**, not from the file,
+which is mid-write while both run.
 
 ## Codex review thread
 
