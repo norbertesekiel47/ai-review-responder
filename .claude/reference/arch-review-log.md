@@ -6,7 +6,11 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** — reset by the **2026-08-15 pass**
+**Merges since last architecture pass: 5 — AT THE ≥ 5 THRESHOLD (2026-08-18).**
+The orchestrator has surfaced this to the owner; scheduling a pass is the owner's
+call and is never started automatically. Note the carried-forward caveat below:
+if **#857** and **#866** should have counted, the true figure is **7**. Reset by
+the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
 (entries below). **Not counted, and correctly so** — #830 (marketing copy),
@@ -30,6 +34,46 @@ handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
 
+- **PR #873** — #860 per-ask **Ask regeneration** surface (2026-08-18, squash
+  `0f81b9e7`). **Entropy-negative in concept, entropy-positive in one file, and
+  it makes a headline product guarantee unconditional.** No migration, env var,
+  flag or dependency. Ships **INERT** — `SOLICITATION_SEND_ENABLED` is unset in
+  every environment (verified on the Railway staging worker at merge), so the
+  route 404s and no control renders; the staging verification was a NEGATIVE one.
+  **Concept CLOSED:** #629's deviation D3. `regenerateAsk`'s four-state set
+  collapses to the predicate `isRegenerableBatchState(state) => state === 'built'`
+  (ADR **0020**, narrowing cross-spec amendment B2), so **Owner approval**'s
+  byte-for-byte guarantee loses its conditional in `CONTEXT.md` and in code —
+  enforced twice, at the pre-check and at the locked re-check under `FOR UPDATE`.
+  **Concept COINED:** **Ask regeneration** (`CONTEXT.md`).
+  **`approval.ts` gained a third owner verb** (`requestAskRegeneration`) and is
+  now the module the next pass should weigh: three verbs, and the round-1 review
+  asked directly whether it was becoming a junk drawer (verdict: still coherent).
+  Its shared `lockBatchForAction` now returns `{batch, state}` and is the single
+  owner of the lock+derive preamble — the three verbs keep DIFFERENT failure
+  expressions on purpose (two return `not_found`, one THROWS, because postgres.js
+  commits on a normal return and the enqueue has already written its outbox row).
+  **ADR 0020 was amended by its own PR's review** — the Consequences section
+  originally priced the post-approval recourse as "a real ergonomic cost"; the
+  adversarial axis showed, and the owner verified, that halting never clears
+  `solicitation_asks.status='send'`, so `MIN_GAP_DAYS` + `stale_visit` lose the
+  whole cohort for that visit. The ADR now says its own pricing "was wrong". The
+  cheaper recourse is **#872** (post-approval per-ask withdrawal), filed, not
+  built.
+  **What the next pass should look at:** (a) `ApprovalPanel.tsx` — ~980 lines,
+  a 21-key copy catalogue over four unions; cognitive complexity was taken 16 → 10
+  by four extractions, but the file-size question is untouched and was deliberately
+  NOT bundled into a gate fix; (b) **`RequestsClient` sits at cognitive 15,
+  exactly on fallow's threshold** — pre-existing, untouched, and the next hook or
+  JSX conditional added there fails CI; (c) `LaneRefresh`'s naming altitude —
+  `replace`/`in_place` name the PARENT's render mechanism and the tell is that
+  `Exclude<LaneRefresh, 'none'>` has to exist; a verb-level vocabulary
+  (`terminal`/`returns`/`reporting`) would need no `Exclude` (round-2 kept this
+  below the findings bar as a rename with no wrong call site); (d) the
+  three-axis review's own yield — the **adversarial axis caught a cross-tenant
+  409-vs-404 oracle that the spec axis examined and CLEARED**, which is the
+  strongest single datapoint this log has for keeping the third axis on
+  RISK = high.
 - **PR #870** — #859 `ci:tenant-scope` reads query blocks (2026-08-17, squash
   `649c43b5`). **Entropy-negative in production, entropy-positive in tooling,
   and it moves a security-gate baseline.** No migration, env var, flag or
