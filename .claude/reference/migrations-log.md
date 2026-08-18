@@ -1037,11 +1037,18 @@ Revisit triggers:
   `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname =
   'solicitation_outreach_status_reason_consistency';` — must contain
   `'owner_withdrawn'`, once, in the `cancelled` arm.
-  **LOCAL-ONLY** — applied to the rebuildable local test container only
-  (`pnpm test:db:setup`, 2026-08-18). **NOT YET APPLIED to staging or prod.**
-  **Applied to STAGING … / PRODUCTION …:** pending #872's ship step (step 8,
-  staging first); that change removes this LOCAL-ONLY marker and re-arms
-  `migration-immutability-guard.sh` for 109.
+  **Applied to STAGING 2026-08-18** (`kubdiqdhqbhwmqfditeg`, via `psql` over the
+  direct 5432 connection, one transaction, exit 0). Verified by introspection,
+  never by the migration ledger: `owner_withdrawn` occurs **once**, inside the
+  `cancelled` arm, and `md5(pg_get_constraintdef(oid))` matches the local
+  test DB at head byte-for-byte. Pre-flight showed staging at 108
+  (`owner_excluded` present, `owner_withdrawn` absent, zero rows carrying the
+  new value), so the widening was a no-op for existing data.
+  **PRODUCTION: NOT YET APPLIED** — it goes in at promotion, in lockstep with
+  the #883 merge (RISK = high lane). Until then this entry stays the record of a
+  half-lockstep migration; the standing prod exception list in
+  `.claude/CLAUDE.md` covers only 078, so do NOT add 109 there — it is simply
+  awaiting its own promotion window rather than being deliberately withheld.
 
 - **108** — `outreach_owner_excluded_disposition`: adds `owner_excluded` to
   `solicitation_outreach`'s **cancel** disposition set for the owner approval
