@@ -2123,7 +2123,7 @@ git commit -m "feat(872): per-ask Withdraw control behind an inline two-tap conf
 
 12 findings; 11 accepted (one partially), 1 rejected. What changed in this plan (revision 2):
 
-- **Decision extracted as a pure function.** `classifyWithdrawal(state, currentAttempt)` in `approval.ts`; `withdrawAsk` reads under the lock, applies it, writes only on `withdraw`. Second fast-check property over the whole state × attempt-status matrix; the first property's generator now emits only 091-valid lifecycle rows (`fc.pre`).
+- **Decision extracted as a pure function.** `classifyWithdrawal(state, currentAttempt)` in `approval.ts`; `withdrawAsk` reads under the lock, applies it, writes only on `withdraw`. Second fast-check property over the whole state × attempt-status matrix; the first property's generator now enforces 091's null-implication arms (`fc.pre`) — the arms that change `deriveBatchState`'s answer; chronology is outside the property's scope (wording corrected in round 2).
 - **Server count on the wire is READ, not re-derived.** `LaneOutcome.done` carries `remainingLive`/`closed`; `Announce` takes them; copy is "N messages left to send" / "That was the last one — this batch is finished."
 - **Eval hardened:** 13 added cases (see deviations D3 for the list); refusals snapshot four tables; abort-injection rollback; CHECK precondition asserts location + count of the new value; route asserts tenant VALUES + dual flag; panel status matrix, closed batch, disarm-on-refetch (arming cleared by effect).
 - **Citations repaired:** halt-describe range, `readBatch` shape, `SCOPED` scoping, `TenantSeed` fields, ADR 0012 misattribution (pre-existing; documented), ADR 0020 Consequences amended.
@@ -2138,3 +2138,7 @@ Rejected: "required skills do not exist" — they exist in the orchestrator's ca
 - Halted refusal and the `already_withdrawn` case snapshot the full four-table surface.
 - Generator comment states its honest scope (null-implication arms; chronology irrelevant to the property); `closed ⇒ built` added.
 - Foreign-tenant: "seed a real foreign ask" rejected — this suite's `tenant scope` precedent and helper shape; comment names the boundaries and the reason.
+
+### Plan review round 3 — codex, verification-only, `VERDICT: APPROVED` (`plan-round3-codex.md`)
+
+All four round-2 items ADDRESSED; no fix-introduced defect. One wording nit (the round-1 appendix line above) corrected in this commit. **Plan locked at revision 3.**
