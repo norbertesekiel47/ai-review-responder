@@ -4373,7 +4373,9 @@ this size** — size it as an epic.
 - **#861** — pin the load-failure copy so it cannot regress to a write-scoped
   claim. **Landed the same day, PR #869** (entry below).
 - **Still unfiled:** the admin/support halt surface. `admin_halt` remains a CHECK
-  member with no writer — a live-but-dead enum arm. **Since filed as #865.**
+  member with no writer — a live-but-dead enum arm. **Since filed as #865 and
+  SHIPPED in PR #876 (2026-08-18) — `admin_halt` now has its writer; see the
+  entry at the bottom of this file.**
 
 ## 2026-08-17 — #859 / #858 / #861: query-block tenant-scope audit, case-safe batch closure, read-failure copy pin (PRs #870, #868, #869)
 
@@ -4622,3 +4624,109 @@ a sync merge). Worktree removed via `scripts/feature-cleanup.sh --apply`.
 on the threshold — the next hook added there fails CI. `scoped-batch-route.ts`'s
 header still says "three POST routes" (now four; out of surface, D12). A **high**
 Dependabot alert on `nanoid` is pre-existing on `main` and needs its own ticket.
+
+## 2026-08-18 — #865: the admin Halt latch surface — `admin_halt` finally gets its writer (PR #876)
+
+Squash `9136d778`. 26 files, +5,717 / −69. No migration. RISK = high lane:
+ridden on `staging`, smoked against a seeded fixture, then merged on owner
+approval.
+
+### What shipped
+
+`admin_halt` had been a permitted member of migration 091's `halt_reason` CHECK
+since the executor landed, with **no code path able to write it** — and the
+owner-facing Requests copy for it ("RepWorth support stopped this batch") had
+already shipped with nothing behind it. This closes that.
+
+- **`latchHalt` extracted** in `src/lib/solicitation/approval.ts` — the single
+  private body both halt arms share. It owns, in order: the CAS on
+  `halted_at IS NULL`, the cancellation of `rendered`/`queued` outreach rows
+  (never `sending`), the audit row, the spine step, and `closeBatchIfSettled`.
+  A second halt adds neither receipt nor step; a throwing audit write rolls the
+  latch back with it.
+- **`adminHaltBatch`** — the second writer. Its reason is fixed at `admin_halt`
+  **by the caller's identity**, so no request field can name it; it requires a
+  free-text note and writes `solicitation_batch_admin_halted` to
+  `account_audit_log` inside the latch's own transaction.
+- **`POST /api/admin/solicitation/batch/halt`** — AAL2-gated, tenant ids
+  body-supplied (`accountId` + `businessId` + `batchId`), an explicit response
+  whitelist so `parentRunId` and spine vocabulary never reach an admin browser.
+- **`readAdminBatchSummary`** in `batch-view.ts` — the admin read projection:
+  **Batch state**, the built/approved/halted timestamps, `haltReason`, and three
+  separate counts (`cancellableCount`, `sendingCount`, `sentCount`) so no surface
+  can imply a stop recalls an in-flight send. Carries no subject or body.
+- **`SolicitationBatchPanel.tsx`** on `/admin/businesses/[id]`.
+
+### Four owner-locked decisions
+
+1. `halted_by` = the acting admin's `users.id`.
+2. Tenant ids body-supplied.
+3. #858 had landed (PR #868); canonicalise at the public entry point anyway.
+4. The surface is a panel on the existing Business detail page, not a new
+   cross-account list.
+
+### The two things this feature actually taught us
+
+**One non-goal was overturned by review.** The intake deliberately deferred
+`haltBatch`'s identical unbuilt-batch hole, on the stated premise that it was
+reachable only through a UI control the owner surface never renders. The
+adversarial axis falsified that: `readLatestBatch` hands the authenticated owner
+the unbuilt batch's id, and the halt endpoint accepts any valid `batchId` from
+its body. Halting a batch with `built_at IS NULL` then makes the builder's later
+`built_at` stamp violate `091:176` **inside the build transaction**, far from the
+request that caused it. A server-side lifecycle invariant cannot rest on a React
+button being absent. **Both verbs now refuse `pending`** (deviation D9), and the
+follow-up ticket plan §7 had promised is moot rather than deferred.
+
+**The staging ride found two defects the entire review apparatus missed**
+(deviation D10). Three parallel review agents and two live-DB integration suites
+all passed the branch; a real page rendering after a real write did not:
+
+- The panel subheading still read "The most recent solicitation send batch for
+  this location" — a description of the selection policy finding F1 had *deleted*
+  — while rendering an older `sending` batch over a newer `pending` one. The
+  screenshot was its own counterexample.
+- **F1's fix bit from the other side.** F1 made the live-send predicate the
+  leading sort key; *halting is precisely what makes that key flip*. So the
+  refetch after a successful stop fell back to `created_at DESC` and re-selected
+  the same newer `pending` decoy F1 was about — while the success receipt
+  survived the refetch. The operator saw "Batch stopped. 2 queued message(s)
+  cancelled." rendered above a batch reading `pending`, 0/0/0, "This batch is
+  still building."
+
+Fixed with a second sort key, `(built_at IS NOT NULL) DESC`, between the
+live-send predicate and the recency keys — chosen over pinning the acted-on
+summary in React state so the server stays the single owner of **Batch state**
+instead of the browser synthesising a post-halt projection. Two new live-DB
+cases, one of them asserting the new key does **not** swallow the recency
+tie-break; verified genuinely red before the fix by removing the key.
+
+Both defects exist only in the *composition* — write, refetch, render, with
+client state carried across. Neither the query nor the copy is wrong read alone.
+That is the argument for the staging ride being a real gate rather than a
+formality, and it is the most transferable thing on this branch.
+
+### Verification
+
+Gate GREEN (28 PASS + the owner-accepted `reclassify` WARN, D8 — production
+landed at 925 lines against a 420 estimate, because the estimate was anchored to
+a precedent file's size rather than the enumerated behaviours). All GitHub CI
+green. Staging smoke verified the whole write: `halt_reason='admin_halt'`,
+`halted_by` = the acting admin, exactly 2 rows → `cancelled`/`admin_halt`, the
+`sent` row untouched, one audit row carrying
+`{note, halt_reason, state_at_halt, cancelled_count}`, a `batch_halted` spine
+step, then `send_batch_closed` with the parent run terminalized `cancelled`.
+Fixture torn down; staging is back to zero solicitation rows.
+
+Rebased onto `main` **twice** mid-flight — after #873 (the agreed merge order
+with #860, deviation D1) and again after #875, which rewrote this branch's own
+enforcement machinery.
+
+**Open, not blocking:** two infrastructure defects found during the ship and
+filed separately — **#877**, `scripts/verify-gate.sh` races `db-provision`
+against the parallel checks so `ci:rls-audit` false-fails on any `db_touching`
+feature (dangerous because it clears on retry); and **#878**, a `staging` push no
+longer produces a `target:"staging"` deploy despite both the runbook and
+CLAUDE.md saying it does. Also filed: **#879** (`withSameOrigin` return-type
+preservation, D5) and **#880** (`useAdminActionForm`, now duplicated across five
+admin surfaces).

@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 5 — AT THE ≥ 5 THRESHOLD (2026-08-18).**
+**Merges since last architecture pass: 6 — PAST THE ≥ 5 THRESHOLD (2026-08-18).**
 The orchestrator has surfaced this to the owner; scheduling a pass is the owner's
 call and is never started automatically. Note the carried-forward caveat below:
 if **#857** and **#866** should have counted, the true figure is **7**. Reset by
@@ -33,6 +33,43 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #876** — #865 admin **Halt latch** surface (2026-08-18, squash
+  `9136d778`). **Entropy-negative where it matters: it gave a dead enum arm its
+  writer without adding a concept.** `admin_halt` had been a permitted
+  `halt_reason` CHECK member with no code path able to write it, and the
+  owner-facing copy for it had already shipped — so this closed a gap rather
+  than opening a surface. No migration, no env var, no feature flag, no
+  dependency; every value already existed in migrations 091 and 108.
+  **New single owner:** `latchHalt` in `src/lib/solicitation/approval.ts` — one
+  private body for both halt arms (`haltBatch`, `adminHaltBatch`), owning the
+  CAS, the cancellations, the audit row, the spine step and
+  `closeBatchIfSettled` in that order. This is the shape the codebase already
+  prefers (cf. `closeBatchIfSettled` itself) and it means a third halt writer
+  (`send_window_elapsed`/`batch_expired`, still unbuilt, #630) has one obvious
+  place to land. **Concept tightened, not added:** both halt verbs now refuse
+  `pending`, closing an API-reachable lifecycle hole the intake had explicitly
+  deferred — the deferral rested on UI reachability standing in for API
+  reachability, which is a reasoning error worth watching for elsewhere.
+  **New second read model** on `batch-view.ts` (`readAdminBatchSummary`) whose
+  ordering deliberately diverges from `readLatestBatch`'s — two read models over
+  one table with different selection policies is a real cost, and it is now
+  documented in three places because two separate defects came from that
+  divergence being implicit.
+  **What the next pass should look at:** (a) `src/lib/solicitation/approval.ts`
+  keeps growing — it now holds four public verbs plus the shared latch, and
+  #872 will add another; ask whether the halt lane wants its own module.
+  (b) The `useReducer` admin-form shape is now duplicated across FIVE admin
+  surfaces (#880) — the abstraction is earned and the duplication is the kind a
+  pass should force. (c) **Two workflow-infrastructure defects were found by
+  this ship, not by the tooling itself** — `verify-gate.sh` racing
+  `db-provision` (#877, and it clears on retry, so it self-conceals) and the
+  staging deploy target drift (#878). Both are the "surface the product counter
+  is structurally blind to" class this log already flagged for PR #803.
+  (d) The staging ride caught two defects that three review agents and two
+  live-DB suites all missed, because they existed only in the composition of
+  write → refetch → render; that is evidence about the *review apparatus*, not
+  about this branch.
 
 - **PR #873** — #860 per-ask **Ask regeneration** surface (2026-08-18, squash
   `0f81b9e7`). **Entropy-negative in concept, entropy-positive in one file, and
@@ -135,7 +172,8 @@ counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
   `batch-builder.ts` and `ask-generation.ts` with #630 still to land — worth
   asking whether `src/lib/solicitation/` wants sub-structure before, not after.
   (d) `admin_halt` remains a CHECK member with **no writer** — a live-but-dead
-  enum arm, still unfiled.
+  enum arm, still unfiled. **RESOLVED: filed as #865, shipped in PR #876
+  (2026-08-18); `latchHalt` + `adminHaltBatch` are its writer.**
 
   > **Counter caveat, surfaced rather than absorbed:** **PR #857** (#651
   > unsubscribe redemption pool) merged 2026-08-17 and has **no entry here**, so
