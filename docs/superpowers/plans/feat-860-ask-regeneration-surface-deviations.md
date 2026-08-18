@@ -444,3 +444,49 @@ two. Full reasoning: `feat-865-admin-halt-surface-deviations.md` § D1.
 > `headSha`; committing from the #865 session would move HEAD past the green
 > gate record and strand the stop gate. Fold this file into #860's next docs
 > commit, or drop it once #860 is merged.
+
+---
+
+## D15 — `reclassify` WARN: 1623 prod lines against a 620 estimate (lane confirmed, estimate wrong)
+
+**When:** step 5 (VERIFY GATE), after round-1 fixes landed.
+
+**What:** the gate's re-classification trigger fired —
+`production 1849 > 2x estimated_prod_lines (620)`. Step 0 was re-run against
+reality rather than waved through.
+
+**Verdict: lane CONFIRMED, no re-route.** Tested against every epic criterion,
+not the line count alone:
+
+| Criterion | Reality |
+|---|---|
+| `allowed_edit_surface` can't be tighter than a few top-level dirs | **No** — six narrow globs; `ci:feature-surface` passed over all 33 changed files |
+| Spans multiple risk domains (schema + billing + worker) | **No** — one domain (the solicitation approval lane); no migration, no billing, no `worker/` change |
+| Decomposes into more than ~8 tracer tickets | **No** — six tasks |
+| Open investigation questions grilling can't resolve | **No** — plan review closed at 3 rounds; no research spike |
+
+So this was a `normal`+ feature on the full pipeline, and the full pipeline is
+what it got, start to finish. **The estimate was the defect, not the routing.**
+
+**Measured:** 13 production files, **1623** prod lines, **1872** test lines —
+a test:prod ratio of **1.15:1**, which is the healthy direction. The #643 lesson
+the trigger encodes is estimating tests at 1:1 to dodge it; that did not happen
+here (the intake estimated 1600 test lines and 1872 landed, a 17% miss).
+
+**Why prod ran 2.6x:** most of the overage is **review-driven rework**, which by
+construction could not be in a pre-review estimate:
+
+- `e77a7215` (round-1 R1/R2 `LaneRefresh` refactor): **+686/−210**
+- `c5a7606f` (round-1 R3/R4/R5/R10/R11/R13): **+313/−38**
+
+"Changed lines" counts additions AND deletions, so a refactor rewriting 200
+lines scores 400. Round-1 fixes alone account for ~1250 of the 1849 the gate
+measured.
+
+**Lesson for the next estimate** (the honest one, not the flattering one): the
+620 figure priced the feature as *first-draft code*. It did not price the
+remount fix, because nobody knew the panel unmounted — that is what review is
+for. A high-RISK feature with a real UI surface should carry an explicit rework
+allowance in `estimated_prod_lines`, or the trigger will fire on every branch
+whose review actually worked. A branch that finishes near its estimate after a
+three-axis review found two High defects is the suspicious one.
