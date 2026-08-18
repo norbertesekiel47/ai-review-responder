@@ -7,7 +7,53 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-18 (#665/#662 offboarding purge verifier + suppressions console — Quick summary immediately below. Prior entry: #865 admin Halt latch surface.)
+Last updated: 2026-08-18 (#872 **Ask withdrawal** — Quick summary immediately below. Prior entry: #665/#662 offboarding purge verifier + suppressions console.)
+
+## Quick summary — #872 **Ask withdrawal** (2026-08-18, PR #883)
+
+**Until today, an owner who spotted one wrong message after approving a batch
+had exactly one lever, and it cost them the whole cohort.** The **Halt latch**
+stops a batch; it does not spare the other contacts, and because a halted ask
+keeps `status='send'`, everyone in that batch is `over_contacted` for
+`MIN_GAP_DAYS` — so a rebuild inside 30 days withholds them all. The cost of
+one bad message was every message.
+
+**Ask withdrawal is the cheap lever.** The owner taps `Withdraw` on a single
+row; that one **Outreach row** goes `cancelled` / `owner_withdrawn` and nobody
+else in the batch is affected. It is legal in exactly the **Batch states** where
+the latch would have cancelled that row — `veto_window`, `approved`, `sending`
+— and the row itself must be `rendered` or `queued`, **never `sending`**: halt's
+"no further sends, not undo" contract is inherited whole rather than re-argued.
+
+**It only ever moves toward restraint.** It removes a message; it never adds,
+replaces or edits one. That is why it needs no re-lint, no re-moderation and no
+per-ask approval state (the batch stays approved, `approved_at` and the veto
+clock untouched), and why it does not reopen ADR 0020, whose subject is
+*replacing* approved bytes: a message that does not send cannot violate **Owner
+approval**'s byte-for-byte guarantee. ADR 0021 records that argument.
+
+**What it does not do:** it does not release the contact. A withdrawn ask keeps
+`status='send'` exactly like a halted one, so that person stays
+`over_contacted` for `MIN_GAP_DAYS`. The saving is the *other* contacts — one
+lost instead of the cohort.
+
+Two details worth knowing:
+
+- **It is keyed on the ask, not the row.** The verb resolves the live attempt
+  under the batch lock, so a stale tab still withdraws the right message.
+- **Idempotence outranks the state gate.** Withdrawing the last live row settles
+  the batch, so a retry on that very row arrives in `closed` — it still answers
+  "already withdrawn" (a fact about the row) rather than a 409 about the batch.
+
+The new shape:
+
+| Where | What |
+|---|---|
+| `supabase/migrations/109_outreach_owner_withdrawn_disposition.sql` | Widens 108's cancel arm by one value, `owner_withdrawn`. Applied to **staging and production** in lockstep on merge day; all three databases (local, staging, prod) carry a byte-identical constraint. |
+| `src/lib/solicitation/approval.ts` | `withdrawAsk` — the fifth human-triggered verb, appended beside approve / halt / adminHalt / regenerate. Same lock order as the latch (advisory batch → batch row → outreach row → spine), one transaction, one `ask_withdrawn` step, then `closeBatchIfSettled`. The decision itself is the pure `classifyWithdrawal(state, attempt)`. It deliberately does **not** share #865's private `latchHalt` — the latch writes `halted_at` on the batch and withdrawal writes nothing there. |
+| `src/app/api/dashboard/solicitation/batch/withdraw/route.ts` | Thin route over `withScopedBatch`; `{ batchId, askId }` body read by the hoisted `readBatchAsk` (now shared with regenerate). 200 withdrawn · 200 already-withdrawn · 409 not-withdrawable / not-live · 404 not-found. |
+| `src/app/(authenticated)/dashboard/requests/AskList.tsx` | `WithdrawableAskList` — a third sibling list. Per live row a `Withdraw` control behind an inline two-tap confirm; the read-only `AskList` stays structurally unable to render a control. |
+| `src/app/(authenticated)/dashboard/requests/ApprovalPanel.tsx` | New `withdrawable` display facet, the `useArmedWithdrawal` hook (one armed row at a time; disarms when a refetch drops the row), and copy that announces the **server's** remaining count — never a client-side subtraction, because the client cannot see an in-flight row. |
 
 ## Quick summary — #665 purge-verifier blind spots · #662 suppressions console (2026-08-18, PR #882)
 
