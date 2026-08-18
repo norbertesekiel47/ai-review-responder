@@ -7,7 +7,62 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-18 (#865 admin **Halt latch** surface — Quick summary immediately below. Prior entry: #860 per-ask Ask regeneration surface.)
+Last updated: 2026-08-18 (#665/#662 offboarding purge verifier + suppressions console — Quick summary immediately below. Prior entry: #865 admin Halt latch surface.)
+
+## Quick summary — #665 purge-verifier blind spots · #662 suppressions console (2026-08-18, PR #882)
+
+**Two low-severity defects filed off earlier ships, both about a system telling
+the truth about itself. Nothing a customer could see was broken; what was broken
+was the machinery that would have told us if it were.**
+
+**#665 — the account-purge verifier was not checking everything the purge
+clears.** When an owner deletes their data, one stage tombstones their business
+rows and a second stage re-reads them to confirm nothing survived. The re-read
+listed 17 columns. The tombstone cleared 22 — including the owner-attested
+**physical postal address** and its four attestation columns. Nothing leaked:
+the write side really did clear them. But had a future change stopped clearing
+them, verification would have said "clean" and the purge would have completed.
+The verifier now covers every column the tombstone writes — the five postal
+columns the issue named, plus `category`, `tone`, both Stripe identifiers and
+`archived_at`, which no issue had named.
+
+This matters more than a detector usually would, because the verifier runs
+*inside* the finalize transaction and **throws**. It is a gate, not a report: a
+purge that fails verification does not complete.
+
+**#662.1 — a receipt that outlived its own truth.** On `/admin/suppressions`, an
+admin who recorded an opt-out saw a green receipt. If they then corrected that
+record, the lookup panel updated to "Not suppressed" while the receipt directly
+below still read "Already suppressed — no change." Two panels, one screen,
+opposite claims about the same address. The receipt is now cleared whenever a
+correction settles the ledger — including the already-removed case, which
+*returns* rather than throws and is therefore just as settled. A correction that
+genuinely **fails** deliberately leaves the receipt and the row alone.
+
+**#662.2 — `PRIOR CORRECTIONS` showed a raw UUID.** The audit trail answered
+"who removed this?" with `6b7a3503-1257-4f79-8e5e-6af46527f0a9`. It now shows
+`Name (email)`, falling back to the raw UUID when the user row is genuinely
+gone. No foreign key was added: a compliance record must outlive every referent
+it names.
+
+**One documentation fix that is really a warning.** A comment claimed the new
+`users` join needed no tenant-scope exception because it was "structurally
+scoped". It is not. `users` is not in the audit's table list at all, so
+`ci:tenant-scope` never formed an opinion about it — a green audit is not a
+review of a join it cannot see. What makes the join safe is its shape: one
+primary-key lookup per correction, behind the admin MFA gate, returning staff
+identity and never tenant data.
+
+**The new shape**
+
+| File | What it is now |
+|---|---|
+| `src/lib/account-offboarding/purge-verification.ts` | The `businesses` residue predicate covers all 27 tombstoned columns. Two are not residue checks: `tone` compares with `IS DISTINCT FROM` because the tombstone restores a schema default on a nullable column, and `archived_at IS NULL` is a violation because the tombstone *sets* it. |
+| `src/lib/admin/suppressions-service.ts` | `lookupSuppressions` `LEFT JOIN`s `users` and returns `removedByUserLabel`. |
+| `src/app/admin/suppressions/SuppressionsClient.tsx` | Renders the label; the correction mutation calls `entry.reset()`. |
+| `scripts/ci/tenant-scope-allowlist.ts` | Corrections entry re-pinned for the new query shape. Baseline unchanged at **381**. |
+
+No migration, no env var, no feature flag, no new dependency, no new file.
 
 ## Quick summary — #865 admin **Halt latch** surface (2026-08-18, PR #876)
 

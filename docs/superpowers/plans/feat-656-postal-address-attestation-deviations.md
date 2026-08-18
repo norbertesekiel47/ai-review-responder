@@ -162,6 +162,11 @@ explicit paths FIRST** — `git add <path> …`, never `-A`.
 
 ## D6 — Known gap deferred to #665: the purge VERIFIER is blind to the new columns
 
+> **RESOLVED 2026-08-18 by PR #882** (squash `fe21d02d`), which closed #665. The
+> record below stands as written; it describes the state at #656's ship. The fix
+> went further than this entry scopes: the verifier now covers every column the
+> tombstone `UPDATE` writes, not only the five attestation columns.
+
 **Found at:** T7–T9 execution. **Owner-decided 2026-08-04: file a ticket, do not
 spend surface amendment #2.**
 

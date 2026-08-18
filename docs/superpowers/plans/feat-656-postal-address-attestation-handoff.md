@@ -85,6 +85,7 @@ watch-mode ask decision rows. Nothing was sent; send is off. Delete by
 
 - **#665** — `purge-verification.ts` is blind to the five new columns. Purge itself
   is correct and tested three ways; only the detector is blind (D6).
+  **RESOLVED 2026-08-18 by PR #882 (`fe21d02d`) — no longer deferred work.**
 - `src/lib/solicitation/ask-render.ts:42` cites #627 for the column's provenance.
 - Locked spec §2.4 cross-references §6.3 where it means §7.5/§7.6.
 
@@ -308,6 +309,7 @@ copies byte-identical) — the exact step D4 skipped in v1.
   the five attestation columns. The purge itself is correct and tested three ways;
   only the detector is blind (D6). Out of surface; fixing it would have been
   amendment #2 of 2.
+  **RESOLVED 2026-08-18 by PR #882 (`fe21d02d`) — no longer deferred work.**
 - `src/lib/solicitation/ask-render.ts:42` still cites **#627** for the column's
   provenance; **#656** landed it. Out of surface (D6).
 - Locked spec #622 **§2.4** cross-references **§6.3** where it means §7.5/§7.6.

@@ -6,10 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 6 — PAST THE ≥ 5 THRESHOLD (2026-08-18).**
+**Merges since last architecture pass: 7 — PAST THE ≥ 5 THRESHOLD (2026-08-18).**
 The orchestrator has surfaced this to the owner; scheduling a pass is the owner's
 call and is never started automatically. Note the carried-forward caveat below:
-if **#857** and **#866** should have counted, the true figure is **7**. Reset by
+if **#857** and **#866** should have counted, the true figure is **8**. Reset by
 the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
@@ -34,6 +34,40 @@ handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
 
+- **PR #882** — #665 purge-verifier blind spots + #662 suppressions-console
+  receipt/actor (2026-08-18, squash `fe21d02d`). **Entropy-negative: it removed
+  a detector blind spot and a false statement about an audit's reach, adding no
+  concept.** No migration, env var, flag, dependency or new file; ~45 production
+  lines across three files. **Counted** — it has production lines, which is the
+  line #869's *not counted* entry actually draws, not the commit-type prefix
+  (cf. `fix(858)`/#868, counted).
+  **What changed architecturally.** `purge-verification.ts`'s `businesses`
+  residue predicate went from 17 columns to 27 — the five migration-099 postal
+  attestation columns the issue named, plus `category`, `tone`,
+  `stripe_customer_id`, `stripe_subscription_id` and `archived_at`, which no
+  issue had named. The read side now covers **every** column the tombstone
+  `UPDATE` in `worker/jobs/account-offboarding/purge-stages.ts` writes. That
+  write/read pair is now closed, and closing it is the point: the verifier runs
+  *inside* the finalize transaction and **throws**, so it is a gate, not a
+  report.
+  **New shape worth a pass's attention.** Two predicates are not residue checks
+  and read as exceptions to the branch's rule — `tone IS DISTINCT FROM` its
+  schema default (the tombstone RESTORES rather than nulls) and
+  `archived_at IS NULL` (the tombstone SETS it). A third kind of column in this
+  branch would be the signal that the predicate list wants a declarative
+  column→expectation table instead of one hand-maintained `OR` chain. It does
+  not want one yet at 27.
+  **Allowlist baseline unchanged at 381.** The
+  `solicitation_suppression_corrections` entry's `sqlSnippet` was re-pinned only
+  to stay byte-exact after `lookupSuppressions` gained a `LEFT JOIN users`.
+  **Concept corrected, not added:** that entry's comment had claimed the `users`
+  join was "structurally scoped and needs no exception". It is not — `users` is
+  absent from `TENANT_TABLES`, so `ci:tenant-scope` forms no opinion and no
+  exception is *possible*. **The next pass should treat this as a class, not an
+  incident:** the audit is silent on every table outside `TENANT_TABLES`, and
+  nothing distinguishes "reviewed and exempt" from "never in scope" at a call
+  site. A reader who trusts a green audit as a review of a cross-tenant join
+  will be wrong again somewhere else.
 - **PR #876** — #865 admin **Halt latch** surface (2026-08-18, squash
   `9136d778`). **Entropy-negative where it matters: it gave a dead enum arm its
   writer without adding a concept.** `admin_halt` had been a permitted
