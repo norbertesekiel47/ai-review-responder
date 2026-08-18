@@ -4730,3 +4730,134 @@ longer produces a `target:"staging"` deploy despite both the runbook and
 CLAUDE.md saying it does. Also filed: **#879** (`withSameOrigin` return-type
 preservation, D5) and **#880** (`useAdminActionForm`, now duplicated across five
 admin surfaces).
+
+## 2026-08-18 — #665/#662: the purge verifier stops lying by omission, and the suppressions console stops lying by staleness (PR #882)
+
+Two low-severity issues filed off earlier ships, fixed together because they
+share a shape: in both, nothing a customer could see was broken — what was
+broken was the machinery that reports on it.
+
+### What shipped
+
+**#665 — `purge-verification.ts` was blind to columns the purge clears.**
+`worker/jobs/account-offboarding/purge-stages.ts` tombstones an account's
+`businesses` rows; `src/lib/account-offboarding/purge-verification.ts` re-reads
+them and counts residue. The write side cleared 22 columns. The read side
+checked 17. Missing were the five owner-attested postal-address columns from
+migration 099 (#656) — a **physical postal address** and its attestation tuple —
+and, found while fixing that, `category`, `tone`, `stripe_customer_id`,
+`stripe_subscription_id` and `archived_at`.
+
+Nothing had leaked. #656's purge really does clear all five postal columns, and
+that was proven three ways at the time. The defect was in the **detector**: a
+regression that stopped clearing them would have passed verification silently.
+
+The severity is higher than "a detector was incomplete" suggests, because
+`verifyAccountOffboardingPurge` runs **inside** `finalizePurgeInTransaction` and
+**throws** on a violation, rolling the transaction back. It is a gate, not a
+report. A blind gate is an open one.
+
+**#662.1 — the manual-entry receipt outlived the fact it described.** Record a
+manual opt-out twice on `/admin/suppressions` and the entry panel shows the
+first-write-wins line *"Already suppressed — no change."* Take the Correction
+path on that row and the lookup panel correctly re-reads to *"Not suppressed"* —
+while the entry receipt below still claims the opposite. This is the inverse of
+#644's locked rule: *a receipt is necessary, never sufficient*. Here the receipt
+outlived the state it reported on.
+
+**#662.2 — `PRIOR CORRECTIONS` rendered `removed_by_user_id` verbatim.** Correct
+data, unreadable audit trail: the servicing admin had to look a UUID up to
+answer the one question the record exists to answer.
+
+### The three fixes
+
+1. **All ten missing columns added to the `businesses` residue predicate**
+   (17 → 27). Named explicitly rather than probed through migration 099's
+   all-or-nothing CHECK, so the predicate survives a future relaxation of that
+   constraint.
+2. **`entry.reset()` in the correction mutation's `onSuccess`** — the exact fix
+   #662 prescribed. It fires for a confirmed removal **and** for the
+   already-removed 404, because `submitCorrection` *returns* that outcome rather
+   than throwing: both settle the ledger. A genuine failure throws, and
+   deliberately preserves the receipt and the row.
+3. **`lookupSuppressions` `LEFT JOIN`s `users`** and returns
+   `removedByUserLabel` as `Name (email)`, degrading to the raw UUID when the
+   row is gone. No FK and no denormalized snapshot: migration 098's compliance
+   record must outlive every referent it names.
+
+### Scope call worth recording
+
+The five non-postal columns were **not** in #665, which named exactly the five
+postal ones. They were added on the owner's explicit instruction after review
+raised them as the same blindness class. The branch therefore does more than its
+issue asked; the alternative on the table was a follow-up issue.
+
+### Gotchas this branch created or hardened
+
+1. **A tombstone that RESTORES a default needs `IS DISTINCT FROM`, not `<>`.**
+   `tone` is the one column the purge sets to a literal (`'professional and
+   friendly'`) instead of nulling, and it is nullable. `NULL <> 'x'` is NULL, not
+   true — so a naive `<>` lets a nulled `tone` walk past the predicate written to
+   catch it. Proven by falsification: downgrading the operator fails the
+   `tone (nulled)` case.
+2. **`archived_at IS NULL` is the branch's only non-residue predicate.** The
+   tombstone *sets* it via `COALESCE(archived_at, NOW())`, so NULL means the row
+   was never tombstoned at all — a failure no residue predicate can detect,
+   because an untouched row whose optional columns happen to be empty looks
+   purged to all of them.
+3. **A backtick inside a SQL comment terminates the Postgres.js template
+   literal.** Explaining a predicate in `--` comments inside a `sql\`\`` template
+   is normal here; writing `` `tone` `` in that comment is a syntax error four
+   lines later (`TS1005`). Prose only inside embedded SQL comments.
+4. **An all-or-nothing CHECK forces combined-restore tests, which cannot prove
+   individual predicate names.** Migration 099's constraint means the five postal
+   columns move together, so that test leans on a SQL-shape assertion to prove
+   all five names appear. Where no such constraint exists, **per-column
+   isolation is strictly stronger** and catches what the shape assertion cannot:
+   a predicate naming the right column with the *wrong comparison*. Verified by
+   drifting the `tone` literal — the shape assertion still passed; the isolated
+   case failed.
+5. **A green `ci:tenant-scope` is not a review of a cross-tenant join.** `users`
+   is absent from `TENANT_TABLES` (`scripts/ci/tenant-tables.ts`), so the audit
+   forms no opinion about `LEFT JOIN users` and **no exception is possible** —
+   which is not the same fact as the join being tenant-scoped. The comment
+   shipped in review saying the latter. Nothing distinguishes "reviewed and
+   exempt" from "never in scope" at a call site, which makes this a class rather
+   than an incident.
+
+### Review record
+
+Two plan rounds (round 1 `REVISE` → round 2 `APPROVED`) and two branch rounds
+(both `APPROVED`) — artifacts in
+`docs/reviews/codex-fix-665-662-offboarding-suppressions/`. Plan round 1's
+accepted finding is the origin of gotcha 4.
+
+A post-merge validation pass then found three residual items, all fixed on the
+same branch before merge: the wrong stated reason in the tenant-scope comment
+(gotcha 5), the five further unverified columns, and a missing test for the
+already-removed 404 arm. A dated correction was **appended** to
+`plan-review-round2.md` rather than editing the reviewer's verdict — that round
+had recorded the join as covered by "an explicit tenant-scope allowlist entry".
+
+### Verification
+
+Every fix is **falsified**, not merely covered — reverting any one fails a named
+test: the five postal predicates (shape assertion *and*, independently, the
+violation count); all five new tombstone predicates (`category: expected +0 to
+be 1`); the drifted `tone` literal; `IS DISTINCT FROM` → `<>`
+(`tone (nulled)`); `entry.reset()` (3 tests); `removedByUserLabel`.
+
+Local on the merged tree: `pnpm test` 12,658 passed / 0 failed, typecheck, lint,
+all 18 `ci:*` audits, `pnpm build`, `pnpm test:coverage` + `ci:fallow:coverage`
+("No issues in 13 changed files"), react-doctor 0.9.11. All GitHub CI green;
+React Doctor 92/100, 0 errors, 0 warnings. Tenant-scope baseline unchanged at
+**381**. Rebased onto `main` three times mid-flight — after #875, #876 and #881.
+
+**Not ridden through staging.** Owner call at merge, recorded here because the
+CLAUDE.md rule says worker-touching changes ride `staging` first and the #665
+half is worker code. The argument accepted: this adds SQL predicates to a
+detector already exercised end-to-end by live-DB integration tests against real
+Postgres at migrations head — including the actual tombstone-then-verify path —
+with no queue, webhook, external call or migration in the diff, and every new
+predicate already satisfied by a write side that has cleared those columns for
+many releases.
