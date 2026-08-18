@@ -16,6 +16,7 @@ file points at it and restates nothing.
 | Glossary | `CONTEXT.md` → **Ask withdrawal** (LOCKED); **Owner approval** and **Ask exclusion** entries cross-reference it |
 | Plan reviews | `docs/reviews/feat-872-ask-withdrawal/plan-round{1,2,3}-codex.md` — each carries its triage table |
 | Source ticket | GitHub #872 (`gh issue view 872`) |
+| Pull request | **#883, DRAFT** (`gh pr view 883`) — opened at step 8 with the D5 / review-rejection positions in its body; stays draft until feat-865 lands, the rebase + gate re-run, and the staging ride (see NEXT below) |
 
 ## Owner-locked decisions (do not re-litigate; reasoning in the intake + ADR 0021)
 
@@ -98,8 +99,11 @@ _(updated below as the run advances)_
 ## NEXT — step 8 (SHIP, RISK = high lane) — needs the owner at two points
 
 Precondition: **feat-865 must land on `main` first (D1).** If it has not, STOP
-after opening the draft PR and wait — do not merge ahead of it, do not rebase
-onto its unmerged branch.
+and wait — do not merge ahead of it, do not rebase onto its unmerged branch.
+**Done so far (2026-08-18):** branch pushed to `origin/feat-872-ask-withdrawal`
+(lefthook pre-push green) and **draft PR #883** opened; nothing pushed to
+`staging`; migration 109 NOT applied anywhere but the local test DB. The
+session parked here because feat-865 had no PR yet.
 
 1. `git fetch origin && git rebase origin/main` (after feat-865 merges).
    Expected conflict surface: none in `approval.ts` (append after
