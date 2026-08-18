@@ -23,6 +23,7 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 
 // DELEGATING spies over the three collaborators the admin arm's ORDER claim is
 // about (#865). Each forwards to the real implementation, so every pre-existing
@@ -60,6 +61,7 @@ import {
   approveBatch,
   haltBatch,
   requestAskRegeneration,
+  withdrawAsk,
   type RequestAskRegenerationResult,
 } from '../approval';
 // NAMESPACE import for the admin arm (#865). A named `import { adminHaltBatch }`
@@ -378,6 +380,8 @@ function renderInput(
 interface BatchApprovalRow {
   approval_method: string | null;
   approved_at: string | null;
+  approved_by_user_id: string | null;
+  veto_deadline_at: string | null;
   send_closed_at: string | null;
   gap_minutes: number | null;
 }
@@ -386,6 +390,8 @@ async function readBatch(batchId: string): Promise<BatchApprovalRow> {
   const [row] = await sql()<BatchApprovalRow[]>`
     SELECT approval_method,
            approved_at::text AS approved_at,
+           approved_by_user_id::text AS approved_by_user_id,
+           veto_deadline_at::text AS veto_deadline_at,
            send_closed_at::text AS send_closed_at,
            EXTRACT(EPOCH FROM (veto_deadline_at - approved_at))::int / 60 AS gap_minutes
     FROM solicitation_batches
@@ -445,6 +451,120 @@ async function stampClosedBatch(batchId: string): Promise<void> {
       AND account_id = ${accountId()}::uuid
       AND business_id = ${businessId}::uuid
   `;
+}
+
+/** An approved batch inside its veto window — the state the panel calls
+ *  `haltable` and the first of the three withdrawable states. */
+async function stampVetoWindowBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '2 minutes',
+        approval_method = 'owner',
+        approved_by_user_id = ${userId()}::uuid,
+        veto_deadline_at = NOW() + INTERVAL '13 minutes'
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** An approved batch whose veto window has elapsed and whose drip has not
+ *  started — Batch state `approved`. */
+async function stampApprovedBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '20 minutes',
+        approval_method = 'owner',
+        approved_by_user_id = ${userId()}::uuid,
+        veto_deadline_at = NOW() - INTERVAL '5 minutes'
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** An auto-lane approval (#631's shape): `approval_method='auto_policy'`,
+ *  no acting user. Withdrawal must not gate on the method. */
+async function stampAutoApprovedBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '2 minutes',
+        approval_method = 'auto_policy',
+        approved_by_user_id = NULL,
+        veto_deadline_at = NOW() + INTERVAL '58 minutes'
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** The live status/reason CHECK, as Postgres renders it. */
+async function statusReasonDefinition(db: postgresType.Sql): Promise<string> {
+  const [row] = await db<{ definition: string }[]>`
+    SELECT pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint
+    WHERE conname = 'solicitation_outreach_status_reason_consistency'
+      AND conrelid = 'solicitation_outreach'::regclass
+  `;
+  return row?.definition ?? '';
+}
+
+/** 109 REPLACES 108's status/reason CHECK under the SAME NAME, so
+ *  `assertSchemaReady` cannot tell them apart (see the 108 note in
+ *  schema-ready.ts). The distinguishing fact is the new member, and the only
+ *  honest precondition is the constraint's DEFINITION — the same technique
+ *  `assertAnalyticsEventNamesRegistered` uses. It asserts the value appears
+ *  EXACTLY once and inside the `cancelled` arm, so a malformed 109 that admits
+ *  it under another status fails here, loudly, not in a later UPDATE. Local to
+ *  this suite because it is the only writer of the value. */
+async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void> {
+  const definition = await statusReasonDefinition(db);
+  const occurrences = definition.split(`'owner_withdrawn'`).length - 1;
+  // Postgres renders `x IN (…)` as `x = ANY (ARRAY[…])`; the cancelled arm is
+  // the one whose status literal is 'cancelled'.
+  const cancelledArm = /delivery_status = 'cancelled'::text\)\s*AND\s*\(disposition_reason = ANY \(ARRAY\[[^\]]*\]/.exec(
+    definition,
+  );
+  if (occurrences === 1 && cancelledArm !== null && cancelledArm[0].includes(`'owner_withdrawn'`)) {
+    return;
+  }
+  throw new Error(
+    'test database is behind head or 109 is malformed — ' +
+      `solicitation_outreach_status_reason_consistency admits 'owner_withdrawn' ${occurrences} time(s) ` +
+      `(${cancelledArm === null ? 'no cancelled arm found' : 'cancelled arm: ' + cancelledArm[0]}). ` +
+      'Run `pnpm test:db:setup`.',
+  );
+}
+
+/**
+ * Every table a withdrawal may touch, as text, so a REFUSAL can be proven to
+ * have written NOTHING — not just nothing on `solicitation_outreach`.
+ * postgres.js commits on a normal callback return, so a refusal that had
+ * already updated the batch, an ask or a step would commit that write while
+ * reporting a refusal (plan review round 1, finding 4).
+ */
+async function snapshotWithdrawSurface(
+  batchId: string,
+  parentRunId: string,
+): Promise<{ batch: string; outreach: string[]; asks: string; steps: string }> {
+  const [asks] = await sql()<{ snapshot: string }[]>`
+    SELECT COALESCE(string_agg(a::text, '|' ORDER BY a.id), '') AS snapshot
+    FROM solicitation_asks a
+    WHERE a.batch_id = ${batchId}::uuid
+      AND a.account_id = ${accountId()}::uuid
+      AND a.business_id = ${businessId}::uuid
+  `;
+  const [steps] = await sql()<{ snapshot: string }[]>`
+    SELECT COALESCE(string_agg(s::text, '|' ORDER BY s.step_index), '') AS snapshot
+    FROM agent_run_steps s
+    WHERE s.agent_run_id = ${parentRunId}::uuid
+  `;
+  return {
+    batch: await snapshotBatch(batchId),
+    outreach: await snapshotOutreach(batchId),
+    asks: asks?.snapshot ?? '',
+    steps: steps?.snapshot ?? '',
+  };
 }
 
 /**
@@ -661,6 +781,7 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
       MIGRATION_108_OUTREACH_OWNER_EXCLUDED,
     ]);
+    await assertOwnerWithdrawnAdmitted(db);
     tenant = await seedTenantAccount(db, {
       userName: 'Approval Owner',
       accountDisplayName: 'Approval Account',
@@ -1313,6 +1434,464 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         RETURNING id
       `;
       expect(stamped.count).toBe(1);
+    });
+  });
+
+  describe('withdrawAsk', () => {
+    function withdraw(
+      batch: RenderedBatch,
+      askId: string,
+      overrides: Partial<{ accountId: string; businessId: string; batchId: string }> = {},
+    ) {
+      return withdrawAsk(sql(), {
+        batchId: overrides.batchId ?? batch.batchId,
+        askId,
+        accountId: overrides.accountId ?? batch.accountId,
+        businessId: overrides.businessId ?? batch.businessId,
+        withdrawnByUserId: batch.userId,
+      });
+    }
+
+    it('withdraws one rendered ask owner_withdrawn in the same transaction and records ask_withdrawn on the send parent', async () => {
+      const batch = await seedRenderedBatch({ renders: 3 });
+      await stampVetoWindowBatch(batch.batchId);
+      const target = batch.asks[0]!;
+
+      const result = await withdraw(batch, target.askId);
+
+      expect(result).toMatchObject({
+        status: 'withdrawn',
+        remainingLive: 2,
+        close: { status: 'not_settled', liveCount: 2 },
+      });
+      const rows = await readOutreach(batch.batchId);
+      expect(rows.find((row) => row.id === batch.outreachIds[0])).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_withdrawn',
+      });
+      // The two untouched rows are still live — one row, not the cohort.
+      expect(rows.filter((row) => row.delivery_status === 'rendered')).toHaveLength(2);
+
+      const steps = await readSteps(batch.parentRunId, 'ask_withdrawn');
+      expect(steps).toHaveLength(1);
+      expect(stepDetail(steps[0]!)).toMatchObject({
+        ask_id: target.askId,
+        outreach_id: batch.outreachIds[0],
+        withdrawn_by: batch.userId,
+        delivery_status_before: 'rendered',
+        remaining_live: 2,
+        state_at_withdrawal: 'veto_window',
+      });
+      // The batch is still approved and its veto clock untouched: no per-ask
+      // approval state, no re-minted deadline (ADR 0021 property 2).
+      const after = await readBatch(batch.batchId);
+      expect(after.approved_at).not.toBeNull();
+      expect(after.gap_minutes).toBe(15);
+      expect(after.send_closed_at).toBeNull();
+    });
+
+    it('withdrawal is legal in veto_window, approved and sending and refused in built, halted and closed', async () => {
+      // Three separate batches so the one-active-send index never contends.
+      const inVeto = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(inVeto.batchId);
+      const halted = await seedRenderedBatch({ renders: 1 });
+      const built = await seedRenderedBatch({ renders: 1 });
+      const closed = await seedRenderedBatch({ renders: 1 });
+      await stampClosedBatch(closed.batchId);
+      // Past the 7-day approval window and never approved: `expired`.
+      const expired = await seedRenderedBatch({ renders: 1, builtAgo: '8 days' });
+      const refusedBefore = {
+        built: await snapshotWithdrawSurface(built.batchId, built.parentRunId),
+        closed: await snapshotWithdrawSurface(closed.batchId, closed.parentRunId),
+        expired: await snapshotWithdrawSurface(expired.batchId, expired.parentRunId),
+      };
+
+      expect(await withdraw(inVeto, inVeto.asks[0]!.askId)).toMatchObject({ status: 'withdrawn' });
+      // The veto batch is now settled (its only row is gone), so a second
+      // batch may take the active-send slot for the `approved` case.
+      const approved = await seedRenderedBatch({ renders: 1 });
+      await stampApprovedBatch(approved.batchId);
+      expect(await withdraw(approved, approved.asks[0]!.askId)).toMatchObject({ status: 'withdrawn' });
+      const sending = await seedRenderedBatch({ renders: 1 });
+      await stampSendingBatch(sending.batchId);
+      expect(await withdraw(sending, sending.asks[0]!.askId)).toMatchObject({ status: 'withdrawn' });
+
+      // Halt the `halted` fixture through the real latch, then probe it.
+      await haltBatch(sql(), {
+        batchId: halted.batchId,
+        accountId: halted.accountId,
+        businessId: halted.businessId,
+        haltedByUserId: halted.userId,
+      });
+      // Snapshot AFTER the halt so the refusal below is judged against the
+      // latched, settled state the halt left behind.
+      const haltedBefore = await snapshotWithdrawSurface(halted.batchId, halted.parentRunId);
+      expect(await withdraw(halted, halted.asks[0]!.askId)).toEqual({
+        status: 'not_withdrawable',
+        state: 'halted',
+      });
+      expect(await snapshotWithdrawSurface(halted.batchId, halted.parentRunId)).toEqual(haltedBefore);
+      expect(await withdraw(built, built.asks[0]!.askId)).toEqual({
+        status: 'not_withdrawable',
+        state: 'built',
+      });
+      expect(await withdraw(closed, closed.asks[0]!.askId)).toEqual({
+        status: 'not_withdrawable',
+        state: 'closed',
+      });
+      expect(await withdraw(expired, expired.asks[0]!.askId)).toEqual({
+        status: 'not_withdrawable',
+        state: 'expired',
+      });
+      // A refusal writes NOTHING — batch, outreach, asks and steps alike.
+      expect(await snapshotWithdrawSurface(built.batchId, built.parentRunId)).toEqual(refusedBefore.built);
+      expect(await snapshotWithdrawSurface(closed.batchId, closed.parentRunId)).toEqual(refusedBefore.closed);
+      expect(await snapshotWithdrawSurface(expired.batchId, expired.parentRunId)).toEqual(refusedBefore.expired);
+    });
+
+    it('withdraws a queued current attempt in an approved batch', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const queuedAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      const queuedId = await seedAttempt({ batchId: batch.batchId, ask: queuedAsk, deliveryStatus: 'queued' });
+      await stampSendingBatch(batch.batchId);
+
+      const result = await withdraw(batch, queuedAsk.askId);
+
+      // `queued` is dispatched-but-not-sending: halt cancels it, so withdrawal
+      // does too — the same predicate, one row.
+      expect(result).toMatchObject({ status: 'withdrawn', remainingLive: 1 });
+      expect((await readOutreach(batch.batchId)).find((row) => row.id === queuedId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_withdrawn',
+      });
+      expect(await readSteps(batch.parentRunId, 'ask_withdrawn')).toHaveLength(1);
+    });
+
+    it('never withdraws a sending row and reports it not_live', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const sendingAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      const sendingId = await seedAttempt({
+        batchId: batch.batchId,
+        ask: sendingAsk,
+        deliveryStatus: 'sending',
+      });
+      await stampSendingBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+
+      const result = await withdraw(batch, sendingAsk.askId);
+
+      // Past the point of no return: halt's "no further sends, not undo"
+      // contract, inherited whole.
+      expect(result).toEqual({ status: 'not_live', deliveryStatus: 'sending' });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+      expect((await readOutreach(batch.batchId)).find((row) => row.id === sendingId)).toMatchObject({
+        delivery_status: 'sending',
+      });
+    });
+
+    it('withdrawing the last waiting row does not settle while another outreach row is sending', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const sendingAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      await seedAttempt({ batchId: batch.batchId, ask: sendingAsk, deliveryStatus: 'sending' });
+      await stampSendingBatch(batch.batchId);
+
+      const result = await withdraw(batch, batch.asks[0]!.askId);
+
+      // The in-flight row keeps the batch open: `remainingLive` counts it, and
+      // the join reports `not_settled` — the row that resolves itself is the
+      // one that will close the batch.
+      expect(result).toMatchObject({
+        status: 'withdrawn',
+        remainingLive: 1,
+        close: { status: 'not_settled', liveCount: 1 },
+      });
+      expect((await readBatch(batch.batchId)).send_closed_at).toBeNull();
+      expect(await readRunStatus(batch.parentRunId)).toBe('running');
+    });
+
+    it('withdrawal selects the highest attempt_no and never an older superseded attempt', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const ask = batch.asks[0]!;
+      const olderId = batch.outreachIds[0]!;
+      // The render lane's regenerate shape: the old row is `cancelled`/`superseded`,
+      // the replacement is attempt 2 and live.
+      await sql()`
+        UPDATE solicitation_outreach
+        SET delivery_status = 'cancelled', disposition_reason = 'superseded', updated_at = NOW()
+        WHERE id = ${olderId}::uuid
+          AND account_id = ${batch.accountId}::uuid
+          AND business_id = ${batch.businessId}::uuid
+      `;
+      const newerId = await seedAttempt({ batchId: batch.batchId, ask, deliveryStatus: 'rendered', attemptNo: 2 });
+      await stampVetoWindowBatch(batch.batchId);
+
+      const result = await withdraw(batch, ask.askId);
+
+      expect(result).toMatchObject({ status: 'withdrawn' });
+      const rows = await readOutreach(batch.batchId);
+      // Only the CURRENT attempt changes; the superseded one keeps its own reason.
+      expect(rows.find((row) => row.id === newerId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_withdrawn',
+      });
+      expect(rows.find((row) => row.id === olderId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'superseded',
+      });
+    });
+
+    it('an ask in the owned batch with no outreach attempt is not_live with null status and writes nothing', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      // A second send Ask that generation never rendered — no attempt row at all.
+      const bare = await seedSendAsk(batch.batchId, batch.uploadId);
+      await stampVetoWindowBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+
+      const result = await withdraw(batch, bare.askId);
+
+      // Told apart from `not_found`: the ask IS in this batch, it just has
+      // nothing to withdraw — and the LEFT JOIN must not fall back to another
+      // ask's row.
+      expect(result).toEqual({ status: 'not_live', deliveryStatus: null });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+    });
+
+    it('withdrawing the last live ask closes the batch exhausted and terminalizes the send parent completed', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(batch.batchId);
+
+      const result = await withdraw(batch, batch.asks[0]!.askId);
+
+      // Same close as excluding every ask at approval: `exhausted`, parent
+      // `completed`, and the join ran in THIS transaction (no separate call).
+      expect(result).toMatchObject({
+        status: 'withdrawn',
+        remainingLive: 0,
+        close: { status: 'closed', disposition: 'exhausted', parentStatus: 'completed' },
+      });
+      expect((await readBatch(batch.batchId)).send_closed_at).not.toBeNull();
+      expect(await readRunStatus(batch.parentRunId)).toBe('completed');
+      expect(await readSteps(batch.parentRunId, 'send_batch_closed')).toHaveLength(1);
+    });
+
+    it('a second withdrawal of the same ask is a no-op already_withdrawn that writes nothing', async () => {
+      const batch = await seedRenderedBatch({ renders: 2 });
+      await stampVetoWindowBatch(batch.batchId);
+      const askId = batch.asks[0]!.askId;
+
+      const first = await withdraw(batch, askId);
+      const afterFirst = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+      const second = await withdraw(batch, askId);
+
+      expect(first).toMatchObject({ status: 'withdrawn' });
+      expect(second).toEqual({ status: 'already_withdrawn' });
+      // Idempotent means no observable second effect on ANY table — one step,
+      // not two, and nothing on the batch, the asks or the outreach rows.
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(afterFirst);
+      expect(await readSteps(batch.parentRunId, 'ask_withdrawn')).toHaveLength(1);
+    });
+
+    it('a second withdrawal after the first withdrawal settled the batch is already_withdrawn and writes nothing', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(batch.batchId);
+      const askId = batch.asks[0]!.askId;
+
+      const first = await withdraw(batch, askId);
+      const afterFirst = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+      const second = await withdraw(batch, askId);
+
+      // The first withdrawal CLOSED the batch (last live row). The retry
+      // arrives in Batch state `closed` and must still read as already
+      // withdrawn — a fact about the row that outranks the state gate — not
+      // as a 409 `not_withdrawable` (plan review round 2, finding 1).
+      expect(first).toMatchObject({ status: 'withdrawn', close: { status: 'closed' } });
+      expect(second).toEqual({ status: 'already_withdrawn' });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(afterFirst);
+    });
+
+    it('an ask from another batch or tenant is not_found and nothing is written', async () => {
+      const mine = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(mine.batchId);
+      const other = await seedRenderedBatch({ renders: 1 });
+      const foreign = foreignTenantSeed();
+      const mineBefore = await snapshotWithdrawSurface(mine.batchId, mine.parentRunId);
+      const otherBefore = await snapshotWithdrawSurface(other.batchId, other.parentRunId);
+
+      // Right batch, an ask that lives in ANOTHER batch of the same tenant.
+      const crossBatch = await withdraw(mine, other.asks[0]!.askId);
+      // Right batch and ask, wrong account key (`TenantSeed` carries the
+      // account only; the batch's own business id with a foreign account is
+      // exactly the mismatch the composite scope must refuse).
+      const crossTenant = await withdraw(mine, mine.asks[0]!.askId, {
+        accountId: foreign.accountId,
+      });
+      // Right owner, reaching for a batch under their OTHER location.
+      const siblingLocation = await withdraw(mine, mine.asks[0]!.askId, {
+        businessId: siblingBusinessId,
+      });
+      // An id that exists nowhere.
+      const unknown = await withdraw(mine, randomUUID());
+
+      // All four are the SAME public result — a probe cannot tell a foreign
+      // account, another location, an other-batch ask or an unknown id apart.
+      // The two boundaries are this suite's `tenant scope` precedent: the
+      // foreign ACCOUNT against an owned batch, and the right owner reaching
+      // for their OTHER location; the ask-key mismatch is `crossBatch`. (No
+      // foreign batch is seeded — the suite's helpers are bound to the main
+      // tenant, and a foreign ask id takes `crossBatch`'s path by construction:
+      // the read is keyed on batch + both tenant keys.)
+      for (const result of [crossBatch, crossTenant, siblingLocation, unknown]) {
+        expect(result).toEqual({ status: 'not_found' });
+      }
+      // Both OWNED batches untouched on every table.
+      expect(await snapshotWithdrawSurface(mine.batchId, mine.parentRunId)).toEqual(mineBefore);
+      expect(await snapshotWithdrawSurface(other.batchId, other.parentRunId)).toEqual(otherBefore);
+    });
+
+    it('a withheld current attempt is not_live and nothing is written', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const heldAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      await seedAttempt({
+        batchId: batch.batchId,
+        ask: heldAsk,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'lint_failed',
+      });
+      // A cancelled-for-another-reason attempt (a superseded row with no
+      // live replacement) is also not withdrawable — and NOT idempotent-ok:
+      // only `owner_withdrawn` says "already withdrawn".
+      const supersededAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      await seedAttempt({
+        batchId: batch.batchId,
+        ask: supersededAsk,
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'superseded',
+      });
+      await stampVetoWindowBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+
+      const held = await withdraw(batch, heldAsk.askId);
+      const superseded = await withdraw(batch, supersededAsk.askId);
+
+      expect(held).toEqual({ status: 'not_live', deliveryStatus: 'withheld' });
+      expect(superseded).toEqual({ status: 'not_live', deliveryStatus: 'cancelled' });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+    });
+
+    it('withdrawal rolls back the outreach cancellation and the ask_withdrawn step when its transaction aborts', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+      // The poison must be a REAL Postgres error raised on the same tx AFTER
+      // the writer's work (see abort-injection.ts): division by zero, 22012.
+      const aborting = abortingExecutor(sql(), (tx) => tx`SELECT 1 / 0`);
+
+      await expect(
+        withdrawAsk(aborting, {
+          batchId: batch.batchId,
+          askId: batch.asks[0]!.askId,
+          accountId: batch.accountId,
+          businessId: batch.businessId,
+          withdrawnByUserId: batch.userId,
+        }),
+      ).rejects.toMatchObject({ code: '22012' });
+
+      // Cancellation, step AND the last-row close all disappear together —
+      // proof that every write went through the ONE transaction handle.
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+      expect((await readBatch(batch.batchId)).send_closed_at).toBeNull();
+      expect(await readRunStatus(batch.parentRunId)).toBe('running');
+    });
+
+    it('auto_policy-approved batches allow the same withdrawal as owner-approved batches', async () => {
+      const batch = await seedRenderedBatch({ renders: 2 });
+      await stampAutoApprovedBatch(batch.batchId);
+
+      const result = await withdraw(batch, batch.asks[0]!.askId);
+
+      // No `approval_method` gate: withdrawal keys on Batch state, as halt does.
+      expect(result).toMatchObject({ status: 'withdrawn', remainingLive: 1 });
+      const after = await readBatch(batch.batchId);
+      expect(after.approval_method).toBe('auto_policy');
+      expect(after.approved_by_user_id).toBeNull();
+    });
+
+    it('withdrawal never touches solicitation_asks or the batch approval columns', async () => {
+      const batch = await seedRenderedBatch({ renders: 2 });
+      await stampVetoWindowBatch(batch.batchId);
+      const asksBefore = await sql()<{ id: string; status: string; decided_at: string }[]>`
+        SELECT id::text AS id, status, decided_at::text AS decided_at
+        FROM solicitation_asks
+        WHERE batch_id = ${batch.batchId}::uuid
+          AND account_id = ${batch.accountId}::uuid
+          AND business_id = ${batch.businessId}::uuid
+        ORDER BY id
+      `;
+      const batchBefore = await readBatch(batch.batchId);
+
+      await withdraw(batch, batch.asks[0]!.askId);
+
+      const asksAfter = await sql()<{ id: string; status: string; decided_at: string }[]>`
+        SELECT id::text AS id, status, decided_at::text AS decided_at
+        FROM solicitation_asks
+        WHERE batch_id = ${batch.batchId}::uuid
+          AND account_id = ${batch.accountId}::uuid
+          AND business_id = ${batch.businessId}::uuid
+        ORDER BY id
+      `;
+      // The contact is NOT released: the ask keeps status='send' (090 welds
+      // it), so a rebuild still sees it as a prior send — one contact's cost,
+      // by design (ADR 0021).
+      expect(asksAfter).toEqual(asksBefore);
+      // The approval quartet, byte for byte: no per-ask approval state, no
+      // re-minted deadline (ADR 0021 property 2).
+      const batchAfter = await readBatch(batch.batchId);
+      expect(batchAfter).toEqual(batchBefore);
+      expect(batchAfter.approved_at).not.toBeNull();
+      expect(batchAfter.approved_by_user_id).toBe(batch.userId);
+      expect(batchAfter.veto_deadline_at).not.toBeNull();
+    });
+
+    it('the status reason CHECK admits owner_withdrawn only under cancelled', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const outreachId = batch.outreachIds[0]!;
+
+      // 109 is 108 plus exactly one value, in the cancelled arm: every 108
+      // member is still admitted, and the new one appears once, there.
+      const definition = await statusReasonDefinition(sql());
+      for (const kept of [
+        'moderation_high', 'render_failed', 'lint_failed', 'no_consent', 'suppressed', 'unsubscribed',
+        'owner_veto', 'owner_halt', 'admin_halt', 'owner_excluded', 'batch_expired',
+        'send_window_elapsed', 'superseded', 'send_failed', 'send_exhausted', 'send_indeterminate',
+      ]) {
+        expect(definition).toContain(`'${kept}'`);
+      }
+      expect(definition.split(`'owner_withdrawn'`).length - 1).toBe(1);
+      const cancelledArm = /delivery_status = 'cancelled'::text\)\s*AND\s*\(disposition_reason = ANY \(ARRAY\[[^\]]*\]/.exec(
+        definition,
+      );
+      expect(cancelledArm?.[0]).toContain(`'owner_withdrawn'`);
+
+      // Legal pairing: cancelled + owner_withdrawn.
+      await expect(
+        sql()`
+          UPDATE solicitation_outreach
+          SET delivery_status = 'cancelled', disposition_reason = 'owner_withdrawn'
+          WHERE id = ${outreachId}::uuid
+            AND account_id = ${batch.accountId}::uuid
+            AND business_id = ${batch.businessId}::uuid
+        `,
+      ).resolves.toBeDefined();
+      // Illegal pairing: a live status may carry no reason at all.
+      await expect(
+        sql()`
+          UPDATE solicitation_outreach
+          SET delivery_status = 'rendered', disposition_reason = 'owner_withdrawn'
+          WHERE id = ${outreachId}::uuid
+            AND account_id = ${batch.accountId}::uuid
+            AND business_id = ${batch.businessId}::uuid
+        `,
+      ).rejects.toMatchObject({ code: '23514' });
     });
   });
 

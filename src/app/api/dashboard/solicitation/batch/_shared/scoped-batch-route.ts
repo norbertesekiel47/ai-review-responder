@@ -1,9 +1,10 @@
 // src/app/api/dashboard/solicitation/batch/_shared/scoped-batch-route.ts
 //
-// The write preamble shared by the three POST routes under
-// `/api/dashboard/solicitation/batch` — `approve` + `halt` (#629) and
-// `reviewed` (#544). All three run the identical chain: flag gate → writable-
-// owner auth → location scope → body parse → handler → uniform 500 mapping.
+// The write preamble shared by the five POST routes under
+// `/api/dashboard/solicitation/batch` — `approve` + `halt` (#629), `reviewed`
+// (#544), `regenerate` (#860) and `withdraw` (#872). All five run the identical
+// chain: flag gate → writable-owner auth → location scope → body parse →
+// handler → uniform 500 mapping.
 // Batch-shaped sibling of `withScopedContact`
 // (`src/app/api/dashboard/contacts/location-scope.ts`), which owns the same
 // policy for the `contacts/[id]` routes.
@@ -11,9 +12,9 @@
 // Four things the code depends on and a reader should not have to rediscover:
 //
 //  1. `requireWriteAccess` is a bound function per route, NOT a boolean, because
-//     the three routes do NOT share a gate. `approve`/`halt` bind
-//     `requireSolicitationSendWriteAccess` (BOTH `SOLICITATION_WATCH_ENABLED`
-//     and `SOLICITATION_SEND_ENABLED`); `reviewed` binds
+//     the five routes do NOT share a gate. `approve`/`halt`/`regenerate`/
+//     `withdraw` bind `requireSolicitationSendWriteAccess` (BOTH
+//     `SOLICITATION_WATCH_ENABLED` and `SOLICITATION_SEND_ENABLED`); `reviewed` binds
 //     `requireContactsWriteAccess` (watch only). Collapsing them onto one gate
 //     would make the watch-mode Spoilage-report ping require the send flag —
 //     and the send flag is unset in every environment today, so `reviewed`
@@ -64,6 +65,23 @@ export async function readBatchId(request: NextRequest): Promise<string | null> 
   if (body === null) return null;
   const batchId = body.batchId;
   return typeof batchId === 'string' && isValidUuid(batchId) ? batchId : null;
+}
+
+/**
+ * The batch id plus ONE ask id, or null when either is absent or not a UUID.
+ * The two per-ask verbs — regenerate (#860) and withdraw (#872) — read exactly
+ * this body; anything else in it is ignored, so neither route can be handed a
+ * reason, a row id or a status by the client.
+ */
+export async function readBatchAsk(
+  request: NextRequest,
+): Promise<{ batchId: string; askId: string } | null> {
+  const body = await readJsonObject(request);
+  if (body === null) return null;
+  const { batchId, askId } = body;
+  if (typeof batchId !== 'string' || !isValidUuid(batchId)) return null;
+  if (typeof askId !== 'string' || !isValidUuid(askId)) return null;
+  return { batchId, askId };
 }
 
 /** Everything a batch mutation is allowed to act on, and nothing a caller could

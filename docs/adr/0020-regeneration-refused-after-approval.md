@@ -128,10 +128,16 @@ window", which is not a guarantee anyone can reason about.
   and approve a new one. **This ADR originally priced that as "a real ergonomic
   cost." That was wrong, and the true price is recorded below in
   "Cost, as verified". The decision stands; the price does not.**
+  *Amended by ADR 0021 (#872, 2026-08-18): the Halt latch is no longer the
+  ONLY recourse — **Ask withdrawal** cancels one approved row without touching
+  bytes. "Never new bytes" is what this bullet protects, and it still holds.*
 - **#630's releaser never has to coordinate with a live swap.** Once a batch is
   approved, `regenerateAsk` cannot touch its rows, so the releaser's row locks
-  contend with nothing that could cancel a row it is about to release. The
-  send-lane lock order gets simpler, not harder, by this decision.
+  contend with nothing that could *replace* a row it is about to release. The
+  send-lane lock order gets simpler, not harder, by this decision. *(Rows can
+  still be **cancelled** under it — by the Halt latch since #629 and by Ask
+  withdrawal since #872 — which is why the releaser re-checks a row under the
+  batch lock before dispatch; ADR 0021 § claim 3.)*
 - **Two layers guard the same thing, deliberately.** The
   `current_attempt_not_rendered` refusal still rejects `queued`/`sending`/`sent`
   rows. Since this ADR that branch is unreachable for released rows — a `built`
@@ -199,6 +205,10 @@ message, it never replaces bytes, so it collides with neither this ADR nor
 #872 records the reviewer's claims (no per-ask approval state, no migration, no
 coordination class `haltBatch` does not already force) as claims **to be
 validated, not assumed**, and it needs its own grill and plan before any code.
+**Resolved by ADR 0021** (`0021-ask-withdrawal-is-restraint-not-reapproval.md`,
+2026-08-18): claims 1 and 3 hold; claim 2 was set aside by choice — a distinct
+`owner_withdrawn` reason (migration 109) keeps **Ask exclusion**'s stored value
+honest.
 
 **Watch item.** The severity of this cost is a pure function of two day-one
 constants — `MIN_GAP_DAYS` and `FRESHNESS_WINDOW_DAYS` — both documented as

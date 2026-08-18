@@ -6,6 +6,7 @@ import type {
   ApproveBatchResult,
   HaltBatchResult,
   RequestAskRegenerationResult,
+  WithdrawAskResult,
 } from '@/lib/solicitation/approval';
 import type {
   AskAttemptView,
@@ -13,28 +14,36 @@ import type {
   SendLaneView,
 } from '@/lib/solicitation/batch-view';
 import { ApprovalActions, type ApprovalVerb } from './ApprovalActions';
-import { AskList, SelectableAskList, type AskRowView } from './AskList';
+import {
+  AskList,
+  SelectableAskList,
+  WithdrawableAskList,
+  type AskRowView,
+} from './AskList';
 import './requests.css';
 
 /**
  * The owner approval lane for a built Solicitation batch (#629).
  *
- * A client island owning exactly THREE things, one file-local hook each:
- * which asks the owner has deselected (`useExcludedAsks`), whether a write is
- * in flight and the resulting error copy (`useLaneWrites`), and what this panel
- * last asked to regenerate (`usePendingRegeneration`). It renders from
- * `sendLane` + `attempts` and never mutates the view it was given; after every
- * settled write it calls `onChanged(message, outcome, refresh)` and the parent
- * refetches, so the fetch loop stays the single owner of what is on screen.
+ * A client island owning exactly FOUR things, one file-local hook each: which
+ * asks the owner has deselected (`useExcludedAsks`), whether a write is in
+ * flight and the resulting error copy (`useLaneWrites`), what this panel last
+ * asked to regenerate (`usePendingRegeneration`), and which ask's withdraw
+ * control is armed (`useArmedWithdrawal`, #872 — held in the panel and cleared
+ * the moment a refetch drops the row). It renders from `sendLane` + `attempts`
+ * and never mutates the view it was given; after every settled write it calls
+ * `onChanged(message, outcome, refresh)` and the parent refetches, so the fetch
+ * loop stays the single owner of what is on screen.
  *
- * TWO of the three writes are TERMINAL and one is not, and the difference is
+ * TWO of the four writes are TERMINAL and two are not, and the difference is
  * carried on the wire out rather than assumed. Approve and stop end this panel;
- * the parent may tear it down. A regeneration comes BACK here — same batch,
- * same list, same owner mid-task — so it asks for a refetch that keeps this
- * component mounted (`LaneRefresh`). None of that state survives a remount: the
- * exclusion set is `useState` and the pending-regeneration marker is a `useRef`,
- * so routing the non-terminal write through the terminal path re-selected every
- * deselected ask and made the unchanged-copy report unreachable.
+ * the parent may tear it down. A regeneration or a withdrawal comes BACK here —
+ * same batch, same list, same owner mid-task — so each asks for a refetch that
+ * keeps this component mounted (`LaneRefresh`). None of that state survives a
+ * remount: the exclusion set and the armed withdraw are `useState` and the
+ * pending-regeneration marker is a `useRef`, so routing a non-terminal write
+ * through the terminal path re-selected every deselected ask and made the
+ * unchanged-copy report unreachable.
  *
  * WHAT THE OWNER READS. Every rendered Outreach row is listed WITH its subject
  * and body (intake `user_visible_behavior[0]`). That is not decoration: the
@@ -57,15 +66,18 @@ import './requests.css';
  *
  * There is no edit affordance anywhere here, and that is still D22: the owner
  * may ask for new bytes, never write them. What changed at #860 is that asking
- * is now possible — the lane renders THREE kinds of control: the approve/stop
- * button in `ApprovalActions`, and per rendered ask, the exclude checkbox and
- * the regenerate button in `SelectableAskList`. Both per-ask controls are row
- * controls, not batch verbs, which is why `ApprovalVerb` still names two.
+ * is now possible — the lane renders FOUR kinds of control: the approve/stop
+ * button in `ApprovalActions`; per rendered ask before approval, the exclude
+ * checkbox and the regenerate button in `SelectableAskList`; and per live ask
+ * AFTER approval, the withdraw control in `WithdrawableAskList` (**Ask
+ * withdrawal**, #872). All three per-ask controls are row controls, not batch
+ * verbs, which is why `ApprovalVerb` still names two.
  */
 
 const APPROVE_PATH = '/api/dashboard/solicitation/batch/approve';
 const HALT_PATH = '/api/dashboard/solicitation/batch/halt';
 const REGENERATE_PATH = '/api/dashboard/solicitation/batch/regenerate';
+const WITHDRAW_PATH = '/api/dashboard/solicitation/batch/withdraw';
 
 /** The redaction reason, as the owner sees it named. Verbatim, like the
  *  withhold-reason chips in BatchReport — the code is the thing support and the
@@ -199,23 +211,26 @@ function actionVerb(mode: PanelMode): ApprovalVerb | null {
  * beside `panelCopy`'s words and `actionVerb`'s button.
  *
  * `selectable` — the owner is still choosing, so every sendable ask gets its
- *   two row controls. `read_only` — the choosing is over and the messages are
- *   still what the owner needs to see. `count` — a settled batch, where the
- *   messages are history and only how many there were still says something.
- *   `none` — there is nothing to show yet, or nothing was ever written.
+ *   two row controls. `withdrawable` — approved and still live: the owner may
+ *   withdraw single messages (#872). `read_only` — the choosing is over and the
+ *   messages are still what the owner needs to see. `count` — a settled batch,
+ *   where the messages are history and only how many there were still says
+ *   something. `none` — there is nothing to show yet, or nothing was ever
+ *   written.
  *
  * Exhaustive with no `default`, for the same reason as `actionVerb`. The three
  * arms were three independent `mode.kind === …` guards in the markup: mutually
  * exclusive only by coincidence, and a new mode inherited a blank panel by
  * omission rather than failing to compile.
  */
-type AskDisplay = 'selectable' | 'read_only' | 'count' | 'none';
+type AskDisplay = 'selectable' | 'withdrawable' | 'read_only' | 'count' | 'none';
 
 function askDisplay(mode: PanelMode): AskDisplay {
   switch (mode.kind) {
     case 'approvable':
       return 'selectable';
     case 'haltable':
+      return 'withdrawable';
     case 'halted':
     case 'nothing_to_send':
       return 'read_only';
@@ -242,11 +257,11 @@ function countPhrase(count: number): string {
 function haltableBody(state: HaltableState): string {
   switch (state) {
     case 'veto_window':
-      return 'Approved. Nothing has left yet, and you can still stop this batch.';
+      return 'Approved. Nothing has left yet, and you can still stop this batch or withdraw a single message.';
     case 'approved':
-      return 'Approved and waiting to go out. Stopping cancels everything that has not left yet.';
+      return 'Approved and waiting to go out. Stopping cancels everything that has not left yet; you can also withdraw a single message.';
     case 'sending':
-      return 'These messages are going out now. Stopping cancels everything that has not left yet.';
+      return 'These messages are going out now. Stopping cancels everything that has not left yet; you can also withdraw a single message that has not left.';
   }
 }
 
@@ -380,7 +395,7 @@ interface ExcludedAsks {
 /**
  * The exclusion set as the panel holds it: the deselections themselves, the one
  * verb that changes them, and the two facts every render and every approve
- * derives from them — the first of the three things the panel owns.
+ * derives from them — the first of the four things the panel owns.
  *
  * Keyed on ASK id, not outreach id, and there is deliberately no pruning
  * effect: an ask's identity survives a regeneration, so a deselection does too,
@@ -419,17 +434,18 @@ function useExcludedAsks(rows: readonly AskRowView[]): ExcludedAsks {
 // ── The write ───────────────────────────────────────────────────────────────
 
 /**
- * Every discriminant any of the three owner routes can answer with, taken from
+ * Every discriminant any of the four owner routes can answer with, taken from
  * the result unions themselves rather than re-spelled as strings here. That is
  * the whole point of the type: the record below is TOTAL over it, so a new
- * refusal added to `ApproveBatchResult`, `HaltBatchResult` or
- * `RequestAskRegenerationResult` is a tsc error in this file instead of
- * silently degrading to the generic copy.
+ * refusal added to `ApproveBatchResult`, `HaltBatchResult`,
+ * `RequestAskRegenerationResult` or `WithdrawAskResult` is a tsc error in this
+ * file instead of silently degrading to the generic copy.
  */
 type LaneStatus =
   | ApproveBatchResult['status']
   | HaltBatchResult['status']
-  | RequestAskRegenerationResult['status'];
+  | RequestAskRegenerationResult['status']
+  | WithdrawAskResult['status'];
 
 /**
  * What the owner reads when a write did not settle as done. `null` marks the
@@ -512,6 +528,13 @@ const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
   // sentence wins when present (`postLaneAction` reads it).
   budget_exhausted:
     'You have reached today\'s limit for new versions of this message. You can ask again tomorrow.',
+  // #872 Ask withdrawal. The two 2xx arms have no refusal copy.
+  withdrawn: null,
+  already_withdrawn: null,
+  not_withdrawable:
+    'This message can no longer be withdrawn. Reload the page to see where the batch stands.',
+  not_live:
+    'This message is no longer waiting to send, so it cannot be withdrawn. Reload the page to see where the batch stands.',
 };
 
 /** A discriminant this build knows, or null for anything else on the wire — a
@@ -533,8 +556,11 @@ function toRefusedState(value: unknown): RefusedState | null {
 }
 
 type LaneOutcome =
-  /** The server settled the request: 2xx, carrying its result discriminant. */
-  | { kind: 'done'; status: LaneStatus | null }
+  /** The server settled the request: 2xx, carrying its result discriminant
+   *  and, for the verbs that report one, its counts. `remainingLive`/`closed`
+   *  are read from the body when present and `null` otherwise — approve, halt
+   *  and regenerate do not send them. */
+  | { kind: 'done'; status: LaneStatus | null; remainingLive: number | null; closed: boolean | null }
   /**
    * The server refused with a reason worth repeating (400 / 409 / 429).
    * `message` is the server's OWN sentence when it wrote one — the 429 body
@@ -591,11 +617,18 @@ async function postLaneAction(
         status?: unknown;
         message?: unknown;
         state?: unknown;
+        remainingLive?: unknown;
+        closed?: unknown;
       };
       const status = toLaneStatus(result.status);
       const message = typeof result.message === 'string' ? result.message : null;
       return response.ok
-        ? { kind: 'done', status }
+        ? {
+            kind: 'done',
+            status,
+            remainingLive: typeof result.remainingLive === 'number' ? result.remainingLive : null,
+            closed: typeof result.closed === 'boolean' ? result.closed : null,
+          }
         : { kind: 'refused', status, message, state: toRefusedState(result.state) };
     }
     console.error(`[requests] lane action answered ${response.status}`);
@@ -625,8 +658,13 @@ function refusalCopy(
   return (status === null ? null : LANE_REFUSAL_COPY[status]) ?? GENERIC_REFUSAL;
 }
 
-/** The sentence the parent announces, from the route's result discriminant. */
-type Announce = (status: LaneStatus | null) => string;
+/** The sentence the parent announces, from the route's result discriminant
+ *  and — for the verbs that report them — the counts the `done` outcome
+ *  carries. The one-parameter announces stay assignable unchanged. */
+type Announce = (
+  status: LaneStatus | null,
+  done: { remainingLive: number | null; closed: boolean | null },
+) => string;
 
 /** The approve sentence. The count is bound here so the shared settle path
  *  below stays free of either route's copy. */
@@ -650,6 +688,19 @@ const haltedAnnounce: Announce = (status) =>
   status === 'already_halted'
     ? 'This batch was already stopped.'
     : 'Batch stopped. Nothing further will send.';
+
+/** The withdraw sentence, from the SERVER's counts — never a client
+ *  subtraction over the rows on screen, which cannot see an in-flight row.
+ *  "Left to send" is factual for waiting AND in-flight rows and promises
+ *  nothing about rows the owner may still stop or withdraw. The idempotent arm
+ *  claims nothing new happened; the no-count arm (a server deployed behind
+ *  this browser) claims only what it knows. */
+const withdrawnAnnounce: Announce = (status, done) => {
+  if (status === 'already_withdrawn') return 'This message was already withdrawn.';
+  if (done.closed === true) return 'Withdrawn. That was the last one — this batch is finished.';
+  if (done.remainingLive === null) return 'Withdrawn.';
+  return `Withdrawn. ${countPhrase(done.remainingLive)} left to send.`;
+};
 
 /**
  * How a write ended, for the parent. `settled` means the server answered and
@@ -696,26 +747,27 @@ interface LaneWriteInputs {
 }
 
 interface LaneWrites {
-  /** True while any of the three writes is in flight. */
+  /** True while any of the four writes is in flight. */
   busy: boolean;
   /** Copy for the last write the server REFUSED; '' when there is none. */
   error: string;
   approve: () => void;
   halt: () => void;
   regenerate: (askId: string) => void;
+  withdraw: (askId: string) => void;
 }
 
 /**
- * The lane's three writes and the two pieces of state they own.
+ * The lane's four writes and the two pieces of state they own.
  *
  * They settle identically — busy on, error cleared, POST, busy off, then either
  * the parent's announcement or the refusal copy — and differ only in route,
  * body, sentence, and whether the write ENDS this screen, so `perform` is the
  * one settle path. Nothing here refetches: `onChanged` is the parent's cue, and
  * the `LaneRefresh` each verb passes is what tells it which kind of refetch to
- * run. Approve and stop are terminal and say `replace`; regenerate is not, and
- * says `in_place` — the panel it returns to is the one the owner is still
- * working in.
+ * run. Approve and stop are terminal and say `replace`; regenerate and withdraw
+ * are not, and say `in_place` — the panel each returns to is the one the owner
+ * is still working in.
  */
 function useLaneWrites({
   batchId,
@@ -751,7 +803,7 @@ function useLaneWrites({
         onChanged(UNCONFIRMED_OUTCOME, 'unconfirmed', refresh);
         return;
       }
-      onChanged(announce(outcome.status), 'settled', refresh);
+      onChanged(announce(outcome.status, outcome), 'settled', refresh);
     },
     [onChanged, scope],
   );
@@ -783,7 +835,18 @@ function useLaneWrites({
     [batchId, perform],
   );
 
-  return { busy, error, approve, halt, regenerate };
+  const withdraw = useCallback(
+    (askId: string) => {
+      // `in_place`: the owner is still in the same panel with the rest of the
+      // batch; a remount would drop another armed confirmation and flash the
+      // loading card. The withdrawn row leaves the list on the refetch because
+      // the read model already filters cancelled rows.
+      void perform(WITHDRAW_PATH, { batchId, askId }, withdrawnAnnounce, 'in_place');
+    },
+    [batchId, perform],
+  );
+
+  return { busy, error, approve, halt, regenerate, withdraw };
 }
 
 // ── The pending regeneration ────────────────────────────────────────────────
@@ -872,6 +935,54 @@ function usePendingRegeneration({
   );
 }
 
+// ── The armed withdrawal ────────────────────────────────────────────────────
+
+interface ArmedWithdrawal {
+  /** The ONE ask whose withdraw control has taken its first tap, or null. */
+  armedAskId: string | null;
+  /** First tap: arm this ask (moves the arming if another was armed). */
+  arm: (askId: string) => void;
+  /** Disarm without posting — the Keep answer, and the confirm's own reset
+   *  before it posts. */
+  disarm: () => void;
+}
+
+/**
+ * The armed withdraw confirmation as the panel holds it: which ask's control
+ * has taken its first tap, and the two verbs that change it — the fourth of
+ * the four things the panel owns (#872).
+ *
+ * Held here, not in the list, and CLEARED — not merely hidden — the moment a
+ * refetch no longer shows the armed row among the LIVE rows: an ask that later
+ * reappears must need a fresh first tap (plan review round 1, finding 9).
+ * Cleared DURING render rather than from an effect — React's "adjust state
+ * when a prop changes" pattern (the `ToneChipPicker` precedent): the reset
+ * lands in the same commit as the refetch, so no frame ever shows a confirm
+ * for a row that is gone, and `react-hooks/set-state-in-effect` rejects the
+ * effect form. The write is GUARDED so it converges: it happens only when a
+ * non-null armed id is no longer live — never on every pass — and the
+ * re-render it triggers sees `null` and does not write again.
+ *
+ * `rows` is EVERY row of the current render, because that is the list the
+ * withdrawable screen shows; the live subset — `rendered`/`queued`, the two
+ * statuses that get a control — is derived here because arming is only ever
+ * offered from it, so it is the list a stale arming is judged against.
+ */
+function useArmedWithdrawal(rows: readonly AskRowView[]): ArmedWithdrawal {
+  const live = useMemo(
+    () => rows.filter((row) => row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued'),
+    [rows],
+  );
+  const [armedAskId, setArmedAskId] = useState<string | null>(null);
+  if (armedAskId !== null && !live.some((row) => row.askId === armedAskId)) {
+    setArmedAskId(null);
+  }
+
+  const disarm = useCallback(() => setArmedAskId(null), []);
+
+  return { armedAskId, arm: setArmedAskId, disarm };
+}
+
 // ── The panel ───────────────────────────────────────────────────────────────
 
 export interface ApprovalPanelProps {
@@ -912,7 +1023,9 @@ export function ApprovalPanel({
 
   const { excluded, toggle, excludedIds, sendCount } = useExcludedAsks(sendable);
 
-  const { busy, error, approve, halt, regenerate } = useLaneWrites({
+  const { armedAskId, arm, disarm } = useArmedWithdrawal(rows);
+
+  const { busy, error, approve, halt, regenerate, withdraw } = useLaneWrites({
     batchId,
     scope,
     excludedIds,
@@ -952,6 +1065,20 @@ export function ApprovalPanel({
           regenBudgets={sendLane.regenBudgets}
           regeneratingAskId={sendLane.regeneratingAskId}
           onRegenerate={onRegenerate}
+        />
+      )}
+
+      {asks === 'withdrawable' && (
+        <WithdrawableAskList
+          rows={rows}
+          armedAskId={armedAskId}
+          onArm={arm}
+          onWithdraw={(askId) => {
+            disarm();
+            withdraw(askId);
+          }}
+          onKeep={disarm}
+          disabled={busy}
         />
       )}
 

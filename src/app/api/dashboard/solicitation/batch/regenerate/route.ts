@@ -13,10 +13,8 @@
 // outbox replay (SPEC §8.2 r3). They exist so the owner sees "limit reached"
 // synchronously instead of a spinner that ends with unchanged copy.
 
-import type { NextRequest } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
-import { isValidUuid } from '@/lib/shared/ids';
 import {
   askRegenLimitResponse,
   enforceDashboardRegenRateLimit,
@@ -27,28 +25,15 @@ import {
   type RequestAskRegenerationResult,
 } from '@/lib/solicitation/approval';
 import { requireSolicitationSendWriteAccess } from '@/app/api/dashboard/contacts/location-scope';
-import { readJsonObject, withScopedBatch } from '../_shared/scoped-batch-route';
+import { readBatchAsk, withScopedBatch } from '../_shared/scoped-batch-route';
 
 export const dynamic = 'force-dynamic';
 
-/** The batch id plus the one ask being regenerated, or null when either is
- *  absent or not a UUID. Like `approve`, this body is more than a batch id, so
- *  it reads the object itself rather than using the shared `readBatchId`. */
-async function readRegenerateRequest(
-  request: NextRequest,
-): Promise<{ batchId: string; askId: string } | null> {
-  const body = await readJsonObject(request);
-  if (body === null) return null;
-  const { batchId, askId } = body;
-  if (typeof batchId !== 'string' || !isValidUuid(batchId)) return null;
-  if (typeof askId !== 'string' || !isValidUuid(askId)) return null;
-  return { batchId, askId };
-}
-
 /**
  * Everything the browser is allowed to learn, and nothing else. No outbox id,
- * no run id — ADR 0012: no internal id is ever rendered on the Requests
- * surface, and the panel refetches rather than tracking a job.
+ * no run id — the halt/approve `toWire` precedent (#629 round-2 F10): no
+ * internal id is ever rendered on the Requests surface, and the panel
+ * refetches rather than tracking a job.
  */
 interface RegenerateWire {
   status: RequestAskRegenerationResult['status'];
@@ -75,7 +60,7 @@ export const POST = withSameOrigin()(
       failureMessage: 'Failed to request a new version',
       // BOTH flags, exactly like approve/halt: regeneration is a send-lane act.
       requireWriteAccess: requireSolicitationSendWriteAccess,
-      readInput: readRegenerateRequest,
+      readInput: readBatchAsk,
     },
     async ({ accountId, locationId, actorUserId, input, logger }) => {
       const limited = await enforceDashboardRegenRateLimit(accountId);

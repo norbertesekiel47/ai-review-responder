@@ -19,6 +19,7 @@ const {
   mockApproveBatch,
   mockHaltBatch,
   mockRequestAskRegeneration,
+  mockWithdrawAsk,
   mockPeekAskRegenBudget,
   mockEnforceRegenLimit,
 } = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ const {
   mockApproveBatch: vi.fn(),
   mockHaltBatch: vi.fn(),
   mockRequestAskRegeneration: vi.fn(),
+  mockWithdrawAsk: vi.fn(),
   mockPeekAskRegenBudget: vi.fn(),
   mockEnforceRegenLimit: vi.fn(),
 }));
@@ -65,6 +67,7 @@ vi.mock('@/lib/solicitation/approval', () => ({
   approveBatch: (...args: unknown[]) => mockApproveBatch(...args),
   haltBatch: (...args: unknown[]) => mockHaltBatch(...args),
   requestAskRegeneration: (...args: unknown[]) => mockRequestAskRegeneration(...args),
+  withdrawAsk: (...args: unknown[]) => mockWithdrawAsk(...args),
 }));
 
 // Only the per-ASK peek is stubbed; the review-lane sibling is re-exported so
@@ -92,6 +95,7 @@ import { SOLICITATION_SCOPE_PARAM } from '@/app/api/dashboard/solicitation/scope
 import { POST as APPROVE } from '../approve/route';
 import { POST as HALT } from '../halt/route';
 import { POST as REGENERATE } from '../regenerate/route';
+import { POST as WITHDRAW } from '../withdraw/route';
 
 const APP_URL = 'http://localhost:3000';
 const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
@@ -134,14 +138,17 @@ function accountRow(subscriptionStatus: string) {
 }
 
 function post(
-  path: 'approve' | 'halt' | 'regenerate',
+  path: 'approve' | 'halt' | 'regenerate' | 'withdraw',
   options: { query?: string; body?: unknown; origin?: string } = {},
 ): NextRequest {
-  // `regenerate` is the one body that is more than a batch id — its ask id is
-  // required, so the default has to carry one or every case would 404 at the
-  // parse boundary instead of reaching the behaviour it is about.
+  // `regenerate` and `withdraw` are the two bodies that are more than a batch
+  // id — their ask id is required, so the default has to carry one or every
+  // case would 404 at the parse boundary instead of reaching the behaviour it
+  // is about.
   const defaultBody =
-    path === 'regenerate' ? { batchId: BATCH_ID, askId: ASK_ID } : { batchId: BATCH_ID };
+    path === 'regenerate' || path === 'withdraw'
+      ? { batchId: BATCH_ID, askId: ASK_ID }
+      : { batchId: BATCH_ID };
   return new NextRequest(
     `${APP_URL}/api/dashboard/solicitation/batch/${path}${options.query ?? ''}`,
     {
@@ -178,6 +185,11 @@ beforeEach(() => {
     close: { status: 'not_settled' },
   });
   mockRequestAskRegeneration.mockResolvedValue({ status: 'accepted' });
+  mockWithdrawAsk.mockResolvedValue({
+    status: 'withdrawn',
+    remainingLive: 2,
+    close: { status: 'not_settled', liveCount: 2 },
+  });
   // An EMPTY map is the fail-open default: the peek could not answer, so every
   // case that is not about the budget travels with `budgetRemaining: null`.
   mockPeekAskRegenBudget.mockResolvedValue(new Map());
@@ -554,5 +566,150 @@ describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
     // and no budget key may have been read for an ask this request never got to.
     expect(mockRequireRole).not.toHaveBeenCalled();
     expect(mockPeekAskRegenBudget).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/dashboard/solicitation/batch/withdraw', () => {
+  // `SCOPED` above is block-scoped to the regenerate describe; this describe
+  // keeps its own copy rather than hoisting that one.
+  const WITHDRAW_SCOPED = `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}`;
+
+  it('withdraw route maps withdrawn and already_withdrawn to 200, not_withdrawable and not_live to 409, not_found to 404', async () => {
+    const withdrawn = await WITHDRAW(post('withdraw'));
+    expect(withdrawn.status).toBe(200);
+    await expect(withdrawn.json()).resolves.toEqual({
+      status: 'withdrawn',
+      remainingLive: 2,
+      closed: false,
+    });
+    // The route passes EXACTLY these five keys — no reason, no status, nothing
+    // the client could use to dictate what the audit row says.
+    const [, input] = mockWithdrawAsk.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(Object.keys(input).sort()).toEqual([
+      'accountId',
+      'askId',
+      'batchId',
+      'businessId',
+      'withdrawnByUserId',
+    ]);
+    expect(input).toMatchObject({ batchId: BATCH_ID, askId: ASK_ID, withdrawnByUserId: USER_ID });
+
+    mockWithdrawAsk.mockResolvedValue({ status: 'already_withdrawn' });
+    const repeat = await WITHDRAW(post('withdraw'));
+    expect(repeat.status).toBe(200);
+    await expect(repeat.json()).resolves.toEqual({ status: 'already_withdrawn' });
+
+    mockWithdrawAsk.mockResolvedValue({ status: 'not_withdrawable', state: 'halted' });
+    const halted = await WITHDRAW(post('withdraw'));
+    expect(halted.status).toBe(409);
+    await expect(halted.json()).resolves.toEqual({ status: 'not_withdrawable', state: 'halted' });
+
+    mockWithdrawAsk.mockResolvedValue({ status: 'not_live', deliveryStatus: 'sent' });
+    const notLive = await WITHDRAW(post('withdraw'));
+    expect(notLive.status).toBe(409);
+    // The row's status stays server-side; the panel has one sentence for it.
+    await expect(notLive.json()).resolves.toEqual({ status: 'not_live' });
+
+    mockWithdrawAsk.mockResolvedValue({ status: 'not_found' });
+    const unknown = await WITHDRAW(post('withdraw'));
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toEqual({ error: 'Not found' });
+  });
+
+  it('withdraw route answers 404 to a body without a valid batchId and askId', async () => {
+    const missingAsk = await WITHDRAW(post('withdraw', { body: { batchId: BATCH_ID } }));
+    const missingBatch = await WITHDRAW(post('withdraw', { body: { askId: ASK_ID } }));
+    const notUuid = await WITHDRAW(post('withdraw', { body: { batchId: BATCH_ID, askId: 'nope' } }));
+    const wrongType = await WITHDRAW(post('withdraw', { body: { batchId: 42, askId: ASK_ID } }));
+
+    for (const response of [missingAsk, missingBatch, notUuid, wrongType]) {
+      expect(response.status).toBe(404);
+    }
+    // Refused at the parse boundary — no transaction is opened for a body the
+    // route cannot trust.
+    expect(mockWithdrawAsk).not.toHaveBeenCalled();
+  });
+
+  it('withdraw wire never carries the send parent run id', async () => {
+    mockWithdrawAsk.mockResolvedValue({
+      status: 'withdrawn',
+      remainingLive: 0,
+      close: SETTLED_CLOSE,
+    });
+
+    const response = await WITHDRAW(post('withdraw'));
+    const raw = JSON.stringify(await response.json());
+
+    // Substring, not key-walking: a nested or renamed field still fails.
+    expect(raw).not.toContain(SETTLED_CLOSE.parentRunId);
+    expect(raw).not.toContain('parentRunId');
+    expect(raw).not.toContain('parentStatus');
+    expect(raw).not.toContain('disposition');
+    expect(raw).not.toContain('counts');
+    // The one bit the panel could act on survives the projection.
+    await expect(WITHDRAW(post('withdraw')).then((r) => r.json())).resolves.toMatchObject({
+      status: 'withdrawn',
+      closed: true,
+    });
+  });
+
+  it('withdraw route is unavailable when either the watch or the send flag is off', async () => {
+    // BOTH halves of the dual gate, independently — the send lane's verbs bind
+    // `requireSolicitationSendWriteAccess`, which requires both flags.
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', 'false');
+    const sendOff = await WITHDRAW(post('withdraw'));
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', 'true');
+    vi.stubEnv('SOLICITATION_WATCH_ENABLED', 'false');
+    const watchOff = await WITHDRAW(post('withdraw'));
+
+    expect(sendOff.status).toBe(404);
+    expect(watchOff.status).toBe(404);
+    expect(mockWithdrawAsk).not.toHaveBeenCalled();
+  });
+
+  it('withdraw route passes the scoped session tenant ids and ignores client reason status and outreach fields', async () => {
+    const response = await WITHDRAW(
+      post('withdraw', {
+        query: WITHDRAW_SCOPED,
+        body: {
+          batchId: BATCH_ID,
+          askId: ASK_ID,
+          // Everything below must be ignored — the reason is fixed server-side
+          // and the row is resolved under the lock.
+          outreachId: '01900000-0000-7000-8000-0000000000aa',
+          reason: 'owner_veto',
+          disposition_reason: 'owner_excluded',
+          status: 'sent',
+          accountId: '01900000-0000-7000-8000-0000000000bb',
+          businessId: '01900000-0000-7000-8000-0000000000cc',
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [, input] = mockWithdrawAsk.mock.calls[0] as [unknown, Record<string, unknown>];
+    // The VALUES, not just the key names: tenant ids come from the session and
+    // the resolved location scope, never from the body.
+    expect(input).toEqual({
+      batchId: BATCH_ID,
+      askId: ASK_ID,
+      accountId: ACCOUNT_ID,
+      businessId: DEFAULT_LOCATION_ID,
+      withdrawnByUserId: USER_ID,
+    });
+  });
+
+  it('rejects a cross-origin withdraw post', async () => {
+    // Withdrawal is a destructive verb (cancelled is terminal), so it carries
+    // the same CSRF pin approve, halt and regenerate already carry.
+    const response = await WITHDRAW(
+      post('withdraw', { query: WITHDRAW_SCOPED, origin: 'https://evil.example.com' }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'forbidden' });
+    // withSameOrigin is the OUTERMOST wrapper: nothing behind it may run.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockWithdrawAsk).not.toHaveBeenCalled();
   });
 });
