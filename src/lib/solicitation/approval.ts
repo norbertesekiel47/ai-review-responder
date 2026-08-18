@@ -98,21 +98,36 @@ function canonicalBatchId(batchId: string): string {
 }
 
 /**
- * The locked batch row plus its Send batch parent, in ONE statement under the
- * advisory lock. Returns null when the batch does not exist for this tenant —
- * the caller maps that onto the uniform 404, so a foreign batch id and an
- * unknown one are indistinguishable.
+ * The locked batch row, its Send batch parent and its derived state, in ONE
+ * statement under the advisory lock. This is the shared opening of all three
+ * owner verbs, and it stops exactly where they diverge.
  *
- * `batchId` is already canonical (`canonicalBatchId`) so every downstream use,
- * including `closeBatchIfSettled`, observes the same defensive normalization.
- * This statement also correlates the TEXT parent subject to `b.id::text`, which
- * lets Postgres render the UUID canonically at the comparison boundary.
+ * Returns null when the batch does not exist for this tenant. Deliberately null
+ * rather than a refusal value: every caller maps it onto the uniform 404 — so a
+ * foreign batch id and an unknown one stay indistinguishable — but they do NOT
+ * express it the same way. `approveBatch` and `haltBatch` return
+ * `{ status: 'not_found' }`; `requestAskRegeneration` must THROW
+ * `RegenRequestAbort`, because by the time it calls this it has already written
+ * its `job_outbox` row and postgres.js COMMITS on a normal return. Folding the
+ * three failures into one here would silently start the regeneration this
+ * helper just refused.
+ *
+ * The state is derived HERE — once, under the lock, from the same row every
+ * write downstream targets — so no caller can re-derive it from a second read.
+ *
+ * `batchId` is passed apart from the tenant keys because it must be the
+ * canonical one (`canonicalBatchId`), never the caller's raw input: every
+ * downstream use, including `closeBatchIfSettled`, then observes the same
+ * defensive normalization. This statement also correlates the TEXT parent
+ * subject to `b.id::text`, which lets Postgres render the UUID canonically at
+ * the comparison boundary.
  */
 async function lockBatchForAction(
   tx: TransactionSql,
-  input: { batchId: string; accountId: string; businessId: string },
-): Promise<BatchActionRow | null> {
-  await acquireSolicitationBatchLock(tx, input.businessId);
+  batchId: string,
+  tenant: { accountId: string; businessId: string },
+): Promise<{ batch: BatchActionRow; state: BatchState } | null> {
+  await acquireSolicitationBatchLock(tx, tenant.businessId);
 
   // Keep the parent lookup correlated to the locked batch row. The query-block
   // tenant-scope audit proves both tenant predicates inside this scalar
@@ -134,18 +149,19 @@ async function lockBatchForAction(
         WHERE r.kind = 'solicitation_send_batch'
           AND r.subject_type = 'solicitation_batch'
           AND r.subject_id = b.id::text
-          AND r.account_id = ${input.accountId}::uuid
-          AND r.business_id = ${input.businessId}::uuid
+          AND r.account_id = ${tenant.accountId}::uuid
+          AND r.business_id = ${tenant.businessId}::uuid
         ORDER BY r.started_at DESC
         LIMIT 1
       ) AS send_parent_run_id
     FROM solicitation_batches b
-    WHERE b.id = ${input.batchId}::uuid
-      AND b.account_id = ${input.accountId}::uuid
-      AND b.business_id = ${input.businessId}::uuid
+    WHERE b.id = ${batchId}::uuid
+      AND b.account_id = ${tenant.accountId}::uuid
+      AND b.business_id = ${tenant.businessId}::uuid
     FOR UPDATE OF b
   `;
-  return batch ?? null;
+  if (batch === undefined) return null;
+  return { batch, state: deriveBatchState(batch, new Date()) };
 }
 
 export interface ApproveBatchInput {
@@ -193,17 +209,13 @@ export async function approveBatch(
 ): Promise<ApproveBatchResult> {
   const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<ApproveBatchResult> => {
-    const batch = await lockBatchForAction(tx, {
-      batchId,
-      accountId: input.accountId,
-      businessId: input.businessId,
-    });
-    if (batch === null) return { status: 'not_found' };
+    const locked = await lockBatchForAction(tx, batchId, input);
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
 
-    // Read the state ONCE, under the lock, from the same row every write below
-    // targets. `expired` lands here: past built_at + 7 days neither lane may
-    // approve (D2).
-    const state = deriveBatchState(batch, new Date());
+    // The state was read ONCE, under the lock, from the same row every write
+    // below targets. `expired` lands here: past built_at + 7 days neither lane
+    // may approve (D2).
     if (state !== 'built') {
       return batch.approved_at !== null
         ? { status: 'already_approved' }
@@ -412,14 +424,10 @@ export async function haltBatch(
 ): Promise<HaltBatchResult> {
   const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<HaltBatchResult> => {
-    const batch = await lockBatchForAction(tx, {
-      batchId,
-      accountId: input.accountId,
-      businessId: input.businessId,
-    });
-    if (batch === null) return { status: 'not_found' };
+    const locked = await lockBatchForAction(tx, batchId, input);
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
 
-    const state = deriveBatchState(batch, new Date());
     if (state === 'halted') return { status: 'already_halted' };
     if (state === 'closed') return { status: 'not_haltable', state };
 
@@ -588,12 +596,15 @@ export async function requestAskRegeneration(
         askId: input.askId,
       });
 
-      const batch = await lockBatchForAction(tx, {
-        batchId,
-        accountId: input.accountId,
-        businessId: input.businessId,
-      });
-      if (batch === null) throw new RegenRequestAbort({ status: 'not_found' });
+      // Not `return`: the outbox row above is already written, and postgres.js
+      // COMMITS on a normal return. This is why the shared helper answers with
+      // null instead of a refusal of its own — see its docstring.
+      const locked = await lockBatchForAction(tx, batchId, input);
+      if (locked === null) throw new RegenRequestAbort({ status: 'not_found' });
+      // `state` is BOUND here and ANSWERED below the dedup arm. Binding it is a
+      // pure JS derivation over the row just read — no statement, no lock — so
+      // the refusal ORDER this function's docstring pins is unchanged.
+      const { batch, state } = locked;
 
       // NOW the dedup arm, and this ordering is the whole point (round-1 R5 /
       // adversarial A5). `enqueueGenerateSolicitationAsks` dedups on
@@ -621,7 +632,6 @@ export async function requestAskRegeneration(
         throw new RegenRequestAbort({ status: 'already_in_flight' });
       }
 
-      const state = deriveBatchState(batch, new Date());
       if (state !== 'built') {
         throw new RegenRequestAbort({ status: 'not_regenerable', state });
       }
