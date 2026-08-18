@@ -25,8 +25,32 @@ restatement — read the referenced file, do not trust a summary of it.
 
 ## Current position
 
-**Step 7 REVIEW is COMPLETE. The branch is at `phase: reviewed`, gate GREEN.
-Next action is step 8 SHIP, RISK = high lane.**
+**STEP 8 IS ALL BUT DONE. The staging ride is COMPLETE and VERIFIED, PR #876 is
+open with every CI check green, and the ONLY remaining action is the owner's
+explicit merge approval. Do not merge without it.**
+
+State as of 2026-08-18, HEAD `f23dafbe`, `phase: reviewed`, gate GREEN
+(28 PASS + the owner-accepted `reclassify` WARN, D8).
+
+- **Rebased onto `main` a SECOND time** after #875 landed mid-ship. #875 rewrote
+  this branch's own enforcement machinery (`ci:feature-surface`,
+  `edit-surface-guard.sh`, `arm-check.sh`), so the rebase + full gate re-run was
+  substantive, not ceremonial. Zero file overlap; clean rebase.
+- **Staging ride done and torn down.** A two-batch fixture was seeded, smoked
+  and removed; staging is back to zero solicitation rows. The halt write is
+  verified end to end — audit row, spine step, exactly 2 cancellations, the
+  `sent` row untouched, parent run `cancelled`.
+- **The smoke found two real defects the whole review apparatus missed** —
+  see deviations **D10**, fixed in `bbbfb67a` and `f23dafbe`. Both existed only
+  in the composition (write → refetch → render). This is the single most
+  important thing on this branch for a future session to absorb: the staging
+  ride is a real gate, not a formality.
+- If anything needs re-verifying on staging, the seed and teardown SQL are
+  disposable and were kept out of the repo; re-derive them from D10's
+  description rather than hunting for them.
+
+**Next action is step 8's merge pause, then the entire "After merge" list
+below — none of which has been done yet.**
 
 - Steps 1-6: done. Plan locked at revision 3 (owner's call substituted for
   APPROVED after the round-3 cap; plan §6 records it).
@@ -188,5 +212,21 @@ apply-to-staging-Supabase-first step does not engage.
 3. **`docs/progresstracking.md:4375` is stale** — still says `admin_halt` is "a
    CHECK member with no writer — a live-but-dead enum arm". Outside this
    branch's `allowed_edit_surface`; the `document-feature` sweep owns it.
+4. **`scripts/verify-gate.sh` races `db-provision` against the parallel rows.**
+   Observed 2026-08-18: `ci:rls-audit`'s live check ran while `db-provision` had
+   schema `public` dropped and reported 20+ unrelated tables "missing from
+   pg_class". `db-provision` is documented to run SERIALLY before the parallel
+   rows, so either the ordering is not actually enforced or rls-audit escapes
+   it. Re-running the gate was green; standalone against the head DB it passes.
+   This produces false failures on any `db_touching` feature, and a false
+   failure that clears on retry is the kind a future session will learn to
+   ignore — which is the real cost.
+5. **A `staging` push no longer produces a `target:"staging"` deploy.** Both
+   `deployment-guide.md` and CLAUDE.md state it does, "verified 2026-06-02".
+   Every recent staging deploy returns `target: null` (generic preview) and is
+   aliased to `staging.repworth.net`, so the stack still works — but the
+   documented mechanism is not what is running, and the runbook's
+   "deploy the custom env explicitly" instructions are written against the
+   claimed behaviour.
 
 **Do NOT file** the plan §7 pending-batch ticket. F2 fixed it; §7 now says so.
