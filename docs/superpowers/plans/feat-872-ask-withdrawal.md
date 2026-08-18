@@ -67,6 +67,38 @@ export function isWithdrawableState(state: BatchState): boolean {
   return state === 'veto_window' || state === 'approved' || state === 'sending';
 }
 
+/** The ask's CURRENT attempt as the verb reads it under the lock: null when the
+ *  ask has no attempt at all. */
+export interface CurrentAttempt {
+  deliveryStatus: string;
+  dispositionReason: string | null;
+}
+
+/** The decision, pure. `withdrawAsk` reads the batch state and the current
+ *  attempt under the lock, then applies THIS and writes only on `withdraw`.
+ *  Extracted so the whole state × attempt-status matrix is one property test
+ *  rather than fifteen DB cases (plan review round 1, finding 1/3). */
+export type WithdrawalDecision =
+  | { kind: 'withdraw' }
+  | { kind: 'already_withdrawn' }
+  | { kind: 'not_withdrawable'; state: BatchState }
+  | { kind: 'not_live'; deliveryStatus: string | null };
+
+export function classifyWithdrawal(
+  state: BatchState,
+  attempt: CurrentAttempt | null,
+): WithdrawalDecision {
+  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
+  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
+  if (attempt.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
+    return { kind: 'already_withdrawn' };
+  }
+  if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
+    return { kind: 'withdraw' };
+  }
+  return { kind: 'not_live', deliveryStatus: attempt.deliveryStatus };
+}
+
 export interface WithdrawAskInput {
   batchId: string;
   askId: string;
@@ -110,7 +142,7 @@ Panel body: `POST /api/dashboard/solicitation/batch/withdraw` with `{ batchId, a
 - Modify: `src/app/api/dashboard/solicitation/batch/__tests__/approval-routes.test.ts` (new `describe('POST /api/dashboard/solicitation/batch/withdraw')`)
 - Modify: `src/app/(authenticated)/dashboard/requests/__tests__/approval-panel.test.tsx` (new `describe('withdraw control')`)
 
-Precedents to read first: `describe('haltBatch')` in the integration file (`:915-1010`), `describe('invariants')` and `describe('approveBatch query shapes')` in the unit file, `describe('POST /api/dashboard/solicitation/batch/halt')` in the routes file, `it('stops the batch and sends no reason of its own')` in the panel file.
+Precedents to read first: `describe('haltBatch')` in the integration file (`:915-1076`), `describe('invariants')` and `describe('approveBatch query shapes')` in the unit file, `describe('POST /api/dashboard/solicitation/batch/halt')` in the routes file, `it('stops the batch and sends no reason of its own')` in the panel file.
 
 - [ ] **Step 1: Integration — precondition + helper.** In `approval.integration.test.ts`, add after `stampClosedBatch` (`:380-393`):
 
@@ -145,26 +177,92 @@ async function stampApprovedBatch(batchId: string): Promise<void> {
   `;
 }
 
-/** 109 REPLACES 108's status/reason CHECK under the SAME NAME, so
- *  `assertSchemaReady` cannot tell them apart (see the 108 note in
- *  schema-ready.ts). The distinguishing fact is the new member, and the only
- *  honest precondition is the constraint's DEFINITION — the same technique
- *  `assertAnalyticsEventNamesRegistered` uses. Local to this suite because it
- *  is the only writer of the value. */
-async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void> {
+/** An auto-lane approval (#631's shape): `approval_method='auto_policy'`,
+ *  no acting user. Withdrawal must not gate on the method. */
+async function stampAutoApprovedBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '2 minutes',
+        approval_method = 'auto_policy',
+        approved_by_user_id = NULL,
+        veto_deadline_at = NOW() + INTERVAL '58 minutes'
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** The live status/reason CHECK, as Postgres renders it. */
+async function statusReasonDefinition(db: postgresType.Sql): Promise<string> {
   const [row] = await db<{ definition: string }[]>`
     SELECT pg_get_constraintdef(oid) AS definition
     FROM pg_constraint
     WHERE conname = 'solicitation_outreach_status_reason_consistency'
       AND conrelid = 'solicitation_outreach'::regclass
   `;
-  if (row?.definition.includes(`'owner_withdrawn'`)) return;
+  return row?.definition ?? '';
+}
+
+/** 109 REPLACES 108's status/reason CHECK under the SAME NAME, so
+ *  `assertSchemaReady` cannot tell them apart (see the 108 note in
+ *  schema-ready.ts). The distinguishing fact is the new member, and the only
+ *  honest precondition is the constraint's DEFINITION — the same technique
+ *  `assertAnalyticsEventNamesRegistered` uses. It asserts the value appears
+ *  EXACTLY once and inside the `cancelled` arm, so a malformed 109 that admits
+ *  it under another status fails here, loudly, not in a later UPDATE. Local to
+ *  this suite because it is the only writer of the value. */
+async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void> {
+  const definition = await statusReasonDefinition(db);
+  const occurrences = definition.split(`'owner_withdrawn'`).length - 1;
+  // Postgres renders `x IN (…)` as `x = ANY (ARRAY[…])`; the cancelled arm is
+  // the one whose status literal is 'cancelled'.
+  const cancelledArm = /delivery_status = 'cancelled'::text\)\s*AND\s*\(disposition_reason = ANY \(ARRAY\[[^\]]*\]/.exec(
+    definition,
+  );
+  if (occurrences === 1 && cancelledArm !== null && cancelledArm[0].includes(`'owner_withdrawn'`)) {
+    return;
+  }
   throw new Error(
-    'test database is behind head — solicitation_outreach_status_reason_consistency ' +
-      "does not admit 'owner_withdrawn' (migration 109). Run `pnpm test:db:setup`.",
+    'test database is behind head or 109 is malformed — ' +
+      `solicitation_outreach_status_reason_consistency admits 'owner_withdrawn' ${occurrences} time(s) ` +
+      `(${cancelledArm === null ? 'no cancelled arm found' : 'cancelled arm: ' + cancelledArm[0]}). ` +
+      'Run `pnpm test:db:setup`.',
   );
 }
+
+/**
+ * Every table a withdrawal may touch, as text, so a REFUSAL can be proven to
+ * have written NOTHING — not just nothing on `solicitation_outreach`.
+ * postgres.js commits on a normal callback return, so a refusal that had
+ * already updated the batch, an ask or a step would commit that write while
+ * reporting a refusal (plan review round 1, finding 4).
+ */
+async function snapshotWithdrawSurface(
+  batchId: string,
+  parentRunId: string,
+): Promise<{ batch: string; outreach: string[]; asks: string; steps: string }> {
+  const [asks] = await sql()<{ snapshot: string }[]>`
+    SELECT COALESCE(string_agg(a::text, '|' ORDER BY a.id), '') AS snapshot
+    FROM solicitation_asks a
+    WHERE a.batch_id = ${batchId}::uuid
+      AND a.account_id = ${accountId()}::uuid
+      AND a.business_id = ${businessId}::uuid
+  `;
+  const [steps] = await sql()<{ snapshot: string }[]>`
+    SELECT COALESCE(string_agg(s::text, '|' ORDER BY s.step_index), '') AS snapshot
+    FROM agent_run_steps s
+    WHERE s.agent_run_id = ${parentRunId}::uuid
+  `;
+  return {
+    batch: await snapshotBatch(batchId),
+    outreach: await snapshotOutreach(batchId),
+    asks: asks?.snapshot ?? '',
+    steps: steps?.snapshot ?? '',
+  };
+}
 ```
+
+  Extend `readBatch` (`:318-338`) so `BatchApprovalRow` also carries `approved_by_user_id: string | null` and `veto_deadline_at: string | null`, selected as `approved_by_user_id::text` and `veto_deadline_at::text` — the approval quartet must be assertable byte-for-byte. Add `abortingExecutor` to the imports: `import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';`.
 
   and in the `beforeAll` (`:476-486`), directly after the `assertSchemaReady(...)` call:
 
@@ -238,6 +336,13 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
       const built = await seedRenderedBatch({ renders: 1 });
       const closed = await seedRenderedBatch({ renders: 1 });
       await stampClosedBatch(closed.batchId);
+      // Past the 7-day approval window and never approved: `expired`.
+      const expired = await seedRenderedBatch({ renders: 1, builtAgo: '8 days' });
+      const refusedBefore = {
+        built: await snapshotWithdrawSurface(built.batchId, built.parentRunId),
+        closed: await snapshotWithdrawSurface(closed.batchId, closed.parentRunId),
+        expired: await snapshotWithdrawSurface(expired.batchId, expired.parentRunId),
+      };
 
       expect(await withdraw(inVeto, inVeto.asks[0]!.askId)).toMatchObject({ status: 'withdrawn' });
       // The veto batch is now settled (its only row is gone), so a second
@@ -268,10 +373,32 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
         status: 'not_withdrawable',
         state: 'closed',
       });
-      // A refusal writes nothing: the built row is still rendered.
-      expect(await readOutreach(built.batchId)).toEqual([
-        expect.objectContaining({ delivery_status: 'rendered', disposition_reason: null }),
-      ]);
+      expect(await withdraw(expired, expired.asks[0]!.askId)).toEqual({
+        status: 'not_withdrawable',
+        state: 'expired',
+      });
+      // A refusal writes NOTHING — batch, outreach, asks and steps alike.
+      expect(await snapshotWithdrawSurface(built.batchId, built.parentRunId)).toEqual(refusedBefore.built);
+      expect(await snapshotWithdrawSurface(closed.batchId, closed.parentRunId)).toEqual(refusedBefore.closed);
+      expect(await snapshotWithdrawSurface(expired.batchId, expired.parentRunId)).toEqual(refusedBefore.expired);
+    });
+
+    it('withdraws a queued current attempt in an approved batch', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const queuedAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      const queuedId = await seedAttempt({ batchId: batch.batchId, ask: queuedAsk, deliveryStatus: 'queued' });
+      await stampSendingBatch(batch.batchId);
+
+      const result = await withdraw(batch, queuedAsk.askId);
+
+      // `queued` is dispatched-but-not-sending: halt cancels it, so withdrawal
+      // does too — the same predicate, one row.
+      expect(result).toMatchObject({ status: 'withdrawn', remainingLive: 1 });
+      expect((await readOutreach(batch.batchId)).find((row) => row.id === queuedId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_withdrawn',
+      });
+      expect(await readSteps(batch.parentRunId, 'ask_withdrawn')).toHaveLength(1);
     });
 
     it('never withdraws a sending row and reports it not_live', async () => {
@@ -283,18 +410,84 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
         deliveryStatus: 'sending',
       });
       await stampSendingBatch(batch.batchId);
-      const before = await snapshotOutreach(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
 
       const result = await withdraw(batch, sendingAsk.askId);
 
       // Past the point of no return: halt's "no further sends, not undo"
       // contract, inherited whole.
       expect(result).toEqual({ status: 'not_live', deliveryStatus: 'sending' });
-      expect(await snapshotOutreach(batch.batchId)).toEqual(before);
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
       expect((await readOutreach(batch.batchId)).find((row) => row.id === sendingId)).toMatchObject({
         delivery_status: 'sending',
       });
-      expect(await readSteps(batch.parentRunId, 'ask_withdrawn')).toHaveLength(0);
+    });
+
+    it('withdrawing the last waiting row does not settle while another outreach row is sending', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const sendingAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      await seedAttempt({ batchId: batch.batchId, ask: sendingAsk, deliveryStatus: 'sending' });
+      await stampSendingBatch(batch.batchId);
+
+      const result = await withdraw(batch, batch.asks[0]!.askId);
+
+      // The in-flight row keeps the batch open: `remainingLive` counts it, and
+      // the join reports `not_settled` — the row that resolves itself is the
+      // one that will close the batch.
+      expect(result).toMatchObject({
+        status: 'withdrawn',
+        remainingLive: 1,
+        close: { status: 'not_settled', liveCount: 1 },
+      });
+      expect((await readBatch(batch.batchId)).send_closed_at).toBeNull();
+      expect(await readRunStatus(batch.parentRunId)).toBe('running');
+    });
+
+    it('withdrawal selects the highest attempt_no and never an older superseded attempt', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      const ask = batch.asks[0]!;
+      const olderId = batch.outreachIds[0]!;
+      // The render lane's regenerate shape: the old row is `cancelled`/`superseded`,
+      // the replacement is attempt 2 and live.
+      await sql()`
+        UPDATE solicitation_outreach
+        SET delivery_status = 'cancelled', disposition_reason = 'superseded', updated_at = NOW()
+        WHERE id = ${olderId}::uuid
+          AND account_id = ${batch.accountId}::uuid
+          AND business_id = ${batch.businessId}::uuid
+      `;
+      const newerId = await seedAttempt({ batchId: batch.batchId, ask, deliveryStatus: 'rendered', attemptNo: 2 });
+      await stampVetoWindowBatch(batch.batchId);
+
+      const result = await withdraw(batch, ask.askId);
+
+      expect(result).toMatchObject({ status: 'withdrawn' });
+      const rows = await readOutreach(batch.batchId);
+      // Only the CURRENT attempt changes; the superseded one keeps its own reason.
+      expect(rows.find((row) => row.id === newerId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'owner_withdrawn',
+      });
+      expect(rows.find((row) => row.id === olderId)).toMatchObject({
+        delivery_status: 'cancelled',
+        disposition_reason: 'superseded',
+      });
+    });
+
+    it('an ask in the owned batch with no outreach attempt is not_live with null status and writes nothing', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      // A second send Ask that generation never rendered — no attempt row at all.
+      const bare = await seedSendAsk(batch.batchId, batch.uploadId);
+      await stampVetoWindowBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+
+      const result = await withdraw(batch, bare.askId);
+
+      // Told apart from `not_found`: the ask IS in this batch, it just has
+      // nothing to withdraw — and the LEFT JOIN must not fall back to another
+      // ask's row.
+      expect(result).toEqual({ status: 'not_live', deliveryStatus: null });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
     });
 
     it('withdrawing the last live ask closes the batch exhausted and terminalizes the send parent completed', async () => {
@@ -337,8 +530,9 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
       const mine = await seedRenderedBatch({ renders: 1 });
       await stampVetoWindowBatch(mine.batchId);
       const other = await seedRenderedBatch({ renders: 1 });
-      const before = await snapshotOutreach(other.batchId);
       const foreign = foreignTenantSeed();
+      const mineBefore = await snapshotWithdrawSurface(mine.batchId, mine.parentRunId);
+      const otherBefore = await snapshotWithdrawSurface(other.batchId, other.parentRunId);
 
       // Right batch, an ask that lives in ANOTHER batch of the same tenant.
       const crossBatch = await withdraw(mine, other.asks[0]!.askId);
@@ -352,12 +546,16 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
       const siblingLocation = await withdraw(mine, mine.asks[0]!.askId, {
         businessId: siblingBusinessId,
       });
+      // An id that exists nowhere.
+      const unknown = await withdraw(mine, randomUUID());
 
-      expect(crossBatch).toEqual({ status: 'not_found' });
-      expect(crossTenant).toEqual({ status: 'not_found' });
-      expect(siblingLocation).toEqual({ status: 'not_found' });
-      expect(await snapshotOutreach(other.batchId)).toEqual(before);
-      expect((await readOutreach(mine.batchId))[0]).toMatchObject({ delivery_status: 'rendered' });
+      // All four are the SAME public result — a probe cannot tell a foreign
+      // or other-batch ask from one that does not exist.
+      for (const result of [crossBatch, crossTenant, siblingLocation, unknown]) {
+        expect(result).toEqual({ status: 'not_found' });
+      }
+      expect(await snapshotWithdrawSurface(mine.batchId, mine.parentRunId)).toEqual(mineBefore);
+      expect(await snapshotWithdrawSurface(other.batchId, other.parentRunId)).toEqual(otherBefore);
     });
 
     it('a withheld current attempt is not_live and nothing is written', async () => {
@@ -369,13 +567,63 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
         deliveryStatus: 'withheld',
         dispositionReason: 'lint_failed',
       });
+      // A cancelled-for-another-reason attempt (a superseded row with no
+      // live replacement) is also not withdrawable — and NOT idempotent-ok:
+      // only `owner_withdrawn` says "already withdrawn".
+      const supersededAsk = await seedSendAsk(batch.batchId, batch.uploadId);
+      await seedAttempt({
+        batchId: batch.batchId,
+        ask: supersededAsk,
+        deliveryStatus: 'cancelled',
+        dispositionReason: 'superseded',
+      });
       await stampVetoWindowBatch(batch.batchId);
-      const before = await snapshotOutreach(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
 
-      const result = await withdraw(batch, heldAsk.askId);
+      const held = await withdraw(batch, heldAsk.askId);
+      const superseded = await withdraw(batch, supersededAsk.askId);
 
-      expect(result).toEqual({ status: 'not_live', deliveryStatus: 'withheld' });
-      expect(await snapshotOutreach(batch.batchId)).toEqual(before);
+      expect(held).toEqual({ status: 'not_live', deliveryStatus: 'withheld' });
+      expect(superseded).toEqual({ status: 'not_live', deliveryStatus: 'cancelled' });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+    });
+
+    it('withdrawal rolls back the outreach cancellation and the ask_withdrawn step when its transaction aborts', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(batch.batchId);
+      const before = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+      // The poison must be a REAL Postgres error raised on the same tx AFTER
+      // the writer's work (see abort-injection.ts): division by zero, 22012.
+      const aborting = abortingExecutor(sql(), (tx) => tx`SELECT 1 / 0`);
+
+      await expect(
+        withdrawAsk(aborting, {
+          batchId: batch.batchId,
+          askId: batch.asks[0]!.askId,
+          accountId: batch.accountId,
+          businessId: batch.businessId,
+          withdrawnByUserId: batch.userId,
+        }),
+      ).rejects.toMatchObject({ code: '22012' });
+
+      // Cancellation, step AND the last-row close all disappear together —
+      // proof that every write went through the ONE transaction handle.
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(before);
+      expect((await readBatch(batch.batchId)).send_closed_at).toBeNull();
+      expect(await readRunStatus(batch.parentRunId)).toBe('running');
+    });
+
+    it('auto_policy-approved batches allow the same withdrawal as owner-approved batches', async () => {
+      const batch = await seedRenderedBatch({ renders: 2 });
+      await stampAutoApprovedBatch(batch.batchId);
+
+      const result = await withdraw(batch, batch.asks[0]!.askId);
+
+      // No `approval_method` gate: withdrawal keys on Batch state, as halt does.
+      expect(result).toMatchObject({ status: 'withdrawn', remainingLive: 1 });
+      const after = await readBatch(batch.batchId);
+      expect(after.approval_method).toBe('auto_policy');
+      expect(after.approved_by_user_id).toBeNull();
     });
 
     it('withdrawal never touches solicitation_asks or the batch approval columns', async () => {
@@ -405,17 +653,34 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
       // it), so a rebuild still sees it as a prior send — one contact's cost,
       // by design (ADR 0021).
       expect(asksAfter).toEqual(asksBefore);
+      // The approval quartet, byte for byte: no per-ask approval state, no
+      // re-minted deadline (ADR 0021 property 2).
       const batchAfter = await readBatch(batch.batchId);
-      expect(batchAfter.approved_at).toBe(batchBefore.approved_at);
-      expect(batchAfter.approval_method).toBe(batchBefore.approval_method);
-      // `gap_minutes` is `veto_deadline_at - approved_at`; unchanged means the
-      // deadline was not re-minted.
-      expect(batchAfter.gap_minutes).toBe(batchBefore.gap_minutes);
+      expect(batchAfter).toEqual(batchBefore);
+      expect(batchAfter.approved_at).not.toBeNull();
+      expect(batchAfter.approved_by_user_id).toBe(batch.userId);
+      expect(batchAfter.veto_deadline_at).not.toBeNull();
     });
 
     it('the status reason CHECK admits owner_withdrawn only under cancelled', async () => {
       const batch = await seedRenderedBatch({ renders: 1 });
       const outreachId = batch.outreachIds[0]!;
+
+      // 109 is 108 plus exactly one value, in the cancelled arm: every 108
+      // member is still admitted, and the new one appears once, there.
+      const definition = await statusReasonDefinition(sql());
+      for (const kept of [
+        'moderation_high', 'render_failed', 'lint_failed', 'no_consent', 'suppressed', 'unsubscribed',
+        'owner_veto', 'owner_halt', 'admin_halt', 'owner_excluded', 'batch_expired',
+        'send_window_elapsed', 'superseded', 'send_failed', 'send_exhausted', 'send_indeterminate',
+      ]) {
+        expect(definition).toContain(`'${kept}'`);
+      }
+      expect(definition.split(`'owner_withdrawn'`).length - 1).toBe(1);
+      const cancelledArm = /delivery_status = 'cancelled'::text\)\s*AND\s*\(disposition_reason = ANY \(ARRAY\[[^\]]*\]/.exec(
+        definition,
+      );
+      expect(cancelledArm?.[0]).toContain(`'owner_withdrawn'`);
 
       // Legal pairing: cancelled + owner_withdrawn.
       await expect(
@@ -443,15 +708,25 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
 
   Check the shape of `readBatch`'s row (`BatchApprovalRow`, `:318-338`): it must expose `approved_at`, `approval_method`, `veto_deadline_at`, `send_closed_at` as `::text`. If `send_closed_at` is not selected there, add it to that reader's SELECT (test-file edit, inside surface).
 
-- [ ] **Step 3: Unit — property + query pin.** In `approval.test.ts`, extend the import at `:31`: `import { approveBatch, isWithdrawableState, ownerHaltReason, withdrawAsk } from '../approval';`. Add inside `describe('invariants')`:
+- [ ] **Step 3: Unit — two properties + query pin.** In `approval.test.ts`, extend the import at `:31`: `import { approveBatch, classifyWithdrawal, isWithdrawableState, ownerHaltReason, withdrawAsk, type CurrentAttempt } from '../approval';` and add `import { BATCH_STATES } from '../outreach';` next to the existing `deriveBatchState` import. Add inside `describe('invariants')`:
 
 ```ts
-  it('property: withdrawable states are exactly the halt-cancellable states of an approved batch', () => {
+  it('withdrawable states are exactly the halt-cancellable states of an approved batch', () => {
     const stamp = fc.option(fc.date({ min: new Date('2026-01-01'), max: new Date('2027-01-01') }), {
       nil: null,
     });
     fc.assert(
       fc.property(stamp, stamp, stamp, stamp, stamp, stamp, (built, approved, veto, sending, closed, halted) => {
+        // SCHEMA-VALID rows only — migration 091's send_ordering CHECK: approval
+        // implies built; the veto deadline and sending both imply approval.
+        // Without these preconditions the generator produces a row with only
+        // `sending_started_at` set, which `deriveBatchState` reads as `sending`
+        // (its precedence) while `approved_at` is null — a row no database can
+        // hold, and one that would fail a CORRECT implementation (plan review
+        // round 1, finding 1).
+        fc.pre(approved === null || built !== null);
+        fc.pre(veto === null || approved !== null);
+        fc.pre(sending === null || approved !== null);
         const row: BatchLifecycleRow = {
           built_at: built,
           approved_at: approved,
@@ -469,9 +744,45 @@ async function assertOwnerWithdrawnAdmitted(db: postgresType.Sql): Promise<void>
       }),
     );
   });
+
+  it('property: withdrawal classification is exact for every batch state and current-attempt status', () => {
+    const DELIVERY_STATUSES = [
+      'rendered', 'queued', 'sending', 'sent', 'withheld', 'cancelled', 'failed', 'unknown',
+    ] as const;
+    const REASONS = [
+      null, 'owner_withdrawn', 'owner_excluded', 'owner_veto', 'owner_halt', 'superseded',
+      'lint_failed', 'moderation_high', 'send_failed', 'send_indeterminate',
+    ] as const;
+    const attempt = fc.option(
+      fc.record({
+        deliveryStatus: fc.constantFrom(...DELIVERY_STATUSES),
+        dispositionReason: fc.constantFrom(...REASONS),
+      }),
+      { nil: null },
+    );
+    fc.assert(
+      fc.property(fc.constantFrom(...BATCH_STATES), attempt, (state, current) => {
+        const decision = classifyWithdrawal(state, current as CurrentAttempt | null);
+        // The ONE mutation arm exists only for a withdrawable state AND a
+        // waiting row; idempotence only for a row this verb itself cancelled;
+        // every other pair refuses without writing.
+        if (!isWithdrawableState(state)) {
+          return decision.kind === 'not_withdrawable' && decision.state === state;
+        }
+        if (current === null) return decision.kind === 'not_live' && decision.deliveryStatus === null;
+        if (current.deliveryStatus === 'cancelled' && current.dispositionReason === 'owner_withdrawn') {
+          return decision.kind === 'already_withdrawn';
+        }
+        if (current.deliveryStatus === 'rendered' || current.deliveryStatus === 'queued') {
+          return decision.kind === 'withdraw';
+        }
+        return decision.kind === 'not_live' && decision.deliveryStatus === current.deliveryStatus;
+      }),
+    );
+  });
 ```
 
-  Rename the title in the `it(...)` to exactly `'withdrawable states are exactly the halt-cancellable states of an approved batch'` — the promised-tests gate matches VERBATIM titles, so drop the `property: ` prefix here (the precedent's prefix is a convention, not a requirement).
+  The FIRST title must be exactly `'withdrawable states are exactly the halt-cancellable states of an approved batch'` — the promised-tests gate matches VERBATIM titles, so it carries no `property: ` prefix (the precedent's prefix is a convention, not a requirement). `BATCH_STATES` is the exported tuple in `outreach.ts:55-63`.
 
   Add a new describe after `describe('approveBatch query shapes')`:
 
@@ -647,18 +958,57 @@ describe('POST /api/dashboard/solicitation/batch/withdraw', () => {
     });
   });
 
-  it('withdraw route is refused when SOLICITATION_SEND_ENABLED is off', async () => {
+  it('withdraw route is unavailable when either the watch or the send flag is off', async () => {
+    // BOTH halves of the dual gate, independently — the send lane's verbs bind
+    // `requireSolicitationSendWriteAccess`, which requires both flags.
     vi.stubEnv('SOLICITATION_SEND_ENABLED', 'false');
-    const response = await WITHDRAW(post('withdraw'));
-    expect(response.status).toBe(404);
+    const sendOff = await WITHDRAW(post('withdraw'));
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', 'true');
+    vi.stubEnv('SOLICITATION_WATCH_ENABLED', 'false');
+    const watchOff = await WITHDRAW(post('withdraw'));
+
+    expect(sendOff.status).toBe(404);
+    expect(watchOff.status).toBe(404);
     expect(mockWithdrawAsk).not.toHaveBeenCalled();
+  });
+
+  it('withdraw route passes the scoped session tenant ids and ignores client reason status and outreach fields', async () => {
+    const response = await WITHDRAW(
+      post('withdraw', {
+        query: WITHDRAW_SCOPED,
+        body: {
+          batchId: BATCH_ID,
+          askId: ASK_ID,
+          // Everything below must be ignored — the reason is fixed server-side
+          // and the row is resolved under the lock.
+          outreachId: '01900000-0000-7000-8000-0000000000aa',
+          reason: 'owner_veto',
+          disposition_reason: 'owner_excluded',
+          status: 'sent',
+          accountId: '01900000-0000-7000-8000-0000000000bb',
+          businessId: '01900000-0000-7000-8000-0000000000cc',
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [, input] = mockWithdrawAsk.mock.calls[0] as [unknown, Record<string, unknown>];
+    // The VALUES, not just the key names: tenant ids come from the session and
+    // the resolved location scope, never from the body.
+    expect(input).toEqual({
+      batchId: BATCH_ID,
+      askId: ASK_ID,
+      accountId: ACCOUNT_ID,
+      businessId: DEFAULT_LOCATION_ID,
+      withdrawnByUserId: USER_ID,
+    });
   });
 
   it('rejects a cross-origin withdraw post', async () => {
     // Withdrawal is a destructive verb (cancelled is terminal), so it carries
     // the same CSRF pin approve, halt and regenerate already carry.
     const response = await WITHDRAW(
-      post('withdraw', { query: SCOPED, origin: 'https://evil.example.com' }),
+      post('withdraw', { query: WITHDRAW_SCOPED, origin: 'https://evil.example.com' }),
     );
 
     expect(response.status).toBe(403);
@@ -670,9 +1020,7 @@ describe('POST /api/dashboard/solicitation/batch/withdraw', () => {
 });
 ```
 
-  (`SCOPED` is the existing scoped-query constant the regenerate CSRF case at `:528-545` uses; reuse it.)
-
-  (Copy the exact expected status of the existing `'rejects a cross-origin regenerate post'` case for the CSRF assertion — read `:528-545` and mirror it; if it asserts a different code or body, mirror that.)
+  `SCOPED` in the regenerate describe (`:419`) is BLOCK-scoped to that describe, so it is not visible here (plan review round 1, finding 6). Define the withdraw describe's own copy at its top: `const WITHDRAW_SCOPED = \`?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}\`;` — do NOT hoist the regenerate one (touching that describe is outside this task). Mirror the CSRF expectations of `'rejects a cross-origin regenerate post'` (`:528-545`) exactly as written above.
 
 - [ ] **Step 5: Panel tests.** In `approval-panel.test.tsx`, add helpers next to `haltButton` (`:210-211`):
 
@@ -738,8 +1086,70 @@ describe('withdraw control', () => {
     // to name a reason or a row.
     expect(JSON.parse(String(init.body))).toEqual({ batchId: BATCH_ID, askId: dana.askId });
     // `in_place`: the owner is still in the same panel; a remount would drop
-    // any other armed confirmation and flash the loading card.
-    expect(onChanged).toHaveBeenCalledWith('Withdrawn. 1 message will send.', 'settled', 'in_place');
+    // any other armed confirmation and flash the loading card. The count is
+    // the SERVER's `remainingLive`, not a client subtraction.
+    expect(onChanged).toHaveBeenCalledWith('Withdrawn. 1 message left to send.', 'settled', 'in_place');
+  });
+
+  it('announces the server remaining count when a sending row keeps the batch open', async () => {
+    // Server truth: one row still in flight. A client that subtracted one
+    // from the rendered/queued rows on screen would say the batch is finished.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { status: 'withdrawn', remainingLive: 1, closed: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    const inFlight = { ...rendered('2', 'Sam Okafor'), deliveryStatus: 'sending' as const };
+    const { onChanged } = renderPanel(
+      sendLane({ batchState: 'sending', approvedAt: '2026-08-16 12:00:00+00' }),
+      [rendered('1', 'Dana Reeve'), inFlight],
+    );
+
+    // Only Dana's row is withdrawable; Sam's is in flight.
+    expect(withdrawControls()).toHaveLength(1);
+    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(confirmWithdrawButton()!);
+    await flush();
+
+    expect(onChanged).toHaveBeenCalledWith('Withdrawn. 1 message left to send.', 'settled', 'in_place');
+  });
+
+  it('post-approval queued rows show Withdraw while sending sent withheld failed and unknown rows do not', () => {
+    const attempts = [
+      rendered('1', 'Rendered Row'),
+      { ...rendered('2', 'Queued Row'), deliveryStatus: 'queued' as const },
+      { ...rendered('3', 'Sending Row'), deliveryStatus: 'sending' as const },
+      { ...rendered('4', 'Sent Row'), deliveryStatus: 'sent' as const },
+      heldByLint('5', 'Held Row'),
+      { ...rendered('6', 'Failed Row'), deliveryStatus: 'failed' as const, dispositionReason: 'send_failed' },
+      { ...rendered('7', 'Unknown Row'), deliveryStatus: 'unknown' as const, dispositionReason: 'send_indeterminate' },
+    ];
+    renderPanel(sendLane({ batchState: 'sending', approvedAt: '2026-08-16 12:00:00+00' }), attempts);
+
+    const names = withdrawControls().map((control) => control.getAttribute('aria-label'));
+    expect(names).toEqual([
+      'Withdraw the message to Rendered Row',
+      'Withdraw the message to Queued Row',
+    ]);
+  });
+
+  it('a refetch that drops an armed ask permanently disarms it even if the ask later reappears', () => {
+    const dana = rendered('1', 'Dana Reeve');
+    const sam = rendered('2', 'Sam Okafor');
+    const { rerender } = render(
+      <ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [dana, sam] })} />,
+    );
+    fireEvent.click(withdrawControls()[0]!);
+    expect(confirmWithdrawButton()).toHaveAccessibleName(/Dana Reeve/);
+
+    // The refetch comes back without Dana (withdrawn in another tab, or sent).
+    rerender(<ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [sam] })} />);
+    expect(confirmWithdrawButton()).toBeNull();
+
+    // If that ask ever reappears, it needs a FRESH first tap — the arming did
+    // not survive in hidden state.
+    rerender(<ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [dana, sam] })} />);
+    expect(confirmWithdrawButton()).toBeNull();
+    expect(withdrawControls()).toHaveLength(2);
   });
 
   it('Keep reverts the pending confirmation without posting', () => {
@@ -770,6 +1180,16 @@ describe('withdraw control', () => {
       />,
     );
     expect(withdrawControls()).toHaveLength(0);
+    // And none on a finished batch.
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({ batchState: 'closed', approvedAt: '2026-08-16 12:00:00+00' }),
+          attempts: [rendered('1', 'Dana Reeve')],
+        })}
+      />,
+    );
+    expect(withdrawControls()).toHaveLength(0);
   });
 
   it('announces the last withdrawal as the end of the batch', async () => {
@@ -783,8 +1203,9 @@ describe('withdraw control', () => {
     fireEvent.click(confirmWithdrawButton()!);
     await flush();
 
+    // `closed` is the server's fact, so the sentence may say "finished".
     expect(onChanged).toHaveBeenCalledWith(
-      'Withdrawn. Nothing more will send from this batch.',
+      'Withdrawn. That was the last one — this batch is finished.',
       'settled',
       'in_place',
     );
@@ -940,7 +1361,7 @@ export type WithdrawAskResult =
   | {
       status: 'withdrawn';
       /** Rows still `rendered`/`queued`/`sending` in this batch AFTER the
-       *  withdrawal — what the panel means by "N will send". */
+       *  withdrawal — the count the panel announces as "left to send". */
       remainingLive: number;
       close: CloseBatchIfSettledResult;
     }
@@ -958,6 +1379,45 @@ export type WithdrawAskResult =
   | { status: 'not_live'; deliveryStatus: string | null }
   /** Unknown batch, ask not in this batch, or foreign tenant — indistinguishable. */
   | { status: 'not_found' };
+
+/** The ask's CURRENT attempt as the verb reads it under the lock; the caller
+ *  passes null when the ask has no attempt at all. */
+export interface CurrentAttempt {
+  deliveryStatus: string;
+  dispositionReason: string | null;
+}
+
+/**
+ * The decision, PURE. `withdrawAsk` reads the Batch state and the current
+ * attempt under the lock, applies this, and writes only on `withdraw`.
+ * Extracted so the whole state × attempt-status matrix is one property test
+ * (`approval.test.ts` invariants) rather than fifteen DB cases; the DB suite
+ * then proves the READS (lock, LATERAL ordering, tenant keys) and the WRITES.
+ */
+export type WithdrawalDecision =
+  | { kind: 'withdraw' }
+  | { kind: 'already_withdrawn' }
+  | { kind: 'not_withdrawable'; state: BatchState }
+  | { kind: 'not_live'; deliveryStatus: string | null };
+
+export function classifyWithdrawal(
+  state: BatchState,
+  attempt: CurrentAttempt | null,
+): WithdrawalDecision {
+  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
+  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
+  // Only a row THIS verb cancelled reads as "already withdrawn"; a row
+  // cancelled for any other reason (superseded, a halt) is simply not live.
+  if (attempt.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
+    return { kind: 'already_withdrawn' };
+  }
+  // `rendered`/`queued` — the Halt latch's own row predicate. `sending` is past
+  // the point of no return and lands below.
+  if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
+    return { kind: 'withdraw' };
+  }
+  return { kind: 'not_live', deliveryStatus: attempt.deliveryStatus };
+}
 
 interface CurrentAttemptRow {
   outreach_id: string | null;
@@ -1032,17 +1492,27 @@ export async function withdrawAsk(
         AND a.business_id = ${input.businessId}::uuid
     `;
     if (current === undefined) return { status: 'not_found' };
+
+    // The decision is pure and property-tested; every refusal below returns
+    // BEFORE any write.
+    const attempt: CurrentAttempt | null =
+      current.outreach_id === null || current.delivery_status === null
+        ? null
+        : { deliveryStatus: current.delivery_status, dispositionReason: current.disposition_reason };
+    const decision = classifyWithdrawal(state, attempt);
+    switch (decision.kind) {
+      case 'not_withdrawable':
+        return { status: 'not_withdrawable', state: decision.state };
+      case 'not_live':
+        return { status: 'not_live', deliveryStatus: decision.deliveryStatus };
+      case 'already_withdrawn':
+        return { status: 'already_withdrawn' };
+      case 'withdraw':
+        break;
+    }
+    // `withdraw` implies a non-null attempt row; the compiler cannot see it.
     if (current.outreach_id === null || current.delivery_status === null) {
-      return { status: 'not_live', deliveryStatus: null };
-    }
-    if (
-      current.delivery_status === 'cancelled' &&
-      current.disposition_reason === 'owner_withdrawn'
-    ) {
-      return { status: 'already_withdrawn' };
-    }
-    if (current.delivery_status !== 'rendered' && current.delivery_status !== 'queued') {
-      return { status: 'not_live', deliveryStatus: current.delivery_status };
+      throw new Error(`withdrawAsk: classify said withdraw over a missing attempt for ask ${askId}`);
     }
 
     // The status literals are PARAMETERS so the query-shape pin can assert
@@ -1192,8 +1662,10 @@ export const dynamic = 'force-dynamic';
  * Everything the browser is allowed to learn from a withdrawal, and nothing
  * else. `WithdrawAskResult.close` carries `parentRunId` — an internal
  * `agent_runs` UUID — plus the spine's `disposition`/`parentStatus` vocabulary
- * and raw counts (ADR 0012: no internal id is ever rendered on the Requests
- * surface). `not_live`'s `deliveryStatus` stays server-side too: the panel has
+ * and raw counts. No internal id reaches the Requests surface — the halt and
+ * approve routes' `toWire` precedent (#629 round-2 finding F10; the "ADR 0012"
+ * those files cite for it is a misattribution — 0012 is the sentiment-blind
+ * withhold enum). `not_live`'s `deliveryStatus` stays server-side too: the panel has
  * one sentence for it, and the row's status is not the owner's to act on.
  */
 interface WithdrawWire {
@@ -1268,10 +1740,10 @@ export const POST = withSameOrigin()(
 - [ ] **Step 4: Directory row.** In `docs/directory.md` after the `solicitation/batch/regenerate/route.ts` row (`:359`) add:
 
 ```
-| `solicitation/batch/withdraw/route.ts` | **(#872)** POST: the owner withdraws ONE approved ask (**Ask withdrawal**, ADR 0021). Fifth `withScopedBatch` adapter — same `requireSolicitationSendWriteAccess` gate as approve/halt/regenerate, the shared `readBatchAsk` body reader (batch id **and** ask id, both UUIDs or a uniform 404), then one `withdrawAsk` call: withdrawn/already_withdrawn → 200, not_withdrawable/not_live → 409, not_found → 404. The reason (`owner_withdrawn`) is fixed server-side and the row is resolved under the batch lock, so nothing client-supplied names a reason, a row or a status; the wire projects `remainingLive` + `closed` and never the send parent run id (ADR 0012). Logs ids and statuses only. |
+| `solicitation/batch/withdraw/route.ts` | **(#872)** POST: the owner withdraws ONE approved ask (**Ask withdrawal**, ADR 0021). Fifth `withScopedBatch` adapter — same `requireSolicitationSendWriteAccess` gate as approve/halt/regenerate, the shared `readBatchAsk` body reader (batch id **and** ask id, both UUIDs or a uniform 404), then one `withdrawAsk` call: withdrawn/already_withdrawn → 200, not_withdrawable/not_live → 409, not_found → 404. The reason (`owner_withdrawn`) is fixed server-side and the row is resolved under the batch lock, so nothing client-supplied names a reason, a row or a status; the wire projects `remainingLive` + `closed` and never the send parent run id (the halt/approve `toWire` precedent). Logs ids and statuses only. |
 ```
 
-  Update the `regenerate/route.ts` row's phrase "its own `readRegenerateRequest` body reader" → "the shared `readBatchAsk` body reader (hoisted to `_shared/` by #872)". Then `pnpm ci:directory-map 2>&1 | tail -3` — expected: clean (routes are outside its enforced roots, but the row keeps the map honest).
+  Update the `regenerate/route.ts` row's phrase "its own `readRegenerateRequest` body reader" → "the shared `readBatchAsk` body reader (hoisted to `_shared/` by #872)". Update the `_shared/scoped-batch-route.ts` row (`:356`): "the four batch POSTs share" → "the five batch POSTs share", add `readBatchAsk` to its reader list, and add `withdraw` to the `requireSolicitationSendWriteAccess` group. Update the file's own header comment (`scoped-batch-route.ts:3-5, :14`) — it still says "three POST routes"; make it name all five with their tickets. In `regenerate/route.ts:50` replace the "ADR 0012" attribution with "the halt/approve `toWire` precedent (#629 round-2 F10)" while you are in that file — 0012 is the sentiment-blind withhold enum and carries no such rule (the same misattribution in `halt/route.ts:26` and `approve/route.ts:104` is outside this surface; noted in the deviations file for a follow-up). Then `pnpm ci:directory-map 2>&1 | tail -3` — expected: clean (routes are outside its enforced roots, but the rows keep the map honest).
 
 - [ ] **Step 5: Commit.**
 
@@ -1444,24 +1916,49 @@ export function WithdrawableAskList({
     'This message is no longer waiting to send, so it cannot be withdrawn. Reload the page to see where the batch stands.',
 ```
 
-- [ ] **Step 4: `ApprovalPanel.tsx` — announce + lane write.** After `haltedAnnounce` add:
+- [ ] **Step 4: `ApprovalPanel.tsx` — carry the server's count, announce, lane write.**
+
+  The server answers a withdrawal with `remainingLive` and `closed`; today `postLaneAction` (`:568-606`) discards everything but `status`. A client-side subtraction over the rows on screen would be WRONG the moment a `sending` row exists (server counts it, the screen's rendered/queued rows do not — plan review round 1, finding 2). So the `done` outcome carries the two fields and the withdraw sentence reads them:
+
+  - `LaneOutcome` (`:536-559`): change the first arm to
+    ```ts
+    /** The server settled the request: 2xx, carrying its result discriminant
+     *  and, for the verbs that report one, its counts. `remainingLive`/`closed`
+     *  are read from the body when present and `null` otherwise — approve, halt
+     *  and regenerate do not send them. */
+    | { kind: 'done'; status: LaneStatus | null; remainingLive: number | null; closed: boolean | null }
+    ```
+  - `postLaneAction`: widen the parsed body type with `remainingLive?: unknown; closed?: unknown;` and return
+    ```ts
+      return response.ok
+        ? {
+            kind: 'done',
+            status,
+            remainingLive: typeof result.remainingLive === 'number' ? result.remainingLive : null,
+            closed: typeof result.closed === 'boolean' ? result.closed : null,
+          }
+        : { kind: 'refused', status, message, state: toRefusedState(result.state) };
+    ```
+  - `Announce` (`:632`): `type Announce = (status: LaneStatus | null, done: { remainingLive: number | null; closed: boolean | null }) => string;` — the existing three announces take one parameter and stay assignable unchanged.
+  - `perform` (`:718-748`): the settle line becomes `onChanged(announce(outcome.status, outcome), 'settled', refresh);`.
+  - After `haltedAnnounce` add:
 
 ```ts
-/** The withdraw sentence. `remaining` is the client's count of rows still
- *  waiting to send AFTER this one — bound here like the approve count, and
- *  the server recounts under its own lock. The idempotent arm claims nothing
- *  new happened. */
-function withdrawnAnnounce(remaining: number): Announce {
-  return (status) => {
-    if (status === 'already_withdrawn') return 'This message was already withdrawn.';
-    return remaining === 0
-      ? 'Withdrawn. Nothing more will send from this batch.'
-      : `Withdrawn. ${countPhrase(remaining)} will send.`;
-  };
-}
+/** The withdraw sentence, from the SERVER's counts — never a client
+ *  subtraction over the rows on screen, which cannot see an in-flight row.
+ *  "Left to send" is factual for waiting AND in-flight rows and promises
+ *  nothing about rows the owner may still stop or withdraw. The idempotent arm
+ *  claims nothing new happened; the no-count arm (a server deployed behind
+ *  this browser) claims only what it knows. */
+const withdrawnAnnounce: Announce = (status, done) => {
+  if (status === 'already_withdrawn') return 'This message was already withdrawn.';
+  if (done.closed === true) return 'Withdrawn. That was the last one — this batch is finished.';
+  if (done.remainingLive === null) return 'Withdrawn.';
+  return `Withdrawn. ${countPhrase(done.remainingLive)} left to send.`;
+};
 ```
 
-  In `LaneWriteInputs` add `/** Rows still `rendered`/`queued` on screen — the withdraw sentence's count. */ liveCount: number;`. In `LaneWrites` add `withdraw: (askId: string) => void;` and update its docblock ("four writes"). In `useLaneWrites`, destructure `liveCount` and add after `regenerate`:
+  In `LaneWrites` add `withdraw: (askId: string) => void;` and update its docblock ("four writes"). In `useLaneWrites` add after `regenerate` (no new input is needed — the count comes back on the wire):
 
 ```ts
   const withdraw = useCallback(
@@ -1470,14 +1967,9 @@ function withdrawnAnnounce(remaining: number): Announce {
       // batch; a remount would drop another armed confirmation and flash the
       // loading card. The withdrawn row leaves the list on the refetch because
       // the read model already filters cancelled rows.
-      void perform(
-        WITHDRAW_PATH,
-        { batchId, askId },
-        withdrawnAnnounce(Math.max(0, liveCount - 1)),
-        'in_place',
-      );
+      void perform(WITHDRAW_PATH, { batchId, askId }, withdrawnAnnounce, 'in_place');
     },
-    [batchId, liveCount, perform],
+    [batchId, perform],
   );
 
   return { busy, error, approve, halt, regenerate, withdraw };
@@ -1490,21 +1982,25 @@ function withdrawnAnnounce(remaining: number): Announce {
     () => rows.filter((row) => row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued'),
     [rows],
   );
-  // The armed withdraw confirmation. Held here, not in the list, so a refetch
-  // that drops the row (it was withdrawn, or sent) also drops the arming —
-  // derived on read rather than cleared by effect.
+  // The armed withdraw confirmation. Held here, not in the list, and CLEARED
+  // — not merely hidden — the moment a refetch no longer shows the armed row:
+  // an ask that later reappears must need a fresh first tap (plan review
+  // round 1, finding 9).
   const [armedAskId, setArmedAskId] = useState<string | null>(null);
-  const pendingWithdrawAskId =
-    armedAskId !== null && live.some((row) => row.askId === armedAskId) ? armedAskId : null;
+  useEffect(() => {
+    if (armedAskId !== null && !live.some((row) => row.askId === armedAskId)) {
+      setArmedAskId(null);
+    }
+  }, [armedAskId, live]);
 ```
 
-  pass `liveCount: live.length` into `useLaneWrites`, destructure `withdraw`, and add the render arm after the `selectable` block:
+  (`useEffect` is already imported in this file — check the React import at the top; add it if not.) Destructure `withdraw` from `useLaneWrites`, and add the render arm after the `selectable` block:
 
 ```tsx
       {asks === 'withdrawable' && (
         <WithdrawableAskList
           rows={rows}
-          pendingAskId={pendingWithdrawAskId}
+          pendingAskId={armedAskId}
           onArm={setArmedAskId}
           onWithdraw={(askId) => {
             setArmedAskId(null);
@@ -1570,3 +2066,18 @@ git commit -m "feat(872): per-ask Withdraw control behind an inline two-tap conf
 - **Spec coverage:** every `user_visible_behavior` item maps to Task 4 (control, confirm, announce, copy) or Task 3 (status codes); every `invariants` item to Task 2 (1–7, 9) or Task 3 (8); every `edge_cases` item to an integration case in Task 1 or to Task 4's derived `pendingWithdrawAskId`; the two intake questions the reviewer left open (last-row settle, veto clock) are the fourth integration case + ADR 0021.
 - **Placeholder scan:** none — the CSS step copies concrete rules from named lines; the CSRF case mirrors a named precedent.
 - **Type consistency:** `WithdrawAskInput` (5 keys) / `WithdrawAskResult` (5 arms) are identical in the contract block, Task 2, Task 3's `toWire`, and Task 1's tests; the wire fields are `status`, `remainingLive`, `closed`, `state`; the panel posts `{ batchId, askId }`; the step key is `ask_withdrawn`; the reason value is `owner_withdrawn`.
+
+---
+
+## Review appendix
+
+### Plan review round 1 — codex, `VERDICT: REVISE` (`docs/reviews/feat-872-ask-withdrawal/plan-round1-codex.md`)
+
+12 findings; 11 accepted (one partially), 1 rejected. What changed in this plan (revision 2):
+
+- **Decision extracted as a pure function.** `classifyWithdrawal(state, currentAttempt)` in `approval.ts`; `withdrawAsk` reads under the lock, applies it, writes only on `withdraw`. Second fast-check property over the whole state × attempt-status matrix; the first property's generator now emits only 091-valid lifecycle rows (`fc.pre`).
+- **Server count on the wire is READ, not re-derived.** `LaneOutcome.done` carries `remainingLive`/`closed`; `Announce` takes them; copy is "N messages left to send" / "That was the last one — this batch is finished."
+- **Eval hardened:** 13 added cases (see deviations D3 for the list); refusals snapshot four tables; abort-injection rollback; CHECK precondition asserts location + count of the new value; route asserts tenant VALUES + dual flag; panel status matrix, closed batch, disarm-on-refetch (arming cleared by effect).
+- **Citations repaired:** halt-describe range, `readBatch` shape, `SCOPED` scoping, `TenantSeed` fields, ADR 0012 misattribution (pre-existing; documented), ADR 0020 Consequences amended.
+
+Rejected: "required skills do not exist" — they exist in the orchestrator's catalog; the read-only reviewer's sandbox cannot see them.

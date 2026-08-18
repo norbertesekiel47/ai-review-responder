@@ -16,7 +16,7 @@
   ],
   "user_visible_behavior": [
     "In the post-approval panel mode (`veto_window` / `approved` / `sending`) every listed row shows a `Withdraw` control; the first tap swaps it for an inline 'Withdraw this message?' [Withdraw] [Keep]; the second tap posts `{ batchId, askId }` to `POST /api/dashboard/solicitation/batch/withdraw`.",
-    "Success announces 'Withdrawn. N will send.' (N = live rows remaining) and refetches in place; the withdrawn row leaves the list.",
+    "Success announces the SERVER's count — 'Withdrawn. N messages left to send.' (N = the response's `remainingLive`, which counts rendered/queued/sending rows), or 'Withdrawn. That was the last one — this batch is finished.' when the response says `closed` — and refetches in place; the withdrawn row leaves the list.",
     "Withdrawing the last live row settles the batch: the panel shows its existing settled mode.",
     "Refusals: batch not withdrawable (409 with the derived state); the ask's current attempt is not live — `sending`/`sent`/`withheld`/`failed`/`unknown` or cancelled for another reason (409); a repeat withdrawal of an already-withdrawn ask is a 200 no-op; unknown batch or ask -> 404.",
     "Post-approval panel copy gains one clause per state, e.g. veto_window: 'Approved. Nothing has left yet, and you can still stop this batch or withdraw a single message.'",
@@ -104,7 +104,7 @@
   ],
   "verification_commands": [],
   "estimated_prod_lines": "±400 (approval.ts ~120, withdraw route ~90, scoped-batch-route ~15, ApprovalPanel ~70, AskList ~60, run-spine ~2, migration ~45)",
-  "estimated_test_lines": "±800 (approval.integration ~350, approval unit ~120, routes ~150, panel ~200) — a DB-contract verb runs ~2x its production lines in tests",
+  "estimated_test_lines": "±1150 (approval.integration ~520, approval unit ~170, routes ~200, panel ~260) — raised after plan review round 1 added 13 cases; a DB-contract verb runs ~3x its production lines in tests",
   "dependencies_added": [],
   "rollback_plan": "Migration 109 is additive (the cancel arm of the status/reason CHECK gains one value): back out by re-applying 108's constraint text verbatim — legal only while no `owner_withdrawn` row exists, which holds until the writer ships and SOLICITATION_SEND_ENABLED is off in every environment. Code: revert the PR; the route disappears and the Halt latch remains the recourse. Order: revert code first, then narrow the CHECK only if required. Apply 109 to staging first, to prod at promotion, in lockstep (migrations-log entry in the same PR).",
   "observability": [
