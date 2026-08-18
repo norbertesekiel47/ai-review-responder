@@ -219,22 +219,25 @@ function reportViolations(intakePath: string, violations: string[]): never {
   ]);
 }
 
-function main(): void {
-  const preEscaped = preEscapedEntriesByIntake(INTAKE_DIR);
-  if (preEscaped.size > 0) reportPreEscaped(preEscaped);
-
+/** The committed intake for the audited branch, or null (with the pass reason logged). */
+function resolveBranchIntake(): string | null {
   const branch = auditedBranch(process.env.GITHUB_HEAD_REF, git('branch', '--show-current'));
   if (!branch) {
     console.log('feature-surface-audit: long-lived or detached ref — intake spellings clean, passing.');
-    return;
+    return null;
   }
   const intakePath = intakePathFor(branch);
   if (!existsSync(intakePath)) {
     console.log(
       `feature-surface-audit: no committed intake for '${branch}' — not a /feature branch, passing.`,
     );
-    return;
+    return null;
   }
+  return intakePath;
+}
+
+/** Branch-diff checks: no change outside the surface; no surface entry that matches nothing. */
+function auditBranchIntake(intakePath: string): void {
   const surface = loadSurface(intakePath);
   const mergeBase = mergeBaseWith(process.env.GITHUB_BASE_REF);
   const changedFiles = changedFilesVsBase(mergeBase);
@@ -245,6 +248,13 @@ function main(): void {
   console.log(
     `feature-surface-audit: passed (${changedFiles.length} changed file(s) within the declared surface; every surface entry matches a file).`,
   );
+}
+
+function main(): void {
+  const preEscaped = preEscapedEntriesByIntake(INTAKE_DIR);
+  if (preEscaped.size > 0) reportPreEscaped(preEscaped);
+  const intakePath = resolveBranchIntake();
+  if (intakePath) auditBranchIntake(intakePath);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
