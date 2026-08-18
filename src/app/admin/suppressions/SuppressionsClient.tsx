@@ -254,7 +254,7 @@ function LookupResults({
     {
       key: 'removedBy',
       header: 'Removed by',
-      render: (row) => <span className="font-mono text-xs">{row.removedByUserId}</span>,
+      render: (row) => <span className="text-xs">{row.removedByUserLabel}</span>,
     },
   ];
 
@@ -638,6 +638,7 @@ export function SuppressionsClient() {
   const correction = useMutation({
     mutationFn: submitCorrection,
     onSuccess: () => {
+      entry.reset();
       // Cleared on a confirmed removal AND on an already-removed 404 — in both
       // cases the row on screen is stale. A genuine failure deliberately leaves
       // the panel and the row exactly where they were.

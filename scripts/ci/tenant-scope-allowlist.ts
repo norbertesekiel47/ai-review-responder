@@ -289,6 +289,26 @@ const SUSPENSION_FLAG_EVIDENCE_SQL =
 const ADMIN_SUPPRESSION_LOOKUP_SQL =
   "SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source, s.account_id, a.display_name AS account_name, s.created_by_user_id, s.note, s.suppressed_at::text FROM solicitation_suppressions s LEFT JOIN accounts a ON a.id = s.account_id WHERE s.channel = 'email' AND s.normalized_handle = ${handle} ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC";
 
+// #662 prior-correction actor resolution.
+//
+// The `users` join needs no allowlist entry, and the reason is not that it is
+// tenant-scoped — it is not. `users` is absent from TENANT_TABLES
+// (scripts/ci/tenant-tables.ts), so `ci:tenant-scope` forms no opinion about it
+// and NO exception is possible here, rather than merely unnecessary. Do not
+// read this audit's silence as a review of the join.
+//
+// What actually makes the join safe is its shape, not the audit: a bounded
+// primary-key lookup of ONE actor row per correction, on a surface already
+// behind requireAdminWithAal2, returning staff identity (name/email) and never
+// tenant data. Same shape as src/lib/admin/impersonation/session.ts. A
+// correction record names an admin from any account by construction, so the
+// lookup is cross-tenant on purpose.
+//
+// This constant exists ONLY to keep the corrections-table entry below
+// byte-exact after the query shape changed.
+const ADMIN_SUPPRESSION_CORRECTIONS_LOOKUP_SQL =
+  "SELECT c.id, c.suppression_id, c.scope, c.source, c.removed_by_user_id, u.name AS removed_by_user_name, u.email AS removed_by_user_email, c.reason, c.created_at::text FROM solicitation_suppression_corrections c LEFT JOIN users u ON u.id = c.removed_by_user_id WHERE c.channel = 'email' AND c.normalized_handle = ${handle} ORDER BY c.created_at DESC LIMIT 20";
+
 // #657 §5.1 Solicitation lane attribution. A Resend webhook arrives carrying a
 // provider message id and NO tenant context, so this statement is what
 // ESTABLISHES the account scope every later write in the lane uses. It is one
@@ -3044,7 +3064,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/suppressions-service.ts",
     table: "solicitation_suppression_corrections",
-    sqlSnippet: "SELECT id, suppression_id, scope, source, removed_by_user_id, reason, created_at::text FROM solicitation_suppression_corrections WHERE channel = 'email' AND normalized_handle = ${handle} ORDER BY created_at DESC LIMIT 20",
+    sqlSnippet: ADMIN_SUPPRESSION_CORRECTIONS_LOOKUP_SQL,
     category: 'admin-after-require-role',
     reason: "#645 §7.3 admin suppression servicing — the prior-corrections leg of the lookup, cross-tenant by design behind requireAdminWithAal2 and keyed on the Normalized handle, which is the only identifier a correction record shares with anything. Scoping it by account_id would hide exactly the records the servicing view exists to show: a `global` correction carries account_id only as provenance and may carry none at all. Read-only, and it returns no account_id.",
   },

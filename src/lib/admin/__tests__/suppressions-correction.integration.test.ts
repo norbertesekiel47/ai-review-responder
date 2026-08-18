@@ -700,5 +700,38 @@ describeWithDb(
       expect(result.corrections.some((record) => record.reason.startsWith('other handle')))
         .toBe(false);
     });
+
+    it('lookupSuppressions resolves a correction actor to name and email and falls back to the raw UUID when the users row is gone', async () => {
+      const handle = freshHandle();
+      const missingUserId = randomUUID();
+
+      await sql()`
+        INSERT INTO solicitation_suppression_corrections
+          (id, suppression_id, channel, normalized_handle, scope, source,
+           suppressed_at, removed_by_user_id, reason, created_at)
+        VALUES
+          (${randomUUID()}::uuid, ${randomUUID()}::uuid, 'email', ${handle},
+           'global', 'admin_manual', NOW(), ${adminUserId()}::uuid,
+           'known correction actor', NOW()),
+          (${randomUUID()}::uuid, ${randomUUID()}::uuid, 'email', ${handle},
+           'global', 'admin_manual', NOW(), ${missingUserId}::uuid,
+           'deleted correction actor', NOW() - INTERVAL '1 second')
+      `;
+
+      const result = await lookupSuppressions(sql(), handle);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const knownActor = result.corrections.find(
+        (record) => record.removedByUserId === adminUserId(),
+      );
+      const missingActor = result.corrections.find(
+        (record) => record.removedByUserId === missingUserId,
+      );
+      expect(knownActor?.removedByUserLabel).toBe(
+        `Suppression Correction Admin (${primaryTenant().ownerEmail})`,
+      );
+      expect(missingActor?.removedByUserLabel).toBe(missingUserId);
+    });
   },
 );
