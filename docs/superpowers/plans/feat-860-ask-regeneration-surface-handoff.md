@@ -3,8 +3,8 @@
 **Issue:** #860 — per-ask **Ask regeneration** surface. Resolves #629 deviation **D3**.
 **PR:** https://github.com/RepWorth/ai-review-responder/pull/873 → `main`
 **Follow-up filed:** #872 (post-approval per-ask withdrawal)
-**Branch:** `feat-860-ask-regeneration-surface` @ `1ff09871` · base `f28451ee` · 24 commits
-**Phase:** `reviewed` · gate GREEN at `1ff09871` · plan rounds 3/3 (closed) · branch rounds 2/3
+**Branch:** `feat-860-ask-regeneration-surface` @ `31a97223` · base `f28451ee` · 27 commits
+**Phase:** `reviewed` · gate GREEN at `31a97223` · plan rounds 3/3 (closed) · branch rounds 2/3 · gate-fail rounds 1/3
 **Lane:** RISK = high · SURFACE = mixed · SIZE = normal
 
 ## Where this stopped and why
@@ -12,10 +12,50 @@
 **Step 8, awaiting the owner's explicit merge approval** — the RISK = high lane
 requires it and it has NOT been given.
 
-Done: rode `staging` (fast-forward `f28451ee..1ff09871`, full stack auto-deploying),
-PR #873 opened against `main`.
+Done: rode `staging` (now at `31a97223`, both deploys green), PR #873 opened
+against `main`, **ALL CI CHECKS PASS** (`mergeable: MERGEABLE`, `mergeStateStatus:
+CLEAN`).
 
 **Do not merge without the owner saying so.**
+
+### Staging verification — DONE, and it is a NEGATIVE check
+
+`SOLICITATION_SEND_ENABLED` is **absent** from the Railway staging worker's env
+(verified via Railway MCP; only `SOLICITATION_WATCH_ENABLED=true` is set). Because
+flags are server-authoritative (invariant #13), that absence IS the guarantee: the
+route 404s, `sendLane` resolves null, no control can render, and the Requests
+screen stays byte-identical to watch-mode **by construction**. All five autonomy
+flags plus `AUTOPILOT_PURCHASABLE` are confirmed false in staging.
+
+### Gate-fail round 1 of 3 — `fallow`, now resolved
+
+CI's `fallow` check failed after the first push. It is `ci:fallow:coverage` and is
+**CI_ONLY_BY_DESIGN** — it consumes the `test` job's coverage artifact, so
+`scripts/verify-gate.sh` structurally cannot catch it. A local 26/26 GREEN gate is
+NOT sufficient evidence that `fallow` will pass.
+
+**Reproduce it locally before every push:**
+```
+pnpm test:coverage && pnpm ci:fallow:coverage
+```
+Regenerate coverage FIRST. A stale `coverage/coverage-final.json` makes the CRAP
+dimension meaningless once line numbers shift, and yields a green that is not
+load-bearing (learned the hard way this round).
+
+Two real defects, both branch-introduced, both fixed by refactor rather than by
+touching thresholds:
+- `be190613` — `approval.ts` duplication: `lockBatchForAction` absorbed the state
+  derivation. All three verbs keep their OWN failure expression; folding them into
+  one shared return would make `requestAskRegeneration` commit its already-written
+  outbox row. 1 clone group → 0.
+- `31a97223` — `ApprovalPanel` cognitive **16 → 10** via four named seams
+  (`usePendingRegeneration`, `useExcludedAsks`, `askDisplay`,
+  `ModerationWithheldNote`). Zero test files touched, so behaviour is unchanged by
+  construction; 88/88 still pass.
+
+**Next likely `fallow` failure:** `RequestsClient` sits at cognitive **15**, exactly
+on the threshold, pre-existing and untouched. The next hook or JSX conditional added
+there trips this gate.
 
 ## The one thing that must not happen
 
