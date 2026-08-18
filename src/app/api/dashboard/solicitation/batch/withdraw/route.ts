@@ -23,10 +23,9 @@ export const dynamic = 'force-dynamic';
  * else. `WithdrawAskResult.close` carries `parentRunId` — an internal
  * `agent_runs` UUID — plus the spine's `disposition`/`parentStatus` vocabulary
  * and raw counts. No internal id reaches the Requests surface — the halt and
- * approve routes' `toWire` precedent (#629 round-2 finding F10; the "ADR 0012"
- * those files cite for it is a misattribution — 0012 is the sentiment-blind
- * withhold enum). `not_live`'s `deliveryStatus` stays server-side too: the panel has
- * one sentence for it, and the row's status is not the owner's to act on.
+ * approve routes' `toWire` precedent (#629 round-2 finding F10). `not_live`'s
+ * `deliveryStatus` stays server-side too: the panel has one sentence for it,
+ * and the row's status is not the owner's to act on.
  */
 interface WithdrawWire {
   status: WithdrawAskResult['status'];

@@ -19,8 +19,8 @@
  *
  * Deliberately NOT in outreach.ts: that module's interface is the machine
  * lifecycle (render persistence, the join, the derived state) and has no actor
- * in any signature. These two do, and they are the only writers a human
- * triggers.
+ * in any signature. All four verbs here do, and they are the only writers a
+ * human triggers.
  *
  * LOCK ORDER (amendment B11, and the reason the two #629 verbs share one
  * shape): advisory batch lock -> `solicitation_batches` row -> `agent_runs`.
@@ -102,17 +102,17 @@ function canonicalBatchId(batchId: string): string {
 
 /**
  * The locked batch row, its Send batch parent and its derived state, in ONE
- * statement under the advisory lock. This is the shared opening of all three
+ * statement under the advisory lock. This is the shared opening of all four
  * owner verbs, and it stops exactly where they diverge.
  *
  * Returns null when the batch does not exist for this tenant. Deliberately null
  * rather than a refusal value: every caller maps it onto the uniform 404 — so a
  * foreign batch id and an unknown one stay indistinguishable — but they do NOT
- * express it the same way. `approveBatch` and `haltBatch` return
+ * express it the same way. `approveBatch`, `haltBatch` and `withdrawAsk` return
  * `{ status: 'not_found' }`; `requestAskRegeneration` must THROW
  * `RegenRequestAbort`, because by the time it calls this it has already written
  * its `job_outbox` row and postgres.js COMMITS on a normal return. Folding the
- * three failures into one here would silently start the regeneration this
+ * four failures into one here would silently start the regeneration this
  * helper just refused.
  *
  * The state is derived HERE — once, under the lock, from the same row every
@@ -709,8 +709,15 @@ export async function requestAskRegeneration(
 /**
  * The three Batch states in which the **Halt latch** would cancel a
  * `rendered`/`queued` row: an approved batch that is neither halted nor closed.
- * Exported so the panel and the property test can share the predicate; the
- * authoritative check is the locked re-check inside `withdrawAsk`.
+ * Consumed by `classifyWithdrawal` below; exported for the property test
+ * (`approval.test.ts` "withdrawable states are exactly the halt-cancellable
+ * states of an approved batch"), which pins the member list to the lifecycle
+ * timestamps rather than to a restated list. The panel does NOT import it —
+ * it is a client component and this file runtime-imports server modules — and
+ * derives the same three **Batch states** by hand through `panelMode →
+ * haltable`; no test ties that mirror to this list, and a drift there only
+ * mis-shows a control, because the authoritative check is the locked re-check
+ * inside `withdrawAsk`.
  */
 export function isWithdrawableState(state: BatchState): boolean {
   return state === 'veto_window' || state === 'approved' || state === 'sending';
