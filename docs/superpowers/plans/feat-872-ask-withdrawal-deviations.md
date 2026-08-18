@@ -186,3 +186,44 @@ the fact) so it stays visible in `gate-status.json`, this file, and the PR
 description; the owner's step-8 merge approval is where it is accepted or not.
 
 **Verdict:** ACCEPT (step 6, 2026-08-18) — lane confirmed by re-classification; no locked decision invalidated; owner sees the WARN at the high-lane merge pause.
+
+---
+
+## D6 — step 8 integrated feat-865 by MERGE, not the handoff's rebase (2026-08-18)
+
+D1's precondition came true while this branch was parked: feat-865 landed on
+`main` as **#876**, followed by its post-merge sweep **#881**, and two unrelated
+PRs (#875, #882 + sweep #884). The handoff's step-8 runbook said
+`git rebase origin/main`.
+
+**What the rebase did:** replaying 19 commits re-conflicted the SAME doc lines
+in commit after commit (it stopped at 2/19 on `CONTEXT.md` alone). Every one of
+this branch's commits touches `CONTEXT.md`, `docs/directory.md`,
+`.claude/CLAUDE.md` or `approval.ts` — exactly the files #865 also rewrote — so
+the replay would have demanded the same resolution up to seven times, each an
+independent chance to resolve differently.
+
+**What I did instead:** `git rebase --abort`, then `git merge origin/main` —
+ONE resolution pass over six conflicted files, then a second trivial merge for
+`dd868c92` (docs-only) so the branch is 0 behind. **The final tree is what
+matters and it is identical:** the repo squash-merges every PR (CLAUDE.md,
+"Environments & branches"), so `main` receives one commit either way and the
+branch's own history is discarded at merge.
+
+**The six resolutions, all "keep both sides"** (never "take ours"):
+
+| File | Resolution |
+|---|---|
+| `src/lib/solicitation/approval.ts` | Header + 3 docblocks now say FIVE human-triggered verbs. `withdrawAsk` deliberately does NOT reuse #865's private `latchHalt`: the latch writes `halted_at` on the BATCH and withdrawal writes nothing there — same discipline, different body. That sentence is now in the header so the next reader does not "unify" them. |
+| `approval.test.ts` | Both sides' cases live in `describe('invariants')`; imports merged (named imports + #865's namespace import for the admin arm). 10/10 green. |
+| `approval.integration.test.ts` | Our `abortingExecutor` import + #865's delegating-spy block; both additive. |
+| `CONTEXT.md` | **Halt latch** taken byte-identical from `origin/main` (verified programmatically — #865 more than doubled it); our **Owner approval** / **Ask exclusion** cross-references and the whole **Ask withdrawal** entry kept. |
+| `docs/directory.md` | Main's `latchHalt`/`adminHaltBatch` prose + our `withdrawAsk` clause; "the two #629 verbs" → "the four approval/latch verbs"; main's two traps (relocated out of CLAUDE.md) kept. |
+| `.claude/CLAUDE.md` | One lane row carrying both sides' verbs, LOCKED terms and traps, trimmed to stay inside `claude-md-shape.test.ts`'s word cap. Main had MOVED two traps into `directory.md`; that editorial choice is respected rather than reverted. |
+
+**Lesson (promote to lab-notes at step 8):** when a parked feature branch has
+many small commits that all touch the same living docs, integrate the base with
+a MERGE, not a rebase — a rebase multiplies one resolution by the commit count,
+and a squash-merged PR discards the linear history the rebase was preserving.
+
+**Verdict:** ACCEPT (step 8, 2026-08-18) — no locked decision invalidated; D1's merge order was honoured (feat-865 first); the merged tree re-passes the full gate.
