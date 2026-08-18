@@ -1,50 +1,93 @@
-# feat-860 — handoff (step 3 → step 4 boundary)
+# feat-860 — handoff (step 8, awaiting merge approval)
 
-**Issue:** #860 — per-ask **Ask regeneration** surface (route + 3/day budget UI), resolving #629 deviation **D3**.
-**Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-860-ask-regeneration-surface`
-**Branch:** `feat-860-ask-regeneration-surface` · base `0101522a` · phase `plan_approved` · gate GREEN at `3eb51a01`
-**Lane:** RISK = high · SURFACE = mixed · SIZE = normal (full pipeline)
+**Issue:** #860 — per-ask **Ask regeneration** surface. Resolves #629 deviation **D3**.
+**PR:** https://github.com/RepWorth/ai-review-responder/pull/873 → `main`
+**Follow-up filed:** #872 (post-approval per-ask withdrawal)
+**Branch:** `feat-860-ask-regeneration-surface` @ `1ff09871` · base `f28451ee` · 24 commits
+**Phase:** `reviewed` · gate GREEN at `1ff09871` · plan rounds 3/3 (closed) · branch rounds 2/3
+**Lane:** RISK = high · SURFACE = mixed · SIZE = normal
 
-## Read these, in this order — not this file's summary, and never the prior transcript
+## Where this stopped and why
 
-1. `.feature/intake.json` — the locked contract. 40 `tests_to_add` titles, matched VERBATIM by the gate.
-2. `docs/superpowers/plans/2026-08-17-860-ask-regeneration-surface.md` — the plan. **Its two review appendices at the end are load-bearing**: they record why three design decisions are what they are, and reversing any of them re-opens a defect a review already caught.
-3. `docs/superpowers/plans/feat-860-ask-regeneration-surface-deviations.md` — D1 (merge order with #859), D2 (surface amendment), D3 (`job_outbox` is not a tenant table).
-4. Glossary: `CONTEXT.md` → **Owner approval**, **Ask exclusion**, **Halt latch**. **Ask regeneration** is coined by Task 2 and does not exist yet.
+**Step 8, awaiting the owner's explicit merge approval** — the RISK = high lane
+requires it and it has NOT been given.
 
-## Next action
+Done: rode `staging` (fast-forward `f28451ee..1ff09871`, full stack auto-deploying),
+PR #873 opened against `main`.
 
-**Step 4, EXECUTE.** Set `bash scripts/feature-state.sh set-phase executing`, then dispatch Task 1 (the eval task) **alone** — its completion is the enforcement spot check. After it passes, Tasks 2 and 3 may run in parallel, then 4 and 5, then 6. The graph is in the plan.
+**Do not merge without the owner saying so.**
+
+## The one thing that must not happen
+
+**Do NOT flip `SOLICITATION_SEND_ENABLED`.** The feature ships INERT — the flag is
+unset in every environment, the route 404s, `sendLane` is null, no control renders.
+`assertSolicitationSendEnv` requires four vars that do not exist in staging and the
+boot assert would crash the staging worker. The sending identity is #633, still open.
+
+**Staging verification is therefore a NEGATIVE one:** the Requests screen must stay
+**byte-identical to watch-mode**. If anything changed visibly, that is a defect.
+
+## Read these, in this order
+
+1. `docs/reviews/feat-860-ask-regeneration-surface/TRIAGE.md` — round 1 + round 2
+   verdicts, the three REJECTED findings with reasoning, and the round-2
+   verification matrix. **Start here.**
+2. `docs/superpowers/plans/feat-860-ask-regeneration-surface-deviations.md` — D1–D15,
+   every one carrying a step-6 ACCEPT verdict.
+3. `docs/adr/0020-regeneration-refused-after-approval.md` — the decision, and its
+   § "Cost, as verified" amendment.
+4. `CONTEXT.md` → **Ask regeneration** (coined here), **Owner approval** (its
+   conditional dropped), **Ask exclusion**, **Halt latch**.
 
 ## Three things that will look wrong and are not
 
-1. **`requestAskRegeneration` enqueues BEFORE it validates.** Deliberate. `regenerateAsk`'s swap locks the `job_outbox` row first (`markOutboxCompletedIfOwned` is its opening statement) and only then takes the advisory lock, so amendment B11's stated "advisory first" order is incomplete. A validate-first request path deadlocks against the worker it is enqueueing for. Refusals therefore abort by throwing `RegenRequestAbort`, because postgres.js commits on a normal return. Round 1, finding 1.
-2. **The new `job_outbox` read in `batch-view.ts` carries no tenant predicate.** Correct: `job_outbox` is absent from `scripts/ci/tenant-tables.ts`, so the statement is unauditable and needs no allowlist entry. Do NOT join `solicitation_batches` to make it "look scoped" — that pulls a tenant table in and demands keys on a query whose proof lives upstream. Deviations D3.
-3. **The exclusion set is keyed on `askId`, not `outreachId`.** A regeneration mints a new outreach id. Keying on the outreach id and pruning stale entries — the plan's own round-1 approach — silently re-selected the contact, which could send a message the owner had deselected. Round 1, finding 6. There is no `pruneExclusions`.
+1. **`readRegeneratingAskId` carries no tenant predicate** (`batch-view.ts:381-411`).
+   Correct — `job_outbox` is absent from `scripts/ci/tenant-tables.ts`. Joining
+   `solicitation_batches` to "look scoped" is the defect. Confirmed empirically:
+   `ci:tenant-scope` entries stayed at 381 under #859's new parser, and a test
+   asserts the query text contains no tenant table.
+2. **`requestAskRegeneration` enqueues BEFORE it validates**, and refusals throw
+   `RegenRequestAbort` rather than returning. Deliberate deadlock avoidance —
+   postgres.js commits on a normal return. Round-2 confirmed the R5 tenant fix did
+   NOT disturb it: outbox INSERT is still statement one, `outboxAt < advisoryAt`
+   still asserted.
+3. **The exclusion set keys on `askId`, not `outreachId`; there is no
+   `pruneExclusions`.** The intake's `edge_cases` prose on pruning is STALE —
+   round-1 finding 6 reversed it because pruning silently re-selected a deselected
+   contact. `tests_to_add` already encodes the corrected behaviour.
 
-## Coordination — check before Tasks 4 and 5
+## After merge — the step-8 tail, none of it done yet
 
-Merge order is **`codex/859-tenant-scope-subqueries` before this branch** (owner decision, D1). #859 rewrites `approval.ts` and `batch-view.ts` — the two files Tasks 4 and 5 touch — collapsing `lockBatchForAction`'s two-statement split and `approveBatch`'s anti-join. `lockBatchForAction`'s signature does not change, so Task 4's reuse is unaffected either way.
+1. `git pull --ff-only` on local `main` (squash-merge lag).
+2. **Re-sync `staging` to `main`.** This branch RODE staging, so after a squash
+   merge the two have genuinely diverged and `git merge --ff-only main` WILL abort.
+   The runbook's answer is `git reset --hard origin/main` + `--force-with-lease`
+   (`deployment-guide.md` §"Re-sync staging"). **Do NOT substitute a sync merge** —
+   that is what put staging 101 commits ahead by #719.
+3. `bash scripts/feature-cleanup.sh` from the MAIN checkout (dry run first, then
+   `--apply`).
+4. **Promote deviations lessons** into `.claude/reference/lab-notes.md` or the
+   CLAUDE.md gotchas. The high-value ones: D9 (`git add -A` is unsafe under
+   parallel task execution in one worktree), D15 (estimate a rework allowance on
+   high-RISK UI features or `reclassify` fires on every branch whose review
+   worked), and round-2 R17 (a fail-open guard needs an oracle for the OPEN half,
+   not just the closed one).
+5. Invoke `document-feature`, then a final `domain-modeling` sweep.
+6. Increment the merge counter in `.claude/reference/arch-review-log.md`.
 
-Before starting Task 4 or 5, check whether #859 has merged to `main`. If yes, rebase and write the new SQL in the post-fix convention. If no, write it scanner-shaped; #859 already reverts the #629 workarounds and will take one more.
+## Coordination
 
-## Budgets
+**Merge order: this branch merges BEFORE `feat-865-admin-halt-surface`** — owner
+decision, confirmed this session. #865 carries the whole rebase obligation and
+re-runs its verify gate on the rebased tree. #865 does not modify anything this
+branch changed; the collision is a shared file header and a shared append point in
+`approval.ts` / `batch-view.ts`.
 
-- **Surface amendments: 1 of 2 spent** (`src/lib/agents/*`, for the `ask_regeneration_requested` step key). A second triggers the abort criteria.
-- **Plan review rounds: 3 of 3 spent.** The loop is closed; do not dispatch another plan review.
-- **Gate-fail rounds: 0 of 3.**
-- Intake field changes so far (`tests_to_add` 32 → 40, two retitles, `estimated_test_lines` 1200 → 1600) are deviations, **not** amendments — they do not count against the budget.
+## Open, not blocking
 
-## Codex sessions (plan review, all read-only)
-
-| Round | Thread / artifact | Verdict |
-|---|---|---|
-| 1 | `01a0118d-5b8a-7a72-9743-0d4524f913cd` · `scratchpad/codex-plan-review.md` | REVISE — 10 findings, 1 CRITICAL |
-| 2 | `scratchpad/codex-round2.md` | REVISE — design fixes confirmed; tests not carried into tasks |
-| 3 | `scratchpad/codex-round3.md` | REVISE — 429 stub missing; deadlock test self-hung. Both fixed |
-
-Scratchpad paths are session-local and will not survive a `/clear`. Everything needed to execute is in the plan's review appendices, which are committed.
-
-## Step 8 when the time comes
-
-RISK = high: ride `staging` first. **The feature ships inert** — `SOLICITATION_SEND_ENABLED` is unset in every environment, so the verification is that the Requests screen stays byte-identical to watch-mode. **Do not flip the flag**: `assertSolicitationSendEnv` requires four vars that do not exist in staging, and standing up the sending identity is #633, still open. No migration, so rollback is a plain revert.
+- `docs/directory.md:127` (`AskList`) and `:128` (`ApprovalActions`) carry claims
+  `a094cc0e` falsified. Found in round 2's standards appendix; out of scope for
+  this branch's rounds. Hand to #865's docs pass or a standalone sweep.
+- `_shared/scoped-batch-route.ts`'s header says "three POST routes"; it is now four
+  (D12). Out of `allowed_edit_surface` — deliberately deferred rather than spend the
+  second surface amendment on prose. **Amendment budget ended at 1 of 2.**
