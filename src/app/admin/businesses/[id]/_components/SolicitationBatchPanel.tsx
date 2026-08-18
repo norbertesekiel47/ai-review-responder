@@ -440,8 +440,8 @@ function PanelShell({ children }: { children: ReactNode }) {
     <section className="mt-8 rounded-lg border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-900">Send batch</h2>
       <p className="mt-1 text-sm text-gray-500">
-        The most recent solicitation send batch for this location. Requires AAL2 and
-        writes an account audit log entry.
+        This location&rsquo;s live solicitation send batch, or its most recent batch when
+        none is live. Requires AAL2 and writes an account audit log entry.
       </p>
       {children}
     </section>
