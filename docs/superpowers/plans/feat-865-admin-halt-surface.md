@@ -47,7 +47,7 @@ not a task-level improvisation.
 | **D8** | No `ip` / `userAgent` / `requestId` on the audit row. | `writeAccountAuditLog` accepts them, but threading request plumbing into a domain module to reach them widens the module's interface for a field the sibling admin precedent also omits. Parity with `unsuspendAccountAutonomy`. |
 | **D9** | The admin read projection lives in `batch-view.ts` and never carries outreach subjects or bodies. | `batch-view.ts` already owns `BatchView`, `SendLaneView`, `HaltReason` and `BatchState` presentation. A new `src/lib/admin/` service would be a second owner of the same vocabulary. Reusing `readLatestBatch` wholesale is **rejected** — its `attempts: AskAttemptView[]` would serialize customer message bodies into an admin browser. |
 | **D10** | The admin action requires a free-text `note`. | An operator acting on a customer's account says why. Goes in the audit payload only — never into `halt_reason`, which is fixed by route identity (ticket constraint 2). Precedent: `unsuspendAccountAutonomy`'s required note. |
-| **D11** | A `pending` batch (`built_at IS NULL`) is **not haltable** by the admin arm. | **Round 1 finding 2, confirmed against the schema.** 091:176 is `(halted_at IS NULL OR built_at IS NULL OR halted_at >= built_at)`. Halting a pending batch passes the CHECK at halt time via the `built_at IS NULL` arm — and then `batch-builder.ts:782-786` stamps `built_at = NOW()` with only an `AND built_at IS NULL` guard, producing `halted_at < built_at` and a CHECK violation that throws inside the builder. Refusing `pending` is strictly simpler than widening the builder's lifecycle contract. **`haltBatch` has the identical hole and is deliberately NOT fixed here** — see §7. |
+| **D11** | A `pending` batch (`built_at IS NULL`) is **not haltable** by the admin arm. | **Round 1 finding 2, confirmed against the schema.** 091:176 is `(halted_at IS NULL OR built_at IS NULL OR halted_at >= built_at)`. Halting a pending batch passes the CHECK at halt time via the `built_at IS NULL` arm — and then `batch-builder.ts:782-786` stamps `built_at = NOW()` with only an `AND built_at IS NULL` guard, producing `halted_at < built_at` and a CHECK violation that throws inside the builder. Refusing `pending` is strictly simpler than widening the builder's lifecycle contract. **Amended at step 7: the refusal is on BOTH verbs.** `haltBatch` carried the identical hole and the carve-out's premise was falsified by branch review — see §7. |
 
 ## 3. Design — modules and seams
 
@@ -480,17 +480,39 @@ the counterpart note is tracked and committed at `db89a700`, section "Surface
 overlap with feat-865". Re-verified on resume by reading the sibling worktree's
 git state directly, not by trusting this paragraph.
 
-## 7. Known defect deliberately left in place
+## 7. The defect that was going to be left in place — and was not
 
-`haltBatch` permits halting a `pending` batch, and that is the same 091:176 /
-`batch-builder` collision D11 refuses for the admin arm. It is **not fixed
-here**:
+**Amended at step 7 (2026-08-18). This section originally deferred a live defect;
+branch review round 1 falsified its reasoning and the owner approved fixing it.**
 
-- The fix changes owner-visible behaviour that this intake's
-  `user_visible_behavior` does not name — exactly the drift the intake contract
-  exists to catch.
-- It is reachable only if the owner surface offers a stop control on a batch
-  that is still building, which is a separate question about the Requests panel.
+`haltBatch` permitted halting a `pending` batch — the same 091:176 /
+`batch-builder` collision D11 refuses for the admin arm. The plan deferred it on
+two grounds:
 
-**Action:** file a follow-up ticket at step 8, citing 091:176,
-`batch-builder.ts:782-786`, and this plan's D11. Do not let it die in this file.
+- the fix changes owner-visible behaviour the intake's `user_visible_behavior`
+  does not name;
+- it is "reachable only if the owner surface offers a stop control on a batch
+  that is still building".
+
+**The second ground was false, and it was carrying the first.** The adversarial
+review (F2, 94%) showed the path is reachable through the API without any UI
+change: `readLatestBatch` deliberately returns the unbuilt batch's `batchId` to
+the authenticated owner (`batch-view.ts:802-816`), and the owner halt endpoint
+accepts any valid `batchId` from its body (`scoped-batch-route.ts:58-66`). An
+owner can GET the pending id, POST it, latch it successfully — 091 permits the
+halt while `built_at IS NULL` — and the builder's later stamp then fails the
+CHECK. That also disposes of the first ground: no *documented* owner behaviour
+changes, because the owner UI never offered a pending stop. What changes is an
+API-only path that corrupts the batch lifecycle.
+
+Server-side lifecycle invariants cannot rely on a React button being absent.
+
+**Resolution:** `haltBatch`'s guard is now `halted` → `already_halted`,
+`closed`/`pending` → `not_haltable`, matching `adminHaltBatch`. Both public verbs
+refuse a `pending` batch; `latchHalt` never sees one. Covered by a live-DB case
+mirroring the admin one. Recorded as deviations **D9**, which quotes the
+contradicted `non_goals` entry and the owner's approval.
+
+**The step-8 follow-up ticket this section used to demand is moot** — do not file
+it. The `CONTEXT.md` **Halt latch** entry and the `docs/directory.md`
+`approval.ts` row were corrected in the same change.
