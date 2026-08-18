@@ -1,11 +1,19 @@
 /**
- * The owner verbs of send-mode's approval lane (#629 approve/halt, executor
- * design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration).
+ * The human-triggered writers of send-mode's approval lane (#629 approve/halt,
+ * executor design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration; #865 the
+ * admin arm of the Halt latch).
  *
- * What lives here and nothing else: `approveBatch`, `haltBatch` and
- * `requestAskRegeneration`. All three are transactional writers with an actor;
- * all three return a discriminated result so their routes stay thin (invariant
- * #12) and none throws for an outcome the owner can cause.
+ * What lives here and nothing else: `approveBatch`, `haltBatch`,
+ * `adminHaltBatch` and `requestAskRegeneration`. All four are transactional
+ * writers with an actor; all four return a discriminated result so their routes
+ * stay thin (invariant #12) and none throws for an outcome its actor can cause.
+ * A RepWorth operator is a human actor too, which is why the admin arm belongs
+ * beside the owner ones rather than in a module of its own.
+ *
+ * The two halt verbs share ONE private latch, `latchHalt`, and its five steps
+ * are ordered on purpose (see its own comment). Two hand-maintained copies of
+ * that body is precisely how a batch acquires a second receipt, or a spine step
+ * for a halt that never landed.
  *
  * `requestAskRegeneration` belongs here rather than beside `regenerateAsk` in
  * ask-generation.ts, and the reason is the gate rather than the verb: since
@@ -16,7 +24,7 @@
  *
  * Deliberately NOT in outreach.ts: that module's interface is the machine
  * lifecycle (render persistence, the join, the derived state) and has no actor
- * in any signature. These two do, and they are the only writers a human
+ * in any signature. These three do, and they are the only writers a human
  * triggers.
  *
  * LOCK ORDER (amendment B11, and the reason the two #629 verbs share one
@@ -43,6 +51,7 @@
 
 import type { Sql, TransactionSql } from 'postgres';
 import { recordStep } from '@/lib/agents/run-spine';
+import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import {
@@ -58,9 +67,11 @@ import {
  *  anchored differently and belongs to #631. */
 const VETO_WINDOW_MINUTES_OWNER = 15;
 
-/** The two Halt-latch reasons an OWNER can cause. `admin_halt`,
- *  `send_window_elapsed` and `batch_expired` are the same latch with other
- *  writers (#630 and the admin surface); this module cannot spell them. */
+/** The two Halt latch reasons an OWNER can cause, and the only two the owner
+ *  arm may spell. `admin_halt` is the same latch written by `adminHaltBatch`
+ *  below (#865) and lives in the PRIVATE `LatchHaltReason`, so this union stays
+ *  two members; `send_window_elapsed` and `batch_expired` are the same latch
+ *  with writers this module still does not have (#630). */
 export type OwnerHaltReason = 'owner_veto' | 'owner_halt';
 
 /**
@@ -387,6 +398,139 @@ export async function approveBatch(
   });
 }
 
+/** The writable Halt latch reasons. NOT exported: `OwnerHaltReason` stays the
+ *  2-member public write union, and the admin arm's reason is a constant. */
+type LatchHaltReason = OwnerHaltReason | 'admin_halt';
+
+/** The admin arm's reason, fixed by the caller's identity (D1 / ticket
+ *  constraint 2). No request field can name it, in either arm. */
+const ADMIN_HALT_REASON: LatchHaltReason = 'admin_halt';
+
+/** `<domain>_<verb-past>` (D6), explicitly admin-scoped so a future owner-arm
+ *  audit row cannot collide with it. */
+const ADMIN_HALT_EVENT_TYPE = 'solicitation_batch_admin_halted';
+
+interface LatchHaltInput {
+  /** ALREADY canonical — `canonicalBatchId` runs at the public entry point. */
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  actorUserId: string;
+  reason: LatchHaltReason;
+  /** Read under the lock by the caller, off the same row every write targets. */
+  state: BatchState;
+  sendParentRunId: string | null;
+  /** Non-null only for the admin arm (D7): the owner arm writes no audit row. */
+  audit: { eventType: string; payload: Record<string, unknown> } | null;
+}
+
+type LatchHaltOutcome =
+  | { latched: false }
+  | { latched: true; cancelledCount: number; close: CloseBatchIfSettledResult };
+
+/**
+ * The Halt latch itself — ONE body, two arms (owner and admin). Private: the
+ * only way to reach it is through a verb that has already locked the batch,
+ * derived its state and applied its own guard list.
+ *
+ * The five steps below are ORDERED, and the order is the contract rather than
+ * an implementation detail:
+ *
+ *  1. CAS on `halted_at IS NULL` — monotone. No row back means someone else
+ *     latched first, and NOTHING below runs; that is what makes a second halt
+ *     add no audit row and no `batch_halted` step.
+ *  2. Cancel `rendered`/`queued` and NEVER `sending`: that row is past the
+ *     point of no return and resolves itself. Halt means "no further sends",
+ *     not "undo".
+ *  3. The audit row, when the caller asked for one. Here because
+ *     `cancelled_count` is only known after step 2, and BEFORE step 4 so the
+ *     run-spine calls stay last. It runs on `tx`, so a throw here rolls back
+ *     steps 1-2 with it — the receipt and the latch go together or not at all.
+ *  4. The spine step, skipped when the batch never minted a Send batch parent
+ *     (generation can die before one exists, and an all-withheld build never
+ *     enqueues generation at all).
+ *  5. The settlement join. The latch NEVER terminalizes the Send batch parent
+ *     itself — `closeBatchIfSettled` owns that — and it runs even when step 4
+ *     was skipped, because a parentless batch still has to close.
+ *
+ * Steps 4 and 5 are the only `agent_runs` touches, and they are last, which is
+ * the lock order this file's header describes: advisory batch lock ->
+ * `solicitation_batches` row -> `agent_runs`.
+ */
+async function latchHalt(tx: TransactionSql, input: LatchHaltInput): Promise<LatchHaltOutcome> {
+  // CAS on NULL keeps the latch monotone: a second halt returns at its caller's
+  // guard, and a concurrent one writes nothing here.
+  const [latched] = await tx<{ id: string }[]>`
+    UPDATE solicitation_batches
+    SET halted_at = NOW(),
+        halt_reason = ${input.reason},
+        halted_by = ${input.actorUserId}::uuid
+    WHERE id = ${input.batchId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+      AND halted_at IS NULL
+    RETURNING id
+  `;
+  if (latched === undefined) return { latched: false };
+
+  // 'sending' is excluded on purpose: that row is past the point of no
+  // return and resolves itself. Halt means "no further sends", not "undo".
+  const cancelled = await tx<{ id: string }[]>`
+    UPDATE solicitation_outreach
+    SET delivery_status = 'cancelled',
+        disposition_reason = ${input.reason},
+        updated_at = NOW()
+    WHERE batch_id = ${input.batchId}::uuid
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+      AND delivery_status IN ('rendered', 'queued')
+    RETURNING id
+  `;
+
+  // Same transaction as the latch (CLAUDE.md "Audit writes"), never a raw
+  // INSERT, and never conditional on a parent existing: for a parentless batch
+  // this row is the ONLY durable record that a RepWorth operator acted.
+  if (input.audit !== null) {
+    await writeAccountAuditLog(tx, {
+      accountId: input.accountId,
+      locationId: input.businessId,
+      actorUserId: input.actorUserId,
+      eventType: input.audit.eventType,
+      entityType: 'solicitation_batch',
+      entityId: input.batchId,
+      payload: {
+        ...input.audit.payload,
+        halt_reason: input.reason,
+        state_at_halt: input.state,
+        cancelled_count: cancelled.count,
+      },
+    });
+  }
+
+  // The parent may legitimately be absent — a built batch whose generation
+  // never minted one. Skip the step, still join.
+  if (input.sendParentRunId !== null) {
+    await recordStep(tx, {
+      runId: input.sendParentRunId,
+      stepKey: 'batch_halted',
+      detail: {
+        halt_reason: input.reason,
+        halted_by: input.actorUserId,
+        cancelled_count: cancelled.count,
+        state_at_halt: input.state,
+      },
+    });
+  }
+
+  const close = await closeBatchIfSettled(tx, {
+    batchId: input.batchId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+  });
+
+  return { latched: true, cancelledCount: cancelled.count, close };
+}
+
 export interface HaltBatchInput {
   batchId: string;
   accountId: string;
@@ -433,57 +577,110 @@ export async function haltBatch(
 
     const reason = ownerHaltReason(state);
 
-    // CAS on NULL keeps the latch monotone: a second halt returns above, and a
-    // concurrent one writes nothing here.
-    const [latched] = await tx<{ id: string }[]>`
-      UPDATE solicitation_batches
-      SET halted_at = NOW(),
-          halt_reason = ${reason},
-          halted_by = ${input.haltedByUserId}::uuid
-      WHERE id = ${batchId}::uuid
-        AND account_id = ${input.accountId}::uuid
-        AND business_id = ${input.businessId}::uuid
-        AND halted_at IS NULL
-      RETURNING id
-    `;
-    if (latched === undefined) return { status: 'already_halted' };
+    // `audit: null` — D7 is admin-only. The owner arm's receipt is the batch
+    // row itself plus the `batch_halted` step; `account_audit_log` is the
+    // control-plane record of an operator acting on someone else's account.
+    const outcome = await latchHalt(tx, {
+      batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+      actorUserId: input.haltedByUserId,
+      reason,
+      state,
+      sendParentRunId: batch.send_parent_run_id,
+      audit: null,
+    });
+    if (!outcome.latched) return { status: 'already_halted' };
 
-    // 'sending' is excluded on purpose: that row is past the point of no
-    // return and resolves itself. Halt means "no further sends", not "undo".
-    const cancelled = await tx<{ id: string }[]>`
-      UPDATE solicitation_outreach
-      SET delivery_status = 'cancelled',
-          disposition_reason = ${reason},
-          updated_at = NOW()
-      WHERE batch_id = ${batchId}::uuid
-        AND account_id = ${input.accountId}::uuid
-        AND business_id = ${input.businessId}::uuid
-        AND delivery_status IN ('rendered', 'queued')
-      RETURNING id
-    `;
+    return {
+      status: 'halted',
+      reason,
+      cancelledCount: outcome.cancelledCount,
+      close: outcome.close,
+    };
+  });
+}
 
-    // The parent may legitimately be absent — an owner can discard a built
-    // batch whose generation never minted one. Skip the step, still join.
-    if (batch.send_parent_run_id !== null) {
-      await recordStep(tx, {
-        runId: batch.send_parent_run_id,
-        stepKey: 'batch_halted',
-        detail: {
-          halt_reason: reason,
-          halted_by: input.haltedByUserId,
-          cancelled_count: cancelled.count,
-          state_at_halt: state,
-        },
-      });
-    }
+export interface AdminHaltBatchInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  /** The acting admin's `users.id` (D1) — the GLOBAL users table, not a tenant
+   *  member. `halt_reason='admin_halt'` is the discriminator for actor class;
+   *  it is never inferred from this id. */
+  actorUserId: string;
+  /** Required free-text note (D10). It rides the audit payload and nowhere
+   *  else — `halt_reason` is fixed by the caller's identity. */
+  note: string;
+}
 
-    const close = await closeBatchIfSettled(tx, {
+/**
+ * No `reason` field, deliberately: it is always `admin_halt`, and carrying it
+ * would invite a caller to believe it varies. That is the shape difference from
+ * `HaltBatchResult`, which must report a DERIVED reason.
+ */
+export type AdminHaltBatchResult =
+  | { status: 'halted'; cancelledCount: number; close: CloseBatchIfSettledResult }
+  | { status: 'already_halted' }
+  /** A closed batch is terminal, and an unbuilt one is refused per D11 below. */
+  | { status: 'not_haltable'; state: BatchState }
+  | { status: 'not_found' };
+
+/**
+ * The admin arm of the same monotone latch (#865): a RepWorth operator halting
+ * a customer's send batch, with a required note and a durable
+ * `account_audit_log` receipt naming them.
+ *
+ * Its guard list is the owner arm's plus ONE (D11): a `pending` batch —
+ * `built_at IS NULL` — is refused. Latching it PASSES 091's halt-consistency
+ * CHECK at halt time through the `built_at IS NULL` arm, and then the builder's
+ * later `built_at = NOW()` stamp (guarded only on `built_at IS NULL`) produces
+ * `halted_at < built_at` and a CHECK violation that throws inside the builder,
+ * far from here. `haltBatch` carries the identical hole ON PURPOSE — fixing the
+ * owner arm is an owner-visible behaviour change tracked as its own ticket.
+ *
+ * There is no un-halt: `halted_at` is monotone, the releaser predicate requires
+ * `halted_at IS NULL`, and the rows this cancels are terminal.
+ */
+export async function adminHaltBatch(
+  sql: Sql,
+  input: AdminHaltBatchInput,
+): Promise<AdminHaltBatchResult> {
+  const batchId = canonicalBatchId(input.batchId);
+  return sql.begin(async (tx): Promise<AdminHaltBatchResult> => {
+    const batch = await lockBatchForAction(tx, {
       batchId,
       accountId: input.accountId,
       businessId: input.businessId,
     });
+    // A foreign batch id and an unknown one are indistinguishable, which is
+    // what the route's uniform 404 depends on.
+    if (batch === null) return { status: 'not_found' };
 
-    return { status: 'halted', reason, cancelledCount: cancelled.count, close };
+    const state = deriveBatchState(batch, new Date());
+    if (state === 'halted') return { status: 'already_halted' };
+    if (state === 'closed' || state === 'pending') return { status: 'not_haltable', state };
+
+    const outcome = await latchHalt(tx, {
+      batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+      actorUserId: input.actorUserId,
+      reason: ADMIN_HALT_REASON,
+      state,
+      sendParentRunId: batch.send_parent_run_id,
+      audit: {
+        eventType: ADMIN_HALT_EVENT_TYPE,
+        payload: { note: input.note },
+      },
+    });
+    if (!outcome.latched) return { status: 'already_halted' };
+
+    return {
+      status: 'halted',
+      cancelledCount: outcome.cancelledCount,
+      close: outcome.close,
+    };
   });
 }
 

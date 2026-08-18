@@ -44,7 +44,7 @@ this table, but a table that disagrees with git is itself a finding.
 | Task | What | Blocking edges | State |
 |---|---|---|---|
 | 0 | eval — all 30 `tests_to_add` titles as executable failing tests | none | see git log |
-| 1 | `latchHalt` extraction + `adminHaltBatch` | 0 | not started |
+| 1 | `latchHalt` extraction + `adminHaltBatch` | 0 | **done** — 16 titles green |
 | 2 | the admin route | 1 | not started |
 | 3 | `readAdminBatchSummary` + the panel + page wiring | 2 | not started |
 | 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | 1 | not started |
