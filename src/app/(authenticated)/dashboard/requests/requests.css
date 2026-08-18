@@ -587,7 +587,8 @@
   .rq-watch-pill { margin-left: 0; }
   .rq-group-count { margin-left: 0; }
   .rq-ask-status { margin-left: 0; }
-  .rq-ask-regen { flex: 1 0 100%; }
+  .rq-ask-regen,
+  .rq-ask-withdraw { flex: 1 0 100%; }
 }
 
 /* Reduced-motion opt-out for the WHOLE surface, not just .rq-stack: the

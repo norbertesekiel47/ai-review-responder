@@ -55,12 +55,21 @@ _(updated below as the run advances)_
 - Step 4 (execute) — COMPLETE. Tasks 1–5 landed (ledger below); the enforcement
   spot check passed at Task 1 (4 files, all in surface, 18/18 titles verbatim,
   tree clean).
-- NEXT: step 5 — `scripts/verify-gate.sh --review`; the integration suite must
-  RUN, not SKIP — export `TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL` first.
-- Then step 6 — deviations read-back: D1–D4 each need a verdict line.
-- Then step 7 — blast-radius + review round 1 on THREE axes (RISK = high);
-  `bash scripts/feature-state.sh incr-round branch` before dispatch; resume the
-  codex thread `01a01383-9393-7fc1-ac89-867399b6c9bd` for the adversarial axis.
+- Step 5 — DONE at `09ca11c9`: `verify-gate.sh --review` GREEN, full mode
+  (28 PASS; integration suite RAN against the local DB; `diff-coverage` PASS)
+  with ONE WARN: `reclassify` (production 1020 vs ±400) → deviations **D5**
+  (step 0 re-run: RISK = high, lane holds; WARN left standing on purpose).
+- Step 6 — DONE at `621aee35`: D1–D5 all ACCEPT with reasoning.
+- Step 7 — IN PROGRESS. `blast-radius.md` written; `branchReviewRounds` = 1
+  (counter incremented BEFORE dispatch). Round 1 = three parallel axes:
+  spec & correctness → `docs/reviews/feat-872-ask-withdrawal/branch-round1-spec.md`;
+  standards & maintainability → `…/branch-round1-standards.md`;
+  adversarial approach (codex, RESUMED thread `01a01383-9393-7fc1-ac89-867399b6c9bd`,
+  brief in the session scratchpad `codex-872-branch-review-round1-brief.md`,
+  JSONL `codex-872-branch-round1.jsonl`) → to be extracted into
+  `…/branch-round1-codex.md`. Triage verdicts go INTO each report's `triage`
+  column; then re-run the gate; then `set-phase reviewed`. Rounds 2–3 (if any)
+  are verification-only; after round 3 STOP and surface to the owner.
 - Rebase note (D1 stands): feat-865 has NO PR yet (parked at its step 8), so the
   agreed merge order — feat-865 lands first, #872 rebases onto it at step 8 —
   is unchanged. #872's `approval.ts` diff is header + append only (`haltBatch`
@@ -81,7 +90,17 @@ _(updated below as the run advances)_
 Docs-only checkpoints have been GREEN at every commit (`.feature/gate-status.json`,
 `mode: docs_only`). The full gate (`scripts/verify-gate.sh --review`) is
 mandatory before step 7; the integration suite must RUN (not SKIP) — export
-`TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL`.
+`TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL` (BOTH to the local
+`localhost:5499` URL — `.env.local`'s `DATABASE_POOL_URL` points at a remote
+Supabase pooler and must never receive `test:db:setup`).
+
+**Hazard (seen 2026-08-18 02:27):** the local test DB is SHARED by every
+sibling worktree. Another session's `pnpm test:db:setup` reset it to head 108
+between this branch's gate (which provisioned 109 at 02:16) and the review
+agents' runs; the spec agent re-applied 109 (additive) to run the suite. The
+gate provisions serially and is authoritative for its own run; a `beforeAll`
+"behind head" failure outside the gate is this drift, not a code defect —
+re-run `pnpm test:db:setup` from THIS worktree. Promote to lab-notes at step 8.
 
 ## Plan lock
 
