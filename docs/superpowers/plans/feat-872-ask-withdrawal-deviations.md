@@ -100,3 +100,42 @@ precedent (#629 round-2 F10) in the new route; the other two are a docs
 follow-up.
 
 **Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D4 — Task 4: the armed-withdraw reset is a render-time adjust, not an effect; both armed buttons are `btn-secondary`
+
+Two departures from the plan's Task 4 code, both mechanical; behaviour and
+every promised test are unchanged (9/9 `withdraw control` green, 82/82 in the
+requests `__tests__` dir).
+
+**(a) `ApprovalPanel.tsx` Step 5 — the disarm.** The plan's `useEffect` that
+clears `armedAskId` when a refetch drops the armed row fails
+`react-hooks/set-state-in-effect` (`error` in `eslint.config.mjs`; the React
+Compiler-era rule adopted repo-wide). Replaced with the same guard applied
+DURING render — React's "adjust state when a prop changes" pattern, the
+`src/components/dashboard/settings/ToneChipPicker.tsx` precedent named in the
+eslint config's own comment ("prev-prop tracked in state"). Same clearing
+semantics (a real state write, not a hidden derivation — the "reappears needs a
+fresh first tap" case still passes) and it lands in the same commit as the
+refetch, so no frame shows a confirm for a row that is gone. eslint clean;
+`react-doctor --scope changed` reports no issues on the changed files.
+
+**(b) `AskList.tsx` Step 1 — the confirm button's class.** The plan's
+`btn btn-danger` on the armed confirm was conditional on the class existing "in
+the app's button styles". `.btn-danger` exists only in
+`src/app/(authenticated)/_styles/settings.css`, imported by `settings/layout.tsx`
+and `dashboard/add-location/page.tsx` — never on the requests route, whose
+sheets are `console.css` (via `(authenticated)/layout.tsx`) + `requests.css`.
+On this route it would render as a bare `.btn` (transparent border, inherited
+colour). Took the plan's own fallback: `btn btn-secondary` for both armed
+buttons — the same class the **Halt latch**'s "Stop this batch" uses on this
+surface. Noted in the `WithdrawableAskList` docblock.
+
+Also, prose only: the panel's header docblock now says FOUR owned things / FOUR
+kinds of control (the plan asked for the second; the first would otherwise have
+been stale), and the `.rq-ask-withdraw*` CSS block sits after `.rq-ask-regen-count`
+(the end of the regen block) rather than between `.rq-ask-regen-btn:disabled:active`
+and that rule, so the regen block stays contiguous.
+
+**Verdict:** _(pending step 6 read-back)_
