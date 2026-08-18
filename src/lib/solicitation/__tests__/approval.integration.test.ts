@@ -1363,6 +1363,48 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(0);
     });
 
+    it('accepts a regenerate when the budget is UNKNOWN, so an Upstash outage cannot close the lane', async () => {
+      // Round-2 finding: R4 shipped only its fail-CLOSED half. The case above
+      // pins `0` (known-spent → refuse); nothing pinned `null`, and `null` is
+      // the load-bearing one.
+      //
+      // `null` means the advisory peek could not answer — Redis unreachable, so
+      // `peekAskRegenBudgetBatch` failed open to an empty map and the route
+      // passed `budget?.remaining ?? null`. CLAUDE.md: "API rate limits fail
+      // OPEN by design… Never make the limiters strict." The worker's Lua INCR
+      // is the authoritative gate and is itself retryable, so proceeding here
+      // cannot overspend — it can only make the owner wait for a real refusal.
+      //
+      // Without this test the guard can be rewritten as
+      // `(input.budgetRemaining ?? 0) <= 0`, which type-checks, keeps every
+      // other case green, and silently converts an Upstash outage into a dead
+      // regenerate lane for every owner at once.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: null,
+      });
+
+      expect(result).toEqual({ status: 'accepted' });
+
+      // …and it is a REAL acceptance: the work was actually enqueued and the
+      // owner actually attributed. A `budget_exhausted` that happened to
+      // stringify as accepted would not survive these two.
+      const rows = await writerSql()<{ id: string }[]>`
+        SELECT id
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND aggregate_id = ${seeded.batchId}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(1);
+    });
+
     it('rolls back the regeneration outbox row when recording ask_regeneration_requested fails', async () => {
       const seeded = await seedRenderedBatch({ renders: 2 });
 

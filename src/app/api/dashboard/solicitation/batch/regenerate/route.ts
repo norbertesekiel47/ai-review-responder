@@ -31,7 +31,7 @@ import { readJsonObject, withScopedBatch } from '../_shared/scoped-batch-route';
 
 export const dynamic = 'force-dynamic';
 
-/** The batch id plus the one ask being re-rolled, or null when either is
+/** The batch id plus the one ask being regenerated, or null when either is
  *  absent or not a UUID. Like `approve`, this body is more than a batch id, so
  *  it reads the object itself rather than using the shared `readBatchId`. */
 async function readRegenerateRequest(
