@@ -25,37 +25,53 @@ restatement — read the referenced file, do not trust a summary of it.
 
 ## Current position
 
-- Step 2 SETUP: **done.** `scripts/arm-check.sh` reports **ARMED**.
-- Step 3 PLAN: **done and LOCKED.** Plan is revision 3.
-  - `planReviewRounds: 3` — the cap is spent. **No round 4 may run.**
-  - Round 3 returned `REVISE` on two documentation-only defects in deviations
-    D1; both are fixed in the committed file.
-  - Per feature.md's round-3 rule the position was surfaced to the owner on
-    resume, and **the owner's call (2026-08-18) substitutes for `APPROVED`**.
-    Recorded in the plan's §6 — that record, not this line, is the artifact.
-- Step 4 EXECUTE: **in progress.** See the task ledger below.
+**Step 7 REVIEW is COMPLETE. The branch is at `phase: reviewed`, gate GREEN.
+Next action is step 8 SHIP, RISK = high lane.**
 
-## Task ledger — the one place that says what is done
+- Steps 1-6: done. Plan locked at revision 3 (owner's call substituted for
+  APPROVED after the round-3 cap; plan §6 records it).
+- Step 4: all 5 tasks committed.
+- **Rebased onto `main` after #860 merged** (PR #873). D1's obligation is
+  discharged: the rebase happened and the full gate re-ran on the rebased tree.
+  It caught a real defect — see D7.
+- Step 5: `scripts/verify-gate.sh --review` **GREEN**, 28 PASS + 1 WARN. The
+  WARN is `reclassify` (production 925 lines vs a 420 estimate) and is
+  **owner-accepted** — see D8. It will fire on every future run; it is not a
+  regression.
+- Step 6: deviations read-back complete, **9 entries, all ACCEPT**.
+- Step 7: **round 1 complete, 3 axes, 10 findings, 8 accepted + 2 rejected.**
+  `branchReviewRounds: 1`. Verdicts are committed in each report under a
+  `# TRIAGE` heading — a resumed session inherits them and must NOT re-litigate.
 
-Plan §4 owns the task definitions. This table owns their STATE. Update it in
-the same commit as the task it describes; a resumed session trusts git over
-this table, but a table that disagrees with git is itself a finding.
+## What step 7 changed, and why it matters
 
-| Task | What | Blocking edges | State |
-|---|---|---|---|
-| 0 | eval — all 30 `tests_to_add` titles as executable failing tests | none | **done** — `834457a3`, red run in deviations D4 |
-| 1 | `latchHalt` extraction + `adminHaltBatch` | 0 | **done** — 16 titles green |
-| 2 | the admin route | 1 | **done** — `6efae3a3`; export assertion reverted in `0e4d2cc9`, see D5 |
-| 3 | `readAdminBatchSummary` + the panel + page wiring | 2 | in progress — owns the deviations file |
-| 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | 1 | in progress — owns those two files only |
+Two findings came from the adversarial axis and **both contradicted a locked
+artifact**, so both went to the owner, who approved fixing them in-branch:
 
-Tasks 3 and 4 are marked mutually independent by the plan and were dispatched in
-parallel once Tasks 1 and 2 landed. **File ownership was partitioned to avoid a
-concurrent-write collision**, and a resumed session should keep that split if it
-re-dispatches either: Task 3 owns the deviations file, Task 4 owns `CONTEXT.md`
-and `docs/directory.md`, and the ORCHESTRATOR owns this handoff doc. Task 4 also
-writes the `batch-view.ts` directory row from **plan §3.2**, not from the file,
-which is mid-write while both run.
+- **F1 (High)** — `readAdminBatchSummary` selected the NEWEST batch, but 091's
+  partial unique index lets a newer `pending` batch coexist with and outrank an
+  older live one. Support would open this feature's own page and be unable to
+  stop the batch in flight. Now ordered on the live-send predicate first.
+- **F2 (Medium)** — the owner arm's `pending` hole was API-reachable:
+  `readLatestBatch` hands the owner the unbuilt batch's id and the halt endpoint
+  accepts any valid `batchId`. `haltBatch` now refuses `pending` like
+  `adminHaltBatch`. **This contradicted an intake `non_goals` entry** — recorded
+  as D9.
+
+**F2's fix desynced four documents, all corrected in `6741c1ab`**: `CONTEXT.md`
+**Halt latch**, plan §2 D11, plan §7, and the `docs/directory.md` `approval.ts`
+row. **Plan §7's follow-up ticket is now MOOT — do not file it.**
+
+## Task ledger
+
+| Task | What | State |
+|---|---|---|
+| 0 | eval — 30 titles as executable failing tests | **done** `834457a3` (pre-rebase sha) |
+| 1 | `latchHalt` extraction + `adminHaltBatch` | **done** |
+| 2 | the admin route | **done** |
+| 3 | `readAdminBatchSummary` + panel + page wiring | **done** |
+| 4 | docs sweep (`CONTEXT.md`, `docs/directory.md`) | **done** |
+| 7-fix | F1, F2, 3 panel mediums, 3 lows | **done** `084ea8cb`, `b9fc9e03`, `6741c1ab` |
 
 ## Codex review thread
 
@@ -126,12 +142,51 @@ the full gate before review round 1 counts.** See deviations D1.
    refuses it (D11); the owner arm is carved out in `non_goals` and must be
    filed as a ticket at step 8. Plan §7 owns this.
 
-## Next action
+## Step 8 — SHIP (RISK = high lane)
 
-Read the task ledger above, then `git log --oneline` to confirm it.
+**There is NO migration on this branch** (`non_goals`: "No migration — every
+value this needs already exists in migrations 091 and 108"), so the
+apply-to-staging-Supabase-first step does not engage.
 
-- Task 0 not yet committed → dispatch Task 0 **alone**, then run the first-task
-  enforcement spot check (`git status --porcelain` against
-  `allowed_edit_surface`) before dispatching anything else.
-- Task 0 committed → continue down the ledger under the blocking edges.
-- All tasks committed → step 5, `scripts/verify-gate.sh`.
+1. **Ride staging first.** Land the branch on `staging`; the push auto-deploys
+   both the Railway staging worker and the Vercel staging Custom Env.
+2. **Smoke the touched path on staging**: open `/admin/businesses/<id>`, confirm
+   the panel renders the live batch (not a newer `pending` one — that is F1),
+   stop a batch with a note, confirm the `account_audit_log` row
+   (`solicitation_batch_admin_halted`) and the `batch_halted` spine step.
+3. **Open the PR to `main`**, confirm every GitHub CI check green, then **PAUSE
+   for the owner's explicit merge approval.** Do not merge without it.
+
+## After merge — do not skip, and two of these are easy to lose
+
+- `git pull --ff-only` on local `main`, then realign `staging`:
+  after a squash merge the branches have DIVERGED, so `git merge --ff-only`
+  aborts and the runbook's answer is `git reset --hard origin/main` +
+  `--force-with-lease`. **Do NOT substitute a sync merge** — that is how staging
+  reached 101 commits ahead (#719).
+- `bash scripts/feature-cleanup.sh` from the MAIN checkout (dry run first).
+- **Promote the durable lessons** out of the deviations file into
+  `.claude/reference/lab-notes.md` / CLAUDE.md gotchas. The strong candidates:
+  D4's `@vite-ignore` idiom (a literal dynamic `import()` does NOT survive a
+  missing module — the file collects as `(0 test)` while satisfying the gate's
+  title row), D5/D6 (an eval stubbing an unwritten module cannot type its
+  fixtures, so the type errors land on whichever task writes it — twice here),
+  D7 (a cross-branch overlap analysis has a shelf life; write the obligation,
+  not just the analysis), and D8 (estimate production from enumerated
+  behaviours, not from a precedent file's size).
+- Invoke `document-feature`, then `domain-modeling` for the final sweep.
+- Increment the merge counter in `.claude/reference/arch-review-log.md`.
+
+## Follow-up tickets to file at step 8
+
+1. **`withSameOrigin` should be return-type-preserving** (one generic parameter).
+   Would delete the whole class of widening that D5 hit. Touches every wrapped
+   route, so it is its own ticket.
+2. **`useAdminActionForm`** — the `useReducer` + 7-action-type boilerplate is now
+   duplicated across FIVE admin surfaces. #865 correctly followed the pattern
+   rather than diverging.
+3. **`docs/progresstracking.md:4375` is stale** — still says `admin_halt` is "a
+   CHECK member with no writer — a live-but-dead enum arm". Outside this
+   branch's `allowed_edit_surface`; the `document-feature` sweep owns it.
+
+**Do NOT file** the plan §7 pending-batch ticket. F2 fixed it; §7 now says so.
