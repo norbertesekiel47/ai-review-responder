@@ -59,6 +59,25 @@ const REGENERATE_LABEL = 'Regenerate';
 const REGENERATING_LABEL = 'Writing a new version…';
 
 /**
+ * The control's accessible name, derived from the label it is currently
+ * showing.
+ *
+ * Two rules meet here and the old static `aria-label` broke both. It never
+ * changed, so the swap to `REGENERATING_LABEL` was drawn on screen and silent
+ * to assistive tech; and it did not contain the visible word, so WCAG 2.5.3
+ * Label in Name (Level A) failed — a speech-input owner saying "click
+ * Regenerate" could not activate it. The name is therefore BUILT FROM the
+ * visible label rather than written beside it: it contains the label by
+ * construction, and it moves when the label moves. The rest disambiguates the
+ * one-control-per-ask list, which is why the label alone will not do.
+ */
+function regenerateControlName(regenerating: boolean, contactName: string): string {
+  return regenerating
+    ? `${REGENERATING_LABEL} of the message to ${contactName}`
+    : `${REGENERATE_LABEL} the message to ${contactName}`;
+}
+
+/**
  * One list row: an owner-readable attempt, projected. Deliberately NOT the
  * attempt itself — projecting first is what makes the redacted half of the D6a
  * rule structural instead of a habit. There is no `redacted` arm on purpose:
@@ -176,7 +195,7 @@ function RegenerateControl({
         className="btn btn-secondary rq-ask-regen-btn"
         onClick={() => onRegenerate(row.askId)}
         disabled={disabled || exhausted || regenerating}
-        aria-label={`Ask for a new version of the message to ${displayName(row)}`}
+        aria-label={regenerateControlName(regenerating, displayName(row))}
       >
         {regenerating ? REGENERATING_LABEL : REGENERATE_LABEL}
       </button>

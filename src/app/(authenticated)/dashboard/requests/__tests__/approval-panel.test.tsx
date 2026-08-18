@@ -28,7 +28,6 @@ import {
   ApprovalPanel,
   excludedOutreachIds,
   type ApprovalPanelProps,
-  type LaneWriteOutcome,
 } from '../ApprovalPanel';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -170,7 +169,7 @@ function props(
   overrides: {
     sendLane?: SendLaneView;
     attempts?: AskAttemptView[];
-    onChanged?: (message: string, outcome: LaneWriteOutcome) => void;
+    onChanged?: ApprovalPanelProps['onChanged'];
   } = {},
 ): ApprovalPanelProps {
   return {
@@ -182,13 +181,23 @@ function props(
   };
 }
 
-/** Every regenerate control on screen, found the way a screen reader would. */
+/**
+ * Every regenerate control on screen, found by ACCESSIBLE NAME rather than by
+ * DOM text — the two are not the same question, and the a11y contract lives in
+ * the first. The name is the VISIBLE label plus the contact it belongs to
+ * (WCAG 2.5.3 Label in Name), so it changes when the label does; an
+ * `aria-label` that replaced the text passed a `toHaveTextContent` assertion
+ * while failing both halves of that rule.
+ */
+const REGEN_CONTROL_NAME =
+  /^(?:Regenerate the message to|Writing a new version… of the message to) /i;
+
 const regenControls = () =>
-  screen.queryAllByRole('button', { name: /ask for a new version/i });
+  screen.queryAllByRole('button', { name: REGEN_CONTROL_NAME });
 
 /** The ONE regenerate control on a single-ask fixture — a `get` query, so an
  *  absent control fails as a missing element rather than an undefined index. */
-const regenControl = () => screen.getByRole('button', { name: /ask for a new version/i });
+const regenControl = () => screen.getByRole('button', { name: REGEN_CONTROL_NAME });
 
 /** Flushes the POST's promise chain without moving any clock. */
 async function flush(): Promise<void> {
@@ -483,9 +492,12 @@ describe('ApprovalPanel', () => {
     // server derives it from Batch state so the audit trail cannot be dictated.
     expect(JSON.parse(String(init.body))).toEqual({ batchId: BATCH_ID });
 
+    // `replace`: stopping is TERMINAL — the panel that comes back is a
+    // different screen, so the parent may tear this one down.
     expect(onChanged).toHaveBeenCalledWith(
       'Batch stopped. Nothing further will send.',
       'settled',
+      'replace',
     );
   });
 
@@ -624,7 +636,11 @@ describe('ApprovalPanel — failure honesty', () => {
     await flush();
 
     expect(screen.queryByText(/Nothing changed/i)).toBeNull();
-    expect(onChanged).toHaveBeenCalledWith(expect.stringMatching(/could not confirm/i), 'unconfirmed');
+    expect(onChanged).toHaveBeenCalledWith(
+      expect.stringMatching(/could not confirm/i),
+      'unconfirmed',
+      'replace',
+    );
     // Retrying is safe: the Halt latch is monotone and approval is CAS'd.
     expect(haltButton()).toBeEnabled();
   });
@@ -754,60 +770,26 @@ describe('regenerate control', () => {
     expect(screen.getByRole('button', { name: /Approve and send/ })).toBeDisabled();
     // BOTH — the dedup is per batch, so a second request would 409 anyway.
     for (const control of regenControls()) expect(control).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Ana/ })).toHaveTextContent(
-      'Writing a new version…',
+    // The accessible NAME carries the in-flight label, so the state is not
+    // announced-in-pixels-only. `toHaveTextContent` reads the DOM and would
+    // pass against a static `aria-label` that hides the swap from assistive
+    // tech entirely.
+    expect(screen.getByRole('button', { name: /to Ana$/ })).toHaveAccessibleName(
+      'Writing a new version… of the message to Ana',
+    );
+    expect(screen.getByRole('button', { name: /to Bo$/ })).toHaveAccessibleName(
+      'Regenerate the message to Bo',
     );
   });
 
-  it('reports that nothing changed when a regeneration settles without a new attempt', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(jsonResponse(202, { status: 'accepted' })),
-    );
-    const onChanged = vi.fn();
-    const ana = rendered('1', 'Ana');
-
-    const { rerender, unmount } = render(
-      <ApprovalPanel {...props({ attempts: [ana], onChanged })} />,
-    );
-    fireEvent.click(regenControl());
-    await flush();
-    // The 202's own sentence: accepted, not done.
-    expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(String(onChanged.mock.calls[0]?.[0])).toMatch(/writing a new version/i);
-
-    // The refetch: the flight is over and the ask still carries attempt 1. The
-    // worker refused (budget race, lapsed subscription, a swap that lost its
-    // re-check) and left the copy alone — the spinner stopping over unchanged
-    // words reads as "nothing happened", so the panel says it.
-    rerender(<ApprovalPanel {...props({ attempts: [{ ...ana }], onChanged })} />);
-
-    expect(onChanged).toHaveBeenCalledTimes(2);
-    expect(String(onChanged.mock.calls[1]?.[0])).toMatch(
-      /could not write a new version.*unchanged/i,
-    );
-    expect(onChanged.mock.calls[1]?.[1]).toBe('settled');
-    unmount();
-
-    // …and the SAME settlement carrying a new attempt says nothing of the kind.
-    const landed = vi.fn();
-    const { rerender: rerenderLanded } = render(
-      <ApprovalPanel {...props({ attempts: [ana], onChanged: landed })} />,
-    );
-    fireEvent.click(regenControl());
-    await flush();
-    rerenderLanded(
-      <ApprovalPanel
-        {...props({
-          attempts: [{ ...ana, outreachId: 'replacement-1', attemptNo: 2 }],
-          onChanged: landed,
-        })}
-      />,
-    );
-
-    expect(landed).toHaveBeenCalledTimes(1);
-    expect(String(landed.mock.calls[0]?.[0])).not.toMatch(/could not write/i);
-  });
+  // The two cases that used to sit here — "reports that nothing changed when a
+  // regeneration settles without a new attempt" and "reports a settled
+  // regeneration that completed before the first refetch" — now live in
+  // `requests-client.test.tsx`, driven through the real fetch loop. They cannot
+  // be proved from here: both turn on panel state (`pendingRegen`) surviving the
+  // refetch a regeneration triggers, and `rerender` PRESERVES state whatever the
+  // composition does, so the panel-level versions passed against a parent that
+  // unmounted this component on every accepted regeneration.
 
   it('keeps an ask excluded when a regeneration replaces its outreach id', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
@@ -891,44 +873,44 @@ describe('regenerate control', () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it('reports a settled regeneration that completed before the first refetch', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(jsonResponse(202, { status: 'accepted' })),
-    );
-    const onChanged = vi.fn();
-    const ana = rendered('1', 'Ana');
+  it('names the state a refused regeneration was actually in', async () => {
+    // `not_regenerable` covers seven Batch states and used to assert one of
+    // them for all of them. A stale tab on a halted, expired or closed batch
+    // read "This batch has been approved" — a false statement about their own
+    // batch — and was then offered a stop for something already stopped. The
+    // correcting `state` was on the wire the whole time.
+    const cases: Array<[string, RegExp]> = [
+      ['veto_window', /This batch has been approved/i],
+      ['approved', /This batch has been approved/i],
+      ['sending', /already going out/i],
+      ['halted', /This batch was stopped/i],
+      ['expired', /This batch expired before it was approved/i],
+      ['closed', /This batch is finished/i],
+      ['pending', /still being prepared/i],
+      // A server deployed ahead of the browser: unknown state, so the panel
+      // claims only what every arm has in common.
+      ['a_state_this_build_has_never_heard_of', /Reload the page to see where it stands/i],
+    ];
 
-    const { rerender } = render(
-      <ApprovalPanel {...props({ attempts: [ana], onChanged })} />,
-    );
-    fireEvent.click(regenControl());
-    await flush();
+    for (const [state, copy] of cases) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(jsonResponse(409, { status: 'not_regenerable', state })),
+      );
+      const { unmount } = render(
+        <ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')] })} />,
+      );
+      fireEvent.click(regenControl());
+      await flush();
 
-    // The worker finished between the 202 and the first poll, so
-    // `regeneratingAskId` was NEVER observed non-null. Outcome reporting must
-    // not depend on having caught the in-flight state (round 1, finding 10).
-    rerender(
-      <ApprovalPanel
-        {...props({
-          attempts: [
-            {
-              ...ana,
-              outreachId: 'replacement-1',
-              attemptNo: 2,
-              subject: 'A second draft for Ana',
-              body: 'A completely different way of asking.',
-            },
-          ],
-          onChanged,
-        })}
-      />,
-    );
-
-    // The new copy is what the owner reads, and nothing claims it failed.
-    expect(screen.getByText('A second draft for Ana')).toBeInTheDocument();
-    for (const call of onChanged.mock.calls) {
-      expect(String(call[0])).not.toMatch(/could not write a new version/i);
+      expect(screen.getByRole('alert')).toHaveTextContent(copy);
+      if (state !== 'veto_window' && state !== 'approved') {
+        expect(screen.getByRole('alert')).not.toHaveTextContent(/has been approved/i);
+      }
+      // The Halt latch's carve-out is exactly one word: no arm may offer a
+      // pause, a resume, or a cancel.
+      expect(screen.getByRole('alert')).not.toHaveTextContent(/pause|resume|cancel/i);
+      unmount();
     }
   });
 

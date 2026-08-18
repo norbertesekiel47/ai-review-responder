@@ -22,9 +22,18 @@ import './requests.css';
  * A client island owning exactly THREE things: which asks the owner has
  * deselected, whether a write is in flight, and the resulting error copy. It
  * renders from `sendLane` + `attempts` and never mutates the view it was given;
- * after every settled write it calls `onChanged(message, outcome)` and the
- * parent refetches through its existing `retry()`, so the fetch loop stays the
- * single owner of what is on screen.
+ * after every settled write it calls `onChanged(message, outcome, refresh)` and
+ * the parent refetches, so the fetch loop stays the single owner of what is on
+ * screen.
+ *
+ * TWO of the three writes are TERMINAL and one is not, and the difference is
+ * carried on the wire out rather than assumed. Approve and stop end this panel;
+ * the parent may tear it down. A regeneration comes BACK here — same batch,
+ * same list, same owner mid-task — so it asks for a refetch that keeps this
+ * component mounted (`LaneRefresh`). Nothing below survives a remount: the
+ * exclusion set is `useState` and the pending-regeneration marker is a `useRef`,
+ * so routing the non-terminal write through the terminal path re-selected every
+ * deselected ask and made the unchanged-copy report unreachable.
  *
  * WHAT THE OWNER READS. Every rendered Outreach row is listed WITH its subject
  * and body (intake `user_visible_behavior[0]`). That is not decoration: the
@@ -281,8 +290,8 @@ function includedCount(
  * The approve payload: the CURRENT outreach id of every deselected ask.
  *
  * The exclusion set is keyed on `askId` because that identity survives a
- * regeneration and an outreach id does not — a re-roll supersedes the row and
- * inserts a replacement under a new id. Resolving to outreach ids HERE, from
+ * regeneration and an outreach id does not — a regeneration supersedes the row
+ * and inserts a replacement under a new id. Resolving to outreach ids HERE, from
  * the rows this render is showing, means a regenerated ask stays excluded
  * under its new row instead of silently returning to the send list.
  *
@@ -326,6 +335,51 @@ type LaneStatus =
  * anything, so a 400/409 leaves the batch untouched. The uncertain case is the
  * `unconfirmed` outcome below, and it deliberately claims nothing.
  */
+/**
+ * The Batch state a `not_regenerable` refusal was taken in, as the wire names
+ * it. `built` is excluded because it is the ONE regenerable state, so the
+ * server never refuses with it — a widened `isRegenerableBatchState` is then a
+ * tsc error here rather than a silently wrong sentence.
+ */
+type RefusedState = Exclude<SendLaneView['batchState'], 'built'>;
+
+/**
+ * What "no longer regenerable" actually MEANS, per state.
+ *
+ * One sentence for all of them asserted "This batch has been approved" over a
+ * halted, expired or closed batch — a stale tab reading a false statement about
+ * its own batch, and then being offered a stop for something already stopped.
+ * The correcting `state` was already on the wire (`toWire` carries it for
+ * exactly this arm) and was being discarded.
+ *
+ * Total over the union, no `default`: a new Batch state has to state what the
+ * owner reads here. "Stop" is the **Halt latch**'s one owner-facing carve-out;
+ * `pause`, `resume` and `cancel batch` stay banned, and no arm implies the
+ * latch is reversible.
+ */
+const NOT_REGENERABLE_COPY: Readonly<Record<RefusedState, string>> = {
+  veto_window:
+    'This batch has been approved, so its messages can no longer be changed. Stop the batch if you need to.',
+  approved:
+    'This batch has been approved, so its messages can no longer be changed. Stop the batch if you need to.',
+  sending:
+    'This batch is already going out, so its messages can no longer be changed. Stop the batch if you need to.',
+  halted:
+    'This batch was stopped, so its messages can no longer be changed. Nothing further will send from it.',
+  expired:
+    'This batch expired before it was approved, so its messages can no longer be changed. Nothing was sent.',
+  closed:
+    'This batch is finished, so its messages can no longer be changed.',
+  pending:
+    'This batch is still being prepared, so there is no message to change yet.',
+};
+
+/** For a `state` this build does not know — a server deployed ahead of the
+ *  browser — and for the impossible `built`. It claims only what every arm of
+ *  the refusal has in common, and sends the owner to the screen that knows. */
+const NOT_REGENERABLE_FALLBACK =
+  'This batch can no longer be changed. Reload the page to see where it stands.';
+
 const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
   approved: null,
   already_approved: null,
@@ -343,8 +397,9 @@ const LANE_REFUSAL_COPY: Readonly<Record<LaneStatus, string | null>> = {
   accepted: null,
   already_in_flight:
     'We are already writing a new version for this batch. Wait for it to finish, then try again.',
-  not_regenerable:
-    'This batch has been approved, so its messages can no longer be changed. Stop the batch if you need to.',
+  // Every arm this build knows names its OWN state (`NOT_REGENERABLE_COPY`
+  // below); this entry is the fallback the record's total shape still requires.
+  not_regenerable: NOT_REGENERABLE_FALLBACK,
   ask_not_regenerable:
     'We cannot write a new version of this message. Nothing changed.',
   // Reached only if the 429 body ever loses its `message`; the server's own
@@ -362,6 +417,15 @@ function toLaneStatus(value: unknown): LaneStatus | null {
     : null;
 }
 
+/** The refused state, narrowed against the copy record's OWN keys — same trick
+ *  as `toLaneStatus`, and it is what keeps `built` and any state this build has
+ *  never heard of out of the lookup. */
+function toRefusedState(value: unknown): RefusedState | null {
+  return typeof value === 'string' && Object.hasOwn(NOT_REGENERABLE_COPY, value)
+    ? (value as RefusedState)
+    : null;
+}
+
 type LaneOutcome =
   /** The server settled the request: 2xx, carrying its result discriminant. */
   | { kind: 'done'; status: LaneStatus | null }
@@ -371,7 +435,14 @@ type LaneOutcome =
    * carries no `status`, so without it an exhausted budget would fall through
    * to the generic copy.
    */
-  | { kind: 'refused'; status: LaneStatus | null; message: string | null }
+  | {
+      kind: 'refused';
+      status: LaneStatus | null;
+      message: string | null;
+      /** The Batch state a `not_regenerable` refusal named; null on every
+       *  other arm, and on a state this build does not know. */
+      state: RefusedState | null;
+    }
   /**
    * The client never read an answer: transport failure, or a response whose
    * body carries no discriminant. NOT a failure — the transaction may already
@@ -410,12 +481,16 @@ async function postLaneAction(
     // `toLaneStatus` yields null and the server's `message` is what the owner
     // reads.
     if (response.ok || [400, 409, 429].includes(response.status)) {
-      const result = (await response.json()) as { status?: unknown; message?: unknown };
+      const result = (await response.json()) as {
+        status?: unknown;
+        message?: unknown;
+        state?: unknown;
+      };
       const status = toLaneStatus(result.status);
       const message = typeof result.message === 'string' ? result.message : null;
       return response.ok
         ? { kind: 'done', status }
-        : { kind: 'refused', status, message };
+        : { kind: 'refused', status, message, state: toRefusedState(result.state) };
     }
     console.error(`[requests] lane action answered ${response.status}`);
     return { kind: 'unconfirmed' };
@@ -430,8 +505,17 @@ async function postLaneAction(
  *  status outside this build's union, or one whose arm is `null`, is still a
  *  refusal — the server validated and declined — so the generic sentence may
  *  honestly say nothing changed. */
-function refusalCopy(status: LaneStatus | null, message: string | null): string {
+function refusalCopy(
+  status: LaneStatus | null,
+  message: string | null,
+  state: RefusedState | null,
+): string {
   if (message !== null) return message;
+  // The one refusal whose sentence depends on a second field. Branching here
+  // rather than in the record keeps `LANE_REFUSAL_COPY` a flat total map.
+  if (status === 'not_regenerable') {
+    return state === null ? NOT_REGENERABLE_FALLBACK : NOT_REGENERABLE_COPY[state];
+  }
   return (status === null ? null : LANE_REFUSAL_COPY[status]) ?? GENERIC_REFUSAL;
 }
 
@@ -469,6 +553,25 @@ const haltedAnnounce: Announce = (status) =>
  */
 export type LaneWriteOutcome = 'settled' | 'unconfirmed';
 
+/**
+ * What the parent must do to the SCREEN after a lane write — the axis that
+ * `LaneWriteOutcome` (how certain the answer was) deliberately does not carry.
+ *
+ * `replace` — the write ended this screen. Approve and stop are TERMINAL: the
+ *   panel that comes back is a different screen whatever the server says, so
+ *   the refetch may tear this one down and show the loading card meanwhile.
+ * `in_place` — the write left the owner mid-task in the SAME panel.
+ *   Regeneration is NOT terminal — it returns to the same approvable panel — so
+ *   the refetch must not unmount it. Routing it through the terminal path is
+ *   what silently reset `excludedAsks` (re-selecting every ask the owner had
+ *   deselected) and destroyed `pendingRegen` (making the unchanged-copy report
+ *   unreachable in production).
+ * `none` — nothing to fetch. The sentence REPORTS on a view the parent has
+ *   already handed down; asking for another read would answer a question that
+ *   was just answered.
+ */
+export type LaneRefresh = 'replace' | 'in_place' | 'none';
+
 interface LaneWriteInputs {
   batchId: string;
   /** The location scope the view was read for — the write must name the same
@@ -479,7 +582,11 @@ interface LaneWriteInputs {
   excludedIds: readonly string[];
   /** Only for the approve sentence — the server recounts under its own lock. */
   sendCount: number;
-  onChanged: (message: string, outcome: LaneWriteOutcome) => void;
+  onChanged: (
+    message: string,
+    outcome: LaneWriteOutcome,
+    refresh: LaneRefresh,
+  ) => void;
 }
 
 interface LaneWrites {
@@ -497,8 +604,12 @@ interface LaneWrites {
  *
  * They settle identically — busy on, error cleared, POST, busy off, then either
  * the parent's announcement or the refusal copy — and differ only in route,
- * body, and sentence, so `perform` is the one settle path. Nothing here
- * refetches: `onChanged` is the parent's cue to run its existing `retry()`.
+ * body, sentence, and whether the write ENDS this screen, so `perform` is the
+ * one settle path. Nothing here refetches: `onChanged` is the parent's cue, and
+ * the `LaneRefresh` each verb passes is what tells it which kind of refetch to
+ * run. Approve and stop are terminal and say `replace`; regenerate is not, and
+ * says `in_place` — the panel it returns to is the one the owner is still
+ * working in.
  */
 function useLaneWrites({
   batchId,
@@ -511,13 +622,18 @@ function useLaneWrites({
   const [error, setError] = useState('');
 
   const perform = useCallback(
-    async (path: string, requestBody: Record<string, unknown>, announce: Announce) => {
+    async (
+      path: string,
+      requestBody: Record<string, unknown>,
+      announce: Announce,
+      refresh: LaneRefresh,
+    ) => {
       setBusy(true);
       setError('');
       const outcome = await postLaneAction(path, scope, requestBody);
       setBusy(false);
       if (outcome.kind === 'refused') {
-        setError(refusalCopy(outcome.status, outcome.message));
+        setError(refusalCopy(outcome.status, outcome.message, outcome.state));
         return;
       }
       // An unconfirmed outcome is handed UP rather than shown here, and the
@@ -526,10 +642,10 @@ function useLaneWrites({
       // own state. The parent refetches, and the panel this error box belongs
       // to is replaced by whatever is actually true.
       if (outcome.kind === 'unconfirmed') {
-        onChanged(UNCONFIRMED_OUTCOME, 'unconfirmed');
+        onChanged(UNCONFIRMED_OUTCOME, 'unconfirmed', refresh);
         return;
       }
-      onChanged(announce(outcome.status), 'settled');
+      onChanged(announce(outcome.status), 'settled', refresh);
     },
     [onChanged, scope],
   );
@@ -539,21 +655,24 @@ function useLaneWrites({
       APPROVE_PATH,
       { batchId, excludedOutreachIds: [...excludedIds] },
       approvedAnnounce(sendCount),
+      'replace',
     );
   }, [batchId, excludedIds, perform, sendCount]);
 
   // The halt body carries ONLY the batch id: the halt reason is derived
   // server-side so the audit trail cannot be told what to say.
   const halt = useCallback(() => {
-    void perform(HALT_PATH, { batchId }, haltedAnnounce);
+    void perform(HALT_PATH, { batchId }, haltedAnnounce, 'replace');
   }, [batchId, perform]);
 
   const regenerate = useCallback(
     (askId: string) => {
-      // Same settle path as the other two, different sentence: the other verbs
-      // announce a completed act and this one is 202 Accepted. The sentence
-      // says what was ASKED for; the poll loop reports what happened.
-      void perform(REGENERATE_PATH, { batchId, askId }, regenerateAnnounce);
+      // Same settle path as the other two, but NOT the same screen. The other
+      // verbs announce a completed act and end this panel; this one is 202
+      // Accepted and comes back to the very panel the owner is working in, so
+      // it asks for an `in_place` refetch. The sentence says what was ASKED
+      // for; the poll loop reports what happened.
+      void perform(REGENERATE_PATH, { batchId, askId }, regenerateAnnounce, 'in_place');
     },
     [batchId, perform],
   );
@@ -570,10 +689,14 @@ export interface ApprovalPanelProps {
   /** The location scope the view was read for — the write must name the same
    *  location, or it lands on the owner's default one. */
   scope: string;
-  /** Called after every write that left the panel, with the sentence to
-   *  announce and whether that sentence is a report or an admission. The parent
-   *  turns both into its existing refetch. */
-  onChanged: (message: string, outcome: LaneWriteOutcome) => void;
+  /** Called after every write, with the sentence to announce, whether that
+   *  sentence is a report or an admission, and what the parent must do to the
+   *  screen — a terminal write may replace it, a regeneration may not. */
+  onChanged: (
+    message: string,
+    outcome: LaneWriteOutcome,
+    refresh: LaneRefresh,
+  ) => void;
 }
 
 export function ApprovalPanel({
@@ -658,9 +781,12 @@ export function ApprovalPanel({
     pendingRegen.current = null;
     const row = sendable.find((candidate) => candidate.askId === pending.askId);
     if (row !== undefined && row.attemptNo === pending.attemptNo) {
+      // `none`: this fires ON a refetch that has already landed, so it is a
+      // report about the view in hand, not a reason to read again.
       onChanged(
         'We could not write a new version. The message below is unchanged.',
         'settled',
+        'none',
       );
     }
   }, [sendLane.regeneratingAskId, sendable, onChanged]);

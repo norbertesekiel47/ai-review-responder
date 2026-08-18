@@ -36,8 +36,8 @@ export interface ApprovalActionsProps {
    *
    * Separate from `busy` because the two differ in what the button may SAY.
    * `busy` licenses "Approving…"; this does not — nothing is being approved,
-   * and a button that claims otherwise while the owner waits on a rewrite is
-   * the lane's copy lying about which act is in progress.
+   * and a button that claims otherwise while the owner waits on a regeneration
+   * is the lane's copy lying about which act is in progress.
    */
   unavailable: boolean;
   /** The live count as prose ("3 messages"). The approve label carries it, so

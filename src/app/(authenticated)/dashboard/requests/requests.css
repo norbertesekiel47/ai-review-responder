@@ -498,6 +498,22 @@
   color: var(--rw-app-text);
 }
 
+/* Polling gave up while the batch is BUILT — so the batch keeps its own screen
+   and this sits above it, rather than the "Still processing" ghost replacing
+   every message the owner was reading. Same recessed treatment as the unsure
+   banner: a built, approvable batch is not an error. */
+.rq-stalled-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+.rq-stalled-note .rq-state-body {
+  margin: 0;
+  flex: 1 1 260px;
+}
+
 /* ---------- Loading / error / gone ---------- */
 
 .rq-state-body {

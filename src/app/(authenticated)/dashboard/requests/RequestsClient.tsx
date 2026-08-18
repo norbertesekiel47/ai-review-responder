@@ -6,7 +6,11 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { BatchView } from '@/lib/solicitation/batch-view';
-import { ApprovalPanel, type LaneWriteOutcome } from './ApprovalPanel';
+import {
+  ApprovalPanel,
+  type LaneRefresh,
+  type LaneWriteOutcome,
+} from './ApprovalPanel';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
 import './requests.css';
@@ -47,6 +51,23 @@ type Phase =
 const LOADING: Phase = { kind: 'loading' };
 
 /**
+ * The two ways this screen may be re-read, and the ONLY difference between them
+ * is whether the current screen is torn down first.
+ *
+ * `replace` shows `<LoadingCard/>` while the read is in flight, which unmounts
+ * whatever was rendered — correct for a write that ended the screen anyway
+ * (approve, stop) and for the failure cards' own retry. `in_place` leaves the
+ * rendered phase alone and swaps the view in when it lands, which is the only
+ * form a REGENERATION may take: `ApprovalPanel` holds the owner's exclusion set
+ * and its pending-regeneration marker in component state, and a remount resets
+ * both — silently re-selecting every ask the owner deselected.
+ *
+ * `LaneRefresh`'s third member, `none`, never reaches here: it means the panel
+ * is reporting on a view the loop has already delivered.
+ */
+type RefetchMode = Exclude<LaneRefresh, 'none'>;
+
+/**
  * The last thing the approval lane had to say, and which location it was said
  * about. Scope-keyed for the same reason the phase is: an approval that lands
  * after the owner switched location must not be announced against the location
@@ -65,7 +86,7 @@ function noLaneSentence(scope: string): LaneSentence {
 
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
-  const { phase, announcement, retry } = useLatestBatch(currentScope);
+  const { phase, announcement, refetch } = useLatestBatch(currentScope);
   const [lane, setLane] = useState<LaneSentence>(() => noLaneSentence(currentScope));
 
   const builtBatchId =
@@ -80,30 +101,38 @@ export function RequestsClient() {
   const laneUnsure = laneSentence !== '' && lane.outcome === 'unconfirmed';
 
   /**
-   * The approval panel writes, then hands the refetch straight back to
-   * `retry()` — the fetch loop stays the single owner of `phase`, so the panel
-   * never has to reconcile a view it just changed.
+   * The approval panel writes, then hands the refetch straight back — the fetch
+   * loop stays the single owner of `phase`, so the panel never has to reconcile
+   * a view it just changed.
+   *
+   * WHICH refetch is the panel's to say, not this handler's: a terminal verb
+   * ends the screen and may replace it, a regeneration returns to the very
+   * panel the owner is working in and may not. `none` is a report about the
+   * view already on screen, so it announces and reads nothing.
    *
    * An `unconfirmed` write is announced AND shown: the panel that would have
-   * carried the message is about to be replaced by the refetch, and this is the
-   * one outcome where the owner has to be told something the new screen cannot
-   * say by itself.
+   * carried the message may be about to be replaced by the refetch, and this is
+   * the one outcome where the owner has to be told something the new screen
+   * cannot say by itself.
    */
   const onLaneChanged = useCallback(
-    (message: string, outcome: LaneWriteOutcome) => {
+    (message: string, outcome: LaneWriteOutcome, refresh: LaneRefresh) => {
       setLane({ scope: currentScope, message, outcome });
-      retry();
+      if (refresh !== 'none') refetch(refresh);
     },
-    [currentScope, retry],
+    [currentScope, refetch],
   );
 
   /** Every other refetch clears the lane sentence. Without this, a sentence
    *  about a write that has since been superseded gets re-announced the moment
    *  something else clears the loop's announcement. */
-  const onRetry = useCallback(() => {
-    setLane(noLaneSentence(currentScope));
-    retry();
-  }, [currentScope, retry]);
+  const reload = useCallback(
+    (mode: RefetchMode) => {
+      setLane(noLaneSentence(currentScope));
+      refetch(mode);
+    },
+    [currentScope, refetch],
+  );
 
   return (
     <>
@@ -141,7 +170,7 @@ export function RequestsClient() {
           <Screen
             phase={phase}
             scope={currentScope}
-            onRetry={onRetry}
+            onReload={reload}
             onLaneChanged={onLaneChanged}
           />
         )}
@@ -153,13 +182,17 @@ export function RequestsClient() {
 function Screen({
   phase,
   scope,
-  onRetry,
+  onReload,
   onLaneChanged,
 }: {
   phase: Phase;
   scope: string;
-  onRetry: () => void;
-  onLaneChanged: (message: string, outcome: LaneWriteOutcome) => void;
+  onReload: (mode: RefetchMode) => void;
+  onLaneChanged: (
+    message: string,
+    outcome: LaneWriteOutcome,
+    refresh: LaneRefresh,
+  ) => void;
 }) {
   switch (phase.kind) {
     case 'loading':
@@ -177,7 +210,7 @@ function Screen({
           // one person for whom "nothing changed" is most likely to be false.
           body="We could not read the latest state of this batch. That does not tell you whether anything changed — try again."
           actionLabel="Try again"
-          onAction={onRetry}
+          onAction={() => onReload('replace')}
         />
       );
     case 'unavailable':
@@ -193,34 +226,35 @@ function Screen({
         />
       );
     case 'stalled':
+      // A BUILT batch is not building, and the ghost says it is. #860 widened
+      // the poll predicate to keep reading a built batch while a regeneration
+      // is in flight, which made this arm reachable for a batch that is built
+      // and approvable — and the ghost would then replace the approval panel
+      // and every rendered message the owner was reading, and take the approve
+      // control away. So a built batch keeps its own screen here and gains the
+      // check-again affordance instead of being replaced by one.
+      if (phase.view !== null && phase.view.state === 'built') {
+        return (
+          <BuiltBatch
+            view={phase.view}
+            scope={scope}
+            onLaneChanged={onLaneChanged}
+            onCheckAgain={() => onReload('in_place')}
+          />
+        );
+      }
       return (
         <GhostPipeline
           mode="building"
           contactsOnFile={phase.view?.contactsOnFile ?? 0}
           stalled
-          onCheckAgain={onRetry}
+          onCheckAgain={() => onReload('replace')}
         />
       );
     case 'ready': {
       const { view } = phase;
       if (view.state === 'built') {
-        return (
-          <>
-            {/* `sendLane === null` IS how the browser learns
-                SOLICITATION_SEND_ENABLED is off (invariant #13) — there is no
-                NEXT_PUBLIC companion, so the absence of the lane is the flag. */}
-            {view.sendLane !== null && (
-              <ApprovalPanel
-                batchId={view.batchId}
-                sendLane={view.sendLane}
-                attempts={view.attempts}
-                scope={scope}
-                onChanged={onLaneChanged}
-              />
-            )}
-            <BatchReport view={view} />
-          </>
-        );
+        return <BuiltBatch view={view} scope={scope} onLaneChanged={onLaneChanged} />;
       }
       return (
         <GhostPipeline
@@ -232,6 +266,69 @@ function Screen({
       );
     }
   }
+}
+
+/** What polling gave up on is never the BUILD here — a built batch is built —
+ *  so this says only what is true of every way this arm is reached, and offers
+ *  the same recourse the ghost's stalled arm does. */
+const STALLED_BUILT_NOTE =
+  'We stopped checking for updates after a few minutes. Nothing has been sent — this is the batch as we last read it.';
+
+/**
+ * The built batch, rendered from ONE place so the `ready` and `stalled` arms
+ * return the same component at the same position. That is not tidiness: React
+ * keeps `ApprovalPanel` mounted across the transition between them only while
+ * the element type at that slot does not change, and the panel holds the
+ * owner's exclusion set. The stalled note is a slot INSIDE this component for
+ * the same reason — a sibling added above would shift the panel by one child
+ * and remount it.
+ */
+function BuiltBatch({
+  view,
+  scope,
+  onLaneChanged,
+  onCheckAgain,
+}: {
+  view: Extract<BatchView, { state: 'built' }>;
+  scope: string;
+  onLaneChanged: (
+    message: string,
+    outcome: LaneWriteOutcome,
+    refresh: LaneRefresh,
+  ) => void;
+  /** Present only on the stalled arm — polling stopped, so the owner needs a
+   *  way to ask again without losing the panel they are working in. */
+  onCheckAgain?: () => void;
+}) {
+  return (
+    <>
+      {onCheckAgain !== undefined && (
+        <div className="card section-enter section-enter-1 rq-stalled-note">
+          <p className="rq-state-body">{STALLED_BUILT_NOTE}</p>
+          <button
+            type="button"
+            className="btn btn-secondary rq-action"
+            onClick={onCheckAgain}
+          >
+            Check again
+          </button>
+        </div>
+      )}
+      {/* `sendLane === null` IS how the browser learns
+          SOLICITATION_SEND_ENABLED is off (invariant #13) — there is no
+          NEXT_PUBLIC companion, so the absence of the lane is the flag. */}
+      {view.sendLane !== null && (
+        <ApprovalPanel
+          batchId={view.batchId}
+          sendLane={view.sendLane}
+          attempts={view.attempts}
+          scope={scope}
+          onChanged={onLaneChanged}
+        />
+      )}
+      <BatchReport view={view} />
+    </>
+  );
 }
 
 // ── Screens without a batch to show ─────────────────────────────────────────
@@ -326,7 +423,7 @@ interface ScopedPhase {
 function useLatestBatch(currentScope: string): {
   phase: Phase;
   announcement: string;
-  retry: () => void;
+  refetch: (mode: RefetchMode) => void;
 } {
   const [state, setState] = useState<ScopedPhase>({
     scope: currentScope,
@@ -420,12 +517,27 @@ function useLatestBatch(currentScope: string): {
     };
   }, [currentScope, attempt]);
 
-  const retry = useCallback(() => {
-    setState({ scope: currentScope, phase: LOADING, announcement: '' });
-    setAttempt((value) => value + 1);
-  }, [currentScope]);
+  /**
+   * Bumping `attempt` is the whole refetch — the effect above tears its loop
+   * down and starts a fresh one, ceiling included.
+   *
+   * `in_place` deliberately does NOT touch `phase`. Setting LOADING renders
+   * `<LoadingCard/>` in the built batch's slot, which unmounts `ApprovalPanel`
+   * and takes the owner's exclusion set with it; for a write that ended the
+   * screen anyway that costs nothing, and for a regeneration it silently
+   * re-selects every ask they deselected.
+   */
+  const refetch = useCallback(
+    (mode: RefetchMode) => {
+      if (mode === 'replace') {
+        setState({ scope: currentScope, phase: LOADING, announcement: '' });
+      }
+      setAttempt((value) => value + 1);
+    },
+    [currentScope],
+  );
 
-  return { phase, announcement, retry };
+  return { phase, announcement, refetch };
 }
 
 type FetchOutcome =
