@@ -19,18 +19,19 @@ import './requests.css';
 /**
  * The owner approval lane for a built Solicitation batch (#629).
  *
- * A client island owning exactly THREE things: which asks the owner has
- * deselected, whether a write is in flight, and the resulting error copy. It
- * renders from `sendLane` + `attempts` and never mutates the view it was given;
- * after every settled write it calls `onChanged(message, outcome, refresh)` and
- * the parent refetches, so the fetch loop stays the single owner of what is on
- * screen.
+ * A client island owning exactly THREE things, one file-local hook each:
+ * which asks the owner has deselected (`useExcludedAsks`), whether a write is
+ * in flight and the resulting error copy (`useLaneWrites`), and what this panel
+ * last asked to regenerate (`usePendingRegeneration`). It renders from
+ * `sendLane` + `attempts` and never mutates the view it was given; after every
+ * settled write it calls `onChanged(message, outcome, refresh)` and the parent
+ * refetches, so the fetch loop stays the single owner of what is on screen.
  *
  * TWO of the three writes are TERMINAL and one is not, and the difference is
  * carried on the wire out rather than assumed. Approve and stop end this panel;
  * the parent may tear it down. A regeneration comes BACK here — same batch,
  * same list, same owner mid-task — so it asks for a refetch that keeps this
- * component mounted (`LaneRefresh`). Nothing below survives a remount: the
+ * component mounted (`LaneRefresh`). None of that state survives a remount: the
  * exclusion set is `useState` and the pending-regeneration marker is a `useRef`,
  * so routing the non-terminal write through the terminal path re-selected every
  * deselected ask and made the unchanged-copy report unreachable.
@@ -102,6 +103,27 @@ function toRows(attempts: AskAttemptView[]): AskRowView[] {
 }
 
 /**
+ * The other half of the same rule, and the only half the owner ever reads.
+ *
+ * `toRows` above drops a held attempt outright; everything the owner is allowed
+ * to learn about the ones it dropped is here — how many there were, and the
+ * reason code verbatim. Rendering nothing at zero is deliberate: a batch with no
+ * held message must not carry a note about held messages, and the count is the
+ * only thing that could ever distinguish the two.
+ */
+function ModerationWithheldNote({ count }: { count: number }) {
+  if (count === 0) return null;
+
+  return (
+    <p className="rq-approval-note">
+      <span className="rq-chip rq-chip--hold">{MODERATION_REASON}</span>{' '}
+      {countPhrase(count)} held by the safety check. They are not sent, and their
+      text is not shown here.
+    </p>
+  );
+}
+
+/**
  * The three Batch states that offer the stop control, named so `panelCopy`'s
  * haltable arm can be exhaustive over exactly them. A fourth state routed here
  * is then a compile error in BOTH places, instead of inheriting the `approved`
@@ -169,6 +191,39 @@ function actionVerb(mode: PanelMode): ApprovalVerb | null {
     case 'halted':
     case 'settled':
       return null;
+  }
+}
+
+/**
+ * How a mode shows the batch's asks — the third facet `PanelMode` decides,
+ * beside `panelCopy`'s words and `actionVerb`'s button.
+ *
+ * `selectable` — the owner is still choosing, so every sendable ask gets its
+ *   two row controls. `read_only` — the choosing is over and the messages are
+ *   still what the owner needs to see. `count` — a settled batch, where the
+ *   messages are history and only how many there were still says something.
+ *   `none` — there is nothing to show yet, or nothing was ever written.
+ *
+ * Exhaustive with no `default`, for the same reason as `actionVerb`. The three
+ * arms were three independent `mode.kind === …` guards in the markup: mutually
+ * exclusive only by coincidence, and a new mode inherited a blank panel by
+ * omission rather than failing to compile.
+ */
+type AskDisplay = 'selectable' | 'read_only' | 'count' | 'none';
+
+function askDisplay(mode: PanelMode): AskDisplay {
+  switch (mode.kind) {
+    case 'approvable':
+      return 'selectable';
+    case 'haltable':
+    case 'halted':
+    case 'nothing_to_send':
+      return 'read_only';
+    case 'settled':
+      return 'count';
+    case 'preparing':
+    case 'expired':
+      return 'none';
   }
 }
 
@@ -308,6 +363,57 @@ export function excludedOutreachIds(
   return rows
     .filter((row) => excludedAsks.has(row.askId))
     .map((row) => row.outreachId);
+}
+
+interface ExcludedAsks {
+  /** The deselected ASK ids. Empty means "send to everyone in the list". */
+  excluded: ReadonlySet<string>;
+  /** Flip one ask out of the send list, or back into it. */
+  toggle: (askId: string) => void;
+  /** The approve payload — `excludedOutreachIds` over the rows on screen. */
+  excludedIds: readonly string[];
+  /** How many of those rows are still selected — the count the approve button
+   *  carries and the approved message repeats. */
+  sendCount: number;
+}
+
+/**
+ * The exclusion set as the panel holds it: the deselections themselves, the one
+ * verb that changes them, and the two facts every render and every approve
+ * derives from them — the first of the three things the panel owns.
+ *
+ * Keyed on ASK id, not outreach id, and there is deliberately no pruning
+ * effect: an ask's identity survives a regeneration, so a deselection does too,
+ * and a stale ask id resolves to no row and drops out of the payload by
+ * construction (`excludedOutreachIds`). The pruning this plan carried at round
+ * 1 stopped an `unknown_exclusion` crash but silently RE-SELECTED the contact,
+ * which could send a message the owner had deselected.
+ *
+ * `rows` is the SENDABLE rows of the current render, and BOTH derived values
+ * are resolved against it rather than against the set alone — that resolution
+ * is what keeps a regenerated ask excluded under its new outreach id, so the
+ * two must not drift apart onto different lists.
+ */
+function useExcludedAsks(rows: readonly AskRowView[]): ExcludedAsks {
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+
+  const toggle = useCallback((askId: string) => {
+    setExcluded((current) => toggleExclusion(current, askId));
+  }, []);
+
+  const excludedIds = useMemo(
+    () => excludedOutreachIds(rows, excluded),
+    [rows, excluded],
+  );
+
+  return {
+    excluded,
+    toggle,
+    excludedIds,
+    sendCount: includedCount(rows, excluded),
+  };
 }
 
 // ── The write ───────────────────────────────────────────────────────────────
@@ -680,6 +786,92 @@ function useLaneWrites({
   return { busy, error, approve, halt, regenerate };
 }
 
+// ── The pending regeneration ────────────────────────────────────────────────
+
+interface PendingRegenerationInputs {
+  /** The sendable rows this render is showing — the list a settlement is
+   *  judged against, and the list the control was offered from. */
+  rows: readonly AskRowView[];
+  /** The ask the SERVER says is being regenerated right now, or null. */
+  regeneratingAskId: string | null;
+  /** The lane write. This hook decides what to REMEMBER about a request;
+   *  `useLaneWrites` owns how it is sent and how a refusal reads. */
+  regenerate: (askId: string) => void;
+  onChanged: (
+    message: string,
+    outcome: LaneWriteOutcome,
+    refresh: LaneRefresh,
+  ) => void;
+}
+
+/**
+ * The panel's memory of a regeneration it asked for, and the one outcome the
+ * server never announces.
+ *
+ * A regeneration answers 202 Accepted: the route says the work was TAKEN, and
+ * every later fact arrives through the poll loop as a changed view. That leaves
+ * exactly one settlement unspoken — the worker refused, completed its outbox
+ * row, and left the copy untouched. Nothing on the wire tells that apart from a
+ * regeneration still on its way, so the only way to report it is to remember
+ * what was asked for and compare it against what came back. Remembering is
+ * therefore the whole job here, and it is why an accepted regeneration must
+ * refetch `in_place`: a remount throws this marker away and the report becomes
+ * unreachable in production.
+ */
+function usePendingRegeneration({
+  rows,
+  regeneratingAskId,
+  regenerate,
+  onChanged,
+}: PendingRegenerationInputs): (askId: string) => void {
+  /** The ask this panel asked to regenerate, and the attempt number it carried
+   *  when we asked. Both halves are needed by the settle effect below: the
+   *  first says which row to look at, the second is how a landed regeneration
+   *  is told from one that settled without changing anything. */
+  const pending = useRef<{ askId: string; attemptNo: number } | null>(null);
+
+  /**
+   * A worker-side refusal (budget race, subscription lapse, a swap that lost
+   * its re-check) completes the outbox row and leaves the copy untouched. The
+   * spinner would simply stop and the same words would still be on screen,
+   * which reads as "nothing happened" — so say it.
+   *
+   * Deliberately NOT gated on having observed a non-null `regeneratingAskId`:
+   * a fast worker can finish between the 202 and the first poll, and outcome
+   * reporting must not depend on the panel having caught the in-flight state
+   * (codex round 1, finding 10).
+   */
+  useEffect(() => {
+    const asked = pending.current;
+    if (asked === null || regeneratingAskId !== null) return;
+    pending.current = null;
+    const row = rows.find((candidate) => candidate.askId === asked.askId);
+    if (row !== undefined && row.attemptNo === asked.attemptNo) {
+      // `none`: this fires ON a refetch that has already landed, so it is a
+      // report about the view in hand, not a reason to read again.
+      onChanged(
+        'We could not write a new version. The message below is unchanged.',
+        'settled',
+        'none',
+      );
+    }
+  }, [regeneratingAskId, rows, onChanged]);
+
+  return useCallback(
+    (askId: string) => {
+      const row = rows.find((candidate) => candidate.askId === askId);
+      // The control is only ever offered for a row in this list, so an absent
+      // row means the list moved underneath the click. Ask anyway — the server
+      // decides — but record no pending entry, because there is no attempt
+      // number to compare a settlement against.
+      pending.current =
+        row === undefined ? null : { askId, attemptNo: row.attemptNo };
+      regenerate(askId);
+    },
+    [regenerate, rows],
+  );
+}
+
 // ── The panel ───────────────────────────────────────────────────────────────
 
 export interface ApprovalPanelProps {
@@ -706,22 +898,6 @@ export function ApprovalPanel({
   scope,
   onChanged,
 }: ApprovalPanelProps) {
-  // Keyed on ASK id, not outreach id, and there is deliberately no pruning
-  // effect: an ask's identity survives a regeneration, so a deselection does
-  // too, and a stale ask id resolves to no row and drops out of the payload by
-  // construction (`excludedOutreachIds`). The pruning this plan carried at
-  // round 1 stopped an `unknown_exclusion` crash but silently RE-SELECTED the
-  // contact, which could send a message the owner had deselected.
-  const [excludedAsks, setExcludedAsks] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
-
-  /** The ask this panel asked to regenerate, and the attempt number it carried
-   *  when we asked. Both halves are needed by the settle effect below: the
-   *  first says which row to look at, the second is how a landed regeneration
-   *  is told from one that settled without changing anything. */
-  const pendingRegen = useRef<{ askId: string; attemptNo: number } | null>(null);
-
   const rows = useMemo(() => toRows(attempts), [attempts]);
   const sendable = useMemo(
     () => rows.filter((row) => row.deliveryStatus === 'rendered'),
@@ -732,15 +908,9 @@ export function ApprovalPanel({
   // to approve, and must not be offered a control that would send 0 messages.
   const mode = panelMode(sendLane, sendable.length);
   const { heading, body } = panelCopy(mode, sendLane);
-  const sendCount = includedCount(sendable, excludedAsks);
-  const excludedIds = useMemo(
-    () => excludedOutreachIds(sendable, excludedAsks),
-    [sendable, excludedAsks],
-  );
+  const asks = askDisplay(mode);
 
-  const toggle = useCallback((askId: string) => {
-    setExcludedAsks((current) => toggleExclusion(current, askId));
-  }, []);
+  const { excluded, toggle, excludedIds, sendCount } = useExcludedAsks(sendable);
 
   const { busy, error, approve, halt, regenerate } = useLaneWrites({
     batchId,
@@ -750,46 +920,12 @@ export function ApprovalPanel({
     onChanged,
   });
 
-  const onRegenerate = useCallback(
-    (askId: string) => {
-      const row = sendable.find((candidate) => candidate.askId === askId);
-      // The control only exists for rows in `sendable`, so an absent row means
-      // the list moved underneath the click. Ask anyway — the server decides —
-      // but record no pending entry, because there is no attempt number to
-      // compare a settlement against.
-      pendingRegen.current =
-        row === undefined ? null : { askId, attemptNo: row.attemptNo };
-      regenerate(askId);
-    },
-    [regenerate, sendable],
-  );
-
-  /**
-   * A worker-side refusal (budget race, subscription lapse, a swap that lost
-   * its re-check) completes the outbox row and leaves the copy untouched. The
-   * spinner would simply stop and the same words would still be on screen,
-   * which reads as "nothing happened" — so say it.
-   *
-   * Deliberately NOT gated on having observed a non-null `regeneratingAskId`:
-   * a fast worker can finish between the 202 and the first poll, and outcome
-   * reporting must not depend on the panel having caught the in-flight state
-   * (codex round 1, finding 10).
-   */
-  useEffect(() => {
-    const pending = pendingRegen.current;
-    if (pending === null || sendLane.regeneratingAskId !== null) return;
-    pendingRegen.current = null;
-    const row = sendable.find((candidate) => candidate.askId === pending.askId);
-    if (row !== undefined && row.attemptNo === pending.attemptNo) {
-      // `none`: this fires ON a refetch that has already landed, so it is a
-      // report about the view in hand, not a reason to read again.
-      onChanged(
-        'We could not write a new version. The message below is unchanged.',
-        'settled',
-        'none',
-      );
-    }
-  }, [sendLane.regeneratingAskId, sendable, onChanged]);
+  const onRegenerate = usePendingRegeneration({
+    rows: sendable,
+    regeneratingAskId: sendLane.regeneratingAskId,
+    regenerate,
+    onChanged,
+  });
 
   // Server-authoritative: `regeneratingAskId` is read from the in-flight
   // `job_outbox` row, so a second tab is held too. Approving mid-flight is safe
@@ -807,10 +943,10 @@ export function ApprovalPanel({
       </h2>
       <p className="rq-state-body">{body}</p>
 
-      {mode.kind === 'approvable' && (
+      {asks === 'selectable' && (
         <SelectableAskList
           rows={sendable}
-          excluded={excludedAsks}
+          excluded={excluded}
           onToggle={toggle}
           disabled={busy}
           regenBudgets={sendLane.regenBudgets}
@@ -819,21 +955,13 @@ export function ApprovalPanel({
         />
       )}
 
-      {(mode.kind === 'haltable' ||
-        mode.kind === 'halted' ||
-        mode.kind === 'nothing_to_send') && <AskList rows={rows} />}
+      {asks === 'read_only' && <AskList rows={rows} />}
 
-      {mode.kind === 'settled' && (
+      {asks === 'count' && (
         <p className="rq-approval-summary">{countPhrase(rows.length)} in this batch.</p>
       )}
 
-      {sendLane.moderationWithheld > 0 && (
-        <p className="rq-approval-note">
-          <span className="rq-chip rq-chip--hold">{MODERATION_REASON}</span>{' '}
-          {countPhrase(sendLane.moderationWithheld)} held by the safety check. They
-          are not sent, and their text is not shown here.
-        </p>
-      )}
+      <ModerationWithheldNote count={sendLane.moderationWithheld} />
 
       {error !== '' && (
         <p className="rq-approval-error" role="alert">
