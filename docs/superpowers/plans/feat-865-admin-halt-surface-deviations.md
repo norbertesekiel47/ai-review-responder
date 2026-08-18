@@ -130,3 +130,120 @@ out in `non_goals` and scheduled as a follow-up ticket at step 8. See the plan's
 §7 — it must not die in this file.
 
 **Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D3 — Surface overlap with `feat-872-ask-withdrawal` (recorded from the #872 session, owner-agreed)
+
+`feat-872-ask-withdrawal` (post-approval per-ask **Ask withdrawal**, issue
+#872) armed on 2026-08-18 and its `scripts/feature-setup.sh` reported one
+code-pair overlap with THIS worktree: `src/lib/solicitation/approval.ts`.
+
+**What #872 changes there:** a pure APPEND of `withdrawAsk` (+ its
+input/result types) after `requestAskRegeneration`, sharing
+`lockBatchForAction` / `canonicalBatchId` unchanged. It does not edit
+`haltBatch`, so this plan's `latchHalt` extraction is unaffected.
+
+**Agreed merge order (owner decision): feat-865 lands FIRST; #872 rebases onto
+it.** Nothing here has to wait for #872. Mirror entry: #872's deviations file,
+D1.
+
+**Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D4 — Task 0 red run: 30 executable failures, no `.todo` and no `.skip`
+
+Plan §4 Task 0 requires the red run to be recorded here before the task counts
+as complete. Command (both vitest projects, the six eval files):
+
+```
+TEST_DATABASE_POOL_URL=… DATABASE_POOL_URL=… pnpm vitest run \
+  src/lib/solicitation/__tests__/approval.integration.test.ts \
+  src/lib/solicitation/__tests__/batch-view.integration.test.ts \
+  src/lib/solicitation/__tests__/approval.test.ts \
+  src/app/api/admin/solicitation/batch/__tests__/routes.test.ts \
+  'src/app/admin/businesses/[id]/_components/__tests__/SolicitationBatchPanel.test.tsx' \
+  'src/app/admin/businesses/[id]/__tests__/page-source.test.ts'
+```
+
+```
+ Test Files  6 failed (6)
+      Tests  30 failed | 35 passed (65)
+```
+
+The 35 passes are the pre-existing cases in the three files this task extended;
+none of them regressed. `it.todo`, `it.skip`, `describe.skip`, empty bodies and
+`expect(true).toBe(true)` are absent — verified by grepping the six files for
+`\b(it|describe|test)\.(todo|skip)\b`, which returns nothing.
+
+**Failure-reason distribution.** Every one of the 30 failed because a promised
+symbol or module does not exist yet, or because an assertion read the current
+value — never on a typo, a bad import path, a syntax error, or a fixture that
+did not build:
+
+| Reason | Count | Which |
+|---|---|---|
+| Missing export — `adminHaltBatch is not a function` | 14 | the 13 `adminHaltBatch …` integration titles + `haltBatch still derives …` |
+| Missing export, via the property runner (`Property failed after 1 tests → Caused by: TypeError: adminHaltBatch is not a function`) | 1 | `invariants: halting is a fixed point …` |
+| Missing export — `readAdminBatchSummary is not a function` | 3 | the 3 `readAdminBatchSummary …` titles |
+| Missing module — `Cannot find module …/batch/halt/route` | 7 | the 7 `the admin halt route …` titles |
+| Missing module — `Cannot find module …/_components/SolicitationBatchPanel` | 3 | the 3 `the admin halt panel …` titles |
+| Wrong value — `page.tsx` does not contain `readAdminBatchSummary` | 1 | the page-source title |
+| Wrong value — `approval.ts` has no `type LatchHaltReason` declaration | 1 | `type contract: …` |
+
+Every fixture ran to completion before its failure — each stack points at the
+`adminHaltBatch` / `readAdminBatchSummary` call line, not at a seed statement —
+so the live-DB seeds satisfy 091's and 108's CHECKs as written.
+
+`pnpm typecheck` reports **only** the same missing symbols (TS2307 / TS2339) in
+these six files. `pnpm exec eslint` on all six is clean, and
+`pnpm ci:live-db-suites` passes.
+
+### Three things the plan did not anticipate
+
+1. **A literal dynamic `import()` does NOT survive a missing module.** Plan §4
+   Task 0 leans on the autonomy route suite's per-case `await import('../…')`
+   to keep a not-yet-written module from taking the file down. That is true for
+   a module that EXISTS; it is false for one that does not. Vite's
+   `vite:import-analysis` resolves literal specifiers at **transform** time, so
+   `Failed to resolve import` fails the whole file at collection and vitest
+   reports `(0 test)` — which would have satisfied nothing, since the titles
+   never run. Same hazard, different mechanism, for a static *named* import of
+   a missing EXPORT: vite's ssr transform validates `importedNames`.
+
+   Two idioms now carry this, both commented at their use site:
+   - a module that does not exist yet is loaded through a **variable**
+     specifier with `/* @vite-ignore */`, and typed from
+     `typeof import('…')` in a **type** position (erased before transform).
+     Used by the route suite (`loadRoute`) and the panel suite (`loadPanel`).
+   - an export that does not exist yet is reached through a **namespace**
+     import (`import * as approvalModule from '../approval'`). Used by both
+     integration suites, so the ~35 pre-existing cases in those files keep
+     running.
+
+   Consequence for Tasks 1–3: once the symbols land, both idioms typecheck
+   normally and need no rewrite. Do not "tidy" them back into literal imports —
+   the comments say why.
+
+2. **`writeAccountAuditLog`'s failure is injected as a JS rejection, not as a
+   Postgres error.** `helpers/abort-injection.ts` insists a forced abort
+   originate in Postgres, and that is right for its own callers — a JS throw
+   does not put a transaction into aborted state. The claim here is different:
+   that postgres.js **rolls back when the `sql.begin` callback rejects**. A
+   real Postgres injection was considered and rejected as unavailable without
+   DDL: the obvious lever, a bogus `actorUserId`, violates `halted_by`'s FK at
+   the CAS instead of at the audit INSERT, so it would test the wrong statement.
+   The delegating spy over `@/lib/audit/log` is the honest instrument, and the
+   title names that function.
+
+3. **The transaction-interposition helper needed its own proof.** Because every
+   admin case fails before reaching it, `instrumentedExecutor` was exercised
+   separately against the live test database (a throwaway script, not
+   committed) and confirmed on all four properties it is relied on for: base vs
+   transaction receivers are distinguished, `tx.json()` survives the `get`
+   trap, `begin(options, cb)` forwards its leading argument, and a rejecting
+   callback still propagates. Recorded here so the first green run in Task 1 is
+   not the first time it is known to work.
+
+**Verdict:** _(pending step 6 read-back)_

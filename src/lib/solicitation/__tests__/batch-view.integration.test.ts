@@ -11,7 +11,9 @@ import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
+  cleanupLocation,
   cleanupTenantAccount,
+  seedLocation,
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
@@ -20,9 +22,16 @@ import {
   LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
+import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { RESTRAINT_POLICY_VERSION } from '../restraint-policy';
 import { EVIDENCE_ROWS_PER_REASON, markBatchReviewed, readLatestBatch } from '../batch-view';
+// NAMESPACE import for the admin projection (#865). A named import of an export
+// that does not exist yet fails the whole FILE at collection — vite's ssr
+// transform validates importedNames — and a collection failure runs none of
+// this file's cases. A namespace access is `undefined` until Task 3 lands, so
+// each admin case fails on its own with the missing export named.
+import * as batchViewModule from '../batch-view';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -35,6 +44,10 @@ let otherTenant: TenantSeed | undefined;
 // `deadlock detected` in whichever one loses.
 let featureDatabaseLock: LiveDbLock | undefined;
 const businessId = randomUUID();
+// A SECOND location under the SAME account. It exists so the admin projection's
+// tenant case can probe the boundary a single-key `WHERE business_id = …` would
+// wrongly pass: the right account, reaching for its other location.
+const siblingBusinessId = randomUUID();
 
 /** The candidate-window bound the batch builder evaluates in one pass. */
 const PERF_ASK_COUNT = 5_000;
@@ -187,6 +200,55 @@ async function seedOutreach(input: {
   return outreachId;
 }
 
+/**
+ * One outreach attempt in a dispatched or terminal status the `seedOutreach`
+ * above cannot express (#865). 091's status/timestamp CHECK requires
+ * `queued_at` of every dispatched status, `sending_at` of `sending`, and
+ * `sent_at` of `sent` and of nothing else — so the stamps are DERIVED from the
+ * status here rather than left to the caller to get right.
+ *
+ * Every stamp resolves in SQL off NOW(): postgres.js truncates timestamptz
+ * microseconds, so a JS-derived stamp can land out of order against a
+ * NOW()-defaulted sibling and trip a constraint no case is about.
+ */
+async function seedDispatchedOutreach(input: {
+  batchId: string;
+  askId: string;
+  contactId: string;
+  deliveryStatus: 'rendered' | 'queued' | 'sending' | 'sent' | 'withheld' | 'cancelled';
+  dispositionReason?: string | null;
+  subject?: string;
+  body?: string;
+}): Promise<string> {
+  const dispatched = input.deliveryStatus === 'queued'
+    || input.deliveryStatus === 'sending'
+    || input.deliveryStatus === 'sent';
+  const withheld = input.deliveryStatus === 'withheld';
+  return insertOutreach(sql(), {
+    accountId: tenant!.accountId,
+    businessId,
+    batchId: input.batchId,
+    askId: input.askId,
+    contactId: input.contactId,
+    ...(withheld
+      ? { renderedSubject: null, renderedBody: null }
+      : {
+          renderedSubject: input.subject ?? 'How did we do?',
+          renderedBody: input.body ?? 'Would you mind leaving a review?',
+        }),
+    deliveryStatus: input.deliveryStatus,
+    dispositionReason: input.dispositionReason ?? null,
+    renderedAt: sql()`NOW() - INTERVAL '5 minutes'`,
+    ...(dispatched ? { queuedAt: sql()`NOW() - INTERVAL '4 minutes'` } : {}),
+    ...(input.deliveryStatus === 'sending' || input.deliveryStatus === 'sent'
+      ? { sendingAt: sql()`NOW() - INTERVAL '3 minutes'` }
+      : {}),
+    ...(input.deliveryStatus === 'sent'
+      ? { sentAt: sql()`NOW() - INTERVAL '2 minutes'` }
+      : {}),
+  });
+}
+
 async function reviewedAt(batchId: string): Promise<string | null> {
   const [row] = await sql()<{ reviewed_at: string | null }[]>`
     SELECT reviewed_at::text AS reviewed_at
@@ -215,6 +277,13 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
         ${tenant.ownerEmail}, ${tenant.accountId}::uuid, 'active'
       )
     `;
+    // `is_primary` stays FALSE: businesses_account_primary_uniq allows one
+    // primary per account and the location above already defaults to FALSE.
+    await seedLocation(db, tenant.accountId, {
+      businessId: siblingBusinessId,
+      name: 'Batch View Sibling Location',
+      isPrimary: false,
+    });
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
@@ -231,6 +300,7 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     try {
       if (db) {
         await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
+        await cleanupLocation(db, siblingBusinessId);
         if (tenant) await cleanupTenantAccount(db, tenant);
         if (otherTenant) await cleanupTenantAccount(db, otherTenant);
       }
@@ -682,5 +752,164 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
         + 'scan a location\'s full ask history. Restoring it is a migration, which '
         + 'changes db_touching and the ship lane: escalate, do not add one quietly.',
     ).toBeGreaterThan(0);
+  });
+
+  // ── readAdminBatchSummary — the admin Halt latch projection (#865, §3.2) ──
+
+  it('readAdminBatchSummary returns the latest tenant-scoped batch with correct cancellable, sending and sent counts', async () => {
+    const now = Date.now();
+    // An OLDER batch first, so "latest" is a real choice rather than the only
+    // row. Ordering follows readLatestBatch: created_at DESC, id DESC.
+    await seedBatch({
+      createdAt: new Date(now - 7_200_000).toISOString(),
+      builtAt: new Date(now - 7_100_000).toISOString(),
+    });
+    const batchId = await seedBatch({
+      createdAt: new Date(now - 900_000).toISOString(),
+      builtAt: new Date(now - 840_000).toISOString(),
+    });
+
+    // ONE ask per attempt: solicitation_outreach_one_live_per_ask is a partial
+    // unique over rendered/queued/sending, so the three live rows cannot share.
+    const attempts: Array<{
+      status: 'rendered' | 'queued' | 'sending' | 'sent' | 'withheld' | 'cancelled';
+      reason?: string;
+    }> = [
+      { status: 'rendered' },
+      { status: 'queued' },
+      { status: 'sending' },
+      { status: 'sent' },
+      { status: 'sent' },
+      { status: 'withheld', reason: 'lint_failed' },
+      { status: 'cancelled', reason: 'superseded' },
+    ];
+    for (const [index, attempt] of attempts.entries()) {
+      const contactId = await seedContact(`Admin Candidate ${index}`);
+      const askId = await seedAsk({
+        batchId,
+        contactId,
+        status: 'send',
+        decidedAt: new Date(now - 840_000).toISOString(),
+      });
+      await seedDispatchedOutreach({
+        batchId,
+        askId,
+        contactId,
+        deliveryStatus: attempt.status,
+        dispositionReason: attempt.reason ?? null,
+      });
+    }
+
+    // Drive the batch into the send lane. 091's send-ordering CHECK requires
+    // approval before sending and its approval-consistency CHECK requires an
+    // approver whenever approval_method='owner', so the whole prefix is
+    // stamped together or none of it is legal.
+    await sql()`
+      UPDATE solicitation_batches
+         SET approved_at = NOW() - INTERVAL '10 minutes',
+             approval_method = 'owner',
+             approved_by_user_id = ${tenant!.userId}::uuid,
+             veto_deadline_at = NOW() - INTERVAL '5 minutes',
+             sending_started_at = NOW() - INTERVAL '4 minutes'
+       WHERE id = ${batchId}::uuid
+    `;
+
+    const summary = await batchViewModule.readAdminBatchSummary(
+      sql(),
+      tenant!.accountId,
+      businessId,
+    );
+
+    expect(summary).not.toBeNull();
+    expect(summary!.batchId).toBe(batchId);
+    expect(summary!.batchState).toBe('sending');
+    // THREE counts, never one folded number (plan round 1, finding 8). The
+    // `sending` row is the whole reason they are separate: a stop cancels the
+    // two cancellable rows and does NOT recall the one in flight.
+    expect(summary!.cancellableCount).toBe(2);
+    expect(summary!.sendingCount).toBe(1);
+    expect(summary!.sentCount).toBe(2);
+    expect(summary!.builtAt).not.toBeNull();
+    expect(summary!.approvedAt).not.toBeNull();
+    expect(summary!.haltedAt).toBeNull();
+    expect(summary!.haltReason).toBeNull();
+  });
+
+  it('readAdminBatchSummary returns only the admin-safe projection and never serializes an outreach subject or body', async () => {
+    const now = Date.now();
+    const SECRET_SUBJECT = 'Thanks for the emergency callout on Tuesday';
+    const SECRET_BODY = 'Hi Pat — the boiler is fixed; would you leave us a review?';
+
+    const batchId = await seedBatch({
+      createdAt: new Date(now - 900_000).toISOString(),
+      builtAt: new Date(now - 840_000).toISOString(),
+    });
+    const contactId = await seedContact('Private Pat');
+    const askId = await seedAsk({
+      batchId,
+      contactId,
+      status: 'send',
+      decidedAt: new Date(now - 840_000).toISOString(),
+    });
+    await seedDispatchedOutreach({
+      batchId,
+      askId,
+      contactId,
+      deliveryStatus: 'rendered',
+      subject: SECRET_SUBJECT,
+      body: SECRET_BODY,
+    });
+
+    const summary = await batchViewModule.readAdminBatchSummary(
+      sql(),
+      tenant!.accountId,
+      businessId,
+    );
+
+    expect(summary).not.toBeNull();
+    // The key set is CLOSED (D9). Reusing readLatestBatch wholesale was
+    // rejected precisely because its `attempts: AskAttemptView[]` would
+    // serialize a customer's message bodies into an admin browser, and a
+    // "does not contain this string" check alone would not notice a NEW
+    // content field arriving later.
+    expect(Object.keys(summary!).sort()).toEqual([
+      'approvedAt',
+      'batchId',
+      'batchState',
+      'builtAt',
+      'cancellableCount',
+      'haltReason',
+      'haltedAt',
+      'sendingCount',
+      'sentCount',
+    ]);
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain(SECRET_SUBJECT);
+    expect(serialized).not.toContain(SECRET_BODY);
+    expect(serialized).not.toContain('attempts');
+    expect(summary!.cancellableCount).toBe(1);
+  });
+
+  it('readAdminBatchSummary returns null for a real batch under the wrong account or business', async () => {
+    const now = Date.now();
+    await seedBatch({
+      createdAt: new Date(now - 900_000).toISOString(),
+      builtAt: new Date(now - 840_000).toISOString(),
+    });
+
+    // Two boundaries. The foreign account is the obvious one; the SECOND is the
+    // point — the right account reaching for its other location is what a
+    // single-key predicate would wrongly answer.
+    expect(
+      await batchViewModule.readAdminBatchSummary(sql(), otherTenant!.accountId, businessId),
+    ).toBeNull();
+    expect(
+      await batchViewModule.readAdminBatchSummary(sql(), tenant!.accountId, siblingBusinessId),
+    ).toBeNull();
+    // The positive control. Without it, an implementation that always returns
+    // null passes both assertions above.
+    expect(
+      await batchViewModule.readAdminBatchSummary(sql(), tenant!.accountId, businessId),
+    ).not.toBeNull();
   });
 });
