@@ -1,11 +1,14 @@
 /**
  * The owner verbs of send-mode's approval lane (#629 approve/halt, executor
- * design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration).
+ * design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration; #872 ask
+ * withdrawal).
  *
- * What lives here and nothing else: `approveBatch`, `haltBatch` and
- * `requestAskRegeneration`. All three are transactional writers with an actor;
- * all three return a discriminated result so their routes stay thin (invariant
- * #12) and none throws for an outcome the owner can cause.
+ * What lives here and nothing else: `approveBatch`, `haltBatch`,
+ * `requestAskRegeneration` and `withdrawAsk`. All four are transactional
+ * writers with an actor; all four return a discriminated result so their routes
+ * stay thin (invariant #12) and none throws for an outcome the owner can cause.
+ * `withdrawAsk` (#872, ADR 0021) is the Halt latch at ask granularity: same
+ * lock order, same row predicate, one row.
  *
  * `requestAskRegeneration` belongs here rather than beside `regenerateAsk` in
  * ask-generation.ts, and the reason is the gate rather than the verb: since
@@ -701,4 +704,251 @@ export async function requestAskRegeneration(
     if (err instanceof RegenRequestAbort) return err.result;
     throw err;
   }
+}
+
+/**
+ * The three Batch states in which the **Halt latch** would cancel a
+ * `rendered`/`queued` row: an approved batch that is neither halted nor closed.
+ * Exported so the panel and the property test can share the predicate; the
+ * authoritative check is the locked re-check inside `withdrawAsk`.
+ */
+export function isWithdrawableState(state: BatchState): boolean {
+  return state === 'veto_window' || state === 'approved' || state === 'sending';
+}
+
+export interface WithdrawAskInput {
+  batchId: string;
+  askId: string;
+  accountId: string;
+  businessId: string;
+  /** The acting owner, recorded on the run step. */
+  withdrawnByUserId: string;
+}
+
+export type WithdrawAskResult =
+  | {
+      status: 'withdrawn';
+      /** Rows still `rendered`/`queued`/`sending` in this batch AFTER the
+       *  withdrawal — the count the panel announces as "left to send". */
+      remainingLive: number;
+      close: CloseBatchIfSettledResult;
+    }
+  /** The ask's current attempt is already `cancelled`/`owner_withdrawn`: a
+   *  double tap or a stale tab. Nothing is written — idempotent means no
+   *  observable second effect, so no step either. */
+  | { status: 'already_withdrawn' }
+  /** `pending`, `built`, `expired`, `halted` or `closed`. `built` is Ask
+   *  exclusion's job; the panel never offers Withdraw there. */
+  | { status: 'not_withdrawable'; state: BatchState }
+  /** The ask is in this batch but its current attempt is not `rendered`/
+   *  `queued` — `sending` (past the point of no return), `sent`, `withheld`,
+   *  `failed`, `unknown`, or cancelled for another reason — or it has no
+   *  attempt at all (`null`). Nothing is written. */
+  | { status: 'not_live'; deliveryStatus: string | null }
+  /** Unknown batch, ask not in this batch, or foreign tenant — indistinguishable. */
+  | { status: 'not_found' };
+
+/** The ask's CURRENT attempt as the verb reads it under the lock; the caller
+ *  passes null when the ask has no attempt at all. */
+export interface CurrentAttempt {
+  deliveryStatus: string;
+  dispositionReason: string | null;
+}
+
+/**
+ * The decision, PURE. `withdrawAsk` reads the Batch state and the current
+ * attempt under the lock, applies this, and writes only on `withdraw`.
+ * Extracted so the whole state × attempt-status matrix is one property test
+ * (`approval.test.ts` invariants) rather than fifteen DB cases; the DB suite
+ * then proves the READS (lock, LATERAL ordering, tenant keys) and the WRITES.
+ */
+export type WithdrawalDecision =
+  | { kind: 'withdraw' }
+  | { kind: 'already_withdrawn' }
+  | { kind: 'not_withdrawable'; state: BatchState }
+  | { kind: 'not_live'; deliveryStatus: string | null };
+
+export function classifyWithdrawal(
+  state: BatchState,
+  attempt: CurrentAttempt | null,
+): WithdrawalDecision {
+  // Idempotence FIRST, before the state gate. Withdrawing the last live row
+  // CLOSES the batch, so a retry on that very row arrives in `closed`; it is
+  // still "already withdrawn" — a fact about the row — and must answer the
+  // 200 no-op, not a 409. Only a row THIS verb cancelled reads this way; a row
+  // cancelled for any other reason (superseded, a halt) is simply not live.
+  if (attempt?.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
+    return { kind: 'already_withdrawn' };
+  }
+  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
+  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
+  // `rendered`/`queued` — the Halt latch's own row predicate. `sending` is past
+  // the point of no return and lands below.
+  if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
+    return { kind: 'withdraw' };
+  }
+  return { kind: 'not_live', deliveryStatus: attempt.deliveryStatus };
+}
+
+interface CurrentAttemptRow {
+  outreach_id: string | null;
+  delivery_status: string | null;
+  disposition_reason: string | null;
+}
+
+/**
+ * **Ask withdrawal** (#872, ADR 0021): cancel ONE approved Ask's live Outreach
+ * row. It is the Halt latch at ask granularity and Ask exclusion after
+ * approval — it removes a message and never replaces one, so it needs no
+ * re-lint, no re-moderation and no per-ask approval state.
+ *
+ * Legal in exactly the states where the latch would cancel that row
+ * (`isWithdrawableState`); the row must be `rendered` or `queued`, never
+ * `sending` — halt's "no further sends, not undo" contract, inherited whole.
+ *
+ * LOCK ORDER is `haltBatch`'s: advisory batch lock -> `solicitation_batches`
+ * row (inside `lockBatchForAction`) -> the outreach UPDATE -> `recordStep` ->
+ * `closeBatchIfSettled`. Nothing here locks an `agent_runs` row before the
+ * spine call. The releaser (#630) takes the batch lock before dispatching, so a
+ * row this cancels can never be mid-dispatch under it — the same guarantee
+ * halt already relies on.
+ *
+ * Validate-before-write, like `approveBatch`'s exclusion block: every refusal
+ * below returns BEFORE the UPDATE, so postgres.js committing on a normal return
+ * commits nothing.
+ *
+ * Keyed on the ASK: the current attempt is resolved here, under the batch
+ * lock, so a stale tab holding a pre-regeneration view still withdraws the
+ * right message.
+ */
+export async function withdrawAsk(
+  sql: Sql,
+  input: WithdrawAskInput,
+): Promise<WithdrawAskResult> {
+  const batchId = canonicalBatchId(input.batchId);
+  // Same normalisation as the batch id and for the same reason: the step
+  // detail records it as text.
+  const askId = input.askId.toLowerCase();
+  return sql.begin(async (tx): Promise<WithdrawAskResult> => {
+    const locked = await lockBatchForAction(tx, batchId, input);
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
+
+    // NO early state refusal here: the current attempt is read first so a
+    // retry after a last-row close (batch now `closed`) can still answer
+    // `already_withdrawn`. The batch is already proven the tenant's, so the
+    // read on a refused state leaks nothing; `classifyWithdrawal` orders it.
+    // The ask's CURRENT attempt, joined from the ASK so an ask with no attempt
+    // at all (a withhold ask, or a send ask whose only attempts were all
+    // superseded away) is told apart from an ask that is not in this batch.
+    // Both tenant keys are proven on the ask AND inside the lateral block —
+    // the query-block tenant-scope audit checks each block independently.
+    const [current] = await tx<CurrentAttemptRow[]>`
+      SELECT
+        cur.id AS outreach_id,
+        cur.delivery_status,
+        cur.disposition_reason
+      FROM solicitation_asks a
+      LEFT JOIN LATERAL (
+        SELECT att.id, att.delivery_status, att.disposition_reason
+        FROM solicitation_outreach att
+        WHERE att.ask_id = a.id
+          AND att.batch_id = a.batch_id
+          AND att.account_id = ${input.accountId}::uuid
+          AND att.business_id = ${input.businessId}::uuid
+        ORDER BY att.attempt_no DESC
+        LIMIT 1
+      ) cur ON TRUE
+      WHERE a.id = ${askId}::uuid
+        AND a.batch_id = ${batchId}::uuid
+        AND a.account_id = ${input.accountId}::uuid
+        AND a.business_id = ${input.businessId}::uuid
+    `;
+    if (current === undefined) return { status: 'not_found' };
+
+    // The decision is pure and property-tested; every refusal below returns
+    // BEFORE any write.
+    const attempt: CurrentAttempt | null =
+      current.outreach_id === null || current.delivery_status === null
+        ? null
+        : { deliveryStatus: current.delivery_status, dispositionReason: current.disposition_reason };
+    const decision = classifyWithdrawal(state, attempt);
+    switch (decision.kind) {
+      case 'not_withdrawable':
+        return { status: 'not_withdrawable', state: decision.state };
+      case 'not_live':
+        return { status: 'not_live', deliveryStatus: decision.deliveryStatus };
+      case 'already_withdrawn':
+        return { status: 'already_withdrawn' };
+      case 'withdraw':
+        break;
+    }
+    // `withdraw` implies a non-null attempt row; the compiler cannot see it.
+    if (current.outreach_id === null || current.delivery_status === null) {
+      throw new Error(`withdrawAsk: classify said withdraw over a missing attempt for ask ${askId}`);
+    }
+
+    // The status literals are PARAMETERS so the query-shape pin can assert
+    // them by value; the IN list stays literal, as in `haltBatch`.
+    const cancelled = await tx<{ id: string }[]>`
+      UPDATE solicitation_outreach
+      SET delivery_status = ${'cancelled'},
+          disposition_reason = ${'owner_withdrawn'},
+          updated_at = NOW()
+      WHERE id = ${current.outreach_id}::uuid
+        AND batch_id = ${batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND delivery_status IN ('rendered', 'queued')
+      RETURNING id
+    `;
+    // Losing this write is IMPOSSIBLE under the batch lock — every writer that
+    // moves an outreach row past `queued` (halt, the future releaser) takes it
+    // first, and the row was read `rendered`/`queued` above under that lock.
+    // Throwing rolls back and keeps the claim honest, exactly like the approval
+    // CAS in `approveBatch`.
+    if (cancelled.count === 0) {
+      throw new Error(
+        `withdrawAsk: outreach ${current.outreach_id} left ${current.delivery_status} under the batch lock`,
+      );
+    }
+
+    const [live] = await tx<{ live: number }[]>`
+      SELECT COUNT(*)::int AS live
+      FROM solicitation_outreach
+      WHERE batch_id = ${batchId}::uuid
+        AND account_id = ${input.accountId}::uuid
+        AND business_id = ${input.businessId}::uuid
+        AND delivery_status IN ('rendered', 'queued', 'sending')
+    `;
+    const remainingLive = live?.live ?? 0;
+
+    // An approved batch always has a send parent: `approveBatch` refuses
+    // `no_send_parent` before it approves. Asserted, not branched around.
+    if (batch.send_parent_run_id === null) {
+      throw new Error(`withdrawAsk: approved batch ${batchId} has no send parent run`);
+    }
+    await recordStep(tx, {
+      runId: batch.send_parent_run_id,
+      stepKey: 'ask_withdrawn',
+      detail: {
+        ask_id: askId,
+        outreach_id: current.outreach_id,
+        withdrawn_by: input.withdrawnByUserId,
+        delivery_status_before: current.delivery_status,
+        remaining_live: remainingLive,
+        state_at_withdrawal: state,
+      },
+    });
+
+    // The last live row settles the batch — same transaction, same single
+    // owner of parent terminalization as every other terminal writer.
+    const close = await closeBatchIfSettled(tx, {
+      batchId,
+      accountId: input.accountId,
+      businessId: input.businessId,
+    });
+
+    return { status: 'withdrawn', remainingLive, close };
+  });
 }

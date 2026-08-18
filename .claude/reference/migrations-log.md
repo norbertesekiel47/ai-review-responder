@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **108** — next migration is **109**
+Current head: **109** — next migration is **110**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -1005,6 +1005,43 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **109** — `outreach_owner_withdrawn_disposition`: adds `owner_withdrawn` to
+  `solicitation_outreach`'s **cancel** disposition set for post-approval **Ask
+  withdrawal** (#872, ADR 0021; plan
+  `docs/superpowers/plans/feat-872-ask-withdrawal.md` Task 2). 108 added
+  `owner_excluded` for the at-approval act; this value is deliberately distinct
+  — Ask exclusion is defined by WHEN it is written (inside the approval
+  transaction), and a post-approval row that borrowed its value would misstate
+  when and how it was cancelled. **One CHECK re-spelled, not patched** —
+  `solicitation_outreach_status_reason_consistency` is DROP-then-ADD'd under
+  its 108 name with 108's predicate verbatim plus `'owner_withdrawn',` inserted
+  into the **cancelled arm only** (the withheld, failed and unknown arms, the
+  live `IS NULL` arm, the member order within every arm and the outer
+  `IS TRUE` wrapper are byte-for-byte 108's). `disposition_reason` is a bare
+  `TEXT` column whose only domain is this constraint, so nothing else needs
+  widening. **Additive and re-runnable**: no new relation, column or index → no
+  RLS change and no retention-policy row; existing rows all satisfy the wider
+  predicate (strict superset), so no preflight; DROP-then-ADD keeps the file
+  re-runnable and REPAIRS a stale definition. One transaction with
+  `SET LOCAL lock_timeout = '3s'` (108's reasoning verbatim: an unwrapped DROP
+  that succeeded before a failing ADD would leave the table with no
+  status/reason constraint at all). No new `schema-ready.ts` requirement: the
+  constraint NAME is unchanged since 091, so presence proves nothing (the same
+  false-proof hazard 105's and 108's entries describe) — the integration suite
+  that writes the value (`approval.integration.test.ts`) asserts the
+  constraint's DEFINITION instead (`assertOwnerWithdrawnAdmitted`: the value
+  appears exactly once, inside the cancelled arm). Rollback: re-apply 108's
+  constraint text verbatim — safe while no row carries the new value, which
+  stays true until #872's writer (`withdrawAsk`) ships. Verification query:
+  `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname =
+  'solicitation_outreach_status_reason_consistency';` — must contain
+  `'owner_withdrawn'`, once, in the `cancelled` arm.
+  **LOCAL-ONLY** — applied to the rebuildable local test container only
+  (`pnpm test:db:setup`, 2026-08-18). **NOT YET APPLIED to staging or prod.**
+  **Applied to STAGING … / PRODUCTION …:** pending #872's ship step (step 8,
+  staging first); that change removes this LOCAL-ONLY marker and re-arms
+  `migration-immutability-guard.sh` for 109.
 
 - **108** — `outreach_owner_excluded_disposition`: adds `owner_excluded` to
   `solicitation_outreach`'s **cancel** disposition set for the owner approval
