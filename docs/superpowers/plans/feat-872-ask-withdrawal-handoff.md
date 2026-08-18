@@ -11,7 +11,7 @@ file points at it and restates nothing.
 | Phase record | `.feature/state.json` (`scripts/feature-state.sh`) |
 | Intake (armed + committed audit copy) | `.feature/intake.json` == `docs/superpowers/plans/feat-872-ask-withdrawal-intake.json` |
 | Plan (revision 3) | `docs/superpowers/plans/feat-872-ask-withdrawal.md` — 5 tasks; Task 1 is the eval; Tasks 3 and 4 are mutually independent |
-| Deviations | `docs/superpowers/plans/feat-872-ask-withdrawal-deviations.md` (D1 merge order vs feat-865; D2 sessions-file unbinding; D3 intake corrections after review round 1) |
+| Deviations | `docs/superpowers/plans/feat-872-ask-withdrawal-deviations.md` (D1 merge order vs feat-865; D2 sessions-file unbinding; D3 intake corrections after review round 1; D4 Task 4 render-time disarm + `btn-secondary`) |
 | Decision record | `docs/adr/0021-ask-withdrawal-is-restraint-not-reapproval.md` (+ ADR 0020 Consequences amended) |
 | Glossary | `CONTEXT.md` → **Ask withdrawal** (LOCKED); **Owner approval** and **Ask exclusion** entries cross-reference it |
 | Plan reviews | `docs/reviews/feat-872-ask-withdrawal/plan-round{1,2,3}-codex.md` — each carries its triage table |
@@ -52,9 +52,19 @@ _(updated below as the run advances)_
 
 - Step 3 (plan) — rounds 1–3 run; see the verdict line in `plan-round3-codex.md`
   and the "Plan lock" note appended to this file.
-- Step 4 (execute) — IN PROGRESS (phase `executing`). Task 1 landed alone; the
-  enforcement spot check passed (4 files, all in surface, 18/18 titles verbatim,
-  tree clean). Order: Task 2 next, then Tasks 3 ∥ 4, then Task 5.
+- Step 4 (execute) — COMPLETE. Tasks 1–5 landed (ledger below); the enforcement
+  spot check passed at Task 1 (4 files, all in surface, 18/18 titles verbatim,
+  tree clean).
+- NEXT: step 5 — `scripts/verify-gate.sh --review`; the integration suite must
+  RUN, not SKIP — export `TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL` first.
+- Then step 6 — deviations read-back: D1–D4 each need a verdict line.
+- Then step 7 — blast-radius + review round 1 on THREE axes (RISK = high);
+  `bash scripts/feature-state.sh incr-round branch` before dispatch; resume the
+  codex thread `01a01383-9393-7fc1-ac89-867399b6c9bd` for the adversarial axis.
+- Rebase note (D1 stands): feat-865 has NO PR yet (parked at its step 8), so the
+  agreed merge order — feat-865 lands first, #872 rebases onto it at step 8 —
+  is unchanged. #872's `approval.ts` diff is header + append only (`haltBatch`
+  byte-identical to base at `12a6e4bb`), so the rebase should be clean.
 
 ## Task ledger
 
@@ -62,9 +72,9 @@ _(updated below as the run advances)_
 |---|---|---|---|
 | 1 | Eval — 18 promised titles + extra cases, failing | **done** (red by design: integration `beforeAll` needs 109; routes file fails to load until Task 3; 8/9 panel cases red) | `40acd7e5` |
 | 2 | Migration 109 + `ask_withdrawn` + `withdrawAsk`/`classifyWithdrawal` | **done** — integration 46/46 RAN against the local DB, unit 7/7; `haltBatch` byte-identical to base; 109 applied LOCAL-ONLY (not staging/prod) | `12a6e4bb` |
-| 3 | `readBatchAsk` + withdraw route + directory rows | pending | — |
-| 4 | Panel: `WithdrawableAskList` + lane write + copy + CSS | pending | — |
-| 5 | Docs sweep + handoff | pending | — |
+| 3 | `readBatchAsk` + withdraw route + directory rows | **done** — routes 26/26; `readBatchAsk` shared with regenerate; directory row | `8d89bcc4` |
+| 4 | Panel: `WithdrawableAskList` + lane write + copy + CSS | **done** (D4: render-time disarm, `btn-secondary`) — requests `__tests__` 82/82; react-doctor clean | `cdca4165` |
+| 5 | Docs sweep + handoff | **done** | (this commit) |
 
 ## Gate
 
