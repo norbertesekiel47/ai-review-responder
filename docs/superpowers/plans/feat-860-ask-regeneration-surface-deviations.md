@@ -412,3 +412,35 @@ ship copy that lies about which act is in progress.
 
 **Verdict: ACCEPT.** All five are snippet defects, resolved in the direction the
 surrounding prose and the locked decisions already point.
+
+---
+
+## Surface overlap with feat-865 (recorded FROM the #865 run, not by this branch)
+
+`feat-865-admin-halt-surface` armed on 2026-08-17 off the same base
+(`f28451ee`) and its setup reported two code-pair overlaps with this worktree:
+
+- `src/lib/solicitation/approval.ts`
+- `src/lib/solicitation/batch-view.ts`
+
+**#865 does not modify anything this branch changed.** It extracts the shared
+Halt-latch write out of `haltBatch` and appends an `adminHaltBatch` arm, plus an
+admin batch projection in `batch-view.ts`. This branch leaves `haltBatch`,
+`lockBatchForAction`, `canonicalBatchId`, `ownerHaltReason`, `readLatestBatch`,
+`HaltReason` and `BatchView` untouched, and appends `requestAskRegeneration`
+after `haltBatch`. The collision is a shared file-header comment and a shared
+append point — mechanical, not semantic.
+
+**Agreed merge order (owner decision): THIS branch merges FIRST.** #860 was
+`gate_green` with round-1 review triaged when the overlap surfaced; #865 was at
+zero commits. #865 carries the whole rebase obligation and re-runs its verify
+gate on the rebased tree.
+
+**Nothing is required of this branch.** Ship as-is. This note exists so whoever
+promotes #860 knows a second branch is waiting on it and does not reorder the
+two. Full reasoning: `feat-865-admin-halt-surface-deviations.md` § D1.
+
+> Left UNCOMMITTED deliberately. This branch's `lastGreenGateSha` equals its
+> `headSha`; committing from the #865 session would move HEAD past the green
+> gate record and strand the stop gate. Fold this file into #860's next docs
+> commit, or drop it once #860 is merged.
