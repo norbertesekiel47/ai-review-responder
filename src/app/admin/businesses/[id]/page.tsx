@@ -4,6 +4,7 @@ import { requireAdminPage } from '@/lib/auth/page-gate';
 import { asLocationId } from '@/lib/shared/ids';
 import { getBusinessDetail } from '@/lib/admin/business-detail-service';
 import { getBusinessChannelEnrollments } from '@/lib/admin/business-channels-service';
+import { readAdminBatchSummary } from '@/lib/solicitation/batch-view';
 import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { BusinessDetailClient } from './BusinessDetailClient';
 
@@ -35,6 +36,14 @@ export default async function AdminBusinessDetailPage({
   // "Failed to load business" — intended (spec §6).
   if (!detail) notFound();
 
+  // The THIRD sql-backed read on this page (#865) — and the one most tempting to
+  // race, because it is genuinely independent of the other two. It stays
+  // SEQUENTIAL for the reason above: independence is what makes it a fan-out,
+  // not what makes it safe. It is placed after the notFound() because it needs
+  // the account id the detail read resolved.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- same #773 reasoning as the channel read above; do NOT fold these into a Promise.all.
+  const batchSummary = await readAdminBatchSummary(sql, detail.account.id, businessId);
+
   return (
     <AdminPage
       group="Businesses"
@@ -52,6 +61,7 @@ export default async function AdminBusinessDetailPage({
         // loosely-typed health badge (Pathfinder §A1). Don't put it back.
         initialDetail={detail}
         initialChannels={channels.enrollments}
+        initialBatchSummary={batchSummary}
       />
     </AdminPage>
   );

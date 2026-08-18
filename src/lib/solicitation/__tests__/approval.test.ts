@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { Sql } from 'postgres';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fc from 'fast-check';
@@ -27,7 +28,14 @@ vi.mock('../outreach', async (importOriginal) => ({
 }));
 
 import { deriveBatchState, type BatchLifecycleRow } from '../outreach';
-import { approveBatch, ownerHaltReason } from '../approval';
+import { approveBatch, haltBatch, ownerHaltReason, type OwnerHaltReason } from '../approval';
+// NAMESPACE import for the admin arm (#865). A named `import { adminHaltBatch }`
+// of an export that does not exist yet fails the whole FILE at collection —
+// vite's ssr transform validates importedNames — which would run none of the
+// titles this eval promises and would take the existing cases down with it.
+// A namespace access is `undefined` until Task 1 lands, so each case fails on
+// its own, with the missing export named in the error.
+import * as approvalModule from '../approval';
 
 const sql = mockSql as unknown as Sql;
 
@@ -38,6 +46,10 @@ const MIXED_CASE_BATCH_ID = '0190ABCD-0000-7000-8000-0000000000EF';
 const CANONICAL_BATCH_ID = MIXED_CASE_BATCH_ID.toLowerCase();
 const OWNER_ID = 'c0000000-0000-4000-8000-000000000001';
 const SEND_PARENT_RUN_ID = 'd0000000-0000-4000-8000-000000000001';
+/** The acting RepWorth operator's `users.id` (D1) — the GLOBAL users table, not
+ *  a tenant member. `halt_reason='admin_halt'` is the actor-class discriminator;
+ *  it is never inferred from this id. */
+const ADMIN_ID = 'e0000000-0000-4000-8000-000000000001';
 
 function normalizedSql(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -127,6 +139,195 @@ describe('invariants', () => {
           : reason === 'owner_veto';
       }),
     );
+  });
+
+  it('invariants: halting is a fixed point and preserves every outreach status except rendered and queued for arbitrary outreach-status multisets', async () => {
+    // The state space with real content (#865): 091's eight-member
+    // `delivery_status` vocabulary, in arbitrary multiplicity. Two claims, and
+    // both are about the Halt latch rather than about a hand-listed example —
+    //
+    //   1. A first halt changes EXACTLY the `rendered` and `queued` members.
+    //      `sending` is the load-bearing survivor: halt means "no further
+    //      sends", not "undo a dispatch the provider may already have taken".
+    //   2. A second halt is a FIXED POINT — the CAS on `halted_at IS NULL`
+    //      makes it add no audit row and no `batch_halted` spine step.
+    const outreachStatus = fc.constantFrom(
+      'rendered', 'queued', 'sending', 'sent',
+      'withheld', 'cancelled', 'failed', 'unknown',
+    );
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(outreachStatus, { maxLength: 12 }), async (statuses) => {
+        resetMockSql();
+        // mockClear, NOT mockReset: the implementations primed in beforeEach
+        // have to survive every generated run.
+        for (const mock of Object.values(mocks)) mock.mockClear();
+
+        const cancellable = statuses.filter(
+          (status) => status === 'rendered' || status === 'queued',
+        );
+        const live = lifecycle({ built_at: new Date(Date.now() - 60_000) });
+
+        // First halt: the batch is live, so the latch takes.
+        sqlReturnQueue.push(
+          mkTaggedResult([{ ...live, send_parent_run_id: SEND_PARENT_RUN_ID }]),
+          mkTaggedResult([{ id: CANONICAL_BATCH_ID }]),
+          mkTaggedResult(cancellable.map((_, index) => ({ id: `outreach-${index}` }))),
+        );
+        const first = await approvalModule.adminHaltBatch(sql, {
+          batchId: CANONICAL_BATCH_ID,
+          accountId: ACCOUNT_ID,
+          businessId: BUSINESS_ID,
+          actorUserId: ADMIN_ID,
+          note: 'Support stopped this batch.',
+        });
+
+        // Second halt: the SAME batch, now latched. Only the lock read runs.
+        sqlReturnQueue.push(
+          mkTaggedResult([
+            { ...live, halted_at: new Date(), send_parent_run_id: SEND_PARENT_RUN_ID },
+          ]),
+        );
+        const second = await approvalModule.adminHaltBatch(sql, {
+          batchId: CANONICAL_BATCH_ID,
+          accountId: ACCOUNT_ID,
+          businessId: BUSINESS_ID,
+          actorUserId: ADMIN_ID,
+          note: 'Support stopped this batch.',
+        });
+
+        const outreachWrites = sqlCalls.filter((call) =>
+          /UPDATE\s+solicitation_outreach/.test(normalizedSql(call.text)));
+        const auditWrites = sqlCalls.filter((call) =>
+          /INSERT INTO account_audit_log/.test(normalizedSql(call.text)));
+
+        return (
+          first.status === 'halted'
+          && first.cancelledCount === cancellable.length
+          && second.status === 'already_halted'
+          // Cardinality one, across BOTH calls.
+          && auditWrites.length === 1
+          && mocks.recordStep.mock.calls.length === 1
+          // Exactly one outreach write, and it names exactly the two statuses
+          // the latch may touch. A second write, or a widened IN list, is the
+          // regression this property exists to catch.
+          && outreachWrites.length === 1
+          && normalizedSql(outreachWrites[0]!.text)
+            .includes("delivery_status IN ('rendered', 'queued')")
+        );
+      }),
+      { numRuns: 40 },
+    );
+  });
+});
+
+describe('the admin arm of the Halt latch', () => {
+  /**
+   * Exact, BIDIRECTIONAL type equality. A one-way `extends` check passes for a
+   * WIDENED union, which is the exact regression `OwnerHaltReason stays two
+   * members` is guarding against — `'owner_veto' | 'owner_halt'` extends
+   * `'owner_veto' | 'owner_halt' | 'admin_halt'`.
+   */
+  type TypeEqual<X, Y> =
+    (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
+
+  function assertExactType<Actual, Expected>(
+    proof: TypeEqual<Actual, Expected>,
+  ): TypeEqual<Actual, Expected> {
+    return proof;
+  }
+
+  it('haltBatch still derives owner_veto and owner_halt after the latch extraction', async () => {
+    const built = lifecycle({ built_at: new Date(Date.now() - 60_000) });
+    const sending = lifecycle({
+      built_at: new Date(Date.now() - 3_600_000),
+      approved_at: new Date(Date.now() - 1_800_000),
+      veto_deadline_at: new Date(Date.now() - 900_000),
+      sending_started_at: new Date(Date.now() - 600_000),
+    });
+
+    sqlReturnQueue.push(
+      mkTaggedResult([{ ...built, send_parent_run_id: SEND_PARENT_RUN_ID }]),
+      mkTaggedResult([{ id: CANONICAL_BATCH_ID }]),
+      mkTaggedResult([{ id: 'o1' }, { id: 'o2' }]),
+    );
+    const veto = await haltBatch(sql, {
+      batchId: MIXED_CASE_BATCH_ID,
+      accountId: ACCOUNT_ID,
+      businessId: BUSINESS_ID,
+      haltedByUserId: OWNER_ID,
+    });
+    const ownerCalls = [...sqlCalls];
+
+    resetMockSql();
+    sqlReturnQueue.push(
+      mkTaggedResult([{ ...sending, send_parent_run_id: SEND_PARENT_RUN_ID }]),
+      mkTaggedResult([{ id: CANONICAL_BATCH_ID }]),
+      mkTaggedResult([{ id: 'o3' }]),
+    );
+    const halt = await haltBatch(sql, {
+      batchId: MIXED_CASE_BATCH_ID,
+      accountId: ACCOUNT_ID,
+      businessId: BUSINESS_ID,
+      haltedByUserId: OWNER_ID,
+    });
+
+    // The owner arm's derivation is UNCHANGED by the extraction — that is the
+    // whole claim of "no behaviour change" in Task 1.
+    expect(veto).toMatchObject({ status: 'halted', reason: 'owner_veto', cancelledCount: 2 });
+    expect(halt).toMatchObject({ status: 'halted', reason: 'owner_halt', cancelledCount: 1 });
+
+    resetMockSql();
+    sqlReturnQueue.push(
+      mkTaggedResult([{ ...built, send_parent_run_id: SEND_PARENT_RUN_ID }]),
+      mkTaggedResult([{ id: CANONICAL_BATCH_ID }]),
+      mkTaggedResult([{ id: 'o4' }, { id: 'o5' }]),
+    );
+    await approvalModule.adminHaltBatch(sql, {
+      batchId: MIXED_CASE_BATCH_ID,
+      accountId: ACCOUNT_ID,
+      businessId: BUSINESS_ID,
+      actorUserId: ADMIN_ID,
+      note: 'Support stopped this batch.',
+    });
+    const adminCalls = [...sqlCalls];
+
+    // ONE latch, two arms: the CAS and the cancel are byte-identical SQL in
+    // both, and only the bound reason differs. Two hand-maintained copies is
+    // exactly what the extraction removes, and asserting the reasons alone
+    // would not notice them drifting back apart.
+    expect(normalizedSql(adminCalls[1]!.text)).toBe(normalizedSql(ownerCalls[1]!.text));
+    expect(normalizedSql(adminCalls[2]!.text)).toBe(normalizedSql(ownerCalls[2]!.text));
+    expect(ownerCalls[1]!.values).toContain('owner_veto');
+    expect(adminCalls[1]!.values).toContain('admin_halt');
+    expect(adminCalls[1]!.values).not.toContain('owner_veto');
+
+    // The owner arm writes NO audit row: `latchHalt` takes its audit as a
+    // nullable parameter and the owner passes null (D7 is admin-only).
+    expect(ownerCalls.filter((call) => /account_audit_log/.test(call.text))).toHaveLength(0);
+    expect(adminCalls.filter((call) => /account_audit_log/.test(call.text))).toHaveLength(1);
+  });
+
+  it('type contract: OwnerHaltReason is exactly owner_veto | owner_halt and LatchHaltReason is not exported', async () => {
+    // Compile-time half. `assertExactType` is bidirectional, so this fails if
+    // OwnerHaltReason ever grows `admin_halt` — the write union the owner arm
+    // may spell must stay two members while the READ union (`HaltReason` in
+    // batch-view.ts) stays five.
+    expect(assertExactType<OwnerHaltReason, 'owner_veto' | 'owner_halt'>(true)).toBe(true);
+    expect(Object.keys(approvalModule)).not.toContain('OwnerHaltReason');
+
+    // Source half, and it has to be: a type erases at run time, so "not
+    // exported" is only observable in the source and in `pnpm typecheck`.
+    // Importing `LatchHaltReason` to prove it is unimportable would leave a
+    // permanent type error behind, which is not an assertion.
+    const source = await readFile('src/lib/solicitation/approval.ts', 'utf8');
+
+    expect(source).toContain("export type OwnerHaltReason = 'owner_veto' | 'owner_halt';");
+    expect(source).toMatch(/(^|\n)type LatchHaltReason = OwnerHaltReason \| 'admin_halt';/);
+    expect(source).not.toContain('export type LatchHaltReason');
+    // The admin arm's reason is a CONSTANT, never a parameter: no exported
+    // signature may accept a halt reason from its caller.
+    expect(source).not.toMatch(/export .*\breason\s*:\s*LatchHaltReason/);
   });
 });
 

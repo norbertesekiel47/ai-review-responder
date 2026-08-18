@@ -28,4 +28,25 @@ describe('admin business detail page source', () => {
     // reader does not "optimise" this back into a fan-out.
     expect(source).toContain('SEQUENTIAL');
   });
+
+  it('the business detail page reads the admin batch summary sequentially without Promise.all', async () => {
+    const source = await readFile('src/app/admin/businesses/[id]/page.tsx', 'utf8');
+    const code = stripComments(source);
+
+    // The admin Halt latch surface (#865) adds a THIRD sql-backed read to this
+    // page. It is the read most likely to be "optimised" into a race, because
+    // it is independent of the other two — and that is exactly the #773 pool
+    // fan-out this page carries a standing comment forbidding.
+    expect(code).toContain('readAdminBatchSummary');
+    expect(code).not.toContain('Promise.all');
+    // Ordering asserted on the SOURCE, not just presence: three separate
+    // statements in a fixed order is the shape a fan-out would destroy, and
+    // "contains the call" alone is satisfied by a Promise.all member.
+    const detailAt = code.indexOf('getBusinessDetail');
+    const channelsAt = code.indexOf('getBusinessChannelEnrollments');
+    const summaryAt = code.indexOf('readAdminBatchSummary');
+    expect(detailAt).toBeGreaterThanOrEqual(0);
+    expect(channelsAt).toBeGreaterThan(detailAt);
+    expect(summaryAt).toBeGreaterThan(channelsAt);
+  });
 });
