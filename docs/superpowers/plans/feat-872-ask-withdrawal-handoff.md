@@ -60,20 +60,92 @@ _(updated below as the run advances)_
   with ONE WARN: `reclassify` (production 1020 vs ±400) → deviations **D5**
   (step 0 re-run: RISK = high, lane holds; WARN left standing on purpose).
 - Step 6 — DONE at `621aee35`: D1–D5 all ACCEPT with reasoning.
-- Step 7 — IN PROGRESS. `blast-radius.md` written; `branchReviewRounds` = 1
-  (counter incremented BEFORE dispatch). Round 1 = three parallel axes:
-  spec & correctness → `docs/reviews/feat-872-ask-withdrawal/branch-round1-spec.md`;
-  standards & maintainability → `…/branch-round1-standards.md`;
-  adversarial approach (codex, RESUMED thread `01a01383-9393-7fc1-ac89-867399b6c9bd`,
-  brief in the session scratchpad `codex-872-branch-review-round1-brief.md`,
-  JSONL `codex-872-branch-round1.jsonl`) → to be extracted into
-  `…/branch-round1-codex.md`. Triage verdicts go INTO each report's `triage`
-  column; then re-run the gate; then `set-phase reviewed`. Rounds 2–3 (if any)
-  are verification-only; after round 3 STOP and surface to the owner.
+- Step 7 — COMPLETE (phase `reviewed`; `branchReviewRounds` = 2 of 3, no
+  round 3 needed). Reports + triage, all committed under
+  `docs/reviews/feat-872-ask-withdrawal/`:
+  - Round 1 (three axes, RISK = high): `branch-round1-codex.md` — adversarial,
+    RESUMED thread `01a01383-9393-7fc1-ac89-867399b6c9bd`, **empty findings
+    table, promise audit 12 KEPT / 1 CHANGED (D4a), `VERDICT: APPROVED`**;
+    `branch-round1-spec.md` — 1 minor ACCEPTED (disabled-in-flight test);
+    `branch-round1-standards.md` (thermo-nuclear ran) — 11 findings: **9
+    ACCEPTED** (S3–S11: docblocks, `useArmedWithdrawal` hook, `WithdrawControl`,
+    `armedAskId` rename, CSS selector lists, glossary wording, directory row) and
+    **2 REJECTED with reasoning** — #1 (major: `ApprovalPanel.tsx` crossed 1,000
+    lines → extract `lane-writes.ts`) rejected as a blocker ON THIS BRANCH
+    (94/1,076 lines are #872's; new file outside surface; feat-865 lands first
+    and edits the same file → guaranteed rebase conflict) and ACCEPTED as a
+    follow-up ticket after both land; #2 (`WithdrawalDecision` parallel union)
+    rejected — plan-locked pure decision, promise-audited KEPT. **Both positions
+    go in the PR description; the owner sees them at the merge pause.**
+  - Fix commits: `062439fd` (docblocks/route/directory), `6a284617` (UI:
+    hook, subcomponent, rename, CSS, +1 test), `0e3966b1` (mobile `@media`
+    mirror for `.rq-ask-withdraw` — a Task-4 omission the fix agent flagged).
+  - Round 2 (verification-only): `branch-round2-standards.md` 9/9 + mirror
+    ADDRESSED, no fix-introduced defect, APPROVED; `branch-round2-spec.md`
+    ADDRESSED, every panel behaviour re-verified after the refactor, APPROVED.
+    Residue fixed in the round-2 commit: read-only `AskList` docblock +
+    directory phrase no longer paraphrase **Settled batch**.
+  - Gate after fixes: GREEN full mode at `0e3966b1` (same single `reclassify`
+    WARN, now 1125 — D5 reasoning unchanged). Final gate re-run at the
+    round-2 commit (see `.feature/gate-status.json`).
 - Rebase note (D1 stands): feat-865 has NO PR yet (parked at its step 8), so the
   agreed merge order — feat-865 lands first, #872 rebases onto it at step 8 —
   is unchanged. #872's `approval.ts` diff is header + append only (`haltBatch`
-  byte-identical to base at `12a6e4bb`), so the rebase should be clean.
+  byte-identical to base at `12a6e4bb`), so the rebase should be clean. Codex
+  round 1 confirmed feat-865's `latchHalt` keeps the identical
+  `rendered`/`queued` predicate — no rebase defect, only a future drift watch.
+
+## NEXT — step 8 (SHIP, RISK = high lane) — needs the owner at two points
+
+Precondition: **feat-865 must land on `main` first (D1).** If it has not, STOP
+after opening the draft PR and wait — do not merge ahead of it, do not rebase
+onto its unmerged branch.
+
+1. `git fetch origin && git rebase origin/main` (after feat-865 merges).
+   Expected conflict surface: none in `approval.ts` (append after
+   `requestAskRegeneration`); possibly `ApprovalPanel.tsx` (feat-865's
+   `HALT_BODY` totality change) — resolve keeping BOTH; `docs/directory.md`
+   rows; `.claude/CLAUDE.md` lane row (feat-865 may add `adminHaltBatch`).
+   Re-run `bash scripts/verify-gate.sh --review` after the rebase (integration
+   suite must RUN — both DB vars to `localhost:5499`).
+2. **Ride staging**: push the branch onto `staging`; apply migration **109** to
+   the STAGING Supabase project FIRST (`new-migration` skill; verification query
+   in the migrations-log 109 entry — `owner_withdrawn` appears once, in the
+   cancelled arm); smoke the touched path (approve a batch on staging → Withdraw
+   one row → "Withdrawn. N messages left to send." → withdraw the last → settled
+   mode; retry → 200 no-op). Record evidence per the `runbook` skill.
+3. `gh pr create --draft` → `gh pr ready`; wait for every CI check green (incl.
+   fallow, React Doctor since SURFACE = ui). PR description carries: the D5
+   reclassify WARN + step-0 re-run; review #1/#2 rejections with both positions;
+   the follow-up list below.
+4. **PAUSE for the owner's explicit merge approval.** At promotion, apply 109 to
+   PROD Supabase in lockstep and remove the LOCAL-ONLY marker from the
+   migrations-log entry.
+5. After merge: `git pull --ff-only` on `main`; realign `staging`
+   (`git reset --hard origin/main` + `--force-with-lease` after a squash merge —
+   NOT a sync merge); `bash scripts/feature-cleanup.sh` (dry run, then
+   `--apply`); promote lessons (below) to lab-notes; `document-feature`;
+   domain sweep; increment the arch-review-log merge counter.
+
+**Follow-up tickets to file after merge (do NOT file before):**
+- Extract `ApprovalPanel.tsx`'s `── The write ──` section into `lane-writes.ts`
+  (standards round-1 #1; do it after #865 AND #872 land).
+- One-line ADR 0012 → "#629 round-2 F10" cite fix in `halt/route.ts:26` and
+  `approve/route.ts:104` (D3).
+- `scripts/blast-radius.sh` substring over-match ("82 importers" for any
+  `route.ts`).
+- Optional: `WithdrawalDecision` shape (standards #2) — only if the owner wants it.
+
+**Lessons to promote to lab-notes at step 8** (deviations D2, D5; handoff Gate):
+- Record a cross-worktree collision in your OWN deviations file only (D2).
+- A plan-review re-estimate must revise BOTH intake buckets, or the gate's
+  `reclassify` fires on a stale production estimate (D5).
+- The local test DB is shared by every sibling worktree — another session's
+  `test:db:setup` can reset it under a running review; re-provision from the
+  worktree you are testing.
+- `react-hooks/set-state-in-effect` is `error` repo-wide: "clear state when a
+  prop disappears" is a GUARDED render-time adjust (`ToneChipPicker.tsx`
+  precedent), never a `useEffect` (D4a).
 
 ## Task ledger
 

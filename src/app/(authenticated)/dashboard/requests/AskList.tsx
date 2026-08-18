@@ -242,8 +242,9 @@ function RegenerateControl({
   );
 }
 
-/** The same list once the batch is settled: names, statuses and the copy that
- *  was approved — read-only, no controls. */
+/** The same list on the read-only screens (halted, nothing left to send):
+ *  names, statuses and the copy that was approved — no controls. A closed
+ *  **Settled batch** shows a count, not this list. */
 export function AskList({ rows }: { rows: readonly AskRowView[] }) {
   if (rows.length === 0) return null;
 
