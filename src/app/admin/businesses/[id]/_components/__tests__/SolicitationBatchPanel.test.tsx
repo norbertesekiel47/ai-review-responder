@@ -63,6 +63,73 @@ function expectNoBannedVocabulary(text: string): void {
   expect(text).not.toMatch(/cancel batch/i);
 }
 
+/**
+ * A wire discriminant is never operator copy. Round 1 found `json.status`
+ * rendered verbatim — an operator on a stale page read `not_haltable` in the
+ * red paragraph — so every error case asserts the whole vocabulary is absent
+ * from what is on screen. The gate's and `internalError`'s bodies are in the
+ * list too: they carry `error`, and it is a diagnostic, not a sentence.
+ */
+function expectNoRawDiscriminator(text: string): void {
+  for (const token of [
+    'not_haltable',
+    'not_found',
+    'already_halted',
+    'mfa_required',
+    'mfa_check_failed',
+    'internal_error',
+    'invalid_body',
+  ]) {
+    expect(text).not.toContain(token);
+  }
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Renders a haltable batch, answers its one POST with `response`, and waits for
+ * whichever paragraph the panel settles on. Returning the ELEMENT rather than
+ * the string is deliberate: a refusal that lands in the emerald paragraph would
+ * pass a text-only assertion while telling the operator it succeeded.
+ */
+async function submitStop(response: Response): Promise<{
+  settled: Element;
+  rendered: string;
+  onHalted: ReturnType<typeof vi.fn>;
+}> {
+  const { SolicitationBatchPanel } = await loadPanel();
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+  const onHalted = vi.fn();
+
+  const { container } = render(
+    <SolicitationBatchPanel
+      accountId={ACCOUNT_ID}
+      businessId={BUSINESS_ID}
+      summary={summary()}
+      onHalted={onHalted}
+    />,
+  );
+
+  fireEvent.change(screen.getByLabelText(/note/i), {
+    target: { value: 'Owner called support.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /stop/i }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  const settled = await waitFor(() => {
+    const paragraph = container.querySelector('p.text-red-700, p.text-emerald-700');
+    if (paragraph === null) throw new Error('the panel has not settled on a paragraph yet');
+    return paragraph;
+  });
+
+  return { settled, rendered: container.textContent ?? '', onHalted };
+}
+
 describe('SolicitationBatchPanel', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -168,5 +235,102 @@ describe('SolicitationBatchPanel', () => {
     expect(screen.getByTestId('admin-batch-sent-count')).toHaveTextContent('5');
     // Not folded: 2 + 1 must never be presented as the stop's reach.
     expect(screen.getByTestId('admin-batch-cancellable-count')).not.toHaveTextContent('3');
+  });
+
+  // The error paths. All four were untested at round 1, which is how the raw
+  // discriminators reached operator-facing copy in the first place.
+
+  it('explains a 409 refusal from the batch state the server returned, never the discriminator', async () => {
+    // The reachable path: the summary is server-rendered once, the batch
+    // settles, and the operator clicks Stop against a state that no longer
+    // exists. `state` is on the wire for exactly this arm.
+    const { settled, rendered, onHalted } = await submitStop(
+      jsonResponse({ status: 'not_haltable', state: 'closed' }, 409),
+    );
+
+    expect(settled.className).toContain('text-red-700');
+    const text = settled.textContent ?? '';
+    expect(text).toMatch(/closed/i);
+    expect(text).toMatch(/nothing changed/i);
+    expect(text).toMatch(/reload/i);
+    expectNoRawDiscriminator(text);
+    expectNoBannedVocabulary(rendered);
+    // A refusal is not a stop. Re-reading the page here would present the
+    // failure as if something had landed.
+    expect(onHalted).not.toHaveBeenCalled();
+  });
+
+  it('says a pending batch is still building when the 409 names that state', async () => {
+    const { settled } = await submitStop(
+      jsonResponse({ status: 'not_haltable', state: 'pending' }, 409),
+    );
+
+    const text = settled.textContent ?? '';
+    expect(text).toMatch(/still building/i);
+    expectNoRawDiscriminator(text);
+    expectNoBannedVocabulary(text);
+  });
+
+  it('tells the operator to reload when the batch is no longer reachable (404)', async () => {
+    const { settled, rendered, onHalted } = await submitStop(
+      jsonResponse({ status: 'not_found' }, 404),
+    );
+
+    expect(settled.className).toContain('text-red-700');
+    const text = settled.textContent ?? '';
+    expect(text).toMatch(/reload/i);
+    expectNoRawDiscriminator(text);
+    expectNoBannedVocabulary(rendered);
+    expect(onHalted).not.toHaveBeenCalled();
+  });
+
+  it('never shows the admin gate diagnostic when the AAL2 step-up has lapsed', async () => {
+    // 401/403 bodies carry `error`, not a `status` from the domain union: the
+    // gate refused before the route reached the latch.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { settled, rendered } = await submitStop(
+      jsonResponse({ error: 'mfa_required' }, 403),
+    );
+
+    const text = settled.textContent ?? '';
+    expect(text).toMatch(/session/i);
+    expectNoRawDiscriminator(text);
+    expectNoBannedVocabulary(rendered);
+    // The diagnostic belongs in devtools, not in the paragraph.
+    expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('does not narrate a stop for a 2xx whose status it cannot read', async () => {
+    // The M2 defect made concrete: with an open `string` discriminant every
+    // status but `already_halted` fell through to "Batch stopped. 0 queued
+    // message(s) cancelled." — a stop announced for a call that stopped
+    // nothing.
+    const { settled, rendered, onHalted } = await submitStop(
+      jsonResponse({ status: 'quiesced', cancelledCount: 0 }, 200),
+    );
+
+    const text = settled.textContent ?? '';
+    expect(settled.className).toContain('text-red-700');
+    expect(text).not.toMatch(/batch stopped/i);
+    expect(text).not.toContain('quiesced');
+    expect(text).toMatch(/reload/i);
+    expectNoBannedVocabulary(rendered);
+    // Still a 2xx: whatever the server did, this panel's data is stale.
+    expect(onHalted).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces an idempotent second stop as nothing having changed', async () => {
+    const { settled, rendered, onHalted } = await submitStop(
+      jsonResponse({ status: 'already_halted' }, 200),
+    );
+
+    expect(settled.className).toContain('text-emerald-700');
+    const text = settled.textContent ?? '';
+    expect(text).toMatch(/already stopped/i);
+    expect(text).toMatch(/nothing changed/i);
+    expectNoRawDiscriminator(text);
+    expectNoBannedVocabulary(rendered);
+    expect(onHalted).toHaveBeenCalledTimes(1);
   });
 });
