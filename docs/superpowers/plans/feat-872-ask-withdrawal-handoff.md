@@ -98,12 +98,24 @@ _(updated below as the run advances)_
 
 ## NEXT — step 8 (SHIP, RISK = high lane) — needs the owner at two points
 
-Precondition: **feat-865 must land on `main` first (D1).** If it has not, STOP
-and wait — do not merge ahead of it, do not rebase onto its unmerged branch.
-**Done so far (2026-08-18):** branch pushed to `origin/feat-872-ask-withdrawal`
-(lefthook pre-push green) and **draft PR #883** opened; nothing pushed to
-`staging`; migration 109 NOT applied anywhere but the local test DB. The
-session parked here because feat-865 had no PR yet.
+**D1 is DISCHARGED.** feat-865 merged as **#876** (+ sweep #881) on 2026-08-18,
+so #872 integrated `main` and rode staging the same day.
+
+### Step 8 progress (2026-08-18) — read this table first
+
+| # | Step | State |
+|---|---|---|
+| 1 | Integrate `main` | **DONE** — by MERGE, not rebase (deviations **D6** explains why and lists all six keep-both resolutions). Branch is 0 behind `main`. |
+| 2 | Gate re-run on the merged tree | **DONE** — GREEN, full mode, 28 checks, integration suite RAN; only the standing `reclassify` WARN (D5). |
+| 3 | Migration 109 → **staging** Supabase | **DONE, verified by introspection** — `owner_withdrawn` once, in the `cancelled` arm; constraint hash identical to the local head. Evidence: `docs/runbooks/evidence/2026-08-18-872-ask-withdrawal-staging.md` §1. migrations-log's LOCAL-ONLY marker is replaced by the staging record. |
+| 4 | Code → `staging` branch | **DONE** — fast-forward `dd868c92` → `1377e45d`. Worker `/api/health` 200 with a boot age matching the deploy; Vercel staging + preview deployed. |
+| 5 | Data-level staging smoke | **BLOCKED — NOT DONE.** This environment's permission classifier refused both pointing the integration suite at the staging DB and reading the Railway deploy record; a hand-rolled seeding script was deliberately NOT written as a workaround. Evidence doc §3 states the gap, what stands in its place, and two ~5-minute ways to close it. **This is the one outstanding item before the merge pause.** |
+| 6 | PR #883 ready + CI green | see below |
+| 7 | **Owner merge approval** | **PENDING — the gate. Do not merge without it.** |
+| 8 | Prod migration 109 at promotion | PENDING (lockstep with the merge) |
+
+The original runbook follows; steps 1–4 of it are the table's rows 1–4 and are
+done. Keep it for the post-merge half, which is entirely untouched.
 
 1. `git fetch origin && git rebase origin/main` (after feat-865 merges).
    Expected conflict surface: none in `approval.ts` (append after
