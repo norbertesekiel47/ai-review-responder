@@ -5,9 +5,20 @@ import { peekRegenBudgetBatch } from '@/lib/costs/tracker';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
 
-// Per-owner regenerate limiter shared by the THREE authenticated "regenerate an
-// AI draft" entrypoints (the two review lanes plus the #860 ask lane). Two
-// fixed-window layers keyed by the authenticated owner
+// Per-owner regenerate limiter shared by every authenticated "regenerate an AI
+// draft" entrypoint. ENUMERATED rather than counted, because the count is what
+// drifted: this header read "both" and then "the THREE", and Past Replies
+// `draft` was absent from every version of it. The four callers of
+// `enforceDashboardRegenRateLimit` are
+//
+//   - `reviews/[reviewId]/generate`
+//   - `reviews/[reviewId]/regenerate`
+//   - `past-replies/draft`, under `mode === 'regenerate'` ONLY — manual mode is
+//     a plain INSERT, not an LLM call, so it is not spend to bound
+//   - `solicitation/batch/regenerate` — the #860 per-ask lane
+//
+// `docs/directory.md` § `src/lib/shared/` lists the same four; a new entrypoint
+// updates both. Two fixed-window layers keyed by the authenticated owner
 // account, on DISTINCT Redis keys: checkRateLimit is one counter per key, so a
 // single shared key would double-increment and corrupt the window.
 // The HOUR layer is the spend bound (30 × the 15¢ pessimistic reserve ≈ $4.50/hr
@@ -116,9 +127,16 @@ export async function enforceRegenBudgetForReview(
   );
 }
 
-// User-facing copy for the per-ASK daily cap (#860). Owner-facing language says
-// "rewrite" because that is what the control offers; the code name stays
-// `regenerate` everywhere, exactly as `halt` reads as "stop" on screen.
+// User-facing copy for the per-ASK daily cap (#860).
+//
+// The word "rewrite" below is a KNOWN DEVIATION from **Ask regeneration**'s
+// `_Avoid_` list (edit, rewrite, redraft, retry, re-roll), NOT a carve-out.
+// Unlike the **Halt latch**'s single "stop" exception, that list grants none —
+// the panel says so on the label it chose instead, "Writing a new version…"
+// (`AskList.tsx`). This string is left as it shipped only because the panel
+// renders the server's message verbatim, so the wording lives in one place;
+// reword the sentence and the panel's copy together, never this one alone.
+// Do not cite this comment as licence for the word anywhere else.
 const ASK_REGEN_LIMIT_MESSAGE =
   'Daily rewrite limit reached for this message — you can try again tomorrow.';
 

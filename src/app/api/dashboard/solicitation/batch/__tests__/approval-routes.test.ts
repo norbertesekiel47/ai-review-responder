@@ -525,6 +525,24 @@ describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
     expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
   });
 
+  it('rejects a cross-origin regenerate post', async () => {
+    // The third owner verb, and the last one left without a CSRF assertion.
+    // Regenerate is a spending verb — it enqueues an LLM call on the owner's
+    // budget — so a forged cross-site POST is worth the same pin approve and
+    // halt already carry.
+    const response = await REGENERATE(
+      post('regenerate', { query: SCOPED, origin: 'https://evil.example.com' }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'forbidden' });
+    // withSameOrigin is the OUTERMOST wrapper: nothing behind it may run — no
+    // identity lookup, no Redis peek, no transaction.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockPeekAskRegenBudget).not.toHaveBeenCalled();
+    expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
+  });
+
   it('POST regenerate is refused when SOLICITATION_SEND_ENABLED is off', async () => {
     vi.stubEnv('SOLICITATION_SEND_ENABLED', 'false');
 

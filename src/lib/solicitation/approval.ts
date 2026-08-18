@@ -501,7 +501,10 @@ export type RequestAskRegenerationResult =
   | { status: 'accepted' }
   /** A generation is already in flight for this batch. The dedup is keyed
    *  `(topic, aggregate_id = batchId)`, so this is per BATCH, not per ask —
-   *  which is also why "regenerate all" cannot exist as a fan-out. */
+   *  which is also why "regenerate all" cannot exist as a fan-out. Reported
+   *  only AFTER the batch is proven to be this tenant's; the dedup index
+   *  carries no tenant key, so an unproven caller must not be able to tell
+   *  this arm from `not_found`. */
   | { status: 'already_in_flight' }
   /** ADR 0020: `built` is the only regenerable state. `approved`,
    *  `veto_window` and `sending` land here, and so do `halted` / `expired` /
@@ -559,6 +562,13 @@ class RegenRequestAbort extends Error {
  * regeneration this function just refused. Every refusal below therefore throws
  * `RegenRequestAbort`, which rolls the row back; the catch maps it to the
  * result. This is the same shape, for the same reason, as `RegenSwapAbort`.
+ *
+ * ORDER OF REFUSALS is a security property, not a style choice. Every arm a
+ * caller can distinguish is answered only once the statement above it has
+ * proven the caller owns the thing being described: `not_found` first (the
+ * batch), then `already_in_flight` (a fact about that proven batch), then
+ * `not_regenerable`, then the ask-level arms, then `budget_exhausted` — the
+ * only one keyed on a bare ask id, and therefore last.
  */
 export async function requestAskRegeneration(
   sql: Sql,
@@ -568,14 +578,15 @@ export async function requestAskRegeneration(
   try {
     return await sql.begin(async (tx): Promise<RequestAskRegenerationResult> => {
       // FIRST, before any other lock: the outbox row. See LOCK ORDER above.
-      // `null` is the dedup arm, and it is the ONE refusal that may still
-      // return normally rather than throw, because DO NOTHING wrote nothing.
+      // `null` is the dedup arm; it is READ here and ANSWERED below, after
+      // ownership. Nothing was written either way — DO NOTHING wrote no row
+      // and took no row lock — so this probe leaves the transaction free to
+      // go for the advisory lock next exactly as the accepting path does.
       const outboxId = await enqueueGenerateSolicitationAsks(tx, {
         batchId,
         businessId: input.businessId,
         askId: input.askId,
       });
-      if (outboxId === null) return { status: 'already_in_flight' };
 
       const batch = await lockBatchForAction(tx, {
         batchId,
@@ -583,6 +594,32 @@ export async function requestAskRegeneration(
         businessId: input.businessId,
       });
       if (batch === null) throw new RegenRequestAbort({ status: 'not_found' });
+
+      // NOW the dedup arm, and this ordering is the whole point (round-1 R5 /
+      // adversarial A5). `enqueueGenerateSolicitationAsks` dedups on
+      // `(topic, aggregate_id)` with NO tenant discriminator, so answering it
+      // straight off the probe told an UNPROVEN caller whether a batch id they
+      // do not own is currently regenerating: 409 for a foreign in-flight
+      // batch where an unknown one answers 404 — an existence-and-activity
+      // oracle, and the exact opposite of the uniform 404 this function
+      // promises two checks down. `withScopedBatch` cannot cover it: it
+      // UUID-validates the caller-supplied batch id and resolves the tenant
+      // keys from the session, but it never proves the two belong together.
+      //
+      // Deferring the answer by ONE statement closes it and changes NO lock
+      // order: the outbox probe is still the transaction's first statement and
+      // the advisory lock is still taken second, so the ABBA against
+      // `regenerateAsk`'s swap (outbox row -> advisory lock) remains
+      // impossible. Do not "tidy" this back above `lockBatchForAction`.
+      //
+      // Past this line the batch is proven theirs, and "a generation is in
+      // flight for this batch" is a fact about their own batch — which is also
+      // why the answer may precede the ask-level lookup below without leaking:
+      // the dedup is keyed on the BATCH, so the ask id contributes nothing to
+      // it.
+      if (outboxId === null) {
+        throw new RegenRequestAbort({ status: 'already_in_flight' });
+      }
 
       const state = deriveBatchState(batch, new Date());
       if (state !== 'built') {

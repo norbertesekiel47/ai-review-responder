@@ -1284,6 +1284,85 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
     });
 
+    it('answers not_found for a foreign tenant whose batch already has a regeneration in flight', async () => {
+      // Round-1 R5. The enqueue's `ON CONFLICT (topic, aggregate_id)` carries
+      // NO tenant discriminator, so answering its dedup arm straight off the
+      // probe made a FOREIGN batch id that is currently regenerating answer
+      // 409 where an unknown one answers 404 — an existence-and-activity
+      // oracle across the tenant boundary.
+      //
+      // The pre-existing foreign-tenant case above covers only the NO-conflict
+      // branch, which is why the leak survived it. This one seeds the conflict
+      // first and probes the same door.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const inFlight = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+      expect(inFlight.status).toBe('accepted');
+
+      const foreign = foreignTenantSeed();
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[1]!.askId,
+        // Foreign ACCOUNT with the real business id, matching the sibling case
+        // above: mismatching both keys would still pass with the account
+        // predicate missing entirely.
+        accountId: foreign.accountId,
+        businessId,
+        requestedByUserId: foreign.userId,
+        budgetRemaining: 3,
+      });
+
+      // Indistinguishable from an unknown id — NOT `already_in_flight`.
+      expect(result).toEqual({ status: 'not_found' });
+      // And the owner's real in-flight row is untouched: the refused request
+      // neither wrote a second row nor consumed the first.
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(1);
+    });
+
+    it('refuses an exhausted per-ask budget and leaves no outbox row behind', async () => {
+      // Round-1 R4. `budget_exhausted` ABORTS BY THROWING, because postgres.js
+      // commits when the `sql.begin` callback resolves and the enqueue-first
+      // lock order has already written the outbox row by the time this gate is
+      // reached. A `return` here would refuse the owner AND start the
+      // regeneration anyway — money spent on a request the server declined.
+      //
+      // So the return value alone is not the assertion. The DATABASE is: no
+      // `job_outbox` row of ANY status may survive the transaction, and the
+      // owner-attribution step must not exist either.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        // The one value every other case in this suite avoids: 0 remaining.
+        // `null` is UNKNOWN (the advisory peek could not answer) and proceeds;
+        // 0 is a known-spent budget and must refuse.
+        budgetRemaining: 0,
+      });
+
+      expect(result).toEqual({ status: 'budget_exhausted' });
+
+      // Deliberately UNFILTERED by status, unlike readInflightOutbox: the claim
+      // is that the row was rolled back, not merely that it is not in flight.
+      const rows = await writerSql()<{ id: string }[]>`
+        SELECT id
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND aggregate_id = ${seeded.batchId}
+      `;
+      expect(rows).toHaveLength(0);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(0);
+    });
+
     it('rolls back the regeneration outbox row when recording ask_regeneration_requested fails', async () => {
       const seeded = await seedRenderedBatch({ renders: 2 });
 

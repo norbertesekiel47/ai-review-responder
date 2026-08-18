@@ -69,8 +69,26 @@ function askRegenChargeKey(askId: string, outboxId: string): string {
   return `regen:ask:${askId}:charge:${outboxId}`;
 }
 
+/**
+ * The per-ask daily counter key. The ask id is LOWER-CASED first, and that is
+ * a budget control rather than tidiness (#860 round-1 R11).
+ *
+ * `isValidUuid` — the only validator the regenerate route runs on the body —
+ * accepts upper case, and the id travels from that body into the `job_outbox`
+ * payload and on to the worker VERBATIM (every SQL use is `::uuid`, which
+ * normalises, so nothing else notices). Interpolated raw, a case variant of
+ * one ask id therefore earned a FRESH 3/day counter at BOTH doors: this
+ * module's advisory peek and the worker's authoritative Lua INCR. Normalising
+ * inside the single owner of the key closes both at once, and follows
+ * `canonicalBatchId` (src/lib/solicitation/approval.ts) rather than inventing a
+ * second normalisation style.
+ *
+ * `askRegenChargeKey` needs no such treatment: its identity is the outbox row
+ * id, which is server-minted and unique per logical request, so a case variant
+ * cannot mint a second free charge there.
+ */
 function askRegenBudgetKey(askId: string): string {
-  return `regen:ask:${askId}:${todayDateStr()}`;
+  return `regen:ask:${askId.toLowerCase()}:${todayDateStr()}`;
 }
 
 // ── Tier limit resolution ────────────────────────────────────────────

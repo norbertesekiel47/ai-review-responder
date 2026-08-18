@@ -439,11 +439,15 @@ async function readRegeneratingAskId(
  * tear the transaction exists to prevent, and statements inside one snapshot
  * cannot reintroduce it.
  *
- * The third (#860) and the Redis peek beside it are ADVISORY presentation
- * facts, not inputs to any gate — the authoritative refusals are the enqueue's
- * `ON CONFLICT` dedup and the worker's Lua INCR. They are read AFTER the
- * tenant-scoped statements rather than woven into them, so neither can widen
- * or weaken a scoped predicate.
+ * The third (#860) is an ADVISORY presentation fact, not an input to any gate
+ * — the authoritative refusals are the enqueue's `ON CONFLICT` dedup and the
+ * worker's Lua INCR. It is read AFTER the tenant-scoped statements rather than
+ * woven into them, so it cannot widen or weaken a scoped predicate.
+ *
+ * The per-ask regenerate counters are the same kind of advisory fact, and for
+ * that reason they are NOT read here at all: `attachRegenBudgets` peeks them
+ * once this transaction has closed. This function issues Postgres statements
+ * and nothing else.
  */
 async function readSendLane(
   tx: TransactionSql,
@@ -555,26 +559,6 @@ async function readSendLane(
   // carries no tenant predicate and must not grow one.
   const regeneratingAskId = await readRegeneratingAskId(tx, batchId);
 
-  // Only a RENDERED attempt can be regenerated (a withheld row ends the attempt
-  // line, rule 6), so only those need a counter — and an empty id list
-  // short-circuits inside the peek without touching Redis at all.
-  //
-  // NO catch here, deliberately: `peekAskRegenBudgetBatch` has no rejection
-  // path. A transport failure AND a synchronous client-construction throw both
-  // resolve to an EMPTY map, logged there on the shared
-  // `regen_budget_peek_failed` stream. Empty means every key is UNKNOWN, which
-  // renders no counter and leaves every control ENABLED — the inverse ("0
-  // remaining") would disable the whole lane during an Upstash outage. The
-  // authoritative gate is unaffected: the worker's `checkAskRegenBudget` still
-  // refuses over-budget work before any spend.
-  const regenBudgets = Object.fromEntries(
-    await peekAskRegenBudgetBatch(
-      attempts
-        .filter((attempt) => attempt.deliveryStatus === 'rendered')
-        .map((attempt) => attempt.askId),
-    ),
-  );
-
   return {
     attempts,
     sendLane: {
@@ -590,7 +574,12 @@ async function readSendLane(
       haltReason: lane.haltReason,
       moderationWithheld: lane.moderationWithheld,
       regeneratingAskId,
-      regenBudgets,
+      // EMPTY here on purpose — the counters are attached AFTER the
+      // transaction closes, by `attachRegenBudgets`. Nothing inside a pooled
+      // Postgres transaction may await Upstash; see that function for why.
+      // An empty record is also the fail-open answer, so a caller that somehow
+      // skipped the attach step renders no counter rather than a wrong one.
+      regenBudgets: {},
     },
   };
 }
@@ -701,6 +690,61 @@ async function readBuiltBatch(
 }
 
 /**
+ * Attach the advisory per-ask regenerate counters to a built send lane.
+ *
+ * Runs AFTER `readLatestBatch`'s transaction has closed, and the placement is
+ * the point (#860 round-1 R3). `peekAskRegenBudgetBatch` is an Upstash `MGET`
+ * with a multi-second command timeout; awaiting it inside the read model's
+ * `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY` block held an
+ * admission-gated pooled Postgres connection open across a cross-provider
+ * network round trip on EVERY built-batch GET and every 2s poll of a
+ * regenerating batch. Under the #773 admission chokepoint pool occupancy is
+ * the scarce resource by design — the gate trades latency for never wedging —
+ * so spending a slot on a read the snapshot does not need is exactly backwards.
+ * The precedent this seam was modelled on, `src/lib/past-replies/load-replies.ts`,
+ * performs the identical peek outside any transaction.
+ *
+ * Nothing is lost by leaving the snapshot. These counters are ADVISORY
+ * presentation facts, not inputs to any gate (the authoritative refusals are
+ * the enqueue's `ON CONFLICT` dedup and the worker's Lua INCR), so they never
+ * had to agree with the funnel numbers the transaction exists to keep
+ * consistent — and the peek is read-only, so there is no write to order.
+ *
+ * Only a RENDERED attempt can be regenerated (a withheld row ends the attempt
+ * line, rule 6), so only those need a counter — and an empty id list
+ * short-circuits inside the peek without touching Redis at all.
+ *
+ * NO catch here, deliberately: `peekAskRegenBudgetBatch` has no rejection
+ * path. A transport failure AND a synchronous client-construction throw both
+ * resolve to an EMPTY map, logged there on the shared
+ * `regen_budget_peek_failed` stream. Empty means every key is UNKNOWN, which
+ * renders no counter and leaves every control ENABLED — the inverse ("0
+ * remaining") would disable the whole lane during an Upstash outage. An absent
+ * Redis KEY is a DIFFERENT fact and still arrives as `{ used: 0 }`; inverting
+ * those two is the mistake this comment exists to prevent. The authoritative
+ * gate is unaffected either way: the worker's `checkAskRegenBudget` still
+ * refuses over-budget work before any spend.
+ *
+ * The result stays a plain `Record` rather than a `Map` (D12): it crosses the
+ * wire as JSON.
+ */
+async function attachRegenBudgets(view: BatchView): Promise<BatchView> {
+  // Not built, or the send flag is off: no attempts, no controls, no counters
+  // — and no Redis call at all.
+  if (view.state !== 'built' || view.sendLane === null) return view;
+
+  const regenBudgets = Object.fromEntries(
+    await peekAskRegenBudgetBatch(
+      view.attempts
+        .filter((attempt) => attempt.deliveryStatus === 'rendered')
+        .map((attempt) => attempt.askId),
+    ),
+  );
+
+  return { ...view, sendLane: { ...view.sendLane, regenBudgets } };
+}
+
+/**
  * The latest Solicitation batch for one location, discriminated by whether a
  * batch exists at all, is still building, or is built.
  *
@@ -715,6 +759,11 @@ async function readBuiltBatch(
  * `options.sendLane` is SOLICITATION_SEND_ENABLED, resolved by the CALLER
  * (invariant #13). It is a required parameter rather than a defaulted one on
  * purpose: a caller that forgets it should not silently get either answer.
+ *
+ * The transaction contains Postgres statements ONLY. The one non-Postgres read
+ * on this path — the advisory per-ask regenerate peek — runs after it closes,
+ * in `attachRegenBudgets`, because a pooled connection must never be held
+ * across a call to another provider.
  */
 export async function readLatestBatch(
   sql: Sql,
@@ -722,7 +771,7 @@ export async function readLatestBatch(
   businessId: string,
   options: { sendLane: boolean },
 ): Promise<BatchView> {
-  return sql.begin(async (tx): Promise<BatchView> => {
+  const view: BatchView = await sql.begin(async (tx): Promise<BatchView> => {
     await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
 
     // created_at is NOT unique (migration 088), so the UUIDv7 id is the
@@ -771,6 +820,10 @@ export async function readLatestBatch(
       options,
     );
   });
+
+  // The ONE cross-provider read on this path, deliberately OUTSIDE the
+  // transaction above. See attachRegenBudgets.
+  return attachRegenBudgets(view);
 }
 
 /**

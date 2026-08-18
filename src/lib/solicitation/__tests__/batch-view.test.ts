@@ -681,6 +681,58 @@ describe('readLatestBatch', () => {
     // (rule 6), so it can never be regenerated and has no counter to read.
     expect(mockPeekAskRegenBudgetBatch).toHaveBeenCalledWith([renderedAskId]);
   });
+
+  it('peeks the per-ask regenerate budget only after the read transaction has closed', async () => {
+    // Round-1 R3. The peek is an Upstash MGET; awaiting it inside
+    // `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY` held an
+    // admission-gated pooled Postgres connection across a cross-provider round
+    // trip on every built-batch GET and every 2s poll.
+    //
+    // The oracle is the TRANSACTION'S LIFETIME, not statement ordering: an
+    // ordering assertion ("the peek comes after the last statement") passes
+    // just as happily when the peek is the final await INSIDE the block, which
+    // is precisely the defect. So the stub records whether `sql.begin`'s
+    // callback was still running when the peek fired.
+    const queued: QueryResult[] = [
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow(1)],
+      [renderedAttemptRow({ outreachId: 'o-1', askId: 'ask-1' })],
+      [laneRow()],
+      [], // Q6 — no regeneration in flight
+    ];
+    const tx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) =>
+      Promise.resolve(queued.shift() ?? []),
+    );
+
+    let txOpen = false;
+    const peekedWhileTxOpen: boolean[] = [];
+    mockPeekAskRegenBudgetBatch.mockImplementation(async () => {
+      peekedWhileTxOpen.push(txOpen);
+      return new Map([['ask-1', { used: 1, limit: 3, remaining: 2 }]]);
+    });
+
+    const sql = {
+      begin: async (callback: (handle: unknown) => Promise<unknown>) => {
+        txOpen = true;
+        try {
+          return await callback(tx);
+        } finally {
+          txOpen = false;
+        }
+      },
+    } as never;
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    // Peeked exactly once, and not while a pooled connection was held.
+    expect(peekedWhileTxOpen).toEqual([false]);
+    // And the counter still reaches the lane — the move must not silently drop
+    // the fact it relocated.
+    expect(view.sendLane?.regenBudgets['ask-1']).toEqual({ used: 1, limit: 3, remaining: 2 });
+  });
 });
 
 describe('readLatestBatch attempts join (#628)', () => {
