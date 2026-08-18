@@ -35,7 +35,7 @@ surface.
 
 Recorded in feat-865's deviations file as its D3.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict:** ACCEPT (step 6, 2026-08-18) — owner-agreed at step 2; still holds: feat-865 has no PR yet, and #872's `approval.ts` diff is header + append only (`haltBatch` byte-identical to base at `12a6e4bb`), so the step-8 rebase onto feat-865 is expected clean.
 
 ---
 
@@ -58,7 +58,7 @@ feat-865's D1 cites #860. Editing the sibling's file binds your session to its
 stop gate. `scripts/feature-setup.sh`'s "note the collision in both deviations
 files" wording should say this.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict:** ACCEPT (step 6, 2026-08-18) — owner-agreed; process-only, no code effect. The lesson (record a cross-worktree collision in your OWN deviations file only) is promoted to lab-notes at step 8.
 
 ---
 
@@ -99,7 +99,7 @@ file is in surface for the reader hoist) and cites the halt/approve `toWire`
 precedent (#629 round-2 F10) in the new route; the other two are a docs
 follow-up.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict:** ACCEPT (step 6, 2026-08-18) — surface unchanged (0 of 2 amendments spent); the 18 titles landed verbatim (gate `promised-tests` PASS). One consequence surfaced late: D3 re-estimated only the TEST bucket after the round-1 plan growth and left `estimated_prod_lines` at ±400 — see D5.
 
 ---
 
@@ -138,4 +138,51 @@ been stale), and the `.rq-ask-withdraw*` CSS block sits after `.rq-ask-regen-cou
 (the end of the regen block) rather than between `.rq-ask-regen-btn:disabled:active`
 and that rule, so the regen block stays contiguous.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict:** ACCEPT (step 6, 2026-08-18) — (a) is forced by a repo-wide `error` lint rule and follows the named precedent (`ToneChipPicker.tsx`); the clearing semantics the eval pins (`a refetch that drops an armed ask permanently disarms it even if the ask later reappears`) are green. (b) is the plan's own stated fallback: `.btn-danger` is not loaded on the requests route, so the plan's primary choice would have rendered unstyled. Neither invalidates a locked intake decision. Both are review-agent inputs at step 7 (the spec agent should confirm the render-time adjust does not write state during render on every pass — only when the armed row is gone).
+
+---
+
+## D5 — gate `reclassify` WARN: production bucket 1020 vs `estimated_prod_lines` ±400 (step 5)
+
+`scripts/verify-gate.sh --review` at `09ca11c9` was GREEN in full mode (lint,
+typecheck, test with coverage, every `ci:*` audit, build, `promised-tests` 18/18,
+integration suite RAN against the local DB, `diff-coverage` PASS) with ONE
+WARN row: `RECLASSIFY: production 1020 > 2x estimated_prod_lines (400)`. The
+test bucket (1116) is inside its ±1150 estimate.
+
+**Where the 1020 comes from** (`git diff --numstat` vs the merge-base, insertions
++ deletions, workflow artifacts excluded — the gate's arithmetic):
+
+| Bucket | Lines | Note |
+|---|---|---|
+| Docs the gate counts as "production" | 188 | ADR 0021 (115), ADR 0020 amendment (14), migrations-log entry (39), CONTEXT.md (5), CLAUDE.md row (2), directory rows (13) |
+| Code + migration | 832 | insertions only: 748 |
+| — `approval.ts` | 260 | est. ~120: the plan-review round-1 extraction of the pure `classifyWithdrawal` + `isWithdrawableState` + `CurrentAttempt`/`WithdrawalDecision` types (7 exports, each with the docblock the plan specifies verbatim) |
+| — `ApprovalPanel.tsx` | 184 | est. ~70: server-count read on the wire, `withdrawnAnnounce`, disarm-on-refetch, refusal copy, render arm — all round-1 additions |
+| — `AskList.tsx` | 134 | est. ~60: `WithdrawableAskList` as a SIBLING component (the "structurally no controls" property of the read-only list) rather than a flag |
+| — route + reader + regenerate + CSS + migration + run-spine | 254 | route 95 (est. 90), reader 32 (est. 15), regenerate 25 changed (net −15: `readRegenerateRequest` deleted), CSS 48, migration 53 (est. 45), run-spine 1 |
+
+**Cause:** the ±400 estimate was made at step 0, BEFORE plan review round 1
+(D3) grew the design — `classifyWithdrawal` extraction, server count on the
+wire, disarm-on-refetch, the status matrix. D3 re-estimated the TEST bucket
+(±800 → ±1150) and left the production estimate untouched. Every production
+line is plan-verbatim code (three review rounds); no task sprawled beyond its
+ticket and `allowed_edit_surface` was never amended (0 of 2).
+
+**Step 0 re-run with the real numbers (the trigger's required action):**
+RISK = **high** (unchanged — migration + approval path). SURFACE = mixed.
+SIZE: not trivial/small; the epic criteria do not fire — the surface is 24
+explicit globs (unchanged, tighter than any directory), the work is ONE seam
+(`approval.ts` verb + its route + its panel arm) plus ONE additive CHECK
+widening (no billing/worker/schema-shape change), 5 tasks (< 8), and
+`open_questions` is empty. **The lane that ran — RISK = high, full pipeline —
+is the heaviest non-epic lane. The lane holds.** What the trigger caught is a
+stale ESTIMATE, not a wrong lane; the fix for future runs is that a D3-style
+plan-review re-estimate must revise BOTH buckets (promote to lab-notes at
+step 8).
+
+The WARN row is deliberately left standing (the estimate is not rewritten after
+the fact) so it stays visible in `gate-status.json`, this file, and the PR
+description; the owner's step-8 merge approval is where it is accepted or not.
+
+**Verdict:** ACCEPT (step 6, 2026-08-18) — lane confirmed by re-classification; no locked decision invalidated; owner sees the WARN at the high-lane merge pause.
