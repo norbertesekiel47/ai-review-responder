@@ -468,6 +468,18 @@ titles is contested. Rounds 1–3 moved this plan from "the eval can pass while
 the feature is materially wrong" to a 30-test eval whose gaps codex could no
 longer name.
 
+**Owner call, 2026-08-18 (step 3 lock).** The round-3 cap is reached, so
+feature.md's "after round 3, STOP and surface it" rule was honoured on resume
+rather than skipped: the position above was put to the owner, who locked the
+plan. **That call substitutes for `APPROVED`.** No round 4 runs. Recorded here
+because a resumed session reads this file, not a transcript.
+
+One citation above has since gone stale and is not worth a round: #860 was at
+`156b3457` when round 3 read it and is now at `9dcc0e99`. The substance holds —
+the counterpart note is tracked and committed at `db89a700`, section "Surface
+overlap with feat-865". Re-verified on resume by reading the sibling worktree's
+git state directly, not by trusting this paragraph.
+
 ## 7. Known defect deliberately left in place
 
 `haltBatch` permits halting a `pending` batch, and that is the same 091:176 /
