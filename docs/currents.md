@@ -7,7 +7,62 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-17 (#859 query-block tenant-scope audit + #858 case-safe batch closure + #861 read-failure copy pin — Quick summary immediately below. Prior entry: #629 owner approval lane.)
+Last updated: 2026-08-18 (#860 per-ask Ask regeneration surface — Quick summary immediately below. Prior entry: #859 query-block tenant-scope audit + #858 + #861.)
+
+## Quick summary — #860 per-ask **Ask regeneration** surface (2026-08-18, PR #873)
+
+**The owner can now ask for a new version of one message in a built batch — and
+can no longer ask once they have approved it. That second half is the point.**
+
+Before this, `regenerateAsk` existed in the worker but nothing on screen could
+reach it, and it accepted four batch states including `approved`. #629 shipped
+the approval lane on top of that and had to record the contradiction as a
+deviation: **Owner approval** promises "what you approved is byte-for-byte what
+sends", while a regenerate path could in principle replace approved bytes. It was
+unreachable, so #629 could defer it. #860 builds the reachable path, so the
+contradiction had to be settled.
+
+**It was settled by refusing.** `isRegenerableBatchState(state) => state === 'built'`
+(ADR **0020**, narrowing cross-spec amendment B2), checked twice — once before the
+work starts, once again under a row lock inside the swap, so a batch approved in
+the gap between them still cannot be overwritten. The byte-for-byte guarantee is
+now **unconditional**, in code and in `CONTEXT.md`.
+
+**What the owner sees** (once the lane is switched on — see "ships inert" below):
+a Regenerate control on every rendered ask while the batch is still approvable,
+with "N of 3 today" beside it. It disappears on held-back messages and once the
+batch is approved. It is disabled on messages they have deselected, while another
+rewrite is in flight, and once that ask has spent its three. The copy is explicit
+about the boundary: *"You can ask for a new version of any message, but you cannot
+write one yourself."* Editing stays forbidden (D22) — the owner's verbs are
+approve, exclude, and ask for new bytes.
+
+**The honest cost, found by this PR's own review.** ADR 0020 first called the
+post-approval recourse — stop the batch, build a new one — "a real ergonomic
+cost". That was wrong. Halting never clears `solicitation_asks.status='send'`, so
+a rebuild inside 30 days withholds those contacts as `over_contacted`, and by the
+time the gap clears the visit is stale for every vertical but home services. The
+cohort is lost for that visit, not delayed. The ADR now says so, and **#872**
+tracks the cheaper recourse (withdraw one message inside the veto window, which is
+removal rather than replacement and so does not reopen the guarantee).
+
+**Ships inert.** `SOLICITATION_SEND_ENABLED` is unset in every environment, so the
+route 404s, the send lane is null, and no control renders. Verified on the staging
+worker at merge. Do not flip it — the boot assert needs four vars that do not exist
+there, and the sending identity is **#633**, still open.
+
+### The new shape
+
+| File | What it does now |
+|---|---|
+| `src/lib/solicitation/ask-generation.ts` | Owns the D3 decision: `isRegenerableBatchState` — `built` only |
+| `src/lib/solicitation/approval.ts` | **Three** owner verbs now — `approveBatch`, `haltBatch`, `requestAskRegeneration` |
+| `src/app/api/dashboard/solicitation/batch/regenerate/route.ts` | **New.** Fourth adapter at the `withScopedBatch` seam; 404s when the flag is off |
+| `src/lib/costs/tracker.ts` | `peekAskRegenBudgetBatch` — advisory, fail-open; the worker's Lua INCR stays authoritative |
+| `src/lib/solicitation/batch-view.ts` | Send lane reports `regeneratingAskId` + `regenBudgets` |
+| `src/app/(authenticated)/dashboard/requests/AskList.tsx` | The per-ask control + counter |
+| `src/app/(authenticated)/dashboard/requests/ApprovalPanel.tsx` | Exclusions keyed on `askId`; `LaneRefresh` tells the parent whether a write is terminal |
+| `docs/adr/0020-regeneration-refused-after-approval.md` | **New.** The decision, and its corrected cost |
 
 ## Quick summary — #859 `ci:tenant-scope` reads query blocks · #858 case-safe batch closure · #861 read-failure copy pin (2026-08-17, PRs #870, #868, #869)
 

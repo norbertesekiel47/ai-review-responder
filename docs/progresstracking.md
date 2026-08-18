@@ -4505,3 +4505,120 @@ Merged worktrees removed via `scripts/feature-cleanup.sh --apply`. #858
 touches a function the worker calls and did NOT ride staging first (owner
 decision to merge directly; the change is a defensive lowercase covered by the
 live-DB suite).
+
+---
+
+## 2026-08-18 — #860: per-ask Ask regeneration surface — route, control, 3/day budget; regeneration refused after approval (PR #873)
+
+Squash `0f81b9e7`. 36 files, +8,417/−306. **No migration, no new env var, no new
+flag, no new dependency.** RISK = high · SURFACE = mixed · SIZE = normal (full
+`/feature` pipeline). Rode `staging` before the PR; merged on owner approval.
+
+### What it does
+
+Makes per-ask **Ask regeneration** reachable for the owner on a built
+**Solicitation batch**, and closes #629's deviation **D3** by refusing
+regeneration once **Owner approval** is recorded.
+
+- `isRegenerableBatchState(state) => state === 'built'` replaces the four-member
+  `REGENERABLE_BATCH_STATES` (ADR **0020**, narrowing cross-spec amendment B2).
+  Enforced at the non-transactional pre-check AND at the locked re-check inside
+  the swap transaction under `FOR UPDATE`, so an approval landing between them
+  still cannot replace approved bytes.
+- `requestAskRegeneration` joins `approveBatch`/`haltBatch` as a **third owner
+  verb** in `approval.ts`, enqueueing through `enqueueGenerateSolicitationAsks`
+  in the same transaction as an `ask_regeneration_requested` run step
+  (invariant #2).
+- New route `POST /api/dashboard/solicitation/batch/regenerate` — the fourth
+  adapter at the `withScopedBatch` seam. 202/409/429/404.
+- `peekAskRegenBudgetBatch` (advisory, fail-open) + `askRegenLimitResponse` (429
+  shaping). The worker's Lua INCR remains the authoritative gate.
+- `SendLaneView` gains `regeneratingAskId` (server-authoritative in-flight fact)
+  and `regenBudgets` (a plain `Record`, D12).
+- The panel renders a per-ask control + "N of 3 today", polls while a
+  regeneration is in flight, and keys its exclusion set on `askId`.
+
+### Decisions worth keeping
+
+- **Option (b), not (a).** ADR 0020 rejected re-opening approval for a
+  regenerated ask: `approved_at`/`approval_method`/`approved_by_user_id` are
+  **batch** columns, 091's approval-consistency CHECK and one-active-send index
+  are written against them, and a partial-approval state machine has undefined
+  behaviour when the batch veto deadline elapses.
+- **`CONTEXT.md`:** coined **Ask regeneration**; **Owner approval** dropped its
+  conditional and now carries the verified cohort cost.
+- **The ADR was amended by its own PR's review.** It first priced the
+  post-approval recourse as "a real ergonomic cost". The adversarial reviewer
+  showed — and the owner verified against `batch-builder.ts:501`,
+  `restraint-policy.ts:95` and `:75` — that halting never clears
+  `solicitation_asks.status='send'`, so `MIN_GAP_DAYS=30` withholds those
+  contacts as `over_contacted`, and by day 30 `stale_visit` has fired for every
+  vertical but `home_services` (45d). **The cohort is lost for that visit.** The
+  ADR now says its own pricing was wrong; **#872** tracks post-approval per-ask
+  withdrawal as the cheaper recourse.
+
+### Gotchas this branch created or hardened
+
+- **`requestAskRegeneration` enqueues BEFORE it validates**, and refusals abort
+  by THROWING `RegenRequestAbort`. The worker's swap locks the `job_outbox` row
+  first and only then takes the advisory lock, so a validate-first request path
+  deadlocks against the worker it is enqueueing for; and postgres.js commits when
+  the `sql.begin` callback resolves, so a plain early return would commit the
+  already-written outbox row.
+- **`already_in_flight` answers only AFTER ownership is proven.** It originally
+  returned straight off the `ON CONFLICT` probe, two lines before
+  `lockBatchForAction` — a foreign batch mid-regeneration answered 409 while an
+  unknown one answered 404, a cross-tenant existence-and-activity oracle
+  (`withScopedBatch` only UUID-validates the caller's `batchId`). Fixed by moving
+  the refusal arm, not the write. The call site carries a comment saying **do not
+  tidy this back above the lock**.
+- **`batch-view.ts`'s in-flight `job_outbox` read carries no tenant predicate,
+  deliberately** — `job_outbox` is absent from `scripts/ci/tenant-tables.ts`.
+  Joining `solicitation_batches` to "look scoped" is the defect. A test asserts
+  the query text contains no tenant table; `ci:tenant-scope` baseline held at 381.
+- **Exclusions key on `askId`, never `outreachId`, and there is no pruning.** A
+  regeneration mints a new outreach id; keying on it silently RE-SELECTED a
+  contact the owner had deselected.
+- **Regeneration is non-terminal**, and reusing approve/halt's settle path
+  unmounted the panel, resetting both `excludedAsks` and `pendingRegen`. Fixed
+  with `LaneRefresh = 'replace' | 'in_place' | 'none'` as a REQUIRED field on
+  `onChanged`, so every future lane verb declares its own terminality at compile
+  time.
+
+### Review record
+
+Round 1: three parallel axes (spec & correctness, standards & maintainability,
+adversarial approach — the third earned by RISK = high). Round 2:
+verification-only on the two axes with accepted findings. **22 findings → 17
+fixed, 3 rejected with reasoning, 2 escalated to the owner.** Reports and triage
+verdicts: `docs/reviews/feat-860-ask-regeneration-surface/`.
+
+Four defects a green suite did not catch, all recorded in lab-notes 2026-08-18:
+
+1. Testing-Library's `rerender` **cannot** prove an unmount defect — the two
+   tests for the exclusion-reset bug passed against broken code for a full round.
+2. `budget_exhausted` had zero coverage; its first fix then pinned only the
+   fail-CLOSED half, leaving the documented fail-OPEN path undefended.
+3. The 409-vs-404 oracle — **examined and CLEARED by the spec axis, caught by the
+   adversarial axis.** The strongest single datapoint yet for the third axis.
+4. A `fallow` green built on stale coverage is not load-bearing.
+
+### Ship record
+
+Gate GREEN (26/26) at every checkpoint; full suite 12,589 passed / 0 failed.
+**CI's `fallow` job failed on the first push** — it is `CI_ONLY_BY_DESIGN`
+(consumes the `test` job's coverage artifact) so `verify-gate.sh` structurally
+cannot predict it. Two real branch-introduced defects, both fixed by refactor
+rather than by touching thresholds: `approval.ts` duplication → 0 clone groups
+(`lockBatchForAction` absorbed the state derivation), and `ApprovalPanel`
+cognitive **16 → 10** via four named extractions with **zero** test-file changes.
+Deviations D1–D15, all ACCEPT-verdicted. Surface-amendment budget ended at **1 of
+2**. `reclassify` WARN (1623 prod vs 620 estimated) — step 0 re-run against every
+epic criterion, lane confirmed, estimate recorded as the defect (D15). Staging
+fast-forwarded, then reset to `main` after the squash merge per the runbook (NOT
+a sync merge). Worktree removed via `scripts/feature-cleanup.sh --apply`.
+
+**Open, not blocking:** `RequestsClient` sits at fallow cognitive **15**, exactly
+on the threshold — the next hook added there fails CI. `scoped-batch-route.ts`'s
+header still says "three POST routes" (now four; out of surface, D12). A **high**
+Dependabot alert on `nanoid` is pre-existing on `main` and needs its own ticket.
