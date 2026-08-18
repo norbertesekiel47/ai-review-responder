@@ -6,10 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 7 — PAST THE ≥ 5 THRESHOLD (2026-08-18).**
+**Merges since last architecture pass: 8 — PAST THE ≥ 5 THRESHOLD (2026-08-18).**
 The orchestrator has surfaced this to the owner; scheduling a pass is the owner's
 call and is never started automatically. Note the carried-forward caveat below:
-if **#857** and **#866** should have counted, the true figure is **8**. Reset by
+if **#857** and **#866** should have counted, the true figure is **10**. Reset by
 the **2026-08-15 pass**
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-15/`. The
 window's merge list, retained for the record: #793, #805, #821, #827, #831, #833
@@ -33,6 +33,33 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #883** — #872 **Ask withdrawal**: the owner's post-approval recourse at
+  ask granularity (2026-08-18, squash `094d71b9`). **Architecturally: one
+  migration, one new verb, one new route, one new sibling component — no new
+  concept, no new dependency, no new env var or flag, no new top-level
+  directory.** Migration **109** widens 108's cancel arm by `owner_withdrawn`
+  and was applied to staging **and production** in lockstep on merge day (all
+  three databases verified byte-identical), so it leaves **no standing
+  exception** — the prod exception list still names only 078. What it adds to
+  the map: `withdrawAsk` becomes the **fifth** human-triggered verb in
+  `src/lib/solicitation/approval.ts`, and the ADR-0021 decision that it does
+  **not** share #865's private `latchHalt` (the latch writes `halted_at` on the
+  batch; withdrawal writes nothing there) — same discipline, separate body, with
+  a duplicated `delivery_status IN ('rendered','queued')` predicate now in two
+  places. **That duplication is the thing for the next pass to look at**: the
+  Codex adversarial review flagged it as a drift watch rather than a defect,
+  and a third caller would make it a real seam question. Two other standing
+  items for the next pass, both recorded with owner-visible reasoning rather
+  than fixed here: (a) `ApprovalPanel.tsx` crossed **1,000 lines** (982 →
+  1,109) and its pre-existing `── The write ──` section (~415 lines, now four
+  lane writes) is the extraction candidate — deferred because the file was
+  being edited by #865 concurrently and the new file fell outside the locked
+  edit surface; **this is now unblocked and is the first follow-up to file**;
+  (b) `WithdrawalDecision` parallels `WithdrawAskResult` by design (a pure,
+  plan-locked decision type whose `withdraw` arm is deliberately data-free),
+  kept after review. Baselines unmoved: tenant-scope 381, no allowlist entries
+  added, `ci:directory-map` complete.
 
 - **PR #882** — #665 purge-verifier blind spots + #662 suppressions-console
   receipt/actor (2026-08-18, squash `fe21d02d`). **Entropy-negative: it removed

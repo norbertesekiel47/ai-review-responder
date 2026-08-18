@@ -4861,3 +4861,122 @@ Postgres at migrations head — including the actual tombstone-then-verify path 
 with no queue, webhook, external call or migration in the diff, and every new
 predicate already satisfied by a write side that has cleared those columns for
 many releases.
+
+## 2026-08-18 — #872: **Ask withdrawal** — the owner's post-approval recourse stops costing the whole cohort (PR #883)
+
+**What shipped.** One new owner verb, `withdrawAsk`, and the surface for it. The
+owner cancels ONE approved Ask's live **Outreach row** — `rendered`/`queued` →
+`cancelled` / `owner_withdrawn` (migration **109**) — in exactly the **Batch
+states** where the **Halt latch** would have cancelled that row (`veto_window`,
+`approved`, `sending`), and never a `sending` row. Withdrawing the last live row
+settles the batch through `closeBatchIfSettled` (`exhausted`, parent
+`completed`), like every other terminal writer.
+
+**Why it exists.** Before this, the only post-approval lever was the latch,
+which stops the batch but leaves every ask `status='send'` — so `MIN_GAP_DAYS`
+withholds the whole cohort as `over_contacted` on any rebuild inside 30 days.
+The price of one wrong message was every message. Withdrawal costs one contact.
+It does **not** release the withdrawn contact: that person stays
+`over_contacted` exactly like a halted ask. ADR **0021** carries the argument,
+including why it does not reopen ADR 0020 (that ADR is about *replacing*
+approved bytes; a message that does not send cannot violate **Owner
+approval**'s byte-for-byte guarantee).
+
+**Files.** `supabase/migrations/109_outreach_owner_withdrawn_disposition.sql`
+(new) · `src/lib/solicitation/approval.ts` (+284: `isWithdrawableState`,
+`CurrentAttempt`, `WithdrawalDecision`, `classifyWithdrawal`, `WithdrawAskInput`,
+`WithdrawAskResult`, `withdrawAsk`) · `src/lib/agents/run-spine.ts` (+1: the
+`ask_withdrawn` step key) ·
+`src/app/api/dashboard/solicitation/batch/withdraw/route.ts` (new, 94) ·
+`_shared/scoped-batch-route.ts` (`readBatchAsk` hoisted) · `regenerate/route.ts`
+(switched to the shared reader; its local `readRegenerateRequest` deleted, not
+shimmed) · `AskList.tsx` (+185: `WithdrawableAskList`, `WithdrawControl`) ·
+`ApprovalPanel.tsx` (+219: `withdrawable` facet, `useArmedWithdrawal`, refusal
+copy, server-count announce) · `requests.css` · four test files (+1,143) ·
+`CONTEXT.md`, `docs/directory.md`, `.claude/CLAUDE.md`, ADR 0020 amendment,
+ADR 0021 (new).
+
+**Decisions worth keeping.**
+
+1. **`owner_withdrawn` is a NEW reason value, not reuse of `owner_excluded`.**
+   **Ask exclusion** is defined by *when* it is written — at approval, inside
+   the approval transaction. A post-approval row borrowing its value would
+   misstate when and how it was cancelled. Same audit argument that makes the
+   latch derive its reason server-side.
+2. **Keyed on the ask, not the outreach row.** The verb resolves the live
+   attempt under the batch lock, so a stale tab still withdraws the right
+   message — the lesson **Ask regeneration** already recorded for exclusion sets.
+3. **Idempotence outranks the state gate.** `classifyWithdrawal` answers
+   `already_withdrawn` for a `cancelled`/`owner_withdrawn` attempt *before* it
+   looks at the batch state, because withdrawing the last live row closes the
+   batch and a retry on that row therefore arrives in `closed`. Found by the
+   round-2 plan review, not by a test.
+4. **The server's count travels on the wire.** `remainingLive`/`closed` come
+   back from the write and the panel reads them. An earlier draft subtracted one
+   from the rows on screen — wrong exactly when it mattered, since the client
+   cannot see an in-flight row.
+5. **`withdrawAsk` does not share #865's `latchHalt`.** Same discipline (lock
+   order, row predicate), different body: the latch writes `halted_at` on the
+   batch, withdrawal writes nothing there. Stated in the module header so a
+   later reader does not "unify" them.
+
+**Gotchas found on the way.**
+
+- **`react-hooks/set-state-in-effect` is `error` repo-wide.** The plan's
+  `useEffect` disarm was illegal; the fix is a *guarded render-time adjust*
+  (React's adjust-state-on-prop-change), precedent `ToneChipPicker.tsx`.
+- **`.btn-danger` lives only in `settings.css`,** which the Requests route never
+  loads — the plan's danger-styled confirm would have rendered as a bare `.btn`.
+  Both armed buttons use `btn btn-secondary`, the class the latch's own control
+  uses on this surface.
+- **A rebase can be the wrong tool.** Integrating #865 by rebase re-conflicted
+  the same four doc files across 19 replayed commits; a single merge resolved
+  each once. The PR squash-merges, so the `main` history is identical either
+  way. Recorded as deviation D6.
+- **The local test DB is shared by every sibling worktree.** Another session's
+  `pnpm test:db:setup` reset it to head 108 mid-review; the suite then failed
+  its `beforeAll` precondition for environmental reasons, not code ones.
+
+**Review record.** Plan: 3 Codex rounds in one thread → APPROVED at revision 3.
+Branch: round 1 on three axes — Codex adversarial returned an **empty findings
+table** with a 12-KEPT/1-CHANGED promise audit; spec found 1 minor (an untested
+`disabled`-while-in-flight edge case, now covered); standards (thermo-nuclear)
+found 11, of which **9 accepted and fixed, 2 rejected with reasoning**. Round 2
+verification-only: both axes APPROVED, no fix-introduced defect. `branchReviewRounds: 2`.
+
+**The two rejections, recorded because they will resurface.** (a)
+`ApprovalPanel.tsx` crossed 1,000 lines (982 → 1,109); only 94 of those lines
+are #872's and the `── The write ──` seam it wants extracted pre-dates the
+branch. Extracting `lane-writes.ts` needs a new file outside the locked edit
+surface, and #865 was editing the same file — so it is a **follow-up PR**, now
+that both have landed. (b) `WithdrawalDecision` parallels `WithdrawAskResult`;
+kept, because the pure decision type is the plan-locked shape three Codex rounds
+reviewed and its `withdraw` arm is deliberately data-free (`remainingLive` only
+exists after the write).
+
+**Gate.** `verify-gate.sh --review` GREEN, full mode, 28 checks, integration
+suite RAN, `promised-tests` 18/18 verbatim, `diff-coverage` ≥ 80 %. One standing
+WARN: `reclassify` (production 1,141 lines vs a ±400 estimate). Step 0 was
+re-run with the real numbers — RISK stays **high**, the size stays feature-scale
+(24-glob surface never amended, 5 tasks, one seam) — so the lane held; the
+estimate was stale because the round-1 plan review re-estimated only the test
+bucket. Owner-accepted at the merge pause. Deviation **D5**.
+
+**Staging ride.** Migration 109 applied to staging first and verified by
+introspection (`owner_withdrawn` once, inside the `cancelled` arm; constraint
+hash identical to local head), then the branch landed on `staging` as a
+fast-forward; worker `/api/health` 200 on the new boot, Vercel staging + preview
+deployed. **The data-level smoke did not run** — this environment's permission
+classifier refused pointing the integration suite at the staging database, and a
+hand-rolled seeding script was deliberately not written as a workaround. The gap
+is stated in `docs/runbooks/evidence/2026-08-18-872-ask-withdrawal-staging.md`
+§3 with two ways to close it; the owner accepted it at the merge pause on the
+strength of the identical-schema evidence. CI: 11 pass, 0 fail, 3 by-design
+skips (`deploy-install` install-recipe-gated, `llm-eval` path-filtered,
+`[code]smith` third-party).
+
+**Promotion.** Migration 109 applied to **production before the merge** (it is
+additive, so a widened CHECK with no writer is harmless, whereas the reverse
+order could let deployed code hit a CHECK violation). Verified: local, staging
+and prod all report `md5(pg_get_constraintdef(...)) = 8208d8da29574095f0219084632f2d6a`.
+Prod held 0 outreach rows at the time, so the widening was a no-op for data.

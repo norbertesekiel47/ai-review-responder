@@ -1044,11 +1044,15 @@ Revisit triggers:
   test DB at head byte-for-byte. Pre-flight showed staging at 108
   (`owner_excluded` present, `owner_withdrawn` absent, zero rows carrying the
   new value), so the widening was a no-op for existing data.
-  **PRODUCTION: NOT YET APPLIED** — it goes in at promotion, in lockstep with
-  the #883 merge (RISK = high lane). Until then this entry stays the record of a
-  half-lockstep migration; the standing prod exception list in
-  `.claude/CLAUDE.md` covers only 078, so do NOT add 109 there — it is simply
-  awaiting its own promotion window rather than being deliberately withheld.
+  **Applied to PRODUCTION 2026-08-18** (`udeyaqnvpojbwgoaxwdg`, same method,
+  exit 0) — **lockstep complete, no standing exception.** Applied *before* the
+  #883 merge on purpose: the change is additive, so a widened CHECK with no
+  writer is inert, whereas merging first would have left a window in which
+  deployed code could write a value the constraint still rejected. Pre-flight
+  showed prod at 108 with **0** rows in `solicitation_outreach` at all.
+  Verified the same way as staging, and the three databases agree byte-for-byte:
+  `md5(pg_get_constraintdef(oid))` = `8208d8da29574095f0219084632f2d6a` on
+  local, staging **and** prod.
 
 - **108** — `outreach_owner_excluded_disposition`: adds `owner_excluded` to
   `solicitation_outreach`'s **cancel** disposition set for the owner approval
