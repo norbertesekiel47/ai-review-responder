@@ -70,7 +70,7 @@ worktree cannot follow it. Once #860 merges, the citation becomes moot.
 > reading the sibling worktree's git state directly, not taken on the reviewer's
 > word.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** The *decision* — #860 first, #865 rebases and re-runs the full gate before review counts — was sound and is the only reason D7's silent breakage was caught. The *analysis* attached to it was falsified; that is D7's record, not a re-plan. No locked decision in plan §2 is touched.
 
 ---
 
@@ -129,7 +129,7 @@ would change user-visible behaviour this intake does not name, so it is carved
 out in `non_goals` and scheduled as a follow-up ticket at step 8. See the plan's
 §7 — it must not die in this file.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** Correctly classified as a deviation rather than a surface amendment — `allowed_edit_surface` never changed, and the final diff confirms it: every one of the 22 changed paths is inside the armed globs. The tripled test estimate proved accurate (1,400 estimated, 1,471 actual).
 
 ---
 
@@ -148,7 +148,7 @@ input/result types) after `requestAskRegeneration`, sharing
 it.** Nothing here has to wait for #872. Mirror entry: #872's deviations file,
 D1.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** The obligation runs away from this branch: #865 lands first and #872 rebases onto it, so nothing here waits and no claim about #872's diff needs to hold for this merge. Re-verified at read-back — #872 is still an unmerged worktree with no PR.
 
 ---
 
@@ -246,7 +246,7 @@ these six files. `pnpm exec eslint` on all six is clean, and
    callback still propagates. Recorded here so the first green run in Task 1 is
    not the first time it is known to work.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** The red run is the evidence Task 0 was required to produce, and its three surprises are load-bearing rather than incidental — surprise 1 in particular prevented a file that would have collected as `(0 test)` while satisfying the gate's title-matching row.
 
 ---
 
@@ -322,7 +322,7 @@ return-type-preserving with one generic parameter, which would make the widening
 impossible to hit again. That touches every wrapped route, so it stays its own
 ticket. File it at step 8.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT**, as corrected. The original resolution put a production type assertion on a CSRF-wrapped export to satisfy a test annotation that asserted nothing; both of its stated premises were wrong and the entry now records that. The export is the plain house shape.
 
 ---
 
@@ -437,7 +437,7 @@ deleted, D6's fixture type asserts something real and was bound to the true
 type. "Delete the annotation" is not the general rule; "make the test say what
 it means" is.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** Task 3 escalated instead of reaching for D5's workaround one task after D5 was written, which is the discipline working. The fix strengthens the eval — binding the fixture to `AdminBatchSummary` makes a renamed field fail in the test rather than render an `undefined`.
 
 ---
 
@@ -494,4 +494,50 @@ the process worked even though its premise did not. **Write the obligation, not
 just the analysis**: an overlap table is evidence for a decision, never a
 substitute for re-verifying on the rebased tree.
 
-**Verdict:** _(pending step 6 read-back)_
+**Verdict: ACCEPT.** A real defect, caught by the gate at exactly the step D1's obligation aimed it at, fixed by giving `adminHaltBatch` the three lines `haltBatch` already had. No locked decision changed: guard order, every result arm and the D11 `pending` refusal are intact.
+
+---
+
+## D8 — the gate's `reclassify` row fired: production ran 2.2x its estimate
+
+`estimated_prod_lines` was 420. The actual production diff against `origin/main`
+is **925 changed lines** (869 added, 56 deleted) across 6 files — 2.2x, past the
+~2x threshold. The test bucket was accurate: 1,471 against 1,400.
+
+feature.md's trigger reads "STOP and re-run step 0 — the lane was wrong, and the
+heavier lane's controls exist for exactly this feature."
+
+**This was an estimation miss, not a routing error, and the distinction is the
+whole question.** Evidence that no scope was added:
+
+- All 22 changed paths are inside the armed `allowed_edit_surface`. Zero
+  out-of-surface files.
+- **Zero surface amendments** spent, of the budget of 2.
+- The intake named every file that grew. Nothing was built that it did not ask
+  for.
+
+Where the lines went, against the precedents the plan itself named:
+
+| File | Lines | Named precedent | Ratio |
+|---|---|---|---|
+| `SolicitationBatchPanel.tsx` | 321 | `PastDueExtensionPanel.tsx` (186) | 1.7x |
+| `halt/route.ts` | 143 | `autonomy/unsuspend/route.ts` (62) | 2.3x |
+| `approval.ts` | +247 / -54 | — (the `latchHalt` extraction) | — |
+| `batch-view.ts` | +131 / -2 | — | — |
+
+**Owner's call at step 6: record and continue.** There is no heavier lane to
+route to. RISK = high already bought three adversarial plan-review rounds, the
+full `--review` gate with `diff-coverage`, and step 7's three-axis review; a
+re-run of step 0 re-derives the same classification from the same inputs and
+buys no control that is not already in force.
+
+**Worth carrying into the next intake, though.** The plan estimated production
+by naming a precedent for each file and implicitly assuming parity with it. Both
+UI-adjacent files came in well over their precedent, because the precedent's
+line count reflects ITS requirements, not the new file's — the panel owes 4
+non-actionable states and a 3-count distinction the precedent never had. The
+test estimate was accurate precisely because plan review round 1 forced it to be
+derived from a test list rather than from a ratio. **Estimate production the
+same way: from the enumerated behaviours, not from a precedent's size.**
+
+**Verdict: ACCEPT** (owner-decided, 2026-08-18).
