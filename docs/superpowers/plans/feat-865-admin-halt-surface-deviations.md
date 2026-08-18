@@ -438,3 +438,60 @@ type. "Delete the annotation" is not the general rule; "make the test say what
 it means" is.
 
 **Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D7 — the rebase overlap was SEMANTIC, not mechanical: D1's core prediction was wrong
+
+D1 read #860's diff against the shared base and concluded the `approval.ts`
+overlap was "**mechanical, not semantic**: a shared file-header comment and a
+shared append point at the end of each file", explicitly listing
+`lockBatchForAction` among the helpers that were "all unmodified".
+
+**That was false by the time #860 landed.** Between D1's reading and PR #873's
+merge, `lockBatchForAction` changed shape:
+
+```diff
+-lockBatchForAction(tx, { batchId, accountId, businessId }): Promise<BatchLifecycleRow | null>
++lockBatchForAction(tx, batchId, tenant): Promise<{ batch: BatchActionRow; state: BatchState } | null>
+```
+
+It now derives **Batch state** itself instead of handing back a row for the
+caller to pass to `deriveBatchState`.
+
+**Why the rebase did not surface it.** Git resolved `haltBatch` cleanly — main's
+call convention won and Task 1's `latchHalt` call merged into it, so that verb
+was silently correct. `adminHaltBatch` is wholly new code with nothing on the
+other side to merge against, so it kept the pre-#860 two-argument call **and
+produced no conflict marker**. A conflict you resolve is visible; a semantic
+drift git merges without complaint is not.
+
+Caught by the step-5 gate, which is exactly where D1's obligation
+("re-run the full verify gate on the rebased tree") was aimed — three `TS2554`
+/ `TS2345` / `TS2339` errors plus the whole `approval` integration suite red.
+Fixed by giving `adminHaltBatch` the same three lines `haltBatch` already had:
+
+```ts
+const locked = await lockBatchForAction(tx, batchId, input);
+if (locked === null) return { status: 'not_found' };
+const { batch, state } = locked;
+```
+
+The `deriveBatchState(batch, new Date())` call went with it — the helper owns
+that now. Guard order and every result arm are unchanged; `pending` is still
+refused per D11.
+
+After the fix: `pnpm typecheck` clean repo-wide, `approval.test.ts` +
+`approval.integration.test.ts` **50/50** (39 before the rebase; #860 contributed
+11).
+
+**Lesson worth promoting at step 8.** A cross-branch overlap analysis has a
+shelf life. D1 read the sibling branch at a moment in time and both branches
+kept moving for another day; the file-by-file table it produced was accurate
+when written and stale when used. The obligation D1 attached — *rebase, then
+re-run the full gate before review counts* — is what actually caught this, so
+the process worked even though its premise did not. **Write the obligation, not
+just the analysis**: an overlap table is evidence for a decision, never a
+substitute for re-verifying on the rebased tree.
+
+**Verdict:** _(pending step 6 read-back)_

@@ -648,16 +648,12 @@ export async function adminHaltBatch(
 ): Promise<AdminHaltBatchResult> {
   const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<AdminHaltBatchResult> => {
-    const batch = await lockBatchForAction(tx, {
-      batchId,
-      accountId: input.accountId,
-      businessId: input.businessId,
-    });
+    const locked = await lockBatchForAction(tx, batchId, input);
     // A foreign batch id and an unknown one are indistinguishable, which is
     // what the route's uniform 404 depends on.
-    if (batch === null) return { status: 'not_found' };
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
 
-    const state = deriveBatchState(batch, new Date());
     if (state === 'halted') return { status: 'already_halted' };
     if (state === 'closed' || state === 'pending') return { status: 'not_haltable', state };
 
