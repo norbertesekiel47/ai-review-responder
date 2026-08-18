@@ -25,13 +25,13 @@ import './requests.css';
 /**
  * The owner approval lane for a built Solicitation batch (#629).
  *
- * A client island owning exactly FOUR things: which asks the owner has
- * deselected (`useExcludedAsks`), whether a write is in flight and the
- * resulting error copy (`useLaneWrites`), what this panel last asked to
- * regenerate (`usePendingRegeneration`), and which ask's withdraw control is
- * armed (`armedAskId`, #872 — held in the panel and cleared the moment a
- * refetch drops the row). It renders from `sendLane` + `attempts` and never
- * mutates the view it was given; after every settled write it calls
+ * A client island owning exactly FOUR things, one file-local hook each: which
+ * asks the owner has deselected (`useExcludedAsks`), whether a write is in
+ * flight and the resulting error copy (`useLaneWrites`), what this panel last
+ * asked to regenerate (`usePendingRegeneration`), and which ask's withdraw
+ * control is armed (`useArmedWithdrawal`, #872 — held in the panel and cleared
+ * the moment a refetch drops the row). It renders from `sendLane` + `attempts`
+ * and never mutates the view it was given; after every settled write it calls
  * `onChanged(message, outcome, refresh)` and the parent refetches, so the fetch
  * loop stays the single owner of what is on screen.
  *
@@ -395,7 +395,7 @@ interface ExcludedAsks {
 /**
  * The exclusion set as the panel holds it: the deselections themselves, the one
  * verb that changes them, and the two facts every render and every approve
- * derives from them — the first of the three things the panel owns.
+ * derives from them — the first of the four things the panel owns.
  *
  * Keyed on ASK id, not outreach id, and there is deliberately no pruning
  * effect: an ask's identity survives a regeneration, so a deselection does too,
@@ -935,6 +935,54 @@ function usePendingRegeneration({
   );
 }
 
+// ── The armed withdrawal ────────────────────────────────────────────────────
+
+interface ArmedWithdrawal {
+  /** The ONE ask whose withdraw control has taken its first tap, or null. */
+  armedAskId: string | null;
+  /** First tap: arm this ask (moves the arming if another was armed). */
+  arm: (askId: string) => void;
+  /** Disarm without posting — the Keep answer, and the confirm's own reset
+   *  before it posts. */
+  disarm: () => void;
+}
+
+/**
+ * The armed withdraw confirmation as the panel holds it: which ask's control
+ * has taken its first tap, and the two verbs that change it — the fourth of
+ * the four things the panel owns (#872).
+ *
+ * Held here, not in the list, and CLEARED — not merely hidden — the moment a
+ * refetch no longer shows the armed row among the LIVE rows: an ask that later
+ * reappears must need a fresh first tap (plan review round 1, finding 9).
+ * Cleared DURING render rather than from an effect — React's "adjust state
+ * when a prop changes" pattern (the `ToneChipPicker` precedent): the reset
+ * lands in the same commit as the refetch, so no frame ever shows a confirm
+ * for a row that is gone, and `react-hooks/set-state-in-effect` rejects the
+ * effect form. The write is GUARDED so it converges: it happens only when a
+ * non-null armed id is no longer live — never on every pass — and the
+ * re-render it triggers sees `null` and does not write again.
+ *
+ * `rows` is EVERY row of the current render, because that is the list the
+ * withdrawable screen shows; the live subset — `rendered`/`queued`, the two
+ * statuses that get a control — is derived here because arming is only ever
+ * offered from it, so it is the list a stale arming is judged against.
+ */
+function useArmedWithdrawal(rows: readonly AskRowView[]): ArmedWithdrawal {
+  const live = useMemo(
+    () => rows.filter((row) => row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued'),
+    [rows],
+  );
+  const [armedAskId, setArmedAskId] = useState<string | null>(null);
+  if (armedAskId !== null && !live.some((row) => row.askId === armedAskId)) {
+    setArmedAskId(null);
+  }
+
+  const disarm = useCallback(() => setArmedAskId(null), []);
+
+  return { armedAskId, arm: setArmedAskId, disarm };
+}
+
 // ── The panel ───────────────────────────────────────────────────────────────
 
 export interface ApprovalPanelProps {
@@ -966,23 +1014,6 @@ export function ApprovalPanel({
     () => rows.filter((row) => row.deliveryStatus === 'rendered'),
     [rows],
   );
-  const live = useMemo(
-    () => rows.filter((row) => row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued'),
-    [rows],
-  );
-  // The armed withdraw confirmation. Held here, not in the list, and CLEARED
-  // — not merely hidden — the moment a refetch no longer shows the armed row:
-  // an ask that later reappears must need a fresh first tap (plan review
-  // round 1, finding 9). Cleared DURING render rather than from an effect —
-  // React's "adjust state when a prop changes" pattern (the `ToneChipPicker`
-  // precedent): the reset lands in the same commit as the refetch, so no frame
-  // ever shows a confirm for a row that is gone, and `react-hooks/set-state-in-
-  // effect` rejects the effect form. The guard makes it converge: the re-render
-  // it triggers sees `null` and does not write again.
-  const [armedAskId, setArmedAskId] = useState<string | null>(null);
-  if (armedAskId !== null && !live.some((row) => row.askId === armedAskId)) {
-    setArmedAskId(null);
-  }
 
   // Sendability, not readiness: an all-withheld batch is `ready` with nothing
   // to approve, and must not be offered a control that would send 0 messages.
@@ -991,6 +1022,8 @@ export function ApprovalPanel({
   const asks = askDisplay(mode);
 
   const { excluded, toggle, excludedIds, sendCount } = useExcludedAsks(sendable);
+
+  const { armedAskId, arm, disarm } = useArmedWithdrawal(rows);
 
   const { busy, error, approve, halt, regenerate, withdraw } = useLaneWrites({
     batchId,
@@ -1038,13 +1071,13 @@ export function ApprovalPanel({
       {asks === 'withdrawable' && (
         <WithdrawableAskList
           rows={rows}
-          pendingAskId={armedAskId}
-          onArm={setArmedAskId}
+          armedAskId={armedAskId}
+          onArm={arm}
           onWithdraw={(askId) => {
-            setArmedAskId(null);
+            disarm();
             withdraw(askId);
           }}
-          onKeep={() => setArmedAskId(null)}
+          onKeep={disarm}
           disabled={busy}
         />
       )}

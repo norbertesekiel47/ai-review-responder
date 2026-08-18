@@ -1098,6 +1098,31 @@ describe('withdraw control', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('disables every withdraw control while a lane write is in flight', () => {
+    // A POST that never settles keeps `busy` true for the rest of the case —
+    // the pending-fetch technique the RequestsClient suite uses for its
+    // loading state.
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>(() => {})));
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve'), rendered('2', 'Sam Okafor')]);
+
+    // Arm Dana FIRST, then start the write, so BOTH states of the control are
+    // on screen while it is in flight: Dana's Confirm/Keep pair and Sam's
+    // resting Withdraw. The write is the stop control — "any lane write", and
+    // the one that leaves an armed pair standing (confirming Dana's own
+    // withdrawal would disarm it before posting).
+    fireEvent.click(withdrawControls()[0]!);
+    expect(confirmWithdrawButton()).toHaveAccessibleName(/Dana Reeve/);
+    fireEvent.click(haltButton()!);
+
+    // Disabled, not gone: the arming survives, because the write has not
+    // answered and the row is still live on screen.
+    expect(confirmWithdrawButton()).toBeDisabled();
+    expect(keepButton()).toBeDisabled();
+    expect(withdrawControls()).toHaveLength(1);
+    expect(withdrawControls()[0]).toHaveAccessibleName(/Sam Okafor/);
+    expect(withdrawControls()[0]).toBeDisabled();
+  });
+
   it('no Withdraw control renders before approval', () => {
     renderPanel(sendLane({ batchState: 'built', ready: true }), [rendered('1', 'Dana Reeve')]);
     expect(withdrawControls()).toHaveLength(0);

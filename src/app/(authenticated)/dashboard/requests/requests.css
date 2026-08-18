@@ -351,56 +351,18 @@
   white-space: nowrap;
 }
 
-/* ---------- Per-ask regenerate control (#860) ---------- */
+/* ---------- Per-ask row controls: regenerate (#860), withdraw (#872) ---------- */
 
-/* Sits between the status and the message, on the name/status line. It never
-   grows: the status keeps its `margin-left: auto` push, so the control rides
-   the right edge with the counter beside it. */
-.rq-ask-regen {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-}
-
-/* .btn .btn-secondary, one step down: this is a row control beside a checkbox,
-   not a batch verb, so it must not compete with "Approve and send". */
-.rq-ask-regen-btn {
-  padding: 6px 13px;
-  font-size: 12.5px;
-  min-height: 32px;
-}
-.rq-ask-regen-btn:focus-visible {
-  outline: 2px solid var(--rw-sage-deep);
-  outline-offset: 2px;
-}
-
-/* Disabled must read as DISABLED, not as absent: an exhausted budget, a
-   deselected row and a regeneration in flight are all states the owner can
-   reason about and recover from, so the control stays visible and legible.
-   --rw-app-text-muted is the AA floor on this surface (~6.2:1); the fainter
-   --rw-app-text-soft is used for the rule only, never the word. */
-.rq-ask-regen-btn:disabled {
-  background: var(--rw-recess);
-  color: var(--rw-app-text-muted);
-  border-color: var(--rw-hair);
-  cursor: default;
-}
-.rq-ask-regen-btn:disabled:active { transform: none; }
-
-/* "2 of 3 today". Absent entirely when the budget is UNKNOWN — the panel must
-   never render an unknown budget as a spent one. */
-.rq-ask-regen-count {
-  font-size: 12px;
-  color: var(--rw-app-text-muted);
-  white-space: nowrap;
-}
-
-/* ---------- Per-ask withdraw control (#872) ---------- */
-
-/* Same seat as the regenerate control: between the status and the message, on
-   the name/status line, riding the right edge. Post-approval only — the
-   read-only list never renders it. */
+/* One seat, two controls, one set of rules. The regenerate control (pre-
+   approval) and the withdraw control (post-approval, in both its resting and
+   armed states — the armed group carries the same class) never appear on the
+   same row, and every declaration below is shared, so each rule is a selector
+   list rather than a second copy of the block: a change to the seat lands on
+   both, and neither can drift. Sits between the status and the message, on the
+   name/status line. It never grows: the status keeps its `margin-left: auto`
+   push, so the control rides the right edge with its counter — or its
+   question and two answers — beside it. */
+.rq-ask-regen,
 .rq-ask-withdraw {
   display: inline-flex;
   align-items: center;
@@ -408,41 +370,46 @@
   flex-wrap: wrap;
 }
 
-/* The armed state: the question and its two answers inline, same gap. */
-.rq-ask-withdraw-armed {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-}
-
-/* "Withdraw this message?" — same voice as the regen counter. */
-.rq-ask-withdraw-prompt {
-  font-size: 12px;
-  color: var(--rw-app-text-muted);
-  white-space: nowrap;
-}
-
-/* .btn .btn-secondary, one step down: a row control, not a batch verb, so it
-   must not compete with "Stop this batch". */
+/* .btn .btn-secondary, one step down: these are row controls beside a checkbox
+   or a status, not batch verbs, so they must not compete with "Approve and
+   send" or "Stop this batch". */
+.rq-ask-regen-btn,
 .rq-ask-withdraw-btn {
   padding: 6px 13px;
   font-size: 12.5px;
   min-height: 32px;
 }
+.rq-ask-regen-btn:focus-visible,
 .rq-ask-withdraw-btn:focus-visible {
   outline: 2px solid var(--rw-sage-deep);
   outline-offset: 2px;
 }
 
-/* Disabled (a lane write in flight) reads as DISABLED, not as absent. */
+/* Disabled must read as DISABLED, not as absent: an exhausted budget, a
+   deselected row, a regeneration in flight and a lane write in flight are all
+   states the owner can reason about and recover from, so the control stays
+   visible and legible. --rw-app-text-muted is the AA floor on this surface
+   (~6.2:1); the fainter --rw-app-text-soft is used for the rule only, never
+   the word. */
+.rq-ask-regen-btn:disabled,
 .rq-ask-withdraw-btn:disabled {
   background: var(--rw-recess);
   color: var(--rw-app-text-muted);
   border-color: var(--rw-hair);
   cursor: default;
 }
+.rq-ask-regen-btn:disabled:active,
 .rq-ask-withdraw-btn:disabled:active { transform: none; }
+
+/* "2 of 3 today" and "Withdraw this message?" — the same voice beside the
+   button. The counter is absent entirely when the budget is UNKNOWN — the
+   panel must never render an unknown budget as a spent one. */
+.rq-ask-regen-count,
+.rq-ask-withdraw-prompt {
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+  white-space: nowrap;
+}
 
 /* The message itself — what the owner is actually approving. `flex: 1 0 100%`
    drops it onto its own line under the name/status pair rather than competing
