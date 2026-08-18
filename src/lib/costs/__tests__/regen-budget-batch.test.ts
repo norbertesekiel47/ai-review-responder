@@ -221,3 +221,51 @@ describe('peekRegenBudgetBatch', () => {
     expect(mockRedis.eval).not.toHaveBeenCalled();
   });
 });
+
+/** The ask-keyed sibling door (#860), loaded the same dynamic way as
+ *  `loadBatchPeek` — the module reads env at import time and `beforeAll` sets
+ *  it, so a top-level import would bind before the env exists. */
+async function loadAskPeek(): Promise<
+  (askIds: readonly string[]) => Promise<Map<string, RegenBudgetStatusShape>>
+> {
+  const mod = await import('../tracker');
+  return (mod as unknown as {
+    peekAskRegenBudgetBatch: (
+      askIds: readonly string[],
+    ) => Promise<Map<string, RegenBudgetStatusShape>>;
+  }).peekAskRegenBudgetBatch;
+}
+
+describe('peekAskRegenBudgetBatch — key canonicalisation', () => {
+  // #860 round-1 finding R11. `askRegenBudgetKey` interpolates a caller-supplied
+  // id that arrives from a POST body, and nothing upstream folds its case: the
+  // route UUID-validates `askId` but does not normalise it, unlike the batch id
+  // which goes through `canonicalBatchId`. Before the fix the key carried the
+  // raw string, so `ASK-AAA` and `ask-aaa` were two counters and an owner earned
+  // a fresh 3/day budget per case variant.
+  //
+  // This is a budget BYPASS, not a display bug, and one test pins both doors:
+  // `askRegenBudgetKey` is the single owner of the key, so the worker's
+  // authoritative Lua INCR reads the same builder as this advisory peek.
+  it('folds a case-variant ask id onto one daily counter, so no variant mints a fresh budget', async () => {
+    mockRedis.mget.mockResolvedValueOnce(['3']);
+
+    const peekAskRegenBudgetBatch = await loadAskPeek();
+    const statuses = await peekAskRegenBudgetBatch(['ASK-AAA']);
+
+    // The caller finds the map under the id it PASSED: folding happens at the
+    // Redis key, not at the identity the panel renders and disables against.
+    expect(statuses.get('ASK-AAA')).toEqual({ used: 3, limit: 3, remaining: 0 });
+
+    // …but the key is lower-cased, which is the point — the spent counter
+    // written under `ask-aaa` is the one this read has to find.
+    expect(mockRedis.mget).toHaveBeenCalledWith(`regen:ask:ask-aaa:${todayDateStr()}`);
+
+    // Never the review-keyed namespace, and never a write.
+    expect(mockRedis.mget).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^regen:(?!ask:)/),
+    );
+    expect(mockRedis.incr).not.toHaveBeenCalled();
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+});
