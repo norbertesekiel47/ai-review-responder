@@ -15,6 +15,19 @@ if [ ! -f .feature/intake.json ]; then
   exit 1
 fi
 
+# Surface spelling (#867): a pre-escaped bracket ('\[id\]', '[[]id[]]') in
+# allowed_edit_surface matches NOTHING in either hook or ci:feature-surface —
+# the matchers escape '[' ']' themselves — so the guard is NOT armed for that
+# path: it blocks writes the intake explicitly lists, which reads as "surface
+# declared too narrowly" and invites a spurious amendment. feature-setup.sh
+# refuses this before commit; this re-check covers resumed and amended runs.
+BAD_SPELLINGS=$(jq -r '.allowed_edit_surface[]? | select(test("\\\\\\[|\\\\\\]|\\[\\[\\]|\\[\\]\\]"))' .feature/intake.json)
+if [ -n "$BAD_SPELLINGS" ]; then
+  echo "DISARMED: allowed_edit_surface pre-escapes a bracket — the hooks cannot match these entries. Write the PLAIN path (e.g. src/app/api/u/[token]/route.ts) in BOTH intake copies:"
+  printf '%s\n' "$BAD_SPELLINGS" | sed 's/^/  - /'
+  exit 1
+fi
+
 # Guard probe: a path outside any sane surface must be blocked (exit 2).
 # NOTE: a degenerate surface glob like "*" makes this probe report DISARMED —
 # correctly, since such a surface enforces nothing.
