@@ -52,15 +52,16 @@ _(updated below as the run advances)_
 
 - Step 3 (plan) — rounds 1–3 run; see the verdict line in `plan-round3-codex.md`
   and the "Plan lock" note appended to this file.
-- Step 4 (execute) — not started. First task runs ALONE (enforcement spot check),
-  then Task 2, then Tasks 3 ∥ 4, then Task 5.
+- Step 4 (execute) — IN PROGRESS (phase `executing`). Task 1 landed alone; the
+  enforcement spot check passed (4 files, all in surface, 18/18 titles verbatim,
+  tree clean). Order: Task 2 next, then Tasks 3 ∥ 4, then Task 5.
 
 ## Task ledger
 
 | # | Task | Status | Commit |
 |---|---|---|---|
-| 1 | Eval — 18 promised titles + extra cases, failing | pending | — |
-| 2 | Migration 109 + `ask_withdrawn` + `withdrawAsk`/`classifyWithdrawal` | pending | — |
+| 1 | Eval — 18 promised titles + extra cases, failing | **done** (red by design: integration `beforeAll` needs 109; routes file fails to load until Task 3; 8/9 panel cases red) | `40acd7e5` |
+| 2 | Migration 109 + `ask_withdrawn` + `withdrawAsk`/`classifyWithdrawal` | **done** — integration 46/46 RAN against the local DB, unit 7/7; `haltBatch` byte-identical to base; 109 applied LOCAL-ONLY (not staging/prod) | `12a6e4bb` |
 | 3 | `readBatchAsk` + withdraw route + directory rows | pending | — |
 | 4 | Panel: `WithdrawableAskList` + lane write + copy + CSS | pending | — |
 | 5 | Docs sweep + handoff | pending | — |
