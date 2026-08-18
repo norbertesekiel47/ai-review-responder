@@ -139,9 +139,19 @@ if (!intake || typeof intake !== 'object' || Array.isArray(intake)) {
       errors.push('allowed_edit_surface must be non-empty for implementation work');
     }
     const degenerateGlobs = new Set(['*', '**', '**/*']);
+    // #867: brackets are ALWAYS literal in a surface glob — both edit-surface
+    // guards and ci:feature-surface escape them at match time — so a
+    // pre-escaped Next.js dynamic segment ('\[id\]', '[[]id[]]') matches
+    // nothing anywhere. The plain path is the only spelling.
+    const preEscapedBracket = /\\\[|\\\]|\[\[\]|\[\]\]/;
     for (const glob of intake.allowed_edit_surface ?? []) {
       if (degenerateGlobs.has(glob.trim())) {
         errors.push(`allowed_edit_surface contains a degenerate glob: ${glob}`);
+      }
+      if (preEscapedBracket.test(glob)) {
+        errors.push(
+          `allowed_edit_surface pre-escapes a bracket (matches nothing — write the plain path, e.g. src/app/api/u/[token]/route.ts): ${glob}`,
+        );
       }
     }
     if (

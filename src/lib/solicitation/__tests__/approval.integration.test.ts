@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
@@ -24,6 +24,36 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
+
+// DELEGATING spies over the three collaborators the admin arm's ORDER claim is
+// about (#865). Each forwards to the real implementation, so every pre-existing
+// case in this file keeps running against real Postgres; the spies exist so a
+// case can name WHICH object a collaborator was handed and WHEN it was called.
+// "Both rows exist" is not sufficient evidence for either claim: it passes when
+// the audit ran on the base client, and it passes when the audit ran AFTER
+// recordStep — the lock-order regression.
+const spies = vi.hoisted(() => ({
+  recordStep: vi.fn(),
+  closeBatchIfSettled: vi.fn(),
+  writeAccountAuditLog: vi.fn(),
+}));
+
+vi.mock('@/lib/agents/run-spine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agents/run-spine')>();
+  spies.recordStep.mockImplementation(actual.recordStep);
+  return { ...actual, recordStep: spies.recordStep };
+});
+vi.mock('../outreach', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../outreach')>();
+  spies.closeBatchIfSettled.mockImplementation(actual.closeBatchIfSettled);
+  return { ...actual, closeBatchIfSettled: spies.closeBatchIfSettled };
+});
+vi.mock('@/lib/audit/log', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/audit/log')>();
+  spies.writeAccountAuditLog.mockImplementation(actual.writeAccountAuditLog);
+  return { ...actual, writeAccountAuditLog: spies.writeAccountAuditLog };
+});
+
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { acquireSolicitationBatchLock } from '../batch-builder';
 import { insertOutreachRender, type InsertOutreachRenderInput } from '../outreach';
@@ -34,6 +64,13 @@ import {
   withdrawAsk,
   type RequestAskRegenerationResult,
 } from '../approval';
+// NAMESPACE import for the admin arm (#865). A named `import { adminHaltBatch }`
+// of an export that does not exist yet fails the whole FILE at collection —
+// vite's ssr transform validates importedNames — which would take every
+// pre-existing case in this suite down with it and run none of the titles this
+// eval promises. A namespace access is `undefined` until Task 1 lands, so each
+// admin case fails on its own, naming the missing export.
+import * as approvalModule from '../approval';
 
 // Live-DB suite for the two owner approval-lane writers (#629 T3/T4). Applies
 // NO migration SQL: `pnpm test:db:setup` provisions the schema and this file
@@ -53,6 +90,13 @@ const businessId = randomUUID();
 // can probe the boundary a single-key `WHERE id = …` would wrongly pass: the
 // right owner, reaching for a batch that belongs to their other location.
 const siblingBusinessId = randomUUID();
+// The acting RepWorth operator (D1). Seeded as a `users` row with role 'admin'
+// and NO account_id: `halted_by` is a FK to the GLOBAL users table, not a
+// tenant member, and `halt_reason='admin_halt'` — not this id — is the
+// discriminator for actor class.
+const adminUserId = randomUUID();
+/** Required free-text note (D10); it rides the audit payload, never halt_reason. */
+const ADMIN_NOTE = 'Owner called support and asked us to stop this batch.';
 
 let db: postgresType.Sql | undefined;
 // The interleaving case holds an uncommitted child-render transaction open
@@ -136,6 +180,22 @@ async function seedBatch(builtAgo: string): Promise<{ batchId: string; uploadId:
     )
   `;
   return { batchId, uploadId };
+}
+
+/** A batch the builder has not finished: `built_at IS NULL`, state `pending`.
+ *  Shared by BOTH halt verbs' pending cases — the guard is now identical. */
+async function seedUnbuiltBatch(): Promise<string> {
+  const uploadId = await seedUpload();
+  const batchId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at, built_at
+    ) VALUES (
+      ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${uploadId}::uuid, NOW() - INTERVAL '1 minute', NULL
+    )
+  `;
+  return batchId;
 }
 
 async function seedSendParent(batchId: string): Promise<string> {
@@ -577,6 +637,125 @@ function stepDetail(row: StepRow): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+interface AuditRow {
+  event_type: string;
+  actor_user_id: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  location_id: string | null;
+  account_id: string;
+  payload: unknown;
+}
+
+/** Every audit row this account wrote about one batch, oldest first. */
+async function readAuditRows(batchId: string): Promise<AuditRow[]> {
+  return sql()<AuditRow[]>`
+    SELECT event_type,
+           actor_user_id::text AS actor_user_id,
+           entity_type,
+           entity_id,
+           location_id::text AS location_id,
+           account_id::text AS account_id,
+           payload
+    FROM account_audit_log
+    WHERE account_id = ${accountId()}::uuid
+      AND entity_id = ${batchId}
+    ORDER BY created_at, id
+  `;
+}
+
+/** Postgres.js behind PgBouncer can hand back JSONB as a string. */
+function auditPayload(row: AuditRow): Record<string, unknown> {
+  const parsed: unknown = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('account_audit_log payload is not an object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+interface RecordedQuery {
+  /** Static template text with every bound value elided. */
+  text: string;
+  /** True when the statement was issued on the TRANSACTION, not the pool. */
+  onTransaction: boolean;
+}
+
+interface InstrumentedExecutor {
+  executor: postgresType.Sql;
+  queries: RecordedQuery[];
+  /** One entry per `begin` — the exact objects a collaborator should receive. */
+  transactions: postgresType.TransactionSql[];
+}
+
+/**
+ * A `Proxy` over a REAL `Sql` that records every statement and, crucially, WHICH
+ * receiver issued it — the base client or the transaction the writer opened.
+ *
+ * Why this and not "assert both rows exist": that weaker check passes for two
+ * implementations the plan calls regressions. An audit written on the base
+ * client commits independently of the latch, so the row exists after a rollback
+ * that should have taken it. An audit written AFTER `recordStep` also leaves
+ * both rows behind, while inverting the lock order (advisory -> batch row ->
+ * `agent_runs`) this file's header calls an ABBA deadlock against the
+ * offboarding purge. Only receiver identity plus call order separates them.
+ *
+ * A Proxy over a real `Sql`, never a `{ begin } as unknown as Sql` cast, and
+ * every leading `begin` argument is forwarded — same contract, and the same
+ * reasoning, as `helpers/abort-injection.ts`.
+ */
+function instrumentedExecutor(base: postgresType.Sql): InstrumentedExecutor {
+  const queries: RecordedQuery[] = [];
+  const transactions: postgresType.TransactionSql[] = [];
+
+  const record = (argArray: unknown[], onTransaction: boolean): void => {
+    const strings = argArray[0] as TemplateStringsArray | undefined;
+    if (strings && Array.isArray(strings.raw)) {
+      queries.push({ text: strings.join(' ? '), onTransaction });
+    }
+  };
+
+  const bindTrap = (target: object, prop: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, prop);
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  };
+
+  const wrapTransaction = (tx: postgresType.TransactionSql): postgresType.TransactionSql => {
+    const proxy = new Proxy(tx, {
+      apply(target, thisArg, argArray) {
+        record(argArray, true);
+        return Reflect.apply(target as unknown as (...args: unknown[]) => unknown, thisArg, argArray);
+      },
+      get: bindTrap,
+    }) as postgresType.TransactionSql;
+    transactions.push(proxy);
+    return proxy;
+  };
+
+  const executor = new Proxy(base, {
+    apply(target, thisArg, argArray) {
+      record(argArray, false);
+      return Reflect.apply(target as unknown as (...args: unknown[]) => unknown, thisArg, argArray);
+    },
+    get(target, prop) {
+      if (prop !== 'begin') return bindTrap(target, prop);
+      return (...args: unknown[]) => {
+        const callback = args[args.length - 1] as (
+          tx: postgresType.TransactionSql,
+        ) => Promise<unknown>;
+        const leading = args.slice(0, -1);
+        return (target.begin as (...forwarded: unknown[]) => Promise<unknown>)(
+          ...leading,
+          (tx: postgresType.TransactionSql) => callback(wrapTransaction(tx)),
+        );
+      };
+    },
+  }) as postgresType.Sql;
+
+  return { executor, queries, transactions };
+}
+
 async function readRunStatus(runId: string): Promise<string> {
   const [row] = await sql()<{ status: string }[]>`
     SELECT status FROM agent_runs
@@ -627,7 +806,24 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       name: 'Approval Sibling Location',
       isPrimary: false,
     });
+    // No `account_id`: a RepWorth operator is not a member of the account they
+    // act on. That is the whole content of D1 and of invariant #8's carve-out
+    // for the admin control plane.
+    await db`
+      INSERT INTO users (id, name, email, role)
+      VALUES (
+        ${adminUserId}::uuid, 'RepWorth Operator',
+        ${`admin-${adminUserId}@test.local`}, 'admin'
+      )
+    `;
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
+
+  beforeEach(() => {
+    // mockClear, NOT mockReset: the delegating implementations set in the
+    // module factories have to survive, or every pre-existing case in this file
+    // would start running against a no-op collaborator.
+    for (const spy of Object.values(spies)) spy.mockClear();
+  });
 
   afterEach(async () => {
     await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
@@ -640,6 +836,9 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       WHERE account_id = ${accountId()}::uuid
         AND business_id = ${businessId}::uuid
     `;
+    // The admin arm's durable receipt. Cleared per case so cardinality
+    // assertions ("exactly one audit row") mean this case's rows.
+    await sql()`DELETE FROM account_audit_log WHERE account_id = ${accountId()}::uuid`;
   }, 30_000);
 
   afterAll(async () => {
@@ -647,6 +846,10 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       if (db) {
         await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
         await cleanupLocation(db, siblingBusinessId);
+        // account_audit_log.actor_user_id is an FK with no cascade, so any
+        // stranded row has to go before the operator it names.
+        await db`DELETE FROM account_audit_log WHERE actor_user_id = ${adminUserId}::uuid`;
+        await db`DELETE FROM users WHERE id = ${adminUserId}::uuid`;
         if (tenant) await cleanupTenantAccount(db, tenant);
         if (foreignTenant) await cleanupTenantAccount(db, foreignTenant);
       }
@@ -1193,6 +1396,44 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         halted_by: userId(),
       });
       expect((await readBatch(batchId)).approved_at).toBeNull();
+    });
+
+    it('haltBatch returns not_haltable for an unbuilt pending batch and leaves the builder able to stamp built_at', async () => {
+      // Branch review round 1, F2. This guard shipped admin-only, deferred on
+      // the argument that the owner hole needed a stop control on a building
+      // batch. The premise was false: `readLatestBatch` returns the pending
+      // batch's id to the authenticated owner, and the owner halt route accepts
+      // any valid id from its body — so an owner could GET the id, POST it, and
+      // latch a batch the builder had not finished. A React button being absent
+      // is not a server-side lifecycle invariant. See deviations D9.
+      const batchId = await seedUnbuiltBatch();
+      const before = await snapshotBatch(batchId);
+
+      const result = await haltBatch(sql(), {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        haltedByUserId: userId(),
+      });
+
+      expect(result).toEqual({ status: 'not_haltable', state: 'pending' });
+      expect(await snapshotBatch(batchId)).toBe(before);
+
+      // The consequence, asserted rather than described: the builder's own CAS
+      // still succeeds. 091:176 is `(halted_at IS NULL OR built_at IS NULL OR
+      // halted_at >= built_at)`, so a latch here would pass at halt time and
+      // make THIS statement throw instead — inside batch-builder, far from the
+      // route that caused it.
+      const stamped = await sql()`
+        UPDATE solicitation_batches
+        SET built_at = NOW()
+        WHERE id = ${batchId}::uuid
+          AND account_id = ${accountId()}::uuid
+          AND business_id = ${businessId}::uuid
+          AND built_at IS NULL
+        RETURNING id
+      `;
+      expect(stamped.count).toBe(1);
     });
   });
 
@@ -2184,6 +2425,387 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       ]);
       expect(await snapshotBatch(batchId)).toBe(batchBefore);
       expect(await snapshotOutreach(batchId)).toEqual(outreachBefore);
+    });
+  });
+
+  // ── adminHaltBatch — the admin arm of the Halt latch (#865) ───────────────
+  describe('adminHaltBatch', () => {
+    /** The admin arm's input, with only the fields a case varies spelled out. */
+    function adminInput(
+      batchId: string,
+      overrides: { accountId?: string; businessId?: string; note?: string } = {},
+    ): {
+      batchId: string;
+      accountId: string;
+      businessId: string;
+      actorUserId: string;
+      note: string;
+    } {
+      return {
+        batchId,
+        accountId: overrides.accountId ?? accountId(),
+        businessId: overrides.businessId ?? businessId,
+        actorUserId: adminUserId,
+        note: overrides.note ?? ADMIN_NOTE,
+      };
+    }
+
+    it('adminHaltBatch latches admin_halt and records the acting admin in halted_by', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      expect(result).toMatchObject({ status: 'halted', cancelledCount: 2 });
+      // There is deliberately NO `reason` field on this result (plan §3.1): it
+      // is always `admin_halt`, and carrying it would invite a caller to
+      // believe it varies. That is the shape difference from HaltBatchResult,
+      // which must report a DERIVED reason.
+      expect(result).not.toHaveProperty('reason');
+      expect(await readHalt(batchId)).toMatchObject({
+        halt_reason: 'admin_halt',
+        halted_by: adminUserId,
+      });
+      // The operator is not a member of the account they acted on — `halted_by`
+      // is a FK to the global users table (D1), not to a tenant membership.
+      expect(await readHalt(batchId)).not.toMatchObject({ halted_by: userId() });
+    });
+
+    it('adminHaltBatch is monotone — a second halt adds neither a second audit row nor a second batch_halted spine step', async () => {
+      const { batchId, parentRunId } = await seedRenderedBatch({ renders: 2 });
+
+      const first = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+      const latchedAt = (await readHalt(batchId)).halted_at;
+      const second = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      expect(first).toMatchObject({ status: 'halted', cancelledCount: 2 });
+      expect(second).toEqual({ status: 'already_halted' });
+      // The CAS on `halted_at IS NULL` is what makes the second call inert.
+      // Without it the latch restamps, the audit trail records the wrong
+      // instant, and the account collects a second "support stopped this"
+      // receipt for one act.
+      expect(latchedAt).not.toBeNull();
+      expect((await readHalt(batchId)).halted_at).toBe(latchedAt);
+      expect(await readSteps(parentRunId, 'batch_halted')).toHaveLength(1);
+      expect(await readAuditRows(batchId)).toHaveLength(1);
+    });
+
+    it('adminHaltBatch leaves the send parent running while a sending outreach row remains live', async () => {
+      const { batchId, uploadId, parentRunId } = await seedRenderedBatch({ renders: 1 });
+      const sendingAsk = await seedSendAsk(batchId, uploadId);
+      await seedAttempt({ batchId, ask: sendingAsk, deliveryStatus: 'sending' });
+      await stampSendingBatch(batchId);
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      // The in-flight row is still live, so the join answers `not_settled` and
+      // the batch does NOT close — the row that resolves itself will close it.
+      expect(result).toMatchObject({
+        status: 'halted',
+        cancelledCount: 1,
+        close: { status: 'not_settled', liveCount: 1 },
+      });
+      expect(await readRunStatus(parentRunId)).toBe('running');
+      expect((await readBatch(batchId)).send_closed_at).toBeNull();
+    });
+
+    it('adminHaltBatch cancels rendered and queued outreach rows with disposition_reason admin_halt', async () => {
+      const { batchId, uploadId, outreachIds } = await seedRenderedBatch({ renders: 1 });
+      const queuedAsk = await seedSendAsk(batchId, uploadId);
+      const queuedId = await seedAttempt({ batchId, ask: queuedAsk, deliveryStatus: 'queued' });
+      const sendingAsk = await seedSendAsk(batchId, uploadId);
+      const sendingId = await seedAttempt({ batchId, ask: sendingAsk, deliveryStatus: 'sending' });
+      await stampSendingBatch(batchId);
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      expect(result).toMatchObject({ status: 'halted', cancelledCount: 2 });
+      const rows = await readOutreach(batchId);
+      for (const id of [outreachIds[0]!, queuedId]) {
+        expect(rows.find((row) => row.id === id)).toMatchObject({
+          delivery_status: 'cancelled',
+          disposition_reason: 'admin_halt',
+        });
+      }
+      // `sending` is past the point of no return. Halt means "no further
+      // sends", not "undo a dispatch the provider may already have accepted" —
+      // and 108's status/reason CHECK would take `admin_halt` on this row
+      // happily, so only this assertion catches a widened cancel predicate.
+      expect(rows.find((row) => row.id === sendingId)).toMatchObject({
+        delivery_status: 'sending',
+        disposition_reason: null,
+      });
+    });
+
+    it('adminHaltBatch records solicitation_batch_admin_halted with the note, actor, entity, location, state_at_halt and cancelled_count', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      const rows = await readAuditRows(batchId);
+      expect(rows).toHaveLength(1);
+      // `<domain>_<verb-past>` (D6), explicitly admin-scoped so a future
+      // owner-arm audit row cannot collide with it.
+      expect(rows[0]!).toMatchObject({
+        event_type: 'solicitation_batch_admin_halted',
+        actor_user_id: adminUserId,
+        entity_type: 'solicitation_batch',
+        entity_id: batchId,
+        location_id: businessId,
+        account_id: accountId(),
+      });
+      expect(auditPayload(rows[0]!)).toMatchObject({
+        note: ADMIN_NOTE,
+        halt_reason: 'admin_halt',
+        state_at_halt: 'built',
+        cancelled_count: 2,
+      });
+      // The note lands in the payload and NOWHERE else: `halt_reason` is fixed
+      // by the route's identity (ticket constraint 2).
+      expect((await readHalt(batchId)).halt_reason).toBe('admin_halt');
+    });
+
+    it('adminHaltBatch rolls back the latch, the outreach cancellations and the audit row when writeAccountAuditLog fails', async () => {
+      const { batchId, parentRunId } = await seedRenderedBatch({ renders: 2 });
+      const before = await snapshotOutreach(batchId);
+      // A JS rejection is the right injection HERE, unlike the aborted-
+      // transaction cases that need helpers/abort-injection.ts: the claim under
+      // test is that postgres.js rolls the transaction back when the `sql.begin`
+      // callback rejects, not that the writer survives an already-poisoned one.
+      spies.writeAccountAuditLog.mockRejectedValueOnce(new Error('audit sink unavailable'));
+
+      await expect(
+        approvalModule.adminHaltBatch(sql(), adminInput(batchId)),
+      ).rejects.toThrow('audit sink unavailable');
+
+      // The latch, the cancellations AND the audit row all go together — the
+      // audit write is inside the latch transaction (D7), not beside it.
+      expect(await readHalt(batchId)).toMatchObject({
+        halted_at: null,
+        halt_reason: null,
+        halted_by: null,
+      });
+      expect(await snapshotOutreach(batchId)).toEqual(before);
+      expect(await readAuditRows(batchId)).toHaveLength(0);
+      // And nothing reached the run spine. The audit write sits BEFORE the
+      // spine calls precisely so a failing audit cannot leave a `batch_halted`
+      // step behind on a batch that was never halted.
+      expect(await readSteps(parentRunId, 'batch_halted')).toHaveLength(0);
+      expect(spies.recordStep).not.toHaveBeenCalled();
+      expect(spies.closeBatchIfSettled).not.toHaveBeenCalled();
+      expect(await readRunStatus(parentRunId)).toBe('running');
+    });
+
+    it('adminHaltBatch writes its audit row before recordStep and closeBatchIfSettled, on the same transaction', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+      const { executor, queries, transactions } = instrumentedExecutor(sql());
+
+      await approvalModule.adminHaltBatch(executor, adminInput(batchId));
+
+      // RECEIVER IDENTITY. One transaction was opened, and all three
+      // collaborators were handed THAT object — not the pooled client the
+      // caller passed in. An audit written on the base client commits
+      // independently of the latch and survives its rollback.
+      expect(transactions).toHaveLength(1);
+      expect(spies.writeAccountAuditLog).toHaveBeenCalledTimes(1);
+      const auditReceiver = spies.writeAccountAuditLog.mock.calls[0]![0] as unknown;
+      expect(auditReceiver).toBe(transactions[0]);
+      expect(auditReceiver).not.toBe(executor);
+      expect(spies.recordStep.mock.calls[0]![0]).toBe(auditReceiver);
+      expect(spies.closeBatchIfSettled.mock.calls[0]![0]).toBe(auditReceiver);
+
+      // CALL ORDER. Lock order is advisory -> `solicitation_batches` row ->
+      // `agent_runs`, so every run-spine call happens LAST; an audit written
+      // after recordStep inverts it and is the ABBA deadlock this file's header
+      // describes against the offboarding purge.
+      const auditAt = spies.writeAccountAuditLog.mock.invocationCallOrder[0]!;
+      expect(auditAt).toBeLessThan(spies.recordStep.mock.invocationCallOrder[0]!);
+      expect(auditAt).toBeLessThan(spies.closeBatchIfSettled.mock.invocationCallOrder[0]!);
+
+      // And the statement itself: on the transaction, exactly once, before the
+      // spine's step INSERT. Asserted on the query log as well as on the spies
+      // so a future direct `INSERT INTO account_audit_log` — which CLAUDE.md's
+      // "Audit writes" rule forbids — cannot slip past a spy that is no longer
+      // on the path.
+      const auditQueries = queries.filter((query) =>
+        /INSERT INTO account_audit_log/.test(query.text));
+      expect(auditQueries).toHaveLength(1);
+      expect(auditQueries[0]!.onTransaction).toBe(true);
+      const auditIndex = queries.findIndex((query) =>
+        /INSERT INTO account_audit_log/.test(query.text));
+      const stepIndex = queries.findIndex((query) =>
+        /INSERT INTO agent_run_steps/.test(query.text));
+      expect(auditIndex).toBeGreaterThanOrEqual(0);
+      expect(stepIndex).toBeGreaterThan(auditIndex);
+    });
+
+    it('adminHaltBatch delegates parent settlement to closeBatchIfSettled and never updates agent_runs directly', async () => {
+      const { batchId, parentRunId } = await seedRenderedBatch({ renders: 2 });
+      const { executor, queries } = instrumentedExecutor(sql());
+      // The seam is STUBBED for this one call. With the real join in place the
+      // parent's terminalizing `UPDATE agent_runs` is issued BY the seam, and
+      // "the latch never updates agent_runs itself" would be unprovable from
+      // the query log. Asserting the final parent state instead would pass a
+      // direct terminalization, which is exactly the regression at issue.
+      spies.closeBatchIfSettled.mockResolvedValueOnce({ status: 'not_settled', liveCount: 0 });
+
+      const result = await approvalModule.adminHaltBatch(
+        executor,
+        // Mixed case on purpose: `agent_runs.subject_id` is TEXT, so every
+        // compare against it is case-SENSITIVE. The seam must receive the
+        // CANONICAL id or its own parent lookup misses (D3).
+        adminInput(batchId.toUpperCase()),
+      );
+
+      expect(result).toMatchObject({
+        status: 'halted',
+        close: { status: 'not_settled', liveCount: 0 },
+      });
+      expect(spies.closeBatchIfSettled).toHaveBeenCalledTimes(1);
+      const [seamTransaction, seamInput] = spies.closeBatchIfSettled.mock.calls[0]! as [
+        unknown,
+        unknown,
+      ];
+      expect(seamTransaction).toBe(spies.recordStep.mock.calls[0]![0]);
+      expect(seamInput).toEqual({
+        batchId,
+        accountId: accountId(),
+        businessId,
+      });
+      expect(queries.filter((query) => /UPDATE\s+agent_runs/i.test(query.text))).toHaveLength(0);
+      expect(await readRunStatus(parentRunId)).toBe('running');
+    });
+
+    it('adminHaltBatch still calls closeBatchIfSettled for a parentless batch', async () => {
+      // Every candidate withheld at decision time means the builder skipped the
+      // generation enqueue outright, so this batch has no Send batch parent and
+      // never will. The spine step is skipped; the JOIN must still run.
+      const { batchId, uploadId } = await seedBatch('2 hours');
+      const ask = await seedSendAsk(batchId, uploadId);
+      await seedAttempt({ batchId, ask, deliveryStatus: 'rendered' });
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      expect(result).toMatchObject({
+        status: 'halted',
+        cancelledCount: 1,
+        close: { status: 'no_send_parent' },
+      });
+      expect(spies.recordStep).not.toHaveBeenCalled();
+      expect(spies.closeBatchIfSettled).toHaveBeenCalledTimes(1);
+      // The audit row is NOT conditional on a parent existing: it is the
+      // durable "a RepWorth operator did this" record, and a parentless batch
+      // is the case where it is the ONLY record.
+      expect(await readAuditRows(batchId)).toHaveLength(1);
+      expect(await readHalt(batchId)).toMatchObject({
+        halt_reason: 'admin_halt',
+        halted_by: adminUserId,
+      });
+    });
+
+    it('adminHaltBatch halts a batch addressed by a mixed-case id and closes its send parent', async () => {
+      const { batchId, parentRunId } = await seedRenderedBatch({ renders: 1 });
+
+      const result = await approvalModule.adminHaltBatch(
+        sql(),
+        adminInput(batchId.toUpperCase()),
+      );
+
+      // `closed` rather than `no_send_parent` is the whole regression:
+      // closeBatchIfSettled resolves the parent with the same TEXT compare, so
+      // it has to receive the canonical id too.
+      expect(result).toMatchObject({
+        status: 'halted',
+        cancelledCount: 1,
+        close: { status: 'closed', disposition: 'halted', parentStatus: 'cancelled' },
+      });
+      expect(await readSteps(parentRunId, 'batch_halted')).toHaveLength(1);
+      expect(await readRunStatus(parentRunId)).toBe('cancelled');
+      // The receipt names the canonical id, not the request's casing — an
+      // entity_id that varies by caller spelling is not a joinable key.
+      const rows = await readAuditRows(batchId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.entity_id).toBe(batchId);
+    });
+
+    it('adminHaltBatch returns not_found for a real batch id under the wrong tenant', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+      const foreign = foreignTenantSeed();
+      const batchBefore = await snapshotBatch(batchId);
+      const outreachBefore = await snapshotOutreach(batchId);
+
+      const results = [
+        await approvalModule.adminHaltBatch(
+          sql(),
+          adminInput(batchId, { accountId: foreign.accountId }),
+        ),
+        await approvalModule.adminHaltBatch(
+          sql(),
+          adminInput(batchId, { businessId: siblingBusinessId }),
+        ),
+      ];
+
+      // Two boundaries. The foreign account is the obvious one; the SECOND is
+      // the point — the right account reaching for its other location is what a
+      // single-key `WHERE id = …` would wrongly halt. A uniform not_found also
+      // keeps a foreign batch id indistinguishable from an unknown one, which
+      // is what the route's 404 depends on.
+      expect(results).toEqual([{ status: 'not_found' }, { status: 'not_found' }]);
+      expect(await snapshotBatch(batchId)).toBe(batchBefore);
+      expect(await snapshotOutreach(batchId)).toEqual(outreachBefore);
+      expect(await readAuditRows(batchId)).toHaveLength(0);
+    });
+
+    it('adminHaltBatch returns not_haltable for a closed batch', async () => {
+      const { batchId, uploadId } = await seedBatch('1 hour');
+      await seedSendParent(batchId);
+      const ask = await seedSendAsk(batchId, uploadId);
+      await seedAttempt({
+        batchId,
+        ask,
+        deliveryStatus: 'withheld',
+        dispositionReason: 'lint_failed',
+      });
+      await stampClosedBatch(batchId);
+      const before = await snapshotBatch(batchId);
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      // Closed is terminal — there is nothing left to stop, and latching over
+      // it would rewrite the disposition of a batch that already reported.
+      expect(result).toEqual({ status: 'not_haltable', state: 'closed' });
+      expect(await snapshotBatch(batchId)).toBe(before);
+      expect(await readAuditRows(batchId)).toHaveLength(0);
+    });
+
+    it('adminHaltBatch returns not_haltable for an unbuilt pending batch and leaves the builder able to stamp built_at', async () => {
+      // D11. 091:176 reads `(halted_at IS NULL OR built_at IS NULL OR
+      // halted_at >= built_at)`, so halting a pending batch PASSES the CHECK at
+      // halt time through the `built_at IS NULL` arm — and then
+      // batch-builder.ts:782-786 stamps built_at = NOW() guarded only on
+      // `built_at IS NULL`, producing halted_at < built_at and a CHECK
+      // violation that throws inside the builder, far from here.
+      const batchId = await seedUnbuiltBatch();
+      const before = await snapshotBatch(batchId);
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminInput(batchId));
+
+      expect(result).toEqual({ status: 'not_haltable', state: 'pending' });
+      expect(await snapshotBatch(batchId)).toBe(before);
+      expect(await readAuditRows(batchId)).toHaveLength(0);
+
+      // The consequence, asserted rather than described: the builder's own CAS
+      // still succeeds. This is the assertion that would fail if the guard were
+      // dropped, and it fails HERE rather than inside batch-builder.
+      const stamped = await sql()`
+        UPDATE solicitation_batches
+        SET built_at = NOW()
+        WHERE id = ${batchId}::uuid
+          AND account_id = ${accountId()}::uuid
+          AND business_id = ${businessId}::uuid
+          AND built_at IS NULL
+        RETURNING id
+      `;
+      expect(stamped.count).toBe(1);
     });
   });
 });

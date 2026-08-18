@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Issue #665 changes the fail-closed detector that decides whether destructive account purge may be marked complete when physical postal-address PII survives.",
+    "Issue #662 intentionally extends an AAL2-gated admin query across tenants to resolve a correction actor from users; an incorrect scope or wire shape could expose identity data."
+  ],
+  "surface": "mixed",
+  "db_touching": true,
+  "goal": "After an admin takes the Correction path, the suppressions console shows one current Suppression ledger state with a readable correction actor, and account-offboarding verification detects any surviving Attested postal address tuple before purge completion.",
+  "non_goals": [
+    "Change the write-side account purge or its 30-day lifecycle.",
+    "Add a schema migration, foreign key, or denormalized actor snapshot to correction records.",
+    "Redesign the admin suppressions console or remediate its pre-existing palette and layout.",
+    "Change Correction path authorization, atomicity, no-re-subscribe framing, or logging posture.",
+    "Commit, push, deploy, merge, or close either GitHub issue without separate authority."
+  ],
+  "user_visible_behavior": [
+    "A successful or already-removed correction clears any stale manual-entry success/error receipt before the invalidated Suppression ledger query re-renders current state.",
+    "PRIOR CORRECTIONS displays the removing admin's name and email when the users row exists, and falls back to the raw UUID when it does not.",
+    "Purge verification reports a businesses violation when any of the five Attested postal address columns survives and reports none after the tuple is cleared."
+  ],
+  "invariants": [
+    "The Correction path remains admin-only behind requireAdminWithAal2 and remains error correction, never re-subscribe.",
+    "The correction audit record retains a plain removed_by_user_id with no foreign key and remains valid after the user row is gone.",
+    "The suppression lookup remains a POST with the Normalized handle in the body and never logs or places the handle in a URL.",
+    "Cross-tenant reads remain explicit, read-only, allowlisted, and limited to the AAL2-gated admin servicing surface.",
+    "The businesses purge detector lists all five attestation columns even though the current database CHECK makes the tuple all-NULL or all-present.",
+    "A failed correction does not invalidate the query, drop the selected live row, or claim that the suppression was removed.",
+    "No account-offboarding purge write statement changes."
+  ],
+  "edge_cases": [
+    "A deleted or otherwise missing users row renders the correction's removed_by_user_id rather than an empty actor cell.",
+    "Both corrected and already_removed are successful mutation outcomes and clear the stale entry receipt; a genuine correction failure leaves current UI state intact.",
+    "A previously attested address that the purge cleared yields zero businesses violations.",
+    "An artificially restored attestation tuple with google_place_address still NULL yields one businesses violation attributable to the new predicate."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/account-offboarding/purge-verification.ts businesses must_be_scrubbed predicate paired with worker/jobs/account-offboarding/purge-stages.ts.",
+    "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts #656 postal-attestation fixtures and real verification seam.",
+    "src/lib/admin/suppressions-service.ts lookupSuppressions as the single cross-tenant servicing query and DTO owner.",
+    "src/app/admin/suppressions/SuppressionsClient.tsx correction onSuccess invalidation and DataTable correction columns.",
+    "scripts/ci/tenant-scope-allowlist.ts explicit admin-after-require-role entries for cross-tenant suppression servicing."
+  ],
+  "test_seams": [
+    "verificationQuery('businesses', input, sql) against the live local test database after clearing and artificially restoring an Attested postal address tuple.",
+    "lookupSuppressions(sql, rawEmail) against live correction and users rows, including a missing-user fallback record.",
+    "SuppressionsClient through its public form controls and rendered mutation/query states in jsdom."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/account-offboarding/purge-verification.ts",
+    "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts",
+    "src/lib/admin/suppressions-service.ts",
+    "src/lib/admin/__tests__/suppressions-correction.integration.test.ts",
+    "src/app/admin/suppressions/SuppressionsClient.tsx",
+    "src/app/admin/suppressions/__tests__/SuppressionsClient.test.tsx",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "the businesses purge verifier passes after clearing an attested postal address and fails when the tuple survives",
+    "lookupSuppressions resolves a correction actor to name and email and falls back to the raw UUID when the users row is gone",
+    "clears the stale manual-entry receipt after a successful correction",
+    "renders the correction actor name and email instead of a raw UUID"
+  ],
+  "verification_commands": [
+    "pnpm exec vitest run src/app/admin/suppressions/__tests__/SuppressionsClient.test.tsx src/lib/admin/__tests__/suppressions-service.test.ts",
+    "pnpm exec vitest run src/lib/admin/__tests__/suppressions-correction.integration.test.ts worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts",
+    "pnpm ci:tenant-scope",
+    "pnpm build"
+  ],
+  "estimated_prod_lines": 55,
+  "estimated_test_lines": 125,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the detector predicates, actor-resolution join/DTO projection, tenant-scope allowlist entry, and client receipt reset together. No schema or stored data changes require rollback; the prior UI and verifier behavior return immediately.",
+  "observability": [
+    "A surviving postal-attestation tuple produces a businesses PurgeVerificationIssue and prevents the purge from being stamped complete.",
+    "The AAL2 admin PRIOR CORRECTIONS table shows a name/email label, or the durable UUID fallback when identity resolution is unavailable.",
+    "The existing current-state lookup becomes the only suppression-state claim remaining after a successful correction."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}

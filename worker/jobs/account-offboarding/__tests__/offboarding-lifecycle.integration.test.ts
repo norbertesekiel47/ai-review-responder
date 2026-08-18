@@ -126,7 +126,10 @@ import {
   MIGRATION_096_SOLICITATION_SUPPRESSIONS,
   MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
 } from '../../../../src/lib/shared/__tests__/helpers/schema-ready';
-import { verifyAccountOffboardingPurge } from '../../../../src/lib/account-offboarding/purge-verification';
+import {
+  verificationQuery,
+  verifyAccountOffboardingPurge,
+} from '../../../../src/lib/account-offboarding/purge-verification';
 // Type-only: the closed enums are owned by suppression.ts, so no source or
 // Suppression scope value is re-spelled as a bare literal in this file.
 import type {
@@ -558,6 +561,30 @@ async function seedAttestedPostalAddress(input: {
           .digest('hex')}
     WHERE id = ${input.businessId}::uuid
       AND account_id = ${input.accountId}::uuid
+  `;
+}
+
+/**
+ * One assignment on the seeded location, always account-scoped.
+ *
+ * Takes a lazy Postgres.js fragment (the `openFlagExistsSql`/`kpi/fragments.ts`
+ * precedent) rather than a column/value pair: `archived_at = NOW()`,
+ * `tone = NULL` and `category = 'restaurant'` are three different shapes, and a
+ * generic setter would need a union to express them — or `sql.unsafe`, which is
+ * how a column name becomes an injection seam in a file that also seeds PII.
+ * The tenant predicate stays spelled out HERE, in raw template text, because
+ * that is the only form scripts/ci/tenant-scope-audit.ts can read.
+ */
+async function updateSeededBusiness(
+  scope: { businessId: string; accountId: string },
+  assignment: postgres.PendingQuery<postgres.Row[]>,
+): Promise<void> {
+  const sql = getE2eSql();
+  await sql`
+    UPDATE businesses
+    SET ${assignment}
+    WHERE id = ${scope.businessId}::uuid
+      AND account_id = ${scope.accountId}::uuid
   `;
 }
 
@@ -1723,6 +1750,169 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
       );
     } finally {
       await cleanupOwnerOffboardingSeed(bystander);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  it('the businesses purge verifier passes after clearing an attested postal address and fails when the tuple survives', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const recorded: string[] = [];
+    const recorder = postgres(testDbUrl!, {
+      max: 1,
+      prepare: false,
+      debug: (_connection, query) => {
+        recorded.push(query);
+      },
+    });
+    const verificationInput = {
+      accountId: seed.accountId,
+      offboardingId: randomUUID(),
+    };
+
+    try {
+      await seedAttestedPostalAddress({
+        businessId: seed.businessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '123 Main St\nAustin, TX 78701',
+      });
+      await runParentTombstonePurgeStage(
+        getE2eSql(),
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+
+      const clearedRows = await verificationQuery(
+        'businesses',
+        verificationInput,
+        recorder,
+      );
+      const [statement] = recorded.filter((query) =>
+        /FROM\s+businesses\s+b/i.test(query),
+      );
+      expect(statement).toBeDefined();
+      for (const column of [
+        'solicitation_postal_address',
+        'solicitation_postal_address_attested_at',
+        'solicitation_postal_address_attested_by_user_id',
+        'solicitation_postal_address_attestation_version',
+        'solicitation_postal_address_attested_digest',
+      ]) {
+        expect(statement).toContain(`b.${column} IS NOT NULL`);
+      }
+      expect(Number(clearedRows[0]?.violation_count ?? 0)).toBe(0);
+
+      await seedAttestedPostalAddress({
+        businessId: seed.businessId,
+        accountId: seed.accountId,
+        userId: seed.userId,
+        address: '123 Main St\nAustin, TX 78701',
+      });
+      await getE2eSql()`
+        UPDATE businesses
+        SET google_place_address = NULL
+        WHERE id = ${seed.businessId}::uuid
+          AND account_id = ${seed.accountId}::uuid
+      `;
+
+      const unclearedRows = await verificationQuery(
+        'businesses',
+        verificationInput,
+        recorder,
+      );
+      expect(Number(unclearedRows[0]?.violation_count ?? 0)).toBe(1);
+    } finally {
+      try {
+        await recorder.end({ timeout: 5 });
+      } finally {
+        await cleanupOwnerOffboardingSeed(seed);
+      }
+    }
+  });
+
+  // Companion to the postal test above, for the rest of the tombstone UPDATE.
+  // Each column is restored ALONE and reverted before the next one, which the
+  // postal test could not do: migration 099's all-or-nothing CHECK forces that
+  // tuple to move together, so there it leans on the SQL-shape assertion to
+  // prove all five names. Here isolation is possible and it is what proves the
+  // predicates are individually correct — a combined restore would let a
+  // predicate that names the right column but the WRONG comparison (a `tone`
+  // literal that drifted from the tombstone's) pass on a sibling's violation.
+  it('the businesses purge verifier detects each remaining tombstoned column on its own', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const verificationInput = {
+      accountId: seed.accountId,
+      offboardingId: randomUUID(),
+    };
+    const sql = getE2eSql();
+    const scope = { businessId: seed.businessId, accountId: seed.accountId };
+
+    async function countViolations(): Promise<number> {
+      const rows = await verificationQuery('businesses', verificationInput, sql);
+      return Number(rows[0]?.violation_count ?? 0);
+    }
+
+    try {
+      await runParentTombstonePurgeStage(
+        sql,
+        { account_id: seed.accountId } as AccountOffboardingPurgeRow,
+      );
+      expect(await countViolations()).toBe(0);
+
+      // `revert` restores the value the tombstone itself writes, so a passing
+      // revert is also a second assertion that the expected post-purge state
+      // is the one the verifier calls clean.
+      const cases: { column: string; residue: () => Promise<unknown>; revert: () => Promise<unknown> }[] = [
+        {
+          column: 'category',
+          residue: () => updateSeededBusiness(scope, sql`category = 'restaurant'`),
+          revert: () => updateSeededBusiness(scope, sql`category = NULL`),
+        },
+        {
+          // Both directions: a drifted tone AND a nulled one. The null arm is
+          // why the predicate is IS DISTINCT FROM rather than <>.
+          column: 'tone',
+          residue: () => updateSeededBusiness(scope, sql`tone = 'irreverent and chatty'`),
+          revert: () =>
+            updateSeededBusiness(scope, sql`tone = 'professional and friendly'`),
+        },
+        {
+          column: 'tone (nulled)',
+          residue: () => updateSeededBusiness(scope, sql`tone = NULL`),
+          revert: () =>
+            updateSeededBusiness(scope, sql`tone = 'professional and friendly'`),
+        },
+        {
+          column: 'stripe_customer_id',
+          residue: () =>
+            updateSeededBusiness(scope, sql`stripe_customer_id = 'cus_residue'`),
+          revert: () => updateSeededBusiness(scope, sql`stripe_customer_id = NULL`),
+        },
+        {
+          column: 'stripe_subscription_id',
+          residue: () =>
+            updateSeededBusiness(scope, sql`stripe_subscription_id = 'sub_residue'`),
+          revert: () => updateSeededBusiness(scope, sql`stripe_subscription_id = NULL`),
+        },
+        {
+          column: 'archived_at',
+          residue: () => updateSeededBusiness(scope, sql`archived_at = NULL`),
+          revert: () => updateSeededBusiness(scope, sql`archived_at = NOW()`),
+        },
+      ];
+
+      for (const testCase of cases) {
+        // sequential by construction: each column must be the ONLY violation on
+        // the row while it is asserted, so these cannot overlap.
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        await testCase.residue();
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        expect(await countViolations(), testCase.column).toBe(1);
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        await testCase.revert();
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        expect(await countViolations(), `${testCase.column} reverted`).toBe(0);
+      }
+    } finally {
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

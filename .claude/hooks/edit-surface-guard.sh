@@ -125,9 +125,14 @@ while IFS= read -r GLOB; do
   # [sessionId], [offboardingId], [escalationId], [businessId].
   #
   # Escaping only the brackets keeps '*' and '?' working as wildcards, so every
-  # existing surface declaration behaves exactly as before. Character classes in
-  # a surface glob are NOT supported (no declaration uses one, and a literal
-  # dynamic-route segment is the overwhelmingly more likely intent).
+  # existing surface declaration behaves exactly as before. Brackets are
+  # therefore ALWAYS literal in a surface glob (character classes are not
+  # expressible), and the intake must carry the PLAIN path — never a
+  # pre-escaped '\[id\]' or '[[]id[]]': this escape is applied here at match
+  # time, so pre-escaping escapes the escape and the entry matches nothing
+  # (#867). The Codex port (.codex/hooks/edit-surface-guard.sh) and
+  # scripts/ci/feature-surface-audit.ts apply the identical rule; the audit
+  # rejects a pre-escaped intake entry outright.
   ESCAPED_GLOB="${GLOB//\[/\\[}"
   ESCAPED_GLOB="${ESCAPED_GLOB//\]/\\]}"
   # [[ == ]] glob match; '*' crosses '/' here, so 'src/worker/*' matches

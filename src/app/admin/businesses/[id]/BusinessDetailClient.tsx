@@ -18,7 +18,9 @@ import { ChannelsPanel } from './_components/ChannelsPanel';
 import { ZernioConnectionPanel } from './_components/ZernioConnectionPanel';
 import { PastDueExtensionPanel } from './_components/PastDueExtensionPanel';
 import { AutoApprovalDiagnosticsPanel } from './_components/AutoApprovalDiagnosticsPanel';
+import { SolicitationBatchPanel } from './_components/SolicitationBatchPanel';
 import { useBusinessDetail } from './_hooks/useBusinessDetail';
+import type { AdminBatchSummary } from '@/lib/solicitation/batch-view';
 import type {
   AccountAuditLogEntry,
   AccountContext,
@@ -138,12 +140,20 @@ interface BusinessDetailClientProps {
   businessId: string;
   initialDetail: DetailData;
   initialChannels: ChannelEnrollmentRow[];
+  /**
+   * The admin Halt latch projection (#865), read once on the server. It is NOT
+   * a react-query resource: `invalidate()` already calls `router.refresh()`, so
+   * a halt re-runs the server page and this prop arrives fresh — one read,
+   * one owner, and no second client fetch of a support-only surface.
+   */
+  initialBatchSummary: AdminBatchSummary | null;
 }
 
 export function BusinessDetailClient({
   businessId,
   initialDetail,
   initialChannels,
+  initialBatchSummary,
 }: BusinessDetailClientProps) {
   const {
     data,
@@ -319,6 +329,13 @@ export function BusinessDetailClient({
       />
 
       <AutoApprovalDiagnosticsPanel diagnostics={autoApproval} />
+
+      <SolicitationBatchPanel
+        accountId={account.id}
+        businessId={businessId}
+        summary={initialBatchSummary}
+        onHalted={invalidate}
+      />
 
       {/* Profile editor */}
       <ProfileEditor

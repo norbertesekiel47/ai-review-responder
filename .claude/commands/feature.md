@@ -170,7 +170,7 @@ step 2 moves it into the worktree and arms the hooks from an ephemeral
   "invariants": ["things that must remain true, e.g. tenant isolation"],
   "edge_cases": ["from the grilling session"],
   "existing_patterns_to_follow": ["file/module precedents"],
-  "allowed_edit_surface": ["glob list of paths implementation may touch"],
+  "allowed_edit_surface": ["glob list of paths implementation may touch — brackets are LITERAL: a Next.js dynamic segment is the plain path `src/app/api/u/[token]/route.ts`, never `\\[token\\]` or `[[]token[]]` (the hooks + ci:feature-surface escape brackets themselves; a pre-escaped entry matches nothing and is rejected at arm time, #867); every entry must match a real file by push time"],
   "tests_to_add": ["VERBATIM test titles — each names the invariant/edge case it covers"],
   "verification_commands": ["gate commands beyond the standard set — NEVER test:db:setup (the gate provisions serially itself and rejects destructive commands)"],
   "estimated_prod_lines": "±N production+migration lines from step 0 — step 5 re-checks 2x per bucket, workflow artifacts excluded",

@@ -47,6 +47,20 @@ if ! jq -e . "$SRC" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Surface spelling (#867): brackets are ALWAYS literal in an allowed_edit_surface
+# glob — both edit-surface-guard hooks and ci:feature-surface escape them
+# themselves at match time — so a pre-escaped Next.js dynamic segment
+# ('\[id\]', '[[]id[]]') matches NOTHING anywhere: the hook blocks writes to a
+# path the intake explicitly lists, and the audit goes red at PR time. Refuse
+# BEFORE anything is committed. Same predicate as scripts/arm-check.sh.
+BAD_SPELLINGS=$(jq -r '.allowed_edit_surface[]? | select(test("\\\\\\[|\\\\\\]|\\[\\[\\]|\\[\\]\\]"))' "$SRC")
+if [ -n "$BAD_SPELLINGS" ]; then
+  echo "intake allowed_edit_surface pre-escapes a bracket — write the PLAIN path (e.g. src/app/api/u/[token]/route.ts):"
+  printf '%s\n' "$BAD_SPELLINGS" | sed 's/^/  - /'
+  echo "The hooks and ci:feature-surface escape '[' ']' themselves; a pre-escaped entry matches nothing (#867)."
+  exit 1
+fi
+
 SLUG=$(printf '%s' "$BRANCH" | tr '/' '-')
 DOCS_COPY="docs/superpowers/plans/${SLUG}-intake.json"
 mkdir -p "$(dirname "$DOCS_COPY")" .feature

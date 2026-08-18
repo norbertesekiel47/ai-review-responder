@@ -7,7 +7,51 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-18 (#860 per-ask Ask regeneration surface — Quick summary immediately below. Prior entry: #859 query-block tenant-scope audit + #858 + #861.)
+Last updated: 2026-08-18 (#865 admin **Halt latch** surface — Quick summary immediately below. Prior entry: #860 per-ask Ask regeneration surface.)
+
+## Quick summary — #865 admin **Halt latch** surface (2026-08-18, PR #876)
+
+**RepWorth support can now stop a customer's send batch from the admin console.
+Until this shipped, `admin_halt` was a permitted value in the database that no
+code could ever write — a live-but-dead enum arm, and the owner-facing copy for
+it had already shipped with nothing behind it.**
+
+What an operator gets: a Send batch panel on `/admin/businesses/[id]` showing the
+batch's **Batch state**, how many messages a stop would cancel, how many are
+already in flight, and how many are already delivered — never a subject or body.
+When the batch is stoppable, a required free-text note plus a stop control.
+Stopping is AAL2-gated, writes `halt_reason='admin_halt'` with the acting admin's
+id, cancels the `rendered`/`queued` messages, and leaves anything already sent
+alone. The owner then sees the already-shipped line: "RepWorth support stopped
+this batch."
+
+Three things worth knowing:
+
+1. **Two halt arms, one body.** `haltBatch` (owner) and `adminHaltBatch` (support)
+   both delegate to a private `latchHalt` that owns the CAS, the cancellations,
+   the audit row, the spine step and the join, in that order. The admin arm's
+   reason is fixed by the caller's identity, so no request field can name it.
+2. **Neither arm will stop an unbuilt batch.** That was originally scoped as a
+   known owner-side hole to fix later, until review showed it was reachable
+   through the ordinary owner API — the backend hands out the unbuilt batch's id
+   and the endpoint accepts it. Halting an unbuilt batch corrupts the lifecycle
+   inside the *builder's* later transaction, far from the request that caused it.
+3. **The panel does not show the newest batch, deliberately.** It shows the one
+   still capable of sending, then any built one, then the newest. Both departures
+   from "newest" were found by real defects: a newer still-building batch can
+   legally coexist with the batch actually dispatching, and stopping a batch is
+   exactly what makes it stop looking live.
+
+The new shape:
+
+| File | Role |
+|---|---|
+| `src/lib/solicitation/approval.ts` | `latchHalt` (shared private body) + `adminHaltBatch`, its second writer |
+| `src/lib/solicitation/batch-view.ts` | `readAdminBatchSummary` — the admin read projection and its deliberate ordering |
+| `src/app/api/admin/solicitation/batch/halt/route.ts` | the AAL2-gated operator entry point |
+| `src/app/admin/businesses/[id]/_components/SolicitationBatchPanel.tsx` | the panel |
+
+No migration — every value already existed in migrations 091 and 108.
 
 ## Quick summary — #860 per-ask **Ask regeneration** surface (2026-08-18, PR #873)
 
