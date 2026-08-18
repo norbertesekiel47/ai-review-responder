@@ -88,17 +88,25 @@ export function classifyWithdrawal(
   state: BatchState,
   attempt: CurrentAttempt | null,
 ): WithdrawalDecision {
-  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
-  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
-  if (attempt.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
+  // Idempotence FIRST, before the state gate: withdrawing the last live row
+  // closes the batch, so a retry on that very row arrives in `closed` — it is
+  // still "already withdrawn" (a fact about the row) and must answer the 200
+  // no-op, not a 409 (plan review round 2, finding 1).
+  if (attempt?.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
     return { kind: 'already_withdrawn' };
   }
+  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
+  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
   if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
     return { kind: 'withdraw' };
   }
   return { kind: 'not_live', deliveryStatus: attempt.deliveryStatus };
 }
+```
 
+The verb therefore reads the current attempt BEFORE it refuses on state (the batch is already proven the tenant's by `lockBatchForAction`, so the extra read on a refused state leaks nothing).
+
+```ts
 export interface WithdrawAskInput {
   batchId: string;
   askId: string;
@@ -361,10 +369,14 @@ async function snapshotWithdrawSurface(
         businessId: halted.businessId,
         haltedByUserId: halted.userId,
       });
+      // Snapshot AFTER the halt so the refusal below is judged against the
+      // latched, settled state the halt left behind.
+      const haltedBefore = await snapshotWithdrawSurface(halted.batchId, halted.parentRunId);
       expect(await withdraw(halted, halted.asks[0]!.askId)).toEqual({
         status: 'not_withdrawable',
         state: 'halted',
       });
+      expect(await snapshotWithdrawSurface(halted.batchId, halted.parentRunId)).toEqual(haltedBefore);
       expect(await withdraw(built, built.asks[0]!.askId)).toEqual({
         status: 'not_withdrawable',
         state: 'built',
@@ -514,16 +526,33 @@ async function snapshotWithdrawSurface(
       const askId = batch.asks[0]!.askId;
 
       const first = await withdraw(batch, askId);
-      const rowsAfterFirst = await snapshotOutreach(batch.batchId);
-      const batchAfterFirst = await snapshotBatch(batch.batchId);
+      const afterFirst = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
       const second = await withdraw(batch, askId);
 
       expect(first).toMatchObject({ status: 'withdrawn' });
       expect(second).toEqual({ status: 'already_withdrawn' });
-      expect(await snapshotOutreach(batch.batchId)).toEqual(rowsAfterFirst);
-      expect(await snapshotBatch(batch.batchId)).toBe(batchAfterFirst);
-      // Idempotent means no observable second effect — one step, not two.
+      // Idempotent means no observable second effect on ANY table — one step,
+      // not two, and nothing on the batch, the asks or the outreach rows.
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(afterFirst);
       expect(await readSteps(batch.parentRunId, 'ask_withdrawn')).toHaveLength(1);
+    });
+
+    it('a second withdrawal after the first withdrawal settled the batch is already_withdrawn and writes nothing', async () => {
+      const batch = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(batch.batchId);
+      const askId = batch.asks[0]!.askId;
+
+      const first = await withdraw(batch, askId);
+      const afterFirst = await snapshotWithdrawSurface(batch.batchId, batch.parentRunId);
+      const second = await withdraw(batch, askId);
+
+      // The first withdrawal CLOSED the batch (last live row). The retry
+      // arrives in Batch state `closed` and must still read as already
+      // withdrawn — a fact about the row that outranks the state gate — not
+      // as a 409 `not_withdrawable` (plan review round 2, finding 1).
+      expect(first).toMatchObject({ status: 'withdrawn', close: { status: 'closed' } });
+      expect(second).toEqual({ status: 'already_withdrawn' });
+      expect(await snapshotWithdrawSurface(batch.batchId, batch.parentRunId)).toEqual(afterFirst);
     });
 
     it('an ask from another batch or tenant is not_found and nothing is written', async () => {
@@ -550,10 +579,17 @@ async function snapshotWithdrawSurface(
       const unknown = await withdraw(mine, randomUUID());
 
       // All four are the SAME public result — a probe cannot tell a foreign
-      // or other-batch ask from one that does not exist.
+      // account, another location, an other-batch ask or an unknown id apart.
+      // The two boundaries are this suite's `tenant scope` precedent: the
+      // foreign ACCOUNT against an owned batch, and the right owner reaching
+      // for their OTHER location; the ask-key mismatch is `crossBatch`. (No
+      // foreign batch is seeded — the suite's helpers are bound to the main
+      // tenant, and a foreign ask id takes `crossBatch`'s path by construction:
+      // the read is keyed on batch + both tenant keys.)
       for (const result of [crossBatch, crossTenant, siblingLocation, unknown]) {
         expect(result).toEqual({ status: 'not_found' });
       }
+      // Both OWNED batches untouched on every table.
       expect(await snapshotWithdrawSurface(mine.batchId, mine.parentRunId)).toEqual(mineBefore);
       expect(await snapshotWithdrawSurface(other.batchId, other.parentRunId)).toEqual(otherBefore);
     });
@@ -717,16 +753,22 @@ async function snapshotWithdrawSurface(
     });
     fc.assert(
       fc.property(stamp, stamp, stamp, stamp, stamp, stamp, (built, approved, veto, sending, closed, halted) => {
-        // SCHEMA-VALID rows only — migration 091's send_ordering CHECK: approval
-        // implies built; the veto deadline and sending both imply approval.
-        // Without these preconditions the generator produces a row with only
-        // `sending_started_at` set, which `deriveBatchState` reads as `sending`
-        // (its precedence) while `approved_at` is null — a row no database can
-        // hold, and one that would fail a CORRECT implementation (plan review
-        // round 1, finding 1).
+        // The NULL-IMPLICATION arms of migration 091's send_ordering CHECK
+        // (approval implies built; the veto deadline and sending both imply
+        // approval) — the arms whose violation changes `deriveBatchState`'s
+        // answer. Without them the generator emits a row with only
+        // `sending_started_at` set, which derives `sending` (precedence) while
+        // `approved_at` is null — a row no database can hold, and one that
+        // fails a CORRECT implementation (plan review round 1, finding 1).
+        // 091's CHRONOLOGICAL arms (approved >= built, closed >= approved, …)
+        // are deliberately NOT modelled: this property never compares two
+        // stamps against each other, only null-ness and the precedence, so
+        // ordering cannot change its truth (round 2, defect 2 — the claim
+        // "schema-valid" was too broad; this is the honest scope).
         fc.pre(approved === null || built !== null);
         fc.pre(veto === null || approved !== null);
         fc.pre(sending === null || approved !== null);
+        fc.pre(closed === null || built !== null);
         const row: BatchLifecycleRow = {
           built_at: built,
           approved_at: approved,
@@ -763,16 +805,17 @@ async function snapshotWithdrawSurface(
     fc.assert(
       fc.property(fc.constantFrom(...BATCH_STATES), attempt, (state, current) => {
         const decision = classifyWithdrawal(state, current as CurrentAttempt | null);
-        // The ONE mutation arm exists only for a withdrawable state AND a
-        // waiting row; idempotence only for a row this verb itself cancelled;
-        // every other pair refuses without writing.
+        // Idempotence wins in EVERY state — a retry after a last-row close
+        // arrives in `closed` and must still read as already withdrawn. Then:
+        // the ONE mutation arm exists only for a withdrawable state AND a
+        // waiting row; every other pair refuses without writing.
+        if (current?.deliveryStatus === 'cancelled' && current.dispositionReason === 'owner_withdrawn') {
+          return decision.kind === 'already_withdrawn';
+        }
         if (!isWithdrawableState(state)) {
           return decision.kind === 'not_withdrawable' && decision.state === state;
         }
         if (current === null) return decision.kind === 'not_live' && decision.deliveryStatus === null;
-        if (current.deliveryStatus === 'cancelled' && current.dispositionReason === 'owner_withdrawn') {
-          return decision.kind === 'already_withdrawn';
-        }
         if (current.deliveryStatus === 'rendered' || current.deliveryStatus === 'queued') {
           return decision.kind === 'withdraw';
         }
@@ -1404,13 +1447,16 @@ export function classifyWithdrawal(
   state: BatchState,
   attempt: CurrentAttempt | null,
 ): WithdrawalDecision {
-  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
-  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
-  // Only a row THIS verb cancelled reads as "already withdrawn"; a row
+  // Idempotence FIRST, before the state gate. Withdrawing the last live row
+  // CLOSES the batch, so a retry on that very row arrives in `closed`; it is
+  // still "already withdrawn" — a fact about the row — and must answer the
+  // 200 no-op, not a 409. Only a row THIS verb cancelled reads this way; a row
   // cancelled for any other reason (superseded, a halt) is simply not live.
-  if (attempt.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
+  if (attempt?.deliveryStatus === 'cancelled' && attempt.dispositionReason === 'owner_withdrawn') {
     return { kind: 'already_withdrawn' };
   }
+  if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
+  if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
   // `rendered`/`queued` — the Halt latch's own row predicate. `sending` is past
   // the point of no return and lands below.
   if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
@@ -1463,8 +1509,10 @@ export async function withdrawAsk(
     if (locked === null) return { status: 'not_found' };
     const { batch, state } = locked;
 
-    if (!isWithdrawableState(state)) return { status: 'not_withdrawable', state };
-
+    // NO early state refusal here: the current attempt is read first so a
+    // retry after a last-row close (batch now `closed`) can still answer
+    // `already_withdrawn`. The batch is already proven the tenant's, so the
+    // read on a refused state leaks nothing; `classifyWithdrawal` orders it.
     // The ask's CURRENT attempt, joined from the ASK so an ask with no attempt
     // at all (a withhold ask, or a send ask whose only attempts were all
     // superseded away) is told apart from an ask that is not in this batch.
@@ -2081,3 +2129,12 @@ git commit -m "feat(872): per-ask Withdraw control behind an inline two-tap conf
 - **Citations repaired:** halt-describe range, `readBatch` shape, `SCOPED` scoping, `TenantSeed` fields, ADR 0012 misattribution (pre-existing; documented), ADR 0020 Consequences amended.
 
 Rejected: "required skills do not exist" — they exist in the orchestrator's catalog; the read-only reviewer's sandbox cannot see them.
+
+### Plan review round 2 — codex, verification-only, `VERDICT: REVISE` (`plan-round2-codex.md`)
+
+9/12 addressed; 2 fix-introduced defects + 2 not-addressed. Revision 3:
+
+- **Idempotence outranks the state gate.** `classifyWithdrawal` returns `already_withdrawn` for a `cancelled`/`owner_withdrawn` current attempt BEFORE checking the state; `withdrawAsk` reads the attempt before refusing on state. New case: retry after a last-row close is `already_withdrawn`, writes nothing.
+- Halted refusal and the `already_withdrawn` case snapshot the full four-table surface.
+- Generator comment states its honest scope (null-implication arms; chronology irrelevant to the property); `closed ⇒ built` added.
+- Foreign-tenant: "seed a real foreign ask" rejected — this suite's `tenant scope` precedent and helper shape; comment names the boundaries and the reason.
