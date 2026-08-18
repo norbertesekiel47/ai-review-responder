@@ -16,6 +16,7 @@
 //     nothing else — asserted against a fixture that carries bytes it should
 //     not have, so the assertion tests the projection rather than the type.
 
+import fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type {
@@ -23,7 +24,11 @@ import type {
   HaltReason,
   SendLaneView,
 } from '@/lib/solicitation/batch-view';
-import { ApprovalPanel } from '../ApprovalPanel';
+import {
+  ApprovalPanel,
+  excludedOutreachIds,
+  type ApprovalPanelProps,
+} from '../ApprovalPanel';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -45,6 +50,8 @@ function sendLane(overrides: Partial<SendLaneView> = {}): SendLaneView {
     haltedAt: null,
     haltReason: null,
     moderationWithheld: 0,
+    regeneratingAskId: null,
+    regenBudgets: {},
     ...overrides,
   };
 }
@@ -151,6 +158,46 @@ function renderPanel(
   );
   return { onChanged };
 }
+
+/**
+ * The full prop set, so a test that has to `rerender` — the shape a refetch
+ * takes — states only what it is varying. `onChanged` must be passed in
+ * explicitly whenever a test rerenders and then asserts on it: a fresh `vi.fn()`
+ * per call would both lose the earlier calls and change an effect dependency.
+ */
+function props(
+  overrides: {
+    sendLane?: SendLaneView;
+    attempts?: AskAttemptView[];
+    onChanged?: ApprovalPanelProps['onChanged'];
+  } = {},
+): ApprovalPanelProps {
+  return {
+    batchId: BATCH_ID,
+    sendLane: overrides.sendLane ?? sendLane(),
+    attempts: overrides.attempts ?? [],
+    scope: SCOPE,
+    onChanged: overrides.onChanged ?? vi.fn(),
+  };
+}
+
+/**
+ * Every regenerate control on screen, found by ACCESSIBLE NAME rather than by
+ * DOM text — the two are not the same question, and the a11y contract lives in
+ * the first. The name is the VISIBLE label plus the contact it belongs to
+ * (WCAG 2.5.3 Label in Name), so it changes when the label does; an
+ * `aria-label` that replaced the text passed a `toHaveTextContent` assertion
+ * while failing both halves of that rule.
+ */
+const REGEN_CONTROL_NAME =
+  /^(?:Regenerate the message to|Writing a new version… of the message to) /i;
+
+const regenControls = () =>
+  screen.queryAllByRole('button', { name: REGEN_CONTROL_NAME });
+
+/** The ONE regenerate control on a single-ask fixture — a `get` query, so an
+ *  absent control fails as a missing element rather than an undefined index. */
+const regenControl = () => screen.getByRole('button', { name: REGEN_CONTROL_NAME });
 
 /** Flushes the POST's promise chain without moving any clock. */
 async function flush(): Promise<void> {
@@ -445,9 +492,12 @@ describe('ApprovalPanel', () => {
     // server derives it from Batch state so the audit trail cannot be dictated.
     expect(JSON.parse(String(init.body))).toEqual({ batchId: BATCH_ID });
 
+    // `replace`: stopping is TERMINAL — the panel that comes back is a
+    // different screen, so the parent may tear this one down.
     expect(onChanged).toHaveBeenCalledWith(
       'Batch stopped. Nothing further will send.',
       'settled',
+      'replace',
     );
   });
 
@@ -586,8 +636,326 @@ describe('ApprovalPanel — failure honesty', () => {
     await flush();
 
     expect(screen.queryByText(/Nothing changed/i)).toBeNull();
-    expect(onChanged).toHaveBeenCalledWith(expect.stringMatching(/could not confirm/i), 'unconfirmed');
+    expect(onChanged).toHaveBeenCalledWith(
+      expect.stringMatching(/could not confirm/i),
+      'unconfirmed',
+      'replace',
+    );
     // Retrying is safe: the Halt latch is monotone and approval is CAS'd.
     expect(haltButton()).toBeEnabled();
+  });
+});
+
+describe('regenerate control', () => {
+  it('offers a regenerate control on every rendered ask while the batch is approvable', () => {
+    render(
+      <ApprovalPanel {...props({ attempts: [rendered('1', 'Ana'), rendered('2', 'Bo')] })} />,
+    );
+
+    // One per rendered ask, not one per batch: "regenerate all" cannot exist,
+    // because the outbox dedup is keyed (topic, aggregate_id = batchId).
+    expect(regenControls()).toHaveLength(2);
+    // …and D22 still holds beside it — asking is offered, writing is not.
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('offers no regenerate control on a withheld ask', () => {
+    render(
+      <ApprovalPanel
+        {...props({ attempts: [rendered('1', 'Ana'), heldByLint('2', 'Bo')] })}
+      />,
+    );
+
+    // §8.2 r6: blocked is terminal. The control's absence is the UI half of the
+    // rule the worker enforces — re-rolling a withheld row would launder the
+    // fail-closed lint.
+    const controls = regenControls();
+    expect(controls).toHaveLength(1);
+    expect(controls[0]).toHaveAccessibleName(/Ana/);
+    // Bo carries no ROW control at all in approvable mode — the selectable list
+    // is `sendable` only, so a withheld ask cannot acquire one by accident. His
+    // reason is reported below the panel, in BatchReport.
+    expect(screen.queryByText(/Send to Bo/)).toBeNull();
+  });
+
+  it('offers no regenerate control once the batch is approved', () => {
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({
+            batchState: 'approved',
+            approvedAt: '2026-08-17 10:00:00+00',
+          }),
+          attempts: [rendered('1', 'Ana')],
+        })}
+      />,
+    );
+
+    // ADR 0020 on screen: approved bytes cannot be replaced, so the affordance
+    // is gone rather than present-and-failing.
+    expect(regenControls()).toHaveLength(0);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
+
+  it('disables the regenerate control on an ask the owner has deselected', () => {
+    render(<ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')] })} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Send to Ana/ }));
+
+    // Regenerating a deselected ask mints a new outreachId. The exclusion is
+    // keyed on the ask so it survives that, but offering a control that
+    // reshuffles the row a deselection is about is worse than not offering it.
+    expect(regenControl()).toBeDisabled();
+    // Disabled, not absent: the owner can re-select and use it.
+    expect(regenControls()).toHaveLength(1);
+  });
+
+  it('renders the per-ask regenerate counter and disables the control once the budget is spent', () => {
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({
+            regenBudgets: { 'ask-1': { used: 3, limit: 3, remaining: 0 } },
+          }),
+          attempts: [rendered('1', 'Ana')],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('3 of 3 today')).toBeInTheDocument();
+    expect(regenControl()).toBeDisabled();
+  });
+
+  it('renders no regenerate counter when the budget is unknown', () => {
+    const { unmount } = render(
+      <ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')] })} />,
+    );
+
+    // An ABSENT entry is UNKNOWN (Redis down), never "0 remaining": no counter,
+    // control enabled. Inverting this disables every control during an outage,
+    // and the worker's Lua INCR is the authoritative gate regardless.
+    expect(screen.queryByText(/today$/)).toBeNull();
+    expect(regenControl()).toBeEnabled();
+    unmount();
+
+    // The other half of the same rule, asserted here because the two are only
+    // meaningful against each other: a PRESENT entry with `used: 0` is a KNOWN
+    // zero, so it does render a counter — absent and zero must not look alike.
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({
+            regenBudgets: { 'ask-1': { used: 0, limit: 3, remaining: 3 } },
+          }),
+          attempts: [rendered('1', 'Ana')],
+        })}
+      />,
+    );
+
+    expect(screen.getByText('0 of 3 today')).toBeInTheDocument();
+    expect(regenControl()).toBeEnabled();
+  });
+
+  it('disables approve and every regenerate control while a regeneration is in flight', () => {
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({ regeneratingAskId: 'ask-1' }),
+          attempts: [rendered('1', 'Ana'), rendered('2', 'Bo')],
+        })}
+      />,
+    );
+
+    // Disabled, but still LABELLED as approve: nothing is being approved, and a
+    // button that said "Approving…" here would name the wrong act.
+    expect(screen.getByRole('button', { name: /Approve and send/ })).toBeDisabled();
+    // BOTH — the dedup is per batch, so a second request would 409 anyway.
+    for (const control of regenControls()) expect(control).toBeDisabled();
+    // The accessible NAME carries the in-flight label, so the state is not
+    // announced-in-pixels-only. `toHaveTextContent` reads the DOM and would
+    // pass against a static `aria-label` that hides the swap from assistive
+    // tech entirely.
+    expect(screen.getByRole('button', { name: /to Ana$/ })).toHaveAccessibleName(
+      'Writing a new version… of the message to Ana',
+    );
+    expect(screen.getByRole('button', { name: /to Bo$/ })).toHaveAccessibleName(
+      'Regenerate the message to Bo',
+    );
+  });
+
+  // The two cases that used to sit here — "reports that nothing changed when a
+  // regeneration settles without a new attempt" and "reports a settled
+  // regeneration that completed before the first refetch" — now live in
+  // `requests-client.test.tsx`, driven through the real fetch loop. They cannot
+  // be proved from here: both turn on panel state (`pendingRegen`) surviving the
+  // refetch a regeneration triggers, and `rerender` PRESERVES state whatever the
+  // composition does, so the panel-level versions passed against a parent that
+  // unmounted this component on every accepted regeneration.
+
+  it('keeps an ask excluded when a regeneration replaces its outreach id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        status: 'approved',
+        approvedCount: 1,
+        excludedCount: 1,
+        vetoDeadlineAt: '2026-08-17 12:15:00+00',
+        close: null,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onChanged = vi.fn();
+
+    const { rerender } = render(
+      <ApprovalPanel
+        {...props({ attempts: [rendered('1', 'Ana'), rendered('2', 'Bo')], onChanged })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: /Send to Ana/ }));
+    expect(
+      screen.getByRole('button', { name: 'Approve and send 1 message' }),
+    ).toBeInTheDocument();
+
+    // The refetch after a regeneration (this tab's or another's): Ana's ask now
+    // carries attempt 2 under a NEW outreachId. Keying the exclusion on askId
+    // is what keeps her deselected — the round-1 pruning approach dropped the
+    // stale id and silently re-selected her, which would have SENT a message
+    // the owner explicitly deselected.
+    const regenerated = { ...rendered('9', 'Ana'), askId: 'ask-1', attemptNo: 2 };
+    rerender(
+      <ApprovalPanel
+        {...props({ attempts: [regenerated, rendered('2', 'Bo')], onChanged })}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Approve and send 1 message' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Send to Ana/ })).not.toBeChecked();
+
+    // And the payload carries her NEW outreach id, not the superseded one —
+    // otherwise `approveBatch` refuses the whole approval `unknown_exclusion`.
+    fireEvent.click(screen.getByRole('button', { name: /Approve and send/ }));
+    await flush();
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      batchId: BATCH_ID,
+      excludedOutreachIds: [regenerated.outreachId],
+    });
+    expect(regenerated.outreachId).not.toBe(rendered('1', 'Ana').outreachId);
+  });
+
+  it('shows the daily rewrite limit when a regenerate POST is refused 429', async () => {
+    // The server's own sentence, verbatim from `askRegenLimitResponse`. The 429
+    // body carries no `status`, so without Step 4c this fell through to
+    // `unconfirmed` — the one outcome it definitely is not.
+    const limitMessage =
+      'Daily rewrite limit reached for this message — you can try again tomorrow.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(429, {
+          error: 'regen_limit_reached',
+          message: limitMessage,
+          remaining: 0,
+          limit: 3,
+        }),
+      ),
+    );
+
+    const onChanged = vi.fn();
+    render(<ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')], onChanged })} />);
+    fireEvent.click(regenControl());
+    await flush();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(limitMessage);
+    // A DEFINITE refusal: the panel keeps the screen and claims no uncertainty.
+    expect(screen.queryByText(/could not confirm/i)).toBeNull();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('names the state a refused regeneration was actually in', async () => {
+    // `not_regenerable` covers seven Batch states and used to assert one of
+    // them for all of them. A stale tab on a halted, expired or closed batch
+    // read "This batch has been approved" — a false statement about their own
+    // batch — and was then offered a stop for something already stopped. The
+    // correcting `state` was on the wire the whole time.
+    const cases: Array<[string, RegExp]> = [
+      ['veto_window', /This batch has been approved/i],
+      ['approved', /This batch has been approved/i],
+      ['sending', /already going out/i],
+      ['halted', /This batch was stopped/i],
+      ['expired', /This batch expired before it was approved/i],
+      ['closed', /This batch is finished/i],
+      ['pending', /still being prepared/i],
+      // A server deployed ahead of the browser: unknown state, so the panel
+      // claims only what every arm has in common.
+      ['a_state_this_build_has_never_heard_of', /Reload the page to see where it stands/i],
+    ];
+
+    for (const [state, copy] of cases) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(jsonResponse(409, { status: 'not_regenerable', state })),
+      );
+      const { unmount } = render(
+        <ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')] })} />,
+      );
+      fireEvent.click(regenControl());
+      await flush();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(copy);
+      if (state !== 'veto_window' && state !== 'approved') {
+        expect(screen.getByRole('alert')).not.toHaveTextContent(/has been approved/i);
+      }
+      // The Halt latch's carve-out is exactly one word: no arm may offer a
+      // pause, a resume, or a cancel.
+      expect(screen.getByRole('alert')).not.toHaveTextContent(/pause|resume|cancel/i);
+      unmount();
+    }
+  });
+
+  it('says the owner may ask for a new version but may not write one', () => {
+    render(<ApprovalPanel {...props({ attempts: [rendered('1', 'Ana')] })} />);
+
+    // D22 survives #860 and the panel has to keep saying so.
+    expect(
+      screen.getByText(
+        /ask for a new version of any message, but you cannot write one yourself/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  describe('invariants', () => {
+    it('property: every excluded ask resolves to a live outreach id or drops out of the payload', () => {
+      fc.assert(
+        fc.property(
+          fc.array(fc.uuid()),
+          fc.array(fc.tuple(fc.uuid(), fc.uuid())),
+          (excludedAskIds, livePairs) => {
+            const rows = livePairs.map(([askId, outreachId]) => ({
+              ...rendered('1', 'Ana'),
+              askId,
+              outreachId,
+            }));
+            const payload = excludedOutreachIds(rows, new Set(excludedAskIds));
+
+            // Every id in the payload is a LIVE outreach id — this is the half
+            // that keeps `approveBatch` from refusing the whole approval
+            // `unknown_exclusion`.
+            const liveOutreachIds = rows.map((row) => row.outreachId);
+            for (const id of payload) expect(liveOutreachIds).toContain(id);
+
+            // And every deselected ask that still HAS a live row is in the
+            // payload — the half pruning got wrong: an ask must never be
+            // silently re-selected just because its row was replaced.
+            for (const row of rows) {
+              if (excludedAskIds.includes(row.askId)) {
+                expect(payload).toContain(row.outreachId);
+              }
+            }
+          },
+        ),
+      );
+    });
   });
 });

@@ -76,6 +76,68 @@ function builtView(overrides: Partial<Extract<BatchView, { state: 'built' }>> = 
   } satisfies BatchView;
 }
 
+type BuiltView = Extract<BatchView, { state: 'built' }>;
+type SendLane = NonNullable<BuiltView['sendLane']>;
+type Attempt = BuiltView['attempts'][number];
+
+function sendLaneView(overrides: Partial<SendLane> = {}): SendLane {
+  return {
+    batchState: 'built',
+    ready: true,
+    pendingRenders: 0,
+    approvedAt: null,
+    vetoDeadlineAt: null,
+    haltedAt: null,
+    haltReason: null,
+    moderationWithheld: 0,
+    regeneratingAskId: null,
+    regenBudgets: {},
+    ...overrides,
+  };
+}
+
+/** One live, owner-readable attempt. `attemptNo` is the field the panel
+ *  compares across a refetch to tell a landed regeneration from one that
+ *  settled without changing anything, so every fixture states it. */
+function renderedAttempt(
+  suffix: string,
+  contactName: string,
+  overrides: Partial<Extract<Attempt, { redacted: false }>> = {},
+): Attempt {
+  return {
+    outreachId: `a1b2c3d4-0000-7000-8000-00000000000${suffix}`,
+    askId: `ask-${suffix}`,
+    contactId: `contact-${suffix}`,
+    contactName,
+    attemptNo: 1,
+    deliveryStatus: 'rendered',
+    dispositionReason: null,
+    renderedAt: '2026-07-25 11:00:00+00',
+    redacted: false,
+    subject: `Quick favour, ${contactName}?`,
+    body: `Hi ${contactName}, would you leave us a review?`,
+    lintClasses: [],
+    moderationStatus: 'clean',
+    moderationDetail: {},
+    interpolationInputs: null,
+    ...overrides,
+  };
+}
+
+function approvableView(
+  batchId: string,
+  overrides: { attempts?: Attempt[]; sendLane?: SendLane } = {},
+): BatchView {
+  const attempts = overrides.attempts ?? [renderedAttempt('1', 'Dana Reeve')];
+  return builtView({
+    batchId,
+    queued: attempts.length,
+    evaluated: attempts.length,
+    attempts,
+    sendLane: overrides.sendLane ?? sendLaneView(),
+  });
+}
+
 /** Flushes pending promises without moving the clock. */
 async function flush(): Promise<void> {
   await act(async () => {
@@ -413,47 +475,6 @@ describe('RequestsClient — the approval lane and the live region', () => {
     close: null,
   };
 
-  function sendLaneView(): NonNullable<Extract<BatchView, { state: 'built' }>['sendLane']> {
-    return {
-      batchState: 'built',
-      ready: true,
-      pendingRenders: 0,
-      approvedAt: null,
-      vetoDeadlineAt: null,
-      haltedAt: null,
-      haltReason: null,
-      moderationWithheld: 0,
-    };
-  }
-
-  function approvableView(batchId: string): BatchView {
-    return builtView({
-      batchId,
-      queued: 1,
-      evaluated: 1,
-      attempts: [
-        {
-          outreachId: 'a1b2c3d4-0000-7000-8000-000000000001',
-          askId: 'ask-1',
-          contactId: 'contact-1',
-          contactName: 'Dana Reeve',
-          attemptNo: 1,
-          deliveryStatus: 'rendered',
-          dispositionReason: null,
-          renderedAt: '2026-07-25 11:00:00+00',
-          redacted: false,
-          subject: 'Quick favour, Dana?',
-          body: 'Hi Dana, would you leave us a review?',
-          lintClasses: [],
-          moderationStatus: 'clean',
-          moderationDetail: {},
-          interpolationInputs: null,
-        },
-      ],
-      sendLane: sendLaneView(),
-    });
-  }
-
   /** `routedFetch`, plus the approve POST — which does NOT consume a view, so a
    *  test can still script the read sequence by index. */
   function laneFetch(views: BatchView[], approve: () => Promise<Response>) {
@@ -568,6 +589,208 @@ describe('RequestsClient — the approval lane and the live region', () => {
       ([url]) => !String(url).includes('/batch/'),
     ).length;
     expect(readsAfter).toBeGreaterThan(readsBefore);
+  });
+});
+
+// ── The regenerate lane, through the real fetch loop ────────────────────────
+
+/**
+ * #860's regenerate control, driven from HERE rather than from the panel suite.
+ *
+ * The panel suite renders `ApprovalPanel` directly and simulates a refetch with
+ * `rerender`, which PRESERVES component state — so a panel-level test cannot
+ * see whether the composition keeps the panel mounted, and every one of these
+ * cases passed against a parent that unmounted it on every accepted
+ * regeneration. Approve and stop are terminal, so tearing the screen down cost
+ * nothing; regeneration comes back to the very panel the owner is working in,
+ * and both things the panel remembers — the exclusion set and the marker that
+ * says a regeneration is outstanding — die with it.
+ *
+ * These four cases are therefore composition tests on purpose: the real POST,
+ * the real refetch, the real poll loop.
+ */
+describe('RequestsClient — the regenerate lane', () => {
+  const ACCEPTED = { status: 'accepted' };
+
+  /** `routedFetch`, plus the regenerate POST — which does NOT consume a view,
+   *  so a test still scripts the read sequence by index. */
+  function regenerateFetch(
+    views: BatchView[],
+    regenerate: () => Promise<Response> = () =>
+      Promise.resolve(jsonResponse(202, ACCEPTED)),
+  ) {
+    const reads = routedFetch(views);
+    return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes('/batch/regenerate')) return regenerate();
+      return reads(url, init);
+    });
+  }
+
+  /** By ACCESSIBLE NAME — the visible label plus the contact (WCAG 2.5.3), so
+   *  the in-flight swap is visible to this query exactly as it is to a screen
+   *  reader. */
+  const regenButton = (name: RegExp) => screen.getByRole('button', { name });
+  const liveRegion = () => screen.getByRole('status').textContent ?? '';
+
+  it('keeps every deselection when a regeneration refetches the batch', async () => {
+    const ana = renderedAttempt('1', 'Ana');
+    const bo = renderedAttempt('2', 'Bo');
+    vi.stubGlobal(
+      'fetch',
+      regenerateFetch([
+        approvableView('batch-1', { attempts: [ana, bo] }),
+        approvableView('batch-1', {
+          attempts: [ana, bo],
+          sendLane: sendLaneView({ regeneratingAskId: 'ask-1' }),
+        }),
+      ]),
+    );
+
+    render(<RequestsClient />);
+    await flush();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Send to Bo/ }));
+    expect(
+      screen.getByRole('button', { name: 'Approve and send 1 message' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(regenButton(/^Regenerate the message to Ana$/));
+    await flush();
+    await flush();
+
+    // The refetch landed and the panel is showing the server's own state —
+    // this is NOT solved by refusing to re-read.
+    expect(
+      regenButton(/^Writing a new version… of the message to Ana$/),
+    ).toBeInTheDocument();
+
+    // …and Bo is still deselected. A remount here re-checks him and the button
+    // silently goes back to sending 2 messages: the batch would send the very
+    // message the owner removed.
+    expect(screen.getByRole('checkbox', { name: /Send to Bo/ })).not.toBeChecked();
+    expect(
+      screen.getByRole('button', { name: 'Approve and send 1 message' }),
+    ).toBeInTheDocument();
+  });
+
+  it('reports that nothing changed when a regeneration settles without a new attempt', async () => {
+    const ana = renderedAttempt('1', 'Ana');
+    vi.stubGlobal(
+      'fetch',
+      regenerateFetch([
+        approvableView('batch-1', { attempts: [ana] }),
+        approvableView('batch-1', {
+          attempts: [ana],
+          sendLane: sendLaneView({ regeneratingAskId: 'ask-1' }),
+        }),
+        // The flight is over and the ask still carries attempt 1: the worker
+        // refused (budget race, lapsed subscription, a swap that lost its
+        // re-check) and left the copy alone.
+        approvableView('batch-1', { attempts: [ana] }),
+      ]),
+    );
+
+    render(<RequestsClient />);
+    await flush();
+
+    fireEvent.click(regenButton(/^Regenerate the message to Ana$/));
+    await flush();
+    await flush();
+    // The 202's own sentence: accepted, not done.
+    expect(liveRegion()).toMatch(/writing a new version/i);
+
+    await advance(POLL_INTERVAL_MS);
+
+    // The spinner stopping over unchanged words reads as "nothing happened", so
+    // the panel says it. Unreachable while the refetch unmounted the panel that
+    // remembers it asked.
+    expect(liveRegion()).toMatch(/could not write a new version.*unchanged/i);
+  });
+
+  it('reports a settled regeneration that completed before the first refetch', async () => {
+    // The worker finished between the 202 and the first refetch, so
+    // `regeneratingAskId` is NEVER observed non-null. Outcome reporting must not
+    // depend on the panel having caught the in-flight state (round 1, finding
+    // 10) — asserted in both directions, because a report that fires for every
+    // settlement is as wrong as one that never fires.
+    const ana = renderedAttempt('1', 'Ana');
+    const landed = renderedAttempt('1', 'Ana', {
+      outreachId: 'a1b2c3d4-0000-7000-8000-000000000009',
+      attemptNo: 2,
+      subject: 'A second draft for Ana',
+      body: 'A completely different way of asking.',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      regenerateFetch([
+        approvableView('batch-1', { attempts: [ana] }),
+        approvableView('batch-1', { attempts: [landed] }),
+      ]),
+    );
+
+    const { unmount } = render(<RequestsClient />);
+    await flush();
+    fireEvent.click(regenButton(/^Regenerate the message to Ana$/));
+    await flush();
+    await flush();
+
+    // It LANDED: the new copy is what the owner reads, and nothing claims it
+    // failed.
+    expect(screen.getByText('A second draft for Ana')).toBeInTheDocument();
+    expect(liveRegion()).not.toMatch(/could not write a new version/i);
+    unmount();
+
+    // The same shape, refused: settled just as fast, attempt still 1.
+    vi.stubGlobal(
+      'fetch',
+      regenerateFetch([
+        approvableView('batch-2', { attempts: [ana] }),
+        approvableView('batch-2', { attempts: [ana] }),
+      ]),
+    );
+
+    render(<RequestsClient />);
+    await flush();
+    fireEvent.click(regenButton(/^Regenerate the message to Ana$/));
+    await flush();
+    await flush();
+
+    expect(liveRegion()).toMatch(/could not write a new version.*unchanged/i);
+  });
+
+  it('keeps a built batch approvable when polling gives up on a regeneration', async () => {
+    // #860 widened the poll predicate to a BUILT batch with a regeneration in
+    // flight, which made the ceiling — and its `stalled` phase — reachable for a
+    // batch that is built and approvable.
+    const fetchMock = regenerateFetch([
+      approvableView('batch-1', {
+        attempts: [renderedAttempt('1', 'Ana')],
+        sendLane: sendLaneView({ regeneratingAskId: 'ask-1' }),
+      }),
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RequestsClient />);
+    await flush();
+    await advance(POLL_CEILING_MS + 10_000);
+
+    // A built batch is not building. The ghost said it was, and took the
+    // approval panel — and every message the owner was reading — with it.
+    expect(screen.queryByText(/still processing/i)).toBeNull();
+    expect(screen.queryByText(/building your batch/i)).toBeNull();
+    expect(screen.getByText('Quick favour, Ana?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve and send/i })).toBeInTheDocument();
+
+    // …and the stalled arm still owes the owner a way to ask again.
+    expect(screen.getByText(/stopped checking for updates/i)).toBeInTheDocument();
+    const readsBefore = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+    await flush();
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(readsBefore);
+    // Checking again must not cost the owner their place either.
+    expect(screen.getByText('Quick favour, Ana?')).toBeInTheDocument();
   });
 });
 

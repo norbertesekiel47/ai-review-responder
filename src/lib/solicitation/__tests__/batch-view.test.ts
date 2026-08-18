@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RESTRAINT_POLICY_VERSION, WITHHOLD_REASONS } from '../restraint-policy';
 import {
@@ -7,18 +7,38 @@ import {
   markBatchReviewed,
   readLatestBatch,
 } from '../batch-view';
+import { peekAskRegenBudgetBatch } from '@/lib/costs/tracker';
+
+// The send lane merges an advisory Redis peek (#860). Mocked here exactly as
+// reviews-list.test.ts mocks the review-keyed sibling: the DEFAULT resolves to
+// an EMPTY map, which is also the real function's fail-open answer, so every
+// pre-existing case in this file keeps reading a lane with no counters.
+vi.mock('@/lib/costs/tracker', () => ({
+  peekAskRegenBudgetBatch: vi.fn(async () => new Map()),
+}));
+
+const mockPeekAskRegenBudgetBatch = vi.mocked(peekAskRegenBudgetBatch);
+
+beforeEach(() => {
+  mockPeekAskRegenBudgetBatch.mockResolvedValue(new Map());
+});
 
 // Test doubles for the Postgres.js tagged-template client mirror the stub style
 // of src/lib/solicitation/__tests__/uploads.test.ts. Results are returned in
 // statement order, which readLatestBatch fixes deterministically:
 // SET TRANSACTION -> Q1 latest batch -> Q2 contacts on file -> Q3 asks
-// -> Q4 attempts -> Q5 send-lane lifecycle + independent scalar counts.
+// -> Q4 attempts -> Q5 send-lane lifecycle + independent scalar counts
+// -> Q6 the in-flight regeneration row (#860).
 //
-// Q4-Q5 are BOTH gated on `options.sendLane` (#629) and reached only for a built
+// Q4-Q6 are ALL gated on `options.sendLane` (#629) and reached only for a built
 // batch, so a `{ sendLane: false }` read stops after Q3 and its fixture array
-// holds four entries, not six. Every added statement shifts every later
+// holds four entries, not seven. Every added statement shifts every later
 // result: this comment, the fixtures, and the statementAt() indices below are
 // one fact and move together.
+//
+// A fixture array shorter than the statement count is fine — the stub yields
+// `[]` past its end — so a send-lane case that says nothing about Q6 reads a
+// batch with no regeneration in flight.
 type QueryResult = unknown[];
 
 interface MockTx {
@@ -121,6 +141,40 @@ function laneRow(
     haltReason: overrides.haltReason ?? null,
     pendingRenders: overrides.pendingRenders ?? 0,
     moderationWithheld: overrides.moderationWithheld ?? 0,
+  };
+}
+
+/**
+ * A Q4 attempt row (#860's cases). Defaults to the plain `rendered` shape —
+ * the only status that can be regenerated, so the only one that gets a budget
+ * counter. Override `deliveryStatus`/`dispositionReason` for the rows that
+ * must be EXCLUDED from the peek.
+ */
+function renderedAttemptRow(
+  overrides: {
+    outreachId?: string;
+    askId?: string;
+    deliveryStatus?: string;
+    dispositionReason?: string | null;
+  } = {},
+) {
+  return {
+    outreachId: overrides.outreachId ?? 'o-1',
+    askId: overrides.askId ?? 'ask-1',
+    contactId: 'c-1',
+    contactName: 'Dana Scully',
+    attemptNo: 1,
+    deliveryStatus: overrides.deliveryStatus ?? 'rendered',
+    dispositionReason: overrides.dispositionReason ?? null,
+    renderedAt: '2026-07-29 10:00:00+00',
+    subject: 'Quick favour?',
+    body: 'Would you mind leaving a review?',
+    lintDetail: [],
+    moderationStatus: 'clean',
+    moderationDetail: {},
+    // `{}` not null: the column is JSONB NOT NULL and the empty object IS the
+    // "no snapshot" state parseOutreachInterpolationInputs maps back to null.
+    interpolationInputs: {},
   };
 }
 
@@ -501,7 +555,8 @@ describe('readLatestBatch', () => {
       ACCOUNT_ID, BUSINESS_ID, 'moderation_high', BATCH_ID, ACCOUNT_ID, BUSINESS_ID,
     ]);
 
-    expect(tx.mock.calls).toHaveLength(6);
+    // Six tenant-scoped statements plus Q6, the advisory in-flight read (#860).
+    expect(tx.mock.calls).toHaveLength(7);
   });
 
   it('reports the halt latch reason verbatim from the closed five-reason set', async () => {
@@ -524,6 +579,159 @@ describe('readLatestBatch', () => {
     expect(view.sendLane?.batchState).toBe('halted');
     expect(view.sendLane?.haltReason).toBe('admin_halt');
     expect(view.sendLane?.haltedAt).toBe(haltedAt.toISOString());
+  });
+
+  it('reports the ask id of an in-flight per-ask regeneration on the send lane', async () => {
+    const { sql, tx } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow()],
+      [renderedAttemptRow()],
+      [laneRow()],
+      // Q6 — a per-ask regeneration row: its payload carries `ask_id`.
+      [{ askId: 'ask-1' }],
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.regeneratingAskId).toBe('ask-1');
+
+    // The read is the OUTBOX row itself, not a derived flag: same row the
+    // enqueue's ON CONFLICT dedup refuses against, so the panel and the
+    // `already_in_flight` refusal cannot disagree after a reload.
+    const inFlightQuery = sqlText(statementAt(tx, 6));
+    expect(inFlightQuery).toContain('FROM job_outbox');
+    expect(inFlightQuery).toContain(`SELECT payload->>'ask_id'`);
+    expect(inFlightQuery).toContain(`status IN ('pending', 'dispatching', 'dispatched')`);
+    expect(statementAt(tx, 6).slice(1)).toEqual(['generate_solicitation_asks', BATCH_ID]);
+
+    // D3: NO tenant predicate and no join to a tenant table, deliberately.
+    // `job_outbox` is absent from scripts/ci/tenant-tables.ts, so this
+    // statement is unaudited by design; the batch id was already proven by the
+    // scoped lifecycle read. Joining solicitation_batches to "look scoped"
+    // would make it auditable and demand keys its proof does not need.
+    expect(inFlightQuery).not.toContain('solicitation_batches');
+    expect(inFlightQuery).not.toContain('account_id');
+    expect(inFlightQuery).not.toContain('business_id');
+  });
+
+  it('reports no in-flight regeneration for a whole-batch generation row', async () => {
+    // A whole-batch generation row's payload has no `ask_id`, so
+    // `payload->>'ask_id'` is SQL NULL even though the row IS in flight. The
+    // panel reads null as "preparing" and must not spin any individual row.
+    const { sql } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow()],
+      [renderedAttemptRow()],
+      [laneRow()],
+      [{ askId: null }],
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.regeneratingAskId).toBeNull();
+  });
+
+  it('carries the per-ask regenerate budget on the send lane, omitting asks whose counter is unknown', async () => {
+    const renderedAskId = 'ask-rendered';
+    const unknownAskId = 'ask-withheld';
+    mockPeekAskRegenBudgetBatch.mockResolvedValue(
+      new Map([[renderedAskId, { used: 1, limit: 3, remaining: 2 }]]),
+    );
+
+    const { sql } = createMockSql([
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 2 }],
+      [emptyFunnelRow(2)],
+      [
+        renderedAttemptRow({ outreachId: 'o-1', askId: renderedAskId }),
+        renderedAttemptRow({
+          outreachId: 'o-2',
+          askId: unknownAskId,
+          deliveryStatus: 'withheld',
+          dispositionReason: 'lint_failed',
+        }),
+      ],
+      [laneRow()],
+      [],
+    ]);
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    expect(view.sendLane?.regenBudgets[renderedAskId]).toEqual({
+      used: 1,
+      limit: 3,
+      remaining: 2,
+    });
+
+    // UNKNOWN is an ABSENT KEY, never `{ remaining: 0 }` — inverting that
+    // would disable every control during an Upstash outage, and a total Redis
+    // failure resolves the peek to an EMPTY map on purpose.
+    expect(view.sendLane?.regenBudgets[unknownAskId]).toBeUndefined();
+    expect(Object.keys(view.sendLane?.regenBudgets ?? {})).toEqual([renderedAskId]);
+
+    // Only RENDERED attempts are peeked: a withheld row ends the attempt line
+    // (rule 6), so it can never be regenerated and has no counter to read.
+    expect(mockPeekAskRegenBudgetBatch).toHaveBeenCalledWith([renderedAskId]);
+  });
+
+  it('peeks the per-ask regenerate budget only after the read transaction has closed', async () => {
+    // Round-1 R3. The peek is an Upstash MGET; awaiting it inside
+    // `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY` held an
+    // admission-gated pooled Postgres connection across a cross-provider round
+    // trip on every built-batch GET and every 2s poll.
+    //
+    // The oracle is the TRANSACTION'S LIFETIME, not statement ordering: an
+    // ordering assertion ("the peek comes after the last statement") passes
+    // just as happily when the peek is the final await INSIDE the block, which
+    // is precisely the defect. So the stub records whether `sql.begin`'s
+    // callback was still running when the peek fired.
+    const queued: QueryResult[] = [
+      [], // SET TRANSACTION
+      [{ id: BATCH_ID, built_at: '2026-07-20 11:00:00+00', created_at: '2026-07-20 10:00:00+00' }],
+      [{ n: 1 }],
+      [emptyFunnelRow(1)],
+      [renderedAttemptRow({ outreachId: 'o-1', askId: 'ask-1' })],
+      [laneRow()],
+      [], // Q6 — no regeneration in flight
+    ];
+    const tx = vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) =>
+      Promise.resolve(queued.shift() ?? []),
+    );
+
+    let txOpen = false;
+    const peekedWhileTxOpen: boolean[] = [];
+    mockPeekAskRegenBudgetBatch.mockImplementation(async () => {
+      peekedWhileTxOpen.push(txOpen);
+      return new Map([['ask-1', { used: 1, limit: 3, remaining: 2 }]]);
+    });
+
+    const sql = {
+      begin: async (callback: (handle: unknown) => Promise<unknown>) => {
+        txOpen = true;
+        try {
+          return await callback(tx);
+        } finally {
+          txOpen = false;
+        }
+      },
+    } as never;
+
+    const view = await readLatestBatch(sql, ACCOUNT_ID, BUSINESS_ID, { sendLane: true });
+    if (view.state !== 'built') throw new Error('expected a built batch');
+
+    // Peeked exactly once, and not while a pooled connection was held.
+    expect(peekedWhileTxOpen).toEqual([false]);
+    // And the counter still reaches the lane — the move must not silently drop
+    // the fact it relocated.
+    expect(view.sendLane?.regenBudgets['ask-1']).toEqual({ used: 1, limit: 3, remaining: 2 });
   });
 });
 

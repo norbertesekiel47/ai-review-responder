@@ -23,9 +23,15 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { acquireSolicitationBatchLock } from '../batch-builder';
 import { insertOutreachRender, type InsertOutreachRenderInput } from '../outreach';
-import { approveBatch, haltBatch } from '../approval';
+import {
+  approveBatch,
+  haltBatch,
+  requestAskRegeneration,
+  type RequestAskRegenerationResult,
+} from '../approval';
 
 // Live-DB suite for the two owner approval-lane writers (#629 T3/T4). Applies
 // NO migration SQL: `pnpm test:db:setup` provisions the schema and this file
@@ -1066,6 +1072,443 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         halted_by: userId(),
       });
       expect((await readBatch(batchId)).approved_at).toBeNull();
+    });
+  });
+
+  describe('requestAskRegeneration', () => {
+    // The suite's own afterEach owns the solicitation tables and agent_runs;
+    // `job_outbox` is neither, so this describe cleans up after itself rather
+    // than leaving rows in the shared test database for an unrelated outbox
+    // suite to count. Keyed on the payload's business id, so it is independent
+    // of whether the batch rows have already been deleted.
+    afterEach(async () => {
+      await writerSql()`
+        DELETE FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND payload->>'business_id' = ${businessId}
+      `;
+    }, 30_000);
+
+    /** Postgres.js behind PgBouncer can hand back JSONB as a string — the same
+     *  guard `stepDetail` above applies to `agent_run_steps.detail`. */
+    function outboxPayload(raw: unknown): Record<string, unknown> {
+      const parsed: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('job_outbox payload is not an object');
+      }
+      return parsed as Record<string, unknown>;
+    }
+
+    async function readInflightOutbox(batchId: string) {
+      return writerSql()<{ id: string; payload: unknown }[]>`
+        SELECT id, payload
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND aggregate_id = ${batchId}
+          AND status IN ('pending', 'dispatching', 'dispatched')
+      `;
+    }
+
+    /**
+     * The SQL text of every statement one call issued, in order.
+     *
+     * The file's two shared handles carry no `debug` hook on purpose — it would
+     * record every statement of every case in this suite — so the ordering
+     * probe opens its OWN short-lived connection with one attached and closes
+     * it again. This is the only place statement text is observable, and the
+     * enqueue-first lock order has no other deterministic witness.
+     */
+    async function captureStatements(
+      run: (handle: postgresType.Sql) => Promise<void>,
+    ): Promise<string[]> {
+      const captured: string[] = [];
+      const capture = postgres(assertLocalTestDatabaseUrl(testDatabaseUrl), {
+        max: 2,
+        prepare: false,
+        debug: (_connection, query) => {
+          captured.push(query);
+        },
+      });
+      try {
+        await run(capture);
+      } finally {
+        await capture.end();
+      }
+      return captured;
+    }
+
+    it('enqueues one generate_solicitation_asks outbox row carrying the ask id for a built batch', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const outreachBefore = await snapshotOutreach(seeded.batchId);
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        // Fresh budget. Every call in this suite passes it explicitly — the
+        // field is required, and `null` (UNKNOWN) would mask a budget defect.
+        budgetRemaining: 3,
+      });
+
+      expect(result).toEqual({ status: 'accepted' });
+      const rows = await readInflightOutbox(seeded.batchId);
+      expect(rows).toHaveLength(1);
+      expect(outboxPayload(rows[0]!.payload).ask_id).toBe(seeded.asks[0]!.askId);
+      // The request writes NO domain state: the live render is untouched and
+      // the worker owns every mutation.
+      expect(await snapshotOutreach(seeded.batchId)).toEqual(outreachBefore);
+    });
+
+    it('records ask_regeneration_requested on the send parent with the requesting owner', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+
+      const steps = await readSteps(seeded.parentRunId, 'ask_regeneration_requested');
+      expect(steps).toHaveLength(1);
+      expect(stepDetail(steps[0]!)).toMatchObject({
+        ask_id: seeded.asks[0]!.askId,
+        requested_by_user_id: userId(),
+      });
+      // The persona comes from STEP_PERSONA, never from the caller — the step
+      // key had to be registered there for this to be anything but a tsc error.
+      expect(steps[0]!.attributed_agent).toBe('solicitation');
+    });
+
+    it('refuses a regenerate for an approved batch without writing an outbox row', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      await approveBatch(sql(), {
+        batchId: seeded.batchId,
+        accountId: accountId(),
+        businessId,
+        approvedByUserId: userId(),
+        excludedOutreachIds: [],
+      });
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+
+      // ADR 0020, asserted against the DATABASE rather than the return value:
+      // the refusal is only worth anything if nothing was enqueued.
+      expect(result.status).toBe('not_regenerable');
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
+    });
+
+    it('refuses a regenerate for an ask whose current attempt is withheld', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      await writerSql()`
+        UPDATE solicitation_outreach
+        SET delivery_status = 'withheld',
+            disposition_reason = 'lint_failed',
+            rendered_subject = NULL,
+            rendered_body = NULL
+        WHERE ask_id = ${seeded.asks[0]!.askId}::uuid
+      `;
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+
+      // §8.2 r6: blocked is terminal. Re-rolling it would launder the
+      // fail-closed lint.
+      expect(result).toEqual({ status: 'ask_not_regenerable', deliveryStatus: 'withheld' });
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
+    });
+
+    it('returns already_in_flight when a generation is already in flight for the batch', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const first = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+      expect(first.status).toBe('accepted');
+
+      // A DIFFERENT ask: the dedup is keyed on the batch, not the ask, which is
+      // the fact that makes "regenerate all" impossible as a fan-out.
+      const second = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[1]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+
+      expect(second).toEqual({ status: 'already_in_flight' });
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(1);
+    });
+
+    it('refuses a regenerate for a batch belonging to another tenant', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const foreign = foreignTenantSeed();
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        // The foreign ACCOUNT with the REAL business id, matching this file's
+        // existing `describe('tenant scope', ...)`. Mismatching both keys is
+        // the weaker probe: it would still pass if the account predicate were
+        // missing entirely, because the business predicate alone would refuse.
+        accountId: foreign.accountId,
+        businessId,
+        requestedByUserId: foreign.userId,
+        budgetRemaining: 3,
+      });
+
+      // A foreign batch id and an unknown one are indistinguishable.
+      expect(result).toEqual({ status: 'not_found' });
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
+    });
+
+    it('answers not_found for a foreign tenant whose batch already has a regeneration in flight', async () => {
+      // Round-1 R5. The enqueue's `ON CONFLICT (topic, aggregate_id)` carries
+      // NO tenant discriminator, so answering its dedup arm straight off the
+      // probe made a FOREIGN batch id that is currently regenerating answer
+      // 409 where an unknown one answers 404 — an existence-and-activity
+      // oracle across the tenant boundary.
+      //
+      // The pre-existing foreign-tenant case above covers only the NO-conflict
+      // branch, which is why the leak survived it. This one seeds the conflict
+      // first and probes the same door.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+      const inFlight = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: 3,
+      });
+      expect(inFlight.status).toBe('accepted');
+
+      const foreign = foreignTenantSeed();
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[1]!.askId,
+        // Foreign ACCOUNT with the real business id, matching the sibling case
+        // above: mismatching both keys would still pass with the account
+        // predicate missing entirely.
+        accountId: foreign.accountId,
+        businessId,
+        requestedByUserId: foreign.userId,
+        budgetRemaining: 3,
+      });
+
+      // Indistinguishable from an unknown id — NOT `already_in_flight`.
+      expect(result).toEqual({ status: 'not_found' });
+      // And the owner's real in-flight row is untouched: the refused request
+      // neither wrote a second row nor consumed the first.
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(1);
+    });
+
+    it('refuses an exhausted per-ask budget and leaves no outbox row behind', async () => {
+      // Round-1 R4. `budget_exhausted` ABORTS BY THROWING, because postgres.js
+      // commits when the `sql.begin` callback resolves and the enqueue-first
+      // lock order has already written the outbox row by the time this gate is
+      // reached. A `return` here would refuse the owner AND start the
+      // regeneration anyway — money spent on a request the server declined.
+      //
+      // So the return value alone is not the assertion. The DATABASE is: no
+      // `job_outbox` row of ANY status may survive the transaction, and the
+      // owner-attribution step must not exist either.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        // The one value every other case in this suite avoids: 0 remaining.
+        // `null` is UNKNOWN (the advisory peek could not answer) and proceeds;
+        // 0 is a known-spent budget and must refuse.
+        budgetRemaining: 0,
+      });
+
+      expect(result).toEqual({ status: 'budget_exhausted' });
+
+      // Deliberately UNFILTERED by status, unlike readInflightOutbox: the claim
+      // is that the row was rolled back, not merely that it is not in flight.
+      const rows = await writerSql()<{ id: string }[]>`
+        SELECT id
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND aggregate_id = ${seeded.batchId}
+      `;
+      expect(rows).toHaveLength(0);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(0);
+    });
+
+    it('accepts a regenerate when the budget is UNKNOWN, so an Upstash outage cannot close the lane', async () => {
+      // Round-2 finding: R4 shipped only its fail-CLOSED half. The case above
+      // pins `0` (known-spent → refuse); nothing pinned `null`, and `null` is
+      // the load-bearing one.
+      //
+      // `null` means the advisory peek could not answer — Redis unreachable, so
+      // `peekAskRegenBudgetBatch` failed open to an empty map and the route
+      // passed `budget?.remaining ?? null`. CLAUDE.md: "API rate limits fail
+      // OPEN by design… Never make the limiters strict." The worker's Lua INCR
+      // is the authoritative gate and is itself retryable, so proceeding here
+      // cannot overspend — it can only make the owner wait for a real refusal.
+      //
+      // Without this test the guard can be rewritten as
+      // `(input.budgetRemaining ?? 0) <= 0`, which type-checks, keeps every
+      // other case green, and silently converts an Upstash outage into a dead
+      // regenerate lane for every owner at once.
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      const result = await requestAskRegeneration(sql(), {
+        batchId: seeded.batchId,
+        askId: seeded.asks[0]!.askId,
+        accountId: accountId(),
+        businessId,
+        requestedByUserId: userId(),
+        budgetRemaining: null,
+      });
+
+      expect(result).toEqual({ status: 'accepted' });
+
+      // …and it is a REAL acceptance: the work was actually enqueued and the
+      // owner actually attributed. A `budget_exhausted` that happened to
+      // stringify as accepted would not survive these two.
+      const rows = await writerSql()<{ id: string }[]>`
+        SELECT id
+        FROM job_outbox
+        WHERE topic = ${QUEUE_NAMES.GENERATE_SOLICITATION_ASKS}
+          AND aggregate_id = ${seeded.batchId}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(1);
+    });
+
+    it('rolls back the regeneration outbox row when recording ask_regeneration_requested fails', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      // The enqueue-first order means the outbox row is written BEFORE the step.
+      // If the step could fail without taking the row with it, an owner would
+      // get a regeneration nobody asked for and no record of who asked —
+      // invariant #2 broken in the one direction the ordering makes possible.
+      //
+      // Forced with a real fixture mutation rather than a mock: the send parent
+      // is re-pointed at another subject, so `lockBatchForAction`'s correlated
+      // lookup no longer resolves it and the step CANNOT be recorded. A
+      // literally non-existent run id is unrepresentable here — the id is read
+      // inside the same transaction that uses it — so this is the deterministic
+      // form of "recording the step fails". The run row itself SURVIVES, which
+      // is what keeps the step assertion below a real oracle rather than a
+      // vacuous read of a cascade-deleted parent.
+      await writerSql()`
+        UPDATE agent_runs
+        SET subject_id = ${randomUUID()}
+        WHERE id = ${seeded.parentRunId}::uuid
+      `;
+
+      await expect(
+        requestAskRegeneration(sql(), {
+          batchId: seeded.batchId,
+          askId: seeded.asks[0]!.askId,
+          accountId: accountId(),
+          businessId,
+          requestedByUserId: userId(),
+          budgetRemaining: 3,
+        }),
+      ).rejects.toThrow();
+
+      expect(await readInflightOutbox(seeded.batchId)).toHaveLength(0);
+      expect(await readSteps(seeded.parentRunId, 'ask_regeneration_requested')).toHaveLength(0);
+    });
+
+    it('does not deadlock when a worker completion races a second regeneration request', async () => {
+      const seeded = await seedRenderedBatch({ renders: 2 });
+
+      // PART 1 — the ordering assertion. This is the part that actually guards
+      // round 1's critical defect, and it is deterministic.
+      //
+      // A provoked ABBA is NOT used here, and the reason is worth stating so
+      // nobody "improves" this test into one: reproducing it needs a third
+      // session holding the advisory lock while the worker waits for it, and
+      // which side Postgres kills is nondeterministic. A flaky deadlock test is
+      // worse than none, because the failure mode people learn to ignore is
+      // exactly the failure mode this bug has.
+      //
+      // So assert the ORDER instead: the outbox INSERT must be the first
+      // statement, before any advisory lock. That is the whole invariant.
+      let first: RequestAskRegenerationResult | undefined;
+      const stmts = await captureStatements(async (handle) => {
+        first = await requestAskRegeneration(handle, {
+          batchId: seeded.batchId,
+          askId: seeded.asks[0]!.askId,
+          accountId: accountId(),
+          businessId,
+          requestedByUserId: userId(),
+          budgetRemaining: 3,
+        });
+      });
+      expect(first).toEqual({ status: 'accepted' });
+
+      const outboxAt = stmts.findIndex((s) => s.includes('INSERT INTO job_outbox'));
+      const advisoryAt = stmts.findIndex((s) => s.includes('pg_advisory_xact_lock'));
+      expect(outboxAt).toBeGreaterThanOrEqual(0);
+      expect(advisoryAt).toBeGreaterThanOrEqual(0);
+      expect(outboxAt).toBeLessThan(advisoryAt);
+
+      // PART 2 — the serialization, proving the order it settled on does not
+      // self-deadlock against a real worker holding that row.
+      const [inflight] = await readInflightOutbox(seeded.batchId);
+      const worker = writerSql();
+      let second!: Promise<RequestAskRegenerationResult>;
+
+      await worker.begin(async (tx) => {
+        // The worker's opening move, in the worker's real order: outbox row
+        // first, advisory lock second.
+        await tx`
+          UPDATE job_outbox SET status = 'completed'
+          WHERE id = ${inflight!.id}::uuid
+        `;
+        await acquireSolicitationBatchLock(tx, businessId);
+
+        second = requestAskRegeneration(sql(), {
+          batchId: seeded.batchId,
+          askId: seeded.asks[1]!.askId,
+          accountId: accountId(),
+          businessId,
+          requestedByUserId: userId(),
+          budgetRemaining: 3,
+        });
+
+        // Let it reach the outbox row and block there. NOT awaited inside this
+        // callback: postgres.js commits when the callback resolves, so awaiting
+        // a promise that cannot settle until this transaction commits would
+        // hang the test under the CORRECT ordering too.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      });
+
+      // Commit released both locks; the blocked request now completes.
+      await expect(second).resolves.toEqual({ status: 'accepted' });
     });
   });
 

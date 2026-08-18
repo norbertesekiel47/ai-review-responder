@@ -74,9 +74,14 @@ Test obligation: a direct authenticated Supabase read must not return the body.
   `delivery_status='cancelled'`, `disposition_reason='superseded'` (**new
   cancel-set member** added to #619 D13), in the same transaction. The
   one-live-attempt partial unique (#619 §9 item 5) makes the swap atomic.
-  Regeneration is possible only while the batch is un-approved or (post-
+  ~~Regeneration is possible only while the batch is un-approved or (post-
   approval) for `rendered` rows the owner has not excluded — a released
-  (`queued`/`sending`/`sent`) row is never superseded.
+  (`queued`/`sending`/`sent`) row is never superseded.~~
+  **NARROWED by ADR 0020 (#860):** regeneration is possible **only while the
+  batch is un-approved** (`built`). The post-approval clause is struck. #860
+  built the owner entry point this amendment presumed, and shipping it with the
+  post-approval clause live would have made the byte-for-byte approval contract
+  conditional in the shipped product rather than only on paper (#629 D3).
 - Flagged for the map owner: if regenerate should ALSO die, strike this
   section's second bullet; nothing else depends on it.
 

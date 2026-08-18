@@ -1,4 +1,5 @@
-// Route-level tests for the two owner verbs of the send lane (#629).
+// Route-level tests for the three owner verbs of the send lane (#629
+// approve/halt, #860 regenerate).
 //
 // `@/lib/auth/route-helpers` is deliberately NOT mocked: `withSameOrigin` is the
 // CSRF guard two of these tests assert, and `requireWritableOwner`'s
@@ -17,6 +18,9 @@ const {
   mockMultiLocationEnabled,
   mockApproveBatch,
   mockHaltBatch,
+  mockRequestAskRegeneration,
+  mockPeekAskRegenBudget,
+  mockEnforceRegenLimit,
 } = vi.hoisted(() => ({
   mockRequireRole: vi.fn(),
   mockAccountRows: vi.fn(),
@@ -24,6 +28,9 @@ const {
   mockMultiLocationEnabled: vi.fn(() => false),
   mockApproveBatch: vi.fn(),
   mockHaltBatch: vi.fn(),
+  mockRequestAskRegeneration: vi.fn(),
+  mockPeekAskRegenBudget: vi.fn(),
+  mockEnforceRegenLimit: vi.fn(),
 }));
 
 vi.mock('@/lib/db/auth', () => {
@@ -57,17 +64,41 @@ vi.mock('@/lib/locations/flags', () => ({
 vi.mock('@/lib/solicitation/approval', () => ({
   approveBatch: (...args: unknown[]) => mockApproveBatch(...args),
   haltBatch: (...args: unknown[]) => mockHaltBatch(...args),
+  requestAskRegeneration: (...args: unknown[]) => mockRequestAskRegeneration(...args),
 }));
+
+// Only the per-ASK peek is stubbed; the review-lane sibling is re-exported so
+// the real `dashboard-regen-rate-limit` module below still resolves its import.
+vi.mock('@/lib/costs/tracker', () => ({
+  peekAskRegenBudgetBatch: (...args: unknown[]) => mockPeekAskRegenBudget(...args),
+  peekRegenBudgetBatch: () => Promise.resolve(new Map()),
+}));
+
+// PARTIAL mock: only the per-owner limiter is stubbed, because it would
+// otherwise reach a real Redis via REDIS_CACHE_URL and make these tests depend
+// on the developer's machine. `askRegenLimitResponse` stays REAL — the 429 test
+// asserts its body verbatim, so stubbing it would assert nothing.
+vi.mock('@/lib/shared/dashboard-regen-rate-limit', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/shared/dashboard-regen-rate-limit')>(
+    '@/lib/shared/dashboard-regen-rate-limit',
+  );
+  return {
+    ...actual,
+    enforceDashboardRegenRateLimit: (...args: unknown[]) => mockEnforceRegenLimit(...args),
+  };
+});
 
 import { SOLICITATION_SCOPE_PARAM } from '@/app/api/dashboard/solicitation/scope-param';
 import { POST as APPROVE } from '../approve/route';
 import { POST as HALT } from '../halt/route';
+import { POST as REGENERATE } from '../regenerate/route';
 
 const APP_URL = 'http://localhost:3000';
 const ACCOUNT_ID = 'a0000000-0000-0000-0000-000000000001';
 const USER_ID = '01900000-0000-7000-8000-0000000000a1';
 const DEFAULT_LOCATION_ID = '01900000-0000-7000-8000-0000000000d1';
 const BATCH_ID = '01900000-0000-7000-8000-000000000001';
+const ASK_ID = '01900000-0000-7000-8000-0000000000f1';
 
 function owner() {
   return {
@@ -103,9 +134,14 @@ function accountRow(subscriptionStatus: string) {
 }
 
 function post(
-  path: 'approve' | 'halt',
+  path: 'approve' | 'halt' | 'regenerate',
   options: { query?: string; body?: unknown; origin?: string } = {},
 ): NextRequest {
+  // `regenerate` is the one body that is more than a batch id — its ask id is
+  // required, so the default has to carry one or every case would 404 at the
+  // parse boundary instead of reaching the behaviour it is about.
+  const defaultBody =
+    path === 'regenerate' ? { batchId: BATCH_ID, askId: ASK_ID } : { batchId: BATCH_ID };
   return new NextRequest(
     `${APP_URL}/api/dashboard/solicitation/batch/${path}${options.query ?? ''}`,
     {
@@ -114,7 +150,7 @@ function post(
         'content-type': 'application/json',
         Origin: options.origin ?? APP_URL,
       },
-      body: JSON.stringify(options.body ?? { batchId: BATCH_ID }),
+      body: JSON.stringify(options.body ?? defaultBody),
     },
   );
 }
@@ -141,6 +177,11 @@ beforeEach(() => {
     cancelledCount: 2,
     close: { status: 'not_settled' },
   });
+  mockRequestAskRegeneration.mockResolvedValue({ status: 'accepted' });
+  // An EMPTY map is the fail-open default: the peek could not answer, so every
+  // case that is not about the budget travels with `budgetRemaining: null`.
+  mockPeekAskRegenBudget.mockResolvedValue(new Map());
+  mockEnforceRegenLimit.mockResolvedValue(null);
 });
 
 /**
@@ -371,5 +412,147 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     // Refused at the parse boundary — no transaction is opened for a body the
     // route cannot trust.
     expect(mockHaltBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/dashboard/solicitation/batch/regenerate', () => {
+  const SCOPED = `?${SOLICITATION_SCOPE_PARAM}=${DEFAULT_LOCATION_ID}`;
+
+  it('POST regenerate enqueues for a built batch and answers 202', async () => {
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'accepted' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    // 202, not 200: accepted, not done.
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ status: 'accepted' });
+    expect(mockRequestAskRegeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        batchId: BATCH_ID,
+        askId: ASK_ID,
+        businessId: DEFAULT_LOCATION_ID,
+        requestedByUserId: USER_ID,
+      }),
+    );
+  });
+
+  it('POST regenerate answers 409 when the batch is already approved', async () => {
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'not_regenerable', state: 'approved' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      status: 'not_regenerable',
+      state: 'approved',
+    });
+  });
+
+  it('POST regenerate answers 429 when the ask has spent its daily regenerate budget', async () => {
+    mockPeekAskRegenBudget.mockResolvedValue(new Map([[ASK_ID, { used: 3, limit: 3, remaining: 0 }]]));
+    // REQUIRED: the domain decides exhaustion now, so the 429 exists only if it
+    // says so. Without this the `beforeEach` default returns `accepted` and the
+    // route answers 202.
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'budget_exhausted' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'regen_limit_reached',
+      remaining: 0,
+      limit: 3,
+    });
+    // The domain IS called — that is the whole point of round 1's finding 4.
+    // The route peeks and PASSES the count; the decision happens inside, after
+    // the ask has been proven to belong to this tenant.
+    expect(mockRequestAskRegeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ askId: ASK_ID, budgetRemaining: 0 }),
+    );
+  });
+
+  it('POST regenerate answers 404 for an over-budget ask belonging to another tenant', async () => {
+    // An exhausted counter for an ask this owner does NOT own. The counter is
+    // keyed on the bare ask id, so a route refusing on the peek alone would
+    // answer 429 and confirm the ask exists somewhere. It must be
+    // indistinguishable from an unknown id.
+    mockPeekAskRegenBudget.mockResolvedValue(new Map([[ASK_ID, { used: 3, limit: 3, remaining: 0 }]]));
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'not_found' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.not.toMatchObject({ error: 'regen_limit_reached' });
+  });
+
+  it('POST regenerate enqueues when the ask budget map has no entry', async () => {
+    // An ABSENT MAP ENTRY is UNKNOWN (the MGET failed) and must fail OPEN. An
+    // absent Redis KEY is a different fact and arrives as `remaining: 3`.
+    mockPeekAskRegenBudget.mockResolvedValue(new Map());
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'accepted' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(202);
+    expect(mockRequestAskRegeneration).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ budgetRemaining: null }),
+    );
+  });
+
+  it('POST regenerate answers 409 when a regeneration is already in flight for the batch', async () => {
+    mockRequestAskRegeneration.mockResolvedValue({ status: 'already_in_flight' });
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ status: 'already_in_flight' });
+  });
+
+  it('POST regenerate answers 404 when the body carries no valid ask id', async () => {
+    const response = await REGENERATE(
+      post('regenerate', {
+        query: SCOPED,
+        body: { batchId: BATCH_ID, askId: 'not-a-uuid' },
+      }),
+    );
+
+    // The uniform 404: a malformed body reveals nothing an unknown batch would
+    // not, and never reaches the domain.
+    expect(response.status).toBe(404);
+    expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cross-origin regenerate post', async () => {
+    // The third owner verb, and the last one left without a CSRF assertion.
+    // Regenerate is a spending verb — it enqueues an LLM call on the owner's
+    // budget — so a forged cross-site POST is worth the same pin approve and
+    // halt already carry.
+    const response = await REGENERATE(
+      post('regenerate', { query: SCOPED, origin: 'https://evil.example.com' }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'forbidden' });
+    // withSameOrigin is the OUTERMOST wrapper: nothing behind it may run — no
+    // identity lookup, no Redis peek, no transaction.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockPeekAskRegenBudget).not.toHaveBeenCalled();
+    expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
+  });
+
+  it('POST regenerate is refused when SOLICITATION_SEND_ENABLED is off', async () => {
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', 'false');
+
+    const response = await REGENERATE(post('regenerate', { query: SCOPED }));
+
+    expect(response.status).toBe(404);
+    expect(mockRequestAskRegeneration).not.toHaveBeenCalled();
+    // Invariant #13: the surface must not exist, so no auth work may have run
+    // and no budget key may have been read for an ask this request never got to.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockPeekAskRegenBudget).not.toHaveBeenCalled();
   });
 });

@@ -7,8 +7,9 @@
  *    reply concurrency slot), each through the same per-child pipeline:
  *    interpolation (§1.1) → cost guard → LLM → footer assembly → lint (§2) →
  *    moderation (§3) → one `solicitation_outreach` row.
- *  - `regenerateAsk` — the per-ask LLM re-roll (SPEC §8.2, AMEND B2), with NO
- *    transaction spanning the LLM call (decision 7).
+ *  - `regenerateAsk` — the per-ask LLM re-roll (SPEC §8.2, AMEND B2 as narrowed
+ *    by ADR 0020: `built` only), with NO transaction spanning the LLM call
+ *    (decision 7).
  *
  * Idempotency is the DATABASE, not Redis (SPEC §7.4): before reserving a cent,
  * each ask is probed for ANY non-cancelled outreach row — stricter than the
@@ -1215,16 +1216,32 @@ export async function generateAsksForBatch(
 // ── regenerateAsk ────────────────────────────────────────────────────────────
 
 /**
- * AMEND B2: regeneration is possible while the batch is un-approved (`built`)
- * or post-approval for still-`rendered` rows (`approved` / `veto_window` /
- * `sending`). Halted, expired, closed, and unbuilt batches refuse.
+ * A batch is regenerable in exactly ONE state: `built`, before Owner approval.
+ *
+ * This NARROWS amendment B2, which permitted post-approval regeneration of
+ * still-`rendered` rows (`approved` / `veto_window` / `sending`). #628 built
+ * that deliberately and #629 accepted it (deviation D3) only because no owner
+ * entry point enqueued a per-ask regenerate — the path was unreachable in the
+ * shipped surface. #860 builds that entry point, so the choice had to be made
+ * rather than inherited.
+ *
+ * ADR 0020 records it. The short version: refusing after approval makes "what
+ * was approved is byte-for-byte what sends" UNCONDITIONAL, where the
+ * alternative — re-opening approval for the superseded ask — needs per-ask
+ * approval state the schema does not have (`approved_at` is a BATCH column),
+ * plus a release predicate #630 has not written yet.
+ *
+ * A predicate rather than a `ReadonlySet`: with one member a Set is a lookup
+ * table for an equality check, and both call sites want the same question asked
+ * the same way.
+ *
+ * Exported ONLY so the invariant test can assert the decision directly; the
+ * alternative is asserting it through six layers of SQL mock, which tests the
+ * mocks. No production caller outside this module.
  */
-const REGENERABLE_BATCH_STATES: ReadonlySet<BatchState> = new Set([
-  'built',
-  'approved',
-  'veto_window',
-  'sending',
-]);
+export function isRegenerableBatchState(state: BatchState): boolean {
+  return state === 'built';
+}
 
 /** Control-flow sentinel: aborts the swap tx (rolling back its writes). */
 class RegenSwapAbort extends Error {
@@ -1340,7 +1357,7 @@ export async function regenerateAsk(
   }
 
   const preState = deriveBatchState(ctx.lifecycle, new Date());
-  if (!REGENERABLE_BATCH_STATES.has(preState)) {
+  if (!isRegenerableBatchState(preState)) {
     await refuse('batch_not_regenerable', { batch_state: preState });
     return;
   }
@@ -1358,8 +1375,10 @@ export async function regenerateAsk(
   }
   if (current.delivery_status !== 'rendered') {
     // SPEC §8.2 r6: blocked is terminal — a withheld row cannot be re-rolled
-    // (that would launder the fail-closed lint); AMEND B2: a released row
-    // (queued/sending/sent) is never superseded.
+    // (that would launder the fail-closed lint). A released row
+    // (queued/sending/sent) is never superseded either; since ADR 0020 that is
+    // unreachable — a `built` batch has released nothing — and it is kept as
+    // the second layer rather than the first.
     await refuse('current_attempt_not_rendered', {
       delivery_status: current.delivery_status,
     });
@@ -1406,7 +1425,7 @@ export async function regenerateAsk(
       `;
       if (!batchRow) throw new RegenSwapAbort('batch_missing');
       const lockedState = deriveBatchState(batchRow, new Date());
-      if (!REGENERABLE_BATCH_STATES.has(lockedState)) {
+      if (!isRegenerableBatchState(lockedState)) {
         throw new RegenSwapAbort(`batch_not_regenerable:${lockedState}`);
       }
       const lockedRow = await loadCurrentOutreach(tx, ctx, input.askId, true);

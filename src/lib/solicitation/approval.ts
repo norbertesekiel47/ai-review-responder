@@ -1,21 +1,31 @@
 /**
- * The two owner verbs of send-mode's approval lane (#629; executor design
- * 2026-07-28 D9/D10/D22/D23).
+ * The owner verbs of send-mode's approval lane (#629 approve/halt, executor
+ * design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration).
  *
- * What lives here and nothing else: `approveBatch` and `haltBatch`. Both are
- * transactional writers with an actor; both return a discriminated result so
- * their routes stay thin (invariant #12) and neither throws for an outcome the
- * owner can cause.
+ * What lives here and nothing else: `approveBatch`, `haltBatch` and
+ * `requestAskRegeneration`. All three are transactional writers with an actor;
+ * all three return a discriminated result so their routes stay thin (invariant
+ * #12) and none throws for an outcome the owner can cause.
+ *
+ * `requestAskRegeneration` belongs here rather than beside `regenerateAsk` in
+ * ask-generation.ts, and the reason is the gate rather than the verb: since
+ * ADR 0020 a regenerate is legal in exactly one Batch state, `built`, so its
+ * ENTIRE refusal vocabulary is approval-lane lifecycle. ask-generation.ts is
+ * the machine side and carries no actor in any signature; this file is the
+ * human side and carries one in every signature.
  *
  * Deliberately NOT in outreach.ts: that module's interface is the machine
  * lifecycle (render persistence, the join, the derived state) and has no actor
  * in any signature. These two do, and they are the only writers a human
  * triggers.
  *
- * LOCK ORDER (amendment B11, and the reason both verbs share one shape):
- * advisory batch lock -> `solicitation_batches` row -> `agent_runs`. Every
- * run-spine call (recordStep, closeBatchIfSettled) therefore happens LAST.
- * Taking the run lock first is an ABBA deadlock against the offboarding purge.
+ * LOCK ORDER (amendment B11, and the reason the two #629 verbs share one
+ * shape): advisory batch lock -> `solicitation_batches` row -> `agent_runs`.
+ * Every run-spine call (recordStep, closeBatchIfSettled) therefore happens
+ * LAST. Taking the run lock first is an ABBA deadlock against the offboarding
+ * purge. `requestAskRegeneration` prefixes ONE lock ahead of that chain — the
+ * `job_outbox` row it enqueues — because the worker it enqueues for takes that
+ * row first; its own docstring carries the whole argument.
  *
  * Where this file DIFFERS from outreach.ts, whose lock analysis it otherwise
  * mirrors: nothing here locks an `agent_runs` row before calling the spine, so
@@ -33,6 +43,7 @@
 
 import type { Sql, TransactionSql } from 'postgres';
 import { recordStep } from '@/lib/agents/run-spine';
+import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import {
   closeBatchIfSettled,
@@ -87,21 +98,36 @@ function canonicalBatchId(batchId: string): string {
 }
 
 /**
- * The locked batch row plus its Send batch parent, in ONE statement under the
- * advisory lock. Returns null when the batch does not exist for this tenant —
- * the caller maps that onto the uniform 404, so a foreign batch id and an
- * unknown one are indistinguishable.
+ * The locked batch row, its Send batch parent and its derived state, in ONE
+ * statement under the advisory lock. This is the shared opening of all three
+ * owner verbs, and it stops exactly where they diverge.
  *
- * `batchId` is already canonical (`canonicalBatchId`) so every downstream use,
- * including `closeBatchIfSettled`, observes the same defensive normalization.
- * This statement also correlates the TEXT parent subject to `b.id::text`, which
- * lets Postgres render the UUID canonically at the comparison boundary.
+ * Returns null when the batch does not exist for this tenant. Deliberately null
+ * rather than a refusal value: every caller maps it onto the uniform 404 — so a
+ * foreign batch id and an unknown one stay indistinguishable — but they do NOT
+ * express it the same way. `approveBatch` and `haltBatch` return
+ * `{ status: 'not_found' }`; `requestAskRegeneration` must THROW
+ * `RegenRequestAbort`, because by the time it calls this it has already written
+ * its `job_outbox` row and postgres.js COMMITS on a normal return. Folding the
+ * three failures into one here would silently start the regeneration this
+ * helper just refused.
+ *
+ * The state is derived HERE — once, under the lock, from the same row every
+ * write downstream targets — so no caller can re-derive it from a second read.
+ *
+ * `batchId` is passed apart from the tenant keys because it must be the
+ * canonical one (`canonicalBatchId`), never the caller's raw input: every
+ * downstream use, including `closeBatchIfSettled`, then observes the same
+ * defensive normalization. This statement also correlates the TEXT parent
+ * subject to `b.id::text`, which lets Postgres render the UUID canonically at
+ * the comparison boundary.
  */
 async function lockBatchForAction(
   tx: TransactionSql,
-  input: { batchId: string; accountId: string; businessId: string },
-): Promise<BatchActionRow | null> {
-  await acquireSolicitationBatchLock(tx, input.businessId);
+  batchId: string,
+  tenant: { accountId: string; businessId: string },
+): Promise<{ batch: BatchActionRow; state: BatchState } | null> {
+  await acquireSolicitationBatchLock(tx, tenant.businessId);
 
   // Keep the parent lookup correlated to the locked batch row. The query-block
   // tenant-scope audit proves both tenant predicates inside this scalar
@@ -123,18 +149,19 @@ async function lockBatchForAction(
         WHERE r.kind = 'solicitation_send_batch'
           AND r.subject_type = 'solicitation_batch'
           AND r.subject_id = b.id::text
-          AND r.account_id = ${input.accountId}::uuid
-          AND r.business_id = ${input.businessId}::uuid
+          AND r.account_id = ${tenant.accountId}::uuid
+          AND r.business_id = ${tenant.businessId}::uuid
         ORDER BY r.started_at DESC
         LIMIT 1
       ) AS send_parent_run_id
     FROM solicitation_batches b
-    WHERE b.id = ${input.batchId}::uuid
-      AND b.account_id = ${input.accountId}::uuid
-      AND b.business_id = ${input.businessId}::uuid
+    WHERE b.id = ${batchId}::uuid
+      AND b.account_id = ${tenant.accountId}::uuid
+      AND b.business_id = ${tenant.businessId}::uuid
     FOR UPDATE OF b
   `;
-  return batch ?? null;
+  if (batch === undefined) return null;
+  return { batch, state: deriveBatchState(batch, new Date()) };
 }
 
 export interface ApproveBatchInput {
@@ -182,17 +209,13 @@ export async function approveBatch(
 ): Promise<ApproveBatchResult> {
   const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<ApproveBatchResult> => {
-    const batch = await lockBatchForAction(tx, {
-      batchId,
-      accountId: input.accountId,
-      businessId: input.businessId,
-    });
-    if (batch === null) return { status: 'not_found' };
+    const locked = await lockBatchForAction(tx, batchId, input);
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
 
-    // Read the state ONCE, under the lock, from the same row every write below
-    // targets. `expired` lands here: past built_at + 7 days neither lane may
-    // approve (D2).
-    const state = deriveBatchState(batch, new Date());
+    // The state was read ONCE, under the lock, from the same row every write
+    // below targets. `expired` lands here: past built_at + 7 days neither lane
+    // may approve (D2).
     if (state !== 'built') {
       return batch.approved_at !== null
         ? { status: 'already_approved' }
@@ -401,14 +424,10 @@ export async function haltBatch(
 ): Promise<HaltBatchResult> {
   const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx): Promise<HaltBatchResult> => {
-    const batch = await lockBatchForAction(tx, {
-      batchId,
-      accountId: input.accountId,
-      businessId: input.businessId,
-    });
-    if (batch === null) return { status: 'not_found' };
+    const locked = await lockBatchForAction(tx, batchId, input);
+    if (locked === null) return { status: 'not_found' };
+    const { batch, state } = locked;
 
-    const state = deriveBatchState(batch, new Date());
     if (state === 'halted') return { status: 'already_halted' };
     if (state === 'closed') return { status: 'not_haltable', state };
 
@@ -466,4 +485,220 @@ export async function haltBatch(
 
     return { status: 'halted', reason, cancelledCount: cancelled.count, close };
   });
+}
+
+export interface RequestAskRegenerationInput {
+  batchId: string;
+  askId: string;
+  accountId: string;
+  businessId: string;
+  /** Regenerations left for this ask today, or `null` when the advisory peek
+   *  could not answer. The ROUTE reads it (Redis belongs to the composition
+   *  root, not a domain module) but this function DECIDES on it, so the
+   *  decision lands after tenant validation. */
+  budgetRemaining: number | null;
+  /** The acting owner, recorded on the run step. Regeneration spends money on
+   *  the owner's behalf, so the act is attributable even when the worker later
+   *  refuses it. */
+  requestedByUserId: string;
+}
+
+export type RequestAskRegenerationResult =
+  /** Enqueued. The work is ACCEPTED, not done — the worker may still refuse it
+   *  (budget race, subscription lapse, a swap that loses its re-check). */
+  | { status: 'accepted' }
+  /** A generation is already in flight for this batch. The dedup is keyed
+   *  `(topic, aggregate_id = batchId)`, so this is per BATCH, not per ask —
+   *  which is also why "regenerate all" cannot exist as a fan-out. Reported
+   *  only AFTER the batch is proven to be this tenant's; the dedup index
+   *  carries no tenant key, so an unproven caller must not be able to tell
+   *  this arm from `not_found`. */
+  | { status: 'already_in_flight' }
+  /** ADR 0020: `built` is the only regenerable state. `approved`,
+   *  `veto_window` and `sending` land here, and so do `halted` / `expired` /
+   *  `closed`. */
+  | { status: 'not_regenerable'; state: BatchState }
+  /** The ask's current attempt is not `rendered` — a `withheld` row is terminal
+   *  (§8.2 r6) and a released one is never superseded. */
+  | { status: 'ask_not_regenerable'; deliveryStatus: string }
+  /** The ask has spent its 3/day budget. Decided HERE rather than in the route
+   *  so it lands AFTER tenant validation: the counter is keyed on the bare ask
+   *  id, so answering 429 before proving ownership would let an authenticated
+   *  owner tell a foreign ask from an unknown one (codex round 1, finding 4). */
+  | { status: 'budget_exhausted' }
+  | { status: 'not_found' };
+
+/** Control-flow sentinel: aborts the request tx, rolling back the outbox row
+ *  the enqueue-first lock order forces us to write before validating. Mirrors
+ *  `RegenSwapAbort` in ask-generation.ts, which exists for the same reason. */
+class RegenRequestAbort extends Error {
+  constructor(public readonly result: RequestAskRegenerationResult) {
+    super('ask regeneration request aborted');
+    this.name = 'RegenRequestAbort';
+  }
+}
+
+/**
+ * The owner asking for one new draft — **Ask regeneration**'s request half.
+ *
+ * Everything expensive happens in the worker (`regenerateAsk`): this writes no
+ * domain state at all, only the `job_outbox` row and the step recording who
+ * asked, both in ONE transaction (invariant #2). The gates below are therefore
+ * ADVISORY — the worker re-checks every one of them under its own locks, which
+ * is the only reason a refusal here can be cheap.
+ *
+ * LOCK ORDER: `job_outbox` row -> advisory batch lock -> `solicitation_batches`
+ * row -> `solicitation_outreach` row -> `agent_runs` (taken by `recordStep`).
+ *
+ * The FIRST element is the one amendment B11 does not mention and the one that
+ * matters here. `regenerateAsk`'s swap opens with `markOutboxCompletedIfOwned`
+ * — a row lock on `job_outbox` — and only THEN calls
+ * `acquireSolicitationBatchLock`. So B11's stated "advisory first, then row
+ * locks" is INCOMPLETE for any writer that owns an outbox attempt, and a
+ * request path that took the advisory lock first would deadlock against the
+ * worker it is enqueueing for: the worker would hold the outbox row and wait
+ * for the advisory lock, while this transaction held the advisory lock and
+ * waited for that outbox row (the `ON CONFLICT` uniqueness probe blocks on the
+ * worker's uncommitted status change, which removes the row from the partial
+ * index). Postgres would break it with a 40P01 on one side at random.
+ *
+ * Hence enqueue-first. Do not "tidy" this back into validate-first.
+ *
+ * VALIDATE AFTER MUTATE, and therefore ABORT BY THROWING. postgres.js COMMITS
+ * when the `sql.begin` callback resolves, so a refusal reached by a normal
+ * `return` after the enqueue would COMMIT the outbox row and start a
+ * regeneration this function just refused. Every refusal below therefore throws
+ * `RegenRequestAbort`, which rolls the row back; the catch maps it to the
+ * result. This is the same shape, for the same reason, as `RegenSwapAbort`.
+ *
+ * ORDER OF REFUSALS is a security property, not a style choice. Every arm a
+ * caller can distinguish is answered only once the statement above it has
+ * proven the caller owns the thing being described: `not_found` first (the
+ * batch), then `already_in_flight` (a fact about that proven batch), then
+ * `not_regenerable`, then the ask-level arms, then `budget_exhausted` — the
+ * only one keyed on a bare ask id, and therefore last.
+ */
+export async function requestAskRegeneration(
+  sql: Sql,
+  input: RequestAskRegenerationInput,
+): Promise<RequestAskRegenerationResult> {
+  const batchId = canonicalBatchId(input.batchId);
+  try {
+    return await sql.begin(async (tx): Promise<RequestAskRegenerationResult> => {
+      // FIRST, before any other lock: the outbox row. See LOCK ORDER above.
+      // `null` is the dedup arm; it is READ here and ANSWERED below, after
+      // ownership. Nothing was written either way — DO NOTHING wrote no row
+      // and took no row lock — so this probe leaves the transaction free to
+      // go for the advisory lock next exactly as the accepting path does.
+      const outboxId = await enqueueGenerateSolicitationAsks(tx, {
+        batchId,
+        businessId: input.businessId,
+        askId: input.askId,
+      });
+
+      // Not `return`: the outbox row above is already written, and postgres.js
+      // COMMITS on a normal return. This is why the shared helper answers with
+      // null instead of a refusal of its own — see its docstring.
+      const locked = await lockBatchForAction(tx, batchId, input);
+      if (locked === null) throw new RegenRequestAbort({ status: 'not_found' });
+      // `state` is BOUND here and ANSWERED below the dedup arm. Binding it is a
+      // pure JS derivation over the row just read — no statement, no lock — so
+      // the refusal ORDER this function's docstring pins is unchanged.
+      const { batch, state } = locked;
+
+      // NOW the dedup arm, and this ordering is the whole point (round-1 R5 /
+      // adversarial A5). `enqueueGenerateSolicitationAsks` dedups on
+      // `(topic, aggregate_id)` with NO tenant discriminator, so answering it
+      // straight off the probe told an UNPROVEN caller whether a batch id they
+      // do not own is currently regenerating: 409 for a foreign in-flight
+      // batch where an unknown one answers 404 — an existence-and-activity
+      // oracle, and the exact opposite of the uniform 404 this function
+      // promises two checks down. `withScopedBatch` cannot cover it: it
+      // UUID-validates the caller-supplied batch id and resolves the tenant
+      // keys from the session, but it never proves the two belong together.
+      //
+      // Deferring the answer by ONE statement closes it and changes NO lock
+      // order: the outbox probe is still the transaction's first statement and
+      // the advisory lock is still taken second, so the ABBA against
+      // `regenerateAsk`'s swap (outbox row -> advisory lock) remains
+      // impossible. Do not "tidy" this back above `lockBatchForAction`.
+      //
+      // Past this line the batch is proven theirs, and "a generation is in
+      // flight for this batch" is a fact about their own batch — which is also
+      // why the answer may precede the ask-level lookup below without leaking:
+      // the dedup is keyed on the BATCH, so the ask id contributes nothing to
+      // it.
+      if (outboxId === null) {
+        throw new RegenRequestAbort({ status: 'already_in_flight' });
+      }
+
+      if (state !== 'built') {
+        throw new RegenRequestAbort({ status: 'not_regenerable', state });
+      }
+
+      // The ask's live attempt, locked for the duration. Ordered by attempt_no
+      // DESC and excluding `cancelled` for the same reason `loadCurrentOutreach`
+      // does: superseded attempts stay in the table, and the newest surviving
+      // row is the one a regenerate would replace.
+      const [current] = await tx<{ delivery_status: string }[]>`
+        SELECT o.delivery_status
+        FROM solicitation_outreach o
+        WHERE o.ask_id = ${input.askId}::uuid
+          AND o.batch_id = ${batchId}::uuid
+          AND o.account_id = ${input.accountId}::uuid
+          AND o.business_id = ${input.businessId}::uuid
+          AND o.delivery_status <> 'cancelled'
+        ORDER BY o.attempt_no DESC
+        LIMIT 1
+        FOR UPDATE
+      `;
+      // An ask id from another batch or another tenant produces no row and is
+      // indistinguishable from an unknown one — the uniform 404.
+      if (current === undefined) throw new RegenRequestAbort({ status: 'not_found' });
+      if (current.delivery_status !== 'rendered') {
+        throw new RegenRequestAbort({
+          status: 'ask_not_regenerable',
+          deliveryStatus: current.delivery_status,
+        });
+      }
+
+      // Budget LAST among the refusals, because it is the only one keyed on a
+      // bare ask id: every check above has already proven this ask is ours, so
+      // reaching this line leaks nothing. `null` means the advisory peek could
+      // not answer (Redis down) and the request proceeds — the worker's Lua
+      // INCR is the authoritative gate and is itself retryable.
+      if (input.budgetRemaining !== null && input.budgetRemaining <= 0) {
+        throw new RegenRequestAbort({ status: 'budget_exhausted' });
+      }
+
+      // ASSERT, do not branch: a live rendered row exists only because
+      // generation ran under a send parent. `approveBatch` treats a null parent
+      // as a refusal because its readiness gate passes VACUOUSLY over zero send
+      // asks; here we have just read one of that parent's renders, so a null
+      // parent is a broken invariant and must say so loudly.
+      if (batch.send_parent_run_id === null) {
+        throw new Error(
+          `requestAskRegeneration: batch ${batchId} has a rendered ask but no send parent run`,
+        );
+      }
+
+      await recordStep(tx, {
+        runId: batch.send_parent_run_id,
+        stepKey: 'ask_regeneration_requested',
+        detail: {
+          ask_id: input.askId,
+          requested_by_user_id: input.requestedByUserId,
+          outbox_id: outboxId,
+        },
+      });
+
+      return { status: 'accepted' };
+    });
+  } catch (err) {
+    // The sentinel is the ONE owner of why the request was refused. Every other
+    // error — including the missing-send-parent assertion above — propagates,
+    // because those are broken invariants, not owner-causable outcomes.
+    if (err instanceof RegenRequestAbort) return err.result;
+    throw err;
+  }
 }
