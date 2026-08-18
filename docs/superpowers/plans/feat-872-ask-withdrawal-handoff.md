@@ -110,9 +110,19 @@ so #872 integrated `main` and rode staging the same day.
 | 3 | Migration 109 → **staging** Supabase | **DONE, verified by introspection** — `owner_withdrawn` once, in the `cancelled` arm; constraint hash identical to the local head. Evidence: `docs/runbooks/evidence/2026-08-18-872-ask-withdrawal-staging.md` §1. migrations-log's LOCAL-ONLY marker is replaced by the staging record. |
 | 4 | Code → `staging` branch | **DONE** — fast-forward `dd868c92` → `1377e45d`. Worker `/api/health` 200 with a boot age matching the deploy; Vercel staging + preview deployed. |
 | 5 | Data-level staging smoke | **BLOCKED — NOT DONE.** This environment's permission classifier refused both pointing the integration suite at the staging DB and reading the Railway deploy record; a hand-rolled seeding script was deliberately NOT written as a workaround. Evidence doc §3 states the gap, what stands in its place, and two ~5-minute ways to close it. **This is the one outstanding item before the merge pause.** |
-| 6 | PR #883 ready + CI green | see below |
-| 7 | **Owner merge approval** | **PENDING — the gate. Do not merge without it.** |
+| 6 | PR #883 ready + CI green | **DONE** — marked ready (draft PRs run no CI, so this is what started the real run). **11 pass / 3 skip / 0 fail**, `mergeStateStatus: CLEAN`. Passing: `changes`, `lint`, `test` (live-DB lane), `build`, `e2e`, `fallow`, `react-doctor` ×2, Railway staging worker, Vercel ×2. The three skips are by design: `deploy-install` runs only when the install recipe or a lifecycle-script input changes; `llm-eval` is path-filtered (no LLM paths touched); `[code]smith` is a third-party autofix check, not a gate. Local gate also GREEN at `eca3c219` (28 checks, integration suite RAN, standing `reclassify` WARN only). |
+| 7 | **Owner merge approval** | **PENDING — this is the gate. Do not merge without it.** Everything mergeable is done; the only judgement calls waiting on the owner are listed under "What the owner is deciding" below. |
 | 8 | Prod migration 109 at promotion | PENDING (lockstep with the merge) |
+
+### What the owner is deciding at the merge pause
+
+1. **Accept or close the blocked staging smoke** (row 5). Evidence doc §3 has
+   both ~5-minute ways to close it. Nothing else in step 8 is outstanding.
+2. **The `reclassify` WARN** (D5) — a stale production estimate, not a wrong
+   lane; the step-0 re-run is recorded.
+3. **Standards review finding #1**, rejected as a blocker on this branch and
+   accepted as a follow-up: `ApprovalPanel.tsx` crossed 1,000 lines. Both
+   positions are in the PR body and in `branch-round1-standards.md`.
 
 The original runbook follows; steps 1–4 of it are the table's rows 1–4 and are
 done. Keep it for the post-merge half, which is entirely untouched.
