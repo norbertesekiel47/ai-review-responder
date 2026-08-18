@@ -167,11 +167,20 @@ async function seedRenderedAttempt(askId: string): Promise<void> {
 }
 
 /**
- * The CAS target every door in this module completes. `topic` is a raw literal
- * rather than a QUEUE_NAMES constant because the send-mode topics ship without
- * one until their producers land (migration 091 §7, amendment B10) — and
- * `ci:outbox-topics` skips `__tests__` anyway. `regenerateAsk` never reads the
- * topic; it only needs an owned `dispatched` row to complete.
+ * The CAS target every door in this module completes. `regenerateAsk` never
+ * reads the topic; it only needs an owned `dispatched` row to complete.
+ *
+ * `topic` is a raw string, NOT because no constant exists —
+ * `QUEUE_NAMES.GENERATE_SOLICITATION_ASKS` does, and the sibling live-DB suite
+ * imports it. It is raw because one caller deliberately passes a topic that has
+ * no constant and never will: migration 091's
+ * `job_outbox_generate_solicitation_asks_inflight` is a partial unique index on
+ * `(topic, aggregate_id)` over the in-flight statuses, so seeding a SECOND row
+ * for the same batch while the first is still `dispatched` is rejected. A
+ * fictitious topic sidesteps that index instead of completing the first row.
+ * Acknowledged fixture shortcut: the row it writes does not have the shape
+ * production writes, and the shared topic is exactly what makes the per-batch
+ * dedup work. (`ci:outbox-topics` skips `__tests__`, so nothing flags it.)
  */
 async function seedDispatchedOutboxRow(
   topic = 'generate_solicitation_asks',

@@ -8,12 +8,18 @@ second bullet, last sentence). Resolves deviation **D3** of #629
 (`docs/superpowers/plans/feat-629-owner-approval-lane-deviations.md`), which
 recorded the question and made answering it binding on #860.
 
+**Amended 2026-08-17, same ticket, after #860's round-1 review.** The decision
+is unchanged. Two corrections: the Consequences understated the cost of the
+recourse this ADR prescribes — see § Consequences → "Cost, as verified" and the
+follow-up #872 — and the Context named a queue topic that does not exist.
+
 ## Context
 
-Amendment B2 kept the per-ask LLM re-roll after #619 D22 struck owner editing,
-and it drew the boundary generously: "regeneration is possible only while the
-batch is un-approved or (post-approval) for `rendered` rows the owner has not
-excluded — a released (`queued`/`sending`/`sent`) row is never superseded."
+Amendment B2 kept the per-ask LLM regeneration after #619 D22 struck owner
+editing, and it drew the boundary generously: "regeneration is possible only
+while the batch is un-approved or (post-approval) for `rendered` rows the owner
+has not excluded — a released (`queued`/`sending`/`sent`) row is never
+superseded."
 
 #628 implemented exactly that. `regenerateAsk` accepted four batch states —
 `built`, `approved`, `veto_window`, `sending` — at both its pre-check and its
@@ -31,8 +37,23 @@ The guarantee was conditional on paper and unconditional in the shipped product,
 and D3 said the next ticket to build that entry point owns the decision.
 
 #860 builds that entry point — the Requests panel's per-ask **Regenerate**
-control, the `POST` route, and the `regenerate_solicitation_ask` topic. The
-choice can no longer be inherited.
+control, the `POST` route, and an enqueue onto the topic
+`QUEUE_NAMES.GENERATE_SOLICITATION_ASKS` (`generate_solicitation_asks`)
+carrying an `ask_id` discriminator in the payload. The choice can no longer be
+inherited.
+
+There is **no** `regenerate_solicitation_ask` topic; an earlier draft of this
+ADR named one and was wrong (#860 round-1 review, standards finding 8). The
+correction matters because the SHARING is load-bearing: reusing
+`generate_solicitation_asks` is exactly why the `(topic, aggregate_id =
+batchId)` partial unique index (migration 091,
+`job_outbox_generate_solicitation_asks_inflight`) yields "at most one
+regeneration in flight per batch", and why "regenerate all" cannot exist as a
+fan-out. That is the causal claim `CONTEXT.md` → **Ask regeneration** records as
+LOCKED, and this ADR must not contradict it. The string
+`regenerate_solicitation_ask` survives in the repo only as a `requireAttempt`
+diagnostic label and as a deliberately fictitious test-fixture topic — neither
+is a queue topic.
 
 ## Decision
 
@@ -93,9 +114,9 @@ where the row lock is.
 
 Superficially attractive because nothing has been dispatched yet. But the veto
 window is precisely the interval in which the owner is trusting the approved
-bytes — that is what the window is FOR. Allowing a rewrite during it makes the
-guarantee "byte-for-byte, unless someone regenerates during the window", which
-is not a guarantee anyone can reason about.
+bytes — that is what the window is FOR. Allowing new bytes to land during it
+makes the guarantee "byte-for-byte, unless someone regenerates during the
+window", which is not a guarantee anyone can reason about.
 
 ## Consequences
 
@@ -104,8 +125,9 @@ is not a guarantee anyone can reason about.
   points happen to exist — which is what D3 was actually complaining about.
 - **The owner's post-approval recourse is the Halt latch.** An owner who
   dislikes one message after approving must stop the whole batch, then build
-  and approve a new one. That is a real ergonomic cost and it is accepted: the
-  alternative is a weaker approval, and approval is the product's safety story.
+  and approve a new one. **This ADR originally priced that as "a real ergonomic
+  cost." That was wrong, and the true price is recorded below in
+  "Cost, as verified". The decision stands; the price does not.**
 - **#630's releaser never has to coordinate with a live swap.** Once a batch is
   approved, `regenerateAsk` cannot touch its rows, so the releaser's row locks
   contend with nothing that could cancel a row it is about to release. The
@@ -121,3 +143,64 @@ is not a guarantee anyone can reason about.
 - **Glossary**: the term **Ask regeneration** is coined in `CONTEXT.md`
   alongside **Owner approval** and **Ask exclusion**, and **Owner approval**'s
   conditional sentence is replaced by the unconditional one.
+
+### Cost, as verified — #860 round-1 review (2026-08-17)
+
+**The decision above is unchanged. This subsection corrects the price the
+Consequences originally recorded.** #860's round-1 adversarial review (finding
+A1) claimed the prescribed recourse costs far more than "an ergonomic cost";
+the owner verified the mechanism against the code and accepted the claim.
+
+Halting does not release the contacts, so a rebuild does not recover them:
+
+1. **The Halt latch never clears an ask.** `haltBatch`
+   (`src/lib/solicitation/approval.ts:409`) writes `solicitation_batches` and
+   cancels `solicitation_outreach` rows in `rendered`/`queued`. It does not
+   touch `solicitation_asks` — the only production `UPDATE solicitation_asks`
+   in the repo is `src/lib/solicitation/batch-builder.ts:656`, at build time.
+   Every ask in a halted batch therefore keeps `status = 'send'` with its
+   `decided_at` intact.
+2. **The rebuild's candidate query keys on exactly that row.**
+   `src/lib/solicitation/batch-builder.ts:501` populates `priorBatch` from a
+   query filtering `AND send_ask.status = 'send'` — no join to
+   `solicitation_outreach`, no `delivery_status` filter, no `halted_at IS NULL`
+   filter. It keys on a prior *decision*, not a prior *send*.
+3. **`MIN_GAP_DAYS = 30`** (`src/lib/solicitation/restraint-policy.ts:95`)
+   then withholds each of those contacts as `over_contacted` on any rebuild
+   inside 30 days (`restraint-policy.ts:405-415`).
+4. **Waiting out the gap outlives the visit.** `stale_visit` is checked
+   *before* `over_contacted` in the precedence chain
+   (`restraint-policy.ts:346`), and `FRESHNESS_WINDOW_DAYS`
+   (`restraint-policy.ts:75-84`) is `food_and_drink` 14, `retail` 14,
+   `personal_care` 21, `fitness` 21, `medical_dental` 30, `automotive` 30,
+   `home_services` 45, `other` 30. Only `home_services` clears a 30-day gap
+   with the visit still fresh. The three 30-day verticals survive on the exact
+   boundary alone — `daysSinceVisit > windowDays` is false at exactly 30, so it
+   takes a visit and a decision on the same day and a rebuild on day 30
+   precisely, which is not a realistic owner journey.
+
+**Therefore: the cohort is lost for that visit, not merely delayed.** An owner
+who approves a 25-person batch, reads one message and dislikes it has two
+options — let it send, or halt and forfeit all 25 contacts for the visit that
+made them candidates. The original wording ("stop the whole batch, then build
+and approve a new one") implied the rebuild recovers them. It does not.
+
+**Why the decision still stands.** The alternative is a weaker approval, and
+approval is the product's safety story: the three alternatives above are still
+correctly rejected, and nothing in this cost argues for replacing approved
+bytes. What the cost does argue for is a *cheaper recourse than halting*, which
+is a different act.
+
+**Follow-up: #872 — post-approval per-ask withdrawal.** Cancelling ONE outreach
+row inside the veto window is not post-approval regeneration: it removes a
+message, it never replaces bytes, so it collides with neither this ADR nor
+#860's `non_goals`. It moves only toward restraint — the same argument
+`CONTEXT.md` → **Ask exclusion** already makes for pre-approval deselection.
+#872 records the reviewer's claims (no per-ask approval state, no migration, no
+coordination class `haltBatch` does not already force) as claims **to be
+validated, not assumed**, and it needs its own grill and plan before any code.
+
+**Watch item.** The severity of this cost is a pure function of two day-one
+constants — `MIN_GAP_DAYS` and `FRESHNESS_WINDOW_DAYS` — both documented as
+"replaced by learned curves later behind the same gates"
+(`restraint-policy.ts:70-73`). When either moves, re-derive this subsection.
