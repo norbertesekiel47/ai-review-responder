@@ -146,8 +146,13 @@ export type AskAttemptView =
  * two system reasons (`send_window_elapsed`, `batch_expired`, both actor-less
  * by the same CHECK) are not, so copy that says "you stopped this batch" is
  * wrong for three of the five. `approval.ts` owns the owner-causable subset as
- * `OwnerHaltReason` because that module may only ever WRITE those two; this is
- * the READ side and must name all five.
+ * `OwnerHaltReason` — the two a consumer branches on to say "you did this" —
+ * but that is no longer the whole of what the module writes: since #865 it also
+ * writes `admin_halt`, through the private `LatchHaltReason` its two arms
+ * share. The module's WRITE union is therefore wider than its EXPORTED one, on
+ * purpose: `OwnerHaltReason` stays exactly two members and `LatchHaltReason`
+ * stays unexported, so no caller can widen the owner arm by naming a reason.
+ * This is the READ side and must name all five.
  */
 export type HaltReason =
   | 'owner_veto'
@@ -824,6 +829,130 @@ export async function readLatestBatch(
   // The ONE cross-provider read on this path, deliberately OUTSIDE the
   // transaction above. See attachRegenBudgets.
   return attachRegenBudgets(view);
+}
+
+/**
+ * The admin/support projection of a location's latest Solicitation batch
+ * (#865, plan §3.2) — the READ side of the **Halt latch**'s admin arm.
+ *
+ * Deliberately NOT `readLatestBatch` with a flag. That view carries
+ * `attempts: AskAttemptView[]`, which serializes a customer's rendered subject
+ * and body; an operator answering "this owner called, stop their batch" has no
+ * business reading those bytes, and reusing the owner view would have made the
+ * leak a default rather than a decision (D9). The key set here is CLOSED and
+ * carries no message content at all.
+ *
+ * THREE counts, never one folded number. An earlier draft carried a single
+ * `liveOutreachCount` documented as "what a stop would cancel" while including
+ * the `sending` rows — precisely the rows the latch does NOT touch (plan round
+ * 1, finding 8). Keeping them apart is what stops the panel implying that a
+ * stop recalls an in-flight send.
+ */
+export interface AdminBatchSummary {
+  batchId: string;
+  batchState: BatchState;
+  builtAt: string | null;
+  approvedAt: string | null;
+  haltedAt: string | null;
+  haltReason: HaltReason | null;
+  /** **Outreach rows** a stop WOULD cancel: `rendered` + `queued` only. */
+  cancellableCount: number;
+  /** In flight. A stop does NOT touch these — halt is "no further sends". */
+  sendingCount: number;
+  /** Already delivered; unreachable by any halt. */
+  sentCount: number;
+}
+
+/**
+ * Every timestamp is read TWICE for the same reason `readSendLane` reads its
+ * lifecycle row twice: `deriveBatchState` compares JS `Date`s, so it needs the
+ * raw columns, while only the `::text` form ever reaches the wire — postgres.js
+ * decodes `timestamptz` to a `Date` and silently truncates microseconds.
+ */
+interface AdminBatchSummaryRow extends BatchLifecycleRow {
+  id: string;
+  builtAtText: string | null;
+  approvedAtText: string | null;
+  haltedAtText: string | null;
+  haltReason: HaltReason | null;
+  cancellableCount: number;
+  sendingCount: number;
+  sentCount: number;
+}
+
+/**
+ * The latest batch for one location, admin projection only. `null` when the
+ * location has no batch — and identically `null` when the account/business
+ * pair does not own the batch it names, which is what makes the route's 404
+ * indistinguishable from "unknown id".
+ *
+ * ONE statement, so the state and its counts cannot tear apart; the counts are
+ * scalar subqueries rather than joins on `b` for the reason `readSendLane`
+ * records — a join shape multiplies one child relation by the other, and the
+ * query-block aware tenant audit (#859) can prove a subquery's correlation
+ * directly. Both tenant predicates are spelled top-level in EVERY block.
+ *
+ * Ordering follows `readLatestBatch`: `created_at` is not unique (migration
+ * 088), so the UUIDv7 id is the tie-break — without it "latest" is
+ * nondeterministic.
+ */
+export async function readAdminBatchSummary(
+  sql: Sql,
+  accountId: string,
+  businessId: string,
+): Promise<AdminBatchSummary | null> {
+  const [row] = await sql<AdminBatchSummaryRow[]>`
+    SELECT b.id,
+           b.built_at, b.approved_at, b.veto_deadline_at,
+           b.sending_started_at, b.send_closed_at, b.halted_at,
+           b.built_at::text     AS "builtAtText",
+           b.approved_at::text  AS "approvedAtText",
+           b.halted_at::text    AS "haltedAtText",
+           b.halt_reason        AS "haltReason",
+           (
+             SELECT COUNT(*)::int
+               FROM solicitation_outreach o
+              WHERE o.batch_id = b.id
+                AND o.account_id = ${accountId}::uuid
+                AND o.business_id = ${businessId}::uuid
+                AND o.delivery_status IN ('rendered', 'queued')
+           ) AS "cancellableCount",
+           (
+             SELECT COUNT(*)::int
+               FROM solicitation_outreach o
+              WHERE o.batch_id = b.id
+                AND o.account_id = ${accountId}::uuid
+                AND o.business_id = ${businessId}::uuid
+                AND o.delivery_status = 'sending'
+           ) AS "sendingCount",
+           (
+             SELECT COUNT(*)::int
+               FROM solicitation_outreach o
+              WHERE o.batch_id = b.id
+                AND o.account_id = ${accountId}::uuid
+                AND o.business_id = ${businessId}::uuid
+                AND o.delivery_status = 'sent'
+           ) AS "sentCount"
+      FROM solicitation_batches b
+     WHERE b.account_id = ${accountId}::uuid
+       AND b.business_id = ${businessId}::uuid
+     ORDER BY b.created_at DESC, b.id DESC
+     LIMIT 1
+  `;
+
+  if (!row) return null;
+
+  return {
+    batchId: row.id,
+    batchState: deriveBatchState(row, new Date()),
+    builtAt: row.builtAtText,
+    approvedAt: row.approvedAtText,
+    haltedAt: row.haltedAtText,
+    haltReason: row.haltReason,
+    cancellableCount: row.cancellableCount,
+    sendingCount: row.sendingCount,
+    sentCount: row.sentCount,
+  };
 }
 
 /**

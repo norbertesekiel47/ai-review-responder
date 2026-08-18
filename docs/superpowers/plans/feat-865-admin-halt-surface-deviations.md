@@ -323,3 +323,90 @@ impossible to hit again. That touches every wrapped route, so it stays its own
 ticket. File it at step 8.
 
 **Verdict:** _(pending step 6 read-back)_
+
+---
+
+## D6 — Task 3: the eval green-run, and a **D5 repeat** that leaves 4 typecheck errors in two test files
+
+### The green run (plan §6's required final-gate evidence)
+
+All six eval files, both vitest projects, live DB awake:
+
+```
+TEST_DATABASE_POOL_URL=… DATABASE_POOL_URL=… pnpm vitest run \
+  src/lib/solicitation/__tests__/approval.test.ts \
+  src/lib/solicitation/__tests__/approval.integration.test.ts \
+  src/lib/solicitation/__tests__/batch-view.integration.test.ts \
+  src/app/api/admin/solicitation/batch/__tests__/routes.test.ts \
+  'src/app/admin/businesses/[id]/_components/__tests__/SolicitationBatchPanel.test.tsx' \
+  'src/app/admin/businesses/[id]/__tests__/page-source.test.ts'
+```
+
+```
+ Test Files  6 passed (6)
+      Tests  65 passed (65)
+```
+
+**65 passed, 0 failed, 0 skipped, 0 todo** — the exact inverse of D4's
+`30 failed | 35 passed (65)`, so all 30 promised titles execute and pass and
+none of the 35 pre-existing cases regressed. `pnpm lint` is clean repo-wide, and
+`ci:tenant-scope` (381/381, no baseline bump), `ci:db-imports`,
+`ci:static-policy`, `ci:directory-map` and `ci:live-db-suites` all pass.
+
+### The blocker: writing the panel turned two test files into typecheck failures
+
+**This is D5's mechanism, second occurrence — and D5's resolution is the one
+that applies.** A `typeof import('…')` of a module that does not exist degrades
+to `any`, so the panel suite's props were unchecked for the whole of Tasks 0–2.
+Writing `SolicitationBatchPanel.tsx` is what made them real:
+
+| Error | Where | Cause |
+|---|---|---|
+| TS2740 ×2, TS2322 ×1 | `_components/__tests__/SolicitationBatchPanel.test.tsx:78,126,144` | the fixture helper is annotated `summary(overrides: Record<string, unknown> = {}): Record<string, unknown>`, and `Record<string, unknown>` is not assignable to `AdminBatchSummary` — `unknown` does not narrow to `string`. |
+| TS2741 ×1 | `__tests__/BusinessDetailClient.test.tsx:112` | `renderClient` predates the new required `initialBatchSummary` prop. |
+
+The eval author's own comment says the fixture is "**the `AdminBatchSummary`
+shape** from plan §3.2, as the panel receives it", so `Record<string, unknown>`
+was Task-0 scaffolding for a type that did not exist yet — exactly as
+`typeof import(…)` was scaffolding for a module that did not exist yet. D4
+predicted "once the symbols land, both idioms typecheck normally"; that is true
+of the idioms and false of the fixture annotations beside them.
+
+**Nothing was worked around in production**, per D5's ruling that "a production
+workaround for a redundant test annotation is the tail wagging the dog". Three
+widenings were considered and rejected:
+
+- `summary: Record<string, unknown> | null` on the panel with a runtime parse —
+  would be the only parse-the-props component in the admin UI, and would put
+  `unknown` on a seam the server already types.
+- `summary: AdminBatchSummary | Record<string, unknown> | null` — same runtime
+  narrowing, plus a union no caller can discriminate.
+- `initialBatchSummary?:` optional on `BusinessDetailClient` — cheaper, but it
+  makes "prop not supplied" render as "no send batch on file", which is a
+  different fact. `initialChannels` next to it is required for the same reason.
+
+**Recommended fix — 4 lines, all in test files, and out of Task 3's scope by
+the same distinction D5 drew** (in `allowed_edit_surface`, forbidden by the
+task brief; the orchestrator may lift it):
+
+```diff
+- function summary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
++ function summary(overrides: Partial<AdminBatchSummary> = {}): AdminBatchSummary {
+```
+plus `import type { AdminBatchSummary } from '@/lib/solicitation/batch-view';`
+(this is the house fixture shape — `ZernioConnectionPanel.test.tsx:10` is
+`panelData(overrides: Partial<ZernioPanelData> = {}): ZernioPanelData`), the
+matching `Array<AdminBatchSummary | null>` on `nonActionable`, and
+`initialBatchSummary={null}` in `BusinessDetailClient.test.tsx`'s
+`renderClient`. No assertion strength is lost: every case still asserts the same
+values, and the fixtures already carry all nine fields.
+
+Until that lands, `pnpm typecheck` and `pnpm build` report those four errors and
+nothing else — no production file has an error, and `next build` compiles
+successfully before the type pass.
+
+**Lesson worth promoting at step 8:** an eval that stubs a not-yet-written
+module must stub its **fixture types** too, or the type errors it defers land on
+whichever task writes the module. Twice on this branch (D5, D6).
+
+**Verdict:** _(pending step 6 read-back)_
