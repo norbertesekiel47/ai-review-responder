@@ -598,3 +598,49 @@ defect is closed, not moved.
 **Verdict: ACCEPT** (owner-decided, 2026-08-18). This spends no surface
 amendment: `src/lib/solicitation/approval.ts` and
 `src/lib/solicitation/__tests__/**` were both already armed.
+
+## D10 — the staging smoke found what three review agents and the suites could not
+
+**Step 8 staging ride, 2026-08-18.** Owner approved the in-branch fix the same
+day. Two defects, both invisible until a real page rendered after a real write.
+
+**D10a — the panel subheading described the policy F1 deleted.** It read "The
+most recent solicitation send batch for this location" while rendering an OLDER
+`sending` batch over a newer `pending` one, which is the entire point of F1. The
+screenshot was its own counterexample. Fixed to "This location's live
+solicitation send batch, or its most recent batch when none is live."
+
+**D10b — halting bounced the panel onto a different batch, stranding the
+receipt.** This is the sharper one, and it is F1's own fix biting from the other
+side. F1 made the live-send predicate the leading sort key. Stopping the batch
+is precisely what makes that predicate go false, so the refetch after a
+successful halt fell through to `created_at DESC` and re-selected the same newer
+`pending` decoy F1 was about. The success receipt survives the refetch, so the
+operator saw **"Batch stopped. 2 queued message(s) cancelled."** rendered above a
+batch reading `pending`, 0/0/0, "This batch is still building." The count
+belonged to a batch no longer on screen, and nothing tied the receipt to its
+subject.
+
+**What changed:** a second sort key, `(b.built_at IS NOT NULL) DESC`, between
+the live-send predicate and the recency keys. Chosen over pinning the acted-on
+summary in React state because it keeps the server the single source of truth
+for **Batch state** rather than synthesising a post-halt projection in the
+browser. An unbuilt batch has no counts and no control, so it is the least
+useful thing this panel can show. Two new live-DB cases: the just-halted batch
+stays on screen, and two unbuilt batches still order by recency — the second
+exists because a new leading key that silently swallows the tie-break is the
+obvious way to get this wrong. Verified genuinely red before the fix by
+removing the key (only the new case failed).
+
+**Why the apparatus missed both.** The spec, standards and adversarial agents
+all read the query and the copy as separate artifacts; the integration suites
+assert `readAdminBatchSummary` in isolation and never re-read it *after* a halt
+within one scenario. The defect exists only in the composition — write, then
+refetch, then render, with client state carried across. That is an argument for
+the staging ride being a real gate rather than a formality, and it is the
+durable lesson worth promoting to lab notes.
+
+**Verdict: ACCEPT** (owner-decided, 2026-08-18). Spends no surface amendment:
+`src/lib/solicitation/batch-view.ts`, `src/lib/solicitation/__tests__/**`,
+`src/app/admin/businesses/[id]/**` and `docs/directory.md` were all already
+armed.

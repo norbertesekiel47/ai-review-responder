@@ -901,6 +901,94 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     expect(['pending', 'closed', 'halted']).not.toContain(summary!.batchState);
   });
 
+  it('readAdminBatchSummary keeps the just-halted batch on screen instead of falling back to a newer pending one', async () => {
+    // Staging smoke, 2026-08-18. F1 fixed WHICH batch the panel selects, but
+    // halting is precisely what makes F1's leading key flip: the moment the
+    // operator stops the live batch it stops satisfying the live-send
+    // predicate. With recency as the next key the panel hands straight back to
+    // the same newer `pending` decoy F1 was about — and the success receipt
+    // survives the refetch, so "Batch stopped. 2 message(s) cancelled." renders
+    // above a batch reading "still building", 0/0/0. The operator is told a
+    // count that belongs to a batch no longer on screen.
+    const now = Date.now();
+    const haltedBatchId = await seedBatch({
+      createdAt: new Date(now - 7_200_000).toISOString(),
+      builtAt: new Date(now - 7_100_000).toISOString(),
+    });
+    const contactId = await seedContact('Halted Hana');
+    const askId = await seedAsk({
+      batchId: haltedBatchId,
+      contactId,
+      status: 'send',
+      decidedAt: new Date(now - 7_000_000).toISOString(),
+    });
+    await seedDispatchedOutreach({
+      batchId: haltedBatchId,
+      askId,
+      contactId,
+      deliveryStatus: 'sent',
+    });
+    // Approved, dripped, then stopped — the state the panel is in immediately
+    // after a successful admin halt.
+    await sql()`
+      UPDATE solicitation_batches
+         SET approved_at = NOW() - INTERVAL '60 minutes',
+             approval_method = 'owner',
+             approved_by_user_id = ${tenant!.userId}::uuid,
+             veto_deadline_at = NOW() - INTERVAL '45 minutes',
+             sending_started_at = NOW() - INTERVAL '40 minutes',
+             halted_at = NOW() - INTERVAL '1 minute',
+             halt_reason = 'admin_halt',
+             halted_by = ${tenant!.userId}::uuid
+       WHERE id = ${haltedBatchId}::uuid
+    `;
+
+    const pendingBatchId = await seedBatch({
+      createdAt: new Date(now - 60_000).toISOString(),
+      builtAt: null,
+    });
+
+    const summary = await batchViewModule.readAdminBatchSummary(
+      sql(),
+      tenant!.accountId,
+      businessId,
+    );
+
+    expect(summary).not.toBeNull();
+    expect(summary!.batchId).toBe(haltedBatchId);
+    expect(summary!.batchId).not.toBe(pendingBatchId);
+    expect(summary!.batchState).toBe('halted');
+    expect(summary!.haltReason).toBe('admin_halt');
+    // The receipt says a count; the panel must be showing the batch that count
+    // came from.
+    expect(summary!.sentCount).toBe(1);
+  });
+
+  it('readAdminBatchSummary still prefers the newer batch when neither is built', async () => {
+    // The built-first key must not swallow the recency key. Two unbuilt
+    // batches tie on it, so `created_at DESC` decides exactly as before.
+    const now = Date.now();
+    const olderBatchId = await seedBatch({
+      createdAt: new Date(now - 7_200_000).toISOString(),
+      builtAt: null,
+    });
+    const newerBatchId = await seedBatch({
+      createdAt: new Date(now - 60_000).toISOString(),
+      builtAt: null,
+    });
+
+    const summary = await batchViewModule.readAdminBatchSummary(
+      sql(),
+      tenant!.accountId,
+      businessId,
+    );
+
+    expect(summary).not.toBeNull();
+    expect(summary!.batchId).toBe(newerBatchId);
+    expect(summary!.batchId).not.toBe(olderBatchId);
+    expect(summary!.batchState).toBe('pending');
+  });
+
   it('readAdminBatchSummary returns only the admin-safe projection and never serializes an outreach subject or body', async () => {
     const now = Date.now();
     const SECRET_SUBJECT = 'Thanks for the emergency callout on Tuesday';

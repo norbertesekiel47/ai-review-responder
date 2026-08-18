@@ -901,9 +901,20 @@ interface AdminBatchSummaryRow extends BatchLifecycleRow {
  * `solicitation_batches_one_active_send_per_business` partial unique index
  * spelled out (`approved_at IS NOT NULL AND send_closed_at IS NULL AND
  * halted_at IS NULL`). That index guarantees AT MOST ONE such row per location,
- * so the first key can never tie and the recency keys below it decide nothing
- * when a live batch exists. When none does, the ordering degenerates to exactly
- * the old "newest wins" behaviour.
+ * so the first key can never tie and the keys below it decide nothing when a
+ * live batch exists.
+ *
+ * The SECOND key is `built_at IS NOT NULL`, and it exists because halting is
+ * what makes the first key flip. The instant an operator stops the live batch
+ * it stops satisfying the live-send predicate, so recency alone hands the panel
+ * straight back to that same newer `pending` decoy — and the success receipt,
+ * which survives the refetch, then renders under a DIFFERENT batch reading
+ * "still building", 0/0/0. The operator is told "2 message(s) cancelled" above
+ * a batch that has none. Preferring a BUILT batch keeps the just-halted one on
+ * screen in state `halted`, so the receipt and the panel describe the same
+ * batch (staging smoke, 2026-08-18). An unbuilt batch carries no counts and
+ * offers no control, so it is the least useful thing this panel can show.
+ * Between two built batches, or two unbuilt ones, recency still decides.
  *
  * ONE statement, so the state and its counts cannot tear apart; the counts are
  * scalar subqueries rather than joins on `b` for the reason `readSendLane`
@@ -958,6 +969,7 @@ export async function readAdminBatchSummary(
      ORDER BY (b.approved_at IS NOT NULL
                AND b.send_closed_at IS NULL
                AND b.halted_at IS NULL) DESC,
+              (b.built_at IS NOT NULL) DESC,
               b.created_at DESC, b.id DESC
      LIMIT 1
   `;
