@@ -199,6 +199,10 @@ message, it never replaces bytes, so it collides with neither this ADR nor
 #872 records the reviewer's claims (no per-ask approval state, no migration, no
 coordination class `haltBatch` does not already force) as claims **to be
 validated, not assumed**, and it needs its own grill and plan before any code.
+**Resolved by ADR 0021** (`0021-ask-withdrawal-is-restraint-not-reapproval.md`,
+2026-08-18): claims 1 and 3 hold; claim 2 was set aside by choice — a distinct
+`owner_withdrawn` reason (migration 109) keeps **Ask exclusion**'s stored value
+honest.
 
 **Watch item.** The severity of this cost is a pure function of two day-one
 constants — `MIN_GAP_DAYS` and `FRESHNESS_WINDOW_DAYS` — both documented as
