@@ -20,6 +20,7 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AdminBatchSummary } from '@/lib/solicitation/batch-view';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const BUSINESS_ID = '22222222-2222-4222-8222-222222222222';
@@ -33,8 +34,14 @@ async function loadPanel(): Promise<PanelModule> {
   return (await import(/* @vite-ignore */ PANEL_MODULE)) as PanelModule;
 }
 
-/** The `AdminBatchSummary` shape from plan §3.2, as the panel receives it. */
-function summary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+/**
+ * The `AdminBatchSummary` the panel receives. Typed `Record<string, unknown>`
+ * at Task 0 because the type did not exist yet; now it does, and the fixture
+ * is bound to it so a field renamed on the projection fails HERE rather than
+ * rendering an undefined into the panel. House shape: `Partial<T> => T`,
+ * as in `ZernioConnectionPanel.test.tsx`.
+ */
+function summary(overrides: Partial<AdminBatchSummary> = {}): AdminBatchSummary {
   return {
     batchId: BATCH_ID,
     batchState: 'built',

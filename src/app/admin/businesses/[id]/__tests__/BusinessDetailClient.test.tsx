@@ -113,6 +113,7 @@ function renderClient(data: DetailData, channels: ChannelEnrollmentRow[] = NO_CH
         businessId={BUSINESS_ID}
         initialDetail={data}
         initialChannels={channels}
+        initialBatchSummary={null}
       />
     </QueryClientProvider>,
   );

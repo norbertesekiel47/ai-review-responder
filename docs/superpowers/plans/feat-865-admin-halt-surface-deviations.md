@@ -405,8 +405,36 @@ Until that lands, `pnpm typecheck` and `pnpm build` report those four errors and
 nothing else — no production file has an error, and `next build` compiles
 successfully before the type pass.
 
+**RESOLVED by the orchestrator**, which lifted the test-edit constraint — Task 3
+was right to escalate rather than reach for a production workaround, which is
+D5's lesson applied correctly one task later.
+
+Applied, and slightly smaller than recommended:
+
+- `summary(overrides: Partial<AdminBatchSummary> = {}): AdminBatchSummary`, with
+  a type-only `import type { AdminBatchSummary } from '@/lib/solicitation/batch-view'`.
+  A type-only import is erased before transform, so it does not hand
+  `vite:import-analysis` a specifier and the D4 idiom is untouched.
+- `initialBatchSummary={null}` in `BusinessDetailClient.test.tsx`'s
+  `renderClient`.
+
+The recommended `Array<AdminBatchSummary | null>` annotation on `nonActionable`
+turned out to be **unnecessary**: once `summary()` returns `AdminBatchSummary`,
+the array literal infers `(AdminBatchSummary | null)[]` on its own. Three lines,
+not four. No assertion strength lost — every case asserts the same values, and
+binding the fixture to the real type makes it strictly stronger: a field renamed
+on `AdminBatchSummary` now fails in this file instead of rendering an `undefined`
+into the panel.
+
+Verified: `pnpm typecheck` clean repo-wide (zero errors), and both suites pass
+(12/12).
+
 **Lesson worth promoting at step 8:** an eval that stubs a not-yet-written
 module must stub its **fixture types** too, or the type errors it defers land on
-whichever task writes the module. Twice on this branch (D5, D6).
+whichever task writes the module. Twice on this branch (D5, D6) — and the two
+resolutions differ in the right way: D5's annotation asserted nothing and was
+deleted, D6's fixture type asserts something real and was bound to the true
+type. "Delete the annotation" is not the general rule; "make the test say what
+it means" is.
 
 **Verdict:** _(pending step 6 read-back)_
