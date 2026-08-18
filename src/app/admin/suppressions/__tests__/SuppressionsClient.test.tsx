@@ -15,6 +15,7 @@ import { SuppressionsClient } from '../SuppressionsClient';
 // an opt-out was removed when it was not — the inverse hazard.
 
 const SUPPRESSION_ID = '01900000-0000-7000-8000-000000000001';
+const CORRECTION_ACTOR_ID = '01900000-0000-7000-8000-000000000002';
 
 const GLOBAL_ROW = {
   id: SUPPRESSION_ID,
@@ -104,6 +105,31 @@ async function lookUpAddress(user: UserEvent): Promise<void> {
   await user.click(screen.getByRole('button', { name: 'Look up' }));
 }
 
+async function submitManualOptOut(user: UserEvent): Promise<void> {
+  await user.type(
+    screen.getByLabelText('Email address', { selector: '#entry-email' }),
+    'person@example.com',
+  );
+  await user.type(
+    screen.getByLabelText('Originating message reference'),
+    'Re: your review request — 2026-08-01',
+  );
+  await user.click(screen.getByRole('button', { name: 'Record opt-out' }));
+}
+
+async function recordManualOptOut(user: UserEvent): Promise<void> {
+  await submitManualOptOut(user);
+  expect(
+    await screen.findByText('Opt-out recorded for person@example.com.'),
+  ).toBeInTheDocument();
+}
+
+async function confirmSelectedCorrection(user: UserEvent): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: 'Correct this record' }));
+  await user.type(screen.getByLabelText('Why is this record wrong?'), 'admin typo');
+  await user.click(screen.getByRole('button', { name: 'Confirm correction' }));
+}
+
 describe('SuppressionsClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -164,6 +190,115 @@ describe('SuppressionsClient', () => {
       expect(screen.getByText(/Already suppressed — no change/)).toBeInTheDocument();
     });
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('clears the stale manual-entry receipt after a successful correction', async () => {
+    installFetch({
+      entry: () => jsonResponse({ created: false, handle: 'person@example.com' }),
+    });
+    const user = userEvent.setup();
+    renderClient();
+
+    await submitManualOptOut(user);
+    expect(
+      await screen.findByText(/Already suppressed — no change/),
+    ).toBeInTheDocument();
+    await lookUpAddress(user);
+    await confirmSelectedCorrection(user);
+
+    expect(await screen.findByText(/Record corrected/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/Already suppressed — no change/)).toBeNull();
+    });
+  });
+
+  it('clears a stale manual-entry error after a successful correction', async () => {
+    installFetch({ entry: () => jsonResponse({ error: 'internal_error' }, 500) });
+    const user = userEvent.setup();
+    renderClient();
+
+    await submitManualOptOut(user);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Something went wrong on our side',
+    );
+    await lookUpAddress(user);
+    await confirmSelectedCorrection(user);
+
+    expect(await screen.findByText(/Record corrected/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText('Something went wrong on our side')).toBeNull();
+    });
+  });
+
+  // The already-removed 404 is the arm that is easy to leave untested, because
+  // it reaches onSuccess by RETURNING an outcome rather than throwing
+  // (submitCorrection, not the mutation). If that ever flips to a throw, the
+  // receipt below survives a correction that really did settle the ledger —
+  // exactly the stale claim #662 is about — and the two `corrected` tests above
+  // would both still pass.
+  it('clears the stale manual-entry receipt when the correction reports the record was already removed', async () => {
+    installFetch({
+      entry: () => jsonResponse({ created: false, handle: 'person@example.com' }),
+      correct: () => jsonResponse({ error: 'not_found' }, 404),
+    });
+    const user = userEvent.setup();
+    renderClient();
+
+    await submitManualOptOut(user);
+    expect(
+      await screen.findByText(/Already suppressed — no change/),
+    ).toBeInTheDocument();
+    await lookUpAddress(user);
+    await confirmSelectedCorrection(user);
+
+    expect(
+      await screen.findByText(/This record was already removed/),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/Already suppressed — no change/)).toBeNull();
+    });
+  });
+
+  it('keeps the manual-entry receipt when a correction fails', async () => {
+    installFetch({ correct: () => jsonResponse({ error: 'internal_error' }, 500) });
+    const user = userEvent.setup();
+    renderClient();
+
+    await recordManualOptOut(user);
+    await lookUpAddress(user);
+    await confirmSelectedCorrection(user);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/still in place/i);
+    expect(screen.getByText(/Opt-out recorded for person@example\.com/)).toBeInTheDocument();
+  });
+
+  it('renders the correction actor name and email instead of a raw UUID', async () => {
+    installFetch({
+      lookup: () => jsonResponse({
+        ...LOOKUP_OK,
+        corrections: [
+          {
+            id: '01900000-0000-7000-8000-000000000003',
+            suppressionId: SUPPRESSION_ID,
+            scope: 'global',
+            source: 'admin_manual',
+            removedByUserId: CORRECTION_ACTOR_ID,
+            removedByUserLabel: 'Suppression Admin (admin@repworth.com)',
+            reason: 'Mailbox entry was for the wrong address',
+            createdAt: '2026-08-02T10:00:00.000Z',
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    renderClient();
+
+    await lookUpAddress(user);
+
+    expect(
+      await screen.findByText('Suppression Admin (admin@repworth.com)'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(CORRECTION_ACTOR_ID)).toBeNull();
   });
 
   it('submits the selected suppression id and trimmed reason to the correction endpoint only after confirmation', async () => {

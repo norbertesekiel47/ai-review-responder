@@ -41,6 +41,7 @@ export interface AdminSuppressionCorrectionRow {
   scope: SuppressionScope;
   source: SuppressionSource;
   removedByUserId: string;
+  removedByUserLabel: string;
   reason: string;
   createdAt: string;
 }
@@ -95,14 +96,19 @@ export async function lookupSuppressions(
       scope: SuppressionScope;
       source: SuppressionSource;
       removed_by_user_id: string;
+      removed_by_user_name: string | null;
+      removed_by_user_email: string | null;
       reason: string;
       created_at: string;
     }[]>`
-      SELECT id, suppression_id, scope, source, removed_by_user_id, reason,
-             created_at::text
-      FROM solicitation_suppression_corrections
-      WHERE channel = 'email' AND normalized_handle = ${handle}
-      ORDER BY created_at DESC
+      SELECT c.id, c.suppression_id, c.scope, c.source, c.removed_by_user_id,
+             u.name AS removed_by_user_name,
+             u.email AS removed_by_user_email,
+             c.reason, c.created_at::text
+      FROM solicitation_suppression_corrections c
+      LEFT JOIN users u ON u.id = c.removed_by_user_id
+      WHERE c.channel = 'email' AND c.normalized_handle = ${handle}
+      ORDER BY c.created_at DESC
       LIMIT 20
     `,
   ]);
@@ -128,6 +134,10 @@ export async function lookupSuppressions(
       scope: row.scope,
       source: row.source,
       removedByUserId: row.removed_by_user_id,
+      removedByUserLabel:
+        row.removed_by_user_name !== null && row.removed_by_user_email !== null
+          ? `${row.removed_by_user_name} (${row.removed_by_user_email})`
+          : row.removed_by_user_id,
       reason: row.reason,
       createdAt: row.created_at,
     })),

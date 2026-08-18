@@ -111,9 +111,18 @@ export function verificationQuery(
         WHERE b.id IN (SELECT id FROM account_businesses)
           AND (
             b.name <> 'Deleted location'
+            OR b.category IS NOT NULL
+            -- tone is the one column the tombstone RESTORES to its schema
+            -- default instead of nulling, so the violation is "anything else".
+            -- IS DISTINCT FROM, never <>: the column is nullable, and
+            -- NULL <> 'professional and friendly' evaluates to NULL, which
+            -- would let a nulled tone slip past the predicate meant to catch it.
+            OR b.tone IS DISTINCT FROM 'professional and friendly'
             OR b.owner_name <> 'Deleted owner'
             OR b.owner_email NOT LIKE ('deleted-' || b.id::text || '@repworth.invalid')
             OR b.owner_phone IS NOT NULL
+            OR b.stripe_customer_id IS NOT NULL
+            OR b.stripe_subscription_id IS NOT NULL
             OR b.google_place_id IS NOT NULL
             OR b.google_maps_url IS NOT NULL
             OR b.products_services IS NOT NULL
@@ -122,12 +131,23 @@ export function verificationQuery(
             OR b.avoid_facts IS NOT NULL
             OR b.sample_responses IS NOT NULL
             OR b.google_place_address IS NOT NULL
+            OR b.solicitation_postal_address IS NOT NULL
+            OR b.solicitation_postal_address_attested_at IS NOT NULL
+            OR b.solicitation_postal_address_attested_by_user_id IS NOT NULL
+            OR b.solicitation_postal_address_attestation_version IS NOT NULL
+            OR b.solicitation_postal_address_attested_digest IS NOT NULL
             OR b.google_place_lat IS NOT NULL
             OR b.google_place_lng IS NOT NULL
             OR b.ranking_search_location IS NOT NULL
             OR b.website IS NOT NULL
             OR b.display_label IS NOT NULL
             OR b.tracked_keywords <> '[]'::jsonb
+            -- The only NON-residue predicate in this branch. The tombstone SETS
+            -- archived_at to COALESCE(archived_at, NOW()), so a value still
+            -- NULL means the row was never tombstoned at all — the failure the
+            -- residue predicates above cannot see, because an untouched row
+            -- whose optional columns happen to be empty looks purged to them.
+            OR b.archived_at IS NULL
           )
       `;
 
