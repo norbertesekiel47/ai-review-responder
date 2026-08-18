@@ -5,7 +5,7 @@ import type { AskAttemptView } from '@/lib/solicitation/batch-view';
 import './requests.css';
 
 /**
- * The owner approval lane's ask list (#629), in its two forms.
+ * The owner approval lane's ask list (#629), in its THREE forms.
  *
  * Each row shows the message itself — subject and body — because approving is
  * an act of reading (intake `user_visible_behavior[0]`), and the 15-minute veto
@@ -13,7 +13,7 @@ import './requests.css';
  * read what they approved.
  *
  * REDACTION (invariant #4 ported to the send lane; design D6a). Nothing here
- * ever holds an `AskAttemptView`: both components take `AskRowView`, the
+ * ever holds an `AskAttemptView`: all three components take `AskRowView`, the
  * projection `ApprovalPanel`'s `toRows` produces, and that projection describes
  * an owner-READABLE attempt only — a `moderation_high` row never becomes one,
  * so no held message is reachable from here even by accident. The type-only
@@ -22,14 +22,18 @@ import './requests.css';
  * these props to take the attempt would be the way the guarantee gets lost — the
  * projection is the choke point, so it stays upstream of this file.
  *
- * TWO components rather than one with a `selectable` flag: an approved batch is
- * settled, and `AskList` is structurally unable to offer a control because it
- * has no toggle to call and no exclusion set to read. Same reasoning style as
- * `toRows` — make the guarantee shape rather than discipline. Neither form
+ * SEPARATE components rather than one with a `selectable` flag: an approved
+ * batch is settled, and `AskList` is structurally unable to offer a control
+ * because it has no toggle to call and no exclusion set to read. Same reasoning
+ * style as `toRows` — make the guarantee shape rather than discipline. No form
  * renders an EDIT affordance (D22). `SelectableAskList` renders two per-ask
  * controls — the exclude checkbox and the regenerate button (#860); `AskList`
  * renders none and is structurally unable to, which is the whole reason the two
- * components are separate.
+ * components are separate. `WithdrawableAskList` (#872) is the THIRD: the same
+ * read-only rows once the batch is approved and still live, plus ONE per-ask
+ * withdraw control (**Ask withdrawal**) behind an inline two-tap confirm — a
+ * third component rather than a flag on `AskList`, so the halted and settled
+ * screens keep a list that cannot offer a control at all.
  */
 
 type DeliveryStatus = AskAttemptView['deliveryStatus'];
@@ -57,6 +61,27 @@ const REGENERATE_LABEL = 'Regenerate';
  *  owner-facing exception. "A new version" is the phrase the approvable-mode
  *  copy uses, so the button and the paragraph above it say the same thing. */
 const REGENERATING_LABEL = 'Writing a new version…';
+
+/** The resting label of the per-ask withdraw control (**Ask withdrawal**,
+ *  #872). Plain English — unlike "halt" it needs no owner-facing carve-out. */
+const WITHDRAW_LABEL = 'Withdraw';
+/** The armed state's question. The pair below it is the only way to answer. */
+const WITHDRAW_CONFIRM_PROMPT = 'Withdraw this message?';
+const WITHDRAW_CONFIRM_LABEL = 'Withdraw';
+const WITHDRAW_KEEP_LABEL = 'Keep';
+
+/** Accessible names carry the contact (WCAG 2.5.3 Label in Name), like the
+ *  regenerate control's. The confirm name is prefixed so a test — or a screen
+ *  reader — can tell the armed control from the resting one. */
+function withdrawControlName(contactName: string): string {
+  return `${WITHDRAW_LABEL} the message to ${contactName}`;
+}
+function withdrawConfirmName(contactName: string): string {
+  return `Confirm: withdraw the message to ${contactName}`;
+}
+function withdrawKeepName(contactName: string): string {
+  return `Keep the message to ${contactName}`;
+}
 
 /**
  * The control's accessible name, derived from the label it is currently
@@ -224,6 +249,101 @@ export function AskList({ rows }: { rows: readonly AskRowView[] }) {
           <AskMessage row={row} />
         </li>
       ))}
+    </ul>
+  );
+}
+
+export interface WithdrawableAskListProps {
+  /** Every non-cancelled attempt of the batch — the same rows the read-only
+   *  list shows post-approval. Only `rendered`/`queued` rows get a control. */
+  rows: readonly AskRowView[];
+  /** The ONE ask whose control is armed (first tap taken), or null. Owned by
+   *  the panel so a refetch that drops the row also drops the arming. */
+  pendingAskId: string | null;
+  /** First tap: arm this ask (moves the arming if another was armed). */
+  onArm: (askId: string) => void;
+  /** Second tap: post the withdrawal. */
+  onWithdraw: (askId: string) => void;
+  /** Disarm without posting. */
+  onKeep: () => void;
+  /** True while any lane write is in flight. */
+  disabled: boolean;
+}
+
+/**
+ * The list once the batch is approved and still live: the same read-only rows,
+ * plus ONE control per row that is still waiting to send — **Ask withdrawal**
+ * (#872), behind an inline two-tap confirm because, unlike the pre-approval
+ * checkbox, cancelling is terminal. Rows that are not `rendered`/`queued`
+ * (withheld, sending, sent) render exactly as `AskList` renders them.
+ *
+ * A THIRD component rather than a flag on `AskList`, for `AskList`'s own
+ * reason: the read-only list is structurally unable to offer a control, and it
+ * must stay that way for the halted and settled screens.
+ *
+ * Both armed buttons are `btn-secondary`, like the **Halt latch**'s "Stop this
+ * batch": `.btn-danger` lives in `settings.css`, which the requests route never
+ * loads, so it would render here as a bare `.btn`.
+ */
+export function WithdrawableAskList({
+  rows,
+  pendingAskId,
+  onArm,
+  onWithdraw,
+  onKeep,
+  disabled,
+}: WithdrawableAskListProps) {
+  if (rows.length === 0) return null;
+
+  return (
+    <ul className="rq-asks">
+      {rows.map((row) => {
+        const live = row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued';
+        const armed = pendingAskId === row.askId;
+        return (
+          <li key={row.outreachId} className="rq-ask">
+            <span className="rq-ask-name">{displayName(row)}</span>
+            <span className="rq-ask-status">{STATUS_LABEL[row.deliveryStatus]}</span>
+            {live && !armed && (
+              <span className="rq-ask-withdraw">
+                <button
+                  type="button"
+                  className="btn btn-secondary rq-ask-withdraw-btn"
+                  onClick={() => onArm(row.askId)}
+                  disabled={disabled}
+                  aria-label={withdrawControlName(displayName(row))}
+                >
+                  {WITHDRAW_LABEL}
+                </button>
+              </span>
+            )}
+            {live && armed && (
+              <span className="rq-ask-withdraw rq-ask-withdraw-armed" role="group">
+                <span className="rq-ask-withdraw-prompt">{WITHDRAW_CONFIRM_PROMPT}</span>
+                <button
+                  type="button"
+                  className="btn btn-secondary rq-ask-withdraw-btn"
+                  onClick={() => onWithdraw(row.askId)}
+                  disabled={disabled}
+                  aria-label={withdrawConfirmName(displayName(row))}
+                >
+                  {WITHDRAW_CONFIRM_LABEL}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary rq-ask-withdraw-btn"
+                  onClick={onKeep}
+                  disabled={disabled}
+                  aria-label={withdrawKeepName(displayName(row))}
+                >
+                  {WITHDRAW_KEEP_LABEL}
+                </button>
+              </span>
+            )}
+            <AskMessage row={row} />
+          </li>
+        );
+      })}
     </ul>
   );
 }
