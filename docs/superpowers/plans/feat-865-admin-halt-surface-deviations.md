@@ -275,39 +275,51 @@ surfaced them.** Nothing in the plan anticipated this: §3.3 pins the export
 shape and Task 0 pins the annotation, and the two only become compatible once
 the module is real.
 
-Resolution, and why it is not the obvious one:
+Resolution — **the annotation was the defect, not the export**.
 
-- **Editing the test is out of surface** (Task 2 is
-  `src/app/api/admin/solicitation/**`), and the annotation is also the eval
-  author's stated intent — the suite expects the route to hand back a
-  `NextResponse`.
-- **Widening `WrappedNextHandler`** would fix it at the true source, but
-  `src/lib/auth/route-helpers.ts` is out of surface for every task on this
-  branch, and it retypes all 33 admin routes plus the dashboard ones for the
-  sake of one test annotation.
-- **Not fixing it** leaves the branch with a typecheck failure no later task
-  owns — Task 3's surface is the panel, Task 4's is docs — so
-  `verify-gate.sh` would fail at step 5 with nobody assigned to it.
+Task 2 resolved this inside production code, asserting
+`withSameOrigin()(halt) as typeof halt` at the export. The orchestrator
+reverted that at the Task 2 verification step. Two of its premises were wrong:
 
-So the route keeps the canonical export and re-narrows at it:
+- *"Editing the test is out of surface."* It is not. The suite lives at
+  `src/app/api/admin/solicitation/batch/__tests__/routes.test.ts`, inside the
+  `src/app/api/admin/solicitation/**` glob. It was out of **task** scope,
+  because Task 2's brief forbade touching test files — a different constraint,
+  and one the orchestrator may lift.
+- *"The annotation is the eval author's stated intent."* It is not. The eval
+  asserts `.toEqual([400, 400, 400])` over `response.status`, and `status`
+  exists on a plain `Response`. The `NextResponse` annotation carries no
+  assertion; deleting it weakens nothing and the suite still fails if the route
+  is wrong.
 
-```ts
-export const POST = withSameOrigin()(halt) as typeof halt;
+So the annotation went, not the export shape:
+
+```diff
+-expect(responses.map((response: NextResponse) => response.status)).toEqual(…)
++expect(responses.map((response) => response.status)).toEqual(…)
 ```
 
-This is a **narrowing** assertion. Both arms reachable through the wrapper
-return a `NextResponse` — the handler's own returns, and the wrapper's 403,
-which is `NextResponse.json` (route-helpers.ts:33) — so no value flowing out of
-this export can be a plain `Response`. `ci:admin-aal2` still resolves the
-exported handler through the assertion and finds the `requireAdminWithAal2`
-call (audit passes, 33 admin route files scanned), so the recognized-gate shape
-is intact. The reasoning is repeated at the use site, because a reviewer meeting
-an `as` on a route export should not have to find this file to judge it.
+`routes.test.ts:167,184` plus the now-unused `type NextResponse` import. The
+route keeps the canonical house export with no assertion:
 
-**Follow-up worth considering, not taken here:** `withSameOrigin` could be made
-return-type-preserving with one generic parameter, which would delete this
-assertion and every future one like it. That is a route-helpers change touching
-every wrapped route, so it belongs to its own ticket rather than to this
-branch's Task 2.
+```ts
+export const POST = withSameOrigin()(halt);
+```
+
+**Why this way round.** The `as` was truthful — both arms really are
+`NextResponse` — but it was the only `as typeof` on any route export in the
+repo, and it sat on a CSRF wrapper, which is the worst place to teach a reader
+that an export's type is asserted rather than inferred. It would also have gone
+on lying if a later branch ever returned a bare `Response`. A production
+workaround for a redundant test annotation is the tail wagging the dog.
+
+Verified after the revert: route suite **7/7**, `eslint` clean on both files,
+and `pnpm typecheck` reports **only** Task 3's not-yet-written symbols
+(`readAdminBatchSummary`, `SolicitationBatchPanel`) — no TS2345.
+
+**Follow-up, unchanged and still worth taking:** `withSameOrigin` could be made
+return-type-preserving with one generic parameter, which would make the widening
+impossible to hit again. That touches every wrapped route, so it stays its own
+ticket. File it at step 8.
 
 **Verdict:** _(pending step 6 read-back)_

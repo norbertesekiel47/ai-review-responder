@@ -140,12 +140,4 @@ async function halt(request: NextRequest): Promise<NextResponse> {
 // `withSameOrigin` is applied AT THE EXPORT on purpose — the wrapper is visible
 // at the route boundary, which is what stops a new admin POST from shipping
 // CSRF-open (route-helpers.ts records why the old opt-in flag was removed).
-//
-// The `as typeof halt` is a NARROWING assertion, not a loosening one.
-// `WrappedNextHandler` widens every handler's return to `Promise<Response>`
-// because it is shared with routes that return a bare `Response`; both arms
-// here are `NextResponse` (the wrapper's own 403 is `NextResponse.json`), so
-// nothing reachable through this export can be a plain `Response`. Asserted
-// rather than inferred only because the shared signature in
-// `src/lib/auth/route-helpers.ts` is outside this ticket's edit surface.
-export const POST = withSameOrigin()(halt) as typeof halt;
+export const POST = withSameOrigin()(halt);

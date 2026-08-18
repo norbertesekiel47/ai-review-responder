@@ -17,7 +17,7 @@
 // is proven against live Postgres in
 // `src/lib/solicitation/__tests__/approval.integration.test.ts`.
 
-import { NextRequest, type NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -164,7 +164,7 @@ describe('admin solicitation batch halt route', () => {
     // 400, NOT "ignored" (plan round 1, finding 7). A 200 next to a silently
     // dropped field would let a client believe it chose the halt reason, which
     // is fixed by the route's identity and can never be named by a request.
-    expect(responses.map((response: NextResponse) => response.status)).toEqual([400, 400, 400]);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
     expect(mockAdminHaltBatch).not.toHaveBeenCalled();
   });
 
@@ -181,7 +181,7 @@ describe('admin solicitation batch halt route', () => {
 
     // An operator acting on a customer's account says why (D10), and the note
     // is bounded because it lands verbatim in the audit payload.
-    expect(responses.map((response: NextResponse) => response.status)).toEqual([400, 400, 400]);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
     expect(mockAdminHaltBatch).not.toHaveBeenCalled();
   });
 
