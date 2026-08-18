@@ -541,3 +541,60 @@ derived from a test list rather than from a ratio. **Estimate production the
 same way: from the enumerated behaviours, not from a precedent's size.**
 
 **Verdict: ACCEPT** (owner-decided, 2026-08-18).
+
+---
+
+## D9 — the owner arm's `pending` hole is fixed here, and the non-goal that deferred it is revised
+
+**Branch review round 1, adversarial axis, F2 (Medium, 94%).** Owner approved
+the revision on **2026-08-18**.
+
+The intake carries this `non_goals` entry verbatim:
+
+> "NOT fixing haltBatch's identical pending-batch hole (plan review round 1,
+> finding 2). The owner arm also permits halting a batch with built_at IS NULL,
+> which makes batch-builder's later built_at stamp violate 091's
+> halt-consistency CHECK. The admin arm refuses that state; changing the OWNER
+> arm is a user-visible behaviour change this intake does not name, so it is
+> logged for a follow-up ticket at step 8 instead of fixed here."
+
+Plan §7 restates the same carve-out and adds the reachability half of the
+argument: the defect "is reachable only if the owner surface offers a stop
+control on a batch that is still building".
+
+**F2 falsified that premise.** The hole is reachable through the ordinary
+authenticated owner API, with an identifier the backend itself hands out:
+
+1. `readLatestBatch` deliberately returns the unbuilt batch's `batchId` to the
+   authenticated owner (`batch-view.ts:802-816`). It hides ask content, not the
+   identifier.
+2. The owner halt endpoint takes any valid `batchId` from its JSON body
+   (`scoped-batch-route.ts:58-66`) after deriving account, location and actor
+   from the authenticated scope. It does not require that the button which
+   normally issues the request was ever rendered.
+3. `haltBatch` refused only `halted` and `closed`, so `pending` fell through to
+   the shared latch, which migration 091 permits while `built_at IS NULL`.
+4. `batch-builder.ts:780-787` then stamps `built_at` guarded only on
+   `built_at IS NULL`, making `halted_at >= built_at` false and failing 091:176
+   inside the build transaction — far from the request that caused it.
+
+So the deferral rested on UI reachability standing in for API reachability. A
+server-side lifecycle invariant cannot depend on a React button being absent.
+
+**What changed:** `haltBatch`'s guard is now `halted` → `already_halted`;
+`closed` and `pending` → `not_haltable`. Both verbs' result unions are
+untouched — `HaltBatchResult` still reports a derived `reason` and
+`AdminHaltBatchResult` still carries none. New live-DB case:
+`haltBatch returns not_haltable for an unbuilt pending batch and leaves the
+builder able to stamp built_at`, mirroring the admin one.
+
+**No documented owner UI behaviour changes**, which is why this is smaller than
+the non-goal feared. The Requests panel never offered a stop control on a
+building batch, so no rendered control changes state, copy or availability; the
+only behaviour removed is an API-only path that corrupted the batch lifecycle.
+The follow-up ticket §7 promised at step 8 is therefore **not** filed — the
+defect is closed, not moved.
+
+**Verdict: ACCEPT** (owner-decided, 2026-08-18). This spends no surface
+amendment: `src/lib/solicitation/approval.ts` and
+`src/lib/solicitation/__tests__/**` were both already armed.

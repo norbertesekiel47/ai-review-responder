@@ -835,6 +835,72 @@ describeWithDb('batch view against live local Postgres', { timeout: 180_000 }, (
     expect(summary!.haltReason).toBeNull();
   });
 
+  it('readAdminBatchSummary returns the older sending batch over a newer pending one, so the stop control follows the live send', async () => {
+    // Branch review round 1, F1. "Newest batch" and "batch currently sending"
+    // are different domain concepts and the write model lets them diverge: a
+    // completed CSV upload mints a fresh `pending` batch whose only conflict
+    // target is `source_upload_id`, so it coexists legally with an older
+    // approved live batch (091's one-active-send index constrains only
+    // `approved_at IS NOT NULL AND send_closed_at IS NULL AND halted_at IS
+    // NULL`) — and it SORTS FIRST on created_at. Ordering on recency alone
+    // therefore hides the batch this feature exists to stop.
+    //
+    // The test above proves the recency tie-break by making the NEWEST batch
+    // the sending one, which cannot distinguish the two policies. This one
+    // makes them disagree.
+    const now = Date.now();
+    const sendingBatchId = await seedBatch({
+      createdAt: new Date(now - 7_200_000).toISOString(),
+      builtAt: new Date(now - 7_100_000).toISOString(),
+    });
+    const contactId = await seedContact('Stranded Sam');
+    const askId = await seedAsk({
+      batchId: sendingBatchId,
+      contactId,
+      status: 'send',
+      decidedAt: new Date(now - 7_000_000).toISOString(),
+    });
+    await seedDispatchedOutreach({
+      batchId: sendingBatchId,
+      askId,
+      contactId,
+      deliveryStatus: 'queued',
+    });
+    await sql()`
+      UPDATE solicitation_batches
+         SET approved_at = NOW() - INTERVAL '60 minutes',
+             approval_method = 'owner',
+             approved_by_user_id = ${tenant!.userId}::uuid,
+             veto_deadline_at = NOW() - INTERVAL '45 minutes',
+             sending_started_at = NOW() - INTERVAL '40 minutes'
+       WHERE id = ${sendingBatchId}::uuid
+    `;
+
+    // The customer uploads another CSV while the first batch is still in
+    // flight. `built_at IS NULL` — the builder has not finished it.
+    const pendingBatchId = await seedBatch({
+      createdAt: new Date(now - 60_000).toISOString(),
+      builtAt: null,
+    });
+
+    const summary = await batchViewModule.readAdminBatchSummary(
+      sql(),
+      tenant!.accountId,
+      businessId,
+    );
+
+    expect(summary).not.toBeNull();
+    expect(summary!.batchId).toBe(sendingBatchId);
+    expect(summary!.batchId).not.toBe(pendingBatchId);
+    expect(summary!.batchState).toBe('sending');
+    expect(summary!.cancellableCount).toBe(1);
+    // The point of the whole finding: the batch support is shown must be one
+    // the halt verbs will actually act on. These three states are exactly what
+    // `adminHaltBatch`/`haltBatch` refuse, so landing on any of them while a
+    // live send exists is the defect, not a presentation quirk.
+    expect(['pending', 'closed', 'halted']).not.toContain(summary!.batchState);
+  });
+
   it('readAdminBatchSummary returns only the admin-safe projection and never serializes an outreach subject or body', async () => {
     const now = Date.now();
     const SECRET_SUBJECT = 'Thanks for the emergency callout on Tuesday';

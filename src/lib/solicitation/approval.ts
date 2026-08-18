@@ -24,7 +24,7 @@
  *
  * Deliberately NOT in outreach.ts: that module's interface is the machine
  * lifecycle (render persistence, the join, the derived state) and has no actor
- * in any signature. These three do, and they are the only writers a human
+ * in any signature. These four do, and they are the only writers a human
  * triggers.
  *
  * LOCK ORDER (amendment B11, and the reason the two #629 verbs share one
@@ -110,17 +110,19 @@ function canonicalBatchId(batchId: string): string {
 
 /**
  * The locked batch row, its Send batch parent and its derived state, in ONE
- * statement under the advisory lock. This is the shared opening of all three
- * owner verbs, and it stops exactly where they diverge.
+ * statement under the advisory lock. This is the shared opening of all FOUR
+ * human-triggered verbs — three owner ones plus `adminHaltBatch`, whose actor is
+ * a RepWorth operator rather than the tenant — and it stops exactly where they
+ * diverge.
  *
  * Returns null when the batch does not exist for this tenant. Deliberately null
  * rather than a refusal value: every caller maps it onto the uniform 404 — so a
  * foreign batch id and an unknown one stay indistinguishable — but they do NOT
- * express it the same way. `approveBatch` and `haltBatch` return
- * `{ status: 'not_found' }`; `requestAskRegeneration` must THROW
+ * express it the same way. `approveBatch`, `haltBatch` and `adminHaltBatch`
+ * return `{ status: 'not_found' }`; `requestAskRegeneration` must THROW
  * `RegenRequestAbort`, because by the time it calls this it has already written
  * its `job_outbox` row and postgres.js COMMITS on a normal return. Folding the
- * three failures into one here would silently start the regeneration this
+ * four failures into one here would silently start the regeneration this
  * helper just refused.
  *
  * The state is derived HERE — once, under the lock, from the same row every
@@ -546,7 +548,8 @@ export type HaltBatchResult =
       close: CloseBatchIfSettledResult;
     }
   | { status: 'already_halted' }
-  /** A closed batch is terminal — there is nothing left to stop. */
+  /** A closed batch is terminal, and an unbuilt one is refused for the same
+   *  091:176 reason the admin arm refuses it. */
   | { status: 'not_haltable'; state: BatchState }
   | { status: 'not_found' };
 
@@ -556,7 +559,20 @@ export type HaltBatchResult =
  *
  * A batch that was never approved is haltable on purpose: that is the owner
  * discarding a built batch, and routing it through the latch means one code
- * path closes every batch that ends early.
+ * path closes every batch that ends early. A batch that is not built YET is
+ * NOT: 091:176 reads `(halted_at IS NULL OR built_at IS NULL OR halted_at >=
+ * built_at)`, so latching a `pending` batch passes the CHECK at halt time
+ * through the `built_at IS NULL` arm and then makes `batch-builder`'s later
+ * `built_at = NOW()` stamp — guarded only on `built_at IS NULL` — violate it,
+ * throwing far from here.
+ *
+ * That guard was originally admin-arm-only, on the argument that the owner hole
+ * was unreachable without a stop control on a building batch. Branch review
+ * round 1 (F2) falsified the premise: `readLatestBatch` returns the pending
+ * batch id to the authenticated owner and the halt route accepts any valid id
+ * from its body, so the hole was API-reachable with an identifier the backend
+ * itself hands out. Server-side lifecycle invariants cannot rest on a React
+ * button being absent — see deviations D9.
  *
  * There is no resume, and it is structural: `halted_at` is monotone, the
  * releaser predicate (#630) requires `halted_at IS NULL`, and the rows this
@@ -573,7 +589,9 @@ export async function haltBatch(
     const { batch, state } = locked;
 
     if (state === 'halted') return { status: 'already_halted' };
-    if (state === 'closed') return { status: 'not_haltable', state };
+    // Same two refusals as the admin arm, and for the same reasons: closed is
+    // terminal, pending would strand the builder against 091:176.
+    if (state === 'closed' || state === 'pending') return { status: 'not_haltable', state };
 
     const reason = ownerHaltReason(state);
 
@@ -631,13 +649,16 @@ export type AdminHaltBatchResult =
  * a customer's send batch, with a required note and a durable
  * `account_audit_log` receipt naming them.
  *
- * Its guard list is the owner arm's plus ONE (D11): a `pending` batch —
- * `built_at IS NULL` — is refused. Latching it PASSES 091's halt-consistency
- * CHECK at halt time through the `built_at IS NULL` arm, and then the builder's
- * later `built_at = NOW()` stamp (guarded only on `built_at IS NULL`) produces
- * `halted_at < built_at` and a CHECK violation that throws inside the builder,
- * far from here. `haltBatch` carries the identical hole ON PURPOSE — fixing the
- * owner arm is an owner-visible behaviour change tracked as its own ticket.
+ * Its guard list is now IDENTICAL to the owner arm's: `halted` →
+ * `already_halted`, `closed` and `pending` → `not_haltable`. The `pending`
+ * refusal is D11 — latching a batch with `built_at IS NULL` PASSES 091's
+ * halt-consistency CHECK at halt time through the `built_at IS NULL` arm, and
+ * then the builder's later `built_at = NOW()` stamp (guarded only on
+ * `built_at IS NULL`) produces `halted_at < built_at` and a CHECK violation that
+ * throws inside the builder, far from here. It shipped admin-only and reached
+ * `haltBatch` in the same branch once review round 1 (F2) showed the owner hole
+ * was API-reachable; the two result unions still differ (this one carries no
+ * `reason`), only the guard list is shared.
  *
  * There is no un-halt: `halted_at` is monotone, the releaser predicate requires
  * `halted_at IS NULL`, and the rows this cancels are terminal.

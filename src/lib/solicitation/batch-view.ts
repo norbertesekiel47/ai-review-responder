@@ -832,8 +832,10 @@ export async function readLatestBatch(
 }
 
 /**
- * The admin/support projection of a location's latest Solicitation batch
- * (#865, plan §3.2) — the READ side of the **Halt latch**'s admin arm.
+ * The admin/support projection of the ONE Solicitation batch an operator may
+ * still need to stop (#865, plan §3.2) — the READ side of the **Halt latch**'s
+ * admin arm. Which batch that is, and why it is not simply the newest, is
+ * `readAdminBatchSummary`'s own comment.
  *
  * Deliberately NOT `readLatestBatch` with a flag. That view carries
  * `attempts: AskAttemptView[]`, which serializes a customer's rendered subject
@@ -881,10 +883,27 @@ interface AdminBatchSummaryRow extends BatchLifecycleRow {
 }
 
 /**
- * The latest batch for one location, admin projection only. `null` when the
- * location has no batch — and identically `null` when the account/business
- * pair does not own the batch it names, which is what makes the route's 404
- * indistinguishable from "unknown id".
+ * The one batch a RepWorth operator may still need to STOP, admin projection
+ * only. `null` when the location has no batch — and identically `null` when the
+ * account/business pair does not own the batch it names, which is what makes the
+ * route's 404 indistinguishable from "unknown id".
+ *
+ * THE ORDERING IS THE CONTRACT, and it is deliberately NOT `readLatestBatch`'s.
+ * This projection answers "which batch is still capable of sending", not "what
+ * is the newest batch" — two questions the write model lets diverge. A completed
+ * CSV upload mints a fresh `pending` batch whose only conflict target is
+ * `source_upload_id`, so it coexists legally with an older approved live one and
+ * SORTS FIRST on `created_at`. Selecting on recency alone therefore renders
+ * "still building" over the batch actually dispatching, and support loses the
+ * stop control for the only batch that needs one (branch review round 1, F1).
+ *
+ * So the leading key is the live-send predicate — 091's
+ * `solicitation_batches_one_active_send_per_business` partial unique index
+ * spelled out (`approved_at IS NOT NULL AND send_closed_at IS NULL AND
+ * halted_at IS NULL`). That index guarantees AT MOST ONE such row per location,
+ * so the first key can never tie and the recency keys below it decide nothing
+ * when a live batch exists. When none does, the ordering degenerates to exactly
+ * the old "newest wins" behaviour.
  *
  * ONE statement, so the state and its counts cannot tear apart; the counts are
  * scalar subqueries rather than joins on `b` for the reason `readSendLane`
@@ -892,8 +911,8 @@ interface AdminBatchSummaryRow extends BatchLifecycleRow {
  * query-block aware tenant audit (#859) can prove a subquery's correlation
  * directly. Both tenant predicates are spelled top-level in EVERY block.
  *
- * Ordering follows `readLatestBatch`: `created_at` is not unique (migration
- * 088), so the UUIDv7 id is the tie-break — without it "latest" is
+ * The recency tie-break follows `readLatestBatch`: `created_at` is not unique
+ * (migration 088), so the UUIDv7 id breaks it — without that "newest" is
  * nondeterministic.
  */
 export async function readAdminBatchSummary(
@@ -936,7 +955,10 @@ export async function readAdminBatchSummary(
       FROM solicitation_batches b
      WHERE b.account_id = ${accountId}::uuid
        AND b.business_id = ${businessId}::uuid
-     ORDER BY b.created_at DESC, b.id DESC
+     ORDER BY (b.approved_at IS NOT NULL
+               AND b.send_closed_at IS NULL
+               AND b.halted_at IS NULL) DESC,
+              b.created_at DESC, b.id DESC
      LIMIT 1
   `;
 

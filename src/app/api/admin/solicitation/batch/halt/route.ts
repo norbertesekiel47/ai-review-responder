@@ -38,10 +38,15 @@ import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
+import { createWorkerLogger } from '@/lib/shared/logger';
 import { adminHaltBatch, type AdminHaltBatchResult } from '@/lib/solicitation/approval';
 import type { BatchState } from '@/lib/solicitation/outreach';
 
 export const dynamic = 'force-dynamic';
+
+/** Same prefix the endpoint is named by, so an operator grepping the route path
+ *  finds both this line and anything `internalError` reports for it. */
+const logger = createWorkerLogger('api/admin/solicitation/batch/halt');
 
 /**
  * `strictObject`, not `object`, and the difference is the ticket's second
@@ -120,6 +125,19 @@ async function halt(request: NextRequest): Promise<NextResponse> {
       businessId: parsed.data.businessId,
       actorUserId: gate.admin.id,
       note: parsed.data.note,
+    });
+
+    // IDS AND COUNTS ONLY, and the note is the field this deliberately omits:
+    // it is free text an operator typed, and CLAUDE.md's logging rule forbids
+    // raw content in a log line (string args are logged verbatim). Its durable
+    // home is the `account_audit_log` payload, which is access-controlled; a log
+    // sink is not. Mirrors the owner arm's `batch_halted` line, minus the
+    // derived reason — this arm's reason is fixed by the route's identity.
+    logger.log('admin_batch_halted', {
+      status: result.status,
+      batchId: parsed.data.batchId,
+      businessId: parsed.data.businessId,
+      cancelledCount: result.status === 'halted' ? result.cancelledCount : 0,
     });
 
     const wire = toWire(result);

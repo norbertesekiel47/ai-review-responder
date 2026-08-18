@@ -180,6 +180,22 @@ async function seedBatch(builtAgo: string): Promise<{ batchId: string; uploadId:
   return { batchId, uploadId };
 }
 
+/** A batch the builder has not finished: `built_at IS NULL`, state `pending`.
+ *  Shared by BOTH halt verbs' pending cases — the guard is now identical. */
+async function seedUnbuiltBatch(): Promise<string> {
+  const uploadId = await seedUpload();
+  const batchId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at, built_at
+    ) VALUES (
+      ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${uploadId}::uuid, NOW() - INTERVAL '1 minute', NULL
+    )
+  `;
+  return batchId;
+}
+
 async function seedSendParent(batchId: string): Promise<string> {
   const runId = randomUUID();
   await sql()`
@@ -1260,6 +1276,44 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       });
       expect((await readBatch(batchId)).approved_at).toBeNull();
     });
+
+    it('haltBatch returns not_haltable for an unbuilt pending batch and leaves the builder able to stamp built_at', async () => {
+      // Branch review round 1, F2. This guard shipped admin-only, deferred on
+      // the argument that the owner hole needed a stop control on a building
+      // batch. The premise was false: `readLatestBatch` returns the pending
+      // batch's id to the authenticated owner, and the owner halt route accepts
+      // any valid id from its body — so an owner could GET the id, POST it, and
+      // latch a batch the builder had not finished. A React button being absent
+      // is not a server-side lifecycle invariant. See deviations D9.
+      const batchId = await seedUnbuiltBatch();
+      const before = await snapshotBatch(batchId);
+
+      const result = await haltBatch(sql(), {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        haltedByUserId: userId(),
+      });
+
+      expect(result).toEqual({ status: 'not_haltable', state: 'pending' });
+      expect(await snapshotBatch(batchId)).toBe(before);
+
+      // The consequence, asserted rather than described: the builder's own CAS
+      // still succeeds. 091:176 is `(halted_at IS NULL OR built_at IS NULL OR
+      // halted_at >= built_at)`, so a latch here would pass at halt time and
+      // make THIS statement throw instead — inside batch-builder, far from the
+      // route that caused it.
+      const stamped = await sql()`
+        UPDATE solicitation_batches
+        SET built_at = NOW()
+        WHERE id = ${batchId}::uuid
+          AND account_id = ${accountId()}::uuid
+          AND business_id = ${businessId}::uuid
+          AND built_at IS NULL
+        RETURNING id
+      `;
+      expect(stamped.count).toBe(1);
+    });
   });
 
   describe('requestAskRegeneration', () => {
@@ -1815,21 +1869,6 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         actorUserId: adminUserId,
         note: overrides.note ?? ADMIN_NOTE,
       };
-    }
-
-    /** A batch the builder has not finished: `built_at IS NULL`, state `pending`. */
-    async function seedUnbuiltBatch(): Promise<string> {
-      const uploadId = await seedUpload();
-      const batchId = randomUUID();
-      await sql()`
-        INSERT INTO solicitation_batches (
-          id, account_id, business_id, source_upload_id, created_at, built_at
-        ) VALUES (
-          ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-          ${uploadId}::uuid, NOW() - INTERVAL '1 minute', NULL
-        )
-      `;
-      return batchId;
     }
 
     it('adminHaltBatch latches admin_halt and records the acting admin in halted_by', async () => {
