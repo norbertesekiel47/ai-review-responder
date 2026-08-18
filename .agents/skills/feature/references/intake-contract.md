@@ -44,7 +44,13 @@ Use one strict JSON object. Do not add prose fields or unknown keys.
 - `existing_patterns_to_follow` uses repository paths and named modules.
 - `test_seams` names public interfaces through which behavior is verified.
 - `allowed_edit_surface` is the smallest honest glob set. Never use `*`, `**`,
-  or `**/*`.
+  or `**/*`. Brackets are always literal: write a Next.js dynamic segment as
+  the plain path (`src/app/api/u/[token]/route.ts`), never pre-escaped
+  (`\[token\]`, `[[]token[]]`) — the hooks and `ci:feature-surface` escape
+  brackets themselves, so a pre-escaped entry matches nothing and is rejected
+  (#867). Every entry must match at least one real file by the time the
+  branch is pushed; `ci:feature-surface` fails on an entry that matches
+  nothing.
 - `tests_to_add` contains exact test titles, each tied to behavior, an
   invariant, or an edge case. Leave empty only when tests are inapplicable and
   `verification_commands` supplies deterministic evidence.

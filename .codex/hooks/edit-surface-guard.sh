@@ -98,8 +98,19 @@ while IFS= read -r FILE_PATH; do
   MATCHED=false
   while IFS= read -r GLOB; do
     [ -n "$GLOB" ] || continue
+    # Escape '[' and ']' so a Next.js dynamic route segment is matched LITERALLY
+    # — the SAME escape the Claude guard (.claude/hooks/edit-surface-guard.sh)
+    # and scripts/ci/feature-surface-audit.ts apply. Until #867 this port
+    # matched the raw glob, so '[id]' was a bash character class here while the
+    # other two matchers read it literally: no single spelling satisfied all
+    # three, and intakes grew a pre-escaped duplicate ('\[id\]', '[[]id[]]')
+    # that matches ONLY here. Brackets are always literal in a surface glob;
+    # never pre-escape them in the intake (ci:feature-surface rejects it).
+    # Character classes are therefore not expressible; '*' and '?' still work.
+    ESCAPED_GLOB="${GLOB//\[/\\[}"
+    ESCAPED_GLOB="${ESCAPED_GLOB//\]/\\]}"
     # shellcheck disable=SC2254
-    if [[ "$REL_PATH" == $GLOB ]]; then MATCHED=true; break; fi
+    if [[ "$REL_PATH" == $ESCAPED_GLOB ]]; then MATCHED=true; break; fi
   done < <(jq -r '.allowed_edit_surface[]?' "$ROOT/.feature/intake.json")
 
   if [ "$MATCHED" = false ]; then

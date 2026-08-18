@@ -14,6 +14,17 @@ hatch. It records the current Codex session ID in `.feature/sessions/`.
 The original Claude policy was valuable, but its input adapter only understood
 Claude tool payloads. The Codex port covers `apply_patch` and Bash tool input.
 
+Glob semantics are identical to the Claude guard and to
+`scripts/ci/feature-surface-audit.ts`: `*` crosses `/`, `?` is one character,
+and `[` `]` are escaped at match time so a Next.js dynamic segment is literal.
+Until #867 the port matched the raw glob, so `[id]` was a bash character class
+here while the other two matchers read it literally — no single spelling
+satisfied all three, and intakes grew a pre-escaped duplicate (`\[id\]`,
+`[[]id[]]`) that matched only here. Write the plain path; a pre-escaped entry
+now matches nothing anywhere and `ci:feature-surface` rejects it.
+`scripts/ci/__tests__/edit-surface-guard.test.ts` runs one table against both
+guards.
+
 ## migration-immutability-guard.sh
 
 The migration policy is portable. The Codex adapter checks patch paths and
