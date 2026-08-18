@@ -26,8 +26,15 @@ vi.mock('../outreach', async (importOriginal) => ({
   closeBatchIfSettled: mocks.closeBatchIfSettled,
 }));
 
-import { deriveBatchState, type BatchLifecycleRow } from '../outreach';
-import { approveBatch, ownerHaltReason } from '../approval';
+import { BATCH_STATES, deriveBatchState, type BatchLifecycleRow } from '../outreach';
+import {
+  approveBatch,
+  classifyWithdrawal,
+  isWithdrawableState,
+  ownerHaltReason,
+  withdrawAsk,
+  type CurrentAttempt,
+} from '../approval';
 
 const sql = mockSql as unknown as Sql;
 
@@ -125,6 +132,83 @@ describe('invariants', () => {
         return sending !== null
           ? reason === 'owner_halt'
           : reason === 'owner_veto';
+      }),
+    );
+  });
+
+  it('withdrawable states are exactly the halt-cancellable states of an approved batch', () => {
+    const stamp = fc.option(fc.date({ min: new Date('2026-01-01'), max: new Date('2027-01-01') }), {
+      nil: null,
+    });
+    fc.assert(
+      fc.property(stamp, stamp, stamp, stamp, stamp, stamp, (built, approved, veto, sending, closed, halted) => {
+        // The NULL-IMPLICATION arms of migration 091's send_ordering CHECK
+        // (approval implies built; the veto deadline and sending both imply
+        // approval) — the arms whose violation changes `deriveBatchState`'s
+        // answer. Without them the generator emits a row with only
+        // `sending_started_at` set, which derives `sending` (precedence) while
+        // `approved_at` is null — a row no database can hold, and one that
+        // fails a CORRECT implementation (plan review round 1, finding 1).
+        // 091's CHRONOLOGICAL arms (approved >= built, closed >= approved, …)
+        // are deliberately NOT modelled: this property never compares two
+        // stamps against each other, only null-ness and the precedence, so
+        // ordering cannot change its truth (round 2, defect 2 — the claim
+        // "schema-valid" was too broad; this is the honest scope).
+        fc.pre(approved === null || built !== null);
+        fc.pre(veto === null || approved !== null);
+        fc.pre(sending === null || approved !== null);
+        fc.pre(closed === null || built !== null);
+        const row: BatchLifecycleRow = {
+          built_at: built,
+          approved_at: approved,
+          veto_deadline_at: veto,
+          sending_started_at: sending,
+          send_closed_at: closed,
+          halted_at: halted,
+        };
+        // Halt is legal iff the batch is neither halted nor closed; withdrawal
+        // is that AND approved. Stated on the TIMESTAMPS, not the state names,
+        // so the property constrains the predicate against the lifecycle
+        // rather than restating its own member list.
+        const haltCancellable = halted === null && closed === null;
+        return isWithdrawableState(deriveBatchState(row, EPOCH)) === (haltCancellable && approved !== null);
+      }),
+    );
+  });
+
+  it('property: withdrawal classification is exact for every batch state and current-attempt status', () => {
+    const DELIVERY_STATUSES = [
+      'rendered', 'queued', 'sending', 'sent', 'withheld', 'cancelled', 'failed', 'unknown',
+    ] as const;
+    const REASONS = [
+      null, 'owner_withdrawn', 'owner_excluded', 'owner_veto', 'owner_halt', 'superseded',
+      'lint_failed', 'moderation_high', 'send_failed', 'send_indeterminate',
+    ] as const;
+    const attempt = fc.option(
+      fc.record({
+        deliveryStatus: fc.constantFrom(...DELIVERY_STATUSES),
+        dispositionReason: fc.constantFrom(...REASONS),
+      }),
+      { nil: null },
+    );
+    fc.assert(
+      fc.property(fc.constantFrom(...BATCH_STATES), attempt, (state, current) => {
+        const decision = classifyWithdrawal(state, current as CurrentAttempt | null);
+        // Idempotence wins in EVERY state — a retry after a last-row close
+        // arrives in `closed` and must still read as already withdrawn. Then:
+        // the ONE mutation arm exists only for a withdrawable state AND a
+        // waiting row; every other pair refuses without writing.
+        if (current?.deliveryStatus === 'cancelled' && current.dispositionReason === 'owner_withdrawn') {
+          return decision.kind === 'already_withdrawn';
+        }
+        if (!isWithdrawableState(state)) {
+          return decision.kind === 'not_withdrawable' && decision.state === state;
+        }
+        if (current === null) return decision.kind === 'not_live' && decision.deliveryStatus === null;
+        if (current.deliveryStatus === 'rendered' || current.deliveryStatus === 'queued') {
+          return decision.kind === 'withdraw';
+        }
+        return decision.kind === 'not_live' && decision.deliveryStatus === current.deliveryStatus;
       }),
     );
   });
@@ -229,5 +313,90 @@ describe('approveBatch query shapes', () => {
       accountId: ACCOUNT_ID,
       businessId: BUSINESS_ID,
     });
+  });
+});
+
+describe('withdrawAsk query shapes', () => {
+  it('withdrawAsk cancels only rendered or queued rows of the ask under the batch and tenant keys', async () => {
+    const OUTREACH_ID = 'e0000000-0000-4000-8000-000000000001';
+    const MIXED_CASE_ASK_ID = '0190ABCD-0000-7000-8000-00000000A5C1';
+    sqlReturnQueue.push(
+      // lockBatchForAction: an approved batch inside its veto window.
+      mkTaggedResult([
+        {
+          built_at: new Date(EPOCH.getTime() - 60 * 60_000),
+          approved_at: new Date(Date.now() - 60_000),
+          veto_deadline_at: new Date(Date.now() + 14 * 60_000),
+          sending_started_at: null,
+          send_closed_at: null,
+          halted_at: null,
+          send_parent_run_id: SEND_PARENT_RUN_ID,
+        },
+      ]),
+      // current attempt
+      mkTaggedResult([{ outreach_id: OUTREACH_ID, delivery_status: 'rendered', disposition_reason: null }]),
+      // the cancel UPDATE
+      mkTaggedResult([{ id: OUTREACH_ID }]),
+      // remaining live
+      mkTaggedResult([{ live: 1 }]),
+    );
+
+    await expect(
+      withdrawAsk(sql, {
+        batchId: MIXED_CASE_BATCH_ID,
+        askId: MIXED_CASE_ASK_ID,
+        accountId: ACCOUNT_ID,
+        businessId: BUSINESS_ID,
+        withdrawnByUserId: OWNER_ID,
+      }),
+    ).resolves.toEqual({
+      status: 'withdrawn',
+      remainingLive: 1,
+      close: { status: 'not_settled', liveCount: 2 },
+    });
+
+    expect(mockSql.begin).toHaveBeenCalledTimes(1);
+    expect(sqlCalls).toHaveLength(4);
+    expect(sqlCalls.every((call) => call.inTransaction)).toBe(true);
+
+    const cancel = sqlCalls[2]!;
+    const cancelText = normalizedSql(cancel.text);
+    expect(cancelText).toContain('UPDATE solicitation_outreach SET delivery_status = ?,');
+    expect(cancelText).toContain('WHERE id = ?::uuid');
+    expect(cancelText).toContain('AND batch_id = ?::uuid AND account_id = ?::uuid AND business_id = ?::uuid');
+    expect(cancelText).toContain("AND delivery_status IN ('rendered', 'queued')");
+    expect(cancel.values).toEqual([
+      'cancelled',
+      'owner_withdrawn',
+      OUTREACH_ID,
+      CANONICAL_BATCH_ID,
+      ACCOUNT_ID,
+      BUSINESS_ID,
+    ]);
+
+    // The step is recorded on the SEND PARENT, then the join runs — the B11
+    // order (`recordStep` before `closeBatchIfSettled`), asserted by call order.
+    expect(mocks.recordStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runId: SEND_PARENT_RUN_ID,
+        stepKey: 'ask_withdrawn',
+        detail: expect.objectContaining({
+          ask_id: MIXED_CASE_ASK_ID.toLowerCase(),
+          outreach_id: OUTREACH_ID,
+          withdrawn_by: OWNER_ID,
+          delivery_status_before: 'rendered',
+          remaining_live: 1,
+          state_at_withdrawal: 'veto_window',
+        }),
+      }),
+    );
+    expect(mocks.closeBatchIfSettled).toHaveBeenCalledWith(
+      expect.anything(),
+      { batchId: CANONICAL_BATCH_ID, accountId: ACCOUNT_ID, businessId: BUSINESS_ID },
+    );
+    expect(mocks.recordStep.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.closeBatchIfSettled.mock.invocationCallOrder[0]!,
+    );
   });
 });

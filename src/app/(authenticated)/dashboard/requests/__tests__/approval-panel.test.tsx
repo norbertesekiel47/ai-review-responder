@@ -210,6 +210,12 @@ async function flush(): Promise<void> {
 const approveButton = () => screen.queryByRole('button', { name: /approve and send/i });
 const haltButton = () => screen.queryByRole('button', { name: /stop this batch/i });
 
+const WITHDRAW_CONTROL_NAME = /^Withdraw the message to /i;
+const withdrawControls = () => screen.queryAllByRole('button', { name: WITHDRAW_CONTROL_NAME });
+const confirmWithdrawButton = () =>
+  screen.queryByRole('button', { name: /^Confirm: withdraw the message to /i });
+const keepButton = () => screen.queryByRole('button', { name: /^Keep the message to /i });
+
 /** Everything the browser could reach: markup, attribute values and keys all
  *  end up here, so a substring miss is a real absence rather than a missing
  *  query. */
@@ -957,5 +963,196 @@ describe('regenerate control', () => {
         ),
       );
     });
+  });
+});
+
+describe('withdraw control', () => {
+  const vetoLane = () =>
+    sendLane({
+      batchState: 'veto_window',
+      approvedAt: '2026-08-16 12:00:00+00',
+      vetoDeadlineAt: '2026-08-16 12:15:00+00',
+    });
+
+  it('post-approval rows show Withdraw and the first tap asks for confirmation instead of posting', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve'), rendered('2', 'Sam Okafor')]);
+
+    // One control per live row, and the copy names the recourse.
+    expect(withdrawControls()).toHaveLength(2);
+    expect(screen.getByText(/withdraw a single message/i)).toBeInTheDocument();
+    expect(confirmWithdrawButton()).toBeNull();
+
+    fireEvent.click(withdrawControls()[0]!);
+
+    // The first tap ARMS: the confirm pair appears for that row, and nothing
+    // was posted — a terminal act is never one mis-tap away.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(confirmWithdrawButton()).toHaveAccessibleName(/Dana Reeve/);
+    expect(keepButton()).toBeInTheDocument();
+    // Only ONE row is armed at a time: arming Sam moves the confirm.
+    fireEvent.click(withdrawControls()[0]!);
+    expect(confirmWithdrawButton()).toHaveAccessibleName(/Sam Okafor/);
+    expect(screen.queryAllByRole('button', { name: /^Confirm: withdraw/i })).toHaveLength(1);
+  });
+
+  it('confirming a withdrawal posts batchId and askId and announces the remaining count', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { status: 'withdrawn', remainingLive: 1, closed: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    const dana = rendered('1', 'Dana Reeve');
+    const { onChanged } = renderPanel(vetoLane(), [dana, rendered('2', 'Sam Okafor')]);
+
+    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(confirmWithdrawButton()!);
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/api/dashboard/solicitation/batch/withdraw?scope=${SCOPE}`);
+    expect(init.method).toBe('POST');
+    // Keyed on the ASK: exactly these two keys, nothing the client could use
+    // to name a reason or a row.
+    expect(JSON.parse(String(init.body))).toEqual({ batchId: BATCH_ID, askId: dana.askId });
+    // `in_place`: the owner is still in the same panel; a remount would drop
+    // any other armed confirmation and flash the loading card. The count is
+    // the SERVER's `remainingLive`, not a client subtraction.
+    expect(onChanged).toHaveBeenCalledWith('Withdrawn. 1 message left to send.', 'settled', 'in_place');
+  });
+
+  it('announces the server remaining count when a sending row keeps the batch open', async () => {
+    // Server truth: one row still in flight. A client that subtracted one
+    // from the rendered/queued rows on screen would say the batch is finished.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { status: 'withdrawn', remainingLive: 1, closed: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    const inFlight = { ...rendered('2', 'Sam Okafor'), deliveryStatus: 'sending' as const };
+    const { onChanged } = renderPanel(
+      sendLane({ batchState: 'sending', approvedAt: '2026-08-16 12:00:00+00' }),
+      [rendered('1', 'Dana Reeve'), inFlight],
+    );
+
+    // Only Dana's row is withdrawable; Sam's is in flight.
+    expect(withdrawControls()).toHaveLength(1);
+    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(confirmWithdrawButton()!);
+    await flush();
+
+    expect(onChanged).toHaveBeenCalledWith('Withdrawn. 1 message left to send.', 'settled', 'in_place');
+  });
+
+  it('post-approval queued rows show Withdraw while sending sent withheld failed and unknown rows do not', () => {
+    const attempts = [
+      rendered('1', 'Rendered Row'),
+      { ...rendered('2', 'Queued Row'), deliveryStatus: 'queued' as const },
+      { ...rendered('3', 'Sending Row'), deliveryStatus: 'sending' as const },
+      { ...rendered('4', 'Sent Row'), deliveryStatus: 'sent' as const },
+      heldByLint('5', 'Held Row'),
+      { ...rendered('6', 'Failed Row'), deliveryStatus: 'failed' as const, dispositionReason: 'send_failed' },
+      { ...rendered('7', 'Unknown Row'), deliveryStatus: 'unknown' as const, dispositionReason: 'send_indeterminate' },
+    ];
+    renderPanel(sendLane({ batchState: 'sending', approvedAt: '2026-08-16 12:00:00+00' }), attempts);
+
+    const names = withdrawControls().map((control) => control.getAttribute('aria-label'));
+    expect(names).toEqual([
+      'Withdraw the message to Rendered Row',
+      'Withdraw the message to Queued Row',
+    ]);
+  });
+
+  it('a refetch that drops an armed ask permanently disarms it even if the ask later reappears', () => {
+    const dana = rendered('1', 'Dana Reeve');
+    const sam = rendered('2', 'Sam Okafor');
+    const { rerender } = render(
+      <ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [dana, sam] })} />,
+    );
+    fireEvent.click(withdrawControls()[0]!);
+    expect(confirmWithdrawButton()).toHaveAccessibleName(/Dana Reeve/);
+
+    // The refetch comes back without Dana (withdrawn in another tab, or sent).
+    rerender(<ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [sam] })} />);
+    expect(confirmWithdrawButton()).toBeNull();
+
+    // If that ask ever reappears, it needs a FRESH first tap — the arming did
+    // not survive in hidden state.
+    rerender(<ApprovalPanel {...props({ sendLane: vetoLane(), attempts: [dana, sam] })} />);
+    expect(confirmWithdrawButton()).toBeNull();
+    expect(withdrawControls()).toHaveLength(2);
+  });
+
+  it('Keep reverts the pending confirmation without posting', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve')]);
+
+    fireEvent.click(withdrawControls()[0]!);
+    expect(confirmWithdrawButton()).toBeInTheDocument();
+    fireEvent.click(keepButton()!);
+
+    expect(confirmWithdrawButton()).toBeNull();
+    expect(keepButton()).toBeNull();
+    expect(withdrawControls()).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('no Withdraw control renders before approval', () => {
+    renderPanel(sendLane({ batchState: 'built', ready: true }), [rendered('1', 'Dana Reeve')]);
+    expect(withdrawControls()).toHaveLength(0);
+    // And none on a stopped batch either — there is nothing left to withdraw.
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({ batchState: 'halted', haltReason: 'owner_veto' }),
+          attempts: [rendered('1', 'Dana Reeve')],
+        })}
+      />,
+    );
+    expect(withdrawControls()).toHaveLength(0);
+    // And none on a finished batch.
+    render(
+      <ApprovalPanel
+        {...props({
+          sendLane: sendLane({ batchState: 'closed', approvedAt: '2026-08-16 12:00:00+00' }),
+          attempts: [rendered('1', 'Dana Reeve')],
+        })}
+      />,
+    );
+    expect(withdrawControls()).toHaveLength(0);
+  });
+
+  it('announces the last withdrawal as the end of the batch', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { status: 'withdrawn', remainingLive: 0, closed: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { onChanged } = renderPanel(vetoLane(), [rendered('1', 'Dana Reeve')]);
+
+    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(confirmWithdrawButton()!);
+    await flush();
+
+    // `closed` is the server's fact, so the sentence may say "finished".
+    expect(onChanged).toHaveBeenCalledWith(
+      'Withdrawn. That was the last one — this batch is finished.',
+      'settled',
+      'in_place',
+    );
+  });
+
+  it('repeats the server sentence for a message that can no longer be withdrawn', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(409, { status: 'not_live' }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve')]);
+
+    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(confirmWithdrawButton()!);
+    await flush();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This message is no longer waiting to send, so it cannot be withdrawn. Reload the page to see where the batch stands.',
+    );
   });
 });
