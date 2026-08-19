@@ -348,7 +348,9 @@ describe('health-alert checks', () => {
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
   // Sequential dispatch order: wedgedClientRead, failedByTopic, oldestPending, staleDispatching,
   // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents,
-  // stalledSendBatches, backlogDepth — push a queue entry per check in that order.
+  // stalledSendBatches, solicitationSendBreaker, backlogDepth — push a queue entry per
+  // check in that order. POSITIONAL: a new check inserted anywhere shifts every later
+  // response by one, so appending a check means appending its entry here too (#898).
   function pushQuietChecksBeforeBacklog(): void {
     sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]); // wedgedClientRead → null
     sqlReturnQueue.push([]);              // failedByTopic → []
@@ -359,6 +361,7 @@ describe('health-alert checks', () => {
     sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
     sqlReturnQueue.push([]);              // failedInboundEvents → []
     sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
+    sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // solicitationSendBreaker → null (under BREAKER_MIN_SENDS)
   }
 
   describe('backlog-depth threshold config', () => {
@@ -438,6 +441,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
       sqlReturnQueue.push([{ count: 1, oldest_run_id: '00000000-0000-7000-8000-0000000000bb', oldest_age_s: 1_000_000 }]); // stalled send batch → finding
+      sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // solicitationSendBreaker → null (under BREAKER_MIN_SENDS)
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
       const findings = await runHealthChecks(mockSql);
@@ -466,6 +470,7 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
       sqlReturnQueue.push([]);              // failedInboundEvents → []
       sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
+      sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // solicitationSendBreaker → null (under BREAKER_MIN_SENDS)
       mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
 
       const findings = await runHealthChecks(mockSql);

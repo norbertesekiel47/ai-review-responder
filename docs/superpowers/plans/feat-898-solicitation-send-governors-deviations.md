@@ -336,3 +336,175 @@ also own the matching allowlist entry, or the two files must be dispatched toget
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## T5 step 2 — pre-registered branch resolved: `uuid`'s v7, NOT `randomUUID()`
+
+**Found:** The open branch above still says "If none exists, use `randomUUID()` from
+`node:crypto`". Checked: the repo has no `src/lib/shared/uuid` helper, and every
+app-supplied PK uses the `uuid` package directly (`src/lib/audit/log.ts:2`,
+`src/lib/notifications/delivery.ts:1`). `uuid` is already a dependency, so no
+`deps-justification.md` and no `package.json` surface amendment was needed. The plan
+BODY (Task 5 step 2, corrected in plan round 1) already says exactly this; only the
+bullet at the top of this file is stale.
+
+**Did:** `import { v7 as uuidv7 } from 'uuid'` in
+`src/lib/solicitation/send-breaker.ts`. `randomUUID()` was deliberately NOT used —
+it is UUIDv4, which is random rather than time-ordered and breaks the time-ordered-PK
+convention every table in `migrations-log.md` states. Invariant #10's "use node:crypto"
+governs hashing, not id generation.
+
+**Blast radius:** none. Recorded so a resumed session does not re-investigate.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T5 — `ON CONFLICT ((reset_at IS NULL))` inference: checked against Postgres, it works
+
+**Found:** The plan flagged the expression-index conflict target as the riskiest line
+on the branch and pre-authorised a `SELECT … FOR UPDATE` fallback if Postgres declined
+to infer from it. Verified empirically against the local test database BEFORE writing
+the module: two consecutive inserts inside one transaction, the second returning zero
+rows and leaving exactly one open trip. Postgres infers
+`solicitation_send_breaker_one_open` from `((reset_at IS NULL)) WHERE reset_at IS NULL`
+with no error.
+
+**Did:** Kept the plan's insert verbatim. No fallback, no index change. The
+idempotence integration test now proves inference works on every run rather than only
+in a one-off `psql` check.
+
+**Blast radius:** none.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T5 — `BreakerWindow` had to be a `type` alias, not an `interface`
+
+**Found:** The plan's Task 5 source declares `export interface BreakerWindow`. That does
+not compile: `sql.json(breakerWindow)` takes postgres.js's `JSONValue`, which requires a
+string index signature, and TypeScript grants an implicit index signature to a type
+alias of an object type but never to an interface. `tsc` reports
+`Type 'BreakerWindow' is not assignable to parameter of type 'JSONValue'` at the insert
+— a message that says nothing about JSONB.
+
+**Did:** Declared `export type BreakerWindow = { … }` in
+`src/lib/solicitation/send-breaker.ts` with a comment stating why, so nobody "tidies" it
+back to an interface and rediscovers this. The alternative house pattern —
+`tx.json(x as never)` (`src/lib/approval/audit.ts:192`, `src/lib/audit/log.ts:47`) —
+was rejected: it launders a real type into `never` at the one boundary where the shape
+of the stored snapshot matters, and `readSendBreaker` reads it straight back out as
+`BreakerWindow`. `src/lib/reviews/import-consent.ts:706`'s `satisfies` idiom is the
+same fix by another route.
+
+**Blast radius:** the exported type's declaration form only. Every consumer sees the
+identical structural shape.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T5 — `HealthFinding` has exactly one owner, and it lives in `worker/`
+
+**Found:** The plan has `evaluateSendBreaker` return `HealthFinding | null` and puts
+`breakerFinding` in `src/lib/solicitation/send-breaker.ts`, but never says where the
+type comes from. Its only declaration is
+`worker/background/pollers/health-alert/checks.ts`, and no file under `src/lib/` has
+ever imported from `worker/` — the dependency has always run the other way
+(`checks.ts` imports `src/lib/shared/backlog-depth`, `src/lib/agents/read`).
+
+**Did:** Imported it type-only:
+`import type { HealthFinding } from '../../../worker/background/pollers/health-alert/checks'`.
+`import type` is erased, so no runtime edge from `src/lib` into `worker/` is created and
+the checks.ts↔send-breaker.ts cycle exists only in the type graph. Chose this over
+restating the four-field shape locally because a duplicated interface is two owners of
+one fact, and Task 6's `checkSolicitationSendBreaker` returning the value AS a
+`HealthFinding` would then typecheck by coincidence rather than by identity. ESLint's
+`PARENT_TRAVERSAL_BAN` already exempts paths containing `/worker/`; `pnpm typecheck` and
+`eslint` on the file are both clean.
+
+**Blast radius:** one type-only import. If a later ticket wants the layering strictly
+one-way, the fix is to move `HealthFinding` into `src/lib/shared/`, not to duplicate it.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T6 — the new check drains one entry from `checks.test.ts`'s positional sql queue (2 pre-existing tests RED; fix is outside T6's edit surface)
+
+**Found:** Task 6's one-line wiring is correct and complete, but the plan does not
+account for how `worker/background/pollers/health-alert/__tests__/checks.test.ts` mocks
+`sql`. That suite's `mockSql` is a **positional queue** (`sqlReturnQueue`): every tagged
+template call shifts the next pushed row off the front, and an exhausted queue yields
+`[]`. Adding ANY check to `runHealthChecks` therefore consumes one more entry and
+shifts every response after it by one. `checkSolicitationSendBreaker` sits immediately
+before `checkBacklogDepth`, so the backlog check now receives the breaker's row (and
+then `[]`), and two pre-existing tests go red:
+
+- `backlog-depth threshold config > uses the 1500 default …` (helper
+  `pushQuietChecksBeforeBacklog()`, ~line 350)
+- `runHealthChecks > aggregates findings across all checks (env defaults)` (~line 420)
+
+Both fail on the missing `backlog_depth:job_outbox` key — the backlog finding, not the
+breaker, is what disappears. This is a mock-arity artifact, not a behaviour change: the
+breaker itself reads `sends: undefined → 0`, falls under `BREAKER_MIN_SENDS`, and
+correctly returns `null`.
+
+**Did:** Nothing — `checks.test.ts` is outside T6's hook-enforced edit surface
+(`checks.ts` + this file), so the agent stopped rather than reaching for it. The fix is
+three pushes, one per `runHealthChecks` call site, inserted directly after each
+`stalledSendBatches` push:
+
+```typescript
+sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // sendBreaker → null (under MIN_SENDS)
+```
+
+in `pushQuietChecksBeforeBacklog()`, in "aggregates findings across all checks", and in
+"isolates a backlog-check failure" (that third one passes either way today — the queue
+is already exhausted there — but its inline dispatch-order comment is now wrong without
+it, and it would break the moment a later check is appended).
+
+Rejected alternative: moving the `collect(await checkSolicitationSendBreaker(sql));`
+line to AFTER the backlog `try/catch`, where the exhausted queue would hand it `[]` and
+all three tests would pass untouched. That is passing the suite by exploiting a mock's
+queue-exhaustion behaviour, it contradicts the plan's explicit placement, and it would
+break again the next time a check is appended.
+
+**Blast radius:** two RED tests in `checks.test.ts` until the pushes land. `pnpm lint`
+is clean, `pnpm typecheck` is clean for `checks.ts` (the only error is T7's not-yet-
+written `reset/route.ts`), and the two new `send-breaker-check.test.ts` tests are green.
+
+**Invalidates a locked decision?** no — the #505 sequential list and the fail-loud
+(no `try/catch`) placement are both preserved exactly as specified.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T6 follow-up (orchestrator) — positional mock queue in checks.test.ts
+
+**Found:** Adding `checkSolicitationSendBreaker` to `runHealthChecks` turned 2
+PRE-EXISTING tests in `worker/background/pollers/health-alert/__tests__/checks.test.ts`
+red. That suite's `mockSql` is a POSITIONAL queue (`sqlReturnQueue`): each check consumes
+the next entry, so inserting a check anywhere shifts every later response by one.
+`checkBacklogDepth` began eating the breaker's row and its `backlog_depth:job_outbox`
+finding vanished. Not a behaviour regression — the breaker read `sends: 0`, fell under
+`BREAKER_MIN_SENDS` and correctly returned `null`.
+
+The T6 subagent could not fix it: its edit surface was `checks.ts` only. It diagnosed the
+cause, prescribed the exact fix, and — importantly — **rejected the tempting workaround**
+of moving the `collect(...)` line below the backlog `try/catch`, where an exhausted queue
+would have made all three tests pass with no edit. That "fix" would have passed by
+exploiting mock exhaustion, put the check in the wrong dispatch position, and broken again
+on the next appended check. Good call.
+
+**Did:** Orchestrator applied the prescribed fix in
+`worker/background/pollers/health-alert/__tests__/checks.test.ts` (already in surface):
+three `sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }])` entries
+immediately after each `stalledSendBatches` push, plus a rewritten dispatch-order comment
+that now names the breaker AND states the positional contract explicitly, so the next
+person appending a check knows they must append an entry here too.
+
+Health-alert directory: 82 passed / 2 failed → **84 passed / 0 failed**.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
