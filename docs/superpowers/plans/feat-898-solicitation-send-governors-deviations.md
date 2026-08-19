@@ -699,3 +699,187 @@ lesson, and it belongs in lab-notes at step 8.
 consequences — recorded per-fix in the entries that follow.
 
 **Verdict:** ACCEPT (owner-directed).
+
+## R1-B2.1 — breaker recovery was arithmetically unreachable; the window's lower edge is now the last reset
+
+**Found:** adversarial-1 is correct and it is arithmetic, not opinion. While a trip is open
+#900 sends nothing, so the denominator (`sent_at` in the last 7 days) drains toward zero
+while the numerators keep receiving late-landing `bounced_at` / `complained_at` signals from
+pre-halt sends. `rate(Δ) ≥ rate(0)` for every Δ: the ratio gets WORSE the longer the halt
+lasts. An admin reset therefore re-tripped within one poll interval, every time, and runbook
+§8.3's "roll `SOLICITATION_PLATFORM_DAILY_CAP` down, then reset" could not work — rolling a
+ceiling down changes future volume and the window is a pure function of history. The only
+real recoveries were "wait ~7 days for the signals to age out" and "wait for the denominator
+to fall under `BREAKER_MIN_SENDS`", i.e. roughly seven days of zero sending.
+
+**Did:** `readBreakerWindow` (`src/lib/solicitation/send-breaker.ts`) now bounds the window at
+`GREATEST(NOW() - BREAKER_WINDOW_DAYS, (SELECT MAX(reset_at) FROM solicitation_send_breaker))`,
+applied to the `WHERE` and to all three aggregate `FILTER`s. No migration: `reset_at` already
+exists on 110's table. `GREATEST` ignores NULL arguments in Postgres, so with no reset ever
+recorded the expression is byte-equivalent in meaning to the old `NOW() - 7 days`; a COALESCE
+would be wrong, not merely redundant. `resetSendBreaker`'s doc comment was rewritten — its old
+"the next poller tick re-evaluates honestly and re-trips if the breach stands" described the
+bug.
+
+**Is the fix sound? Two properties, both asserted by a live-DB test:**
+
+1. *Recovery is reachable.* Immediately after a reset the window is nearly empty, so
+   `BREAKER_MIN_SENDS` (100) suppresses tripping until 100 fresh sends accumulate. That grace
+   period is the POINT, not a hole: it is the half-open probe a circuit breaker needs,
+   expressed with a floor the design already had. §3.2B ruled out auto-recovery, which is
+   defensible, but nothing had replaced the probe, so the manual reset inherited a job it
+   could not do.
+2. *It cannot be abused into never tripping.* Each reset buys at most 100 sends of ungoverned
+   volume — three hard bounces inside that 100 re-trips at once, ~30 minutes at the top ramp
+   stage — and the next 100 post-reset sends are measured honestly, so a genuinely bad list
+   re-trips almost immediately. For a NORMAL operator the arithmetic yields a bounded probe,
+   never a disabled governor. An admin resetting in a loop is a human problem with a durable
+   audit trail (append-only table, `reset_by` + non-blank `reset_note` enforced by 110's
+   reset_consistency CHECK), not something the arithmetic must defend against.
+
+Accepted consequence, stated plainly: late-landing signals from PRE-reset sends no longer
+count. That is deliberate — counting the old cohort's tail against the new window is exactly
+what made recovery impossible — and it is what makes a reset an assertion ("I have dealt with
+the cause") the system can act on.
+
+**Blast radius:** runbook §8.3/§8.4 now describe a procedure that WORKS; the sibling agent owns
+the doc rewrite. The admin surface is unchanged (it renders the frozen trip snapshot).
+
+**Invalidates a locked decision?** It revises locked decision 5's CONSEQUENCES, exactly as the
+triage's bucket-2 entry anticipated, and was owner-directed. The decision itself — "never
+self-clears; only an explicit admin reset closes a trip" — is untouched and now actually holds.
+
+**Verdict:** ACCEPT.
+
+## R1-B1.1 — paging was EDGE-triggered; it is now LEVEL-triggered, and one test's meaning changed
+
+**Found:** `evaluateSendBreaker` returned a finding only when it newly INSERTed; `ON CONFLICT
+DO NOTHING` made every later tick return `null`. One dropped Sentry event (quota, transport
+blip, a worker restart before the flush) therefore left sending halted platform-wide with no
+notification and no re-page, indefinitely. Every sibling check in `runHealthChecks` is
+level-triggered, and Sentry groups `captureMessage` by its text.
+
+**Did:** the open-trip probe (`readSendBreaker`) now runs FIRST and short-circuits: a finding
+is returned on every tick a trip is open, including after the breaching signals have aged out
+of the window — the halt outlives the breach, because only a reset clears it. New
+`openTripFinding` carries the SAME key (`solicitation_send_breaker_tripped`, the alert-routing
+tag) and a STABLE title, so the repeat collapses into one Sentry issue that keeps receiving
+events rather than opening a new issue every five minutes; elapsed/`trip_id` detail rides in
+Sentry `extra`, which plays no part in grouping. Probe-first also means the expensive
+aggregate is skipped entirely while halted.
+
+The probe→insert race (`!inserted`) still returns null. That is NOT the old bug: a trip is now
+open, so the very next tick's probe pages on it — one poll interval of exposure, not forever —
+and the worker is single-replica, so the branch should never execute.
+
+**The test change is the load-bearing part.** `evaluateSendBreaker is idempotent while a trip
+is already open` asserted `expect(second).toBeNull()`, which encoded the bug as a promise. The
+title is kept VERBATIM (`.feature/intake.json` + the promised-tests gate match it
+character-for-character); only the assertions changed, and a comment in the test says why:
+idempotence constrains the ROW (still exactly one open trip after two evaluations), never the
+finding.
+
+**Blast radius:** `send-breaker-check.test.ts`'s stub had to become POSITIONAL — it answered
+every query with the same row, which now reports every healthy window as an open trip. Both
+`checks.test.ts` positional-queue helper sites gained a second entry (the breaker is the one
+check that issues two queries).
+
+**Invalidates a locked decision?** It reverses decision 6's "it pages ONCE, not every five
+minutes" sub-clause. Owner-directed; the anti-fatigue intent is preserved by Sentry grouping
+rather than by silence.
+
+**Verdict:** ACCEPT.
+
+## R1-B1.2 — `readBreakerWindow` seq-scanned the whole table; migration 110's index rationale is WRONG and cannot be fixed in place
+
+**Found:** the statement had no `WHERE`, only aggregate `FILTER`s, which do not restrict the
+scan. It read every row `solicitation_outreach` has ever held — an append-only, retained table
+— once per 5-minute poll cycle, forever. `idx_solicitation_outreach_sent_at` could not serve
+it and had no other reader on the branch.
+
+**Did:** added the real `WHERE` (`sent_at >= window_start OR bounced_at >= window_start OR
+complained_at >= window_start`), sharing the B2.1 `GREATEST(...)` bound. The three aggregate
+`FILTER`s are unchanged, so the asymmetric window basis is preserved exactly.
+
+**Migration 110 is NOT edited** — it is immutable and already recorded at head. Two corrections
+are recorded HERE for a follow-up ticket instead:
+
+- 110's comment ("a bitmap scan is cheaper than two more indexes") was wrong about the old
+  statement: no bitmap scan was reachable at all, and the relevant row count was the whole
+  outreach history, not the ~35k in the window.
+- It is still not fully right about the NEW statement. With only `sent_at` indexed, an OR of
+  three predicates cannot form a BitmapOr, so Postgres will most likely still choose a seq
+  scan. The `WHERE` is nonetheless correct and necessary; whether to add partial indexes on
+  `bounced_at` / `complained_at` is now a REAL trade rather than a moot one, and belongs to
+  the same follow-up that fixes the comment.
+
+**Blast radius:** `scripts/ci/tenant-scope-allowlist.ts` — see the surface note below.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
+
+## R1-B1.3 — the only WRITE in a "No writes" module, un-isolated in a shared-fate chain
+
+**Found:** `worker/background/pollers/health-alert/checks.ts` opened with "Read-only health
+checks … No writes." That became false when the breaker trip landed there, and the check sat
+un-isolated in the SEQUENTIAL shared-fate core list — so a `23505`, a lock wait or an ON
+CONFLICT inference error discarded the nine findings already collected, including the
+wedged-connection signal that would explain the failure.
+
+**Did:** (a) the module header now names the single writer and why it is here (the 7-day
+aggregate must not run on the send loop, and this poller is the only existing cadence),
+plus an explicit "a second writer needs a better answer than 'the first one did it'".
+(b) the call is wrapped in a `try/catch` mirroring `checkBacklogDepth`, degrading to
+`health_check_error:solicitation_send_breaker` at `warning`. It stays SEQUENTIAL and in
+position — never `Promise.all` (#505).
+
+**One correction to the brief I was given.** The brief justified this as "the READ path fails
+closed at the releaser (#900), so the poller's write failing does not permit a send." That
+overstates it: `readSendBreaker` fails closed on a DB ERROR, not on a trip that was never
+written, so a swallowed write failure does delay the halt. The honest argument — the one in the
+code comment — is that the delay is ONE poll interval (≤5 min), which is the same bound the
+design already accepts as trip latency, and that rethrowing is *silent about the breaker* while
+deleting every other signal. The fail-closed guarantee was never carried by this call site and
+the catch cannot reach it.
+
+**Blast radius:** one new test in `checks.test.ts`; no behaviour change for any other check.
+
+**Invalidates a locked decision?** no — decision 6 keeps the poller as tripper. The deeper
+"evaluation should be its own duty, not an alerting concern" question (adversarial-5's option
+ii) is untouched and remains open alongside B3.1.
+
+**Verdict:** ACCEPT.
+
+## R1-B1.7 — the promised trip log line did not exist
+
+**Found:** `.feature/intake.json` `observability` promises "Structured worker log line on trip
+from `evaluateSendBreaker`: msg 'solicitation send breaker tripped' with the metric snapshot
+only". No such line existed.
+
+**Did:** added `createWorkerLogger('[SendBreaker]')` and a `logger.warn` on the newly-inserted
+trip carrying `trip_id`, `trip_reason`, the three counts, the two rates, both thresholds,
+`min_sends` and `window_days` — AGGREGATE ONLY, never a recipient address, subject or body.
+Deliberately NOT emitted on the level-triggered re-page: the intake promises one line per trip,
+and a line every five minutes for the life of a halt is noise. The admin-reset line is the
+sibling agent's.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
+
+## R1 — surface note: `scripts/ci/tenant-scope-allowlist.ts` snippet had to be re-keyed
+
+**Found:** the allowlist keys an exception on the NORMALIZED SQL text, so re-shaping
+`readBreakerWindow` (B2.1 + B1.2) turned its entry into "unused allowlist entry" + "missing
+account_id or business_id scope" and `pnpm ci:tenant-scope` went red.
+
+**Did:** updated that one entry's `sqlSnippet` to the new statement and extended its `reason`
+to say what changed and that the cross-account justification is unaffected. Entry count
+unchanged (383 = baseline). The file IS inside `allowed_edit_surface`; it was outside the
+narrower per-agent brief, which is recorded here rather than treated as scope growth — a
+snippet re-key is a mechanical consequence of editing the file the entry names.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.

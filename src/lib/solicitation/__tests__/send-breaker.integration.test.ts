@@ -39,6 +39,9 @@ import { evaluateSendBreaker, readSendBreaker, resetSendBreaker } from '../send-
 //     bounces too, so `bounced_at` alone cannot serve as the numerator.
 //  4. THE RESET ARM. 110's reset_consistency CHECK makes "who cleared this and
 //     why" unanswerable-by-omission impossible; only the DB enforces it.
+//  5. THE RESET-BOUNDED WINDOW. `GREATEST(NOW() - 7 days, MAX(reset_at))` is
+//     what makes recovery reachable at all, and whether the pre-reset cohort
+//     really leaves the measurement is a fact about SQL, not about TypeScript.
 //
 // Applies NO migration SQL (#573): `pnpm test:db:setup` provisions the schema
 // to head and this suite ASSERTS it. Every write runs inside a transaction that
@@ -319,16 +322,102 @@ describeWithDb(
     });
 
     it('evaluateSendBreaker is idempotent while a trip is already open', async () => {
-      // The one-open partial index makes a second trip a 23505 unless the
-      // insert tolerates it. Two evaluations against a breached window must
-      // leave ONE row and page ONCE, not every five minutes.
+      // IDEMPOTENCE CONSTRAINS THE ROW, NOT THE FINDING. This test used to
+      // assert the second evaluation returned null, which encoded the
+      // edge-triggered paging bug (round-1 adversarial-3 / std-2) as a promise:
+      // one dropped Sentry event then left sending halted platform-wide with no
+      // notification, indefinitely. What must stay idempotent is the WRITE — the
+      // one-open partial index makes a second trip a 23505 unless the insert
+      // tolerates it — so two evaluations against a breached window still leave
+      // exactly ONE row. The finding is now level-triggered and repeats.
       await sql()
         .begin(async (tx) => {
           await seedSends(tx, { sent: 100, hardBounced: 3 });
           const first = await evaluateSendBreaker(tx);
           const second = await evaluateSendBreaker(tx);
           expect(first).not.toBeNull();
-          expect(second).toBeNull();
+          expect(second).not.toBeNull();
+          expect(second?.key).toBe('solicitation_send_breaker_tripped');
+          expect(second?.detail).toMatchObject({ still_open: true });
+          expect(await countOpenTrips(tx)).toBe(1);
+          throw new Rollback();
+        })
+        .catch(expectRollback);
+    });
+
+    it('the breaker keeps paging while a trip is open even after the window falls back under the threshold', async () => {
+      // The halt OUTLIVES the breach that caused it: nothing self-clears, so a
+      // trip whose breaching signals have aged out is still halting every
+      // account's sending. An empty window here (zero sends, zero signals) is
+      // the extreme form — classifyBreach would call it healthy — and the check
+      // must still page, because a level-trigger reports STATE, not an edge.
+      await sql()
+        .begin(async (tx) => {
+          await tx`
+            INSERT INTO solicitation_send_breaker (id, trip_reason, metrics)
+            VALUES (${randomUUID()}::uuid, 'complaint_rate',
+                    ${tx.json({
+                      sends: 1000,
+                      hardBounces: 0,
+                      complaints: 9,
+                      hardBounceRate: 0,
+                      complaintRate: 0.009,
+                    })})
+          `;
+          const finding = await evaluateSendBreaker(tx);
+          expect(finding?.key).toBe('solicitation_send_breaker_tripped');
+          expect(finding?.level).toBe('error');
+          expect(finding?.title).toContain('STILL halted');
+          expect(finding?.detail).toMatchObject({
+            trip_reason: 'complaint_rate',
+            still_open: true,
+          });
+          expect(await countOpenTrips(tx)).toBe(1);
+          throw new Rollback();
+        })
+        .catch(expectRollback);
+    });
+
+    it('a reset bounds the window so recovery is reachable and post-reset sends are still measured', async () => {
+      // ROUND-1 adversarial-1 / B2.1, end to end. Before the reset bound, the
+      // window was a pure function of history that no operator action could
+      // move: halting stopped the denominator while late-landing signals kept
+      // arriving, so the ratio got WORSE while halted and every reset re-tripped
+      // within one poll interval. Runbook §8.3's procedure could not work.
+      //
+      // Both halves are asserted on purpose, because each alone would be a
+      // different bug: the reset must actually clear (or there is no recovery),
+      // and post-reset sends must still be measured (or the reset is a way to
+      // switch the platform's reputation governor off).
+      await sql()
+        .begin(async (tx) => {
+          await seedSends(tx, { sent: 100, hardBounced: 3 });
+          expect(await evaluateSendBreaker(tx)).not.toBeNull();
+
+          await resetSendBreaker(tx, {
+            actorUserId: tenant!.userId,
+            note: 'bad list purged; ramp rolled back to stage 1',
+          });
+
+          // The window's lower edge is now the reset, so the breaching cohort —
+          // its sends AND its bounces — is out of the measurement entirely. The
+          // BREAKER_MIN_SENDS floor then suppresses a re-trip until 100 fresh
+          // sends accumulate: the intended half-open probe, not a hole.
+          expect(await evaluateSendBreaker(tx)).toBeNull();
+          expect(await countOpenTrips(tx)).toBe(0);
+
+          // 100 sends AFTER the reset at the same 3% hard bounce rate re-trip at
+          // once, which is what bounds the abuse: a reset buys at most 100 sends
+          // of ungoverned volume, never a disabled breaker. NOW() is fixed for
+          // the whole transaction, so `sentDaysAgo: 0` lands exactly on the
+          // window start, which the `>=` boundary includes.
+          await seedSends(tx, { sent: 100, hardBounced: 3, sentDaysAgo: 0, bouncedDaysAgo: 0 });
+          const reTrip = await evaluateSendBreaker(tx);
+          expect(reTrip?.detail).toMatchObject({
+            trip_reason: 'hard_bounce_rate',
+            sends: 100,
+            hard_bounces: 3,
+          });
           expect(await countOpenTrips(tx)).toBe(1);
           throw new Rollback();
         })

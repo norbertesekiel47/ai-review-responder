@@ -16,10 +16,13 @@
 // @/lib/db/server.
 import type { Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
+import { createWorkerLogger } from '@/lib/shared/logger';
 // Type-only, therefore erased: the finding SHAPE has one owner (the poller that
 // consumes it) and duplicating it here would let the two drift. No runtime edge
 // from src/lib into worker/ is created.
 import type { HealthFinding } from '../../../worker/background/pollers/health-alert/checks';
+
+const logger = createWorkerLogger('[SendBreaker]');
 
 /**
  * #622 §3.2B, locked. Rates are fractions, not percentages, and both are
@@ -66,7 +69,7 @@ export interface SendBreakerState {
 
 /**
  * Compute the Breaker window, trip the latch if it breaches, and return the
- * HealthFinding to page on (null when healthy or already open).
+ * HealthFinding to page on (null only when nothing is open and nothing breaches).
  *
  * WINDOW BASIS, locked in grilling and NOT symmetric:
  *   - denominator is SEND-dated  (`sent_at` within the window)
@@ -84,12 +87,29 @@ export interface SendBreakerState {
  * Cross-account BY DESIGN — the asset protected is the shared Sending identity,
  * not one tenant's. Allowlisted in scripts/ci/tenant-scope-allowlist.ts.
  *
- * IDEMPOTENT WHILE A TRIP IS OPEN. The insert's conflict target is inferred
- * from `solicitation_send_breaker_one_open`, so a second breached tick is a
- * no-op that returns null — the breaker pages ONCE, not every five minutes for
- * as long as the breach stands.
+ * LEVEL-TRIGGERED, NOT EDGE-TRIGGERED (round-1 review, adversarial-3 / std-2).
+ * The first shape returned `null` on every tick after the one that inserted,
+ * so the whole mechanism produced exactly ONE alert-shaped event for a
+ * condition that halts the entire product line and never self-clears: one
+ * dropped Sentry message (quota, transport blip, a worker restart before the
+ * flush) left sending halted platform-wide with no notification, forever. An
+ * open breaker is a STATE; the finding now reports that state on every tick,
+ * the way every sibling check in `runHealthChecks` does. Sentry groups
+ * captureMessage by its text and both titles below are stable, so the repeat
+ * lands in ONE issue that keeps receiving events rather than N issues.
+ *
+ * The open-trip probe runs FIRST, which also means the expensive aggregate is
+ * skipped entirely while sending is halted — there is nothing it could change.
+ * The `INSERT … ON CONFLICT DO NOTHING` therefore only guards the (single-
+ * replica: unreachable) race between the probe and the insert.
  */
 export async function evaluateSendBreaker(sql: Sql | TransactionSql): Promise<HealthFinding | null> {
+  const state = await readSendBreaker(sql);
+  // Re-page while the trip stands, INCLUDING after the breaching signals have
+  // aged out of the window: the halt outlives the breach that caused it,
+  // because only an admin reset clears it.
+  if (state.trip) return openTripFinding(state.trip);
+
   const breakerWindow = await readBreakerWindow(sql);
   const reason = classifyBreach(breakerWindow);
   if (reason === null) return null;
@@ -105,7 +125,28 @@ export async function evaluateSendBreaker(sql: Sql | TransactionSql): Promise<He
     ON CONFLICT ((reset_at IS NULL)) WHERE reset_at IS NULL DO NOTHING
     RETURNING id
   `;
-  if (!inserted) return null; // a trip was already open — do not re-page
+  // Lost the probe→insert race to a concurrent tripper. Returning null here is
+  // NOT the edge-triggered bug: a trip is now open, so the very next tick's
+  // probe pages on it. The exposure is one poll interval, not forever, and the
+  // worker is single-replica so this branch should never execute at all.
+  if (!inserted) return null;
+
+  // The intake's promised trip log line. AGGREGATE ONLY — counts, rates and
+  // thresholds; never a recipient address, subject or body.
+  logger.warn({
+    msg: 'solicitation send breaker tripped',
+    trip_id: inserted.id,
+    trip_reason: reason,
+    sends: breakerWindow.sends,
+    hard_bounces: breakerWindow.hardBounces,
+    complaints: breakerWindow.complaints,
+    hard_bounce_rate: breakerWindow.hardBounceRate,
+    complaint_rate: breakerWindow.complaintRate,
+    hard_bounce_threshold: BREAKER_HARD_BOUNCE_RATE,
+    complaint_threshold: BREAKER_COMPLAINT_RATE,
+    min_sends: BREAKER_MIN_SENDS,
+    window_days: BREAKER_WINDOW_DAYS,
+  });
   return breakerFinding(reason, breakerWindow);
 }
 
@@ -165,8 +206,16 @@ export async function readSendBreaker(sql: Sql | TransactionSql): Promise<SendBr
  *
  * Resetting a still-breached window is PERMITTED and correct: the operator may
  * have just rolled the platform ceiling down, and forcing them to wait out a
- * seven-day window would be worse. The next poller tick re-evaluates honestly
- * and re-trips if the breach stands.
+ * seven-day window would be worse.
+ *
+ * THE RESET IS ALSO THE WINDOW'S NEW LOWER EDGE. readBreakerWindow bounds every
+ * counter by `GREATEST(NOW() - 7 days, MAX(reset_at))`, so the next poller tick
+ * measures only what happened AFTER this row was written — which is what makes
+ * the reset mean anything at all. Before that bound the breaker measured a
+ * history no operator action could change, and a reset re-tripped within one
+ * poll interval every time (round-1 review, adversarial-1). The full argument,
+ * including why the resulting BREAKER_MIN_SENDS grace period is the intended
+ * half-open probe rather than a hole, is on readBreakerWindow.
  *
  * Returns `{ reset: false, tripId: null }` when nothing was open — the route
  * maps that to 409, mirroring the unsuspend route's not_suspended arm. Takes a
@@ -204,21 +253,73 @@ export async function resetSendBreaker(
  * Rates are 0 at zero sends rather than NaN, which keeps the metrics snapshot
  * JSON-serialisable; classifyBreach's MIN_SENDS floor means those zeros are
  * never compared against a threshold anyway.
+ *
+ * ── THE WINDOW'S LOWER EDGE IS THE LAST RESET, NOT ONLY `NOW() - 7 days` ────
+ * (round-1 review, adversarial-1 / B2.1. This makes recovery reachable; the
+ * first shape made it arithmetically impossible.)
+ *
+ * The bug: while a trip is open #900 sends nothing, so the denominator
+ * (`sent_at` in the window) drains toward zero as old sends age out, while the
+ * numerators keep RECEIVING late-landing bounce and complaint signals from
+ * pre-halt sends. The ratio therefore gets monotonically WORSE the longer the
+ * halt lasts. An admin reset re-tripped within one poll interval, every time,
+ * and runbook §8.3's documented "roll the platform ceiling down, then reset"
+ * could not work: rolling a ceiling down changes future volume, and the window
+ * is a pure function of history. The only real recoveries were "wait ~7 days
+ * for the signals to age out" and "wait for the denominator to fall under
+ * BREAKER_MIN_SENDS", i.e. roughly seven days of zero sending.
+ *
+ * The fix: `GREATEST(NOW() - 7 days, MAX(reset_at))`, applied to the WHERE and
+ * to all three FILTERs, so a reset means what an operator thinks it means —
+ * only post-reset activity is measured. `GREATEST` IGNORES NULL arguments in
+ * Postgres (unlike almost every other function), so with no reset ever
+ * recorded this is exactly the old `NOW() - 7 days`; no COALESCE is needed and
+ * adding one would be wrong.
+ *
+ * TWO CONSEQUENCES, both deliberate:
+ *
+ *  1. Immediately after a reset the window is nearly empty, so `classifyBreach`
+ *     cannot trip until BREAKER_MIN_SENDS (100) fresh sends accumulate. That
+ *     grace period is the POINT, not a bug: it is the half-open probe a circuit
+ *     breaker needs, expressed with the floor the design already has. Without
+ *     it the reset is a no-op and the breaker has no exit at all.
+ *
+ *  2. This CANNOT be abused into silently disabling the breaker. Each reset
+ *     buys at most 100 sends of ungoverned volume — three hard bounces inside
+ *     that 100 re-trips at once — and the very next 100 post-reset sends are
+ *     measured honestly, so a genuinely bad list re-trips almost immediately.
+ *     An admin resetting in a loop is a human problem with a durable audit
+ *     trail (append-only table, `reset_by` + non-blank `reset_note` enforced by
+ *     110's reset_consistency CHECK), not something the arithmetic must defend
+ *     against. A NORMAL operator gets a bounded probe, not a disabled governor.
+ *
+ * THE `WHERE` IS LOAD-BEARING, not cosmetic (adversarial-4 / B1.2): aggregate
+ * `FILTER` predicates do not restrict the scan, so the first shape read every
+ * row `solicitation_outreach` has ever held — an append-only, retained table —
+ * once per poll cycle, forever. Migration 110's comment claiming a bitmap scan
+ * is wrong about this statement; 110 is immutable and already at head, so the
+ * correction is recorded in the deviations file for a follow-up rather than
+ * edited into the migration.
  */
 async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWindow> {
   const [row] = await sql<{ sends: number; hard_bounces: number; complaints: number }[]>`
+    WITH bounds AS (
+      SELECT GREATEST(
+               NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int),
+               (SELECT MAX(reset_at) FROM solicitation_send_breaker)
+             ) AS window_start
+    )
     SELECT
+      COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends,
       COUNT(*) FILTER (
-        WHERE sent_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int)
-      )::int AS sends,
-      COUNT(*) FILTER (
-        WHERE bounce_kind = 'hard'
-          AND bounced_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int)
+        WHERE o.bounce_kind = 'hard' AND o.bounced_at >= b.window_start
       )::int AS hard_bounces,
-      COUNT(*) FILTER (
-        WHERE complained_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int)
-      )::int AS complaints
-    FROM solicitation_outreach
+      COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints
+    FROM solicitation_outreach o
+    CROSS JOIN bounds b
+    WHERE o.sent_at >= b.window_start
+       OR o.bounced_at >= b.window_start
+       OR o.complained_at >= b.window_start
   `;
   const sends = row?.sends ?? 0;
   const hardBounces = row?.hard_bounces ?? 0;
@@ -267,17 +368,53 @@ function breakerFinding(reason: BreakerTripReason, w: BreakerWindow): HealthFind
     key: 'solicitation_send_breaker_tripped',
     level: 'error',
     title,
+    detail: breakerDetail(reason, w),
+  };
+}
+
+/**
+ * The LEVEL-TRIGGERED re-page: sending is still halted and nobody has reset it.
+ *
+ * Same `key` as the trip finding on purpose — the key is the alert-routing tag
+ * (`tags.finding` in emitHealthFindings), so one condition keeps one routing
+ * rule. The TITLE differs and is deliberately CONSTANT per trip reason: Sentry
+ * groups captureMessage by its text, so a stable title collapses the repeat
+ * into one issue that keeps receiving events, while a title carrying a
+ * changing rate or elapsed time would open a fresh issue every five minutes.
+ * Elapsed information rides in `detail`, which is Sentry `extra` and plays no
+ * part in grouping.
+ *
+ * The metrics are the trip's own frozen snapshot, not a fresh measurement:
+ * recomputing the window on every halted tick would re-run the expensive
+ * aggregate to no purpose, since nothing is sending. A live window read for the
+ * admin surface is a separate, still-open follow-up.
+ */
+function openTripFinding(trip: SendBreakerTrip): HealthFinding {
+  return {
+    key: 'solicitation_send_breaker_tripped',
+    level: 'error',
+    title: `Solicitation sending is STILL halted — the ${trip.tripReason} breaker trip is open and has not been reset`,
     detail: {
-      trip_reason: reason,
-      sends: w.sends,
-      hard_bounces: w.hardBounces,
-      complaints: w.complaints,
-      hard_bounce_rate: w.hardBounceRate,
-      complaint_rate: w.complaintRate,
-      hard_bounce_threshold: BREAKER_HARD_BOUNCE_RATE,
-      complaint_threshold: BREAKER_COMPLAINT_RATE,
-      min_sends: BREAKER_MIN_SENDS,
-      window_days: BREAKER_WINDOW_DAYS,
+      ...breakerDetail(trip.tripReason, trip.metrics),
+      trip_id: trip.id,
+      tripped_at: trip.trippedAt.toISOString(),
+      still_open: true,
     },
+  };
+}
+
+/** The aggregate-only detail body both findings carry. */
+function breakerDetail(reason: BreakerTripReason, w: BreakerWindow): Record<string, unknown> {
+  return {
+    trip_reason: reason,
+    sends: w.sends,
+    hard_bounces: w.hardBounces,
+    complaints: w.complaints,
+    hard_bounce_rate: w.hardBounceRate,
+    complaint_rate: w.complaintRate,
+    hard_bounce_threshold: BREAKER_HARD_BOUNCE_RATE,
+    complaint_threshold: BREAKER_COMPLAINT_RATE,
+    min_sends: BREAKER_MIN_SENDS,
+    window_days: BREAKER_WINDOW_DAYS,
   };
 }

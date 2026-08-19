@@ -900,9 +900,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/resend/solicitation-lane.ts",
     table: "solicitation_outreach",
-    sqlSnippet: "UPDATE solicitation_outreach SET bounced_at = COALESCE(bounced_at, NOW()), bounce_kind = COALESCE(bounce_kind, ${isHard ? 'hard' : 'soft'}), provider_error = COALESCE(provider_error, ${reason}), updated_at = NOW() WHERE id = ${attribution.id}",
+    sqlSnippet: "UPDATE solicitation_outreach SET bounced_at = COALESCE(bounced_at, NOW()), bounce_kind = COALESCE(bounce_kind, ${bounceKind}), provider_error = COALESCE(provider_error, ${reason}), updated_at = NOW() WHERE id = ${attribution.id}",
     category: 'provider-ingress',
-    reason: "Solicitation lane bounce effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived. #898 added bounce_kind to the SAME statement (never a second one): 110's bounce_kind_pairing CHECK requires it to be set together with bounced_at.",
+    reason: "Solicitation lane bounce effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived. #898 added bounce_kind to the SAME statement (never a second one): 110's bounce_kind_pairing CHECK requires it to be set together with bounced_at. The value is resolveBounceKind's three-valued verdict — NULL for an unrecognised provider type, which the breaker counts as hard (round-1 B1.4).",
   },
   {
     file: "worker/ingress/resend/solicitation-lane.ts",
@@ -3085,9 +3085,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/solicitation/send-breaker.ts",
     table: "solicitation_outreach",
-    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE sent_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS sends, COUNT(*) FILTER ( WHERE bounce_kind = 'hard' AND bounced_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS hard_bounces, COUNT(*) FILTER ( WHERE complained_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS complaints FROM solicitation_outreach",
+    sqlSnippet: "WITH bounds AS ( SELECT GREATEST( NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int), (SELECT MAX(reset_at) FROM solicitation_send_breaker) ) AS window_start ) SELECT COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends, COUNT(*) FILTER ( WHERE o.bounce_kind = 'hard' AND o.bounced_at >= b.window_start )::int AS hard_bounces, COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints FROM solicitation_outreach o CROSS JOIN bounds b WHERE o.sent_at >= b.window_start OR o.bounced_at >= b.window_start OR o.complained_at >= b.window_start",
     category: 'platform-cross-account',
-    reason: "readBreakerWindow (#898, #622 §3.2B) — the reputation circuit breaker's rolling 7-day read model. Cross-account BY DESIGN, and for a stronger reason than the daily ceiling above: the asset the breaker protects is the ONE shared Sending identity (one mailbox, one sending domain), so a per-tenant hard-bounce or complaint rate is not a smaller version of this measurement but a different and useless one — a single account's bad list burns the deliverability every other account sends on. Read-only; three FILTERed counters in ONE statement so the numerators and the denominator describe the same instant. Projects three integers and no tenant rows, ids or provenance.",
+    reason: "readBreakerWindow (#898, #622 §3.2B) — the reputation circuit breaker's rolling 7-day read model. Cross-account BY DESIGN, and for a stronger reason than the daily ceiling above: the asset the breaker protects is the ONE shared Sending identity (one mailbox, one sending domain), so a per-tenant hard-bounce or complaint rate is not a smaller version of this measurement but a different and useless one — a single account's bad list burns the deliverability every other account sends on. Read-only; three FILTERed counters in ONE statement so the numerators and the denominator describe the same instant. Projects three integers and no tenant rows, ids or provenance. Round-1 review re-shaped the statement without changing what it reads: the window's lower edge is now GREATEST(NOW() - 7 days, MAX(reset_at)) so an admin reset is a real recovery, and a real WHERE bounds the scan the aggregate FILTERs never restricted. Still cross-account, still projecting three integers.",
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

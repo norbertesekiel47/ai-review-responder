@@ -1,9 +1,17 @@
-// Read-only health checks for the silent-failure / dropped-paid-work signals the
+// Health checks for the silent-failure / dropped-paid-work signals the
 // beta-launch gate alerts on. Each check issues ONE query against confirmed
 // schema and compares to an env-tunable threshold, returning HealthFinding(s) or
-// null. No writes. Column references verified against supabase/migrations
-// (job_outbox, notification_deliveries, flagged_responses, responses,
-// inbound_events).
+// null. Column references verified against supabase/migrations (job_outbox,
+// notification_deliveries, flagged_responses, responses, inbound_events).
+//
+// READ-ONLY WITH EXACTLY ONE EXCEPTION, and it is named here rather than left
+// for a reader to discover: checkSolicitationSendBreaker WRITES — it inserts
+// the platform-wide trip row (#898). It lives here because the breaker's
+// evaluation is an expensive 7-day aggregate that must NOT run on the send
+// loop, and this poller is the only cadence that already exists to carry it;
+// #900's releaser is a pure reader. Every other check in this file is read-only
+// and adding a second writer needs a better answer than "the first one did it".
+// The write is isolated in runHealthChecks — see the comment at its call site.
 import type postgres from 'postgres';
 import { getWorkerConfig } from '../../../../src/lib/config/worker';
 import { QUEUE_NAMES } from '../../../../src/lib/shared/queue-names';
@@ -325,11 +333,16 @@ export async function checkStalledSendBatches(sql: postgres.Sql): Promise<Health
  * The reputation circuit breaker (#622 §3.2B) — the piece a runbook genuinely
  * cannot do, because it has to fire at 3am.
  *
- * This poller is the breaker's ONLY tripper. #900's releaser is a pure reader
- * (readSendBreaker), so the expensive 7-day aggregate never runs on the send
- * loop. The cost is bounded trip latency: one HEALTH_ALERT_POLL_INTERVAL_MS
- * window (5 min default), which is ~17 sends at the top ramp stage and ~0 at
- * stage 1.
+ * This poller is the breaker's ONLY tripper, and therefore the ONLY check in
+ * this file that writes. #900's releaser is a pure reader (readSendBreaker), so
+ * the expensive 7-day aggregate never runs on the send loop. The cost is
+ * bounded trip latency: one HEALTH_ALERT_POLL_INTERVAL_MS window (5 min
+ * default), which is ~17 sends at the top ramp stage and ~0 at stage 1.
+ *
+ * LEVEL-TRIGGERED: it returns a finding on every tick a trip is open, not only
+ * on the tick that opened one, so a single dropped Sentry event cannot leave
+ * sending halted platform-wide in silence. The trip-once/page-forever shape
+ * lives in evaluateSendBreaker, which owns the reasoning.
  *
  * Runs UNCONDITIONALLY, including when SOLICITATION_SEND_ENABLED is false: per
  * rule DR1 the Solicitation lane is never flag-gated, so bounce and complaint
@@ -431,7 +444,35 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkOwnerUnreachable(sql, cfg));
   collect(await checkFailedInboundEvents(sql, cfg));
   collect(await checkStalledSendBatches(sql));
-  collect(await checkSolicitationSendBreaker(sql));
+
+  // Isolate the send-breaker check — STILL SEQUENTIAL, still in position, never
+  // moved into a Promise.all (#505). It is the file's ONLY writer, so it has
+  // failure modes no reader here has (constraint violation, lock wait, ON
+  // CONFLICT inference error), and shared fate made every one of them discard
+  // the nine findings already collected above.
+  //
+  // The earlier reasoning — "a failed trip must fail loudly, so let it take the
+  // cycle down" — was wrong, and specifically wrong about what loudly means. A
+  // rethrow here is SILENT about the breaker: it produces one poller-level
+  // error and no finding naming this check, while deleting the wedged-
+  // connection, outbox-failed, zero-delivery, owner-unreachable and stalled-
+  // batch signals — including the very signals that would explain WHY the
+  // breaker write failed. A caught failure costs one poll interval of trip
+  // latency (≤5 min, the same bound the design already accepts as trip latency)
+  // and is now visible as its own finding. The breaker's fail-CLOSED guarantee
+  // was never carried by this call anyway: it lives at readSendBreaker on
+  // #900's send path, which throws rather than answering "clear", and this
+  // catch cannot reach it.
+  try {
+    collect(await checkSolicitationSendBreaker(sql));
+  } catch (err) {
+    findings.push({
+      key: 'health_check_error:solicitation_send_breaker',
+      level: 'warning',
+      title: `Solicitation send breaker check failed: ${toError(err).message}`,
+      detail: { check: 'solicitation_send_breaker' },
+    });
+  }
 
   // Isolate the backlog check: it reads the DB precisely when the DB is under
   // pressure, so its rejection must NOT fail the whole cycle and suppress the
