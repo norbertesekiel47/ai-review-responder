@@ -92,16 +92,63 @@ consistency and all missed a cited `CONTEXT.md` section that had never been writ
 
 ---
 
-## State
+## State — post-review (step 7 complete)
 
 | Field | Value |
 |---|---|
-| Phase | `worktree_ready` → `plan_approved` on an APPROVED verdict |
-| Gate | not yet run |
-| Surface amendments | 0 (budget: 2 before abort criteria bite) |
-| Gate-fail rounds | 0 (budget: 3) |
-| Branch review rounds | 0 |
+| Phase | `reviewed` |
+| Gate | **GREEN**, 30/30, diff-coverage 100%, 44 promised tests |
+| Commits | 34 on branch |
+| Plan review rounds | 1 (codex wedged; orchestrator ran it — see deviations) |
+| Branch review rounds | 2 |
+| Gate-fail rounds | 1 of 3 |
+| Surface amendments | **3** (budget 2; over-spent with owner sign-off, step-0 re-run performed and classification held) |
 
-**Next step after an APPROVED verdict:** `bash scripts/feature-state.sh set-phase executing`,
-then dispatch Task 1 as a single subagent and run the first-task enforcement spot check
-(`git status --porcelain` paths vs `allowed_edit_surface`) before any further dispatch.
+## Review outcome
+
+Round 1: 23 findings (6 high). Round 2: verification-only, confirmed the round-1 fixes and caught
+that one of them was incomplete. Everything accepted is fixed on-branch; 10 follow-ups filed.
+
+Reports and triage: `docs/reviews/feat-898-solicitation-send-governors/`
+(`round1-triage.md`, `round2-triage.md`, three round-1 axis reports, two round-2 reports,
+`blast-radius.md`).
+
+**The three defects worth remembering** — none was catchable by the tests as written, because in
+each case the test and the implementation shared the same wrong assumption:
+
+1. **UTC-day boundary** — the fixture used the same expression as production, so both were wrong
+   together. Found by a subagent escalating instead of silently deviating.
+2. **Breaker recovery** — the asymmetric window was optimised to err toward tripping and never
+   checked in the other direction. Fixed once (denominator only), then fixed properly in round 2
+   with two floors. The first fix's own test seeded `bouncedDaysAgo: 1` and could not see the gap.
+3. **Edge-triggered paging** — the plan specified the bug as a feature and the eval test asserted
+   it, so a dropped Sentry event meant a silent permanent platform-wide halt.
+
+## Remaining — step 8, RISK = high lane
+
+1. Land on `staging` (push auto-deploys the full stack). **Migration 110 applies to the STAGING
+   Supabase project FIRST**, never prod before promotion.
+2. Smoke the breaker path on staging; `docs/runbooks/solicitation-sending-domain.md` §8 is the
+   procedure this branch wrote.
+3. Open the PR to `main`, confirm all CI checks green, then **PAUSE for explicit owner merge
+   approval**. Apply 110 to prod Supabase in lockstep at promotion.
+4. After merge: `git pull --ff-only`; re-sync `staging` per `deployment-guide.md`
+   (after a squash merge use `git reset --hard origin/main` + `--force-with-lease`, NOT a sync
+   merge); `scripts/feature-cleanup.sh` dry-run then `--apply`; promote deviations lessons to
+   lab-notes; `document-feature`; domain sweep; increment the arch-review counter.
+
+## Lessons queued for lab-notes at step 8
+
+- **A SQL statement and its `tenant-scope-allowlist` entry are ONE unit.** Four for four on this
+  branch: every SQL edit broke the byte-matched snippet. Any brief authorising a SQL change must
+  authorise the allowlist too, or the task cannot finish.
+- **Every new admin page implies a `nav-config.ts` row; every migration implies a `schema-ready`
+  requirement.** Both are filesystem-walked by tests. Both caused surface amendments here.
+- **`verify-gate.sh --review` is load-fragile** — parallel rows plus coverage instrumentation on a
+  busy box yields exit 143 and coverage `.tmp` ENOENT that read as product failures. Use
+  `MAX_PARALLEL=2 VITEST_WORKERS=2`.
+- **A client component importing a value from a module with a module-scope worker logger breaks the
+  Turbopack route build**, and no lint/typecheck/boundary audit catches it — invariant #1's ESLint
+  rule lists packages, not `node:` builtins reached transitively.
+- **No backticks inside a tagged template literal**, including in comments. It terminates the
+  string and the file stops parsing.
