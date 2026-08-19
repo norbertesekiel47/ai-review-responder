@@ -11,10 +11,24 @@ import {
   BREAKER_HARD_BOUNCE_RATE,
   BREAKER_MIN_SENDS,
   BREAKER_WINDOW_DAYS,
-  formatRate,
   type BreakerTripReason,
   type BreakerWindow,
 } from '@/lib/solicitation/send-breaker';
+
+/**
+ * Deliberately NOT imported from `send-breaker.ts`, though that module owns the
+ * server-side twin (std-5 / B1.11). It instantiates a worker logger at module
+ * scope — `createWorkerLogger` -> `log-context` -> `node:async_hooks` — so
+ * importing a FUNCTION from it drags that chain into this client component and
+ * Turbopack fails the route build. Proven on #898: exporting the shared helper
+ * from there broke `pnpm build`, and reverting to this local copy fixed it.
+ *
+ * The honest fix is a shared admin formatter in `src/components/admin/ui/`,
+ * which needs a surface amendment this branch has not spent; recorded as a
+ * follow-up. The real smell it exposes is that the BREAKER_* constants this
+ * file already imports live in a module with a top-level logger at all.
+ */
+const formatRate = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
 
 /** The trip as it arrives over the wire — `trippedAt` is an ISO string. */
 interface BreakerTripWire {

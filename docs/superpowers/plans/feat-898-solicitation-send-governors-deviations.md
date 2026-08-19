@@ -935,3 +935,37 @@ themselves: every other gate row, including `test`, `promised-tests`, `merge-cov
 module that reaches `createWorkerLogger`.
 
 **Verdict:** _(open — for the orchestrator)_
+
+## R1 follow-up (orchestrator) — my formatRate dedup crossed a runtime boundary and broke the build
+
+**Found:** Closing std-5 (duplicated `formatRate`), I took the option that avoided a fourth
+surface amendment: export the helper from `src/lib/solicitation/send-breaker.ts` and import it
+in `SendBreakerClient.tsx`. That broke `pnpm build`. `send-breaker.ts` instantiates a worker
+logger at MODULE SCOPE (`createWorkerLogger` -> `log-context` -> `node:async_hooks`), so
+importing a FUNCTION from it pulls that chain into a client component and Turbopack fails
+`/admin/solicitation/page`.
+
+The sibling agent had offered the correct option first — a shared formatter in
+`src/components/admin/ui/format.ts` — and I passed on it to protect an amendment budget.
+Optimising for the budget instead of the boundary cost a build break.
+
+**Did:** Reverted. The client owns its one-line formatter again, now carrying a comment that
+records WHY it must not be imported from `send-breaker.ts`, so the next person does not repeat
+the same "obvious" dedup. std-5 stays open as a LOW follow-up with the honest fix named.
+
+**The finding under the finding:** `SendBreakerClient.tsx` already imports the four `BREAKER_*`
+constants from `send-breaker.ts` as runtime values, and that module has a top-level logger. It
+builds today only because the bundler can drop the rest; the seam is fragile. The real fix is a
+shared constants/formatting module that neither side's runtime leaks through — bigger than this
+branch, and now written down.
+
+**Also fixed here:** `ci:tenant-scope` was red because commit `d6882a0f` re-shaped
+`readBreakerWindow`'s FILTER (the B1.4 half-2 fix) without re-keying the byte-matched
+`sqlSnippet` at `scripts/ci/tenant-scope-allowlist.ts:3088`. **Third time this branch that a SQL
+edit broke its allowlist entry** (T3's lane UPDATE, T5's re-shape, now this). That is a pattern,
+not three accidents — promote it at step 8: in this repo, a SQL statement and its tenant-scope
+allowlist entry are ONE unit and must always be edited together. Re-keyed; audit passes 383/383.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.

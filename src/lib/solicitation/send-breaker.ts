@@ -369,7 +369,7 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
  * client — SendBreakerClient already imports four constants from this module,
  * so this adds no new coupling.
  */
-export function formatRate(rate: number): string {
+function formatRate(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 
