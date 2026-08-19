@@ -22,7 +22,10 @@ import {
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
-import { countAccountDispatchAttemptsToday } from '../send-caps';
+import {
+  countAccountDispatchAttemptsToday,
+  countPlatformDispatchAttemptsToday,
+} from '../send-caps';
 
 // Live-DB suite for the account daily send cap's counter (#898, amendment B3).
 // Two things only the real database can prove:
@@ -260,6 +263,33 @@ describeWithDb(
         .begin(async (tx) => {
           await seedOutreachRow(tx, primary(), { queuedAt: 'now', sentAt: null });
           await seedOutreachRow(tx, neighbour(), { queuedAt: 'now', sentAt: null });
+          expect(await countAccountDispatchAttemptsToday(tx, primary().accountId)).toBe(1);
+          expect(await countAccountDispatchAttemptsToday(tx, neighbour().accountId)).toBe(1);
+          throw new Rollback();
+        })
+        .catch(expectRollback);
+    });
+
+    it('countPlatformDispatchAttemptsToday counts dispatch attempts across every account in the UTC day', async () => {
+      // CROSS-ACCOUNT BY DESIGN (#622 §3.2A). The platform ceiling is the
+      // blast-radius bound on a runaway fan-out, so a per-account view cannot
+      // express it — and a single-tenant fixture cannot tell the two apart: a
+      // wrongly scoped implementation returns the same number and stays green.
+      // Both tenants therefore contribute, and the assertion is on the DELTA,
+      // because this counter deliberately sees every row in the database and
+      // any committed row queued today belongs in its total.
+      await sql()
+        .begin(async (tx) => {
+          const baseline = await countPlatformDispatchAttemptsToday(tx);
+
+          await seedOutreachRow(tx, primary(), { queuedAt: 'now', sentAt: null });
+          await seedOutreachRow(tx, neighbour(), { queuedAt: 'now', sentAt: null });
+          // Outside the UTC day: still an attempt, just not today's.
+          await seedOutreachRow(tx, neighbour(), { queuedAt: 'two_days_ago', sentAt: 'now' });
+
+          expect(await countPlatformDispatchAttemptsToday(tx)).toBe(baseline + 2);
+          // The same rows read per-account are one apiece — so the +2 above is
+          // the sum of two tenants, not one tenant counted twice.
           expect(await countAccountDispatchAttemptsToday(tx, primary().accountId)).toBe(1);
           expect(await countAccountDispatchAttemptsToday(tx, neighbour().accountId)).toBe(1);
           throw new Rollback();

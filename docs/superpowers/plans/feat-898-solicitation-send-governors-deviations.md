@@ -649,3 +649,24 @@ the reset route, so the read is not a weaker door onto the same state.
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## T8 — `page-source.test.ts` EXECUTES the page rather than only reading its source
+
+**Found:** The brief named `src/app/admin/autonomy/__tests__/page-source.test.ts` as the
+precedent for the page test. That precedent only `readFile`s the page and asserts on its
+text, which (a) cannot assert *"`requireAdminPage` is called with `aal2: true` and
+`from: '/admin/solicitation'`"* — the locked requirement — and (b) leaves every line of
+`page.tsx` uninstrumented, so the diff-coverage row could not be closed for that file.
+
+**Did:** Used the in-repo precedent that matches this page's shape instead —
+`src/app/admin/suppressions/__tests__/page.test.tsx`, an admin page executed against a
+mocked `requireAdminPage`/`sql`/client component. No new mechanism was invented. The
+autonomy precedent's source assertions ride along as a third case in the same file, so
+the file still earns its `page-source` name.
+
+**Verified:** `requireAdminPage` call args asserted; gate-first proved by a rejecting gate
+leaving `readSendBreaker` uncalled; diff-coverage 351/351 (100%).
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
