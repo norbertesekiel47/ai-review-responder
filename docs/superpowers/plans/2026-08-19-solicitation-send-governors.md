@@ -905,9 +905,13 @@ git commit -m "feat(898): send-caps — platform ceiling resolver, account daily
 Three functions. Read the interface contract in the doc comments as binding — especially the throw semantics, which #900 depends on.
 
 ```typescript
-import { randomUUID } from 'node:crypto';   // invariant #10 — never crypto-js
+import { v7 as uuidv7 } from 'uuid';   // repo convention: app-supplied UUIDv7 PKs
+                                       // (precedent: src/lib/audit/log.ts,
+                                       //  src/lib/notifications/delivery.ts).
+                                       // `uuid` is already a dependency — adding
+                                       // one would need .feature/deps-justification.md
+                                       // plus package.json in the edit surface.
 import type { Sql, TransactionSql } from 'postgres';
-import { uuidv7 } from '@/lib/shared/uuid';  // confirm the repo's UUIDv7 helper path before use
 
 /** #622 §3.2B, locked. Rates are fractions, not percentages. */
 export const BREAKER_WINDOW_DAYS = 7;
@@ -1089,12 +1093,11 @@ export async function resetSendBreaker(
 ): Promise<{ reset: boolean; tripId: string | null }> { /* UPDATE … WHERE reset_at IS NULL RETURNING id */ }
 ```
 
-- [ ] **Step 2: Confirm the UUIDv7 helper path**
+- [ ] **Step 2: UUIDv7 — resolved, no branch**
 
-```bash
-cd <worktree-root> && rg -n "uuidv7|uuid_v7" src/lib/shared/*.ts | head -5
-```
-Use whatever the repo already exports. If there is none, use `randomUUID()` from `node:crypto` and note it in the deviations file — **do not add a dependency** (that would require `.feature/deps-justification.md` and `package.json` in the edit surface, neither of which this feature has).
+Pre-resolved during the round-1 plan review: the repo has **no** `src/lib/shared/uuid` helper. Every app-supplied UUIDv7 PK uses the `uuid` package directly — `import { v7 as uuidv7 } from 'uuid'` — as in `src/lib/audit/log.ts:2` and `src/lib/notifications/delivery.ts:1`. Follow that precedent verbatim.
+
+Do **not** substitute `randomUUID()` from `node:crypto`: that is UUID**v4**, which is random rather than time-ordered and breaks the time-ordered-PK convention `.claude/reference/migrations-log.md` line 5 states for every table. (Invariant #10's "use node:crypto" governs *hashing*, not id generation.)
 
 - [ ] **Step 3: Allowlist, run, commit**
 
