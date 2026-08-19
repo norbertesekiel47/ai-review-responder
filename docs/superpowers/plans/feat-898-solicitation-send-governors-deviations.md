@@ -41,7 +41,7 @@ Only `allowed_edit_surface` changes count toward the 2-amendment abort budget.
 
 | # | Date | Change | Auto-approved or owner sign-off |
 |---|---|---|---|
-| — | — | none yet | — |
+| 1 | 2026-08-19 | +`src/lib/shared/__tests__/helpers/schema-ready.ts` | owner sign-off |
 
 ## plan round 1 — codex unavailable; orchestrator ran the review
 
@@ -187,3 +187,26 @@ rather than reclassifying.
 **Invalidates a locked decision?** no.
 
 **Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## SURFACE AMENDMENT 1 of 2 — schema-ready.ts
+
+**Found:** `src/lib/shared/__tests__/helpers/schema-ready.ts` was named in the plan's
+File-structure table but omitted from `allowed_edit_surface`. Orchestrator error, not a
+subagent one. The guard blocked T1 from adding `MIGRATION_110_SEND_GOVERNORS`; the
+subagent stopped and reported rather than working around it, which is the correct
+behaviour and is what the guard is for. T2 step 3 would have hit the identical wall.
+
+**Did:** Added that one path to BOTH intake copies (verified byte-identical). NOT
+auto-approved — the path sits outside every covered tree — so this went to the owner
+and was signed off 2026-08-19. Chosen over declaring the requirement locally because
+every MIGRATION_* constant in this repo lives in schema-ready.ts; a locally-declared
+110 would be invisible to whoever writes 111.
+
+**Blast radius:** one exported const. `TABLE_DISPOSITIONS` was checked at the same time
+and needs NO entry — there is no live-schema exhaustiveness assertion, so the plan's
+T2-step-5 branch resolves to "no change needed" and `table-disposition.ts` stays out of
+the surface.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.

@@ -81,7 +81,8 @@
     ".claude/reference/migrations-log.md",
     ".claude/reference/env-vars.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "src/lib/shared/__tests__/helpers/schema-ready.ts"
   ],
   "tests_to_add": [
     "migration 110 admits no_postal_address and postal_address_mismatch on the withheld arm",
