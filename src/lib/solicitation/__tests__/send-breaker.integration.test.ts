@@ -87,6 +87,17 @@ interface SeedSendsOptions {
   hardBounced?: number;
   /** The next N carry `bounce_kind='soft'`. */
   softBounced?: number;
+  /**
+   * The next N carry `bounced_at` with `bounce_kind` **NULL** — an
+   * UNCLASSIFIED bounce (#898, B1.4), the row the Solicitation lane writes
+   * when the provider hands it a type this codebase does not recognise.
+   *
+   * Distinct from "no bounce" and from "soft": 110's bounce_kind_pairing CHECK
+   * (`bounce_kind IS NULL OR bounced_at IS NOT NULL`) admits exactly this shape
+   * so the bounce FACT can be recorded without asserting a kind, and
+   * readBreakerWindow counts it WITH the hard bounces.
+   */
+  unclassifiedBounced?: number;
   /** The next N carry `complained_at`. */
   complained?: number;
   /** Age of `sent_at`, in days. Defaults to 1 — inside the 7-day window. */
@@ -117,9 +128,17 @@ async function seedSends(
   const batchId = randomUUID();
   const hardBounced = opts.hardBounced ?? 0;
   const softBounced = opts.softBounced ?? 0;
+  const unclassifiedBounced = opts.unclassifiedBounced ?? 0;
   const complained = opts.complained ?? 0;
   const sentDaysAgo = opts.sentDaysAgo ?? 1;
   const bouncedDaysAgo = opts.bouncedDaysAgo ?? 1;
+  // The four ordinal bands, as running totals: [1, hardBounced] hard,
+  // then soft, then unclassified (bounced_at set, kind NULL), then complained.
+  // Named here rather than re-spelled as sums inside three CASE arms, where the
+  // unclassified band's arithmetic would have to be repeated and could drift.
+  const softThrough = hardBounced + softBounced;
+  const bouncedThrough = softThrough + unclassifiedBounced;
+  const complainedThrough = bouncedThrough + complained;
 
   await tx`
     INSERT INTO contact_csv_uploads (
@@ -181,12 +200,13 @@ async function seedSends(
       'ask_lint_v1', '{}'::jsonb, 'clean', '{}'::jsonb, 'sent',
       NOW() - make_interval(days => ${sentDaysAgo}::int) - INTERVAL '1 minute',
       NOW() - make_interval(days => ${sentDaysAgo}::int),
-      CASE WHEN g <= ${hardBounced}::int + ${softBounced}::int
+      CASE WHEN g <= ${bouncedThrough}::int
            THEN NOW() - make_interval(days => ${bouncedDaysAgo}::int) END,
+      -- No ELSE arm: the unclassified band falls through to NULL, which is the
+      -- point of that band and what 110's pairing CHECK deliberately admits.
       CASE WHEN g <= ${hardBounced}::int THEN 'hard'
-           WHEN g <= ${hardBounced}::int + ${softBounced}::int THEN 'soft' END,
-      CASE WHEN g > ${hardBounced}::int + ${softBounced}::int
-            AND g <= ${hardBounced}::int + ${softBounced}::int + ${complained}::int
+           WHEN g <= ${softThrough}::int THEN 'soft' END,
+      CASE WHEN g > ${bouncedThrough}::int AND g <= ${complainedThrough}::int
            THEN NOW() - make_interval(days => ${bouncedDaysAgo}::int) END
       FROM generate_series(1, ${opts.sent}::int) AS g
   `;
@@ -316,6 +336,64 @@ describeWithDb(
         .begin(async (tx) => {
           await seedSends(tx, { sent: 100, softBounced: 50 });
           expect(await evaluateSendBreaker(tx)).toBeNull();
+          throw new Rollback();
+        })
+        .catch(expectRollback);
+    });
+
+    it('the breaker counts an unclassified bounce with the hard bounces', async () => {
+      // HALF TWO of the fail-CLOSED unclassified-bounce path (#898, B1.4). Half
+      // one is in worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts:
+      // the Solicitation lane leaves bounce_kind NULL rather than asserting a
+      // kind it cannot know. NEITHER HALF IS SAFE ALONE — half one WITHOUT this
+      // FILTER branch makes the breaker strictly MORE fail-open than the `soft`
+      // default it replaced, because a NULL kind matches neither 'hard' nor
+      // 'soft' and the bounce disappears from the measurement entirely.
+      //
+      // THE ONLY BOUNCES HERE ARE UNCLASSIFIED. Zero rows carry
+      // bounce_kind='hard' — a fixture that seeded 'hard' would prove nothing
+      // about this branch, since the plain `bounce_kind = 'hard'` FILTER passes
+      // it. 3 unclassified over 100 sends is 3% > 2%.
+      //
+      // Delete `OR o.bounce_kind IS NULL` from readBreakerWindow's hard-bounce
+      // FILTER and hard_bounces falls to 0, the rate to 0, classifyBreach to
+      // null, and `finding` to null: this case is the only one in the suite
+      // that goes red, which is exactly the "tidy the NULL branch away"
+      // refactor it exists to stop.
+      await sql()
+        .begin(async (tx) => {
+          await seedSends(tx, { sent: 100, unclassifiedBounced: 3 });
+
+          // Fixture guard: assert the seeded shape before asserting behaviour,
+          // so this can never pass because the fixture quietly stamped a kind.
+          const [seeded] = await tx<{ unclassified: number; classified: number }[]>`
+            SELECT
+              COUNT(*) FILTER (WHERE bounced_at IS NOT NULL AND bounce_kind IS NULL)::int
+                AS unclassified,
+              COUNT(*) FILTER (WHERE bounce_kind IS NOT NULL)::int AS classified
+              FROM solicitation_outreach
+             WHERE business_id = ${businessId()}::uuid
+          `;
+          expect(seeded).toMatchObject({ unclassified: 3, classified: 0 });
+
+          const finding = await evaluateSendBreaker(tx);
+          expect(finding?.key).toBe('solicitation_send_breaker_tripped');
+          expect(finding?.level).toBe('error');
+          expect(finding?.detail).toMatchObject({
+            trip_reason: 'hard_bounce_rate',
+            sends: 100,
+            hard_bounces: 3,
+            // Nothing else could have tripped it: the complaint numerator is
+            // empty, so 'hard_bounce_rate' can only have come from the three
+            // unclassified rows.
+            complaints: 0,
+          });
+          // The latch really closed — the finding is not the whole effect.
+          const [trip] = await tx<{ trip_reason: string }[]>`
+            SELECT trip_reason FROM solicitation_send_breaker WHERE reset_at IS NULL
+          `;
+          expect(trip?.trip_reason).toBe('hard_bounce_rate');
+          expect(await countOpenTrips(tx)).toBe(1);
           throw new Rollback();
         })
         .catch(expectRollback);

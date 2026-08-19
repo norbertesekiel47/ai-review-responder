@@ -540,6 +540,71 @@ describeWithDb(
       expect((await readOutreach(transient.outreachId)).bounce_kind).toBe('soft');
     });
 
+    it('the solicitation lane leaves bounce_kind NULL for an unrecognised provider bounce type', async () => {
+      // HALF ONE of the fail-CLOSED unclassified-bounce path (#898, B1.4). The
+      // other half is the Send breaker's numerator, which counts a NULL kind
+      // WITH the hard bounces — see the sibling case in
+      // src/lib/solicitation/__tests__/send-breaker.integration.test.ts.
+      // NEITHER HALF IS SAFE ALONE, and this is the half that decides what the
+      // column may say.
+      //
+      // `classifyBounce` defaults an unrecognised or missing bounce.type to
+      // soft, which is right for business flagging (an ambiguous payload must
+      // not flag a real business) and WRONG for a governor's numerator: a
+      // Resend payload-shape change, or a new permanent type whose name does
+      // not contain "permanent", would stamp every bounce `soft`, the breaker
+      // would exclude all of them, and it would never trip however bad
+      // deliverability got — fail-OPEN on a governor the intake specifies
+      // fail-closed. `resolveBounceKind` therefore stores NULL, meaning "the
+      // provider bounced this and we could not classify it", never "not hard".
+      //
+      // A `soft` regression here passes every other case in this file: the two
+      // recognised types above still classify, the ledger cases still hold, and
+      // `provider_error` is unchanged. Only this assertion goes red.
+
+      // 'Undetermined' is not hypothetical — it is one of the three types SES
+      // (Resend's transport) actually emits, alongside Permanent and Transient,
+      // and this codebase recognises neither it nor anything like it.
+      const unrecognised = await seedOutreach({
+        providerMessageId: 'msg_bounce_kind_unrecognised',
+      });
+      await handleSolicitationResendEvent(
+        sql(),
+        'email.bounced',
+        'msg_bounce_kind_unrecognised',
+        { bounce: { type: 'Undetermined' } },
+      );
+
+      const unrecognisedRow = await readOutreach(unrecognised.outreachId);
+      // The bounce FACT is still recorded — refusing to assert a kind is not
+      // refusing to record the event. 110's bounce_kind_pairing CHECK admits
+      // exactly this state (`bounce_kind IS NULL OR bounced_at IS NOT NULL`)
+      // so that "bounced, kind unknown" is representable at all.
+      expect(unrecognisedRow.bounced_at).not.toBeNull();
+      expect(unrecognisedRow.bounce_kind).toBeNull();
+      // provider_error keeps the classifier's verbatim string, including its
+      // `bounced:soft:` prefix: that column feeds the admin overview's red-state
+      // filter and is NOT the breaker's discriminator. The two answers are
+      // allowed to differ, which is the whole reason bounce_kind exists.
+      expect(unrecognisedRow.provider_error).toBe('bounced:soft:undetermined');
+      // SUPPRESSION SEMANTICS ARE UNCHANGED: `isHard` still drives the ledger,
+      // so an unclassifiable bounce still never silences a real customer. Only
+      // the stored kind moved.
+      expect(await readLedger(unrecognised.handle)).toHaveLength(0);
+
+      // The other unrecognised shape: no bounce/reason/status field at all, i.e.
+      // what a payload-shape change actually looks like from here. The
+      // classifier falls through to 'unknown'; the kind is still NULL.
+      const missing = await seedOutreach({ providerMessageId: 'msg_bounce_kind_missing' });
+      await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_bounce_kind_missing', {});
+
+      const missingRow = await readOutreach(missing.outreachId);
+      expect(missingRow.bounced_at).not.toBeNull();
+      expect(missingRow.bounce_kind).toBeNull();
+      expect(missingRow.provider_error).toBe('bounced:soft:unknown');
+      expect(await readLedger(missing.handle)).toHaveLength(0);
+    });
+
     // ── §5.3 complaint ────────────────────────────────────────────────────
 
     it('the solicitation lane records complained_at and writes a complaint global suppression', async () => {
