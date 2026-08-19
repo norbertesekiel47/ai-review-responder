@@ -1,5 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// The real constants: the vi.mock below spreads `importOriginal`, so only
+// `readSendBreaker` is stubbed and these are the enforced values.
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_HARD_BOUNCE_RATE,
+  BREAKER_MIN_SENDS,
+  BREAKER_WINDOW_DAYS,
+} from '@/lib/solicitation/send-breaker';
 
 // The /admin/solicitation page gate (#898).
 //
@@ -33,9 +41,9 @@ vi.mock('../SendBreakerClient', () => ({ SendBreakerClient: mockSendBreakerClien
 
 const TRIPPED_AT = new Date('2026-08-18T09:30:00.000Z');
 
-/** The page returns `<AdminPage>…<SendBreakerClient initialData=… /></AdminPage>`. */
+/** The page returns `<AdminPage>…<SendBreakerClient initialData=… thresholds=… /></AdminPage>`. */
 interface RenderedPage {
-  props: { children: { type: unknown; props: { initialData: unknown } } };
+  props: { children: { type: unknown; props: { initialData: unknown; thresholds: unknown } } };
 }
 
 describe('admin solicitation page source', () => {
@@ -106,6 +114,17 @@ describe('admin solicitation page source', () => {
         },
       },
     });
+
+    // The four enforcement thresholds travel as a prop, read from the module
+    // that enforces them. The client cannot import them itself — see the
+    // source assertions below — so this is the only thing standing between the
+    // panel and a hardcoded second copy of numbers the send path owns.
+    expect(page.props.children.props.thresholds).toEqual({
+      windowDays: BREAKER_WINDOW_DAYS,
+      minSends: BREAKER_MIN_SENDS,
+      hardBounceRate: BREAKER_HARD_BOUNCE_RATE,
+      complaintRate: BREAKER_COMPLAINT_RATE,
+    });
   });
 
   it('keeps the page as an SSR root and delegates interactivity to the client component', async () => {
@@ -114,5 +133,21 @@ describe('admin solicitation page source', () => {
     expect(source).not.toContain("'use client'");
     expect(source).toContain('SendBreakerClient');
     expect(source).not.toMatch(/gradient|bg-\[#|text-\[#/);
+
+    // The other half of the split, and a build-breakage regression guard.
+    // `send-breaker.ts` instantiates a worker logger at module scope, which
+    // reaches `node:async_hooks`; a RUNTIME import of it from the client
+    // component puts that chain in a client chunk and Turbopack fails the
+    // route build outright ("the chunking context (unknown) does not support
+    // external modules"). Type imports are erased and cost nothing, so the
+    // client may name the module — but only after `import type`.
+    const client = await readFile('src/app/admin/solicitation/SendBreakerClient.tsx', 'utf8');
+
+    expect(client).toContain("'use client'");
+    for (const statement of client.match(/^import[\s\S]*?from '[^']*';$/gm) ?? []) {
+      if (statement.includes('@/lib/solicitation/send-breaker')) {
+        expect(statement.startsWith('import type ')).toBe(true);
+      }
+    }
   });
 });

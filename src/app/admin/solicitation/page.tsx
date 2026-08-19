@@ -2,10 +2,35 @@ import { AdminPage } from '@/components/admin/ui/AdminPage';
 import { requireAdminPage } from '@/lib/auth/page-gate';
 import { sql } from '@/lib/db/server';
 import { reportCaughtError } from '@/lib/shared/report-caught-error';
-import { readSendBreaker } from '@/lib/solicitation/send-breaker';
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_HARD_BOUNCE_RATE,
+  BREAKER_MIN_SENDS,
+  BREAKER_WINDOW_DAYS,
+  readSendBreaker,
+} from '@/lib/solicitation/send-breaker';
 import { SendBreakerClient } from './SendBreakerClient';
+import type { BreakerThresholds } from './SendBreakerClient';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The four enforcement thresholds, read HERE and passed down.
+ *
+ * This is a server component, so it may import `send-breaker.ts` freely — that
+ * module instantiates a worker logger at module scope and therefore drags
+ * `node:async_hooks` into whatever chunk imports it at runtime. The client
+ * panel used to import these constants directly, which put that chain in a
+ * client chunk and failed the route build outright. The numbers still have
+ * exactly one owner; only the direction of travel changed, and server ->
+ * client via props is the direction that was always correct.
+ */
+const BREAKER_THRESHOLDS: BreakerThresholds = {
+  windowDays: BREAKER_WINDOW_DAYS,
+  minSends: BREAKER_MIN_SENDS,
+  hardBounceRate: BREAKER_HARD_BOUNCE_RATE,
+  complaintRate: BREAKER_COMPLAINT_RATE,
+};
 
 /**
  * The client's wire shape mirrors what `fetch().json()` returns — Date fields
@@ -50,7 +75,7 @@ export default async function AdminSolicitationPage() {
       title="Solicitation send breaker"
       description="Platform-wide halt on solicitation sending"
     >
-      <SendBreakerClient initialData={initialData} />
+      <SendBreakerClient initialData={initialData} thresholds={BREAKER_THRESHOLDS} />
     </AdminPage>
   );
 }

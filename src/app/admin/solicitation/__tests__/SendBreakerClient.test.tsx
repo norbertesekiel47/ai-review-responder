@@ -3,6 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_HARD_BOUNCE_RATE,
+  BREAKER_MIN_SENDS,
+  BREAKER_WINDOW_DAYS,
+} from '@/lib/solicitation/send-breaker';
 import { SendBreakerClient } from '../SendBreakerClient';
 
 // Unit suite for the admin Send breaker panel (#898).
@@ -48,6 +54,22 @@ const TRIPPED = {
 
 const CLEAR = { open: false, trip: null };
 
+// The panel takes its thresholds as PROPS: `send-breaker.ts` instantiates a
+// worker logger at module scope, so a client component that imports a runtime
+// value from it drags `node:async_hooks` into the client chunk and fails the
+// route build. `page.tsx` — a server component — reads the constants and hands
+// them down. This suite sources them the same way rather than restating the
+// four numbers, so the literal copy asserted below ("2.00%", "7 days", "100
+// minimum", "0.30%") is checked against the ENFORCED values: move a threshold
+// in send-breaker.ts and these expectations fail instead of quietly drifting
+// away from what the send path actually stops on.
+const THRESHOLDS = {
+  windowDays: BREAKER_WINDOW_DAYS,
+  minSends: BREAKER_MIN_SENDS,
+  hardBounceRate: BREAKER_HARD_BOUNCE_RATE,
+  complaintRate: BREAKER_COMPLAINT_RATE,
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -59,7 +81,7 @@ function renderPanel(initialData?: typeof TRIPPED | typeof CLEAR) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={client}>
-      <SendBreakerClient initialData={initialData} />
+      <SendBreakerClient initialData={initialData} thresholds={THRESHOLDS} />
     </QueryClientProvider>,
   );
   return { client, view };

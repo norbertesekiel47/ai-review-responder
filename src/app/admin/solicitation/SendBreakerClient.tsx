@@ -6,29 +6,44 @@ import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/sta
 import { formatAdminCount, formatAdminDateTime } from '@/components/admin/ui/format';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { LiveRegion } from '@/components/ui/LiveRegion';
-import {
-  BREAKER_COMPLAINT_RATE,
-  BREAKER_HARD_BOUNCE_RATE,
-  BREAKER_MIN_SENDS,
-  BREAKER_WINDOW_DAYS,
-  type BreakerTripReason,
-  type BreakerWindow,
-} from '@/lib/solicitation/send-breaker';
+// TYPE-ONLY, and that is load-bearing rather than incidental. `send-breaker.ts`
+// instantiates a worker logger at module scope — `createWorkerLogger` ->
+// `log-context` -> `node:async_hooks` — so a single RUNTIME import from it
+// drags that chain into this client chunk and Turbopack fails the route build
+// ("the chunking context (unknown) does not support external modules"). Type
+// imports are erased, so they cost nothing. Every runtime fact this panel needs
+// arrives as a prop from `page.tsx`, which is a server component and may read
+// that module freely.
+import type { BreakerTripReason, BreakerWindow } from '@/lib/solicitation/send-breaker';
 
 /**
  * Deliberately NOT imported from `send-breaker.ts`, though that module owns the
- * server-side twin (std-5 / B1.11). It instantiates a worker logger at module
- * scope — `createWorkerLogger` -> `log-context` -> `node:async_hooks` — so
- * importing a FUNCTION from it drags that chain into this client component and
- * Turbopack fails the route build. Proven on #898: exporting the shared helper
- * from there broke `pnpm build`, and reverting to this local copy fixed it.
+ * server-side twin (std-5 / B1.11) — for exactly the reason above: importing a
+ * FUNCTION from there is the runtime edge that breaks the build. Proven on
+ * #898: exporting the shared helper from there broke `pnpm build`, and
+ * reverting to this local copy fixed it.
  *
  * The honest fix is a shared admin formatter in `src/components/admin/ui/`,
  * which needs a surface amendment this branch has not spent; recorded as a
- * follow-up. The real smell it exposes is that the BREAKER_* constants this
- * file already imports live in a module with a top-level logger at all.
+ * follow-up.
  */
 const formatRate = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
+
+/**
+ * The breaker's enforcement thresholds, handed down from the server component.
+ *
+ * They are NOT re-declared here. `send-breaker.ts` remains the single owner of
+ * the four numbers — `page.tsx` reads the BREAKER_* constants from it and
+ * passes them in — so the panel can only ever display the threshold the send
+ * path actually enforces. A local copy would let the screen and the governor
+ * disagree, which is worse than not showing a number at all.
+ */
+export interface BreakerThresholds {
+  windowDays: number;
+  minSends: number;
+  hardBounceRate: number;
+  complaintRate: number;
+}
 
 /** The trip as it arrives over the wire — `trippedAt` is an ISO string. */
 interface BreakerTripWire {
@@ -55,11 +70,20 @@ const QUERY_KEY = ['admin-send-breaker'];
  * The trip reason as prose. The breaker is admin-facing, so the Halt latch's
  * owner-facing "stop" carve-out does not apply: this surface says breaker,
  * tripped and reset, never pause / resume / cancel.
+ *
+ * A function of the passed thresholds rather than a module-scope map, because
+ * the numbers are now props: the `Record` is still built exhaustively, so a
+ * third BreakerTripReason remains a type error here rather than an undefined
+ * paragraph on the screen.
  */
-const TRIP_REASON_PROSE: Record<BreakerTripReason, string> = {
-  hard_bounce_rate: `Hard bounces exceeded ${formatRate(BREAKER_HARD_BOUNCE_RATE)} of sends over the last ${BREAKER_WINDOW_DAYS} days. Solicitation sending is halted platform-wide.`,
-  complaint_rate: `Spam complaints exceeded ${formatRate(BREAKER_COMPLAINT_RATE)} of sends over the last ${BREAKER_WINDOW_DAYS} days. Solicitation sending is halted platform-wide.`,
-};
+function tripReasonProse(reason: BreakerTripReason, thresholds: BreakerThresholds): string {
+  const tail = `of sends over the last ${thresholds.windowDays} days. Solicitation sending is halted platform-wide.`;
+  const prose: Record<BreakerTripReason, string> = {
+    hard_bounce_rate: `Hard bounces exceeded ${formatRate(thresholds.hardBounceRate)} ${tail}`,
+    complaint_rate: `Spam complaints exceeded ${formatRate(thresholds.complaintRate)} ${tail}`,
+  };
+  return prose[reason];
+}
 
 async function fetchBreaker(): Promise<SendBreakerStateResponse> {
   const response = await fetch('/api/admin/solicitation/breaker');
@@ -84,25 +108,31 @@ async function requestReset(input: { note: string }): Promise<ResetResult> {
   return { reset: true, tripId: body.tripId ?? null };
 }
 
-function MetricsSnapshot({ metrics }: { metrics: BreakerWindow }) {
+function MetricsSnapshot({
+  metrics,
+  thresholds,
+}: {
+  metrics: BreakerWindow;
+  thresholds: BreakerThresholds;
+}) {
   return (
     <div className="grid gap-3 sm:grid-cols-3">
       <StatTile
-        label={`Sends · last ${BREAKER_WINDOW_DAYS} days`}
+        label={`Sends · last ${thresholds.windowDays} days`}
         value={formatAdminCount(metrics.sends)}
-        sub={`${formatAdminCount(BREAKER_MIN_SENDS)} minimum before any rate is judged`}
+        sub={`${formatAdminCount(thresholds.minSends)} minimum before any rate is judged`}
       />
       <StatTile
         label="Hard bounce rate"
         value={formatRate(metrics.hardBounceRate)}
-        sub={`${formatAdminCount(metrics.hardBounces)} hard bounces · trips above ${formatRate(BREAKER_HARD_BOUNCE_RATE)}`}
-        alert={metrics.hardBounceRate > BREAKER_HARD_BOUNCE_RATE}
+        sub={`${formatAdminCount(metrics.hardBounces)} hard bounces · trips above ${formatRate(thresholds.hardBounceRate)}`}
+        alert={metrics.hardBounceRate > thresholds.hardBounceRate}
       />
       <StatTile
         label="Complaint rate"
         value={formatRate(metrics.complaintRate)}
-        sub={`${formatAdminCount(metrics.complaints)} complaints · trips above ${formatRate(BREAKER_COMPLAINT_RATE)}`}
-        alert={metrics.complaintRate > BREAKER_COMPLAINT_RATE}
+        sub={`${formatAdminCount(metrics.complaints)} complaints · trips above ${formatRate(thresholds.complaintRate)}`}
+        alert={metrics.complaintRate > thresholds.complaintRate}
       />
     </div>
   );
@@ -156,10 +186,12 @@ function ResetForm({
 
 function TripPanel({
   trip,
+  thresholds,
   pending,
   onReset,
 }: {
   trip: BreakerTripWire;
+  thresholds: BreakerThresholds;
   pending: boolean;
   onReset: (input: { note: string }) => void;
 }) {
@@ -169,12 +201,14 @@ function TripPanel({
         <span className="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
           Tripped
         </span>
-        <p className="mt-2 text-sm leading-6 text-gray-800">{TRIP_REASON_PROSE[trip.tripReason]}</p>
+        <p className="mt-2 text-sm leading-6 text-gray-800">
+          {tripReasonProse(trip.tripReason, thresholds)}
+        </p>
         <p className="mt-2 text-xs text-gray-500">
           Tripped {formatAdminDateTime(trip.trippedAt)}
         </p>
       </div>
-      <MetricsSnapshot metrics={trip.metrics} />
+      <MetricsSnapshot metrics={trip.metrics} thresholds={thresholds} />
       <ResetForm pending={pending} onReset={onReset} />
     </div>
   );
@@ -182,6 +216,7 @@ function TripPanel({
 
 function QueryResult({
   data,
+  thresholds,
   loading,
   failed,
   onRetry,
@@ -189,6 +224,7 @@ function QueryResult({
   onReset,
 }: {
   data: SendBreakerStateResponse | undefined;
+  thresholds: BreakerThresholds;
   loading: boolean;
   failed: boolean;
   onRetry: () => void;
@@ -229,7 +265,12 @@ function QueryResult({
           detail="Solicitation sending is running. The health check re-measures the last 7 days on every tick."
         />
       ) : (
-        <TripPanel trip={data.trip} pending={pending} onReset={onReset} />
+        <TripPanel
+          trip={data.trip}
+          thresholds={thresholds}
+          pending={pending}
+          onReset={onReset}
+        />
       )}
     </>
   );
@@ -237,8 +278,16 @@ function QueryResult({
 
 export function SendBreakerClient({
   initialData,
+  thresholds,
 }: {
   initialData?: SendBreakerStateResponse;
+  /**
+   * Required, unlike `initialData`. The seed is optional because a failed
+   * server read legitimately hands the fetch to the client; the thresholds are
+   * constants and have no failure mode, so a missing-thresholds fallback would
+   * only be a second place for the numbers to live.
+   */
+  thresholds: BreakerThresholds;
 }) {
   const queryClient = useQueryClient();
   const [outcome, setOutcome] = useState('');
@@ -281,6 +330,7 @@ export function SendBreakerClient({
       )}
       <QueryResult
         data={query.data}
+        thresholds={thresholds}
         loading={query.isLoading}
         failed={query.isError}
         onRetry={() => void query.refetch()}

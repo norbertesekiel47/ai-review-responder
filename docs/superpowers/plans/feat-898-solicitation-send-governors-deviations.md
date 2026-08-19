@@ -969,3 +969,63 @@ allowlist entry are ONE unit and must always be edited together. Re-keyed; audit
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## R1 follow-up 2 (orchestrator) — the build break was the BOUNDARY, not the formatter; fixed with props, no new file
+
+**Found:** The previous entry's revert restored the local `formatRate` but left the actual
+build-breaker in place: `SendBreakerClient.tsx` — a `'use client'` component — still imported
+`BREAKER_COMPLAINT_RATE`, `BREAKER_HARD_BOUNCE_RATE`, `BREAKER_MIN_SENDS` and
+`BREAKER_WINDOW_DAYS` as RUNTIME values from `src/lib/solicitation/send-breaker.ts`, and B1.7
+had since added `const logger = createWorkerLogger('[SendBreaker]')` at that module's top level.
+`pnpm build` failed outright:
+
+```
+Failed to write app endpoint /admin/solicitation/page
+- the chunking context (unknown) does not support external modules (request: node:async_hooks)
+```
+
+The earlier note guessed the constants survived "only because the bundler can drop the rest" and
+called the seam fragile. That was right about the seam and wrong about the timing: the constants
+were never safe on their own — they were safe only while the module had no module-scope side
+effect. B1.7 supplied one, and the same four imports that built on `d6882a0f~1` stopped building.
+
+**Did:** Removed the runtime edge instead of relocating the numbers.
+`src/app/admin/solicitation/SendBreakerClient.tsx` now imports `send-breaker.ts` **type-only**
+(`import type { BreakerTripReason, BreakerWindow }`) and takes a new required
+`thresholds: BreakerThresholds` prop; `page.tsx` — a server component, free to import that
+module — reads the four `BREAKER_*` constants and passes them down. Module-scope
+`TRIP_REASON_PROSE` became `tripReasonProse(reason, thresholds)`, still building an exhaustive
+`Record<BreakerTripReason, string>` so a third trip reason stays a type error; `MetricsSnapshot`,
+`TripPanel` and `QueryResult` thread the prop. Rendered copy is byte-identical.
+
+`thresholds` is REQUIRED while `initialData` stays optional, deliberately: the seed has a real
+failure mode (a fail-closed `readSendBreaker` throw hands the fetch to the client), the constants
+do not, so a default value would only be a second place for enforcement numbers to live.
+
+**No new file, and no fourth surface amendment.** The shared-constants module the previous entry
+proposed turned out to be unnecessary — the numbers never needed a new home, they needed to
+travel in the other direction. A client component receives server facts; it does not reach into a
+server module for them. std-5 (`formatRate` duplicated between the client and `send-breaker.ts`)
+is untouched and stays a LOW follow-up; it is a two-line cosmetic dedup, not this defect.
+
+**Regression guard:** `page-source.test.ts`'s existing SSR-root case now also asserts that every
+`send-breaker` import statement in `SendBreakerClient.tsx` begins `import type `, and that the
+page hands down thresholds equal to the four constants. `SendBreakerClient.test.tsx` sources its
+`THRESHOLDS` fixture from the module rather than restating the numbers, so the literal copy it
+asserts ("2.00%", "7 days", "100 minimum", "0.30%") is now checked against the ENFORCED values.
+No test title changed.
+
+**Also verified:** `SendBreakerClient.tsx` was the branch's only new client component touching
+`src/lib/solicitation/`. Of the eleven pre-existing ones, nine import type-only; the two runtime
+imports (`WITHHOLD_REASONS` from `restraint-policy.ts`, `POSTAL_ADDRESS_ATTESTATION_*` /
+`UPLOAD_STATUSES` from `postal-address.ts` / `upload-status.ts`) reach modules with no imports at
+all or one type-only import, so no other client chunk can pick up a `node:` builtin this way.
+The GET route and `page.tsx` keep their runtime imports of `send-breaker.ts` — both are
+server-side and that is the correct direction.
+
+**Blast radius:** `/admin/solicitation` only. No change to `send-breaker.ts` — its fail-closed
+contract, B1.2 index use, B1.1 level-triggered paging and the B1.7 trip log line are all intact.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
