@@ -17,7 +17,7 @@ unanticipated fact goes.
 **Blast radius:** what else this touches, or "none".
 **Invalidates a locked decision?** yes/no — if yes, STOP and report; abort criteria apply.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** _(template — not a real entry)_
 ```
 
 Two branches the plan deliberately left open, because they cannot be resolved without
@@ -99,7 +99,7 @@ in `.feature/intake.json` WITH user sign-off, then the constant is a 6-line past
 Task 2 step 3.
 **Invalidates a locked decision?** no — it is a surface gap, not a design change.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — closed by surface amendment 1 of 2 (owner sign-off). Refusing to work around the guard was the correct call.
 
 ## T1 — `pnpm typecheck` cannot pass at the end of the eval task
 
@@ -112,7 +112,7 @@ error remains in any fixture. That is the strongest signal available at this tas
 **Blast radius:** none once T2/T4/T5/T6/T7 land; typecheck goes green by construction.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — structural, not a defect. The eval task's whole purpose is code that does not exist yet; the 9 errors were verified to be exactly the intended missing-module/missing-export set.
 
 ## T1 — plan snippets used three helper signatures that do not exist
 
@@ -128,7 +128,7 @@ moved to `connection: { statement_timeout: 30_000 }`.
 **Blast radius:** none — the suites' behaviour is what the plan described.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — the committed tests are correct and the plan snippets were stale. Every downstream brief was told to trust the tests over the plan. My error, caught before it propagated.
 
 ## T1 — the second tenant cannot be seeded inside a probe transaction
 
@@ -144,7 +144,7 @@ still runs inside an always-rolled-back transaction.
 **Blast radius:** none — the cross-account assertion is unchanged.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — postgres.js `TransactionSql` exposes `savepoint`, not `begin`, so seeding both tenants in `beforeAll` is the only shape available. Matches the suppression-suite precedent.
 
 ## T1 — reused the shared outreach fixture instead of writing a fourth local `insertOutreach`
 
@@ -160,7 +160,7 @@ helper cannot express; the three tables agree on ids via `md5(nonce || ':c:' || 
 **Blast radius:** none — no shared helper was created or modified.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — correct DRY call. A fourth local `insertOutreach` re-spelling 091's fifteen NOT NULL columns would have been the slop option.
 
 ## T1 — the `bounce_kind` projection turns 22 pre-existing lane tests red until 110 lands
 
@@ -174,7 +174,7 @@ returns 22 of them to green and Task 3 turns the new one green.
 red for a schema reason, not a logic one.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — transient by construction and resolved by T2 exactly as predicted (23 failed -> 1). Predicting the number in advance is what made it checkable.
 
 ## T1 — the lane already LOGS `bounce_kind`; it does not yet WRITE it
 
@@ -187,7 +187,7 @@ rather than reclassifying.
 **Blast radius:** none.
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — high-value trap. Carried into T3's brief verbatim; T3 confirmed the log field was indeed log-only.
 
 ## SURFACE AMENDMENT 1 of 2 — schema-ready.ts
 
@@ -236,7 +236,7 @@ entries and must bump the baseline 382 → 384 from the value this task left.
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — the `allowedFiles` escape hatch already existed for two other categories; extending it is the established pattern, not a new mechanism.
 
 ## T4 — `date_trunc` boundary is spelled one conversion shorter than the cited precedent
 
@@ -265,7 +265,7 @@ would silently count the wrong day.
 **Invalidates a locked decision?** no — but if the orchestrator prefers the precedent's
 exact spelling, the change is two identical one-line edits and no test moves.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — and SUPERSEDED by the orchestrator follow-up below, which restored the trailing `AT TIME ZONE 'UTC'`. Escalating instead of silently deviating is what surfaced a real bug no test could catch.
 
 ## T4 — `ci:directory-map` is red until Task 8 adds the `send-caps.ts` row
 
@@ -282,7 +282,7 @@ guard. Task 8 must add a `send-caps.ts` row under the `src/lib/solicitation/` se
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — resolved by T8; `ci:directory-map` passes. Leaving it red rather than editing outside surface was correct.
 
 ## T4 follow-up (orchestrator) — UTC-day boundary was a latent local-day bug
 
@@ -358,7 +358,7 @@ governs hashing, not id generation.
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — `uuid`'s v7 is the repo convention. `randomUUID()` would have been UUIDv4 and broken the time-ordered-PK convention; the stale bullet at the top of this file is superseded by this entry.
 
 ## T5 — `ON CONFLICT ((reset_at IS NULL))` inference: checked against Postgres, it works
 
@@ -378,7 +378,7 @@ in a one-off `psql` check.
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — the single riskiest line in the feature, verified against real Postgres BEFORE the module was written and again by the idempotence test. No fallback needed, index unchanged.
 
 ## T5 — `BreakerWindow` had to be a `type` alias, not an `interface`
 
@@ -403,7 +403,7 @@ identical structural shape.
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — `sql.json`'s `JSONValue` needs an implicit index signature that an `interface` never gets. A real TypeScript constraint, not a preference.
 
 ## T5 — `HealthFinding` has exactly one owner, and it lives in `worker/`
 
@@ -429,7 +429,7 @@ one-way, the fix is to move `HealthFinding` into `src/lib/shared/`, not to dupli
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT WITH FLAG — no invariant is violated (invariant #1 explicitly permits `import type`), and the gate is green. But the dependency direction is inverted: `src/lib` has never imported from `worker/` before, and normally worker depends on lib. The deeper shape is `evaluateSendBreaker` returning a domain verdict with the worker check mapping it to a `HealthFinding`. That would change the test contract, so it is NOT a mid-flight edit. EXPLICITLY REFERRED to the step 7 standards & maintainability agent; if upheld it becomes a follow-up ticket for #900, which consumes this module anyway and may want the domain-verdict shape.
 
 ## T6 — the new check drains one entry from `checks.test.ts`'s positional sql queue (2 pre-existing tests RED; fix is outside T6's edit surface)
 
@@ -478,7 +478,7 @@ written `reset/route.ts`), and the two new `send-breaker-check.test.ts` tests ar
 **Invalidates a locked decision?** no — the #505 sequential list and the fail-loud
 (no `try/catch`) placement are both preserved exactly as specified.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — resolved by the orchestrator follow-up below. Rejecting the mock-exhaustion workaround was the right call: it would have passed three tests while putting the check in the wrong dispatch position.
 
 ## T6 follow-up (orchestrator) — positional mock queue in checks.test.ts
 
@@ -536,7 +536,7 @@ affected.
 
 **Invalidates a locked decision?** no — it is a surface gap, not a design change.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — closed by surface amendment 2 of 2 (owner sign-off, abort criterion waived). Stopping at the guard was correct.
 
 ## T7 — a GET route was needed for "refetch on success"; the plan lists only the reset route
 
@@ -564,7 +564,7 @@ checked by P1 only (and passes `aal2: true` regardless).
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — see the orchestrator entry below; verified `requireAdminWithAal2`-gated so the read is not a weaker door onto the same state.
 
 ## T7 — the brief calls /admin/solicitation a Console surface; the brand skill routes admin to Island
 
@@ -589,7 +589,7 @@ have imported tokens that do not resolve outside `.rw-console`.
 
 **Invalidates a locked decision?** no.
 
-**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+**Verdict:** ACCEPT — my briefing error, not a code error. See the orchestrator entry below. Following the design docs over my instruction was correct.
 
 ## SURFACE AMENDMENT 2 of 2 — nav-config.ts (abort criterion waived by owner)
 
