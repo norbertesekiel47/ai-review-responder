@@ -210,3 +210,129 @@ the surface.
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## T4 — `platform-cross-account` path rule did not admit `src/lib/solicitation/`
+
+**Found:** The plan's Task 4 step 2 says "add one entry to
+`scripts/ci/tenant-scope-allowlist.ts`". One entry is not sufficient: the audit also
+enforces `CATEGORY_PATH_RULES`, and `platform-cross-account` was restricted to
+`allowedPrefixes: ['src/lib/admin/']`. A bare entry for
+`src/lib/solicitation/send-caps.ts` fails the per-category path invariant.
+
+**Did:** Added the file to a new `allowedFiles` array on the `platform-cross-account`
+rule (the same escape hatch `admin-after-require-role` and `background-global-scan`
+already use for src/lib domain modules), with the justification that the ceiling is
+read by the send path itself, not an admin surface, so it stays with its domain and
+keeps explicit `Sql` injection (invariant #15). Also bumped `ALLOWLIST_BASELINE`
+381 → 382 with a dated changelog comment, as the exact-match growth gate requires.
+The alternative — categorising it `background-global-scan`, which already lists three
+`src/lib/**` files — was rejected: that category means "scanning tenant rows globally
+before enqueueing scoped work", and this statement projects one integer and enqueues
+nothing.
+
+**Blast radius:** `scripts/ci/tenant-scope-allowlist.ts` only. Task 5 adds two more
+entries and must bump the baseline 382 → 384 from the value this task left.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T4 — `date_trunc` boundary is spelled one conversion shorter than the cited precedent
+
+**Found:** The plan's module source (and the locked-semantics restatement) spells the
+UTC day boundary `date_trunc('day', NOW() AT TIME ZONE 'UTC')`. The precedent the plan
+names as the idiom to mirror, `worker/jobs/response-generation/auto-approval.ts:231`,
+spells it `date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'` — with a
+trailing conversion back to `timestamptz`, and a unit test that asserts that exact text
+(`auto-approval.test.ts:514`). Without the trailing conversion the boundary is a naive
+`timestamp` that Postgres casts using the SESSION `TimeZone` when compared against the
+`timestamptz` column; the two spellings agree only while the session is UTC. No repo
+code pins `TimeZone` on the postgres.js clients (`src/lib/db/server.ts`), so the
+guarantee rests on the server default being UTC (it is, on Supabase and on the local
+`postgres:16` test container).
+
+**Did:** Followed the plan verbatim — `src/lib/solicitation/send-caps.ts`,
+`countAccountDispatchAttemptsToday` and `countPlatformDispatchAttemptsToday` both use
+the short form, because the boundary expression is restated in the task's
+locked-semantics list. Both live-DB cases pass, and they would pass under either
+spelling on a UTC session, so the suite does not discriminate between them.
+
+**Blast radius:** both counters in `send-caps.ts`. A non-UTC session `TimeZone` would
+shift the cap's day boundary by the session offset — it would never fail loudly, it
+would silently count the wrong day.
+
+**Invalidates a locked decision?** no — but if the orchestrator prefers the precedent's
+exact spelling, the change is two identical one-line edits and no test moves.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T4 — `ci:directory-map` is red until Task 8 adds the `send-caps.ts` row
+
+**Found:** `pnpm ci:directory-map` fails with
+`src/lib/solicitation/send-caps.ts has no row in docs/directory.md`. The map is
+CI-complete for `src/lib/`, so a new file under that root must ship its row in the same
+PR. `docs/directory.md` is Task 8's file and is outside this task's edit surface.
+
+**Did:** Nothing — deliberately left red rather than working around the edit-surface
+guard. Task 8 must add a `send-caps.ts` row under the `src/lib/solicitation/` section
+(alongside the `send-breaker.ts` row Task 5 will need).
+
+**Blast radius:** the `lint` CI job fails until Task 8 lands. No runtime effect.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T4 follow-up (orchestrator) — UTC-day boundary was a latent local-day bug
+
+**Found:** The Task 4 subagent flagged that the plan's
+`date_trunc('day', NOW() AT TIME ZONE 'UTC')` is one conversion SHORTER than the
+precedent it cites (`worker/jobs/response-generation/auto-approval.ts:231`, which ends
+with a second `AT TIME ZONE 'UTC'`). It implemented the plan verbatim and escalated
+rather than deviating, because I had listed the expression under "locked semantics".
+That was the correct call and the flag was right.
+
+The short form yields a NAIVE timestamp. Comparing a `timestamptz` column against one
+makes Postgres coerce it using the SESSION `TimeZone`, which nothing in this repo pins.
+Whenever the session is not UTC, the "UTC day boundary" the account cap and platform
+ceiling both depend on silently becomes a LOCAL day boundary — the cap resets at the
+wrong hour, and B3's counting basis is wrong by up to a full day's sends.
+
+**Why no test caught it:** the fixture seeds `queued_at` using the SAME expression, so
+both the buggy and correct forms agree. A test written from the implementation cannot
+falsify the implementation. This is the sharpest instance so far of why the eval task
+is authored before the code.
+
+**Did:** Added the trailing `AT TIME ZONE 'UTC'` to BOTH queries in
+`src/lib/solicitation/send-caps.ts`, matching the precedent byte-for-byte, plus an
+8-line comment stating why the trailing conversion is load-bearing so nobody "tidies"
+it away. Updated the matching `sqlSnippet` in `scripts/ci/tenant-scope-allowlist.ts`.
+`ci:tenant-scope` passes at 382/382; send-caps suites 7 passed.
+
+**Blast radius:** two SQL lines + one allowlist snippet. No test moved, no interface
+changed. Not a surface amendment — both files were already in surface.
+
+**Invalidates a locked decision?** no — it RESTORES the locked one (#622 §4.3 / B3's
+UTC day), which the plan's snippet had mis-transcribed.
+
+**Verdict:** ACCEPT.
+
+## T3 follow-up (orchestrator) — lane allowlist snippet needed the new column
+
+**Found:** `ci:tenant-scope` went red the moment T3 added `bounce_kind` to
+`recordBounce`'s UPDATE: the allowlist entry stores the statement text, so the changed
+statement no longer matched and reported BOTH "unused allowlist entry" and "missing
+account_id or business_id scope". T3's edit surface was `solicitation-lane.ts` only, so
+it could not have fixed this — another surface gap I left, not a subagent error.
+
+**Did:** Orchestrator updated the `sqlSnippet` at
+`scripts/ci/tenant-scope-allowlist.ts` (already in surface) to include the new column,
+and extended its `reason` to record that `bounce_kind` rides the SAME statement because
+110's pairing CHECK requires it. `ci:tenant-scope` passes 382/382.
+
+**Lesson for the remaining tasks:** any task that changes a SQL statement text must
+also own the matching allowlist entry, or the two files must be dispatched together.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.

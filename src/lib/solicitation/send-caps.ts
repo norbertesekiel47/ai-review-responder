@@ -51,7 +51,14 @@ export function resolvePlatformDailyCap(raw: string | undefined): number {
  *
  * COUNTING BASIS IS `queued_at`, NOT `sent_at` (amendment B3): a bounce still
  * spent reputation, so #619 D9's sent_at counting is superseded. UTC day
- * boundary mirrors worker/jobs/response-generation/auto-approval.ts.
+ * boundary mirrors worker/jobs/response-generation/auto-approval.ts:231 —
+ * including its TRAILING `AT TIME ZONE 'UTC'`, which is load-bearing and not
+ * redundant. `date_trunc('day', NOW() AT TIME ZONE 'UTC')` yields a NAIVE
+ * timestamp; comparing a timestamptz column against one makes Postgres coerce
+ * it using the SESSION TimeZone, which nothing in this repo pins. Drop the
+ * trailing conversion and the "UTC day" silently becomes a local day whenever
+ * the session is not UTC. Found in #898 review — the fixture used the same
+ * expression, so every test passed either way.
  *
  * Takes `sql` explicitly (invariant #15) — this module never imports
  * @/lib/db/server.
@@ -64,7 +71,7 @@ export async function countAccountDispatchAttemptsToday(
     SELECT COUNT(*)::int AS count
       FROM solicitation_outreach
      WHERE account_id = ${accountId}
-       AND queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+       AND queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
   `;
   return row?.count ?? 0;
 }
@@ -81,7 +88,7 @@ export async function countPlatformDispatchAttemptsToday(
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
       FROM solicitation_outreach
-     WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+     WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
   `;
   return row?.count ?? 0;
 }

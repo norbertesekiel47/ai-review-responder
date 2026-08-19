@@ -886,9 +886,9 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "worker/ingress/resend/solicitation-lane.ts",
     table: "solicitation_outreach",
-    sqlSnippet: "UPDATE solicitation_outreach SET bounced_at = COALESCE(bounced_at, NOW()), provider_error = COALESCE(provider_error, ${reason}), updated_at = NOW() WHERE id = ${attribution.id}",
+    sqlSnippet: "UPDATE solicitation_outreach SET bounced_at = COALESCE(bounced_at, NOW()), bounce_kind = COALESCE(bounce_kind, ${isHard ? 'hard' : 'soft'}), provider_error = COALESCE(provider_error, ${reason}), updated_at = NOW() WHERE id = ${attribution.id}",
     category: 'provider-ingress',
-    reason: "Solicitation lane bounce effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived.",
+    reason: "Solicitation lane bounce effect, keyed on the id returned by the locked attribution read in the SAME transaction — the tenant scope is already established and asserted (exactly one row updated) rather than re-derived. #898 added bounce_kind to the SAME statement (never a second one): 110's bounce_kind_pairing CHECK requires it to be set together with bounced_at.",
   },
   {
     file: "worker/ingress/resend/solicitation-lane.ts",
@@ -3064,7 +3064,7 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/solicitation/send-caps.ts",
     table: "solicitation_outreach",
-    sqlSnippet: "SELECT COUNT(*)::int AS count FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
     category: 'platform-cross-account',
     reason: "countPlatformDispatchAttemptsToday (#898, #622 §3.2A) — the figure the platform daily ceiling bounds. Cross-account BY DESIGN: the ceiling is the blast-radius bound for a runaway fan-out across the one shared Sending identity, so a tenant-scoped view cannot express it — scoping it per account would make the platform-wide brake unreachable. Read-only, projects one integer and no tenant rows or provenance. Its sibling countAccountDispatchAttemptsToday binds account_id in a TOP-LEVEL predicate and is deliberately NOT allowlisted.",
   },
