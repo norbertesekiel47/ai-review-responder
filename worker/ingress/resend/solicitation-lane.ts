@@ -280,6 +280,12 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
       const updated = await tx`
         UPDATE solicitation_outreach
            SET bounced_at = COALESCE(bounced_at, NOW()),
+               -- The breaker's discriminator (#898). COALESCE for the same
+               -- reason bounced_at does: a redelivered webhook must not
+               -- reclassify a bounce we already recorded. Paired with
+               -- bounced_at by 110's bounce_kind_pairing CHECK, so it is set
+               -- in the SAME statement or the row is rejected.
+               bounce_kind = COALESCE(bounce_kind, ${isHard ? 'hard' : 'soft'}),
                provider_error = COALESCE(provider_error, ${reason}),
                updated_at = NOW()
          WHERE id = ${attribution.id}
