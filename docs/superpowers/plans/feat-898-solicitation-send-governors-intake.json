@@ -123,7 +123,13 @@
     "the send breaker panel refetches the breaker state after a successful reset",
     "the admin solicitation page gates on requireAdminPage with aal2",
     "the breaker read route rejects a request without AAL2",
-    "countPlatformDispatchAttemptsToday counts dispatch attempts across every account in the UTC day"
+    "countPlatformDispatchAttemptsToday counts dispatch attempts across every account in the UTC day",
+    "the breaker keeps paging while a trip is open even after the window falls back under the threshold",
+    "a reset bounds the window so recovery is reachable and post-reset sends are still measured",
+    "checkSolicitationSendBreaker re-pages on every tick while a trip stays open",
+    "isolates a send-breaker-write failure: earlier findings survive and the failure becomes a warning",
+    "the solicitation lane leaves bounce_kind NULL for an unrecognised provider bounce type",
+    "the breaker counts an unclassified bounce with the hard bounces"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "1150",

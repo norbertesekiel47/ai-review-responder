@@ -311,8 +311,19 @@ async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWind
     )
     SELECT
       COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends,
+      -- UNCLASSIFIED BOUNCES COUNT AS HARD (spec-3 / B1.4), and this half is
+      -- required for the lane's half to mean anything. classifyBounce defaults
+      -- an unrecognised or missing bounce.type to 'soft'; that default was tuned
+      -- for business flagging, but here it is a GOVERNOR's numerator, so the
+      -- Solicitation lane now leaves bounce_kind NULL rather than asserting a
+      -- kind it cannot know. A NULL kind on a bounced row is therefore
+      -- "the provider bounced this and we could not classify it" — and a
+      -- governor the intake specifies as fail-CLOSED must count that with the
+      -- hard bounces, not silently drop it. Dropping it is exactly how a Resend
+      -- payload-shape change would make the breaker never trip.
       COUNT(*) FILTER (
-        WHERE o.bounce_kind = 'hard' AND o.bounced_at >= b.window_start
+        WHERE o.bounced_at >= b.window_start
+          AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)
       )::int AS hard_bounces,
       COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints
     FROM solicitation_outreach o
@@ -349,7 +360,16 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
   return null;
 }
 
-function formatRate(rate: number): string {
+/**
+ * ONE owner for how a breaker rate is rendered (std-5 / B1.11). The Sentry page
+ * this module writes links straight to the admin panel, so an operator reads the
+ * same two rates in both places within seconds; two independent formatters that
+ * drift by a decimal make the page and the panel look like they disagree about
+ * whether the threshold was crossed. Exported rather than re-spelled in the
+ * client — SendBreakerClient already imports four constants from this module,
+ * so this adds no new coupling.
+ */
+export function formatRate(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
 

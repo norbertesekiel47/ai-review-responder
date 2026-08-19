@@ -11,6 +11,7 @@ import {
   BREAKER_HARD_BOUNCE_RATE,
   BREAKER_MIN_SENDS,
   BREAKER_WINDOW_DAYS,
+  formatRate,
   type BreakerTripReason,
   type BreakerWindow,
 } from '@/lib/solicitation/send-breaker';
@@ -35,7 +36,6 @@ interface ResetResult {
 
 const QUERY_KEY = ['admin-send-breaker'];
 
-const formatRate = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
 
 /**
  * The trip reason as prose. The breaker is admin-facing, so the Halt latch's
