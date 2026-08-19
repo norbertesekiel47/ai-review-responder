@@ -146,7 +146,14 @@ export interface TenantScopeAllowlistEntry {
 //     the other 66 context-based entries that are currently provable remain for
 //     separate semantic review. Net change: +1 honest exception, -17 obsolete
 //     parser limitations.
-export const ALLOWLIST_BASELINE = 381;
+//   - 2026-08-19 (381 → 382): #898's platform daily ceiling
+//     (`countPlatformDispatchAttemptsToday`, `src/lib/solicitation/send-caps.ts`).
+//     One cross-account COUNT of today's dispatch attempts — the ceiling is a
+//     blast-radius bound over every account at once, so a tenant-scoped view
+//     cannot express it (#622 §3.2A). Its sibling
+//     `countAccountDispatchAttemptsToday` binds `account_id` in a TOP-LEVEL
+//     predicate and needs no entry.
+export const ALLOWLIST_BASELINE = 382;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -180,6 +187,13 @@ export const CATEGORY_PATH_RULES: Partial<
   },
   'platform-cross-account': {
     allowedPrefixes: ['src/lib/admin/'],
+    allowedFiles: [
+      // The solicitation platform daily ceiling (#622 §3.2A). Not an admin
+      // surface: the aggregate is read by the send path itself as a
+      // precondition, so it lives with its domain and keeps explicit Sql
+      // injection (invariant #15). It projects one integer and no tenant rows.
+      'src/lib/solicitation/send-caps.ts',
+    ],
   },
   'background-global-scan': {
     allowedPrefixes: ['worker/'],
@@ -3046,6 +3060,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT EXISTS ( SELECT 1 FROM solicitation_suppressions WHERE channel = ${target.channel} AND normalized_handle = ${target.normalizedHandle} AND scope = 'global' ) AS suppressed",
     category: 'pre-auth-token',
     reason: "hasLiveGlobalSuppression — the single owner of \"does the recipient's own global opt-out stand?\", shared by the spent branch and the §1.8 render-time check so the two can never disagree. Cross-tenant BY DESIGN and narrower than suppressionMatchSql on purpose: scope='global' rows key on (channel, normalized_handle) across every tenant, so an account filter would be meaningless, and the account-scoped arm is deliberately excluded because an owner's do-not-contact would satisfy that fragment while falsifying the §5.5 sentence. Read-only existence check, returns one boolean and no provenance.",
+  },
+  {
+    file: "src/lib/solicitation/send-caps.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "SELECT COUNT(*)::int AS count FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')",
+    category: 'platform-cross-account',
+    reason: "countPlatformDispatchAttemptsToday (#898, #622 §3.2A) — the figure the platform daily ceiling bounds. Cross-account BY DESIGN: the ceiling is the blast-radius bound for a runaway fan-out across the one shared Sending identity, so a tenant-scoped view cannot express it — scoping it per account would make the platform-wide brake unreachable. Read-only, projects one integer and no tenant rows or provenance. Its sibling countAccountDispatchAttemptsToday binds account_id in a TOP-LEVEL predicate and is deliberately NOT allowlisted.",
   },
   {
     file: "src/lib/admin/suppressions-service.ts",
