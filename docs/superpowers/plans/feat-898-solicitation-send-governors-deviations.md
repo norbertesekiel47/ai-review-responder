@@ -508,3 +508,84 @@ Health-alert directory: 82 passed / 2 failed → **84 passed / 0 failed**.
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## T7 — the nav registry entry the new page needs is OUTSIDE the edit surface (1 test RED)
+
+**Found:** `src/components/admin/__tests__/AdminSidebar.test.tsx` derives the admin IA
+from the filesystem: it walks `src/app/admin/**/page.tsx` and asserts every non-auth
+route appears exactly once in `ADMIN_NAV_GROUPS` ("lists every non-auth admin page
+exactly once"). Creating `src/app/admin/solicitation/page.tsx` therefore requires a
+matching entry in `src/components/admin/nav-config.ts`, which is not in T7's
+hook-enforced edit surface (`src/app/api/admin/solicitation/**`,
+`src/app/admin/solicitation/**`, this file). The plan's Task 7 does not mention it.
+
+**Did:** Nothing — stopped rather than reaching outside the guard, and did not use the
+`NON_NAV_PAGES` escape hatch (a hidden Safety page is not the intent). The fix is one
+line under the existing `Safety` group, beside `/admin/autonomy`:
+
+```typescript
+{ href: '/admin/solicitation', label: 'Send breaker' },
+```
+
+**Blast radius:** exactly one test red —
+`admin IA: nav ⇄ filesystem > lists every non-auth admin page exactly once`, reporting
+`["/admin/solicitation"]`. The page itself builds, renders and is reachable by URL; it
+is only absent from the sidebar. Nothing else in the suite, the audits or the build is
+affected.
+
+**Invalidates a locked decision?** no — it is a surface gap, not a design change.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T7 — a GET route was needed for "refetch on success"; the plan lists only the reset route
+
+**Found:** Task 7 specifies three files and no read endpoint, yet it also requires the
+panel to "refetch on success", to "copy `AutonomySuspensionsClient.tsx`'s fetch/error/
+pending shape" (which is `useQuery` + `useMutation`), and to ISO-stringify the page's
+dates so `initialData` is "structurally identical to **a client refetch**". Those three
+sentences presuppose a GET the client can call; none existed.
+
+**Did:** Added `src/app/api/admin/solicitation/breaker/route.ts` — a `GET` that gates
+with `requireAdminWithAal2` (matching the reset route it sits beside), calls
+`readSendBreaker(sql)` and returns `{ open, trip }` with `trippedAt` as an ISO string.
+Inside the allowed edit surface (`src/app/api/admin/solicitation/breaker/**`), so no
+amendment was needed. `page.tsx` builds byte-identical `initialData` inline, the same
+way `/admin/autonomy`'s page does.
+
+Rejected alternative: `router.refresh()` instead of a query. It would have avoided the
+extra file, but it drops the precedent's non-blanking error/stale-data behaviour and
+makes the plan's own "structurally identical to a client refetch" sentence meaningless.
+
+**Blast radius:** one new read-only route. `ci:admin-aal2`'s ROUTE contract covers
+mutation verbs only, so the GET is unaffected by it; its P2 page-parity anchor is
+`src/app/api/admin/solicitation/route.ts`, which still does not exist, so the page is
+checked by P1 only (and passes `aal2: true` regardless).
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## T7 — the brief calls /admin/solicitation a Console surface; the brand skill routes admin to Island
+
+**Found:** Both the plan's Task 7 step 1 and the task brief say "This is a **Console**-
+system surface". The `repworth-brand-design` router says the opposite, in a dedicated
+sentence: "Admin renders **outside** `.rw-console` and consumes **no** Console tokens —
+it is an Island-palette surface, just more utilitarian" (`docs/design/README.md:26-28`
+says the same). `console-admin-palette.test.ts` enforces that split, and the cited
+precedent `AutonomySuspensionsClient.tsx` uses the admin console's neutral vocabulary,
+not `--rw-app-*`.
+
+**Did:** Built on the admin primitives — `AdminPage`, `StatTile` (its `alert` variant is
+literally "red-border variant for breached thresholds"), `EmptyState`/`ErrorState`/
+`TableSkeleton`, `formatAdminDateTime`/`formatAdminCount`, `LiveRegion` — with the
+admin neutral palette. No Console token is referenced. Verified the two structural
+guards the palette test derives from the filesystem: `page.tsx` carries no `className`
+(so CF-4 does not oblige a `SWEPT_FILES` entry, which is outside the edit surface), and
+neither new component uses amber/orange/stone/blue/indigo.
+
+**Blast radius:** none. Had the brief's Console reading been followed, the page would
+have imported tokens that do not resolve outside `.rw-console`.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
