@@ -42,6 +42,7 @@ Only `allowed_edit_surface` changes count toward the 2-amendment abort budget.
 | # | Date | Change | Auto-approved or owner sign-off |
 |---|---|---|---|
 | 1 | 2026-08-19 | +`src/lib/shared/__tests__/helpers/schema-ready.ts` | owner sign-off |
+| 2 | 2026-08-19 | +`src/components/admin/nav-config.ts` | owner sign-off (abort criterion waived) |
 
 ## plan round 1 — codex unavailable; orchestrator ran the review
 
@@ -589,3 +590,62 @@ have imported tokens that do not resolve outside `.rw-console`.
 **Invalidates a locked decision?** no.
 
 **Verdict:** _(orchestrator fills this in at step 6: ACCEPT or RE-PLAN)_
+
+## SURFACE AMENDMENT 2 of 2 — nav-config.ts (abort criterion waived by owner)
+
+**Found:** `src/components/admin/__tests__/AdminSidebar.test.tsx` walks the filesystem and
+requires every non-auth admin page to appear exactly once in `ADMIN_NAV_GROUPS`. The new
+`/admin/solicitation` page therefore needs a row in `src/components/admin/nav-config.ts`,
+which the intake never listed. T7 hit the guard and stopped rather than working around it.
+
+**Did:** Added `{ href: '/admin/solicitation', label: 'Send breaker' }` to the Safety group,
+between Suppressions and Security. `AdminSidebar.test.tsx` 8/8.
+
+**Abort criteria:** this is the SECOND surface amendment, which the workflow treats as a
+trigger to tear the branch down and restart at step 1. Surfaced to the owner with both
+positions; **owner waived it 2026-08-19** on the argument that the criterion exists to catch
+SCOPE SPRAWL and neither amendment is that — both are one-line registry entries
+(`schema-ready.ts`, `nav-config.ts`) for files the feature always had to touch and my plan
+simply failed to enumerate. Production diff, test diff and task count all still track the
+intake estimate.
+
+**Budget now EXHAUSTED.** A third surface amendment must re-run step 0 rather than ask again.
+
+**Lesson for the next intake:** every new admin PAGE implies a nav-config row, and every new
+MIGRATION implies a schema-ready requirement. Both are filesystem-walked by tests, so both
+belong in `allowed_edit_surface` from the start. Promote to lab-notes at step 8.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
+
+## T7 (orchestrator) — my brief said Console; the design docs say Island
+
+**Found:** My T7 brief called `/admin/solicitation` a **Console**-system surface. The
+`repworth-brand-design` router and `docs/design/README.md` route admin to **Island**
+("consumes no Console tokens"), and `console-admin-palette.test.ts` ENFORCES it. The
+subagent followed the design docs over my brief, built on the admin primitives with no
+Console token, and flagged the contradiction instead of silently picking one.
+
+**Verified:** `console-admin-palette.test.ts` passes (114/115 at the time; the single
+failure was the unrelated nav test above).
+
+**Did:** Nothing to change — the code is correct. Recorded so the error is in the brief,
+not in the codebase, and so the next feature brief for an admin surface says Island.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
+
+## T7 (subagent) — GET endpoint added, inside surface
+
+**Found:** The brief required the client to "refetch on success" and the page's
+`initialData` to be "structurally identical to a client refetch", but no read endpoint
+existed. The subagent added `GET src/app/api/admin/solicitation/breaker/route.ts` —
+inside the allowed surface, so no amendment — and rejected `router.refresh()` as the
+alternative. Verified by the orchestrator: it is `requireAdminWithAal2`-gated, matching
+the reset route, so the read is not a weaker door onto the same state.
+
+**Invalidates a locked decision?** no.
+
+**Verdict:** ACCEPT.
