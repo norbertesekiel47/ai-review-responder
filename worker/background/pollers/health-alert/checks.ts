@@ -15,6 +15,7 @@ import { queryBacklogDepth, BACKLOG_DEPTH_TABLES } from '../../../../src/lib/sha
 import { toError } from '../../../../src/lib/shared/logger';
 import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
 import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
+import { evaluateSendBreaker } from '../../../../src/lib/solicitation/send-breaker';
 
 export interface HealthFinding {
   key: string;
@@ -321,6 +322,24 @@ export async function checkStalledSendBatches(sql: postgres.Sql): Promise<Health
 }
 
 /**
+ * The reputation circuit breaker (#622 §3.2B) — the piece a runbook genuinely
+ * cannot do, because it has to fire at 3am.
+ *
+ * This poller is the breaker's ONLY tripper. #900's releaser is a pure reader
+ * (readSendBreaker), so the expensive 7-day aggregate never runs on the send
+ * loop. The cost is bounded trip latency: one HEALTH_ALERT_POLL_INTERVAL_MS
+ * window (5 min default), which is ~17 sends at the top ramp stage and ~0 at
+ * stage 1.
+ *
+ * Runs UNCONDITIONALLY, including when SOLICITATION_SEND_ENABLED is false: per
+ * rule DR1 the Solicitation lane is never flag-gated, so bounce and complaint
+ * facts keep arriving for mail already sent, and a live breach must still page.
+ */
+export async function checkSolicitationSendBreaker(sql: postgres.Sql): Promise<HealthFinding | null> {
+  return evaluateSendBreaker(sql);
+}
+
+/**
  * Default wedge age. Ten seconds is far above any legitimate ClientRead pause
  * and far below the shortest wedge ever observed (16.6s; the long one ran
  * 374.5s).
@@ -412,6 +431,7 @@ export async function runHealthChecks(sql: postgres.Sql): Promise<HealthFinding[
   collect(await checkOwnerUnreachable(sql, cfg));
   collect(await checkFailedInboundEvents(sql, cfg));
   collect(await checkStalledSendBatches(sql));
+  collect(await checkSolicitationSendBreaker(sql));
 
   // Isolate the backlog check: it reads the DB precisely when the DB is under
   // pressure, so its rejection must NOT fail the whole cycle and suppress the
