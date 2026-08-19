@@ -326,6 +326,20 @@ it('the breaker counts a bounce by bounced_at and a send by sent_at over the sam
   }).catch(expectRollback);
 });
 
+it('the breaker reports hard_bounce_rate when both thresholds breach in the same window', async () => {
+  // classifyBreach checks hard bounce FIRST. Without this test that precedence
+  // is unobservable, and a reversed implementation passes every other test —
+  // then pages the wrong metric on the one night both go bad at once.
+  await sql.begin(async (tx) => {
+    await seedSends(tx, seed, { sent: 1000, hardBounced: 30, complained: 10 }); // 3% and 1%
+    const finding = await evaluateSendBreaker(tx);
+    expect(finding?.detail).toMatchObject({ trip_reason: 'hard_bounce_rate' });
+    const [trip] = await tx`SELECT trip_reason FROM solicitation_send_breaker WHERE reset_at IS NULL`;
+    expect(trip.trip_reason).toBe('hard_bounce_rate');
+    throw new Rollback();
+  }).catch(expectRollback);
+});
+
 it('the breaker ignores soft bounces when computing the hard bounce rate', async () => {
   // 100 sends, 50 SOFT bounces, zero hard. No trip.
   await sql.begin(async (tx) => {
@@ -436,6 +450,31 @@ it('countAccountDispatchAttemptsToday counts outreach rows by queued_at in the U
     expect(await countAccountDispatchAttemptsToday(tx, seed.accountId)).toBe(2);
     throw new Rollback();
   }).catch(expectRollback);
+});
+
+it('countAccountDispatchAttemptsToday excludes dispatch attempts belonging to another account', async () => {
+  // Without a second tenant in the fixture, an implementation that DROPS the
+  // account_id filter returns exactly the same number and every other test
+  // stays green — while every account on the platform shares one cap.
+  await sql.begin(async (tx) => {
+    const other = await seedTenantAccount(tx);
+    await seedOutreach(tx, seed, { queuedAt: 'NOW()', sentAt: null });
+    await seedOutreach(tx, other, { queuedAt: 'NOW()', sentAt: null });
+    expect(await countAccountDispatchAttemptsToday(tx, seed.accountId)).toBe(1);
+    expect(await countAccountDispatchAttemptsToday(tx, other.accountId)).toBe(1);
+    throw new Rollback();
+  }).catch(expectRollback);
+});
+```
+
+Add to `send-caps.test.ts` (unit), beside the other `resolvePlatformDailyCap` cases:
+
+```typescript
+it('resolvePlatformDailyCap returns 0 for a value too large to be a safe integer', () => {
+  // The one branch Number.isSafeInteger exists for: /^\d+$/ admits the digits,
+  // Number() silently rounds past 2^53, and a ceiling nobody can reach is not
+  // a ceiling. Fails closed like every other unparseable value.
+  expect(resolvePlatformDailyCap('99999999999999999999')).toBe(0);
 });
 ```
 
