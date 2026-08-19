@@ -1192,3 +1192,27 @@ protects: it now holds for post-reset sends specifically, which is what it alway
 revision the code actually implements match the one that entry claimed.
 
 **Verdict:** ACCEPT.
+
+## R2 follow-up (orchestrator) — FOURTH SQL/allowlist coupling break
+
+**Found:** Re-keying `scripts/ci/tenant-scope-allowlist.ts` after the two-floor fix. That is the
+**fourth** time on this branch that editing a SQL statement turned `ci:tenant-scope` red because
+its `sqlSnippet` is matched byte-for-byte:
+
+| # | Edit | Who |
+|---|---|---|
+| 1 | T3 added `bounce_kind` to the lane's bounce UPDATE | orchestrator fixed |
+| 2 | T5 re-shaped `readBreakerWindow` | T5 self-fixed |
+| 3 | B1.4 half-2 added the NULL-kind arm | orchestrator fixed |
+| 4 | R2-1 two-floor rewrite | orchestrator fixed (this entry) |
+
+Four for four. Every SQL edit on this branch broke its allowlist entry — the coupling is total, not
+occasional. The subagent stopped and reported rather than editing outside its brief, which is
+correct behaviour and also why this kept landing back on the orchestrator.
+
+**Lesson, for lab-notes at step 8:** in this repo a SQL statement and its `tenant-scope-allowlist`
+entry are ONE unit. Any task brief that authorises editing a SQL statement must also authorise
+`scripts/ci/tenant-scope-allowlist.ts`, or the task cannot finish. Splitting them across two
+agents' surfaces guarantees a red gate and a hand-off.
+
+**Verdict:** ACCEPT.
