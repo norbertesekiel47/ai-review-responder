@@ -22,7 +22,13 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
-import { evaluateSendBreaker, readSendBreaker, resetSendBreaker } from '../send-breaker';
+import {
+  BREAKER_COMPLAINT_RATE,
+  BREAKER_WINDOW_DAYS,
+  evaluateSendBreaker,
+  readSendBreaker,
+  resetSendBreaker,
+} from '../send-breaker';
 
 // Live-DB suite for the reputation circuit breaker's read model and latch
 // (#898; #622 §3.2B). Four things only the real database can prove:
@@ -39,9 +45,11 @@ import { evaluateSendBreaker, readSendBreaker, resetSendBreaker } from '../send-
 //     bounces too, so `bounced_at` alone cannot serve as the numerator.
 //  4. THE RESET ARM. 110's reset_consistency CHECK makes "who cleared this and
 //     why" unanswerable-by-omission impossible; only the DB enforces it.
-//  5. THE RESET-BOUNDED WINDOW. `GREATEST(NOW() - 7 days, MAX(reset_at))` is
-//     what makes recovery reachable at all, and whether the pre-reset cohort
-//     really leaves the measurement is a fact about SQL, not about TypeScript.
+//  5. THE RESET-BOUNDED WINDOW, which is TWO floors and not one. The rolling
+//     7-day signal floor dates the numerators; the last reset dates rows by
+//     their SEND on BOTH sides. Whether the pre-reset cohort really leaves the
+//     measurement — its late-landing signals included — is a fact about SQL,
+//     not about TypeScript.
 //
 // Applies NO migration SQL (#573): `pnpm test:db:setup` provisions the schema
 // to head and this suite ASSERTS it. Every write runs inside a transaction that
@@ -210,6 +218,96 @@ async function seedSends(
            THEN NOW() - make_interval(days => ${bouncedDaysAgo}::int) END
       FROM generate_series(1, ${opts.sent}::int) AS g
   `;
+}
+
+interface BreakerCounts {
+  sends: number;
+  hardBounces: number;
+  complaints: number;
+}
+
+/**
+ * The window counters AS THE PRE-FIX QUERY COMPUTED THEM — one floor, applied
+ * to the denominator only, with neither numerator conditioned on `sent_at`.
+ *
+ * A frozen record of round-2 adversarial R2-1, not a mirror of anything live:
+ * this shape no longer exists in `send-breaker.ts`, so it cannot drift out of
+ * step with production. Its only job is to stand next to the shipped numbers
+ * over the SAME rows and show that the fixture below discriminates — without
+ * it, "the breaker did not trip" is unfalsifiable, because a fixture that never
+ * had a trailing signal in it would not trip either.
+ */
+async function measureOneFloorShape(tx: postgresType.TransactionSql): Promise<BreakerCounts> {
+  const [row] = await tx<{ sends: number; hard_bounces: number; complaints: number }[]>`
+    WITH bounds AS (
+      SELECT GREATEST(
+               NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int),
+               (SELECT MAX(reset_at) FROM solicitation_send_breaker)
+             ) AS window_start
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends,
+      COUNT(*) FILTER (
+        WHERE o.bounced_at >= b.window_start
+          AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)
+      )::int AS hard_bounces,
+      COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints
+    FROM solicitation_outreach o
+    CROSS JOIN bounds b
+    WHERE o.sent_at >= b.window_start
+       OR o.bounced_at >= b.window_start
+       OR o.complained_at >= b.window_start
+  `;
+  return {
+    sends: row?.sends ?? 0,
+    hardBounces: row?.hard_bounces ?? 0,
+    complaints: row?.complaints ?? 0,
+  };
+}
+
+/**
+ * The shipped two-floor shape, run over the same rows so the two counts can be
+ * read side by side.
+ *
+ * DELIBERATELY NOT THE LOAD-BEARING ASSERTION — `evaluateSendBreaker` is, and
+ * every case here asserts on it. If `readBreakerWindow` ever changes and this
+ * copy does not, the production assertion still governs the verdict and this
+ * one degrades to stale documentation rather than to a false pass.
+ */
+async function measureTwoFloorShape(tx: postgresType.TransactionSql): Promise<BreakerCounts> {
+  const [row] = await tx<{ sends: number; hard_bounces: number; complaints: number }[]>`
+    WITH bounds AS (
+      SELECT
+        NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) AS signal_floor,
+        COALESCE(
+          (SELECT MAX(reset_at) FROM solicitation_send_breaker),
+          '-infinity'::timestamptz
+        ) AS reset_floor
+    )
+    SELECT
+      COUNT(*) FILTER (
+        WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor)
+      )::int AS sends,
+      COUNT(*) FILTER (
+        WHERE o.bounced_at >= b.signal_floor
+          AND o.sent_at >= b.reset_floor
+          AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)
+      )::int AS hard_bounces,
+      COUNT(*) FILTER (
+        WHERE o.complained_at >= b.signal_floor
+          AND o.sent_at >= b.reset_floor
+      )::int AS complaints
+    FROM solicitation_outreach o
+    CROSS JOIN bounds b
+    WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor)
+       OR (o.sent_at >= b.reset_floor
+             AND (o.bounced_at >= b.signal_floor OR o.complained_at >= b.signal_floor))
+  `;
+  return {
+    sends: row?.sends ?? 0,
+    hardBounces: row?.hard_bounces ?? 0,
+    complaints: row?.complaints ?? 0,
+  };
 }
 
 async function countOpenTrips(tx: postgresType.TransactionSql): Promise<number> {
@@ -497,6 +595,85 @@ describeWithDb(
             hard_bounces: 3,
           });
           expect(await countOpenTrips(tx)).toBe(1);
+          throw new Rollback();
+        })
+        .catch(expectRollback);
+    });
+
+    it('a signal that lands after a reset for a send made before it counts on neither side', async () => {
+      // ROUND-2 adversarial R2-1. The sibling case above seeds `bouncedDaysAgo:
+      // 1` on every row, so its signals are always as old as their sends and it
+      // CANNOT see this: the first reset bound conditioned the DENOMINATOR on
+      // `sent_at` and left both numerators dated by their signal alone, so a
+      // send from BEFORE the reset whose complaint landed AFTER it was dropped
+      // from the denominator while still counting in the numerator. One
+      // trailing complaint then read as 1.00% against a fresh 100-send
+      // denominator — over three times the 0.3% bar — and re-tripped the very
+      // recovery the reset bound was added to make reachable.
+      //
+      // Signals lag their sends by minutes to days, so this is the NORMAL shape
+      // of a reset, not a corner: an operator resets while the tail of the bad
+      // cohort is still in flight, by construction.
+      await sql()
+        .begin(async (tx) => {
+          // A pre-reset cohort bad enough to halt the platform.
+          await seedSends(tx, { sent: 100, hardBounced: 3, sentDaysAgo: 3, bouncedDaysAgo: 3 });
+          expect(await evaluateSendBreaker(tx)).not.toBeNull();
+
+          // The operator purges the list and resets. reset_at = NOW(), which is
+          // FIXED for the whole transaction — every "days ago" below is an
+          // offset from that same instant.
+          await resetSendBreaker(tx, {
+            actorUserId: tenant!.userId,
+            note: 'bad list purged; ramp rolled back to stage 1',
+          });
+          expect(await evaluateSendBreaker(tx)).toBeNull();
+
+          // THEN the tail lands: one complaint, for a send made before the
+          // reset. Written here rather than in the fixture precisely so the
+          // ordering is the statement order — the signal arrives after the
+          // operator has already accounted for that cohort.
+          const late = await tx`
+            UPDATE solicitation_outreach
+               SET complained_at = NOW(), updated_at = NOW()
+             WHERE id = (
+               SELECT id FROM solicitation_outreach
+                WHERE business_id = ${businessId()}::uuid
+                  AND bounced_at IS NULL
+                  AND complained_at IS NULL
+                LIMIT 1
+             )
+          `;
+          expect(late.count).toBe(1);
+
+          // Fixture guard: the complaint is not before the reset, and its send
+          // is. Assert the SHAPE before asserting behaviour, so this can never
+          // pass because the fixture quietly stopped straddling the reset.
+          const [straddle] = await tx<{ signal_not_before: boolean; send_before: boolean }[]>`
+            SELECT bool_and(o.complained_at >= b.reset_at) AS signal_not_before,
+                   bool_and(o.sent_at < b.reset_at)        AS send_before
+              FROM solicitation_outreach o
+              CROSS JOIN (SELECT MAX(reset_at) AS reset_at FROM solicitation_send_breaker) b
+             WHERE o.complained_at IS NOT NULL
+          `;
+          expect(straddle).toMatchObject({ signal_not_before: true, send_before: true });
+
+          // The legitimate recovery: 100 clean sends after the reset.
+          await seedSends(tx, { sent: 100, sentDaysAgo: 0 });
+
+          // THE TWO NUMBERS, over the same rows in the same transaction. The
+          // one-floor shape sees a 1% complaint rate and would halt the
+          // platform again; the shipped shape sees none, because the send that
+          // produced that complaint is on the far side of the reset.
+          const oneFloor = await measureOneFloorShape(tx);
+          const twoFloor = await measureTwoFloorShape(tx);
+          expect(oneFloor).toMatchObject({ sends: 100, hardBounces: 0, complaints: 1 });
+          expect(oneFloor.complaints / oneFloor.sends).toBeGreaterThan(BREAKER_COMPLAINT_RATE);
+          expect(twoFloor).toMatchObject({ sends: 100, hardBounces: 0, complaints: 0 });
+
+          // And the verdict that actually governs: production does not re-trip.
+          expect(await evaluateSendBreaker(tx)).toBeNull();
+          expect(await countOpenTrips(tx)).toBe(0);
           throw new Rollback();
         })
         .catch(expectRollback);

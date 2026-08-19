@@ -1098,3 +1098,97 @@ cover was kept as a **second** case rather than dropped.
 `CONTEXT.md`, which the `R1-B1.1` entry already accepted; no new reversal.
 
 **Verdict:** ACCEPT.
+
+## R2-ADV-1 (HIGH) — the reset bound reached the DENOMINATOR only; the two entries above assert a correctness that never held
+
+> Name collision, stated so nobody merges the two: this is round-2 **adversarial** finding R2-1,
+> a CODE defect. The `R2-1` inside the "R2 sweep" entry directly above is a documentation item
+> from the round-2 spec/standards sweep. Different tracks, unrelated content.
+
+**Found:** `R1-B2.1` shipped ONE floor — `GREATEST(NOW() - 7 days, MAX(reset_at))` — and applied
+it to the `WHERE` and to all three `FILTER`s. That reads as symmetric and is not, because the
+numerators are SIGNAL-dated: the reset bound reached them only through `bounced_at` /
+`complained_at`, never through `sent_at`. So a row sent BEFORE a reset whose bounce or complaint
+landed AFTER it was excluded from the denominator while still counting in the numerator. One
+trailing complaint from the purged cohort therefore read as **1.00% against a fresh 100-send
+denominator** — over three times the 0.3% bar — and re-tripped the breaker on the next poll tick.
+That is the same failure `R1-B2.1` was opened to fix, reached by a subtler route, and it is the
+NORMAL shape of a reset rather than a corner: signals lag their sends by minutes to days, so an
+operator always resets while the tail of the bad cohort is still in flight.
+
+**The record, corrected — do NOT read the two sentences below as history that later changed.**
+Both were false the day they were written, and both are left in place because the entries are the
+record:
+
+- `R1-B2.1`, "Is the fix sound?" item 2: *"the next 100 post-reset sends are measured honestly"*.
+  They were not. Their denominator was clean, but the complaint and hard-bounce numerators
+  measured against them still carried the pre-reset cohort's late signals.
+- The `R2 sweep` entry's R2-1: *"pre-reset late-landing bounces no longer count"*. They did count,
+  and that is precisely the defect. The six documentation sites that entry rewrote describe the
+  INTENDED semantics; as of this entry the code finally implements them, so those rewrites are now
+  true and need no further change.
+
+**Did:** `readBreakerWindow` (`src/lib/solicitation/send-breaker.ts`) now derives **two** floors
+that are not interchangeable:
+
+- `signal_floor` = `NOW() - BREAKER_WINDOW_DAYS` — the rolling edge. Numerators are dated by their
+  SIGNAL against this, which preserves locked decision 5's asymmetry intact: a bounce landing today
+  for a POST-reset send made nine days ago still counts, and the ratio may exceed 1.0.
+- `reset_floor` = `COALESCE(MAX(reset_at), '-infinity'::timestamptz)` — a reset means "start
+  measuring afresh", so it bounds a row by its `sent_at`, on BOTH sides.
+
+Denominator: `sent_at >= GREATEST(signal_floor, reset_floor)`. Each numerator:
+`<signal>_at >= signal_floor AND sent_at >= reset_floor`. The outer `WHERE` was widened to
+`sent_at >= GREATEST(signal_floor, reset_floor) OR (sent_at >= reset_floor AND (bounced_at >=
+signal_floor OR complained_at >= signal_floor))` so it stays a correct superset of all three
+`FILTER`s while remaining load-bearing for `R1-B1.2`'s scan bound. No migration; no new column.
+
+The `COALESCE` is load-bearing and reverses `R1-B2.1`'s explicit "a COALESCE would be wrong, not
+merely redundant" — which was right about the shape it described and wrong about this one.
+`GREATEST` ignores NULL arguments, so the round-1 denominator needed none; a bare comparison does
+not. `x >= NULL` is NULL, so an uncoalesced `reset_floor` makes BOTH numerator predicates NULL
+whenever no reset has ever been recorded — silently zeroing the breaker in the state it spends
+most of its life in. Measured on the live test DB over a 120-send fixture with 10 hard bounces and
+10 complaints: the shipped shape reads `10 / 10`, the uncoalesced shape reads `0 / 0`.
+
+**The accompanying test could not have caught this, and that is the second half of the finding.**
+`a reset bounds the window so recovery is reachable and post-reset sends are still measured` seeds
+`bouncedDaysAgo: 1` on every row, so no signal in it is ever NEWER than its own send relative to
+the reset — the one relationship the bug lives in. A green suite therefore certified a defect that
+re-halts the entire product line. Added a case that straddles the reset explicitly: 100 pre-reset
+sends (3 days old) that trip; a real `resetSendBreaker`; then ONE complaint written onto a
+pre-reset send AFTER the reset; then 100 clean post-reset sends. Both FILTER shapes are run over
+that one fixture inside the same transaction and both numbers are asserted — the pre-fix shape
+reads **sends 100 / complaints 1 (1.00% > 0.3%, a re-trip)**, the shipped shape reads **sends 100 /
+complaints 0** — and the load-bearing assertion is still `evaluateSendBreaker` itself returning
+null with zero open trips. Verified red against the pre-fix statement (byte-identical to `HEAD`):
+that one case fails with `complaint_rate 1.00% over 100 sends`, and the other **eleven** stay
+green, which is the proof that the existing suite could not see this.
+
+Also corrected in the same file, because they described the superseded shape and would have
+re-taught it: `readBreakerWindow`'s JSDoc (the "The fix:" paragraph and consequence 2's "measured
+honestly"), and `resetSendBreaker`'s "THE RESET IS ALSO THE WINDOW'S NEW LOWER EDGE" paragraph.
+
+**One writer-unreachable delta, stated rather than hidden.** Conditioning the numerators on
+`sent_at` changes one row class: a row carrying `bounced_at`/`complained_at` with `sent_at` NULL
+counted in the old numerator and does not in the new one. Such a row is not writer-reachable —
+091's `solicitation_outreach_status_timestamp_consistency` CHECK makes `sent_at IS NOT NULL`
+equivalent to `delivery_status = 'sent'`, and the three Solicitation-lane writers (`recordBounce`,
+`recordComplaint`, `recordFailure`) match on `provider_message_id` and touch neither
+`delivery_status` nor `sent_at`. It is schema-representable, so it is recorded here. For every row
+the writers can produce, the no-reset case is byte-identical to the pre-fix query; probed on the
+live test DB over a mixed 106-row fixture, both shapes read `105 / 6 / 2`.
+
+**Blast radius:** one statement in one module, plus three doc comments in the same file and one
+new test case. No migration, no schema change, no route change, no admin-surface change. The six
+documentation sites the `R2 sweep` rewrote become true rather than needing another pass.
+`scripts/ci/tenant-scope-allowlist.ts` keys this statement by a byte-for-byte `sqlSnippet`; the
+statement changed, so that row is re-keyed by the surface owner (see the `R1` surface note above —
+this is the second time this branch has moved it).
+
+**Invalidates a locked decision?** No. Locked decision 5's asymmetry is the thing this change
+protects: it now holds for post-reset sends specifically, which is what it always meant. Decision
+5's CONSEQUENCES were already revised by `R1-B2.1` and are unchanged here — this entry makes the
+revision the code actually implements match the one that entry claimed.
+
+**Verdict:** ACCEPT.

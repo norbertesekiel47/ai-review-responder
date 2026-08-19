@@ -209,13 +209,15 @@ export async function readSendBreaker(sql: Sql | TransactionSql): Promise<SendBr
  * seven-day window would be worse.
  *
  * THE RESET IS ALSO THE WINDOW'S NEW LOWER EDGE. readBreakerWindow bounds every
- * counter by `GREATEST(NOW() - 7 days, MAX(reset_at))`, so the next poller tick
- * measures only what happened AFTER this row was written — which is what makes
- * the reset mean anything at all. Before that bound the breaker measured a
- * history no operator action could change, and a reset re-tripped within one
- * poll interval every time (round-1 review, adversarial-1). The full argument,
- * including why the resulting BREAKER_MIN_SENDS grace period is the intended
- * half-open probe rather than a hole, is on readBreakerWindow.
+ * counter by this timestamp — the denominator and BOTH numerators, each on
+ * `sent_at` — so the next poller tick measures only sends made AFTER this row
+ * was written, which is what makes the reset mean anything at all. Before that
+ * bound the breaker measured a history no operator action could change, and a
+ * reset re-tripped within one poll interval every time (round-1 review,
+ * adversarial-1); bounding the denominator alone left the same re-trip
+ * reachable through a pre-reset send's late signal (round-2, R2-1). The full
+ * argument, including why the resulting BREAKER_MIN_SENDS grace period is the
+ * intended half-open probe rather than a hole, is on readBreakerWindow.
  *
  * Returns `{ reset: false, tripId: null }` when nothing was open — the route
  * maps that to 409, mirroring the unsuspend route's not_suspended arm. Takes a
@@ -269,12 +271,24 @@ export async function resetSendBreaker(
  * for the signals to age out" and "wait for the denominator to fall under
  * BREAKER_MIN_SENDS", i.e. roughly seven days of zero sending.
  *
- * The fix: `GREATEST(NOW() - 7 days, MAX(reset_at))`, applied to the WHERE and
- * to all three FILTERs, so a reset means what an operator thinks it means —
- * only post-reset activity is measured. `GREATEST` IGNORES NULL arguments in
- * Postgres (unlike almost every other function), so with no reset ever
- * recorded this is exactly the old `NOW() - 7 days`; no COALESCE is needed and
- * adding one would be wrong.
+ * The fix, IN TWO ROUNDS, and the first round was incomplete. Round 1 applied
+ * one floor — `GREATEST(NOW() - 7 days, MAX(reset_at))` — to the WHERE and to
+ * all three FILTERs. But the numerators are SIGNAL-dated, so the reset bound
+ * reached them only through `bounced_at` / `complained_at`: a row sent BEFORE
+ * the reset whose signal landed AFTER it left the denominator and stayed in the
+ * numerator. One trailing complaint then read as 1.00% against a fresh 100-send
+ * denominator and re-tripped the recovery this bound exists to make reachable.
+ * Round 2 (adversarial R2-1) splits the floors — see the statement's own
+ * comment — so the reset bounds a row by its SEND on BOTH sides while the
+ * rolling 7-day edge keeps dating the signals.
+ *
+ * The two floors are NOT interchangeable and the COALESCE is not decoration.
+ * `GREATEST` ignores NULL arguments in Postgres (unlike almost every other
+ * function), which is why the round-1 shape needed none; a bare comparison does
+ * not — `x >= NULL` is NULL, so an uncoalesced `reset_floor` would make both
+ * numerator predicates NULL whenever no reset had ever been recorded, silently
+ * zeroing the breaker in exactly the state it spends most of its life in.
+ * `'-infinity'::timestamptz` makes the no-reset case a byte-identical no-op.
  *
  * TWO CONSEQUENCES, both deliberate:
  *
@@ -287,7 +301,10 @@ export async function resetSendBreaker(
  *  2. This CANNOT be abused into silently disabling the breaker. Each reset
  *     buys at most 100 sends of ungoverned volume — three hard bounces inside
  *     that 100 re-trips at once — and the very next 100 post-reset sends are
- *     measured honestly, so a genuinely bad list re-trips almost immediately.
+ *     measured against their OWN signals, so a genuinely bad list re-trips
+ *     almost immediately. What a reset drops is only the pre-reset cohort's
+ *     signals, which is the point of a reset; a post-reset send's late bounce
+ *     still counts, however old that send is.
  *     An admin resetting in a loop is a human problem with a durable audit
  *     trail (append-only table, `reset_by` + non-blank `reset_note` enforced by
  *     110's reset_consistency CHECK), not something the arithmetic must defend
@@ -303,14 +320,41 @@ export async function resetSendBreaker(
  */
 async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWindow> {
   const [row] = await sql<{ sends: number; hard_bounces: number; complaints: number }[]>`
+    -- TWO floors, and they are not interchangeable (round-2 adversarial R2-1).
+    --
+    --   signal_floor — the rolling 7-day edge. Numerators are dated by their
+    --     SIGNAL against this, which is locked decision 5's asymmetry: a bounce
+    --     landing today for a send nine days ago still counts, so the ratio can
+    --     exceed 1.0. That is a trip, not a bug.
+    --   reset_floor  — the last admin reset. A reset means "start measuring
+    --     afresh", so it bounds rows by their SEND, on both sides.
+    --
+    -- The first shape applied one floor to the denominator only, which left
+    -- recovery unreachable by a subtler route than the bug it replaced: a send
+    -- from BEFORE the reset whose complaint lands AFTER it was excluded from the
+    -- denominator but still counted in the numerator, so a single trailing
+    -- complaint read as 1.00% against a fresh 100-send denominator and re-tripped
+    -- a legitimate recovery. Numerators therefore carry the reset floor on
+    -- sent_at too — the operator has already accounted for pre-reset sends;
+    -- their late signals must not re-litigate that.
+    --
+    -- COALESCE to -infinity, never NULL: a NULL reset_floor would make every
+    -- numerator comparison NULL and silently zero the breaker.
+    --
+    -- NO BACKTICKS BELOW THIS LINE. This is a tagged template literal, so one
+    -- inside a SQL comment ends the string and the file stops parsing.
     WITH bounds AS (
-      SELECT GREATEST(
-               NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int),
-               (SELECT MAX(reset_at) FROM solicitation_send_breaker)
-             ) AS window_start
+      SELECT
+        NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) AS signal_floor,
+        COALESCE(
+          (SELECT MAX(reset_at) FROM solicitation_send_breaker),
+          '-infinity'::timestamptz
+        ) AS reset_floor
     )
     SELECT
-      COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends,
+      COUNT(*) FILTER (
+        WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor)
+      )::int AS sends,
       -- UNCLASSIFIED BOUNCES COUNT AS HARD (spec-3 / B1.4), and this half is
       -- required for the lane's half to mean anything. classifyBounce defaults
       -- an unrecognised or missing bounce.type to 'soft'; that default was tuned
@@ -322,15 +366,19 @@ async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWind
       -- hard bounces, not silently drop it. Dropping it is exactly how a Resend
       -- payload-shape change would make the breaker never trip.
       COUNT(*) FILTER (
-        WHERE o.bounced_at >= b.window_start
+        WHERE o.bounced_at >= b.signal_floor
+          AND o.sent_at >= b.reset_floor
           AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)
       )::int AS hard_bounces,
-      COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints
+      COUNT(*) FILTER (
+        WHERE o.complained_at >= b.signal_floor
+          AND o.sent_at >= b.reset_floor
+      )::int AS complaints
     FROM solicitation_outreach o
     CROSS JOIN bounds b
-    WHERE o.sent_at >= b.window_start
-       OR o.bounced_at >= b.window_start
-       OR o.complained_at >= b.window_start
+    WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor)
+       OR (o.sent_at >= b.reset_floor
+             AND (o.bounced_at >= b.signal_floor OR o.complained_at >= b.signal_floor))
   `;
   const sends = row?.sends ?? 0;
   const hardBounces = row?.hard_bounces ?? 0;
