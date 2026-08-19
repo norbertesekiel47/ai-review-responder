@@ -153,7 +153,16 @@ export interface TenantScopeAllowlistEntry {
 //     cannot express it (#622 §3.2A). Its sibling
 //     `countAccountDispatchAttemptsToday` binds `account_id` in a TOP-LEVEL
 //     predicate and needs no entry.
-export const ALLOWLIST_BASELINE = 382;
+//   - 2026-08-19 (382 → 383): #898's reputation circuit breaker
+//     (`readBreakerWindow`, `src/lib/solicitation/send-breaker.ts`). One
+//     cross-account three-counter aggregate over the rolling 7-day Breaker
+//     window (#622 §3.2B). Cross-account for a stronger reason than the
+//     ceiling: the breaker protects the one shared Sending identity, so a
+//     per-tenant bounce or complaint rate measures the wrong thing entirely.
+//     The breaker's other statements need no entry —
+//     `solicitation_send_breaker` is platform-scoped and therefore not a
+//     TENANT_TABLES member.
+export const ALLOWLIST_BASELINE = 383;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -193,6 +202,11 @@ export const CATEGORY_PATH_RULES: Partial<
       // precondition, so it lives with its domain and keeps explicit Sql
       // injection (invariant #15). It projects one integer and no tenant rows.
       'src/lib/solicitation/send-caps.ts',
+      // The reputation circuit breaker's read model (#622 §3.2B). Same
+      // argument as send-caps.ts and one step further: the breaker guards the
+      // one shared Sending identity, so its window has no tenant to scope to.
+      // Its admin reset arm is a route concern and lives under src/app/api.
+      'src/lib/solicitation/send-breaker.ts',
     ],
   },
   'background-global-scan': {
@@ -3067,6 +3081,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT COUNT(*)::int AS count FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
     category: 'platform-cross-account',
     reason: "countPlatformDispatchAttemptsToday (#898, #622 §3.2A) — the figure the platform daily ceiling bounds. Cross-account BY DESIGN: the ceiling is the blast-radius bound for a runaway fan-out across the one shared Sending identity, so a tenant-scoped view cannot express it — scoping it per account would make the platform-wide brake unreachable. Read-only, projects one integer and no tenant rows or provenance. Its sibling countAccountDispatchAttemptsToday binds account_id in a TOP-LEVEL predicate and is deliberately NOT allowlisted.",
+  },
+  {
+    file: "src/lib/solicitation/send-breaker.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: "SELECT COUNT(*) FILTER ( WHERE sent_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS sends, COUNT(*) FILTER ( WHERE bounce_kind = 'hard' AND bounced_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS hard_bounces, COUNT(*) FILTER ( WHERE complained_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) )::int AS complaints FROM solicitation_outreach",
+    category: 'platform-cross-account',
+    reason: "readBreakerWindow (#898, #622 §3.2B) — the reputation circuit breaker's rolling 7-day read model. Cross-account BY DESIGN, and for a stronger reason than the daily ceiling above: the asset the breaker protects is the ONE shared Sending identity (one mailbox, one sending domain), so a per-tenant hard-bounce or complaint rate is not a smaller version of this measurement but a different and useless one — a single account's bad list burns the deliverability every other account sends on. Read-only; three FILTERed counters in ONE statement so the numerators and the denominator describe the same instant. Projects three integers and no tenant rows, ids or provenance.",
   },
   {
     file: "src/lib/admin/suppressions-service.ts",
