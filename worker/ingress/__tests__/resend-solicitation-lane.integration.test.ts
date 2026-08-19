@@ -194,6 +194,8 @@ interface OutreachSnapshot {
   disposition_reason: string | null;
   provider_error: string | null;
   bounced_at: string | null;
+  /** 110's hard/soft discriminator — the breaker's numerator (#898). */
+  bounce_kind: string | null;
   complained_at: string | null;
   unsubscribed_at: string | null;
   sent_at: string | null;
@@ -207,6 +209,7 @@ async function readOutreach(outreachId: string): Promise<OutreachSnapshot> {
            disposition_reason,
            provider_error,
            bounced_at::text     AS bounced_at,
+           bounce_kind,
            complained_at::text  AS complained_at,
            unsubscribed_at::text AS unsubscribed_at,
            sent_at::text        AS sent_at,
@@ -517,6 +520,24 @@ describeWithDb(
       const row = await readOutreach(seeded.outreachId);
       expect(row.provider_error).toBe('bounced:soft:unknown');
       expect(await readLedger(seeded.handle)).toHaveLength(0);
+    });
+
+    it('the solicitation lane records bounce_kind hard for a permanent bounce and soft for a transient one', async () => {
+      // The reputation circuit breaker's numerator (#898, #622 §3.2B). It cannot
+      // read `provider_error`: recordFailure COALESCEs `failed:<reason>` into
+      // that same column, so an `email.failed` arriving first masks a real hard
+      // bounce — the fail-OPEN direction on a governor specified to fail closed.
+      const permanent = await seedOutreach({ providerMessageId: 'msg_bounce_kind_hard' });
+      await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_bounce_kind_hard', {
+        bounce: { type: 'Permanent' },
+      });
+      expect((await readOutreach(permanent.outreachId)).bounce_kind).toBe('hard');
+
+      const transient = await seedOutreach({ providerMessageId: 'msg_bounce_kind_soft' });
+      await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_bounce_kind_soft', {
+        bounce: { type: 'Transient' },
+      });
+      expect((await readOutreach(transient.outreachId)).bounce_kind).toBe('soft');
     });
 
     // ── §5.3 complaint ────────────────────────────────────────────────────
