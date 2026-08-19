@@ -43,6 +43,7 @@ Only `allowed_edit_surface` changes count toward the 2-amendment abort budget.
 |---|---|---|---|
 | 1 | 2026-08-19 | +`src/lib/shared/__tests__/helpers/schema-ready.ts` | owner sign-off |
 | 2 | 2026-08-19 | +`src/components/admin/nav-config.ts` | owner sign-off (abort criterion waived) |
+| 3 | 2026-08-19 | +`docs/.../2026-07-28-send-mode-cross-spec-amendments.md` | owner directed round-1 fix-all; step 0 re-run performed |
 
 ## plan round 1 — codex unavailable; orchestrator ran the review
 
@@ -670,3 +671,31 @@ leaving `readSendBreaker` uncalled; diff-coverage 351/351 (100%).
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## SURFACE AMENDMENT 3 of 2 — spec amendments doc (budget over-run, owner-directed)
+
+**Found:** Round 1 returned 6 high / 8 medium / 9 low. The owner directed that ALL bucket-2
+findings be fixed on this branch, including the two that are #900 INTERACTIONS. Recording
+the outcome of that fix requires editing the cross-spec amendments doc (the doc that "wins
+on conflict"), which was never in surface.
+
+**Step 0 re-run, as the rules require when the budget is exceeded** — measured, not asserted:
+
+| bucket | estimate | actual | ratio | trigger at |
+|---|---|---|---|---|
+| production | 750 | 1003 | 1.34x | 2x |
+| test | 1750 | 1838 | 1.05x | 2x |
+
+Both under the reclassify trigger. Classification UNCHANGED: RISK=high, SURFACE=mixed,
+SIZE=normal. Estimates re-based to 1150 / 2000 to cover the round-1 fixes.
+
+**The honest read on three amendments:** none was scope sprawl. All three were files the
+feature always had to touch and my intake failed to enumerate — a schema-ready constant, a
+nav registry row, and the spec doc that records a design decision. The abort criterion is
+tuned for scope growth and fired on plan incompleteness instead. That distinction is the
+lesson, and it belongs in lab-notes at step 8.
+
+**Invalidates a locked decision?** The round-1 fixes DO revise locked decisions 2 and 5's
+consequences — recorded per-fix in the entries that follow.
+
+**Verdict:** ACCEPT (owner-directed).

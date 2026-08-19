@@ -83,7 +83,8 @@
     "docs/superpowers/plans/**",
     "docs/reviews/**",
     "src/lib/shared/__tests__/helpers/schema-ready.ts",
-    "src/components/admin/nav-config.ts"
+    "src/components/admin/nav-config.ts",
+    "docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md"
   ],
   "tests_to_add": [
     "migration 110 admits no_postal_address and postal_address_mismatch on the withheld arm",
@@ -125,8 +126,8 @@
     "countPlatformDispatchAttemptsToday counts dispatch attempts across every account in the UTC day"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "750",
-  "estimated_test_lines": "1750",
+  "estimated_prod_lines": "1150",
+  "estimated_test_lines": "2000",
   "dependencies_added": [],
   "rollback_plan": "Code revert is sufficient and inert: the governors have no production caller until #900 wires them, and the health check is the only live consumer. To back the schema out, apply the reverse in one transaction against staging then prod \u2014 DROP TABLE solicitation_send_breaker; ALTER TABLE solicitation_outreach DROP COLUMN bounce_kind; then re-ADD solicitation_outreach_status_reason_consistency with migration 109's CHECK text verbatim. No data migration to reverse: no send worker exists, so no row in any environment carries sent_at or bounce_kind. Migration applies to the staging Supabase project first and to prod in lockstep at promotion. The new-migration skill governs the migration file itself and is invoked before the first line of SQL.",
   "observability": [
