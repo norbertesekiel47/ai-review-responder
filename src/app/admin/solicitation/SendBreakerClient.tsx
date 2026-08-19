@@ -139,9 +139,11 @@ function MetricsSnapshot({
 }
 
 function ResetForm({
+  thresholds,
   pending,
   onReset,
 }: {
+  thresholds: BreakerThresholds;
   pending: boolean;
   onReset: (input: { note: string }) => void;
 }) {
@@ -161,8 +163,20 @@ function ResetForm({
       </label>
       <p className="text-xs text-gray-500">
         What changed since the trip — the ramp stage you rolled back, the list you
-        suppressed. Resetting a still-breached window is allowed and re-trips on the next
-        health check, by design.
+        suppressed.
+      </p>
+      {/* This copy is load-bearing, not decoration: an operator who believes a
+          reset is futile will not press it during a platform-wide halt, and an
+          operator who believes it is a free look will use it to "check" the
+          breach and instead zero the measurement. Both errors are closed here.
+          The runbook's long form is §8.4 of solicitation-sending-domain.md. */}
+      <p className="text-xs text-gray-500">
+        Resetting is a real recovery. The measured window&rsquo;s lower edge moves to the
+        moment you reset, so only sending from that point on is counted, and the breaker
+        stays quiet until {formatAdminCount(thresholds.minSends)} fresh sends accumulate —
+        a bounded half-open probe, not a blind re-arm. Roll the platform daily cap down
+        first so those sends go out at reduced volume. Bounces for earlier sends that land
+        after the reset fall outside the new window and are not counted.
       </p>
       <textarea
         id="breaker-reset-note"
@@ -209,7 +223,7 @@ function TripPanel({
         </p>
       </div>
       <MetricsSnapshot metrics={trip.metrics} thresholds={thresholds} />
-      <ResetForm pending={pending} onReset={onReset} />
+      <ResetForm thresholds={thresholds} pending={pending} onReset={onReset} />
     </div>
   );
 }
@@ -262,7 +276,7 @@ function QueryResult({
       {data.trip === null ? (
         <EmptyState
           title="Breaker not tripped"
-          detail="Solicitation sending is running. The health check re-measures the last 7 days on every tick."
+          detail={`Solicitation sending is running. The health check re-measures the last ${thresholds.windowDays} days on every tick.`}
         />
       ) : (
         <TripPanel

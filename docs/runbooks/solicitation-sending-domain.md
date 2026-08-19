@@ -368,8 +368,19 @@ tags.finding=solicitation_send_breaker_tripped
 - **Detail is aggregate-only** — counts, rates, thresholds, `min_sends`,
   `window_days`, `trip_reason`. Never a recipient address, subject or body: this
   finding leaves the platform through an alert sink.
-- **It pages once, not every tick.** The trip insert conflicts on the
-  one-open-trip partial index, so a second breached tick is a no-op.
+- **It re-pages on every tick while the trip stays open — level-triggered, not
+  an alerting bug.** The trip *insert* is still a no-op on a second breached tick
+  (it conflicts on the one-open-trip partial index), but the poller probes for an
+  open trip **first** and returns a finding whenever one stands, so events keep
+  arriving for as long as sending is halted. The re-page carries a different but
+  deliberately **constant** title — `Solicitation sending is STILL halted — the
+  <reason> breaker trip is open and has not been reset` — under the same
+  `tags.finding` routing key, so Sentry collapses the repeats into one issue that
+  keeps receiving events instead of opening a fresh one every five minutes.
+  **An open breaker is a STATE, not an event**, which is the whole reason this is
+  level-triggered: one dropped page must never equal a silent platform-wide halt,
+  so the condition is re-asserted until an operator resets it. A stream of repeats
+  reads "still halted", never "paging is broken".
 
 **Trip latency is bounded by one `HEALTH_ALERT_POLL_INTERVAL_MS`** (default
 300000 ms = 5 min; row in `beta-launch-alerting.md` §5). That bound is the price
@@ -391,11 +402,15 @@ batches into cancelled ones, platform-wide.
    consent problem. A rate that exceeds 1.0 means the bounces belong to sends
    older than the window — look at what was sent 8–14 days ago, not at today.
 3. **Roll `SOLICITATION_PLATFORM_DAILY_CAP` down one stage** per the §5 ramp
-   table, following the `flag-flip` skill. Do this *before* resetting: the
-   breaker stops sending, the ceiling is what keeps the next window from
-   re-breaching. Railway restarts the worker on the change (§7).
-4. **Only then reset** (§8.4). A reset with the ceiling untouched is a reset that
-   will re-trip.
+   table, following the `flag-flip` skill. Do this *before* resetting, and the
+   reason is the shape of what a reset starts: the reset moves the measurement
+   window's lower edge to the reset instant, so the breaker is deliberately quiet
+   until 100 fresh sends have accumulated (§8.4). The ceiling is what governs how
+   much mail goes out inside that quiet period. Railway restarts the worker on
+   the change (§7).
+4. **Only then reset** (§8.4). Resetting with the ceiling untouched does not
+   re-trip on the next tick — it spends the whole 100-send probe at the volume
+   that just breached.
 5. **Never advance a ramp stage on a window that tripped**, even after a reset —
    §5's advance rule is unchanged by the reset.
 
@@ -416,14 +431,37 @@ automatic reset: a breach is a fact someone has to look at.
 - Resetting when nothing is open returns **409 `not_tripped`**; that is the
   expected answer to a double-submit, not an error to chase.
 
-**Resetting a still-breached window re-trips on the next poller tick, and that is
-by design.** The reset is permitted — an operator who has just rolled the ceiling
-down should not have to wait out a seven-day window — but the next
-`evaluateSendBreaker` re-measures honestly and trips again if the breach still
-stands. Read a same-day re-trip as "the window has not recovered yet", not as a
-bug in the reset. If you need sending stopped while you work, the honest control
-is `SOLICITATION_PLATFORM_DAILY_CAP=0` or `SOLICITATION_SEND_ENABLED=false` (§7),
-not repeatedly clearing the latch.
+**A reset is a real recovery, not a gesture — and it does NOT re-trip on the next
+poller tick.** `readBreakerWindow` bounds every counter at
+`GREATEST(NOW() - 7 days, MAX(reset_at))`, so the reset moves the window's lower
+edge to the reset instant and only **post-reset** activity is ever measured
+again. Immediately after a reset the window is empty, `BREAKER_MIN_SENDS` holds
+the breaker quiet until **100 fresh sends** accumulate, and the very next
+`evaluateSendBreaker` returns nothing. That silence is the expected answer;
+reading it as "the window recovered on its own" is the error this section exists
+to prevent.
+
+**What the reset actually buys you is a bounded half-open probe** — roughly 100
+sends of un-governed volume, measured honestly, after which the breaker judges
+the *new* window and trips again if the list is still bad. That is why §8.3 puts
+the ceiling roll-down **before** the reset: the ceiling is the only thing bounding
+how much mail leaves during the probe. It is not a blind re-arm, and it is not a
+free look either — an operator who resets "just to check whether the breach still
+stands" has not checked anything, they have **zeroed the measurement** and started
+the probe.
+
+**Pre-reset bounces that land late no longer count, and that exclusion IS the
+fix.** A bounce for a send made before the reset, arriving after it, falls outside
+the new lower edge and is dropped from the numerator. Before this bound the
+breaker measured a history no operator action could change, so a reset re-tripped
+within one poll interval every time and recovery was arithmetically unreachable.
+Excluding the pre-reset tail is what makes the reset mean something.
+
+If you need sending stopped while you work, the honest control is
+`SOLICITATION_PLATFORM_DAILY_CAP=0` or `SOLICITATION_SEND_ENABLED=false` (§7), not
+the latch — and note that with the reset now bounding the window, repeatedly
+clearing the latch is worse than useless: each reset restarts the 100-send quiet
+period.
 
 ### 8.5 What a trip costs the batches already in flight
 
@@ -462,6 +500,9 @@ Practical consequences for the operator:
   so `MIN_GAP_DAYS` withholds those contacts as `over_contacted` on any rebuild
   inside 30 days (ADR 0020 § "Cost, as verified"). Advise owners to wait rather
   than immediately rebuild.
-- **This is why §8.3 step 3 comes before step 4.** Resetting without rolling the
-  ceiling down re-trips, and each re-trip restarts the clock on a fresh 72 hours
-  of approvals.
+- **This is why §8.3 step 3 comes before step 4.** A reset does not re-trip on
+  the next tick — it opens a ~100-send half-open probe (§8.4) — so the ceiling is
+  the only thing bounding how much mail goes out while the breaker is quiet.
+  Reset with the ceiling untouched and the probe runs at the volume that just
+  breached; if it breaches again, the new trip restarts this clock on a fresh 72
+  hours of approvals.

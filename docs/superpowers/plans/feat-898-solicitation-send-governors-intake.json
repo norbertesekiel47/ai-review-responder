@@ -40,7 +40,7 @@
     "Fewer than 100 sends in the 7-day window never trips the breaker however bad the rate",
     "The numerator is signal-dated (bounced_at / complained_at in window) while the denominator is send-dated (sent_at in window), so the ratio can exceed 1.0 in a pathological burst \u2014 that is a trip, not a bug",
     "A second breach while a trip is already open is a no-op, not a constraint error \u2014 the trip insert tolerates the one-open partial index",
-    "An admin reset while the window is still breached is permitted and the next poller tick re-trips honestly; the runbook says so",
+    "An admin reset while the window is still breached is permitted and does NOT re-trip on the next poller tick: readBreakerWindow bounds every counter at GREATEST(NOW() - 7 days, MAX(reset_at)), so the reset moves the window's lower edge to the reset instant and only post-reset activity is measured. BREAKER_MIN_SENDS then holds the breaker quiet until 100 fresh sends accumulate — a bounded half-open probe, not a blind re-arm. Pre-reset bounces that land late fall outside the new edge and are not counted; that exclusion IS the fix, because before the bound the breaker measured a history no operator action could change and recovery was arithmetically unreachable",
     "The health check runs unconditionally, including when SOLICITATION_SEND_ENABLED is false, because the Solicitation lane records webhook facts regardless (rule DR1)",
     "Worst-case trip latency is one HEALTH_ALERT_POLL_INTERVAL_MS window (5 min default) \u2014 bounded and stated, not eliminated",
     "The new health check must join the SEQUENTIAL list in runHealthChecks \u2014 a Promise.all peer wedges the max:2 bulkhead client (#505)",

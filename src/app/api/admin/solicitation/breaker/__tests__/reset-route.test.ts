@@ -8,14 +8,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // and the route module is imported dynamically inside each case so the mocks
 // are in place first.
 
-const { gateMock, resetSendBreakerMock, mockSql, resetMockSql } = await vi.hoisted(async () => {
-  const helpers = await import('../../../../../../../worker/__tests__/helpers/mock-sql');
-  return {
-    gateMock: vi.fn(),
-    resetSendBreakerMock: vi.fn(),
-    ...helpers.createMockSql(),
-  };
-});
+const { gateMock, resetSendBreakerMock, loggerMock, mockSql, resetMockSql } = await vi.hoisted(
+  async () => {
+    const helpers = await import('../../../../../../../worker/__tests__/helpers/mock-sql');
+    return {
+      gateMock: vi.fn(),
+      resetSendBreakerMock: vi.fn(),
+      loggerMock: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      ...helpers.createMockSql(),
+    };
+  },
+);
 
 vi.mock('@/lib/auth/admin-mfa-gate', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/auth/admin-mfa-gate')>();
@@ -23,6 +26,11 @@ vi.mock('@/lib/auth/admin-mfa-gate', async (importOriginal) => {
 });
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
+
+vi.mock('@/lib/shared/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/shared/logger')>();
+  return { ...actual, createWorkerLogger: () => loggerMock };
+});
 
 vi.mock('@/lib/solicitation/send-breaker', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/solicitation/send-breaker')>();
@@ -110,6 +118,44 @@ describe('admin send-breaker reset route', () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'not_tripped' });
+  });
+
+  // The intake's promised admin-reset observability line (round-2 R2-3). The
+  // durable `solicitation_send_breaker` row is the audit record, but nothing
+  // joined the reset to a request in the log stream, so a post-incident review
+  // could not place it next to whatever else that admin did in the same window.
+  it('the breaker reset route logs the actor and the trip id, and never the note text', async () => {
+    const POST = await loadPost();
+
+    const response = await POST(makeRequest({ note: 'suppressed the 2026-08-14 import' }));
+
+    expect(response.status).toBe(200);
+    expect(loggerMock.log).toHaveBeenCalledWith('admin_send_breaker_reset', {
+      reset: true,
+      tripId: 'trip-1',
+      actorUserId: ADMIN_ID,
+      hasNote: true,
+    });
+
+    // PRESENCE, never content: the note is free text an operator typed, and its
+    // durable home is the access-controlled row, not a log sink. Assert against
+    // the whole serialized call so a future field carrying it fails here.
+    expect(JSON.stringify(loggerMock.log.mock.calls)).not.toContain('suppressed the');
+  });
+
+  it('the breaker reset route logs the no-op arm with a null trip id', async () => {
+    // A double-submit is legible in the stream too — `tripId` is null exactly
+    // when nothing was open, which is what distinguishes it from a real reset.
+    resetSendBreakerMock.mockResolvedValue({ reset: false, tripId: null });
+    const POST = await loadPost();
+
+    expect((await POST(makeRequest({ note: 'nothing to clear' }))).status).toBe(409);
+    expect(loggerMock.log).toHaveBeenCalledWith('admin_send_breaker_reset', {
+      reset: false,
+      tripId: null,
+      actorUserId: ADMIN_ID,
+      hasNote: true,
+    });
   });
 
   it('the breaker reset route requires a non-empty note', async () => {

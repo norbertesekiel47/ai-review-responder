@@ -1038,6 +1038,22 @@ export async function readSendBreaker(sql: Sql | TransactionSql): Promise<SendBr
 }
 ```
 
+> ### ⚠ CORRECTED 2026-08-19 — `src/lib/solicitation/send-breaker.ts` IS THE SOURCE OF TRUTH
+>
+> The snippets from here to the end of this task were written **before** the branch
+> review and shipped four shapes that were then deliberately abandoned. They have
+> been corrected in place, but **the file is authoritative**: if a snippet below
+> disagrees with `src/lib/solicitation/send-breaker.ts`, the file is right and the
+> snippet is stale. Do not copy from here without diffing against it. What changed,
+> and why, so a resumed session cannot re-derive a fixed defect:
+>
+> | Superseded shape | Replaced by | Why |
+> |---|---|---|
+> | Paging edge-triggered — `if (!inserted) return null` as the only "already open" arm, "pages once, not every five minutes" | **Level-triggered**: probe for an open trip FIRST and return `openTripFinding` on every tick while one stands | An open breaker is a STATE; one dropped event must not equal a silent platform-wide halt (B1.1) |
+> | `readBreakerWindow` with **no `WHERE`**, only aggregate `FILTER`s | A real `WHERE` on the three-way OR | `FILTER` does not restrict the scan — the old shape read every row the append-only table has ever held, once per poll cycle, forever (B1.2) |
+> | Window lower edge `NOW() - BREAKER_WINDOW_DAYS`, no reset bound | `GREATEST(NOW() - 7 days, MAX(reset_at))` | Without it the breaker measured a history no operator action could change and a reset re-tripped within one poll interval — recovery was arithmetically unreachable (B2.1) |
+> | `bounce_kind = 'hard'` with no NULL arm | `bounce_kind = 'hard' OR bounce_kind IS NULL` | The lane now leaves an unrecognised bounce NULL rather than asserting `'soft'`; a fail-CLOSED governor must count it (B1.4) |
+
 **`evaluateSendBreaker`** — the read model, the trip, and the page:
 
 ```typescript
@@ -1060,23 +1076,35 @@ export async function readSendBreaker(sql: Sql | TransactionSql): Promise<SendBr
  * Cross-account BY DESIGN — the asset protected is the shared Sending
  * identity, not one tenant's. Allowlisted in tenant-scope-allowlist.ts.
  *
- * Idempotent while a trip is open: the INSERT tolerates the one-open partial
- * unique index, so a second breached tick is a no-op and pages once, not every
- * five minutes.
+ * LEVEL-TRIGGERED (B1.1). The open-trip probe runs FIRST and re-pages on every
+ * tick while a trip stands, because an open breaker is a STATE, not an event —
+ * one dropped page must never equal a silent platform-wide halt. The INSERT is
+ * still idempotent against the one-open partial unique index, but that no-op is
+ * a WRITE property and is no longer what decides whether we page. Probing first
+ * also skips the expensive aggregate entirely while sending is halted.
  */
 export async function evaluateSendBreaker(sql: Sql | TransactionSql): Promise<HealthFinding | null> {
-  const window = await readBreakerWindow(sql);
-  const reason = classifyBreach(window);
+  const state = await readSendBreaker(sql);
+  // Re-page while the trip stands, INCLUDING after the breaching signals have
+  // aged out of the window: the halt outlives the breach that caused it,
+  // because only an admin reset clears it.
+  if (state.trip) return openTripFinding(state.trip);
+
+  const breakerWindow = await readBreakerWindow(sql);
+  const reason = classifyBreach(breakerWindow);
   if (reason === null) return null;
 
   const [inserted] = await sql<{ id: string }[]>`
     INSERT INTO solicitation_send_breaker (id, trip_reason, metrics)
-    VALUES (${uuidv7()}, ${reason}, ${sql.json(window)})
+    VALUES (${uuidv7()}, ${reason}, ${sql.json(breakerWindow)})
     ON CONFLICT ((reset_at IS NULL)) WHERE reset_at IS NULL DO NOTHING
     RETURNING id
   `;
-  if (!inserted) return null;   // a trip was already open — do not re-page
-  return breakerFinding(reason, window);
+  // Lost the probe→insert race to a concurrent tripper. NOT the edge-triggered
+  // bug: a trip is now open, so the very next tick's probe pages on it. The
+  // exposure is one poll interval, and the worker is single-replica.
+  if (!inserted) return null;
+  return breakerFinding(reason, breakerWindow);
 }
 ```
 
@@ -1086,19 +1114,35 @@ Write the three private helpers in the same file:
 
 ```typescript
 async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWindow> {
+  // THE `WHERE` IS LOAD-BEARING (B1.2): aggregate FILTER predicates do not
+  // restrict the scan. And the lower edge is GREATEST(cutoff, MAX(reset_at))
+  // (B2.1), so an admin reset moves the window's floor to the reset instant —
+  // only post-reset activity is measured, which is what makes recovery
+  // reachable at all. BREAKER_MIN_SENDS then keeps the breaker quiet until 100
+  // fresh sends accumulate: a bounded half-open probe, not a blind re-arm.
   const [row] = await sql<{ sends: number; hard_bounces: number; complaints: number }[]>`
+    WITH bounds AS (
+      SELECT GREATEST(
+               NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int),
+               (SELECT MAX(reset_at) FROM solicitation_send_breaker)
+             ) AS window_start
+    )
     SELECT
+      COUNT(*) FILTER (WHERE o.sent_at >= b.window_start)::int AS sends,
+      -- UNCLASSIFIED BOUNCES COUNT AS HARD (B1.4): the lane leaves bounce_kind
+      -- NULL for an unrecognised provider type rather than asserting 'soft', and
+      -- a fail-CLOSED governor must count "bounced but unclassifiable" with the
+      -- hard bounces. Dropping it is how a payload-shape change never trips.
       COUNT(*) FILTER (
-        WHERE sent_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS})
-      )::int AS sends,
-      COUNT(*) FILTER (
-        WHERE bounce_kind = 'hard'
-          AND bounced_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS})
+        WHERE o.bounced_at >= b.window_start
+          AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)
       )::int AS hard_bounces,
-      COUNT(*) FILTER (
-        WHERE complained_at >= NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS})
-      )::int AS complaints
-    FROM solicitation_outreach
+      COUNT(*) FILTER (WHERE o.complained_at >= b.window_start)::int AS complaints
+    FROM solicitation_outreach o
+    CROSS JOIN bounds b
+    WHERE o.sent_at >= b.window_start
+       OR o.bounced_at >= b.window_start
+       OR o.complained_at >= b.window_start
   `;
   const sends = row?.sends ?? 0;
   const hardBounces = row?.hard_bounces ?? 0;
@@ -1135,8 +1179,14 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
  *
  * Resetting a still-breached window is PERMITTED and correct: the operator may
  * have just rolled the ceiling down, and forcing them to wait out a 7-day
- * window would be worse. The next poller tick re-evaluates honestly and
- * re-trips if the breach stands. The runbook says so.
+ * window would be worse.
+ *
+ * THE RESET IS ALSO THE WINDOW'S NEW LOWER EDGE (B2.1). readBreakerWindow bounds
+ * every counter by GREATEST(NOW() - 7 days, MAX(reset_at)), so the next poller
+ * tick measures only post-reset activity and does NOT re-trip — BREAKER_MIN_SENDS
+ * holds it quiet until 100 fresh sends accumulate. Pre-reset bounces that land
+ * late fall outside the new edge and are not counted; that exclusion is the fix,
+ * not a gap. Runbook §8.4 of docs/runbooks/solicitation-sending-domain.md.
  *
  * Returns { reset: false } when nothing was open — the route maps that to 409,
  * mirroring the unsuspend route's not_suspended arm.
@@ -1271,7 +1321,7 @@ git commit -m "feat(898): admin send-breaker reset route + /admin/solicitation S
 
 - [ ] **Step 1: Runbook §8 — do NOT create a new file**
 
-Add §8 *Reputation circuit breaker* to `docs/runbooks/solicitation-sending-domain.md`, after §7. It must **link** to §5's ramp table and §6's seed gate, never restate them — those facts keep exactly one owner (the #643 lesson). §8 covers: the read model and its two thresholds; what a trip page looks like (`solicitation_send_breaker_tripped`); the diagnosis order (check the window figures, then roll `SOLICITATION_PLATFORM_DAILY_CAP` down a stage per §5, then reset); the reset procedure at `/admin/solicitation` with its mandatory note; and the explicit statement that **resetting a still-breached window re-trips on the next poller tick, by design**.
+Add §8 *Reputation circuit breaker* to `docs/runbooks/solicitation-sending-domain.md`, after §7. It must **link** to §5's ramp table and §6's seed gate, never restate them — those facts keep exactly one owner (the #643 lesson). §8 covers: the read model and its two thresholds; what a trip page looks like (`solicitation_send_breaker_tripped`); the diagnosis order (check the window figures, then roll `SOLICITATION_PLATFORM_DAILY_CAP` down a stage per §5, then reset); the reset procedure at `/admin/solicitation` with its mandatory note; and the explicit statement — **corrected 2026-08-19, this line originally said the opposite** — that **a reset does NOT re-trip on the next poller tick**: it moves the window's lower edge to the reset instant, so only post-reset activity is measured and `BREAKER_MIN_SENDS` holds the breaker quiet until 100 fresh sends accumulate. That is a bounded half-open probe, which is also the replacement rationale for putting the ceiling roll-down before the reset (the ceiling bounds volume during the probe).
 
 - [ ] **Step 2: Cross-reference from the alerting runbook**
 

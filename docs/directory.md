@@ -907,9 +907,12 @@ Phase 2 Solicitation agent (watch-mode first).
 > The breaker is a **platform singleton, not a per-tenant dial**, because the
 > asset it protects is the shared **Sending identity** — one mailbox, one sending
 > domain, every account. It never self-clears; the operator procedure (diagnosis
-> order, the `/admin/solicitation` reset, and why resetting a still-breached
-> window re-trips by design) is `docs/runbooks/solicitation-sending-domain.md`
-> §8, and the ramp it is the automatic counterpart to is that runbook's §5.
+> order, the `/admin/solicitation` reset, and why a reset is a real recovery —
+> it moves the window's lower edge to the reset instant, so only post-reset
+> activity is measured and `BREAKER_MIN_SENDS` turns that into a bounded ~100-send
+> half-open probe rather than a re-trip) is
+> `docs/runbooks/solicitation-sending-domain.md` §8, and the ramp it is the
+> automatic counterpart to is that runbook's §5.
 
 | File | What it does |
 |------|--------------|

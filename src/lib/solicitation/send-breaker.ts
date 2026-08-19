@@ -361,13 +361,26 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
 }
 
 /**
- * ONE owner for how a breaker rate is rendered (std-5 / B1.11). The Sentry page
- * this module writes links straight to the admin panel, so an operator reads the
- * same two rates in both places within seconds; two independent formatters that
- * drift by a decimal make the page and the panel look like they disagree about
- * whether the threshold was crossed. Exported rather than re-spelled in the
- * client — SendBreakerClient already imports four constants from this module,
- * so this adds no new coupling.
+ * How this module renders a breaker rate — and it has a TWIN, deliberately.
+ *
+ * IF YOU CHANGE THE FORMAT HERE, CHANGE IT IN `SendBreakerClient.tsx` TOO. That
+ * file keeps its own byte-identical copy (std-5 / B1.11, an open LOW follow-up),
+ * so the two can drift and nothing catches it. The harm is concrete: the Sentry
+ * page this module writes links straight to the admin panel, an operator reads
+ * the same two rates in both places within seconds, and a one-decimal drift makes
+ * the page and the panel look like they disagree about whether the threshold was
+ * crossed.
+ *
+ * NOT exported, and the client MUST NOT import it from here — that is a build
+ * constraint, not a preference. This module instantiates a worker logger at
+ * module scope (`createWorkerLogger` -> `log-context` -> `node:async_hooks`), so
+ * one RUNTIME import from a `'use client'` file drags that chain into the client
+ * chunk and Turbopack fails the route build. #898 proved it both ways: exporting
+ * this helper broke `pnpm build`, and reverting to the client's local copy fixed
+ * it. Type-only imports are erased and stay fine.
+ *
+ * The honest close is a shared formatter under `src/components/admin/ui/`, which
+ * needs a surface amendment this branch has not spent; recorded as a follow-up.
  */
 function formatRate(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;

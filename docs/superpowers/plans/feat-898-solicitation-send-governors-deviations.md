@@ -1029,3 +1029,72 @@ contract, B1.2 index use, B1.1 level-triggered paging and the B1.7 trip log line
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+---
+
+## R2 sweep (orchestrator) — the round-1 code fixes were correct; six artifacts describing them were not
+
+**Found:** Round 2 (`docs/reviews/feat-898-solicitation-send-governors/branch-round2-spec-standards.md`)
+verified every accepted round-1 code fix as landed and correct, and found that two deliberately
+reversed behaviours had left their prose behind. Wrong documentation is worse than none here: the
+admin panel's own on-screen copy told an operator the reset was futile, which is exactly the
+instruction that stops the correct action during a platform-wide halt.
+
+**Did — R2-1 (HIGH), "reset re-trips" is false in six places.** `readBreakerWindow` bounds the
+window at `GREATEST(NOW() - 7 days, MAX(reset_at))`, so a reset IS a real recovery. Rewrote all six
+to the true semantics — the window's lower edge moves to the reset instant, only post-reset activity
+is measured, and `BREAKER_MIN_SENDS` turns that into a bounded ~100-send half-open probe rather than
+a blind re-arm — and stated the consequence the old text hid: pre-reset late-landing bounces no
+longer count, and that exclusion IS the fix. Sites: runbook §8.2/§8.3/§8.4/§8.5, `docs/directory.md`,
+`SendBreakerClient.tsx`'s reset-form copy, `edge_cases[4]` in **both** intake files (kept
+byte-identical; `tests_to_add` untouched). Appendix A2's request is honoured: §8.3's
+"ceiling before reset" step keeps its instruction and gets a NEW rationale — the ceiling is what
+bounds volume during the probe — rather than losing the step with its old reason.
+
+**Did — R2-2 (MED), "pages once per trip" is false.** Paging is level-triggered: the poller probes
+for an open trip first and returns a finding on every tick while one stands. Corrected `CONTEXT.md`'s
+LOCKED **Send breaker trip** term and runbook §8.2, and both now say WHY: an open breaker is a
+STATE, and one dropped event must never equal a silent permanent halt. Both keep the true half of
+the old sentence (the trip *write* is still an `ON CONFLICT DO NOTHING` no-op) and separate it from
+the paging conclusion it no longer supports. `claude-md-shape` re-run, green.
+
+**Did — R2-3 (MED), the promised admin-reset log line did not exist.** Added
+`logger.log('admin_send_breaker_reset', …)` to `src/app/api/admin/solicitation/breaker/reset/route.ts`
+— actor user id, trip id, `reset` outcome and note **presence** only. Placed in the route, not in
+`resetSendBreaker`, for two reasons: the actor is the route's fact (it comes from the gate, never the
+body), and the domain call runs inside `sql.begin`, so a line emitted there would claim a reset a
+rollback then discarded. Follows the `admin/solicitation/batch/halt` precedent the intake itself
+cites. Two tests added, one of which asserts the note TEXT never reaches the log line.
+
+**Did — R2-4 (MED), a comment describing a reverted state.** `send-breaker.ts`'s `formatRate` comment
+claimed the function was exported, that the client imported four constants from this module, and that
+the rate format had ONE owner — all three false after `a6e060a8` and `a54ec75f`. Rewritten to the
+truth and pointed the other way from the client's copy: the duplication is a known open LOW
+follow-up, the client keeps its own copy, and the reason it must not import this one is this module's
+module-scope worker logger (`node:async_hooks` → Turbopack route-build failure, proven both ways).
+
+**Did — R2-5 (MED), the plan taught four superseded shapes.** Chose *both* remedies rather than one:
+a `⚠ CORRECTED` banner heads the module-source region, names each superseded shape with what replaced
+it and why, and declares `src/lib/solicitation/send-breaker.ts` authoritative — and the snippets
+themselves were corrected in place (probe-first paging, the real `WHERE`, the `MAX(reset_at)` bound,
+the `bounce_kind IS NULL` arm), so a reader who copies without reading the banner still gets working
+code. Also corrected the plan's own docs-task instruction, which still ordered the runbook to state
+the pre-fix claim.
+
+**Did — R2-6 (LOW).** `EmptyState` now renders `thresholds.windowDays` instead of a hardcoded
+"last 7 days", making the file's stated "NOT re-declared here" invariant true. `ResetForm` takes
+`thresholds` for the same reason (its new copy names `minSends`).
+
+**Did — R2-7 (LOW).** Promised test `#41`'s title is gate-matched and was NOT changed; the test was
+made true instead. The rejection now lands on the trip `INSERT` — the probe and the window aggregate
+resolve first, so the breaker genuinely reaches its write — and the case asserts the INSERT was
+dispatched, so it cannot silently regress to short-circuiting again. The read-probe arm it used to
+cover was kept as a **second** case rather than dropped.
+
+**Blast radius:** documentation, one admin panel's copy, one route log line, one test. No change to
+`send-breaker.ts` behaviour — only its `formatRate` doc comment.
+
+**Invalidates a locked decision?** It records the reversal of decision 6's "pages ONCE" property in
+`CONTEXT.md`, which the `R1-B1.1` entry already accepted; no new reversal.
+
+**Verdict:** ACCEPT.
