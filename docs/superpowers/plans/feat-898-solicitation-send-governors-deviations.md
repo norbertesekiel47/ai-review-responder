@@ -883,3 +883,55 @@ snippet re-key is a mechanical consequence of editing the file the entry names.
 **Invalidates a locked decision?** no.
 
 **Verdict:** ACCEPT.
+
+## B1.4-tests — two pre-existing gate rows were already RED on HEAD (`d6882a0f`)
+
+**Found:** the brief was "write the two missing B1.4 tests, then take the gate green". The two
+tests are written and green (35 lane cases, 11 breaker cases, `promised-tests` 43/43,
+`diff-coverage` 408/408 = 100.0%), but `bash scripts/verify-gate.sh --review` comes back
+**RED on `tenant-scope` and `build`**, and BOTH rows are red on a clean `d6882a0f` too —
+verified by stashing the two test files and re-running each row, which fails identically. The
+last recorded green `.feature/gate-status.json` is stamped 2026-08-19 11:01:59Z, i.e. ~3.5h
+BEFORE `d6882a0f` was authored, so it never covered that commit. Neither row is flaky: both
+reproduce deterministically, and `build` reproduces after `rm -rf .next`. Neither is exit 143.
+
+  1. **`tenant-scope`** — the SAME class of miss the "R1 — surface note" entry above records,
+     a second time. `d6882a0f` changed `readBreakerWindow`'s hard-bounce FILTER to
+     `o.bounced_at >= b.window_start AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL)`
+     but left the allowlist entry's `sqlSnippet` on the old
+     `o.bounce_kind = 'hard' AND o.bounced_at >= b.window_start`. The allowlist keys on
+     NORMALIZED SQL text, so the audit reports both halves of the mismatch:
+     `unused tenant scope allowlist entry` **and** `missing account_id or business_id scope
+     [template:71424532c47dd181:…]`. Fix is a one-line re-key of that entry's `sqlSnippet` in
+     `scripts/ci/tenant-scope-allowlist.ts` (entry count stays 383 = baseline); the
+     cross-account justification is unaffected.
+
+  2. **`build`** — `d6882a0f`'s "formatRate single owner" made
+     `src/app/admin/solicitation/SendBreakerClient.tsx` (a `'use client'` component) import the
+     **value** `formatRate` from `src/lib/solicitation/send-breaker.ts`. That module imports
+     `createWorkerLogger` → `src/lib/shared/logger.ts` → `./log-context` →
+     `node:async_hooks`, so Turbopack fails the browser chunk:
+     `Failed to write app endpoint /admin/solicitation/page … the chunking context (unknown)
+     does not support external modules (request: node:async_hooks)`. The four
+     `BREAKER_*` constants the client already imported are inlinable literals and merged
+     cleanly; a live function binding forces the module merge (`MergedEcmascriptModule` in the
+     Turbopack trace) that drags the logger in. `git show d6882a0f~1` confirms the import list
+     is the only delta in that file. ESLint invariant #1 does not catch it — `@/lib/shared/logger`
+     is not on the banned-runtime-import list — but the spirit of #1 is exactly this.
+
+**Did:** NOTHING to either. Both fixes land in production code
+(`scripts/ci/tenant-scope-allowlist.ts`, and a logger-free home for `formatRate` or a client-side
+formatter) which is outside this brief's hook-enforced edit surface
+(`worker/ingress/__tests__/**`, `src/lib/solicitation/__tests__/**`, this file). The brief's
+standing rule is "do not change production code; if a test reveals a genuine defect, STOP and
+report", so both are reported rather than patched. The two tests are committed on their own.
+
+**Blast radius:** the branch cannot go green until both are fixed. Neither blocks the tests
+themselves: every other gate row, including `test`, `promised-tests`, `merge-coverage` and
+`diff-coverage`, is PASS.
+
+**Invalidates a locked decision?** no — B1.4's two-half fix stands and is now pinned. The
+`formatRate` single-owner decision (std-5 / B1.11) survives too, but its OWNER cannot be a
+module that reaches `createWorkerLogger`.
+
+**Verdict:** _(open — for the orchestrator)_
