@@ -464,6 +464,20 @@ export const MIGRATION_108_OUTREACH_OWNER_EXCLUDED: SchemaRequirement = {
 };
 
 /**
+ * #898. The CHECK is NOT the proof: `solicitation_outreach_status_reason_consistency`
+ * has existed under that name since 091 and is REPLACED by 108, 109 and 110,
+ * so its presence is satisfied by a database three migrations behind head —
+ * the same trap documented for analytics_events_event_name_check below. The
+ * new relation, column and index are the honest proof that 110 is applied.
+ */
+export const MIGRATION_110_SEND_GOVERNORS: SchemaRequirement = {
+  migration: '110_solicitation_send_governors',
+  tables: ['solicitation_send_breaker'],
+  columns: ['solicitation_outreach.bounce_kind'],
+  indexes: ['solicitation_send_breaker_one_open'],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,
