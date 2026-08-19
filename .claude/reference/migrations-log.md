@@ -1078,10 +1078,19 @@ Revisit triggers:
   091 and would be satisfied by a container three migrations behind head (the
   same false-proof hazard 105's, 108's and 109's entries describe); the
   definition itself is asserted behaviourally by
-  `migration-110-send-governors.integration.test.ts`. Rollback: `DROP TABLE
-  solicitation_send_breaker` (safe while empty, i.e. before #900 reads it),
-  `ALTER TABLE solicitation_outreach DROP COLUMN bounce_kind`, and re-apply
-  109's constraint text verbatim — legal while no row carries either new
+  `migration-110-send-governors.integration.test.ts`. **Rollback — four
+  statements, and the index is the one a reader forgets**: `DROP TABLE
+  solicitation_send_breaker` (safe while empty, i.e. before #900 reads it);
+  `DROP INDEX IF EXISTS idx_solicitation_outreach_sent_at` — it sits on the
+  **pre-existing** `solicitation_outreach.sent_at`, so neither the DROP TABLE
+  nor the DROP COLUMN takes it with them and a three-statement rollback silently
+  leaves 110's only non-O(1) object behind; `ALTER TABLE solicitation_outreach
+  DROP COLUMN bounce_kind`, which **does** take
+  `solicitation_outreach_bounce_kind_check` and
+  `solicitation_outreach_bounce_kind_pairing` with it (both are named CHECKs on
+  that one column, so they need no statement of their own — but they are named
+  here so a reader can tell they were considered rather than missed); and
+  re-apply 109's constraint text verbatim — legal while no row carries either new
   withheld reason, which stays true until the **Dispatch gate** (#630) ships.
   Verification query: `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE
   conname = 'solicitation_outreach_status_reason_consistency';` — must contain

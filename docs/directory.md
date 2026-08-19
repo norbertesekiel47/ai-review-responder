@@ -889,7 +889,11 @@ Phase 2 Solicitation agent (watch-mode first).
 > Four things stand between an approved batch and a physical send, in a fixed
 > order: **breaker → platform ceiling → account cap → per-child** (#622 §4.3).
 > `send-breaker.ts` owns the first; `send-caps.ts` owns the middle two; the
-> per-child checks belong to the **Dispatch gate**. They are split because they
+> per-child checks belong to the **Dispatch gate**. Amendment **B14** adds a
+> fourth release-level check beside the caps — `subscriptionGrantsFullAccess`,
+> moved out of the Dispatch gate because an account-level fact every child would
+> answer identically could only ever *defer*, and #900 CASes the outreach row to
+> `queued` before the child runs, so a deferring child strands it. They are split because they
 > answer different questions with different costs and different failure
 > directions — the breaker is a *reputation* verdict that must fail CLOSED even
 > when the database is unavailable, and the caps are *volume* arithmetic whose

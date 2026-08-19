@@ -376,6 +376,10 @@ tags.finding=solicitation_send_breaker_tripped
 of keeping the expensive 7-day aggregate off the send loop — #900's read is a
 cheap indexed existence probe, not this query.
 
+**A trip is not a pause, and it is not free — read §8.5 before you start
+diagnosing.** Every hour the breaker stays open converts more already-approved
+batches into cancelled ones, platform-wide.
+
 ### 8.3 Diagnosis — in this order
 
 1. **Read the window figures off the page.** `sends`, `hard_bounces`,
@@ -420,3 +424,44 @@ stands. Read a same-day re-trip as "the window has not recovered yet", not as a
 bug in the reset. If you need sending stopped while you work, the honest control
 is `SOLICITATION_PLATFORM_DAILY_CAP=0` or `SOLICITATION_SEND_ENABLED=false` (§7),
 not repeatedly clearing the latch.
+
+### 8.5 What a trip costs the batches already in flight
+
+**Read this before you reset, not after.** A trip is not a pause. The breaker and
+the send window run on different clocks, and nothing reconciles them:
+`BATCH_SEND_WINDOW_HOURS = 72` (`src/lib/solicitation/outreach.ts`) is anchored on
+`approved_at` and keeps running while the breaker is open, but a real trip stays
+open for **days** — as long as it takes a human to diagnose, roll the ceiling
+down and reset.
+
+So the blast radius of one trip is **every batch approved in the 72 hours before
+it, across every account on the platform**. Those batches stop being released,
+their windows elapse under the halt, and #900's expiry sweep terminalizes them
+`cancelled` with reason `send_window_elapsed`: every remaining ask dead, and every
+owner told their send window elapsed — for a platform-wide cause that had nothing
+to do with their list.
+
+**That is a deliberate trade, recorded in amendment B14** of
+`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`. The
+alternative — suspending expiry while the breaker is open — is worse, not better:
+those batches then run past the "≤10 days by construction" bound that
+`STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` is derived from, and
+`solicitation_send_batch_stalled` fires for every one of them, burying the trip
+you are actually working under an alert storm. A cancelled batch is an honest
+terminal state an owner can act on; a stalled run is not.
+
+Practical consequences for the operator:
+
+- **Time is the cost.** Every hour the trip stays open converts more approved
+  batches into cancelled ones. Diagnose (§8.3) with that clock running.
+- **Tell the affected owners.** They will see "Send window elapsed" and have no
+  way to know a platform halt caused it. Until #900 ships a distinct
+  `platform_halt` reason, the owner-facing message is technically true and
+  practically misleading — closing that gap is #900's, not #898's.
+- **Rebuilding is not free.** A cancelled batch leaves its asks `status='send'`,
+  so `MIN_GAP_DAYS` withholds those contacts as `over_contacted` on any rebuild
+  inside 30 days (ADR 0020 § "Cost, as verified"). Advise owners to wait rather
+  than immediately rebuild.
+- **This is why §8.3 step 3 comes before step 4.** Resetting without rolling the
+  ceiling down re-trips, and each re-trip restarts the clock on a fresh 72 hours
+  of approvals.

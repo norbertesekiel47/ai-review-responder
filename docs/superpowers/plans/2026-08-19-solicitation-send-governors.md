@@ -443,7 +443,13 @@ it('countAccountDispatchAttemptsToday counts outreach rows by queued_at in the U
   // a bounce still spent reputation, so #619 D9's sent_at counting is
   // superseded. UTC day boundary mirrors auto-approval.ts.
   await sql.begin(async (tx) => {
-    await seedOutreach(tx, seed, { queuedAt: "date_trunc('day', NOW() AT TIME ZONE 'UTC')", sentAt: null });
+    // The session zone AND the fixture spelling are both load-bearing (round-1
+    // B1.6). Under UTC the short and long forms of the boundary agree, so the
+    // case proves nothing; and a fixture that re-uses the production expression
+    // shifts WITH the bug, so the boundary row is counted either way. Pin a
+    // non-UTC zone, and spell the boundary a different way.
+    await tx`SET LOCAL TIME ZONE 'America/New_York'`;
+    await seedOutreach(tx, seed, { queuedAt: "(to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD') || ' 00:00:00+00')::timestamptz", sentAt: null });
     await seedOutreach(tx, seed, { queuedAt: 'NOW()', sentAt: 'NOW()' });
     await seedOutreach(tx, seed, { queuedAt: "NOW() - interval '2 days'", sentAt: 'NOW()' });
     await seedOutreach(tx, seed, { queuedAt: null, sentAt: null });
@@ -880,7 +886,14 @@ export function resolvePlatformDailyCap(raw: string | undefined): number {
  *
  * COUNTING BASIS IS `queued_at`, NOT `sent_at` (amendment B3): a bounce still
  * spent reputation, so #619 D9's sent_at counting is superseded. UTC day
- * boundary mirrors worker/jobs/response-generation/auto-approval.ts.
+ * boundary mirrors worker/jobs/response-generation/auto-approval.ts:231.
+ *
+ * THE TRAILING `AT TIME ZONE 'UTC'` IS LOAD-BEARING. Without it, the truncated
+ * value is a bare `timestamp`, which Postgres casts back to `timestamptz` using
+ * the SESSION zone — a LOCAL-day boundary, wrong for part of the day in every
+ * zone but one. An earlier draft of this plan carried the short form and the bug
+ * shipped from it once (round-1 B1.9); auto-approval.ts:231 has always had the
+ * trailing conversion.
  *
  * Takes `sql` explicitly (invariant #15) — this module never imports
  * @/lib/db/server.
@@ -893,7 +906,7 @@ export async function countAccountDispatchAttemptsToday(
     SELECT COUNT(*)::int AS count
       FROM solicitation_outreach
      WHERE account_id = ${accountId}
-       AND queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+       AND queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
   `;
   return row?.count ?? 0;
 }
@@ -903,6 +916,8 @@ export async function countAccountDispatchAttemptsToday(
  * figure the platform ceiling bounds. Cross-account BY DESIGN: the ceiling is
  * the blast-radius bound for a runaway fan-out, so a per-account view cannot
  * express it. Allowlisted in scripts/ci/tenant-scope-allowlist.ts.
+ *
+ * Same trailing `AT TIME ZONE 'UTC'`, same reason as above — never drop it.
  */
 export async function countPlatformDispatchAttemptsToday(
   sql: Sql | TransactionSql,
@@ -910,7 +925,7 @@ export async function countPlatformDispatchAttemptsToday(
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
       FROM solicitation_outreach
-     WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')
+     WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
   `;
   return row?.count ?? 0;
 }

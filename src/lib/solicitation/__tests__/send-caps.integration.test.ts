@@ -34,10 +34,17 @@ import {
 //     `queued_at` falls in the current UTC day — never `sent_at`. A bounce still
 //     spent reputation, so #619 D9's sent_at counting is superseded, and only a
 //     row set carrying both stamps in disagreement can tell the two apart.
-//  2. THE UTC DAY BOUNDARY. `date_trunc('day', NOW() AT TIME ZONE 'UTC')` is the
-//     same expression `worker/jobs/response-generation/auto-approval.ts` uses;
-//     a local-time boundary is invisible to a unit test and wrong for half the
-//     day in every timezone but one.
+//  2. THE UTC DAY BOUNDARY. Production spells it
+//     `date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`, the same
+//     expression `worker/jobs/response-generation/auto-approval.ts` uses. The
+//     TRAILING conversion is the whole point: without it the truncated value is
+//     a bare `timestamp`, which Postgres casts back to `timestamptz` using the
+//     SESSION zone — a local-day boundary, wrong for part of the day in every
+//     zone but one. This suite is built so that removing it FAILS: the fixture
+//     spells the boundary a different way (so both cannot shift together), and
+//     the boundary case pins a non-UTC session zone (so under UTC, where the two
+//     spellings agree, the case would prove nothing). Both halves are load-bearing
+//     — that regression already landed once on this branch and no test caught it.
 //
 // Applies NO migration SQL (#573). Every write runs inside a transaction that
 // is ALWAYS rolled back.
@@ -101,7 +108,15 @@ function queuedFragment(
 ): postgresType.PendingQuery<postgresType.Row[]> | null {
   switch (spec) {
     case 'utc_day_start':
-      return tx`date_trunc('day', NOW() AT TIME ZONE 'UTC')`;
+      // The first instant of the current UTC day, spelled DELIBERATELY UNLIKE
+      // the production predicate. Re-using `date_trunc('day', NOW() AT TIME
+      // ZONE 'UTC')` here made the fixture and the predicate shift together
+      // under a non-UTC session, so the boundary row was counted whether or not
+      // production carried the trailing `AT TIME ZONE 'UTC'` — the test could
+      // not fail for the bug it exists to catch (#898 round-1 review). Rendering
+      // today's UTC date and pinning the offset explicitly is session-independent
+      // by construction and shares no sub-expression with the code under test.
+      return tx`(to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD') || ' 00:00:00+00')::timestamptz`;
     case 'now':
       return tx`NOW()`;
     case 'two_days_ago':
@@ -245,6 +260,14 @@ describeWithDb(
       // superseded. UTC day boundary mirrors auto-approval.ts.
       await sql()
         .begin(async (tx) => {
+          // The session zone is what makes this case discriminating. Under UTC
+          // the short and long spellings of the boundary agree, so the counter
+          // returns 2 either way; under a fixed-offset zone the SHORT form's
+          // boundary lands hours into the UTC day and drops the `utc_day_start`
+          // row. SET LOCAL is scoped to this transaction and unwinds with the
+          // rollback, so no other case and no other suite sees it.
+          await tx`SET LOCAL TIME ZONE 'America/New_York'`;
+
           await seedOutreachRow(tx, primary(), { queuedAt: 'utc_day_start', sentAt: null });
           await seedOutreachRow(tx, primary(), { queuedAt: 'now', sentAt: 'now' });
           await seedOutreachRow(tx, primary(), { queuedAt: 'two_days_ago', sentAt: 'now' });

@@ -88,6 +88,18 @@ describe('admin send-breaker reset route', () => {
 
     expect(response.status).toBe(400);
     expect(resetSendBreakerMock).not.toHaveBeenCalled();
+
+    // The FIXES half, which rejection alone does not prove: an implementation
+    // passing '', a hard-coded uuid, or parsed.data's absent field would satisfy
+    // every rejection case above while violating invariant #8. Assert the actor
+    // the module actually receives, on a body the schema accepts.
+    const accepted = await POST(makeRequest({ note: 'ramp rolled back' }));
+
+    expect(accepted.status).toBe(200);
+    expect(resetSendBreakerMock).toHaveBeenCalledWith(expect.anything(), {
+      actorUserId: ADMIN_ID,
+      note: 'ramp rolled back',
+    });
   });
 
   it('the breaker reset route returns 409 when no trip is open', async () => {

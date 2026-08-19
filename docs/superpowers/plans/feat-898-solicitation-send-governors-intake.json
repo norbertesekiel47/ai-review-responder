@@ -8,7 +8,7 @@
     "No Judge logic, no auto-approval lane (#631), no review_attributed (#632)",
     "No flag flips anywhere \u2014 this lands inert behind SOLICITATION_SEND_ENABLED",
     "No resolveSolicitationDailyCap() twin and no DEFAULT_DAILY_SEND_CAP_BUSINESS (both dropped by amendment B3)",
-    "No new value for Dispatch gate item 3 (subscriptionGrantsFullAccess) \u2014 a lapsed subscription defers at the child gate; send_window_elapsed terminalizes",
+    "No new value for Dispatch gate item 3 (subscriptionGrantsFullAccess) \u2014 amendment B14 moves that check from the per-child Dispatch gate to the RELEASE-level gates beside the caps, so no child ever defers on it and no CHECK member is needed; send_window_elapsed still terminalizes. B6 item 3's original placement was wrong: #900 CASes rendered->queued BEFORE the Dispatch gate runs, so a deferring child stranded a queued row the release predicate could never see again",
     "No new runbook file \u2014 the ramp table and seed-inbox gate keep their single owner in docs/runbooks/solicitation-sending-domain.md",
     "No backfill of bounce_kind \u2014 no send worker exists, so no row in any environment carries sent_at",
     "No per-domain or per-account scoping of the breaker \u2014 one database is one Sending identity"
@@ -32,7 +32,7 @@
     "The platform ceiling fails closed: unset or unparseable yields 0, which means no sends; an explicit 0 is the dial at rest",
     "Counting basis for both caps is dispatch attempts \u2014 outreach rows whose queued_at falls in the UTC day \u2014 never sent_at",
     "solicitation_send_breaker carries deny-all RLS; it is platform-scoped and therefore not a TENANT_TABLES member",
-    "Migration 110 is additive only: one nullable column, two new CHECK members, one new table. No data change.",
+    "Migration 110 is additive only, and the full object list is: one nullable column (bounce_kind) with its two named CHECKs, two new members appended to an existing CHECK's withheld arm, one partial index (idx_solicitation_outreach_sent_at), and one new table with its one-open partial unique index. No data change.",
     "DEFAULT_DAILY_SEND_CAP_ACCOUNT and DEFAULT_DAILY_AUTO_POST_CAP are separately owned constants that coincide at 10 by design and are never derived from one another"
   ],
   "edge_cases": [
@@ -47,7 +47,7 @@
     "The breaker read model is a cross-account aggregate over solicitation_outreach and needs a tenant-scope allowlist entry",
     "A NULL daily_send_cap resolves to the platform default of 10, not to unlimited",
     "The reset route returns 409 when no trip is open, mirroring the unsuspend route's not_suspended arm",
-    "The UTC day boundary for the cap count uses date_trunc('day', NOW() AT TIME ZONE 'UTC'), mirroring worker/jobs/response-generation/auto-approval.ts"
+    "The UTC day boundary for the cap count is date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' \u2014 the TRAILING conversion is load-bearing and is what worker/jobs/response-generation/auto-approval.ts:231 actually spells. Without it the truncated value is a bare timestamp that Postgres casts back to timestamptz using the SESSION zone, i.e. a local-day boundary; an earlier version of this bullet carried the short form and the bug shipped from it once"
   ],
   "existing_patterns_to_follow": [
     "src/lib/auto-approval/policy.ts \u2014 resolveDailyCap / DEFAULT_DAILY_AUTO_POST_CAP shape for the account cap resolver",
@@ -129,7 +129,7 @@
   "estimated_prod_lines": "1150",
   "estimated_test_lines": "2000",
   "dependencies_added": [],
-  "rollback_plan": "Code revert is sufficient and inert: the governors have no production caller until #900 wires them, and the health check is the only live consumer. To back the schema out, apply the reverse in one transaction against staging then prod \u2014 DROP TABLE solicitation_send_breaker; ALTER TABLE solicitation_outreach DROP COLUMN bounce_kind; then re-ADD solicitation_outreach_status_reason_consistency with migration 109's CHECK text verbatim. No data migration to reverse: no send worker exists, so no row in any environment carries sent_at or bounce_kind. Migration applies to the staging Supabase project first and to prod in lockstep at promotion. The new-migration skill governs the migration file itself and is invoked before the first line of SQL.",
+  "rollback_plan": "Code revert is sufficient and inert: the governors have no production caller until #900 wires them, and the health check is the only live consumer. To back the schema out, apply the reverse in one transaction against staging then prod \u2014 DROP TABLE solicitation_send_breaker; DROP INDEX IF EXISTS idx_solicitation_outreach_sent_at (it is on the PRE-EXISTING solicitation_outreach.sent_at, so nothing drops it with the column or the table, and a rollback that forgets it silently leaves 110's only non-O(1) object behind); ALTER TABLE solicitation_outreach DROP COLUMN bounce_kind (which drops solicitation_outreach_bounce_kind_check and solicitation_outreach_bounce_kind_pairing with it \u2014 both are named constraints ON that column, so they need no separate statement, but they DO need naming here or a reader cannot tell they were considered); then re-ADD solicitation_outreach_status_reason_consistency with migration 109's CHECK text verbatim. No data migration to reverse: no send worker exists, so no row in any environment carries sent_at or bounce_kind. Migration applies to the staging Supabase project first and to prod in lockstep at promotion. The new-migration skill governs the migration file itself and is invoked before the first line of SQL.",
   "observability": [
     "HealthAlertPoller finding key solicitation_send_breaker_tripped, error level, carrying the breached metric name, its rate, the send denominator and the window \u2014 reaching the Sentry sink per docs/runbooks/beta-launch-alerting.md",
     "Structured worker log line on trip from evaluateSendBreaker: msg 'solicitation send breaker tripped' with the metric snapshot only \u2014 never a recipient address or message content",
