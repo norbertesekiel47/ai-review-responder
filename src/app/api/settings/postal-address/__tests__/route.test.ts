@@ -155,6 +155,11 @@ function attestCall(): AttestPostalAddressParams {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+  // Every case below this line exercises the ENABLED surface. The flag gate
+  // added for the beta posture 404s before auth, so without this the whole
+  // file would assert the gate instead of the behaviour it was written for.
+  // The gate's own coverage lives in the last describe block, which clears it.
+  process.env.SOLICITATION_WATCH_ENABLED = 'true';
 
   mockRequireRole.mockResolvedValue({
     id: APP_USER_ID,
@@ -459,5 +464,68 @@ describe('PUT /api/settings/postal-address', () => {
     const foreignLocation = await PUT(makeRequest());
     expect(foreignLocation.status).toBe(404);
     expect(await foreignLocation.json()).toEqual({ error: 'business_not_found' });
+  });
+});
+
+// ── Flag gate ───────────────────────────────────────────────────────
+
+// The Attested postal address is a Solicitation artefact: it exists only to
+// footer an ask. With watch-mode off the whole surface is absent, so the panel
+// on /settings/profile and this writer disappear TOGETHER — the UI can never
+// offer a control the route refuses.
+//
+// The 404 precedes auth deliberately, mirroring `requireContactsWriteAccess`.
+// These cases pin that ordering by driving each auth failure mode with the flag
+// off and asserting the SAME 404 body every time: a caller learns nothing about
+// whether it held a session, an account, or a location.
+describe('PUT /api/settings/postal-address — solicitation watch-mode gate', () => {
+  beforeEach(() => {
+    delete process.env.SOLICITATION_WATCH_ENABLED;
+  });
+
+  it('404s a fully valid authenticated owner request and writes nothing', async () => {
+    const response = await PUT(makeRequest());
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'not_found' });
+    expect(mockAttest).not.toHaveBeenCalled();
+    // The gate runs before auth, so the session was never resolved either.
+    expect(mockRequireRole).not.toHaveBeenCalled();
+  });
+
+  it('returns the same 404 for unauthenticated, non-owner and account-less callers', async () => {
+    mockRequireRole.mockRejectedValue(new AuthError('unauthorized', 401));
+    const unauthenticated = await PUT(makeRequest());
+    expect(unauthenticated.status).toBe(404);
+    expect(await unauthenticated.json()).toEqual({ error: 'not_found' });
+
+    mockRequireRole.mockRejectedValue(new AuthError('forbidden', 403));
+    const nonOwner = await PUT(makeRequest());
+    expect(nonOwner.status).toBe(404);
+    expect(await nonOwner.json()).toEqual({ error: 'not_found' });
+
+    expect(mockAttest).not.toHaveBeenCalled();
+  });
+
+  it('404s before the body is read, so a malformed body cannot out-rank the gate', async () => {
+    const response = await PUT(makeRequest({ rawBody: 'not json at all' }));
+
+    // 404, NOT the 400 the same request earns while the flag is on. A 400 here
+    // would prove the handler parsed a body on a surface that does not exist.
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'not_found' });
+    expect(mockAttest).not.toHaveBeenCalled();
+  });
+
+  it('treats every non-exact value as off, matching readFlag', async () => {
+    // `readFlag` accepts the literal 'true' and nothing else. A deploy that set
+    // 'TRUE' or '1' intending to enable the surface must still get the 404 —
+    // silently half-enabling it is the failure this pins.
+    for (const value of ['TRUE', '1', 'yes', 'false', '']) {
+      process.env.SOLICITATION_WATCH_ENABLED = value;
+      const response = await PUT(makeRequest());
+      expect(response.status, `value ${JSON.stringify(value)}`).toBe(404);
+    }
+    expect(mockAttest).not.toHaveBeenCalled();
   });
 });
