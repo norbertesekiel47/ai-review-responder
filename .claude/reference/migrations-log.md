@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **109** — next migration is **110**
+Current head: **110** — next migration is **111**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -49,6 +49,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `solicitation_suppressions` | **No TTL — an opt-out never expires (§2.1)**; a time limit on an opt-out is a violation with a cron job attached. Splits on **Suppression scope** at offboarding purge (D7): `scope='global'` rows are **retained** with `account_id` intact — the recipient's revocation against our one shared sending identity is not the account's data, and deleting one would let us mail a person who opted out (#535 §6 through a different door) — while `scope='account'` (`owner_manual`) rows hard-delete with the account. The only removal path for a retained row is the admin-only, audited **Correction path** (#645) | ArchivalPoller deliberately untouched; offboarding purge content stage + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention` — ONE entry for both scopes, #643 G2) |
 | `solicitation_unsubscribe_tokens` | **No TTL, no expiry** (§2.2): CAN-SPAM §7704(a)(3) requires the link operate ≥30 days, and there is no expiry value better than none. **Row kept; provenance scrubbed.** The offboarding purge NULLs `account_id`/`business_id`/`ask_id` and keeps `token_hash`, `normalized_handle`, `channel` and `sent_at`, so redemption still works after the sender is gone (§5.2). `outreach_id` nulls independently via `ON DELETE SET NULL` (#643 G1) whenever its outreach row is deleted, account alive or not | ArchivalPoller deliberately untouched; offboarding purge token scrub + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`) |
 | `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Retains `normalized_handle` indefinitely — the minimum needed to identify WHICH opt-out was removed, since `suppression_id` points at a deleted row — matching the retention posture of the `scope='global'` ledger rows it describes (spec D7). **Row kept WHOLE**, including the corrected row's `account_id`, `created_by_user_id` and `note` (D-A11): those are the evidence the removed assertion was legitimate, and for a `scope='account'` row `account_id` is the **Suppression scope** key rather than provenance | No poller touches it; the offboarding purge neither deletes nor scrubs it. Classified in `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`), and its purge-verification arm inverts the siblings above — it counts a record that survived having LOST its evidence, not one that survived at all |
+| `solicitation_send_breaker` | **No TTL** — a **Send breaker trip** and its reset are the audit record for a platform-wide sending halt, and this table is the only sink that can hold one (`account_audit_log` is account-scoped, this event is not). Append-only: a trip row is never updated except by the single admin reset that closes it, and never deleted. **Not in `TABLE_DISPOSITIONS`**: the table carries no `account_id` and no customer data, so account offboarding has nothing to purge and purge verification has nothing to assert | No poller touches it; the offboarding purge neither deletes nor scrubs it. Not a `TENANT_TABLES` member (no `account_id`) — deny-all RLS instead, migration 110 |
 
 Revisit triggers:
 
@@ -1005,6 +1006,112 @@ Revisit triggers:
 > the index helps (see the #479 deviations file). It is a one-line CONCURRENTLY
 > migration, re-addable later if a future prod EXPLAIN shows need. That is why this
 > log jumps 078 → 081 on this branch — the 079/080 entries arrive with the staging merge.
+
+- **110** — `solicitation_send_governors`: the schema the three send governors
+  stand on (#898; wayfinder map #617, child of #630; plan
+  `docs/superpowers/plans/2026-08-19-solicitation-send-governors.md` Task 2;
+  specs `…-sender-deliverability-design.md` §3.2A/§3.2B/§4 and
+  `…-send-mode-cross-spec-amendments.md` B3/B6). **Three additive changes, no
+  data change.**
+  **(a) Dispatch-gate withhold vocabulary.**
+  `solicitation_outreach_status_reason_consistency` is DROP-then-ADD'd under its
+  091 name with 109's predicate verbatim plus `'no_postal_address',
+  'postal_address_mismatch'` appended to the **withheld arm only** — every other
+  arm, the member order within it, and the outer `IS TRUE` wrapper (091's
+  NULL-safety idiom; a bare multi-arm CHECK passes NULL) are byte-for-byte
+  109's. Those two members are what amendment **B6 item 6** writes. **Item 3
+  (`subscriptionGrantsFullAccess`) deliberately gets NO member**: a lapsed
+  subscription is recoverable inside the send window, so the **Dispatch gate**
+  DEFERS — the row stays `rendered` — and the existing `send_window_elapsed`
+  cancellation is the terminal answer. Do not widen this CHECK further than the
+  gate can actually write.
+  **(b) `solicitation_outreach.bounce_kind`** (`TEXT`, NULL until a bounce
+  lands) — the hard/soft discriminator the **Send breaker** reads. #622 §3.2B
+  counts `bounce.type = 'Permanent'` only, but the **Solicitation lane** stamps
+  `bounced_at` for soft bounces too, so `bounced_at` alone cannot serve, and
+  `provider_error` cannot either: `recordFailure` COALESCEs `failed:<reason>`
+  into that same column, so an `email.failed` arriving before `email.bounced`
+  would mask a real hard bounce — the fail-OPEN direction on a governor
+  specified to fail closed. Two CHECKs, both `IS TRUE`-wrapped:
+  `solicitation_outreach_bounce_kind_check` (`hard` | `soft` | NULL) and
+  `solicitation_outreach_bounce_kind_pairing` (a kind requires a `bounced_at`,
+  so the breaker's numerator can never count a row its denominator never saw).
+  Plus `idx_solicitation_outreach_sent_at` (partial, `sent_at IS NOT NULL`) for
+  the breaker denominator — the only unbounded count in the 7-day window. The
+  `bounced_at`/`complained_at` numerators are DELIBERATELY unindexed: at the top
+  ramp stage (5,000/day × 7 days ≈ 35k rows) a bitmap scan once per 5-minute
+  poll cycle is cheaper than two more indexes maintained on every send. Revisit
+  at ramp stage 5, not before.
+  **(c) `solicitation_send_breaker`** — the platform-wide reputation circuit
+  breaker's latch (see the retention-policy row above). **Append-only, one row
+  per trip**, a trip being *open* while `reset_at IS NULL`: chosen over a mutable
+  singleton because a second breach would otherwise overwrite the first, and a
+  breach is exactly the thing someone reviews after the fact. `account_audit_log`
+  cannot hold it — that surface is account-scoped and this event is
+  platform-wide — so **this table IS the audit record**. UUIDv7 PK, app-supplied
+  (repo convention, no DB default). `solicitation_send_breaker_reset_consistency`
+  makes a reset ONE act — `reset_at`, `reset_by` and a non-blank `reset_note`
+  together or none — so "who cleared this, and why" cannot be unanswerable by
+  omission. **"At most one open trip" lives in the database, not in application
+  code**: `solicitation_send_breaker_one_open`, a UNIQUE index on the IMMUTABLE
+  expression `(reset_at IS NULL)` partial on `WHERE reset_at IS NULL` (091's
+  `solicitation_outreach_one_live_per_ask` idiom), so no future caller can
+  violate it and a second trip is a `23505` rather than a silent second latch.
+  RLS enabled with **zero policies** — deny-all, the 096 posture. **No
+  `TENANT_TABLES` entry and no `TABLE_DISPOSITIONS` entry**: the table carries no
+  `account_id` and no customer data.
+  **No backfill is needed, and that is a proof rather than an observation**: no
+  send worker exists yet (#899 builds it), so nothing in any environment has ever
+  written `solicitation_outreach.sent_at` or received a bounce webhook for one —
+  every existing row satisfies the wider CHECK (strict superset) and has
+  `bounce_kind` NULL. **One transaction with `SET LOCAL lock_timeout = '10s'`**
+  (109's reasoning verbatim: psql autocommits each statement, so an unwrapped
+  DROP that succeeded before a failing ADD would leave the table with no
+  status/reason constraint at all). Re-runnable — every DDL is
+  `IF NOT EXISTS`/`DROP … IF EXISTS`, and the DROP-then-ADD REPAIRS a stale
+  constraint definition. New `schema-ready.ts` requirement
+  `MIGRATION_110_SEND_GOVERNORS` proves 110 by the **new relation, column and
+  index** — deliberately NOT by the CHECK, whose name has been unchanged since
+  091 and would be satisfied by a container three migrations behind head (the
+  same false-proof hazard 105's, 108's and 109's entries describe); the
+  definition itself is asserted behaviourally by
+  `migration-110-send-governors.integration.test.ts`. **Rollback — four
+  statements, and the index is the one a reader forgets**: `DROP TABLE
+  solicitation_send_breaker` (safe while empty, i.e. before #900 reads it);
+  `DROP INDEX IF EXISTS idx_solicitation_outreach_sent_at` — it sits on the
+  **pre-existing** `solicitation_outreach.sent_at`, so neither the DROP TABLE
+  nor the DROP COLUMN takes it with them and a three-statement rollback silently
+  leaves 110's only non-O(1) object behind; `ALTER TABLE solicitation_outreach
+  DROP COLUMN bounce_kind`, which **does** take
+  `solicitation_outreach_bounce_kind_check` and
+  `solicitation_outreach_bounce_kind_pairing` with it (both are named CHECKs on
+  that one column, so they need no statement of their own — but they are named
+  here so a reader can tell they were considered rather than missed); and
+  re-apply 109's constraint text verbatim — legal while no row carries either new
+  withheld reason, which stays true until the **Dispatch gate** (#630) ships.
+  Verification query: `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE
+  conname = 'solicitation_outreach_status_reason_consistency';` — must contain
+  `'no_postal_address'` and `'postal_address_mismatch'`, once each, in the
+  `withheld` arm; plus `to_regclass('public.solicitation_send_breaker')` and
+  `solicitation_send_breaker_one_open` in `pg_indexes`.
+  **Applied to STAGING 2026-08-21** (`kubdiqdhqbhwmqfditeg`, via the Supabase
+  MCP `execute_sql`, the file's own single `BEGIN`/`COMMIT`, no error). Verified
+  by introspection, never by the migration ledger: the `withheld` arm carries
+  `no_postal_address` and `postal_address_mismatch` **once each**; the other four
+  arms, the member order within them and the outer `IS TRUE` wrapper are
+  byte-for-byte 109's; `to_regclass('public.solicitation_send_breaker')` resolves
+  and the table holds **0** rows; `bounce_kind` is `text`; both
+  `idx_solicitation_outreach_sent_at` and `solicitation_send_breaker_one_open`
+  are present; RLS is enabled with **0** policies (deny-all); all four new CHECKs
+  exist. `md5(pg_get_constraintdef(oid))` = `3e644c28c60a3d6135ed3eea7acee224`,
+  matching the local test DB at head byte-for-byte. Pre-flight showed staging at
+  109 — `owner_withdrawn` present, `no_postal_address` absent,
+  `solicitation_send_breaker` and `bounce_kind` absent — so the widening was a
+  no-op for existing data, exactly as the no-backfill proof predicts.
+  **PRODUCTION — NOT YET APPLIED.** It rides the #898 promotion to `main`, in the
+  same change window as that merge. This is a **pending lockstep**, not a
+  standing exception: prod sits one migration behind staging only until that
+  window closes, and the only sanctioned standing exception remains 078.
 
 - **109** — `outreach_owner_withdrawn_disposition`: adds `owner_withdrawn` to
   `solicitation_outreach`'s **cancel** disposition set for post-approval **Ask

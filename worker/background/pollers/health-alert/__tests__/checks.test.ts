@@ -348,7 +348,10 @@ describe('health-alert checks', () => {
   // Drives the full runHealthChecks path so resolveHealthAlertConfig() reads env.
   // Sequential dispatch order: wedgedClientRead, failedByTopic, oldestPending, staleDispatching,
   // openFlagged, zeroDelivery, ownerUnreachable, failedInboundEvents,
-  // stalledSendBatches, backlogDepth — push a queue entry per check in that order.
+  // stalledSendBatches, solicitationSendBreaker, backlogDepth — push a queue entry per
+  // QUERY in that order. POSITIONAL: a new check inserted anywhere shifts every later
+  // response by one, so appending a check means appending its entry here too (#898).
+  // Note solicitationSendBreaker is the one check that issues TWO queries.
   function pushQuietChecksBeforeBacklog(): void {
     sqlReturnQueue.push([{ count: 0, oldest_age_s: null }]); // wedgedClientRead → null
     sqlReturnQueue.push([]);              // failedByTopic → []
@@ -359,6 +362,11 @@ describe('health-alert checks', () => {
     sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
     sqlReturnQueue.push([]);              // failedInboundEvents → []
     sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
+    // solicitationSendBreaker issues TWO queries: the open-trip probe, then the
+    // window aggregate (level-triggered — the probe short-circuits when a trip is
+    // already open, so a healthy tick drains both entries).
+    sqlReturnQueue.push([]);                                            // breaker open-trip probe → no open trip
+    sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // breaker window → null (under BREAKER_MIN_SENDS)
   }
 
   describe('backlog-depth threshold config', () => {
@@ -438,6 +446,11 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);                             // owner-unreachable → null
       sqlReturnQueue.push([{ source: 'stripe', event_type: 'invoice.paid', count: 2 }]); // inbound → finding
       sqlReturnQueue.push([{ count: 1, oldest_run_id: '00000000-0000-7000-8000-0000000000bb', oldest_age_s: 1_000_000 }]); // stalled send batch → finding
+      // solicitationSendBreaker issues TWO queries: the open-trip probe, then the
+      // window aggregate (level-triggered — the probe short-circuits when a trip
+      // is already open, so a healthy tick drains both entries).
+      sqlReturnQueue.push([]);                                            // breaker open-trip probe → no open trip
+      sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // breaker window → null
       sqlReturnQueue.push([{ job_outbox: 3000, analytics_events: 0 }]); // backlog → finding (>1500 default)
 
       const findings = await runHealthChecks(mockSql);
@@ -466,6 +479,11 @@ describe('health-alert checks', () => {
       sqlReturnQueue.push([{ count: 0 }]);  // ownerUnreachable → null
       sqlReturnQueue.push([]);              // failedInboundEvents → []
       sqlReturnQueue.push([{ count: 0 }]);  // stalledSendBatches → null
+      // solicitationSendBreaker issues TWO queries: the open-trip probe, then the
+      // window aggregate (level-triggered — the probe short-circuits when a trip
+      // is already open, so a healthy tick drains both entries).
+      sqlReturnQueue.push([]);                                            // breaker open-trip probe → no open trip
+      sqlReturnQueue.push([{ sends: 0, hard_bounces: 0, complaints: 0 }]); // breaker window → null
       mockSql.begin.mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
 
       const findings = await runHealthChecks(mockSql);
@@ -477,6 +495,113 @@ describe('health-alert checks', () => {
       const errFinding = findings.find((f) => f.key === 'health_check_error:backlog_depth');
       expect(errFinding?.level).toBe('warning');
       expect(errFinding?.detail).toEqual({ check: 'backlog_depth' });
+    });
+
+    // Round-1 adversarial-5 / B1.3. The send breaker is the ONLY writer in this
+    // file, so it has failure modes no reader here has — and un-isolated, every
+    // one of them discarded the findings already collected above it. A local sql
+    // stub is used rather than the shared mockSql because the failure has to land
+    // on ONE specific call, not the next one.
+    //
+    // ROUND-2 R2-7: this case's title names a WRITE failure, so the rejection now
+    // lands on the trip INSERT — the probe and the window aggregate both resolve
+    // first, so the breaker genuinely reaches its write and fails there. That is
+    // the class B1.3 was written for (a 23505, a lock wait on
+    // `solicitation_send_breaker_one_open`, an ON CONFLICT inference error); the
+    // earlier version injected on the read probe, which short-circuits before any
+    // write is dispatched. The read-probe arm is covered by the case below it.
+    const localSqlStub = (rows: unknown[]) => {
+      const sql: any = vi.fn(() => {
+        const r = rows.shift() ?? [];
+        if (r instanceof Error) return Promise.reject(r);
+        return Promise.resolve(Array.isArray(r) ? r : [r]);
+      });
+      sql.begin = vi.fn(async (cb: (tx: typeof sql) => unknown) => cb(sql));
+      sql.unsafe = vi.fn(() => Promise.resolve([]));
+      // `evaluateSendBreaker` interpolates the window snapshot with `sql.json`
+      // (OID 3802) on the INSERT — the read-only stubs above never reach it.
+      sql.json = vi.fn((value: unknown) => value);
+      return sql;
+    };
+
+    /** The nine reads dispatched before the breaker, in order. `openFlagged`
+     *  yields the finding whose survival is the isolation assertion. */
+    const ROWS_BEFORE_BREAKER: unknown[] = [
+      [{ count: 0, oldest_age_s: null }],       // wedgedClientRead → null
+      [],                                       // failedByTopic → []
+      [{ age: null }],                          // oldestPending → null
+      [{ count: 0 }],                           // staleDispatching → null
+      [{ count: 10 }],                          // openFlagged → finding (>5 default)
+      [{ count: 0 }],                           // zeroDelivery → null
+      [{ count: 0 }],                           // ownerUnreachable → null
+      [],                                       // failedInboundEvents → []
+      [{ count: 0 }],                           // stalledSendBatches → null
+    ];
+
+    it('isolates a send-breaker-write failure: earlier findings survive and the failure becomes a warning', async () => {
+      // Positional, in dispatch order; an Error entry rejects instead of resolving.
+      const sql = localSqlStub([
+        ...ROWS_BEFORE_BREAKER,
+        [],                                       // breaker open-trip probe → none open
+        // window aggregate → 10/200 = 5% hard bounces, over the 2% bar and over
+        // the 100-send floor, so classifyBreach returns 'hard_bounce_rate' and
+        // the breaker MUST attempt its INSERT.
+        [{ sends: 200, hard_bounces: 10, complaints: 0 }],
+        new Error('deadlock detected'),           // the trip INSERT → REJECTS
+        [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
+      ]);
+
+      const findings = await runHealthChecks(sql);
+      const keys = findings.map((f) => f.key);
+
+      // The finding collected BEFORE the breaker is not discarded…
+      expect(keys).toContain('flagged_open_backlog');
+      // …and the breaker pages nothing, because the trip write never landed —
+      // a breach it could not record is not a breach it may claim to have
+      // recorded.
+      expect(keys).not.toContain('solicitation_send_breaker_tripped');
+      const errFinding = findings.find(
+        (f) => f.key === 'health_check_error:solicitation_send_breaker',
+      );
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.title).toContain('deadlock detected');
+      expect(errFinding?.detail).toEqual({ check: 'solicitation_send_breaker' });
+
+      // The write was genuinely reached: probe, aggregate, INSERT, then the
+      // backlog read that follows. Without this the case would pass on a stub
+      // that short-circuited early and the title would overstate again (R2-7).
+      const statements = sql.mock.calls
+        .map((call: unknown[]) => String((call[0] as string[])?.join?.('?') ?? ''))
+        .filter(Boolean);
+      expect(statements.some((s: string) => /INSERT INTO solicitation_send_breaker/.test(s))).toBe(
+        true,
+      );
+      expect(sql.json).toHaveBeenCalledTimes(1);
+    });
+
+    it('isolates a send-breaker READ failure the same way: the probe rejects before any write', async () => {
+      // The other half of B1.3's isolation, kept from the original form of the
+      // case above: the open-trip probe short-circuits, so the aggregate and the
+      // INSERT are never dispatched and nothing partial is written.
+      const sql = localSqlStub([
+        ...ROWS_BEFORE_BREAKER,
+        new Error('connection terminated'),       // breaker open-trip probe → REJECTS
+        [{ job_outbox: 0, analytics_events: 0 }], // backlogDepth inner SELECT
+      ]);
+
+      const findings = await runHealthChecks(sql);
+      const keys = findings.map((f) => f.key);
+
+      expect(keys).toContain('flagged_open_backlog');
+      expect(keys).not.toContain('solicitation_send_breaker_tripped');
+      const errFinding = findings.find(
+        (f) => f.key === 'health_check_error:solicitation_send_breaker',
+      );
+      expect(errFinding?.level).toBe('warning');
+      expect(errFinding?.title).toContain('connection terminated');
+      expect(errFinding?.detail).toEqual({ check: 'solicitation_send_breaker' });
+      // Nothing was written, and nothing was even measured.
+      expect(sql.json).not.toHaveBeenCalled();
     });
   });
 

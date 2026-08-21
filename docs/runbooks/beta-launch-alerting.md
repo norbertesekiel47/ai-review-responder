@@ -71,6 +71,19 @@ email shares the Resend provider with the product.
   fire exactly once, ever, and then stay silent through the very repetition that
   is the actionable signal. Suggested: _The issue is seen more than 3 times in
   one hour_.
+- [ ] **Solicitation send breaker (#898)** — finding key
+  `solicitation_send_breaker_tripped`, `level: 'error'`, emitted by
+  `checkSolicitationSendBreaker`. It needs no rule of its own: it carries
+  `subsystem:health_alert` like every other `HealthAlertPoller` finding, so the
+  first bullet's rule already routes it. It is inventoried here because it is the
+  one finding whose **response is a written procedure** rather than a code fix —
+  solicitation sending is halted platform-wide and never self-clears until an
+  admin resets it. **Response procedure:**
+  `docs/runbooks/solicitation-sending-domain.md` **§8** (read the window figures
+  → roll the platform ceiling down a stage → then reset at `/admin/solicitation`).
+  Detail is aggregate-only — counts, rates and thresholds, never a recipient
+  address or message body. It pages **once per trip**, not once per tick, and
+  trip latency is bounded by one `HEALTH_ALERT_POLL_INTERVAL_MS` (§5).
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 

@@ -478,6 +478,27 @@
       // out of the clone set once its preamble adopted requireOwnerWithAccount.)
       "src/app/api/account/settings/route.ts",
       "src/app/api/settings/route.ts",
+
+      // Admin send-breaker reset (#898). Same shape as the owner-settings entry
+      // above — the deep gate (requireAdminWithAal2) is already extracted, and the
+      // residual clone is the standardized `gate → request.json() → safeParse →
+      // 400` preamble it shares with admin/autonomy/unsuspend and
+      // admin/solicitation/batch/halt. Those two have carried it on main for some
+      // time; this route joining as a third instance is what surfaced the group.
+      //
+      // EXTRACTING IT IS BLOCKED BY A SECURITY CONTROL, not by taste. It was
+      // built (a `requireAdminJson(request, schema)` in the same canonical module)
+      // and reverted, because `ci:admin-aal2` is fail-closed BY DESIGN over an
+      // allowlist of recognized gate shapes: "a gate hidden behind an imported
+      // wrapper is not visible to this audit and does not count." All three routes
+      // failed that audit the moment their preamble moved. Clearing them would
+      // mean widening a security control's vocabulary to satisfy a duplication
+      // linter — the wrong trade at the wrong end of a branch.
+      //
+      // Follow-up B3.11 carries the extraction PLUS the audit change together, so
+      // both land under one review instead of the audit change riding in as a
+      // side effect. Do not re-attempt the extraction without it.
+      "src/app/api/admin/solicitation/breaker/reset/route.ts",
       "src/app/api/settings/voice/route.ts",
       "src/app/api/settings/channels/override/route.ts",
       "src/app/api/settings/channels/overrides/route.ts",

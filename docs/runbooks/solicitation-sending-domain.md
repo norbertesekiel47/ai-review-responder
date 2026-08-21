@@ -304,3 +304,205 @@ Two ordering facts worth stating plainly:
   **Solicitation lane** in the Resend ingress, the unsubscribe ingress, and the
   `/u/<token>` landing page stay fully live when it is off. Turning the flag off
   is not a way to quiet the webhook, and the lane must never grow a flag gate.
+
+---
+
+## 8. Reputation circuit breaker
+
+The automatic half of deliverability protection. §5's ramp is the deliberate,
+human-paced half; this is the part that has to fire at 3am, platform-wide, and it
+**never self-clears**. Shipped at #898 — `src/lib/solicitation/send-breaker.ts`
+plus migration 110's `solicitation_send_breaker` latch table. The release-side
+consumer that actually refuses to send while a trip is open is **#900**; until it
+lands the breaker trips, pages and can be reset, but nothing reads it on the send
+path.
+
+The asset being protected is the **Sending identity** (§1–§4), which is one
+mailbox and one sending domain shared by every account. That is why the breaker
+is a platform singleton and not a per-tenant dial: one account's bad list burns
+the deliverability every other account sends on. It is **not** the **Halt latch**
+— that stops one batch.
+
+### 8.1 The read model — one window, two thresholds
+
+`evaluateSendBreaker` computes one **Breaker window** per `HealthAlertPoller`
+tick, as a single pass over `solicitation_outreach`:
+
+| Figure | Basis | Trips when |
+|---|---|---|
+| sends (denominator) | `sent_at` inside the last **7 days** | — |
+| hard bounces | `bounce_kind = 'hard'`, `bounced_at` inside the window | rate **> 2%** |
+| complaints | `complained_at` inside the window | rate **> 0.3%** |
+| minimum volume | — | **< 100 sends never trips** |
+
+These are the same two rates §5's ramp advances on, and the same 7-day/100-send
+health window §5 already describes — read them there, they are not restated here.
+The difference is only who checks: a human before each ramp stage, the breaker
+continuously. Never re-tune one side without the other.
+
+Three properties that surprise people:
+
+- **The window is not a cohort.** The denominator is send-dated, the numerators
+  are signal-dated. A burst of bounces from a send nine days ago still trips it,
+  and the ratio can exceed 1.0 in a pathological burst. That is a trip, not a
+  bug — the intuitive cohort measure dilutes a fresh bad batch with sends whose
+  bounces have not landed yet, which is the fail-*open* direction.
+- **Hard bounces are read from `bounce_kind`, never by parsing `provider_error`.**
+- **Breach precedence is fixed**: volume floor → hard bounce → complaint. When
+  both rates breach in the same window the page names the hard-bounce rate,
+  because that is the one to fix first.
+
+### 8.2 What a trip looks like
+
+The `HealthAlertPoller` is the breaker's **only** tripper — nothing else writes a
+trip. It emits one `error` finding through the §1 Sentry → Discord sink of
+`docs/runbooks/beta-launch-alerting.md`:
+
+```
+tags.subsystem=health_alert
+tags.finding=solicitation_send_breaker_tripped
+```
+
+- **Title** — `Solicitation sending halted — hard bounce rate 3.10% over 420
+  sends in 7 days exceeds 2.00%` (or the complaint-rate wording).
+- **Detail is aggregate-only** — counts, rates, thresholds, `min_sends`,
+  `window_days`, `trip_reason`. Never a recipient address, subject or body: this
+  finding leaves the platform through an alert sink.
+- **It re-pages on every tick while the trip stays open — level-triggered, not
+  an alerting bug.** The trip *insert* is still a no-op on a second breached tick
+  (it conflicts on the one-open-trip partial index), but the poller probes for an
+  open trip **first** and returns a finding whenever one stands, so events keep
+  arriving for as long as sending is halted. The re-page carries a different but
+  deliberately **constant** title — `Solicitation sending is STILL halted — the
+  <reason> breaker trip is open and has not been reset` — under the same
+  `tags.finding` routing key, so Sentry collapses the repeats into one issue that
+  keeps receiving events instead of opening a fresh one every five minutes.
+  **An open breaker is a STATE, not an event**, which is the whole reason this is
+  level-triggered: one dropped page must never equal a silent platform-wide halt,
+  so the condition is re-asserted until an operator resets it. A stream of repeats
+  reads "still halted", never "paging is broken".
+
+**Trip latency is bounded by one `HEALTH_ALERT_POLL_INTERVAL_MS`** (default
+300000 ms = 5 min; row in `beta-launch-alerting.md` §5). That bound is the price
+of keeping the expensive 7-day aggregate off the send loop — #900's read is a
+cheap indexed existence probe, not this query.
+
+**A trip is not a pause, and it is not free — read §8.5 before you start
+diagnosing.** Every hour the breaker stays open converts more already-approved
+batches into cancelled ones, platform-wide.
+
+### 8.3 Diagnosis — in this order
+
+1. **Read the window figures off the page.** `sends`, `hard_bounces`,
+   `complaints`, and the two rates are all in the finding detail; you do not need
+   a DB session to know which threshold broke and by how much. `/admin/solicitation`
+   shows the same `metrics` snapshot, frozen at the instant of the trip.
+2. **Find what changed.** A hard-bounce spike is a list-quality problem (a stale
+   or unverified contact import); a complaint spike is a content, cadence or
+   consent problem. A rate that exceeds 1.0 means the bounces belong to sends
+   older than the window — look at what was sent 8–14 days ago, not at today.
+3. **Roll `SOLICITATION_PLATFORM_DAILY_CAP` down one stage** per the §5 ramp
+   table, following the `flag-flip` skill. Do this *before* resetting, and the
+   reason is the shape of what a reset starts: the reset moves the measurement
+   window's lower edge to the reset instant, so the breaker is deliberately quiet
+   until 100 fresh sends have accumulated (§8.4). The ceiling is what governs how
+   much mail goes out inside that quiet period. Railway restarts the worker on
+   the change (§7).
+4. **Only then reset** (§8.4). Resetting with the ceiling untouched does not
+   re-trip on the next tick — it spends the whole 100-send probe at the volume
+   that just breached.
+5. **Never advance a ramp stage on a window that tripped**, even after a reset —
+   §5's advance rule is unchanged by the reset.
+
+### 8.4 Reset — `/admin/solicitation`
+
+The only thing that clears a trip. There is no timeout, no self-clear and no
+automatic reset: a breach is a fact someone has to look at.
+
+- Sign in as an admin with **AAL2** (the page and the route both gate on it) and
+  open **Safety → Solicitation send breaker** in the admin nav. The page is an
+  **Island**-system surface.
+- The panel shows the open trip: when it tripped, the reason, and the frozen
+  window snapshot.
+- **A reset note is mandatory** — enforced both by the route's schema (blank ⇒
+  400) and by migration 110's `reset_consistency` CHECK, so "who cleared this,
+  and why" cannot be unanswerable by omission. Write what you changed, not "ok".
+- The actor is taken from the admin session, never from the request body.
+- Resetting when nothing is open returns **409 `not_tripped`**; that is the
+  expected answer to a double-submit, not an error to chase.
+
+**A reset is a real recovery, not a gesture — and it does NOT re-trip on the next
+poller tick.** `readBreakerWindow` bounds every counter at
+`GREATEST(NOW() - 7 days, MAX(reset_at))`, so the reset moves the window's lower
+edge to the reset instant and only **post-reset** activity is ever measured
+again. Immediately after a reset the window is empty, `BREAKER_MIN_SENDS` holds
+the breaker quiet until **100 fresh sends** accumulate, and the very next
+`evaluateSendBreaker` returns nothing. That silence is the expected answer;
+reading it as "the window recovered on its own" is the error this section exists
+to prevent.
+
+**What the reset actually buys you is a bounded half-open probe** — roughly 100
+sends of un-governed volume, measured honestly, after which the breaker judges
+the *new* window and trips again if the list is still bad. That is why §8.3 puts
+the ceiling roll-down **before** the reset: the ceiling is the only thing bounding
+how much mail leaves during the probe. It is not a blind re-arm, and it is not a
+free look either — an operator who resets "just to check whether the breach still
+stands" has not checked anything, they have **zeroed the measurement** and started
+the probe.
+
+**Pre-reset bounces that land late no longer count, and that exclusion IS the
+fix.** A bounce for a send made before the reset, arriving after it, falls outside
+the new lower edge and is dropped from the numerator. Before this bound the
+breaker measured a history no operator action could change, so a reset re-tripped
+within one poll interval every time and recovery was arithmetically unreachable.
+Excluding the pre-reset tail is what makes the reset mean something.
+
+If you need sending stopped while you work, the honest control is
+`SOLICITATION_PLATFORM_DAILY_CAP=0` or `SOLICITATION_SEND_ENABLED=false` (§7), not
+the latch — and note that with the reset now bounding the window, repeatedly
+clearing the latch is worse than useless: each reset restarts the 100-send quiet
+period.
+
+### 8.5 What a trip costs the batches already in flight
+
+**Read this before you reset, not after.** A trip is not a pause. The breaker and
+the send window run on different clocks, and nothing reconciles them:
+`BATCH_SEND_WINDOW_HOURS = 72` (`src/lib/solicitation/outreach.ts`) is anchored on
+`approved_at` and keeps running while the breaker is open, but a real trip stays
+open for **days** — as long as it takes a human to diagnose, roll the ceiling
+down and reset.
+
+So the blast radius of one trip is **every batch approved in the 72 hours before
+it, across every account on the platform**. Those batches stop being released,
+their windows elapse under the halt, and #900's expiry sweep terminalizes them
+`cancelled` with reason `send_window_elapsed`: every remaining ask dead, and every
+owner told their send window elapsed — for a platform-wide cause that had nothing
+to do with their list.
+
+**That is a deliberate trade, recorded in amendment B14** of
+`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`. The
+alternative — suspending expiry while the breaker is open — is worse, not better:
+those batches then run past the "≤10 days by construction" bound that
+`STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` is derived from, and
+`solicitation_send_batch_stalled` fires for every one of them, burying the trip
+you are actually working under an alert storm. A cancelled batch is an honest
+terminal state an owner can act on; a stalled run is not.
+
+Practical consequences for the operator:
+
+- **Time is the cost.** Every hour the trip stays open converts more approved
+  batches into cancelled ones. Diagnose (§8.3) with that clock running.
+- **Tell the affected owners.** They will see "Send window elapsed" and have no
+  way to know a platform halt caused it. Until #900 ships a distinct
+  `platform_halt` reason, the owner-facing message is technically true and
+  practically misleading — closing that gap is #900's, not #898's.
+- **Rebuilding is not free.** A cancelled batch leaves its asks `status='send'`,
+  so `MIN_GAP_DAYS` withholds those contacts as `over_contacted` on any rebuild
+  inside 30 days (ADR 0020 § "Cost, as verified"). Advise owners to wait rather
+  than immediately rebuild.
+- **This is why §8.3 step 3 comes before step 4.** A reset does not re-trip on
+  the next tick — it opens a ~100-send half-open probe (§8.4) — so the ceiling is
+  the only thing bounding how much mail goes out while the breaker is quiet.
+  Reset with the ceiling untouched and the probe runs at the volume that just
+  breached; if it breaches again, the new trip restarts this clock on a fresh 72
+  hours of approvals.

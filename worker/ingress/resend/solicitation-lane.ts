@@ -266,10 +266,61 @@ function assertUpdatedOne(count: number, outreachId: string): void {
   }
 }
 
+/**
+ * The soft bounce types this codebase actually RECOGNISES.
+ *
+ * NOT a second owner of "what counts as permanent" — `classifyBounce` keeps
+ * that, and no hard form is ever a member here. This set answers a different
+ * question, one only #898 made load-bearing: did the provider hand us a type we
+ * understand *at all*?
+ *
+ * `classifyBounce` answers "hard?", and defaults an unrecognised or missing type
+ * to soft deliberately, so an ambiguous payload cannot flag a business
+ * (`bounce-classifier.ts`). That default is fail-SAFE for flagging and
+ * fail-OPEN for the **Send breaker**, whose numerator filters on
+ * `bounce_kind = 'hard'`: a Resend payload-shape change — or a new permanent
+ * type whose name does not contain "permanent" — would stamp every bounce
+ * `soft`, and the breaker would never trip however bad deliverability got. Two
+ * questions, two answers; only a recognised type earns a stored kind.
+ */
+const RECOGNISED_SOFT_BOUNCE_TYPES = new Set([
+  'transient',
+  'soft',
+  'softbounce',
+  'soft_bounce',
+  'temporary',
+  'temporary_failure',
+]);
+
+/**
+ * `hard` | `soft` | NULL — the **Send breaker**'s discriminator (#898).
+ *
+ * NULL means "we could not classify this", never "not a hard bounce". 110's
+ * `bounce_kind_pairing` CHECK admits `bounced_at` set with `bounce_kind` NULL
+ * precisely so that state is representable, and the breaker counts
+ * `bounced_at IS NOT NULL AND bounce_kind IS NULL` WITH the hard bounces — the
+ * fail-CLOSED direction on a governor specified to fail closed. An unrecognised
+ * type therefore makes the breaker trip sooner, never later.
+ *
+ * Suppression is UNCHANGED: `isHard` still decides the ledger write and the
+ * unmatched-attribution split, so an ambiguous bounce still never suppresses a
+ * real customer. Only the stored kind moves.
+ */
+function resolveBounceKind(rawType: string, isHard: boolean): 'hard' | 'soft' | null {
+  if (isHard) return 'hard';
+  if (RECOGNISED_SOFT_BOUNCE_TYPES.has(rawType)) return 'soft';
+  // Mirrors the classifier's `.includes('permanent')` arm on the other side:
+  // provider vocabularies prefix and suffix these words (smtp_transient_failure).
+  if (rawType.includes('transient') || rawType.includes('temporary')) return 'soft';
+  return null;
+}
+
 async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<void> {
   // Classified from the PAYLOAD, before any lookup — so we know whether this event
   // is suppression-bearing and therefore whether an unmatched id may be acked.
-  const { reason, isHard } = classifyBounce(extractBounceType(data));
+  const rawType = extractBounceType(data);
+  const { reason, isHard } = classifyBounce(rawType);
+  const bounceKind = resolveBounceKind(rawType, isHard);
 
   const committed = await withAttribution(
     sql,
@@ -280,6 +331,14 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
       const updated = await tx`
         UPDATE solicitation_outreach
            SET bounced_at = COALESCE(bounced_at, NOW()),
+               -- The breaker's discriminator (#898). COALESCE for the same
+               -- reason bounced_at does: a redelivered webhook must not
+               -- reclassify a bounce we already recorded. Paired with
+               -- bounced_at by 110's bounce_kind_pairing CHECK, so it is set
+               -- in the SAME statement or the row is rejected. NULL when the
+               -- provider type is unrecognised — see resolveBounceKind; the
+               -- COALESCE then leaves the column exactly as it was.
+               bounce_kind = COALESCE(bounce_kind, ${bounceKind}),
                provider_error = COALESCE(provider_error, ${reason}),
                updated_at = NOW()
          WHERE id = ${attribution.id}
@@ -296,9 +355,11 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
     outreach_id: committed.attribution.id,
     account_id: committed.attribution.account_id,
     business_id: committed.attribution.business_id,
-    // The KIND only. `reason` embeds provider-controlled text that can carry a
-    // recipient address; it belongs in provider_error (a column) not a log.
-    bounce_kind: isHard ? 'hard' : 'soft',
+    // The KIND only — the one actually STORED, so a log line can never claim a
+    // classification the breaker's numerator does not see. `reason` embeds
+    // provider-controlled text that can carry a recipient address; it belongs in
+    // provider_error (a column) not a log.
+    bounce_kind: bounceKind ?? 'unrecognised',
   });
 }
 
