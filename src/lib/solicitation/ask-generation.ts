@@ -70,6 +70,7 @@ import {
   ASK_LINT_VERSION,
   assessNoteAdmissibility,
   lintAsk,
+  lintInputFromSnapshot,
   type AskLintClass,
 } from './ask-compliance-lint';
 import { assembleAskBody } from './ask-render';
@@ -328,12 +329,15 @@ async function probeExistingRenders(
 
 // ── Per-child pipeline ───────────────────────────────────────────────────────
 
+/**
+ * The §1.1 snapshot, and nothing else. The lint's two value lists used to be
+ * spelled out here as well; they now come from `lintInputFromSnapshot`, which
+ * derives them FROM this snapshot — so generation and #899's dispatch-time
+ * re-lint read the same corpus out of the same field, and a change to "which
+ * values feed the lint" has one place to land.
+ */
 interface AssembledChild {
   inputs: AskInterpolationInputs;
-  /** Every §1.1 value the prompt saw — the lint's §2.5 exemption corpus. */
-  interpolationValues: string[];
-  /** The PII-capable subset barred from the subject (B5): the admitted note. */
-  subjectDisallowedValues: string[];
 }
 
 /**
@@ -366,17 +370,7 @@ function assembleInterpolation(
     visit_note: visitNote,
     note_disposition: note.disposition,
   };
-  return {
-    inputs,
-    interpolationValues: [
-      firstName,
-      ctx.businessName,
-      bucket,
-      vertical,
-      ...(visitNote !== null ? [visitNote] : []),
-    ],
-    subjectDisallowedValues: visitNote !== null ? [visitNote] : [],
-  };
+  return { inputs };
 }
 
 interface ChildLlmMeta {
@@ -570,12 +564,10 @@ async function generateChildRender(
     };
   }
 
-  const verdict = lintAsk({
-    subject,
-    body: assembledBody,
-    interpolationValues: assembled.interpolationValues,
-    subjectDisallowedValues: assembled.subjectDisallowedValues,
-  });
+  // The exemption corpus is derived from the snapshot about to be PERSISTED,
+  // not from the live ask row — which is what lets #899 replay this exact
+  // verdict at dispatch from `interpolation_inputs` alone.
+  const verdict = lintAsk(lintInputFromSnapshot(assembled.inputs, subject, assembledBody));
   if (verdict.blockedReason !== null) {
     // AMEND B1: all seven content classes fold to one coarse `lint_failed`
     // reason with the matched classes in lint_detail. Decision 4: no provider

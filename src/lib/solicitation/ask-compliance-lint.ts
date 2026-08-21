@@ -27,6 +27,11 @@ import {
   UNSUBSCRIBE_LINE_PREFIX,
   UNSUBSCRIBE_URL_PLACEHOLDER,
 } from './ask-render';
+// Type-only, and deliberately so: `ask-prompt-policy.ts` already imports
+// `NoteDisposition` from here, so a VALUE import either way round would be a
+// runtime cycle. The snapshot shape belongs to the prompt policy that produced
+// it; this module only reads it.
+import type { AskInterpolationInputs } from './ask-prompt-policy';
 
 /**
  * Bump when the class table, admissibility rules, provenance allowlist, or
@@ -217,6 +222,45 @@ export interface AskLintInput {
    * bans "HIV" and "treatment" from the subject line.
    */
   subjectDisallowedValues: readonly string[];
+}
+
+/**
+ * The single owner of WHICH stored values feed the lint, shared by the two
+ * lanes that lint the same bytes: generation (`ask-generation.ts`, over the
+ * snapshot it is about to persist) and dispatch (#899's re-lint, over the
+ * snapshot already persisted).
+ *
+ * It exists because those two lanes must not disagree. The dispatch-time
+ * re-lint is a claim about the bytes the owner APPROVED, so it has to replay
+ * the §5.3 `interpolation_inputs` snapshot rather than re-derive the corpus
+ * from a live ask row and visit that may have moved since the render — and a
+ * second hand-spelled copy of this list is exactly how that guarantee rots.
+ *
+ * `visit_note` is non-null exactly when the note was ADMITTED (the snapshot
+ * never carries a rejected note), so its presence is the whole condition for
+ * both lists: it joins the §2.5 exemption corpus AND is the one value B5 bars
+ * from the subject. Bucket and vertical are closed vocabularies —
+ * definitionally not PII — and first name and business name are subject-safe
+ * by B5, so none of them is ever disallowed.
+ */
+export function lintInputFromSnapshot(
+  snapshot: AskInterpolationInputs,
+  subject: string,
+  body: string,
+): AskLintInput {
+  const visitNote = snapshot.visit_note;
+  return {
+    subject,
+    body,
+    interpolationValues: [
+      snapshot.contact_first_name,
+      snapshot.business_name,
+      snapshot.days_since_visit_bucket,
+      snapshot.vertical,
+      ...(visitNote !== null ? [visitNote] : []),
+    ],
+    subjectDisallowedValues: visitNote !== null ? [visitNote] : [],
+  };
 }
 
 export interface AskLintVerdict {
