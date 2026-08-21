@@ -414,3 +414,43 @@ additional pings were read-only no-ops and changed no state.)*
 Deliberately NOT done. Rides the production bring-up (§8.4 posture); when it
 happens: set the var on prod Railway worker + Vercel production env, redeploy,
 same smoke. No ordering dependency on the autonomy flags.
+
+---
+
+## Reverted on staging — 2026-08-21 (beta posture)
+
+**Flag:** `SOLICITATION_WATCH_ENABLED=false` · **Environment:** staging only ·
+**Reason:** the production beta excludes the whole Solicitation surface, and the
+staging demo must mirror that posture.
+
+| Surface | Action |
+|---|---|
+| Vercel staging custom env | set to `false`, re-added as **`--no-sensitive`** |
+| Railway staging worker | **not touched — correct.** The flag has 12 read sites under `src/**` and **zero** under `worker/**`. It is a Vercel-only flag; a Railway value changes no behaviour. |
+
+Carried live by `staging` push `3e9f2f7a` (Vercel does not pick up env changes
+without a redeploy; a `staging` push refreshes the whole stack per
+`deployment-guide.md` Phase 3).
+
+### The gotcha this run found — Sensitive-typed flags read back as empty
+
+The var had been stored as **Sensitive**. Vercel does not return a sensitive
+value, so `vercel env pull` wrote `SOLICITATION_WATCH_ENABLED=""` — and CLI
+**54.14.5 renders that indistinguishably from a genuinely empty value**. Reading
+the pulled file therefore produced a confident, wrong conclusion: "the flag is
+empty, so watch-mode is off". CLI **59.1.4** renders the same variable as
+`"[SENSITIVE]"`, which is what exposed the mistake.
+
+Two consequences worth carrying forward:
+
+1. **A Sensitive-typed feature flag is unverifiable.** `vercel env ls` shows
+   every var as `Encrypted` regardless, so the listing does not distinguish them
+   either. Store boolean flags with `--no-sensitive` — they are not secrets, and
+   a flag you cannot read is a flag you cannot audit. All three beta-posture vars
+   were (re-)added that way.
+2. **`vercel env add` on 54.x silently stores an EMPTY value** via stdin, file
+   redirect, *and* `--value` — the Phase 3 note already recorded the stdin half
+   of this for v54.6.1. On 59.1.4, `--value` works. Verify every write with a
+   fresh `env pull` before believing it.
+
+Prod remains OFF/unset. The production flip still rides the production bring-up.

@@ -95,4 +95,38 @@ redundant-but-harmless rather than load-bearing.
   admin button itself (AAL2 + the `/admin/businesses/[id]` control, and that the
   re-sent link actually works from the mailbox) has not been clicked on staging.
   The mapping is no longer the risk; the wiring is.
-- **Production** — gated on the WS8 cutover. 077/078 are absent in prod and 105 rewrites a constraint over 077's columns, so **105 must not be applied to prod before that cutover**. No live-mode coupon exists; `ONBOARDING_DEMO_ENABLED` is still empty (off) on preview/production.
+- **Production** — gated on the WS8 cutover. No live-mode coupon exists;
+  `ONBOARDING_DEMO_ENABLED` is still empty (off) on preview/production.
+
+  > **Superseded 2026-08-21.** This bullet used to add "077/078 are absent in
+  > prod and 105 must not be applied to prod before that cutover". That is no
+  > longer true and was already false when written: the migration-lockstep audit
+  > found **077 already applied in prod** (it landed unrecorded after the
+  > 2026-07-17 cutover pause), and **105 was applied 2026-08-14** once its only
+  > blocker — the 077 dependency — proved satisfied. **078 is the sole migration
+  > absent in prod.** Current state always: `.claude/CLAUDE.md` → "Environments &
+  > branches" standing exception. The sequencing logic is unchanged; only the
+  > claim about prod's state was wrong.
+
+## Staging beta posture set — 2026-08-21
+
+The two provider/ops steps this feature shipped without (plan steps 1-2, and
+the cofounder guide's Part 12) are now done **for staging only**.
+
+| What | Value | Where |
+|---|---|---|
+| Stripe **TEST-mode** coupon | `repworth-beta-comp-3mo` — 100% off, `duration=repeating`, `duration_in_months=3`, valid, 0 redemptions | Stripe test mode, acct `acct_1TUcR7IhPBLaM6xA` |
+| `BETA_COMP_COUPON_ID` | `repworth-beta-comp-3mo` | Vercel staging custom env, `--no-sensitive` |
+| `ONBOARDING_DEMO_ENABLED` | `true` | Vercel staging custom env, `--no-sensitive` |
+
+`ONBOARDING_DEMO_ENABLED` is **Vercel-only** by design: 15 read sites under
+`src/**`, zero under `worker/**`. Carried live by `staging` push `3e9f2f7a`.
+
+Both values were verified by a fresh `vercel env pull` after writing — see the
+Sensitive-typed-flag gotcha recorded in
+`2026-07-26-solicitation-watch-mode-staging-flip.md` for why that check is not
+optional.
+
+**Production still has neither.** The live-mode coupon is a different ID and
+does not exist; a test-mode ID deployed to live fails every invited tester's
+checkout identically.
