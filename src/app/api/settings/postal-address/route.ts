@@ -40,6 +40,7 @@ import { getOffboardingState, isOperationalUIBlocked } from '@/lib/account-offbo
 import { resolveOwnerScope, ScopeError } from '@/lib/auth/resolve-owner-scope';
 import { jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
+import { solicitationWatchEnabled } from '@/lib/solicitation/flags';
 import {
   POSTAL_ADDRESS_ATTESTATION_VERSION,
   attestPostalAddress,
@@ -70,6 +71,18 @@ const UpdatePostalAddressSchema = z.strictObject({
 });
 
 async function putPostalAddress(request: NextRequest): Promise<NextResponse> {
+  // Flag gate FIRST — before auth, before the offboarding read, before the
+  // body. Mirrors `requireContactsWriteAccess`
+  // (`src/app/api/dashboard/contacts/location-scope.ts`): with watch-mode off
+  // this surface does not exist, so the 404 precedes auth and the response
+  // shape leaks nothing about whether the caller held a session or a location.
+  // Paired with the identical gate on the settings profile page — the panel and
+  // its writer appear and disappear together, so the UI can never offer a
+  // control the route refuses. Server-authoritative, invariant #13.
+  if (!solicitationWatchEnabled()) {
+    return jsonResponse({ error: 'not_found' }, 404);
+  }
+
   let scope;
   try {
     scope = await resolveOwnerScope(sql, request);

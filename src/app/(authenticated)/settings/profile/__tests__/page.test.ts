@@ -12,6 +12,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 //     address while writing another's (review round 1 finding).
 //  2. It scopes the read by the guard's accountId and passes the `sql`
 //     singleton down, since the domain module never imports it (invariant #15).
+//  3. It runs the Solicitation watch-mode gate. The address is a Solicitation
+//     artefact — it exists only to footer an ask — so the panel rides that
+//     master switch. Its visibility used to key on `readPostalAddressState`
+//     returning null, but that returns null only for a MISSING business row,
+//     never for a disabled feature: "no row" was standing in for "feature off",
+//     which it cannot do, and the panel rendered for EVERY owner with the flag
+//     off. PUT /api/settings/postal-address runs the identical gate, so the
+//     panel and its writer appear and disappear together.
 
 const readPostalAddressState = vi.fn();
 const requireOwnerAccess = vi.fn();
@@ -43,6 +51,10 @@ beforeEach(() => {
     role: 'owner',
   });
   readPostalAddressState.mockResolvedValue(null);
+  // Both cases below exercise the ENABLED surface. Without this the gate would
+  // short-circuit them and the file would assert the gate twice over instead of
+  // the location-scoping it was written for. The gate's own coverage clears it.
+  process.env.SOLICITATION_WATCH_ENABLED = 'true';
 });
 
 describe('settings/profile page', () => {
@@ -77,5 +89,44 @@ describe('settings/profile page', () => {
 
     expect(clientElement).toBeDefined();
     expect((clientElement?.props as { postalAddress: unknown }).postalAddress).toEqual(state);
+  });
+});
+
+describe('settings/profile page - solicitation watch-mode gate', () => {
+  beforeEach(() => {
+    delete process.env.SOLICITATION_WATCH_ENABLED;
+  });
+
+  it('hides the panel and skips the read entirely when the flag is off', async () => {
+    readPostalAddressState.mockResolvedValue({ address: '77 Rainey St' });
+    const { default: ProfilePage } = await import('../page');
+    const { ProfileClient } = await import('../ProfileClient');
+
+    const tree = (await ProfilePage()) as ReactElement<{ children: ReactElement[] }>;
+    const clientElement = tree.props.children.find((child) => child.type === ProfileClient);
+
+    expect((clientElement?.props as { postalAddress: unknown }).postalAddress).toBeNull();
+    // Asserting only the prop would let a version that reads and then discards
+    // pass. A disabled feature costs no query.
+    expect(readPostalAddressState).not.toHaveBeenCalled();
+  });
+
+  it('treats every non-exact value as off, matching readFlag', async () => {
+    // readFlag accepts the literal 'true' and nothing else. A deploy that set
+    // 'TRUE' or '1' meaning to enable the surface must still get the hidden
+    // panel — silently half-enabling it is the failure this pins.
+    const { default: ProfilePage } = await import('../page');
+    const { ProfileClient } = await import('../ProfileClient');
+
+    for (const value of ['TRUE', '1', 'yes', 'false', '']) {
+      process.env.SOLICITATION_WATCH_ENABLED = value;
+      const tree = (await ProfilePage()) as ReactElement<{ children: ReactElement[] }>;
+      const clientElement = tree.props.children.find((child) => child.type === ProfileClient);
+      expect(
+        (clientElement?.props as { postalAddress: unknown }).postalAddress,
+        `value ${JSON.stringify(value)}`,
+      ).toBeNull();
+    }
+    expect(readPostalAddressState).not.toHaveBeenCalled();
   });
 });
