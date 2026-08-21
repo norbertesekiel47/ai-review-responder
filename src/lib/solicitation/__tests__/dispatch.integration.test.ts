@@ -61,6 +61,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import type { AskInterpolationInputs } from '../ask-prompt-policy';
 import { assembleAskBody } from '../ask-render';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { dispatchOutreach } from '../dispatch';
@@ -128,11 +129,48 @@ const SEEDED_POSTAL_ADDRESS = '742 Evergreen Terrace\nSpringfield, IL 62704';
  *  test against that list rather than a "not v1" test. */
 const STALE_ATTESTATION_VERSION = 'consent_attestation_v1';
 
+/** The subject stored on the fixture row. Lint-clean by construction: short,
+ *  one clause, no URL, no digits, no disallowed interpolated value. */
+const SEEDED_SUBJECT = 'How did we do?';
+
+/** The model-authored half of the stored body, before `assembleAskBody` adds the
+ *  footer. Lint-clean: no incentive, no steering, no capitalized token that the
+ *  §2.4 provenance corpus cannot account for. */
+const SEEDED_LLM_BODY = 'Thanks for stopping by — would you mind leaving us a review?';
+
+/**
+ * The §5.3 `interpolation_inputs` snapshot the render persisted, and therefore
+ * the ONLY corpus the dispatch-time re-lint is allowed to replay against — the
+ * live ask row may have moved since approval, and re-deriving from it is exactly
+ * what would break the byte-for-byte **Owner approval** contract this gate
+ * protects. `business_name` matches the fixture's `assembleAskBody` argument.
+ */
+const SEEDED_INTERPOLATION_INPUTS = {
+  contact_first_name: 'Dana',
+  business_name: 'Dispatch Business',
+  days_since_visit_bucket: 'last week',
+  vertical: 'other',
+  visit_note: null,
+  note_disposition: 'absent',
+  // `satisfies`, not an annotation: the interface carries no index signature, so
+  // an annotated constant would not be assignable to the fixture's JSONB
+  // parameter while still being checked against the real snapshot shape.
+} satisfies AskInterpolationInputs;
+
 /** What the Consent ledger says about the seeded handle at dispatch. */
 type ConsentFixture = 'send_eligible' | 'stale_attestation' | 'absent';
 
 interface SeedQueuedOutreachOptions {
   consent?: ConsentFixture;
+  /** The model-authored body the fixture assembles the footer onto. */
+  llmBody?: string;
+  /**
+   * The stored snapshot. `{}` is one of the two LEGAL empty states migration 092
+   * and locked decision 6 produce (a redacted row, a never-assembled
+   * `render_failed` row) — `parseOutreachInterpolationInputs` reads it as null,
+   * which is the case "withholds rather than sending…" drives.
+   */
+  interpolationInputs?: Record<string, unknown>;
 }
 
 async function seedQueuedOutreach(
@@ -229,7 +267,7 @@ async function seedQueuedOutreach(
   // claim about the bytes `assembleAskBody` emits, so a fixture that spelled
   // its own footer would prove the check against a shape nothing ships.
   const renderedBody = assembleAskBody(
-    'Thanks for stopping by — would you mind leaving us a review?',
+    options.llmBody ?? SEEDED_LLM_BODY,
     { businessName: 'Dispatch Business', postalAddress: SEEDED_POSTAL_ADDRESS },
   );
   if (renderedBody === null) {
@@ -242,7 +280,9 @@ async function seedQueuedOutreach(
     batchId,
     askId,
     contactId,
+    renderedSubject: SEEDED_SUBJECT,
     renderedBody,
+    interpolationInputs: options.interpolationInputs ?? SEEDED_INTERPOLATION_INPUTS,
     deliveryStatus: 'queued',
     renderedAt: sql()`NOW() - INTERVAL '30 minutes'`,
     queuedAt: sql()`NOW() - INTERVAL '30 seconds'`,
@@ -421,6 +461,26 @@ async function withSendFlagOff(run: () => Promise<void>): Promise<void> {
   } finally {
     if (previous === undefined) delete process.env.SOLICITATION_SEND_ENABLED;
     else process.env.SOLICITATION_SEND_ENABLED = previous;
+  }
+}
+
+/**
+ * Runs the body with the moderation provider switched OFF.
+ *
+ * Pinned rather than inherited from `.env.local`, because the dispatch lane's
+ * whole claim here is that OFF is a REFUSAL: spec §3.4 makes a clean provider
+ * verdict a dispatch precondition, so `false` and a provider error are both
+ * non-clean. A case that read whatever the environment happened to carry would
+ * pass for the wrong reason on a machine that had it on.
+ */
+async function withProviderModerationOff(run: () => Promise<void>): Promise<void> {
+  const previous = process.env.OPENAI_MODERATION_ENABLED;
+  process.env.OPENAI_MODERATION_ENABLED = 'false';
+  try {
+    await run();
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_MODERATION_ENABLED;
+    else process.env.OPENAI_MODERATION_ENABLED = previous;
   }
 }
 
@@ -659,11 +719,75 @@ describeWithDb(
         // gate's verdict about that row, not an absence of one.
         expect(staleRow.consent_attestation_version).toBe(STALE_ATTESTATION_VERSION);
       });
-      it.todo('withholds with lint_failed when the stored bytes fail the current ASK_LINT_VERSION');
+      it('withholds with lint_failed when the stored bytes fail the current ASK_LINT_VERSION', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        // Copy that the lint's class 1 (incentive_language) blocks outright. The
+        // row was APPROVED with these bytes — the re-lint exists because the
+        // ruleset can move after approval, and the stored bytes are what ships.
+        const fixture = await seedQueuedOutreach({
+          llmBody: 'Thanks for stopping by — leave us a review and get 20% off your next visit.',
+        });
+
+        await withSendFlagOn(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: fixture.batchId,
+            businessId,
+            outreachId: fixture.outreachId,
+            outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+            correlationId: 'dispatch-lint-failed',
+          });
+        });
+
+        const row = await readOutreach(fixture.outreachId);
+        expect(row.delivery_status).toBe('withheld');
+        // `lint_failed`, not `moderation_high`: B6's ORDER survived the split
+        // gathering. Re-moderation also refuses here (the provider is off in
+        // this environment), so this reason is only reachable if the gate still
+        // evaluates item 8 before item 9.
+        expect(row.disposition_reason).toBe('lint_failed');
+        expect(row.sending_at).toBeNull();
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+
+        // The withhold is a full terminal act, same as every other gate item.
+        expect(row.agent_run_id).not.toBeNull();
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('completed');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+      });
       // Decision 6 / amendment B1: the dispatch verdict NEVER overwrites the
       // render's `moderation_status` or `moderation_detail` — those columns are
       // render provenance. The withheld reason is the only thing that moves.
-      it.todo('withholds with moderation_high and leaves the render moderation_status untouched');
+      it('withholds with moderation_high and leaves the render moderation_status untouched', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        // Lint-clean bytes, so item 8 passes and item 9 is the only thing left
+        // to fail — which is what makes this case about moderation at all.
+        const fixture = await seedQueuedOutreach();
+
+        await withProviderModerationOff(async () => {
+          await withSendFlagOn(async () => {
+            await dispatchOutreach(sql(), {
+              batchId: fixture.batchId,
+              businessId,
+              outreachId: fixture.outreachId,
+              outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+              correlationId: 'dispatch-moderation-high',
+            });
+          });
+        });
+
+        const row = await readOutreach(fixture.outreachId);
+        expect(row.delivery_status).toBe('withheld');
+        expect(row.disposition_reason).toBe('moderation_high');
+        expect(row.sent_at).toBeNull();
+
+        // The other half of the claim, and the one a careless implementation
+        // gets wrong: `moderation_status` still says what the RENDER's provider
+        // verdict was. Overwriting it here would destroy the provenance B1 put
+        // on the row and make "was this copy ever moderated clean" unanswerable.
+        expect(row.moderation_status).toBe('clean');
+      });
       // Decision 5: flag-off is a DEFER, not a withhold. 091/110 have no
       // `flag_off` reason and inventing one terminalizes a row the owner still
       // owns; the row stays `queued` and #900's producer re-drips it.
@@ -741,7 +865,34 @@ describeWithDb(
       // Task 3 — the stored interpolation snapshot is the Owner approval
       // guarantee's input. Absent, there is no byte-for-byte claim left to make,
       // so the only safe answer is to withhold rather than to re-derive.
-      it.todo('withholds rather than sending when the stored interpolation snapshot is absent');
+      it('withholds rather than sending when the stored interpolation snapshot is absent', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        // `{}` is what 092's redaction leaves behind, and what locked decision 6
+        // writes for a never-assembled `render_failed` row. Every OTHER gate
+        // item passes here, so the snapshot is the only thing under test.
+        const fixture = await seedQueuedOutreach({ interpolationInputs: {} });
+
+        await withSendFlagOn(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: fixture.batchId,
+            businessId,
+            outreachId: fixture.outreachId,
+            outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+            correlationId: 'dispatch-absent-snapshot',
+          });
+        });
+
+        const row = await readOutreach(fixture.outreachId);
+        // An absent snapshot is NOT a lint pass. With no corpus to replay, the
+        // §2.5 exemption cannot be reconstructed and there is no byte-for-byte
+        // claim left to make — so the re-lint reports the check it could not
+        // perform rather than waving the row through.
+        expect(row.delivery_status).toBe('withheld');
+        expect(row.disposition_reason).toBe('lint_failed');
+        expect(row.sending_at).toBeNull();
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+      });
     });
 
     // ---- Unsubscribe token mint (Task 4, invariant #5) ---------------------

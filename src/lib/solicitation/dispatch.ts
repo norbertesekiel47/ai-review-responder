@@ -15,14 +15,13 @@
  * five inside tx1 under the batch row lock, which is why the evidence arrives
  * as two records rather than one.
  *
- * TASK 2 SCOPE. Everything up to and including the WITHHOLD path is real: the
- * flag-off defer, tx1 in its precedent order, the five FAST evidence items, the
- * consent snapshot, the **Lazy child** and the inline `closeBatchIfSettled`
- * join. What is still stubbed is the SLOW evidence (Task 3 — `lintPassed` and
- * `moderationClean` are hard `true` here), the unsubscribe token mint (Task 4)
- * and everything downstream of a PASSING gate (Task 6), which throws a marked
- * TODO from inside tx1 so a path this file does not own yet cannot commit a
- * half-dispatched row.
+ * TASK 3 SCOPE. The whole seven-item gate is real now — the flag-off defer,
+ * the two SLOW items gathered above tx1, tx1 in its precedent order, the five
+ * FAST items, the consent snapshot, the **Lazy child** and the inline
+ * `closeBatchIfSettled` join. What is still missing is the unsubscribe token
+ * mint (Task 4) and everything downstream of a PASSING gate (Task 6), which
+ * throws a marked TODO from inside tx1 so a path this file does not own yet
+ * cannot commit a half-dispatched row.
  *
  * Outbox contract: a defer is a SUCCESS, never a stranded `dispatched` row —
  * `completeOutboxNoop` mirrors `ask-generation.ts`'s helper of the same name.
@@ -46,6 +45,7 @@ import {
   markOutboxCompletedIfOwned,
 } from '@/lib/shared/outbox';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { moderateResponse } from '@/lib/moderation/moderate';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import {
   completeRun,
@@ -53,6 +53,7 @@ import {
   recordStep,
   startOrGetSolicitationAskRun,
 } from '@/lib/agents/run-spine';
+import { lintAsk, lintInputFromSnapshot } from './ask-compliance-lint';
 import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import { normalizeEmail } from './handles';
@@ -60,6 +61,7 @@ import {
   BATCH_SEND_WINDOW_HOURS,
   closeBatchIfSettled,
   deriveBatchState,
+  parseOutreachInterpolationInputs,
   type BatchLifecycleRow,
   type BatchState,
 } from './outreach';
@@ -196,11 +198,28 @@ interface DispatchScope {
   outreachId: string;
 }
 
-/** What the pre-tx read resolves: the tenant anchor, and the status the two
- *  cheap short-circuits above tx1 need. */
+/**
+ * What the pre-tx read resolves: the tenant anchor, the status the two cheap
+ * short-circuits above tx1 need, and the three IMMUTABLE render columns the two
+ * SLOW gate items are computed from.
+ *
+ * Reading the bytes here rather than under the lock is decision 3, and it is
+ * safe for one reason only: stored bytes never change after approval. ADR 0020
+ * (#860) struck per-ask regeneration after approval, so `regenerateAsk` refuses
+ * in every state but `built` and no path replaces an approved render. That is
+ * what makes an unlocked read of them equivalent to a locked one.
+ *
+ * `interpolation_inputs` is JSONB and arrives as an object OR as a string
+ * depending on the PgBouncer path, so it is typed `unknown` and narrowed by
+ * `parseOutreachInterpolationInputs` — that function is the sanctioned parse
+ * site, and re-spelling its guard here is what the allowlist exists to prevent.
+ */
 interface OutreachDispatchRow {
   account_id: string;
   delivery_status: string;
+  rendered_subject: string | null;
+  rendered_body: string | null;
+  interpolation_inputs: unknown;
 }
 
 /** What tx1 re-reads under `FOR UPDATE`. Tasks 4 and 6 widen it (the rendered
@@ -312,13 +331,87 @@ async function loadOutreachRow(
   input: DispatchOutreachInput,
 ): Promise<OutreachDispatchRow | undefined> {
   const [row] = await sql<OutreachDispatchRow[]>`
-    SELECT account_id, delivery_status
+    SELECT account_id, delivery_status,
+           rendered_subject, rendered_body, interpolation_inputs
     FROM solicitation_outreach
     WHERE id = ${input.outreachId}::uuid
       AND business_id = ${input.businessId}::uuid
       AND batch_id = ${input.batchId}::uuid
   `;
   return row;
+}
+
+/**
+ * The verdict for a row that cannot be evaluated at all — no stored artifact, or
+ * no §5.3 snapshot to replay the lint's exemption corpus from.
+ *
+ * BOTH items report failure, and neither is a lie: an absent snapshot means a
+ * never-assembled `render_failed` row or a redacted one, and in both cases there
+ * are no bytes whose compliance anyone can still vouch for. Gate order then
+ * turns this into `lint_failed`, which is the accurate reading — the re-lint is
+ * precisely the check that could not be performed.
+ */
+const SLOW_GATE_UNEVALUABLE: SlowGateEvidence = {
+  lintPassed: false,
+  moderationClean: false,
+};
+
+/**
+ * Gate items 8 and 9, gathered with NO LOCK HELD (decision 3).
+ *
+ * Two reasons this runs above tx1, and both bind:
+ *
+ *  - `moderateResponse` is a remote call with a ~10s timeout, and the repo rule
+ *    is never to hold a Postgres lock across one. tx1 holds the batch lifecycle
+ *    row `FOR UPDATE`, so ten seconds here is ten seconds a concurrent **Halt
+ *    latch** cannot land.
+ *  - It is safe because the inputs are immutable after approval (see
+ *    `OutreachDispatchRow`), so a verdict computed before the lock cannot go
+ *    stale inside it.
+ *
+ * B6's ORDER is untouched — only the gathering moved. The verdicts are applied
+ * at slots 8 and 9 by `applyDispatchGate`, so a suppressed contact still reports
+ * `suppressed` rather than `lint_failed`.
+ *
+ * FAIL-CLOSED, and deliberately the inverse of the reply lane. Spec §3.4:
+ * "a clean provider moderation verdict is a DISPATCH precondition, not a
+ * GENERATION precondition". So `moderationClean` requires the provider to have
+ * actually returned a clean verdict — `OPENAI_MODERATION_ENABLED=false` and a
+ * provider error are BOTH false, which is what keeps the flag a genuine send
+ * precondition rather than a silent downgrade to local-regex-only. The
+ * `!decision.flagged` conjunct mirrors the generation lane's own `'clean'`
+ * mapping (`ask-generation.ts`), so the local filter keeps its veto too.
+ *
+ * Both items are gathered unconditionally: `SlowGateEvidence` is a record of
+ * BOTH verdicts, and skipping the second because the first already failed would
+ * make that record lie about a check nobody ran. The moderation endpoint is free
+ * (#623 §3.4), so there is no cost argument for the generation lane's
+ * short-circuit here.
+ */
+async function gatherSlowGateEvidence(
+  row: OutreachDispatchRow,
+  outreachId: string,
+): Promise<SlowGateEvidence> {
+  const snapshot = parseOutreachInterpolationInputs(row.interpolation_inputs, outreachId);
+  const subject = row.rendered_subject;
+  const body = row.rendered_body;
+  if (snapshot === null || subject === null || body === null) {
+    return SLOW_GATE_UNEVALUABLE;
+  }
+
+  // The stored bytes, replayed against the stored snapshot — never a re-render
+  // and never the live ask row, either of which would re-derive the artifact the
+  // owner approved instead of checking it.
+  const lintPassed = lintAsk(lintInputFromSnapshot(snapshot, subject, body)).blockedReason === null;
+
+  // ONE call over subject + body, the same shape generation moderates, so a
+  // subject-only violation cannot slip past.
+  const decision = await moderateResponse(`${subject}\n${body}`);
+
+  return {
+    lintPassed,
+    moderationClean: decision.providerStatus === 'clean' && !decision.flagged,
+  };
 }
 
 /**
@@ -617,6 +710,7 @@ async function runDispatchTx(
   tx: TransactionSql,
   scope: DispatchScope,
   handle: { outboxId: string; attempt: number },
+  slow: SlowGateEvidence,
 ): Promise<DispatchTxOutcome> {
   const owns = await lockDispatchedOutboxAttemptIfOwned(tx, handle.outboxId, handle.attempt);
   if (!owns) return { kind: 'stale' };
@@ -669,13 +763,9 @@ async function runDispatchTx(
     now,
   );
 
-  // TODO(Task 3): the two SLOW items — re-lint at the current ASK_LINT_VERSION
-  // and re-moderation over the immutable stored bytes — are gathered with NO
-  // lock held, BEFORE tx1 opens (decision 3), and applied at gate slots 8 and
-  // 9. Hard-true here so the five fast items are the only thing this task's
-  // verdict can turn on.
-  const slow: SlowGateEvidence = { lintPassed: true, moderationClean: true };
-
+  // The two SLOW items arrive already decided, from above tx1 (decision 3).
+  // `applyDispatchGate` is the only place the two records meet, so the gate's
+  // B6 order survives the split gathering.
   const verdict = applyDispatchGate(slow, evidence);
 
   if (!verdict.pass && verdict.outcome === 'defer') {
@@ -766,9 +856,13 @@ export async function dispatchOutreach(
   };
   const context = { batch_id: scope.batchId, outreach_id: scope.outreachId };
 
+  // Decision 3: gate items 8 and 9 are decided HERE, above the transaction, so
+  // no lock is held across the moderation provider's round trip.
+  const slow = await gatherSlowGateEvidence(row, scope.outreachId);
+
   const outcome = await sql.begin(
     async (tx): Promise<DispatchTxOutcome> =>
-      runDispatchTx(tx, scope, { outboxId, attempt }),
+      runDispatchTx(tx, scope, { outboxId, attempt }, slow),
   );
 
   if (outcome.kind === 'stale') {
