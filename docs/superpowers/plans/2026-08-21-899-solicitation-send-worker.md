@@ -589,6 +589,21 @@ Assert both placeholders are gone from every body field before calling the adapt
 receiving a literal `{{review_link}}` is a visible defect that no other test in this plan would
 catch (plan review C4).
 
+**Where each `OutboundMessage` identity field comes from** (all read inside `tx1`, so one round trip):
+
+| Field | Source |
+|---|---|
+| `outreachId` | the **Outreach row** id — also the provider idempotency key |
+| `accountId` / `businessId` / `batchId` | the Outreach row's own columns |
+| `businessName` | `businesses.name` — the From display name, no "via RepWorth" suffix (§2.3) |
+| `ownerEmail` | `businesses.owner_email` (`NOT NULL` since migration 001) — the Reply-To |
+| `recipient` | `solicitation_contacts.email` via the row's `contact_id`. **Already normalized** — migration 086 stores it lowercased and trimmed, which is why it matches the suppression and consent lookups without re-normalizing |
+| `subject` | `rendered_subject` |
+
+`solicitation_contacts.email` is nullable because a contact may be phone-only. For an
+`channel='email'` Outreach row a null recipient is an **impossible state** — assert with the
+outreach id in the message, do not branch around it.
+
 **The unsubscribe URL.** Spec §7.2 block 3 locks the shape: `https://repworth.net/u/<token>`.
 Build it as `${getWorkerConfig().NEXT_PUBLIC_APP_URL}/u/${rawToken}` — the same accessor and the
 same route the unsubscribe ingress already uses (`worker/ingress/unsubscribe.ts:195`). The
@@ -738,7 +753,27 @@ git commit -am "feat(899): tx1 CAS, adapter send, single terminal transaction, s
 
 Mirror `worker/jobs/solicitation-batch/generate-failed-hook.ts`. On the terminal attempt only: `delivery_status='failed'`, `disposition_reason='send_exhausted'` (both already in migration 091's CHECK), terminalize the child `failed`, `markOutboxFailed`, and `closeBatchIfSettled` — one transaction.
 
-Terminality here is the `'failed'`-EVENT predicate `attemptsMade >= max`. It is deliberately **NOT** `isTerminalAttempt` from `src/lib/shared/outbox.ts`, which is the catch-block form and fires one attempt early. `worker/jobs/judge/failed-hook.ts` keeps its own copy and says "do not unify them" — follow that.
+**Copy the terminal predicate verbatim from `worker/jobs/judge/failed-hook.ts:44-57`.** Do not reach for `isTerminalAttempt` from `src/lib/shared/outbox.ts` — that is the CATCH-BLOCK form (`attemptsMade + 1 >= maxAttempts`) and fires one attempt early here. Both are correct in their own call context; the judge hook's own comment says "do not unify them".
+
+```ts
+function isSendAttemptExhausted(job: Job<SolicitationSendPayload>): boolean {
+  const maxAttempts = typeof job.opts.attempts === 'number' && job.opts.attempts > 0
+    ? job.opts.attempts
+    : 1;
+  // 'failed' EVENT context: the Worker emits 'failed' only after
+  // job.moveToFailed() has incremented attemptsMade to include the failing
+  // attempt, so with attempts=3 only 3/3 is terminal (2/3 still has a retry).
+  return job.attemptsMade >= maxAttempts;
+}
+```
+
+And the guard, which is exactly what test 34 pins:
+
+```ts
+if (!job || !isSendAttemptExhausted(job)) return;
+```
+
+Before the final attempt the hook must do **nothing at all** — no terminalization, no child failure, no outbox completion, no `closeBatchIfSettled`. Terminalizing early would close the batch and leave a later retry operating against an already-`failed` **Outreach row**.
 
 - [ ] **Step 2: Delete the Task 1 stub and import the real hook in `worker/index.ts`**
 
