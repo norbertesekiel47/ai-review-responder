@@ -53,6 +53,33 @@ describe('classifySendFailure', () => {
     // "we do not know", which is retryable under the same idempotency key.
     expect(classifySendFailure(new EmailSendTimeoutError(10_000))).toBe('retryable');
   });
+
+  // The class that stamps `bounced_at`. Resend names the offending field in the
+  // message, and the classifier requires that signal — see the module comment on
+  // why the bounce test is the narrowest of the three.
+  it('classifies a provider 4xx invalid-recipient as terminal_bounce', () => {
+    const badRecipient = new Error('Resend refused the solicitation send', {
+      cause: {
+        name: 'validation_error',
+        message: 'Invalid `to` field. Please use the correct format.',
+        statusCode: 422,
+      },
+    });
+    expect(classifySendFailure(badRecipient)).toBe('terminal_bounce');
+  });
+
+  // The two errors that must NEVER stamp `bounced_at`: a config fault carries no
+  // statement about the customer's address, and an unrecognisable throw carries
+  // no statement at all. Both are terminal, neither suppresses a contact.
+  it('never stamps a bounce for a configuration fault or an unrecognisable throw', () => {
+    expect(classifySendFailure(resendFailure('invalid_from_address', 403))).toBe('terminal_other');
+    expect(classifySendFailure(resendFailure('missing_required_field', 422))).toBe('terminal_other');
+    expect(classifySendFailure(new Error('SOLICITATION_RESEND_API_KEY is not set'))).toBe(
+      'terminal_other',
+    );
+    expect(classifySendFailure('a provider SDK rejected with a string')).toBe('terminal_other');
+    expect(classifySendFailure(undefined)).toBe('terminal_other');
+  });
 });
 
 // Property tests (fast-check): the house style for invariant-level coverage —
