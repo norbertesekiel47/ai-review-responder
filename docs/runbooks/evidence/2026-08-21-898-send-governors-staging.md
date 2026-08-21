@@ -5,8 +5,9 @@ on `staging` as `fd539b36`, staging head at smoke time `c29a377e`.
 Staging Supabase `kubdiqdhqbhwmqfditeg` · prod Supabase `udeyaqnvpojbwgoaxwdg`
 (prod named here only to record that it was **NOT** touched).
 
-**Read section 5 before treating this ride as complete — the admin-surface half
-is blocked behind Vercel SSO and is deliberately left undone rather than faked.**
+**Complete ride.** The admin-surface half was initially blocked behind Vercel
+SSO; it was closed on the same day through an authenticated browser session and
+section 5 now records it as a PASS rather than a gap.
 
 ## 1. Migration 110 → staging Supabase — DONE, verified by introspection
 
@@ -103,29 +104,47 @@ exactly there. That is a live proof of **both** halves of the round-1 fix:
 
 No `error`-level log names the breaker after 15:54, and no trip was written.
 
-## 5. What was NOT done — the admin surface (BLOCKED, not skipped)
+## 5. Admin surface — DONE, driven through an authenticated session
 
-`/admin/solicitation` and `POST /api/admin/solicitation/breaker/reset` were
-**not** exercised through the UI. Staging sits behind **Vercel SSO**: every path
-returns `302 → vercel.com/sso-api` (pages) or `401` (API), and a control probe
-of a deliberately non-existent path returned the **same** codes. So the probe
-proves nothing about route existence either — it is not partial evidence, it is
-no evidence, and it is recorded that way.
+Staging sits behind **Vercel SSO**, so this half is unreachable headlessly: every
+path returns `302 → vercel.com/sso-api` (pages) or `401` (API), and a control
+probe of a deliberately non-existent path returned the **same** codes. That probe
+is therefore no evidence at all, not partial evidence. It was closed instead
+through a real admin browser session, signed in and stepped up to AAL2.
 
-Reaching them needs a browser session that is signed into Vercel SSO **and** the
-staging app **and** stepped up to AAL2. What remains unproven on staging:
+| # | Assertion | Result |
+|---|---|---|
+| A1 | `/admin/solicitation` renders; **Send breaker** appears in the **Safety** nav group (amendment 2/2) | PASS |
+| A2 | With no open trip the page shows `Breaker not tripped` and renders **no reset control** | PASS |
+| A3 | With a trip open the page renders the frozen `metrics` snapshot | PASS |
+| A4 | Rates render from the snapshot: 13/420 → **3.10%** (breaching), 1/420 → **0.24%** (below 0.30%) | PASS |
+| A5 | Breach precedence is visible — the **hard-bounce** tile is the one marked breaching, per §8.1 | PASS |
+| A6 | Reset button is **disabled** while the note is empty | PASS |
+| A7 | `POST` with `note: ''` → **400** (`Too small: expected string to have >=1 characters`) | PASS |
+| A8 | `POST` with a whitespace-only note → **400**, same message — the schema trims **then** length-checks | PASS |
+| A9 | `POST` with the note key absent → **400** (`expected string, received undefined`) | PASS |
+| A10 | Reset through the **UI** succeeds and shows the confirmation banner | PASS |
+| A11 | The panel **self-clears** to `Breaker not tripped` without a reload — `onSuccess` invalidates the query | PASS |
+| A12 | Double submit → **409 `not_tripped`** | PASS |
+| A13 | `reset_by` in the database is the **session** admin; `reset_note` is stored verbatim | PASS |
 
-- the page renders the open-trip snapshot,
-- the route's blank-note rejection (**400**) — note the database half of this is
-  proved by S5 above,
-- the double-submit answer (**409 `not_tripped`**),
-- the actor being taken from the session rather than the request body.
+**A13 is stronger than the design required.** The route's schema is `strict`, so a
+body carrying `reset_by` / `resetBy` / `actor` is rejected outright with **400
+`Unrecognized keys`** — there is no body path to the actor to ignore in the first
+place.
 
-All four are covered by unit tests in the green gate
-(`src/app/api/admin/solicitation/breaker/__tests__/reset-route.test.ts`). The
-exposure is bounded: **#900** ships the send-path consumer, and until it lands
-nothing reads the breaker on the send path, so an unreachable reset button
-cannot halt or release real mail.
+**A11 needed a second run to state honestly.** The first screenshot after the
+reset still showed the tripped panel beside the success banner, which reads like
+a stale render. It was not: `onSuccess` calls
+`queryClient.invalidateQueries`, and the screenshot simply beat the refetch. The
+re-run with a wait confirms the panel clears on its own. Recorded here because
+the fast screenshot is the misleading artifact, not the UI.
+
+Three synthetic trips were used (`hard_bounce_rate` ×2, `complaint_rate` ×1) and
+**all three were deleted afterwards**. Final state: `breaker_rows = 0`,
+`open_trips = 0`, `outreach_rows = 0`. No `solicitation_outreach` row was ever
+fabricated — the latch table's only FK is `reset_by → users`, so the whole
+surface is reachable without touching tenant data.
 
 ## 6. Prod — untouched
 
