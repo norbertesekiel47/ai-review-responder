@@ -72,6 +72,12 @@ export const STEP_PERSONA = {
   batch_halted: 'solicitation',
   ask_regeneration_requested: 'solicitation',
   ask_withdrawn: 'solicitation',
+  // (#899) The two steps the dispatch lane records on the **Lazy child**.
+  // `agent_run_steps.step_key` carries no DB CHECK, so this map is the whole
+  // vocabulary — adding a key needs no migration, and misspelling one is
+  // caught here rather than by Postgres.
+  dispatch_gate_evaluated: 'solicitation',
+  ask_sent: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;

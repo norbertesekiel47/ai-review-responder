@@ -353,3 +353,18 @@ export interface GenerateSolicitationAsksPayload extends BasePayload {
   business_id: string;
   ask_id?: string;
 }
+
+/**
+ * SolicitationSendPayload — the dispatch lane (#899). One job per **Outreach
+ * row**, i.e. one dispatch attempt for one **Ask**: the Dispatch gate is
+ * per-CHILD and therefore per-CONTACT, so a batch-shaped payload could not
+ * express what this worker decides. Producer is the release poller (#900);
+ * aggregate_id = outreach_id, the migration 091 in-flight index contract.
+ * `business_id` is the tenant proof every query is scoped by (invariant #8;
+ * GenerateSolicitationAsksPayload precedent) — a bare row UUID proves nothing.
+ */
+export interface SolicitationSendPayload extends BasePayload {
+  batch_id: string;
+  business_id: string;
+  outreach_id: string;
+}

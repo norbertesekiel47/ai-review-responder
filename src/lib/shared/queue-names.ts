@@ -17,6 +17,11 @@ export const QUEUE_NAMES = {
   // Must byte-match migration 091's in-flight partial-index predicate topic
   // (job_outbox_generate_solicitation_asks_inflight).
   GENERATE_SOLICITATION_ASKS: 'generate_solicitation_asks',
+  // Must byte-match migration 091's in-flight partial-index predicate topic
+  // (job_outbox_solicitation_send_inflight). Producer is the release poller
+  // (#900); this consumer ships first so no row can ever be enqueued to a
+  // topic with no registered worker (amendment B10).
+  SOLICITATION_SEND: 'solicitation_send',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

@@ -32,10 +32,12 @@
 // speculatively written against a `dispatch.ts` that does not exist yet.
 
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   acquireLiveDbLock,
   assertLocalTestDatabaseUrl,
@@ -58,6 +60,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { dispatchOutreach } from '../dispatch';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -68,6 +71,170 @@ const businessId = randomUUID();
 let db: postgresType.Sql | undefined;
 let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
+
+/** The seeded handles, narrowed. `beforeAll` runs before any case, so an
+ *  `undefined` here is a bug in this file rather than a state a case handles. */
+function sql(): postgresType.Sql {
+  if (!db) throw new Error('live-DB handle used before beforeAll');
+  return db;
+}
+
+function accountId(): string {
+  if (!tenant) throw new Error('tenant seed used before beforeAll');
+  return tenant.accountId;
+}
+
+function userId(): string {
+  if (!tenant) throw new Error('tenant seed used before beforeAll');
+  return tenant.userId;
+}
+
+/**
+ * One queued **Outreach row** with the whole chain it needs — upload → contact
+ * → batch → send **Ask** → the row — plus the `dispatched` `job_outbox` row
+ * this worker owns the attempt of.
+ *
+ * Every stamp is a SQL interval off `NOW()`, never a JS `Date` (see the
+ * header): 091 requires `queued_at` of every dispatched status, and a
+ * JS-derived stamp truncated to milliseconds can land before the `NOW()`
+ * default it must not precede.
+ */
+interface QueuedOutreachFixture {
+  batchId: string;
+  outreachId: string;
+  outboxId: string;
+  attempt: number;
+}
+
+async function seedQueuedOutreach(): Promise<QueuedOutreachFixture> {
+  const uploadId = randomUUID();
+  await sql()`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, report, attested_by_user_id, attested_at,
+      attestation_version, completed_at
+    ) VALUES (
+      ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${`dispatch-${uploadId}.csv`}, 1, ${checksum(uploadId)},
+      NULL, 'completed', ${sql().json({ accepted: 1 })},
+      ${userId()}::uuid, NOW(), 'dispatch-test', NOW()
+    )
+  `;
+
+  const contactId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_contacts (
+      id, business_id, name, email, created_by_upload_id
+    ) VALUES (
+      ${contactId}::uuid, ${businessId}::uuid, 'Dispatch Candidate',
+      ${`${contactId}@example.test`}, ${uploadId}::uuid
+    )
+  `;
+
+  const batchId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at, built_at
+    ) VALUES (
+      ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${uploadId}::uuid, NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour'
+    )
+  `;
+
+  const askId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_asks (
+      id, account_id, business_id, batch_id, contact_id, status,
+      withheld_reason, evidence, decided_at
+    ) VALUES (
+      ${askId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+      ${batchId}::uuid, ${contactId}::uuid, 'send', NULL,
+      ${sql().json({
+        contact_id: contactId,
+        policy_version: 'dispatch-fixture',
+        decision: 'send',
+      })},
+      NOW() - INTERVAL '1 hour'
+    )
+  `;
+
+  const outreachId = await insertOutreach(sql(), {
+    accountId: accountId(),
+    businessId,
+    batchId,
+    askId,
+    contactId,
+    deliveryStatus: 'queued',
+    renderedAt: sql()`NOW() - INTERVAL '30 minutes'`,
+    queuedAt: sql()`NOW() - INTERVAL '30 seconds'`,
+  });
+
+  // `aggregate_id` is the OUTREACH id here, not the batch id — that is
+  // migration 091's `job_outbox_solicitation_send_inflight` contract, and it is
+  // what makes one in-flight dispatch per row rather than per batch.
+  const outboxId = randomUUID();
+  await sql()`
+    INSERT INTO job_outbox (
+      id, topic, aggregate_type, aggregate_id, payload,
+      status, attempts, dispatched_at
+    ) VALUES (
+      ${outboxId}::uuid, ${QUEUE_NAMES.SOLICITATION_SEND}, 'solicitation_outreach',
+      ${outreachId}::uuid,
+      ${sql().json({ batch_id: batchId, business_id: businessId, outreach_id: outreachId })},
+      'dispatched', 1, NOW()
+    )
+  `;
+
+  return { batchId, outreachId, outboxId, attempt: 1 };
+}
+
+interface OutreachLifecycleRow {
+  delivery_status: string;
+  disposition_reason: string | null;
+  sending_at: string | null;
+  sent_at: string | null;
+}
+
+async function readOutreach(outreachId: string): Promise<OutreachLifecycleRow> {
+  const [row] = await sql()<OutreachLifecycleRow[]>`
+    SELECT delivery_status, disposition_reason,
+           sending_at::text AS sending_at, sent_at::text AS sent_at
+    FROM solicitation_outreach
+    WHERE id = ${outreachId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  if (!row) throw new Error(`seeded outreach row ${outreachId} vanished`);
+  return row;
+}
+
+interface OutboxLifecycleRow {
+  status: string;
+  completed_at: string | null;
+}
+
+async function readOutbox(outboxId: string): Promise<OutboxLifecycleRow> {
+  const [row] = await sql()<OutboxLifecycleRow[]>`
+    SELECT status, completed_at::text AS completed_at
+    FROM job_outbox
+    WHERE id = ${outboxId}::uuid
+  `;
+  if (!row) throw new Error(`seeded outbox row ${outboxId} vanished`);
+  return row;
+}
+
+/** Runs the body with `SOLICITATION_SEND_ENABLED` off, restoring whatever the
+ *  environment carried before — `.env.local` really is read off disk here. */
+async function withSendFlagOff(run: () => Promise<void>): Promise<void> {
+  const previous = process.env.SOLICITATION_SEND_ENABLED;
+  delete process.env.SOLICITATION_SEND_ENABLED;
+  try {
+    await run();
+  } finally {
+    if (previous === undefined) delete process.env.SOLICITATION_SEND_ENABLED;
+    else process.env.SOLICITATION_SEND_ENABLED = previous;
+  }
+}
 
 describeWithDb(
   'solicitation dispatch lane',
@@ -157,7 +324,27 @@ describeWithDb(
       // Decision 5: flag-off is a DEFER, not a withhold. 091/110 have no
       // `flag_off` reason and inventing one terminalizes a row the owner still
       // owns; the row stays `queued` and #900's producer re-drips it.
-      it.todo('defers a queued Outreach row without terminalizing it when SOLICITATION_SEND_ENABLED is off');
+      it('defers a queued Outreach row without terminalizing it when SOLICITATION_SEND_ENABLED is off', async () => {
+        const fixture = await seedQueuedOutreach();
+
+        await withSendFlagOff(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: fixture.batchId,
+            businessId,
+            outreachId: fixture.outreachId,
+            outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+            correlationId: 'dispatch-flag-off',
+          });
+        });
+
+        const row = await readOutreach(fixture.outreachId);
+        // `queued` and nothing else: a deferred row is one #900 re-drips, so
+        // every terminal fact must be absent, not merely "not withheld".
+        expect(row.delivery_status).toBe('queued');
+        expect(row.disposition_reason).toBeNull();
+        expect(row.sending_at).toBeNull();
+        expect(row.sent_at).toBeNull();
+      });
       // The Halt latch cancels `rendered` and `queued` rows, never `sending`.
       // A job that arrives after the sweep finds a `cancelled` row and must do
       // nothing at all — not re-gate it, not re-terminalize it.
@@ -225,7 +412,26 @@ describeWithDb(
       // The flag-off defer still completes the outbox attempt. Leaving it
       // in-flight would have the watchdog re-pend a row that was correctly
       // deferred, turning a quiet no-op into a retry storm.
-      it.todo('completes the outbox attempt when deferring on a flag-off so the watchdog does not re-pend it');
+      it('completes the outbox attempt when deferring on a flag-off so the watchdog does not re-pend it', async () => {
+        const fixture = await seedQueuedOutreach();
+
+        await withSendFlagOff(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: fixture.batchId,
+            businessId,
+            outreachId: fixture.outreachId,
+            outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+            correlationId: 'dispatch-flag-off-outbox',
+          });
+        });
+
+        const row = await readOutbox(fixture.outboxId);
+        // `completed`, not any in-flight status: the watchdog reclaims
+        // ('pending', 'dispatching', 'dispatched'), so a defer that left the
+        // row in that set would be re-dispatched every stale window forever.
+        expect(row.status).toBe('completed');
+        expect(row.completed_at).not.toBeNull();
+      });
       // The Halt latch deliberately excludes `sending`. A halt that lands after
       // the CAS must leave the in-flight child alone; cancelling it would
       // terminalize a run whose message is already on the wire.
