@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+/** Scroll reveal on the shared `.rw-dl-rv` primitive (island.css). */
 export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(false);
@@ -26,7 +27,7 @@ export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: n
     return () => io.disconnect();
   }, [delay, seen]);
   return (
-    <div ref={ref} className={`hiw-reveal ${seen ? 'is-in' : ''}`}>
+    <div ref={ref} className={`rw-dl-rv ${seen ? 'is-in' : ''}`}>
       {children}
     </div>
   );

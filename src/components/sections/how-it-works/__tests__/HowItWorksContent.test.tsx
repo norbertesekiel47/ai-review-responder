@@ -58,9 +58,9 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('Copilot asks you. Autopilot asks your policy.');
     expect(html).toContain('Every auto-post gets a second opinion.');
     expect(html).toContain('Negative reviews are never auto-posted');
-    expect(html).toContain('of auto-posts judged');
+    expect(html).toContain('of auto-posts reviewed by the Judge');
     expect(html).toContain('Typical figures shown for illustration');
-    expect(html).toContain('Sample walkthrough: illustrative reviews and business, not real customers.');
+    expect(html).toContain('Sample walkthrough below: illustrative reviews and business, not real customers.');
     // stale claims gone
     expect(html).not.toContain('Four steps from new review');
     expect(html).not.toContain('15 hrs');
@@ -83,7 +83,10 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('How do I connect my Google reviews?');
     expect(html).toContain('100 most recent reviews from the past 12 months'); // consented import window
     expect(html).toContain('safety-checked'); // Autopilot mock chip
-    expect(html).toContain('Review &amp; Approve'); // the real approval email has ONE button
+    // The hero's email mock is labelled a sample and carries ONE action
+    // (Daylight Gallery II decision 5 — the real approval email has one button).
+    expect(html).toContain('aria-label="Sample approval email"');
+    expect(html).toContain('Sample · owner@brightlinen.com · Inbox');
   });
 
   it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {

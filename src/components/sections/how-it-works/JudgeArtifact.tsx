@@ -1,39 +1,38 @@
 'use client';
 
+import { Reveal } from './Reveal';
+
 export function JudgeArtifact() {
   return (
-    <div className="hiw-artifact">
-      <div className="hiw-artifact-cap">
-        <span className="hiw-artifact-cap-dot" />
+    <div className="rw-dl-card">
+      <div className="rw-dl-cap">
+        <span className="rw-dl-cap-dot" />
         <span>Judge review · after auto-post</span>
-        <span className="hiw-artifact-cap-tail">within a minute of posting</span>
+        <span className="rw-dl-cap-tail">within a minute of posting</span>
       </div>
-      <div className="hiw-draft">
-        <div className="hiw-draft-out">
-          <span className="hiw-draft-badge">Auto-posted reply · under review</span>
-          <p>
-            Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
-            because we know your schedule doesn&apos;t wait for ours. See you again soon.
-          </p>
-        </div>
-        <div className="hiw-receipt">
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Verdict</span>
-            <span className="hiw-receipt-val">
-              <span style={{ width: 8, height: 8, borderRadius: 9999, background: '#97B3AE', display: 'inline-block' }} />
-              Pass
-            </span>
+      <div className="rw-dl-reply">
+        <div className="rw-dl-reply-lbl">Auto-posted reply · under review</div>
+        <p>
+          Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality seriously
+          because we know your schedule doesn&apos;t wait for ours. See you again soon.
+        </p>
+      </div>
+      <Reveal>
+        <div className="rw-dl-rec hiw-verdict">
+          <div>
+            <div className="rw-dl-rec-k">Verdict</div>
+            <div className="rw-dl-rec-v"><i className="rw-dl-rec-dot" />Pass</div>
           </div>
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Coverage</span>
-            <span className="hiw-receipt-val">100% of auto-posts</span>
+          <div>
+            <div className="rw-dl-rec-k">Coverage</div>
+            <div className="rw-dl-rec-v">100% of auto-posts</div>
           </div>
-          <div className="hiw-receipt-cell">
-            <span className="hiw-receipt-lbl">Governor</span>
-            <span className="hiw-receipt-val">Autopilot active</span>
+          <div>
+            <div className="rw-dl-rec-k">Governor</div>
+            <div className="rw-dl-rec-v">Autopilot active</div>
           </div>
         </div>
-      </div>
+      </Reveal>
     </div>
   );
 }
