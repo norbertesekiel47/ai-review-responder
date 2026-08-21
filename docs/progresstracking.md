@@ -4980,3 +4980,105 @@ additive, so a widened CHECK with no writer is harmless, whereas the reverse
 order could let deployed code hit a CHECK violation). Verified: local, staging
 and prod all report `md5(pg_get_constraintdef(...)) = 8208d8da29574095f0219084632f2d6a`.
 Prod held 0 outreach rows at the time, so the widening was a no-op for data.
+
+## 2026-08-21 — #898: **Send governors** — the schema and the three governors #899/#900 stand on (PR #904)
+
+Wayfinder map #617, child of #630. Design of record:
+`docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §3.2A/§3.2B/§3.3/§3.4/§4,
+`…-send-mode-executor-approval-design.md` D19/D20, and
+`…-send-mode-cross-spec-amendments.md` **B3/B6/B13/B14** (the amendments doc wins on conflict).
+Plan: `docs/superpowers/plans/2026-08-19-solicitation-send-governors.md` — 8 tracer tasks,
+eval-first (Task 1 was 30 failing tests that ARE the spec).
+
+**Nothing in this PR sends mail.** #899 builds the send worker and #900 the release-side
+consumer that actually refuses to send while a trip is open. This ticket holds the migration
+slot and the read models so those two land without a migration between them. Today the breaker
+can trip, page and be reset; nothing reads it on the send path.
+
+**What shipped.**
+
+| Governor | File | Behaviour |
+|---|---|---|
+| Send caps | `src/lib/solicitation/send-caps.ts` | platform ceiling resolver + per-account daily cap, UTC-day dispatch counters |
+| Send breaker | `src/lib/solicitation/send-breaker.ts` | 7-day window read model, one-open trip latch, fail-closed read, admin reset |
+| Bounce discrimination | `worker/ingress/resend/solicitation-lane.ts` | records `bounce_kind` beside `bounced_at` |
+
+Plus migration **110** (two withhold members, `bounce_kind` + two CHECKs + a partial index,
+the `solicitation_send_breaker` latch table with deny-all RLS), the `HealthAlertPoller` check
+that is the breaker's ONLY tripper, `/admin/solicitation` (Island system, AAL2) with its reset
+route, and `docs/runbooks/solicitation-sending-domain.md` §8 as the operational procedure.
+
+**Seven decisions locked in grilling**, none re-litigable on a later branch: `bounce_kind` is a
+new column rather than a `provider_error` prefix match (`recordFailure` COALESCEs `failed:<reason>`
+into that column, so an `email.failed` before an `email.bounced` would mask a real hard bounce —
+fail-OPEN on a governor specified fail-CLOSED); the `withheld` CHECK gains exactly two members and
+dispatch-gate item 3 deliberately gets none (a lapsed subscription DEFERS, `send_window_elapsed`
+terminalizes); the latch is append-only with a one-open partial unique index, not a mutable
+singleton; the window basis is asymmetric (denominator send-dated, numerators signal-dated —
+errs toward tripping); `HealthAlertPoller` trips and pages while #900's releaser is a pure reader,
+accepting one poll interval of trip latency; no new runbook file; and the reset lives on a new
+`/admin/solicitation` page rather than folded into `/admin/autonomy`.
+
+**Review: 2 rounds, 23 findings (6 high) then verification-only. 11 follow-ups filed (B3.1–B3.11).**
+Three defects are worth remembering, because in each case the test and the implementation shared
+the same wrong assumption and no amount of reading would have found them:
+
+1. **UTC-day boundary** — the fixture used the same expression as production, so both were wrong
+   together. Found by a subagent escalating rather than silently deviating.
+2. **Breaker recovery** — the asymmetric window was tuned to err toward tripping and never checked
+   in the other direction. Fixed once (denominator only), then properly in round 2 with TWO floors:
+   `signal_floor` (rolling 7d, dates the numerators) and `reset_floor` (bounds rows by `sent_at` on
+   BOTH sides). The first fix's own test seeded `bouncedDaysAgo: 1` and structurally could not see
+   the gap — a single trailing complaint read as 1.00% against a fresh denominator and re-tripped a
+   legitimate recovery, making recovery arithmetically unreachable.
+3. **Edge-triggered paging** — the plan specified the bug as a feature and the eval test asserted
+   it, so one dropped Sentry event meant a silent permanent platform-wide halt. Now level-triggered:
+   the poller probes for an open trip FIRST and re-pages every tick under a constant title.
+
+**Staging ride** (`docs/runbooks/evidence/2026-08-21-898-send-governors-staging.md`) — complete.
+Migration 110 applied to staging and verified by introspection. **9-assertion latch smoke**, all
+PASS, including the module's exact `ON CONFLICT ((reset_at IS NULL)) WHERE reset_at IS NULL`
+against the real index — the clause that fails at *runtime*, on the second breach, if it ever
+drifts. **13-assertion admin smoke** through an authenticated AAL2 browser session, all PASS; the
+actor guarantee proved stronger than designed, since the route schema is `strict` and rejects a
+body carrying `reset_by` with 400 rather than ignoring it.
+
+**The ride's most useful evidence was accidental.** The 898 code sat on the staging worker for two
+days while the database was still pre-110, so the breaker check queried a table that did not
+exist. It logged its `health_check_error` warning finding on every one of five `HealthAlertPoller`
+ticks and never crashed, then went silent on the first tick after 110 applied. That is a live proof
+of both halves of the round-1 isolation fix — the failure class that used to take the whole cycle
+down and discard the nine findings collected before it — under real conditions rather than a
+harness. Staging was left clean: 0 breaker rows, 0 open trips, 0 outreach rows.
+
+**One red PR, worth recording.** CI failed on `fallow`, the one gate `verify-gate.sh` deliberately
+excludes (`ci:fallow*` is `CI_ONLY_BY_DESIGN`). Two findings: an unused export, and the
+`gate → parse → safeParse → 400` preamble as a 3-instance clone. **The extraction was built and
+reverted.** A `requireAdminJson(request, schema)` in the canonical gate module cleared fallow,
+lint, typecheck and build — and failed `ci:admin-aal2` on all three routes, which is that audit's
+stated design: it is a fail-closed allowlist of recognized gate SHAPES, and "a gate hidden behind
+an imported wrapper is not visible to this audit and does not count." Clearing it would have meant
+widening a security control to satisfy a duplication linter, after both review rounds closed.
+Acknowledged in `.fallowrc.jsonc` with the blocking reason recorded; follow-up **B3.11** carries the
+extraction AND the gate-shape change together, under one review. Kept from the reverted attempt:
+`BREAKER_TRIP_REASONS` became a union type (un-exporting it merely handed the finding to ESLint as
+"assigned a value but only used as a type"), and `reset-route.test.ts` now mocks the auth PRIMITIVES
+rather than `requireAdminWithAal2` — it claimed to mirror the autonomy suite but mocked one level
+shallower, which is why that route survived the refactor untouched while six promised tests here
+went 401. It still passes after the revert, which is the proof it was a real fix.
+
+**Surface amendments: 4 against a budget of 2**, all owner-approved — `schema-ready.ts`, the
+`nav-config.ts` row, the cross-spec amendments doc, and `.fallowrc.jsonc`. None was scope sprawl;
+all four were files the work structurally owed. Two of them are the same recurring shape, now in
+lab-notes: every new admin page owes a `nav-config.ts` row and every new migration owes a
+`schema-ready` requirement, and both are filesystem-walked so the obligation is invisible in the
+file you are actually writing.
+
+**Promotion.** Migration 110 applied to **production before the merge**, which is 109's reasoning
+verbatim: the change is additive and #898 ships no writer for either new withheld reason, so a
+widened CHECK is inert — whereas merging first would have opened the exact window staging proved
+survivable but which there is no reason to open in prod. Pre-flight showed prod at 109 with **0**
+rows in `solicitation_outreach`, so the no-backfill proof held there too, and confirmed the **078
+standing exception untouched** before and after. All three databases agree byte-for-byte:
+`md5(pg_get_constraintdef(...)) = 3e644c28c60a3d6135ed3eea7acee224` on prod, staging and local head.
+Lockstep complete, no standing exception. All send flags remain OFF.

@@ -1108,10 +1108,24 @@ Revisit triggers:
   109 — `owner_withdrawn` present, `no_postal_address` absent,
   `solicitation_send_breaker` and `bounce_kind` absent — so the widening was a
   no-op for existing data, exactly as the no-backfill proof predicts.
-  **PRODUCTION — NOT YET APPLIED.** It rides the #898 promotion to `main`, in the
-  same change window as that merge. This is a **pending lockstep**, not a
-  standing exception: prod sits one migration behind staging only until that
-  window closes, and the only sanctioned standing exception remains 078.
+  **Applied to PRODUCTION 2026-08-21** (`udeyaqnvpojbwgoaxwdg`, same method and
+  same single transaction) — **lockstep complete, no standing exception.**
+  Applied *before* the #904 merge on purpose, which is 109's reasoning verbatim:
+  the change is additive and #898 ships no writer for either new withheld reason,
+  so a widened CHECK is inert, whereas merging first would have left a window in
+  which the deployed `HealthAlertPoller` queried a `solicitation_send_breaker`
+  that did not exist yet. **Staging proved exactly that window is survivable** —
+  see §4 of `docs/runbooks/evidence/2026-08-21-898-send-governors-staging.md`, where
+  the check degraded to its warning finding for five ticks and the poller never
+  crashed — but survivable is not a reason to open one in production.
+  Pre-flight showed prod at 109 with **0** rows in `solicitation_outreach` and
+  **0** with `sent_at`, so the no-backfill proof held there too. Verified by
+  introspection, never by the migration ledger, and **the three databases agree
+  byte-for-byte**: `md5(pg_get_constraintdef(oid))` =
+  `3e644c28c60a3d6135ed3eea7acee224` on prod, on staging and on the local test DB
+  at head. The same pre-flight and post-check confirmed the **078 standing
+  exception is untouched** — `businesses.subscription_tier` still nullable and
+  neither tier CHECK present, before and after.
 
 - **109** — `outreach_owner_withdrawn_disposition`: adds `owner_withdrawn` to
   `solicitation_outreach`'s **cancel** disposition set for post-approval **Ask
