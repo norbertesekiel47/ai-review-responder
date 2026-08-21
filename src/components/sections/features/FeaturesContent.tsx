@@ -41,8 +41,7 @@ const FEATURES = [
 const FEATURE_GROUPS = ['Your agent team', 'Care and control', 'Craft and proof'] as const;
 
 const HERO_WORDS_LINE_1 = ['A', 'tireless', 'agent', 'drafts', 'a', 'reply', 'to', 'every', 'review.'];
-const HERO_WORDS_LINE_2 = ['Nothing', 'goes', 'public', 'without', 'the'];
-const HERO_SERIF_WORD = 'gate.';
+const HERO_WORDS_LINE_2 = ['Nothing', 'goes', 'public', 'without', 'the', 'gate.'];
 
 // Illustrative sample reviews; not real customer testimonials. Multilingual to
 // show the language-detection feature; no invented names or business claims.
@@ -58,43 +57,6 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number;
   { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "Made my Monday"' },
 ];
 
-function DotNav({
-  activeSection,
-  onJump,
-}: {
-  activeSection: string;
-  onJump: (id: string) => void;
-}) {
-  return (
-    <nav
-      aria-label="Section navigation"
-      className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-1.5 bg-white/85 backdrop-blur-md rounded-3xl py-4 px-2 shadow-xl border border-rw-teal/20"
-    >
-      {FEATURES.map((f) => {
-        const isActive = activeSection === f.id;
-        return (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onJump(f.id)}
-            aria-label={`Jump to ${f.label}`}
-            className="group flex items-center gap-2 py-1.5 pl-2 pr-1"
-          >
-            <span className="rw-label-mono text-[10px] text-rw-ink-soft opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-              {f.label}
-            </span>
-            <span
-              className={`w-2 h-2 rounded-full transition-all ${
-                isActive ? 'bg-rw-teal rw-pulse-dot' : 'bg-rw-teal/30 group-hover:bg-rw-teal'
-              }`}
-            />
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
 function HeroSection({
   heroIn,
   m1,
@@ -107,16 +69,11 @@ function HeroSection({
   m3: number;
 }) {
   return (
-    <section id="hero" aria-label="Features overview" className="relative px-8 md:px-16 pt-20 pb-12">
-      <div className="grid md:grid-cols-12 gap-8 items-end">
-        <div className="md:col-span-8">
-          <p
-            className={cn('rw-hero-kicker rw-label-mono text-xs uppercase text-rw-teal-strong mb-8 flex items-center gap-3', heroIn && 'in')}
-          >
-            <span className="line" />
-            <span>Features · Your agent team</span>
-          </p>
-          <h1 className="text-[3.25rem] md:text-[4.75rem] leading-[0.95] tracking-tight text-rw-ink font-medium mb-6">
+    <section id="hero" aria-label="Features overview" className="feat-hero">
+      <div className="rw-dl-col feat-hero-grid">
+        <div>
+          <p className={cn('feat-hero-kicker', heroIn && 'in')}>Features · Your agent team</p>
+          <h1 className="feat-h1">
             <span className="rw-hero-line">
               {HERO_WORDS_LINE_1.map((w, i) => (
                 <span
@@ -140,17 +97,9 @@ function HeroSection({
                   {w}
                 </span>
               ))}
-              <span
-                className={cn('rw-hero-word rw-display-serif text-rw-teal-strong', heroIn && 'in')}
-                style={{
-                  ['--word-delay' as string]: `${80 + (HERO_WORDS_LINE_1.length + HERO_WORDS_LINE_2.length) * 80}ms`,
-                }}
-              >
-                {HERO_SERIF_WORD}
-              </span>
             </span>
           </h1>
-          <p className={cn('rw-hero-lede text-lg text-rw-ink-soft max-w-md leading-relaxed', heroIn && 'in')}>
+          <p className={cn('feat-hero-lede', heroIn && 'in')}>
             RepWorth is an AI agent team, not another dashboard. Reply drafts every response,
             Guardian triages the bad ones, Insights reports on Mondays, and two watchdogs, the
             Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
@@ -159,54 +108,41 @@ function HeroSection({
           </p>
         </div>
 
-        <div className="md:col-span-4 space-y-4">
+        <div className="feat-hero-metrics">
           {[
             { val: m1, target: 58, suffix: 'min', label: 'Target: time from review\nposted to reply', delay: '0.9s' },
             { val: m2, target: 96, suffix: '%', label: 'Goal: response rate\nacross all reviews', delay: '1.15s' },
             { val: m3, target: 30, suffix: 'sec', label: 'Aim: your time per\napproval, after week 4', delay: '1.4s' },
-          ].map((m, i) => (
+          ].map((m) => (
             <div
               key={m.label}
-              className={cn('rw-hero-metric relative flex items-baseline gap-3', i < 2 && 'pb-3', heroIn && 'in')}
-              style={
-                {
-                  '--m-delay': m.delay,
-                  '--u-delay': `${parseFloat(m.delay) + 0.1}s`,
-                } as CSSProperties
-              }
+              className={cn('feat-hero-metric', heroIn && 'in')}
+              style={{ '--m-delay': m.delay } as CSSProperties}
             >
-              <span className="rw-num-tag text-5xl text-rw-ink">
+              <span className="feat-hero-metric-n">
                 {m.val}
-                <span className="text-lg text-rw-ink-soft ml-1">{m.suffix}</span>
+                <small>{m.suffix}</small>
               </span>
-              <span className="text-xs text-rw-ink-soft leading-tight whitespace-pre-line">
-                {m.label}
-              </span>
-              {i < 2 && <span className="rw-hero-metric-underline" />}
+              <span className="feat-hero-metric-l">{m.label}</span>
             </div>
           ))}
-          <p className="text-sm italic text-rw-ink-soft pt-1">
-            Illustrative targets, not live performance data.
-          </p>
+          <p className="rw-dl-fine">Illustrative targets, not live performance data.</p>
         </div>
       </div>
 
       {/* Hero review marquee */}
-      <div className="mt-14 -mx-8 md:-mx-16 rw-feat-marquee-mask">
-        <div className="rw-feat-marquee-track flex gap-3 whitespace-nowrap w-max">
+      <div className="rw-feat-marquee-mask" aria-hidden={false}>
+        <div className="rw-feat-marquee-track">
           {[
             ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}` })),
             ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}` })),
           ].map(({ r, k }) => (
-            <div
-              key={k}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-rw-cream/70 border border-rw-teal/15"
-            >
-              <span className="rw-label-mono text-[10px] uppercase text-rw-teal-strong">{r.lang}</span>
-              <span className="text-xs" aria-label={`${r.ratingValue} out of 5 stars`}>
-                <span className="text-rw-teal" aria-hidden="true">{r.stars}</span>
+            <div key={k} className="feat-mq-chip">
+              <span className="feat-mq-lang">{r.lang}</span>
+              <span className="rw-dl-stars" aria-label={`${r.ratingValue} out of 5 stars`}>
+                <span aria-hidden="true">{r.stars}</span>
               </span>
-              <span className="text-sm text-rw-ink">{r.text}</span>
+              <span className="feat-mq-text">{r.text}</span>
             </div>
           ))}
         </div>
@@ -225,50 +161,38 @@ function FeatureTOC({
   onJump: (id: string) => void;
 }) {
   return (
-    <section
-      aria-label="Feature index"
-      className="px-8 md:px-16 py-10 border-y border-rw-teal/10 bg-rw-cream/40"
-    >
-      <div className="flex items-center gap-4 mb-6">
-        <span className="rw-label-mono text-xs uppercase text-rw-teal-strong">Index</span>
-        <div className="flex-1 h-px bg-rw-teal/20" />
-        <span className="rw-label-mono text-xs uppercase text-rw-ink-soft">3 agents · 2 watchdogs · 2 modes</span>
-      </div>
-      <div ref={tocRef} className="space-y-6">
-        {FEATURE_GROUPS.map((group) => (
-          <div key={group}>
-            <p className="rw-label-mono text-[10px] uppercase text-rw-ink-soft mb-2">{group}</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {FEATURES.filter((f) => f.group === group).map((f) => {
-                const i = FEATURES.indexOf(f);
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => onJump(f.id)}
-                    className={`rw-toc-chip group flex flex-col gap-1 p-3 rounded-2xl border border-rw-teal/15 bg-white hover:bg-rw-teal/5 hover:border-rw-teal/40 text-left ${tocSeen ? 'in' : ''}`}
-                    style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="rw-num-tag text-lg text-rw-teal-strong">{f.n}</span>
-                      <svg
-                        className="size-3 text-rw-ink-soft group-hover:text-rw-teal-strong transition-colors"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-                      </svg>
-                    </div>
-                    <span className="text-sm font-medium text-rw-ink">{f.label}</span>
-                    <span className="rw-label-mono text-[10px] uppercase text-rw-ink-soft">{f.sub}</span>
-                  </button>
-                );
-              })}
+    <section aria-label="Feature index" className="rw-dl-band is-paper feat-toc">
+      <div className="rw-dl-col">
+        <div className="feat-toc-head">
+          <span>Index</span>
+          <span className="feat-toc-rule" aria-hidden="true" />
+          <span>3 agents · 2 watchdogs · 2 modes</span>
+        </div>
+        <div ref={tocRef} className="feat-toc-groups">
+          {FEATURE_GROUPS.map((group) => (
+            <div key={group}>
+              <p className="feat-toc-group">{group}</p>
+              <div className="feat-toc-grid">
+                {FEATURES.filter((f) => f.group === group).map((f) => {
+                  const i = FEATURES.indexOf(f);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => onJump(f.id)}
+                      className={`feat-toc-chip ${tocSeen ? 'in' : ''}`}
+                      style={{ ['--chip-delay' as string]: `${i * 70}ms` }}
+                    >
+                      <span className="feat-toc-chip-n">{f.n}</span>
+                      <span className="feat-toc-chip-l">{f.label}</span>
+                      <span className="feat-toc-chip-s">{f.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -287,7 +211,7 @@ export function FeaturesContent({
   signupCtaLabel = null,
 }: FeaturesContentProps) {
   const showSignupCta = selfServeEnabled && signupCtaLabel !== null;
-  // Section refs (one per feature) for the dot nav.
+  // Section refs (one per feature) for the index jump targets.
   const replyRef = useRef<HTMLElement>(null);
   const guardianRef = useRef<HTMLElement>(null);
   const langRef = useRef<HTMLElement>(null);
@@ -313,28 +237,6 @@ export function FeaturesContent({
     }),
     []
   );
-
-  const [activeSection, setActiveSection] = useState<string>('f-reply');
-
-  // Track the section currently in view for the dot nav.
-  useEffect(() => {
-    const observers: IntersectionObserver[] = [];
-    FEATURES.forEach((f) => {
-      const el = refMap[f.id]?.current;
-      if (!el) return;
-      const io = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((e) => {
-            if (e.isIntersecting) setActiveSection(f.id);
-          });
-        },
-        { rootMargin: '-40% 0px -50% 0px' }
-      );
-      io.observe(el);
-      observers.push(io);
-    });
-    return () => observers.forEach((o) => o.disconnect());
-  }, [refMap]);
 
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -363,102 +265,59 @@ export function FeaturesContent({
   };
 
   return (
-    <SiteShell
-      scope="rw-feat-page"
-      comingSoon={comingSoon}
-      selfServeEnabled={selfServeEnabled}
-      overlay={<DotNav activeSection={activeSection} onJump={scrollTo} />}
-    >
+    <SiteShell scope="rw-feat-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled}>
+      <HeroSection heroIn={heroIn} m1={m1} m2={m2} m3={m3} />
 
-          <HeroSection heroIn={heroIn} m1={m1} m2={m2} m3={m3} />
+      <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />
 
-          <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />
+      <FeatReply innerRef={replyRef} />
+      <FeatGuardian innerRef={guardianRef} />
+      <FeatInsights innerRef={insightsRef} />
+      <FeatGate innerRef={gateRef} />
+      <FeatAutopilot innerRef={autopilotRef} />
+      <FeatWatchdogs innerRef={watchdogsRef} />
+      <FeatLang innerRef={langRef} />
+      <FeatVoice innerRef={voiceRef} />
+      <FeatRoi innerRef={roiRef} />
+      <RoadmapBand innerRef={roadmapRef} />
 
-          <FeatReply innerRef={replyRef} />
-          <FeatGuardian innerRef={guardianRef} />
-          <FeatInsights innerRef={insightsRef} />
-          <FeatGate innerRef={gateRef} />
-          <FeatAutopilot innerRef={autopilotRef} />
-          <FeatWatchdogs innerRef={watchdogsRef} />
-          <FeatLang innerRef={langRef} />
-          <FeatVoice innerRef={voiceRef} />
-          <FeatRoi innerRef={roiRef} />
-          <RoadmapBand innerRef={roadmapRef} />
-
-          {/* CTA */}
-          <section
-            aria-label="Call to action"
-            className="px-8 md:px-16 py-24 text-center relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #557069, #46645d)' }}
-          >
-            <svg
-              className="absolute -top-20 -left-20 size-80 opacity-20"
-              viewBox="0 0 200 200"
-              fill="none"
-              aria-hidden
-            >
-              <circle cx="100" cy="100" r="80" stroke="white" strokeWidth="1" />
-              <circle cx="100" cy="100" r="60" stroke="white" strokeWidth="1" />
-              <circle cx="100" cy="100" r="40" stroke="white" strokeWidth="1" />
-            </svg>
-            <svg
-              className="absolute -bottom-32 -right-20 size-96 opacity-15"
-              viewBox="0 0 200 200"
-              fill="none"
-              aria-hidden
-            >
-              <circle cx="100" cy="100" r="80" stroke="white" strokeWidth="1" />
-              <circle cx="100" cy="100" r="60" stroke="white" strokeWidth="1" />
-            </svg>
-            <p className="rw-label-mono text-xs uppercase text-white/75 mb-6 relative">
-              {showSignupCta ? 'Get started' : 'Early access'}
-            </p>
-            <h2 className="text-4xl md:text-6xl font-medium text-white leading-tight mb-5 relative max-w-3xl mx-auto">
-              {showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}
-            </h2>
-            <p className="text-white/85 text-lg mb-10 relative max-w-xl mx-auto leading-relaxed">
+      {/* CTA — dark ink band */}
+      <section aria-label="Call to action" className="rw-dl-cta">
+        <div className="rw-dl-col">
+          <div>
+            <h2>{showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}</h2>
+            <p className="rw-dl-cta-sub">
               {showSignupCta
                 ? 'Connect your Google Business Profile and get your first drafts in minutes.'
                 : "Tell us about your business and we'll reach out when early access opens for your area."}
             </p>
-            <div className="relative w-full max-w-md mx-auto">
-              {comingSoon ? (
-                <span className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full font-medium shadow-xl opacity-60 cursor-default select-none">
-                  Coming soon
-                </span>
-              ) : showSignupCta ? (
-                <Link
-                  href="/signup"
-                  className="inline-block px-8 py-4 bg-white text-rw-teal-strong rounded-full font-medium shadow-xl hover:shadow-2xl transition-shadow"
-                >
+            <div className="rw-dl-cta-more">
+              <Link href="/how-it-works">See how it works <span aria-hidden="true">→</span></Link>
+              <Link href="/pricing">See pricing <span aria-hidden="true">→</span></Link>
+            </div>
+          </div>
+          <div>
+            {comingSoon ? (
+              <div className="rw-dl-cta-panel">
+                <span className="rw-pill rw-pill-paper is-disabled">Coming soon</span>
+              </div>
+            ) : showSignupCta ? (
+              <div className="rw-dl-cta-panel">
+                <Link href="/signup" className="rw-pill rw-pill-paper feat-cta-pill">
                   {signupCtaLabel}
                 </Link>
-              ) : (
+                <p className="rw-dl-fine">
+                  Card required up front. Explicit plan selection. Cancel anytime.
+                </p>
+              </div>
+            ) : (
+              <div className="rw-dl-cta-panel">
                 <LeadIntakeForm intent="waitlist" source="features" tone="onTeal" />
-              )}
-            </div>
-            <div className="relative mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-              <Link
-                href="/how-it-works"
-                className="inline-flex items-center gap-1 text-sm text-white/80 underline underline-offset-4 decoration-white/40 hover:text-white hover:decoration-white transition-colors"
-              >
-                See how it works
-                <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-                </svg>
-              </Link>
-              <Link
-                href="/pricing"
-                className="inline-flex items-center gap-1 text-sm text-white/80 underline underline-offset-4 decoration-white/40 hover:text-white hover:decoration-white transition-colors"
-              >
-                See pricing
-                <svg className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7-7 7M3 12h18" />
-                </svg>
-              </Link>
-            </div>
-          </section>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
     </SiteShell>
   );
 }
-
