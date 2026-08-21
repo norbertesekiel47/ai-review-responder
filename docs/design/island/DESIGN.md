@@ -8,26 +8,37 @@
 
 ## Overview
 
-Every RepWorth Island page is an **island**: a white `rounded-[3rem]` card floating
-on a sage green background, with glassmorphism elements drifting behind it. Never
-place content directly on the sage green without an island wrapper except for the
-admin and owner dashboard pages. Additionally use
-`src/components/ui/MarqueeBackground.tsx` as the background wherever necessary when
-implementing the island design.
-
 The Island is the default register for everything that is not the landing page (`/`)
 and not the authenticated Console: public/marketing pages, auth, the approval page,
 legal, and the (more utilitarian) admin tool. Its token file loads on every route, so
 the other two systems inherit these values by fall-through wherever they do not
 override them.
 
-**Key characteristics:**
+Since the 2026-08 rebrand the Island carries **two registers**:
 
-- A white island on a sage field — content never sits on the sage directly.
-- Warm, tactile accents (peach, pink, beige) used sparingly, never as a pastel showcase.
-- Plus Jakarta Sans display over DM Sans body; normal letter spacing everywhere except
-  the RepWorth wordmark and eyebrow styles.
-- Decorative atmosphere (parallax glass cards, marquee field) that is abstract and
+1. **Daylight Gallery II** — the marketing pages (`/how-it-works`, `/features`,
+   `/pricing`) and the site-wide SiteNav/SiteFooter chrome. Approved demo + token
+   spec: [`docs/design/daylight-ii/`](../daylight-ii). A bone island
+   (`--rw-bone`) floats on the untouched sage marquee field; paper cards
+   (`--rw-paper`) sit on the bone with hairline borders and **no drop shadows
+   inside the island** (the island's own soft shadow is the container and
+   stays). One family, one weight: **DM Sans 400** — hierarchy comes from size
+   only. Ink (`--rw-ink2`) is text, hairlines, the dark CTA surface, and the
+   Judge bar; forest (`--rw-forest`) is the **only action colour** (button
+   fills, arrow discs, live/verdict dots); the five bar accents appear only as
+   4–10px bars and small dots, never as text, never as broad fills. Review
+   stars are ink — ratings are content, not action.
+2. **Classic island** — the functional Island surfaces (auth, approve, legal,
+   security, help, demo, onboarding, admin). White `rounded-[3rem]`-style
+   islands with the teal family, Plus Jakarta display over DM Sans body, and
+   the ADR 0004 teal rules. These pages inherited the rebranded nav + footer
+   chrome but keep their own page CSS; do not restyle them to Daylight
+   piecemeal.
+
+**Key characteristics (both registers):**
+
+- An island on a sage field — content never sits on the sage directly.
+- Decorative atmosphere (the drifting review marquee) that is abstract and
   non-informational by rule.
 - Anti-slop by construction: specificity, restraint, purpose, truthfulness, craft,
   accessibility, token discipline.
@@ -37,7 +48,30 @@ override them.
 Every row is declared in `src/app/globals.css` `:root`. Utility names mirror the token
 names 1:1 (`--rw-sage` → `bg-rw-sage` / `text-rw-sage` / `border-rw-sage`).
 
-### Brand & accent
+### Daylight Gallery II (marketing surfaces + site chrome)
+
+| Name | Value | Token | Role |
+|---|---|---|---|
+| Ink 2 | `#15191a` | `--rw-ink2` | text, hairline base, the dark CTA surface, the Judge bar |
+| Ink 2 soft | `rgba(21, 25, 26, 0.74)` | `--rw-ink2-soft` | secondary text on bone/paper |
+| Ink 2 mute | `rgba(21, 25, 26, 0.62)` | `--rw-ink2-mute` | captions, labels, meta text |
+| Line | `rgba(21, 25, 26, 0.12)` | `--rw-line` | hairline borders and dividers |
+| Line 2 | `rgba(21, 25, 26, 0.22)` | `--rw-line-2` | stronger hairline (outlines, quote rules) |
+| Bone | `#f6f6f2` | `--rw-bone` | the island canvas |
+| Paper | `#ffffff` | `--rw-paper` | cards on bone |
+| Forest | `#2e5b4f` | `--rw-forest` | the single ACTION colour — button fills, arrow discs, live/verdict dots |
+| Forest ink | `#24483f` | `--rw-forest-ink` | forest hover |
+| Sage bar | `#8fb99b` | `--rw-sage-bar` | bar accent — Watch / Copilot |
+| Teal bar | `#6f9d8f` | `--rw-teal-bar` | bar accent — Post |
+| Mist bar | `#8fb1e6` | `--rw-mist-bar` | bar accent — Draft |
+| Blush bar | `#eca396` | `--rw-blush-bar` | bar accent — Triage |
+| Gold bar | `#dcb94a` | `--rw-gold-bar` | bar accent — Gate / Autopilot |
+
+Bar accents are **bar-only**: 4–10px card bars and small dots, never text, never a
+broad fill. The Judge/06 bar is deliberately `--rw-ink2`. The sage marquee field
+behind the island stays `--rw-sage` and is unchanged by the rebrand.
+
+### Brand & accent (classic register)
 
 | Name | Value | Token | Role |
 |---|---|---|---|
@@ -48,9 +82,8 @@ names 1:1 (`--rw-sage` → `bg-rw-sage` / `text-rw-sage` / `border-rw-sage`).
 | Pink | `#F0DDD6` | `--rw-pink` | soft accent wash |
 | Beige | `#D6CBBF` | `--rw-beige` | warm beige / muted |
 | Cream | `#F0EEEA` | `--rw-cream` | off-white background |
-| Island surface | `#ffffff` | — (`bg-white`) | the island card itself |
 
-### Neutrals
+### Neutrals (classic register)
 
 | Name | Value | Token | Role |
 |---|---|---|---|
@@ -103,10 +136,27 @@ The families are brand-wide: `globals.css` is their single owner and they load o
 route. The Console re-points `--rw-font-display` at Young Serif on its own wrapper; the
 Island value is what every other surface resolves.
 
-### Scale
+### Daylight type rules (marketing surfaces + site chrome)
 
-The Island has no `--rw-*` type-role tokens — its scale is expressed as Tailwind
-utilities, so the sizes live in the components:
+**One family, one weight: DM Sans 400 everywhere.** No Plus Jakarta, no Fraunces, no
+bold — hierarchy comes from size only. Normal letter-spacing; no negative tracking; no
+viewport-scaled type beyond the clamps below. `font-variant-numeric: tabular-nums` and
+`font-variation-settings: 'opsz' 16` on the page scope pin the variable font's optical
+size so stroke weight stays uniform at display sizes.
+
+| Element | Size |
+|---|---|
+| Hero h1 | `clamp(44px, 4.2vw, 64px)`, line-height 1.04 |
+| Section h2 (`.rw-dl-h2`) | `clamp(32px, 3.6vw, 48px)`, line-height 1.12 |
+| Card h3 (dossier step) | 34px |
+| Body / lede | 18px / 1.5, `--rw-ink2-soft` |
+| Card text | 15px / 1.5–1.56 |
+| Captions, labels, meta | 13px, `--rw-ink2-mute` |
+
+### Classic scale (functional surfaces)
+
+The classic register keeps its Tailwind-utility scale — the sizes live in the
+components:
 
 | Element | Classes |
 |---|---|
@@ -124,223 +174,134 @@ teal (`text-rw-teal-strong`) on white/cream — never the decorative `text-rw-te
 
 ## Tokens — Spacing & Shape
 
-The Island's shape and elevation are Tailwind utilities, not custom properties — there
-is deliberately no Island radius/shadow token set to keep drifting apart from the
-utility classes the components actually write.
-
 ### Border radius
 
-| Element | Value | Utility |
-|---|---|---|
-| Island wrapper | 3rem | `rounded-[3rem]` |
-| Parallax / glass card | 1.5rem | `rounded-3xl` |
-| Feature card | 1rem | `rounded-2xl` |
-| Floating accent card | 0.75rem | `rounded-xl` |
-| Buttons, dot nav, pills | full | `rounded-full` |
+Daylight (marketing):
+
+| Element | Value |
+|---|---|
+| Island wrapper | 48px |
+| Cards, receipts, panels | 8px |
+| Buttons, pills, chips, tabs, badges | 9999px |
+| Inputs (CTA band form) | 4px |
+| Dossier steps (sticky stack) | 0 — square-cornered by design |
+
+Classic (functional surfaces): island `rounded-[3rem]`, cards `rounded-2xl`/`rounded-3xl`,
+pills `rounded-full`, as the components already write.
 
 ### Shadows / elevation
 
-| Name | Utility | Where |
-|---|---|---|
-| Island | `shadow-2xl` | the island wrapper |
-| Card | `shadow-xl` | parallax cards, dot-nav rail |
-| Feature | `shadow-lg` | feature/info cards, primary buttons |
-| Icon chip | `shadow-md` | the icon circle inside a feature card |
-| Card hover lift | `0 20px 40px rgba(0,0,0,0.1)` | `whileHover` on cards |
-| Primary button hover | `0 20px 40px rgba(151,179,174,0.3)` | `whileHover` on primary buttons |
+**Daylight: no drop shadows inside the island.** Depth comes from the paper/bone
+surface split and hairline borders. The island's own soft shadow
+(`box-shadow` on `.rw-island`) is the container and stays. The classic register keeps
+its existing `shadow-lg`/`shadow-xl` recipes.
 
-### Motion
+### Motion (Daylight)
 
-| Name | Value | Where |
-|---|---|---|
-| Island entry | 0.8s `easeOut` | island wrapper mount |
-| Section entry | 0.6s, delay 0.2s, stagger +0.1 per element | mount |
-| Scroll reveal | 0.6s, delay `i * 0.1` | `whileInView`, `viewport={{ once: true, margin: '-100px' }}` |
-| Card hover lift | `y: -5` | `whileHover` |
-| Button hover / tap | `scale: 1.05, y: -2` / `scale: 0.98` | `whileHover` / `whileTap` |
+| Name | Behaviour |
+|---|---|
+| Ease | `cubic-bezier(0.22, 0.61, 0.36, 1)` throughout |
+| Hero entrance | staged: masked h1 lines rise (0.9s, +0.1s per line), lede/CTAs/card fade up (delays .45/.6/.75s) |
+| Scroll reveal | `.rw-dl-rv` → `.is-in`: opacity + 12px rise, 0.6/0.7s |
+| Stat cards | stagger left→right (+280ms), left bar wipes in (scaleY), numbers count up 1.4s |
+| Sticky stack | each `.hiw-step` pins at `--top: 116 + i·8px`; the 8px colour bars form a flush ribbon |
+| Pills | hover: translateY(-1px); arrow disc slides 2px |
+| Loops | marquee drift, wash drift, pulse dot, typewriter caret |
 
-### Layout
+Everything is gated on `prefers-reduced-motion: reduce` — reveals land on the final
+frame, loops stop, the wash video never mounts (the blurred poster stays).
 
-- Island content column: `max-w-5xl`, centred, `py-20 px-4` around it.
-- Nav bar: `px-8 py-4`, always the first child inside the island.
-- Dot nav: `position: fixed`, `right-8`, `z-50`, desktop only (`hidden lg:flex`).
-- Parallax cards: `position: fixed` behind everything, `pointer-events-none`.
+### Layout (Daylight)
+
+- Content column: `.rw-dl-col` — max-width 1200px, 48px side padding (28px ≤1040px,
+  18px ≤680px). Bands: `.rw-dl-band` 96px vertical (56px ≤680px); `.is-paper` bands are
+  white with hairline top/bottom borders.
+- Island: max-width 1440px, **`overflow: clip`** (never `hidden` — hidden would make
+  the island a scroll container and break the sticky nav).
+- Nav: sticky pill, `top: 14px`, inside the island as its first child.
 
 ## Components
 
 ### Island wrapper (REQUIRED on every page)
 
-Role: the page. Everything else is a child of it or atmosphere behind it.
-
-```tsx
-// Page root — always this structure
-<div className="min-h-screen bg-rw-sage relative">
-
-  {/* Parallax background — see below */}
-  <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
-    {/* 4 floating glassmorphism cards */}
-  </div>
-
-  {/* Right dot nav — see below */}
-
-  {/* Island wrapper — REQUIRED */}
-  <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
-    <motion.div
-      className="w-full max-w-5xl bg-white rounded-[3rem] shadow-2xl overflow-hidden"
-      initial={{ opacity: 0, y: 40, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.8, ease: 'easeOut' }}
-    >
-      {/* Nav bar */}
-      {/* Page sections */}
-    </motion.div>
-  </div>
-</div>
-```
+`SiteShell` (`src/components/ui/SiteShell.tsx`) is the single owner of the marketing
+chrome: marquee field → `.rw-island-wrap` → `.rw-island` (bone, radius 48px,
+`overflow: clip`) → `SiteNav` + `<main id="main-content">` + `SiteFooter`. The marquee
+stays visible outside the island; the island is opaque bone. Functional pages compose
+`PageShell` or their own island markup and render `SiteNav`/`SiteFooter` directly.
 
 **Never:** `overflow-hidden` on the root page container — it breaks iOS Safari fixed
-element scroll.
+element scroll. (`overflow: clip` on the island itself is deliberate and sticky-safe.)
 
-### Parallax background cards
+### Site nav (`.rw-nav*`, island.css)
 
-Role: brand atmosphere only. Four fixed glassmorphism placeholder cards drift at
-different scroll rates. They must not become generic AI dashboard filler: keep them
-abstract, muted, and non-informational unless the page has real product states to show.
-Copy this exactly:
+A sticky white pill: brand (logo + "RepWorth", 17px), centre links (15px,
+`--rw-ink2-soft`; active = ink + inset underline via `.is-active` and
+`aria-current="page"`), right cluster "Log in" + the forest CTA pill with an arrow
+disc. The CTA label is flag-aware: "Start free trial" only when the card-up-front
+trial is on (`trialEnabled` prop), otherwise "Create account" — the chrome never makes
+a stale trial claim. ≤680px the links collapse into a hamburger disclosure (44px
+target, Escape closes, focus restored) that opens a paper card below the pill.
 
-```tsx
-const { scrollYProgress } = useScroll({ target: containerRef, offset: ['start start', 'end end'] });
-const bgY1 = useTransform(scrollYProgress, [0, 1], [0, -300]);
-const bgY2 = useTransform(scrollYProgress, [0, 1], [0, -500]);
-const bgY3 = useTransform(scrollYProgress, [0, 1], [0, -200]);
-const bgY4 = useTransform(scrollYProgress, [0, 1], [0, -400]);
+### Pills (`.rw-pill*`, island.css — the one CTA family)
 
-// Inside the fixed background div:
-{[
-  { style: { y: bgY1 }, className: 'absolute top-20 left-10 w-64 h-80', dots: 5 },
-  { style: { y: bgY2 }, className: 'absolute top-[500px] right-20 w-72 h-64', dots: 4 },
-  { style: { y: bgY3 }, className: 'absolute top-[1000px] left-[15%] w-56 h-72', dots: 5 },
-  { style: { y: bgY4 }, className: 'absolute top-[1400px] right-[10%] w-64 h-56', dots: 5 },
-].map((card, i) => (
-  <motion.div
-    key={i}
-    style={card.style}
-    className={`${card.className} bg-white/40 backdrop-blur-md rounded-3xl shadow-xl p-6 border border-white/60`}
-  >
-    <div className="flex gap-1 mb-3">
-      {Array.from({ length: card.dots }).map((_, j) => (
-        <div key={j} className="w-4 h-4 bg-rw-peach/60 rounded-full" />
-      ))}
-    </div>
-    <div className="space-y-2">
-      <div className="h-3 bg-rw-ink/20 rounded w-full" />
-      <div className="h-3 bg-rw-ink/20 rounded w-5/6" />
-      <div className="h-3 bg-rw-ink/20 rounded w-4/6" />
-    </div>
-  </motion.div>
-))}
-```
+| Variant | Classes | Use |
+|---|---|---|
+| Forest (primary) | `rw-pill rw-pill-forest` | the action — nav CTA, hero CTA, plan door |
+| Ink | `rw-pill rw-pill-ink` | dark-surface alternative |
+| Outline | `rw-pill rw-pill-line` | secondary door ("All nine features", "Tell me when…") — its arrow disc fills forest |
+| Paper | `rw-pill rw-pill-paper` | on the dark ink CTA band |
 
-**Never:** render these without `aria-hidden="true"` on their wrapper.
+Arrow disc: `.rw-pill-circ` (28px circle, slides 2px on hover). Focus: 2px forest
+outline (`--rw-ink2` outline on the forest pill).
 
-### Right-side dot navigation (desktop only)
+### Shared marketing primitives (`.rw-dl-*`, island.css)
 
-Role: one dot per section. `position: fixed`, `z-50`, desktop only (`hidden lg:flex`).
+| Primitive | Class | Anatomy |
+|---|---|---|
+| Card | `rw-dl-card` | paper, hairline border, radius 8px, 28px padding |
+| Card caption | `rw-dl-cap` | 13px mute row + status dot (`rw-dl-cap-dot`, forest; `.is-bar` variant takes `--bar`) + right-aligned tail |
+| Reply box | `rw-dl-reply` | bone inset with label row |
+| Quote | `rw-dl-quote` | 2px `--rw-line-2` left rule + meta line |
+| Receipt | `rw-dl-rec` | 3 labelled cells, hairline dividers; value dots forest (`.is-mid` = gold) |
+| Buttons | `rw-dl-btn` (+ `.is-go` forest fill) | small pill actions inside cards |
+| Tabs / segmented | `rw-dl-tabs` | pill group; selected = ink text + 1px inset ring (`aria-selected` or `aria-pressed`) |
+| Check bullets | `rw-dl-bul` | ink check in a hairline circle |
+| Stars | `rw-dl-stars` (+ `.off`) | ink glyphs; wrap with an `aria-label="N out of 5 stars"` |
+| FAQ | `rw-dl-faq*` | hairline rows, 28px `+` disc rotates 45° when open; button + panel keep `aria-expanded`/`aria-controls` |
+| CTA band | `rw-dl-cta` | dark ink full-bleed band, 7/5 grid: copy + text links left, `.rw-dl-cta-panel` right |
+| Reveal | `rw-dl-rv` → `.is-in` | the scroll-reveal primitive |
+| Fine print | `rw-dl-fine` | 13px mute — every illustrative figure carries one |
 
-```tsx
-<div className="fixed right-8 top-1/2 -translate-y-1/2 z-50 hidden lg:flex flex-col gap-4 bg-white/80 backdrop-blur-md rounded-full py-6 px-3 shadow-xl border border-rw-teal/20">
-  {sections.map(({ ref, label }) => (
-    <button
-      key={label}
-      onClick={() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-      aria-label={`Go to ${label}`}
-      className="w-3 h-3 rounded-full bg-rw-teal/30 hover:bg-rw-teal transition-all hover:scale-125"
-    />
-  ))}
-</div>
-```
+Page CSS (`how-it-works.css`, `features.css`, `pricing.css`) carries only each page's
+delta on top of these. `--bar` / `--top` are element-scoped plumbing set inline by
+components — never palette tokens (scope-purity guard).
 
-**Never:** ship an icon-only control without an accessible name.
+### Classic components
 
-### Navigation bar
+The functional surfaces keep their existing recipes — white island via `PageShell`
+(parallax cards, dot nav), teal-strong buttons, feature cards with icon circles, and
+the CTA-band rules from ADR 0004. Read those components in place; do not port them to
+Daylight piecemeal, and do not copy their teal recipes into the marketing pages.
 
-Role: always the first child inside the island. Teal circle + "REPWORTH" uppercase
-wordmark on the right.
+### The marquee field
 
-```tsx
-<nav className="px-8 py-4 border-b border-rw-teal/10 flex items-center justify-between">
-  <div className="flex items-center gap-8">
-    {/* scroll buttons + <a href="/pricing"> link */}
-  </div>
-  <div className="flex items-center gap-2">
-    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rw-teal to-rw-teal/80" />
-    <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
-  </div>
-</nav>
-```
+`src/components/ui/MarqueeBackground.tsx` (`.rw-marquee-field` in
+`src/app/(public)/_styles/island.css`) is the reusable atmosphere layer: four rows of
+translucent review cards drifting at different speeds under a radial sage vignette,
+with an `animation: none` branch under `prefers-reduced-motion`. Unchanged by the
+rebrand.
 
-### Buttons
+### The hero wash (approved exception)
 
-| Type | Classes |
-|---|---|
-| Primary (teal-strong pill, on the white island) | `px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg` |
-| Primary on a teal CTA band | white pill: `px-8 py-4 bg-white text-rw-teal-strong rounded-full shadow-lg` — or the CSS owner `.rw-btn-pill-onband` (`island.css`) for page-CSS surfaces (`/how-it-works`, `/pricing`); page classes carry only their delta |
-| Secondary (outline) | `px-8 py-4 bg-white text-rw-teal-strong rounded-full border border-rw-teal/20` |
-| Ghost | `px-8 py-4 bg-rw-cream text-rw-ink rounded-full border border-rw-teal/10` |
-
-States: always wrap clickable buttons in `motion.button` with the hover/tap variants in
-**Tokens — Spacing & Shape → Motion**.
-
-**Never:** put white text on `--rw-teal`. White text only ever sits on
-`--rw-teal-strong` or darker (ADR 0004 — white on `#97B3AE` is 2.24:1). The
-pre-ADR recipe `bg-rw-teal text-white` still survives in a handful of files
-(`not-found.tsx`, onboarding step dots); it is a known violation, not a pattern to copy.
-
-### Feature / info cards
-
-```tsx
-<motion.div
-  className="bg-white rounded-2xl p-6 border border-rw-teal/10 shadow-lg"
-  whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}
->
-  {/* Icon circle */}
-  <div
-    className="w-12 h-12 rounded-full flex items-center justify-center mb-4 shadow-md"
-    style={{ background: 'linear-gradient(135deg, var(--rw-teal), var(--rw-teal-strong))' }}
-  >
-    {/* Inline SVG — never use lucide-react or heroicons */}
-    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="..." />
-    </svg>
-  </div>
-  <h3 className="text-xl mb-2 text-rw-ink font-medium">{title}</h3>
-  <p className="text-rw-ink-soft">{description}</p>
-</motion.div>
-```
-
-Icon circle color per card: primary `rw-teal` (`#97B3AE`), accent `rw-peach`
-(`#F2C3B9`), muted `rw-beige` (`#D6CBBF`) — rotate through for visual variety.
-
-**Never:** an external icon library. Inline SVG only.
-
-### Floating accent cards (dashboard mockups, stats)
-
-Role: small cards that appear rotated, overlapping a main card. Use these **only** when
-they support a real RepWorth product idea or supplied metric. Do not invent
-impressive-looking stats, charts, or labels just to fill space.
-
-```tsx
-<motion.div
-  className="absolute -top-6 -right-6 w-32 h-24 bg-gradient-to-br from-rw-peach/40 to-rw-peach/20 rounded-xl backdrop-blur-sm border border-white/60 shadow-lg p-3"
-  initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
-  whileInView={{ opacity: 1, scale: 1, rotate: 5 }}
-  viewport={{ once: true }}
-  transition={{ duration: 0.6, delay: 0.5 }}
->
-  <div className="text-xs text-rw-ink-soft mb-1">Label</div>
-  <div className="text-xl text-rw-ink">Value</div>
-</motion.div>
-```
+The `/how-it-works` hero carries a blurred "wash" video loop
+(`public/video/hero-wash-loop.mp4`, poster
+`public/images/hero-wash-poster.jpg`; source stills in
+`docs/design/daylight-ii/media/` — paid Higgsfield renders, do NOT regenerate). It is
+an approved, deliberate exception to the no-atmosphere rule, confined to the hero and
+fading to bone before the hero ends. The still is the poster and reduced-motion
+fallback; the video fades in on `canplay` and replays on `visibilitychange`
+(`HeroWash.tsx`).
 
 ## Do's and Don'ts
 
@@ -363,55 +324,42 @@ Before designing or finalizing any page, section, or component, check:
 - **Specificity:** Use RepWorth-specific content, product language, customer context, and real interface states. Do not use generic placeholder narratives.
 - **Restraint:** Keep hierarchy calm and intentional. Do not inflate type, spacing, shadows, gradients, or animation to make the page look more "AI."
 - **Purpose:** Every visual element must either support navigation, explain the product, show a real state, or reinforce the RepWorth brand. Remove decorative filler.
-- **Truthfulness:** Do not invent metrics, testimonials, logos, avatars, conversation snippets, customer names, dashboard data, or claims unless the user or product provides them.
+- **Truthfulness:** Do not invent metrics, testimonials, logos, avatars, conversation snippets, customer names, dashboard data, or claims unless the user or product provides them. Illustrative samples must be labelled as such ("Sample", "Typical figures shown for illustration, not live performance data.").
 - **Craft:** Replace template compositions with designed choices: strong alignment, intentional whitespace, readable density, consistent controls, and content that fits its container.
 - **Accessibility:** Preserve contrast, keyboard-friendly controls, semantic labels, readable text sizes, and non-overlapping content on mobile and desktop.
 - **Token discipline:** Use only the RepWorth color tokens above, and use accents sparingly so the page does not become a pastel or gradient showcase.
 
 ### Banned generic AI patterns
 
-- No purple/blue AI gradients, neon cyan, random color glows, black-glass panels, orb/blob/bokeh backgrounds, atmospheric gradient fields, or decorative light leaks.
+- No purple/blue AI gradients, neon cyan, random color glows, black-glass panels, orb/blob/bokeh backgrounds, atmospheric gradient fields, or decorative light leaks. (The `/how-it-works` hero wash is the single approved exception — see above.)
 - No generic "AI startup" hero sections with oversized claims, abstract backgrounds, and vague dashboard cards.
 - No fake chat bubbles, fake analytics widgets, fake avatars, fake testimonials, fake logos, fake customer names, or fake metrics unless supplied by the product context.
 - No stock-like synthetic people, generic robot/brain/sparkle imagery, decorative network graphs, or meaningless "insight" panels.
 - No placeholder hype copy such as "unlock insights," "supercharge," "seamless," "AI-powered," "next-generation," "revolutionize," "transform your workflow," "empower teams," "drive growth," or similar filler.
 - No claims without evidence. If proof is missing, use neutral product-language placeholders like "Evidence summary" or omit the proof block.
-- No new "AI product" font choices such as generic Inter/SF Pro-style defaults unless the existing app already uses that stack. Use the app's established font stack.
-- No negative letter spacing or viewport-scaled type. Keep letter spacing normal except for the existing RepWorth wordmark and eyebrow styles.
-
-### The anti-slop working method
-
-When the request leaves content unspecified, do not fill the page with invented proof.
-Use honest, clearly replaceable product labels and keep mock states minimal. Prefer one
-concrete RepWorth workflow over many vague feature cards.
-
-For every screen, identify the real user job first: what is being reviewed, compared,
-approved, priced, reported, or configured? Let that job shape the layout. A RepWorth
-page should feel like it belongs to reputation, evidence, reporting, pricing, pilots,
-review management, or admin workflows - not to a generic AI dashboard template.
-
-Before shipping, remove one decorative element, one vague phrase, and one unnecessary
-card unless each has a clear product purpose.
+- No new "AI product" font choices such as generic Inter/SF Pro-style defaults. Use the app's established font stack.
+- No negative letter spacing or viewport-scaled type. Keep letter spacing normal except for the existing RepWorth wordmark and classic eyebrow styles.
 
 ### Rules
 
-- **No generic AI visual language** - avoid purple/blue gradients, neon glows, black-glass dashboards, orb/blob/bokeh backgrounds, atmospheric gradients, and vague generated mockups
-- **No invented proof** - do not fabricate metrics, testimonials, logos, avatars, chat snippets, dashboard data, customer names, or customer claims
-- **No AI hype copy** - replace generic claims with concrete RepWorth product language and user outcomes
-- **No slop density** - do not add repeated cards, filler grids, duplicate CTAs, or extra sections just to make the page feel larger
-- **No ungrounded mockups** - dashboard, report, pricing, and admin UI must reflect a plausible RepWorth workflow or stay abstract
-- **No unlabeled icon-only controls** - provide accessible names and clear intent for interactive elements
-- **Use the existing font stack** - do not introduce trendy AI/SaaS fonts unless already established in the app
-- **No external icon libraries** (no lucide-react, heroicons, etc.) - use inline SVGs only
-- **No amber, orange, or stone** colors - those are the old palette, fully replaced
-- **No `overflow-hidden` on the root page container** - breaks iOS Safari fixed element scroll
-- **Always `'use client'`** on pages using `useRef`, `useScroll`, `useTransform`
-- **Import from `motion/react`** - not `framer-motion`
-- **No `custom` prop on `AnimatePresence`** when using inline animation objects (only for variant functions)
+- **Daylight surfaces: one family, one weight** — DM Sans 400; hierarchy by size. No serif accent words, no mono labels, no bold.
+- **Forest is the only action colour** on Daylight surfaces; bar accents are bars and dots only; stars are ink.
+- **No drop shadows inside the island** on Daylight surfaces — paper + hairline is the depth model.
+- **No generic AI visual language** — avoid purple/blue gradients, neon glows, black-glass dashboards, orb/blob/bokeh backgrounds, atmospheric gradients, and vague generated mockups
+- **No invented proof** — do not fabricate metrics, testimonials, logos, avatars, chat snippets, dashboard data, customer names, or customer claims; label illustrative samples
+- **No AI hype copy** — replace generic claims with concrete RepWorth product language and user outcomes
+- **No slop density** — do not add repeated cards, filler grids, duplicate CTAs, or extra sections just to make the page feel larger
+- **No unlabeled icon-only controls** — provide accessible names and clear intent for interactive elements
+- **No external icon libraries** (no lucide-react, heroicons, etc.) — use inline SVGs only
+- **No amber, orange, or stone** colors — those are the old palette, fully replaced
+- **No `overflow-hidden` on the root page container** — breaks iOS Safari fixed element scroll (`overflow: clip` on `.rw-island` is deliberate)
+- **Always `'use client'`** on components using `useRef`, `useState`, observers, or timers
+- **Import from `motion/react`** — not `framer-motion`
 - **Decorative background elements** get `aria-hidden="true"` on their wrapper
-- **Never place page content directly on sage green** - always inside the island
-- **Tokens, never literals** - use `var(--rw-*)` or the `rw-*` Tailwind utilities, never a raw `bg-[#hex]`
-- **The two teals** - `--rw-teal` is decoration only and fails WCAG AA for text; text, links, and button fills use `--rw-teal-strong`, which passes AA on white and cream but **not** on sage or teal (use `--rw-ink` there). Rationale: [`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md)
+- **Never place page content directly on sage green** — always inside the island
+- **Tokens, never literals** — use `var(--rw-*)` or the `rw-*` Tailwind utilities, never a raw `bg-[#hex]`
+- **The two teals (classic register)** — `--rw-teal` is decoration only and fails WCAG AA for text; text, links, and button fills use `--rw-teal-strong`, which passes AA on white and cream but **not** on sage or teal (use `--rw-ink` there). Rationale: [`docs/adr/0004-accessible-teal-token-split.md`](../../adr/0004-accessible-teal-token-split.md)
+- **A11y contract:** exactly one `<main id="main-content">` per page (SiteShell provides it on marketing pages); FAQ accordions keep `aria-expanded`/`aria-controls`; star glyphs carry an `aria-label`; every reveal/loop respects `prefers-reduced-motion`.
 
 ### Anti-slop final pass
 
@@ -420,7 +368,7 @@ Before finalizing RepWorth UI, run this pass and revise anything that fails:
 | Check | Pass condition |
 |---|---|
 | Brand specificity | The page could not be mistaken for a generic AI/SaaS template |
-| Truthfulness | Every metric, quote, logo, avatar, and customer claim is supplied or clearly omitted |
+| Truthfulness | Every metric, quote, logo, avatar, and customer claim is supplied, labelled illustrative, or omitted |
 | Copy quality | No hype phrases, vague benefits, or filler labels remain |
 | Visual purpose | Every card, background element, icon, and mockup explains or supports the product |
 | Accessibility | Text contrast, labels, focus states, and mobile layout are usable |
@@ -434,106 +382,51 @@ RepWorth workflow/state.
 
 | Mistake | Fix |
 |---|---|
-| Cards directly on the sage field (`bg-rw-sage`) without island | Wrap all content in `max-w-5xl bg-white rounded-[3rem]` island |
+| Drop shadow on a card inside the Daylight island | Paper + hairline border is the depth model; remove the shadow |
+| Bold text or a serif accent word on a marketing page | DM Sans 400 only; make it bigger, not bolder |
+| A bar accent used as text or a broad fill | Bar accents are 4–10px bars and small dots only |
+| White text on `--rw-teal` or a low-contrast label | Classic register: use `--rw-teal-strong`/`--rw-ink` per ADR 0004 |
+| `overflow: hidden` on `.rw-island` | Use `overflow: clip` — hidden breaks the sticky nav |
 | `import { Check } from 'lucide-react'` | Inline SVG only |
 | `import { motion } from 'framer-motion'` | `import { motion } from 'motion/react'` |
-| `overflow-hidden` on root div | Remove it — clips nothing useful, breaks iOS |
-| Amber/stone colors anywhere | Replace with the sage green palette above |
-| Generic AI hero with abstract claims | Use RepWorth-specific product language and one real workflow |
-| Fake metrics, logos, avatars, or testimonials | Remove them unless supplied by the user/product |
-| Decorative dashboard cards with no job | Replace with a plausible RepWorth state or keep it abstract |
-| Hype copy like "unlock insights" or "supercharge" | Rewrite as concrete user action or outcome |
-| Icon-only controls without labels | Add accessible names/tooltips and clear intent |
-| `custom={direction}` on AnimatePresence with object animations | Remove — dead prop |
-| `motion.div` without `whileInView` on scroll sections | Add scroll reveal pattern |
+| Fake metrics, logos, avatars, or testimonials | Remove them, or label them "Sample"/"illustrative" as the product context supplies |
+| Icon-only controls without labels | Add accessible names and clear intent |
+| Declaring a `--rw-*` token in page CSS | Tokens live in `globals.css` `:root` only (scope-purity guard) |
 
 ## Surfaces & Elevation
 
-Depth is a short stack: the sage field, the drifting glass atmosphere behind it, the
-white island, and cards inside the island. Nothing else.
-
-### Section backgrounds (inside the island)
-
-Alternate between these to create visual rhythm:
+Daylight depth is a short stack: the sage field, the drifting marquee behind, the bone
+island, paper cards and paper bands on the bone, and the single dark ink CTA band.
+Nothing else.
 
 | Section type | Background |
 |---|---|
-| Default | `bg-white` |
-| Tinted | `bg-gradient-to-b from-white to-rw-cream/30` |
-| CTA (last section) | `bg-gradient-to-br from-rw-teal-strong to-rw-teal-strong/90 text-white rounded-b-[3rem]` |
+| Default band | bone (the island itself) |
+| Paper band | `.rw-dl-band.is-paper` — white with hairline top/bottom borders |
+| CTA (last section) | `.rw-dl-cta` — `--rw-ink2`, white copy, paper pill |
+| Footer | bone, hairline top border |
 
-A CTA band follows ADR 0004's three cases exactly: a `--rw-teal` band may carry **ink**
-copy plus white-pill actions; a band that must carry **white** copy darkens to
-`--rw-teal-strong` or darker (the recipe above — what `book-a-demo`, `demo/[slug]`, and
-`help/contact` ship); text-free teal decoration may stay `--rw-teal`.
-
-### The marquee field
-
-`src/components/ui/MarqueeBackground.tsx` (`.rw-marquee-field` in
-`src/app/(public)/_styles/island.css`) is the
-reusable atmosphere layer: four rows of translucent review cards drifting at different
-speeds under a radial sage vignette, with an `animation: none` branch under
-`prefers-reduced-motion`.
-
-## Imagery & Motion
-
-### Section entry (mount)
-
-```tsx
-initial={{ opacity: 0, y: 20 }}
-animate={{ opacity: 1, y: 0 }}
-transition={{ duration: 0.6, delay: 0.2 }} // stagger: +0.1 per element
-```
-
-### Scroll reveal
-
-```tsx
-initial={{ opacity: 0, y: 20 }}
-whileInView={{ opacity: 1, y: 0 }}
-viewport={{ once: true, margin: '-100px' }}
-transition={{ duration: 0.6, delay: i * 0.1 }} // stagger via index
-```
-
-### Card hover lift
-
-```tsx
-whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}
-```
-
-### Primary button hover
-
-```tsx
-whileHover={{ scale: 1.05, y: -2, boxShadow: '0 20px 40px rgba(151,179,174,0.3)' }}
-whileTap={{ scale: 0.98 }}
-```
-
-### AnimatePresence (e.g. carousels)
-
-- Use `mode="wait"`, `initial={false}`
-- Do NOT pass `custom` prop when using inline object animations (only for variant functions)
-
-### Imagery
-
-Inline SVG only — no external icon library, no stock-like synthetic people, no generic
-robot/brain/sparkle imagery, no decorative network graphs. Decorative wrappers carry
-`aria-hidden="true"`.
+The classic register keeps its white-island section recipes (white / cream tint / teal
+CTA band per ADR 0004).
 
 ## Agent prompt guide
 
-- **"Build a primary button on this surface"** → `motion.button` with
-  `px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg`, plus the
-  primary-button hover/tap variants. On a teal CTA band it flips to a white pill with
-  `text-rw-teal-strong`. Never `bg-rw-teal text-white`, never `text-rw-teal` as a label.
-- **"Add a new public page"** → sage root (`min-h-screen bg-rw-sage relative`, no
-  `overflow-hidden`), fixed `aria-hidden` parallax layer, dot nav, then the
-  `max-w-5xl bg-white rounded-[3rem] shadow-2xl` island with the nav bar as its first child.
-- **"Add a feature card grid"** → the feature-card recipe above; rotate the icon-circle
-  color through `rw-teal` → `rw-peach` → `rw-beige`; inline SVG icons only.
+- **"Build a primary button on a marketing page"** → `rw-pill rw-pill-forest` (+
+  `.rw-pill-circ` arrow disc when it is the nav/section door). Secondary door →
+  `rw-pill rw-pill-line`. On the ink CTA band → `rw-pill rw-pill-paper`. Never a teal
+  fill, never a drop shadow.
+- **"Add a marketing section"** → `.rw-dl-band` (alternate `.is-paper`), `.rw-dl-col`
+  column, centred `.rw-dl-intro` (kicker + h2 + lede), content in `.rw-dl-card`s,
+  reveals via `.rw-dl-rv`.
+- **"Show a product state"** → the card anatomy: `rw-dl-cap` caption row with a
+  status dot, then `rw-dl-quote` / `rw-dl-reply` / `rw-dl-rec` as the state demands;
+  label samples as samples.
 - **"Add an icon"** → paste the SVG path inline with
-  `fill="none" viewBox="0 0 24 24" stroke="currentColor"`. Never import `lucide-react`
-  or `heroicons`.
-- **"Show a metric / testimonial / logo"** → only if the product supplied it. Otherwise
-  omit the block or use a neutral product-language placeholder.
+  `fill="none" viewBox="0 0 24 24" stroke="currentColor"`. Never import `lucide-react`.
+- **"Show a metric / testimonial"** → only if the product supplied it, with the
+  illustrative disclaimer verbatim; otherwise omit the block.
+- **"Touch auth / approve / admin / legal"** → classic register: keep the teal
+  recipes and ADR 0004 rules; only the nav/footer chrome is Daylight there.
 
 ## Exports
 
@@ -544,9 +437,11 @@ robot/brain/sparkle imagery, no decorative network graphs. Decorative wrappers c
   `var(--rw-*)` (a reference, not a copied hex), so the `:root` declarations stay the
   single source of truth.
 - **Page CSS:** [`src/app/(public)/_styles/`](../../../src/app/(public)/_styles) — four
-  files, `island.css` (the shared island chrome + the marquee atmosphere),
-  `features.css`, `how-it-works.css`, `pricing.css`. `globals.css` `@import`s them in that
-  order, at the bottom of the file, and the order is the cascade: it is the sequence those
-  blocks had inside `globals.css` before they were split out. They consume `var(--rw-*)`
-  and declare no tokens — `globals.css` owns those. Guard:
+  files, `island.css` (the shared chrome: nav pill, pills, footer, the `.rw-dl-*`
+  primitives, the marquee atmosphere), `features.css`, `how-it-works.css`,
+  `pricing.css`. `globals.css` `@import`s them in that order, at the bottom of the
+  file, and the order is the cascade. They consume `var(--rw-*)` and declare no tokens
+  — `globals.css` owns those. Guard:
   [`design-scope-purity.test.ts`](../../../src/__tests__/design-scope-purity.test.ts).
+- **Approved demo + spec:** [`docs/design/daylight-ii/`](../daylight-ii) — the demo is
+  the visual spec; `system-amendments.md` is the token spec.

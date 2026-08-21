@@ -59,8 +59,10 @@ const FOCUS_RULES = [
   // The three gold pills ring at 3px: outward, past the pill's own fill.
   { css: HERO_CSS, selector: '.rw-lp-hero-cta:focus-visible', token: '--rw-lp-hero-accent', offset: '3px' },
   { css: CTA_CSS, selector: '.rw-lp-cta-action:focus-visible', token: '--rw-lp-cta-accent', offset: '3px' },
-  { css: PRICING_CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-teal-strong', offset: '3px' },
-  { css: PRICING_CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-teal-strong', offset: '2px' },
+  // Daylight Gallery II (2026-08 rebrand): Island marketing surfaces ring in
+  // forest — the system's single action colour, high-contrast on bone/paper.
+  { css: PRICING_CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-forest', offset: '3px' },
+  { css: PRICING_CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-forest', offset: '3px' },
 ] as const;
 
 function ruleBody(css: string, selector: string): string {
