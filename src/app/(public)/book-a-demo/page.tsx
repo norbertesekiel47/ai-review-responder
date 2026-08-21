@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { BookADemoContent } from './BookADemoContent';
 
 export const metadata: Metadata = {
@@ -9,5 +10,6 @@ export const metadata: Metadata = {
 
 export default function BookADemoPage() {
   const selfServeEnabled = selfServeSignupEnabled();
-  return <BookADemoContent selfServeEnabled={selfServeEnabled} />;
+  const trialOn = selfServeEnabled && isTrialEnabled();
+  return <BookADemoContent selfServeEnabled={selfServeEnabled} trialEnabled={trialOn} />;
 }

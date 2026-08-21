@@ -8,10 +8,16 @@ import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
 import { NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
-  /** When true, the right-side Log in / Sign up cluster is hidden. */
+  /** When true, the right-side Log in / signup cluster is hidden. */
   comingSoon?: boolean;
   /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
+  /**
+   * True when the card-up-front trial is on: the CTA pill reads "Start free
+   * trial" (the approved Daylight chrome label). With the trial off it says
+   * "Create account" so the chrome never makes a stale trial claim.
+   */
+  trialEnabled?: boolean;
 }
 
 const MOBILE_MENU_ID = 'site-nav-mobile-menu';
@@ -22,8 +28,25 @@ function isActivePath(pathname: string | null, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
+const ArrowDisc = () => (
+  <span className="rw-pill-circ" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  </span>
+);
+
+/**
+ * Site-wide marketing nav — Daylight Gallery II chrome: a sticky white pill
+ * inside the island (styles: `.rw-nav*` in (public)/_styles/island.css).
+ * Rendered by SiteShell on the marketing pages and directly by the legal /
+ * security / demo / book-a-demo / help islands, so it stays self-contained.
+ * The mobile menu is a disclosure, NOT a focus trap: Escape closes and
+ * restores focus; Tab flows naturally through the page.
+ */
+export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEnabled = false }: SiteNavProps) {
   const showOwnerAuth = selfServeEnabled && !comingSoon;
+  const signupLabel = trialEnabled ? 'Start free trial' : 'Create account';
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -36,9 +59,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
     toggleRef.current?.focus();
   };
 
-  // Escape closes the menu and restores focus. This is a disclosure, NOT a
-  // focus trap: Tab is left to flow naturally through the page; we only manage
-  // open/close focus.
+  // Escape closes the menu and restores focus.
   useEffect(() => {
     if (!mobileOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -57,27 +78,20 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
 
   return (
     <LazyMotion features={domAnimation}>
-      <header aria-label="Primary">
-        <nav className="border-b border-rw-teal/10">
-          <div className="px-8 py-4 flex items-center justify-between gap-4">
+      <header aria-label="Primary" className="rw-navwrap">
+        <div className="rw-nav-col">
+          <nav className="rw-nav">
             <Link
               href="/"
               aria-current={isActivePath(pathname, '/') ? 'page' : undefined}
-              className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
+              className="rw-nav-brand"
             >
-              <Image
-                src="/logo.svg"
-                alt="RepWorth"
-                width={32}
-                height={32}
-                className="size-8 object-contain"
-                unoptimized
-              />
-              <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
+              <Image src="/logo.svg" alt="" width={26} height={26} unoptimized />
+              <span>RepWorth</span>
             </Link>
 
-            {/* Desktop nav links (>=640px) */}
-            <div className="hidden sm:flex items-center gap-6">
+            {/* Desktop nav links (>680px) */}
+            <div className="rw-nav-links">
               {NAV_LINKS.map(({ label, href }) => {
                 const active = isActivePath(pathname, href);
                 return (
@@ -85,11 +99,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                     key={label}
                     href={href}
                     aria-current={active ? 'page' : undefined}
-                    className={`text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2 ${
-                      active
-                        ? 'text-rw-teal-strong font-semibold underline decoration-2 underline-offset-8'
-                        : 'text-rw-teal-strong/80 hover:text-rw-teal-strong'
-                    }`}
+                    className={active ? 'is-active' : undefined}
                   >
                     {label}
                   </Link>
@@ -97,54 +107,43 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
               })}
             </div>
 
-            {/* Desktop auth cluster (sm-gated so it does not duplicate on mobile) */}
-            {showOwnerAuth && (
-              <div className="hidden sm:flex items-center gap-3">
-                <Link
-                  href="/login"
-                  className="inline-flex min-h-[44px] items-center text-sm text-rw-teal-strong/80 hover:text-rw-teal-strong transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
-                >
-                  Log in
-                </Link>
-                <Link
-                  href="/signup"
-                  className="inline-flex min-h-[44px] items-center text-sm bg-rw-teal-strong text-white px-4 py-2 rounded-full hover:bg-rw-teal-strong/90 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
-                >
-                  Sign up
-                </Link>
-              </div>
-            )}
+            <div className="rw-nav-right">
+              {showOwnerAuth && (
+                <>
+                  <Link href="/login" className="rw-nav-login">
+                    Log in
+                  </Link>
+                  <Link href="/signup" className="rw-pill rw-pill-forest">
+                    {signupLabel}
+                    <ArrowDisc />
+                  </Link>
+                </>
+              )}
 
-            {/* Mobile hamburger toggle (>=44px touch target) */}
-            <button
-              ref={toggleRef}
-              type="button"
-              onClick={() => setMobileOpen((open) => !open)}
-              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={mobileOpen}
-              aria-controls={MOBILE_MENU_ID}
-              className="sm:hidden inline-flex size-11 items-center justify-center rounded-md p-2 text-rw-teal-strong hover:bg-rw-teal/10 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
-            >
-              <svg
-                className="size-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-                aria-hidden="true"
+              {/* Mobile hamburger toggle (44px touch target) */}
+              <button
+                ref={toggleRef}
+                type="button"
+                onClick={() => setMobileOpen((open) => !open)}
+                aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileOpen}
+                aria-controls={MOBILE_MENU_ID}
+                className="rw-nav-toggle"
               >
-                {mobileOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                  />
-                )}
-              </svg>
-            </button>
-          </div>
+                <svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+                  {mobileOpen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  ) : (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                    />
+                  )}
+                </svg>
+              </button>
+            </div>
+          </nav>
 
           {/* Mobile dropdown panel: disclosure, not a focus trap */}
           <AnimatePresence initial={false}>
@@ -156,9 +155,9 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="sm:hidden overflow-hidden border-t border-rw-teal/10"
+                className="rw-nav-menu"
               >
-                <div className="px-8 py-4 flex flex-col gap-1">
+                <div className="rw-nav-menu-inner">
                   {NAV_LINKS.map(({ label, href }, index) => {
                     const active = isActivePath(pathname, href);
                     return (
@@ -168,9 +167,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                         href={href}
                         onClick={closeMenu}
                         aria-current={active ? 'page' : undefined}
-                        className={`inline-flex min-h-[44px] items-center text-sm transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2 ${
-                          active ? 'text-rw-teal-strong font-semibold' : 'text-rw-teal-strong/80 hover:text-rw-teal-strong'
-                        }`}
+                        className={active ? 'is-active' : undefined}
                       >
                         {label}
                       </Link>
@@ -179,20 +176,12 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
 
                   {showOwnerAuth && (
                     <>
-                      <div className="my-2 border-t border-rw-teal/10" aria-hidden="true" />
-                      <Link
-                        href="/login"
-                        onClick={closeMenu}
-                        className="inline-flex min-h-[44px] items-center text-sm text-rw-teal-strong/80 hover:text-rw-teal-strong transition-colors rounded focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
-                      >
+                      <div className="rw-nav-menu-sep" aria-hidden="true" />
+                      <Link href="/login" onClick={closeMenu}>
                         Log in
                       </Link>
-                      <Link
-                        href="/signup"
-                        onClick={closeMenu}
-                        className="mt-1 inline-flex min-h-[44px] w-full items-center justify-center text-sm bg-rw-teal-strong text-white px-4 py-2 rounded-full hover:bg-rw-teal-strong/90 transition-colors focus-visible:outline-2 focus-visible:outline-rw-teal focus-visible:outline-offset-2"
-                      >
-                        Sign up
+                      <Link href="/signup" onClick={closeMenu} className="rw-pill rw-pill-forest">
+                        {signupLabel}
                       </Link>
                     </>
                   )}
@@ -200,7 +189,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
               </m.div>
             )}
           </AnimatePresence>
-        </nav>
+        </div>
       </header>
     </LazyMotion>
   );

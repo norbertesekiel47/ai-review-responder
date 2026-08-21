@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import Link from 'next/link';
 import { PageShell } from '@/components/ui/PageShell';
 import { SiteNav } from '@/components/ui/SiteNav';
@@ -13,10 +14,11 @@ export const metadata: Metadata = {
 
 export default function SecurityPage() {
   const selfServeEnabled = selfServeSignupEnabled();
+  const trialOn = selfServeEnabled && isTrialEnabled();
 
   return (
     <PageShell sections={[]}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
+      <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialOn} />
       <main id="main-content" className="px-8 py-16 md:px-16">
         <div className="mx-auto max-w-2xl space-y-8">
           <header>

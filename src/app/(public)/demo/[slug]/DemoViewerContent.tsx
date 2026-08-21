@@ -13,9 +13,11 @@ interface DemoViewerContentProps {
   reviews: NormalizedReview[];
   responses: (GenerationResult | null)[];
   selfServeEnabled: boolean;
+  /** Drives the nav CTA label. */
+  trialEnabled?: boolean;
 }
 
-export function DemoViewerContent({ businessName, reviews, responses, selfServeEnabled }: DemoViewerContentProps) {
+export function DemoViewerContent({ businessName, reviews, responses, selfServeEnabled, trialEnabled = false }: DemoViewerContentProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const successCount = responses.filter((r) => r !== null).length;
   const hasReviews = reviews.length > 0;
@@ -46,7 +48,7 @@ export function DemoViewerContent({ businessName, reviews, responses, selfServeE
   return (
     <LazyMotion features={domAnimation}>
     <PageShell sections={[]}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
+      <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled} />
 
       <main id="main-content">
       {/* Hero */}

@@ -146,10 +146,10 @@ describe('FeaturesContent', () => {
 
     expect(html).toContain('href="/how-it-works"');
     expect(html).toContain('See how it works');
-    // The secondary CTA is now an underlined text link, not a bordered pill button.
-    expect(html).toMatch(/<a class="[^"]*underline[^"]*decoration-white[^"]*" href="\/how-it-works"/);
-    // The old equal-weight bordered-pill styling is gone.
-    expect(html).not.toContain('px-8 py-4 text-white rounded-full font-medium border border-white/40');
+    // The secondary CTA is a text link inside the CTA band's link row
+    // (.rw-dl-cta-more underlines via border-bottom), never a pill.
+    expect(html).toMatch(/rw-dl-cta-more[\s\S]{0,200}?href="\/how-it-works"/);
+    expect(html).not.toMatch(/rw-pill[^"]*"[^>]*href="\/how-it-works"/);
   });
 
   it('states only feature claims true to the system', () => {

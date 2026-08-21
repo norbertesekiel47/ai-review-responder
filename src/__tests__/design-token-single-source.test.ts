@@ -80,6 +80,23 @@ const ISLAND_COLOR_TOKENS = [
   '--rw-cream',
   '--rw-ink',
   '--rw-ink-soft',
+  // Daylight Gallery II (2026-08 marketing rebrand). The bar accents carry a
+  // deliberate -bar suffix so they can never collide with the Console's own
+  // --rw-blush family the way bare --rw-sage once collided.
+  '--rw-ink2',
+  '--rw-ink2-soft',
+  '--rw-ink2-mute',
+  '--rw-line',
+  '--rw-line-2',
+  '--rw-bone',
+  '--rw-paper',
+  '--rw-forest',
+  '--rw-forest-ink',
+  '--rw-sage-bar',
+  '--rw-teal-bar',
+  '--rw-mist-bar',
+  '--rw-blush-bar',
+  '--rw-gold-bar',
 ];
 
 describe('design tokens: Island palette is single-sourced in globals.css', () => {

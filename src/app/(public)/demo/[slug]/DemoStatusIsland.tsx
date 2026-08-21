@@ -16,6 +16,8 @@ interface DemoStatusIslandProps {
   businessName?: string;
   /** Forwarded to SiteNav to show/hide the owner sign-up link. */
   selfServeEnabled: boolean;
+  /** Drives the nav CTA label. */
+  trialEnabled?: boolean;
 }
 
 // Poll the route on a backoff schedule so a stuck demo can't refresh forever.
@@ -47,11 +49,11 @@ const MESSAGES: Record<'error' | 'expired', { title: string; body: (name?: strin
   },
 };
 
-export function DemoStatusIsland({ variant, businessName, selfServeEnabled }: DemoStatusIslandProps) {
+export function DemoStatusIsland({ variant, businessName, selfServeEnabled, trialEnabled = false }: DemoStatusIslandProps) {
   return (
     <LazyMotion features={domAnimation}>
       <PageShell sections={[]}>
-        <SiteNav selfServeEnabled={selfServeEnabled} />
+        <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled} />
         <main id="main-content">
           {variant === 'loading' ? (
             <LoadingIsland businessName={businessName} />

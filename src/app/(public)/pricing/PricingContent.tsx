@@ -15,7 +15,6 @@ interface PlanCopy {
   tier: SubscriptionTierValue;
   name: string;
   tag: string;
-  icon: 'copilot' | 'autopilot';
   features: readonly string[];
 }
 
@@ -24,7 +23,6 @@ const PLANS: readonly PlanCopy[] = [
     tier: 'copilot',
     name: 'Copilot',
     tag: 'The agent team prepares every public action for your approval.',
-    icon: 'copilot',
     features: [
       'Reply drafts personalized responses in your business voice',
       'Guardian holds negative and flagged reviews for owner attention',
@@ -37,7 +35,6 @@ const PLANS: readonly PlanCopy[] = [
     tier: 'autopilot',
     name: 'Autopilot',
     tag: 'The same agent team may act inside the rules you set.',
-    icon: 'autopilot',
     features: [
       'Everything in Copilot',
       'Only 4–5★ unflagged replies may post automatically',
@@ -95,21 +92,6 @@ const CheckIcon = () => (
     <path d="M5 13l4 4L19 7" />
   </svg>
 );
-
-function PlanIcon({ icon }: { icon: PlanCopy['icon'] }) {
-  return icon === 'copilot' ? (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5v-7Z" />
-      <path d="m8 12 2.3 2.3L16 9" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
-      <circle cx="12" cy="12" r="5" />
-      <path d="m10 12 1.3 1.3L14.5 10" />
-    </svg>
-  );
-}
 
 function formatDollars(cents: number): string {
   const dollars = cents / 100;
@@ -193,24 +175,26 @@ function PlanCard({
   const isAutopilot = plan.tier === 'autopilot';
   const featured = isAutopilot && autopilotOpen;
   const primary = autopilotOpen ? isAutopilot : !isAutopilot;
+  // Bar-only accents (Daylight Gallery II): Copilot wears the sage bar,
+  // Autopilot the gold bar — the Judge/ink bar never marks a purchasable tier.
+  const bar = isAutopilot ? 'var(--rw-gold-bar)' : 'var(--rw-sage-bar)';
 
   return (
-    <article className={`pr-plan ${featured ? 'is-featured' : ''}`}>
-      <div className="pr-plan-hatch" aria-hidden>
-        {Array.from({ length: 14 }).map((_, index) => <span key={index} />)}
+    <article
+      className={`pr-plan ${featured ? 'is-featured' : ''}`}
+      style={{ ['--bar' as string]: bar }}
+    >
+      <div className="pr-plan-name-row">
+        <h2 className="pr-plan-name">{plan.name}</h2>
+        {featured && <div className="pr-ribbon">More autonomy</div>}
+        {isAutopilot && !autopilotOpen && <div className="pr-ribbon is-soon">Opening soon</div>}
       </div>
-      {featured && <div className="pr-ribbon">More autonomy</div>}
-      {isAutopilot && !autopilotOpen && <div className="pr-ribbon is-soon">Opening soon</div>}
-      <div className={`pr-plan-swatch is-${plan.icon}`} aria-hidden>
-        <PlanIcon icon={plan.icon} />
-      </div>
-      <h2 className="pr-plan-name">{plan.name}</h2>
       <p className="pr-plan-tag">{plan.tag}</p>
 
       <div className="pr-price">
         <span className="pr-price-currency">$</span>
         <span className="pr-price-amt">{formatDollars(price.basePriceCents)}</span>
-        <span className="pr-price-per">/ month</span>
+        <span className="pr-price-per">per month</span>
       </div>
       {priceVariant === 'founding' ? (
         <p className="pr-price-foot">
@@ -224,15 +208,16 @@ function PlanCard({
         One location included · ${formatDollars(price.locationsOveragePriceCents)}/month per extra location
       </p>
 
-      <PlanDoor
-        plan={plan}
-        purchasable={purchasable}
-        primary={primary}
-        selfServeEnabled={selfServeEnabled}
-        onPlanInterest={onPlanInterest}
-      />
+      <div className="pr-door">
+        <PlanDoor
+          plan={plan}
+          purchasable={purchasable}
+          primary={primary}
+          selfServeEnabled={selfServeEnabled}
+          onPlanInterest={onPlanInterest}
+        />
+      </div>
 
-      <div className="pr-divider" />
       <p className="pr-includes-lbl">What&apos;s included</p>
       <ul className="pr-feature-list">
         {plan.features.map((feature) => (
@@ -284,7 +269,7 @@ export function PricingContent({
     : BASE_FAQS;
 
   return (
-    <SiteShell scope="pr-page" selfServeEnabled={selfServeEnabled}>
+    <SiteShell scope="pr-page" selfServeEnabled={selfServeEnabled} trialEnabled={viewModel.trialEnabled}>
       <section className="pr-hero">
         <p className="pr-eyebrow">Pricing</p>
         <h1>Choose how your agent team works.</h1>
@@ -392,25 +377,35 @@ export function PricingContent({
         })}
       </div>
 
-      <section id="pricing-waitlist" className="pr-cta">
-        <h2>
-          {!selfServeEnabled
-            ? 'Join the early access waitlist.'
-            : autopilotOpen
-              ? 'Ready to choose your plan?'
-              : 'Start with Copilot today.'}
-        </h2>
-        <p>
-          {!selfServeEnabled
-            ? 'Tell us about your business and we’ll reach out when early access opens for your area.'
-            : autopilotOpen
-              ? 'Create your account, choose Copilot or Autopilot, and continue to secure checkout.'
-              : 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.'}
-        </p>
+      <section id="pricing-waitlist" className="rw-dl-cta" aria-labelledby="pr-cta-h">
+        <div className="rw-dl-col">
+          <div>
+            <h2 id="pr-cta-h">
+              {!selfServeEnabled
+                ? 'Join the early access waitlist.'
+                : autopilotOpen
+                  ? 'Ready to choose your plan?'
+                  : 'Start with Copilot today.'}
+            </h2>
+            <p className="rw-dl-cta-sub">
+              {!selfServeEnabled
+                ? 'Tell us about your business and we’ll reach out when early access opens for your area.'
+                : autopilotOpen
+                  ? 'Create your account, choose Copilot or Autopilot, and continue to secure checkout.'
+                  : 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.'}
+            </p>
+            <div className="rw-dl-cta-more">
+              <Link href="/how-it-works">How it works <span aria-hidden="true">→</span></Link>
+              <Link href="/features">All features <span aria-hidden="true">→</span></Link>
+            </div>
+          </div>
+          <div>
         {selfServeEnabled ? (
-          <Link href="/signup" className="rw-btn-pill-onband pr-cta-btn">Create account</Link>
+          <div className="rw-dl-cta-panel">
+            <Link href="/signup" className="rw-pill rw-pill-paper pr-cta-pill">Create account</Link>
+          </div>
         ) : (
-          <div className="w-full max-w-md">
+          <div className="rw-dl-cta-panel">
             <fieldset className="pr-plan-pick">
               <legend className="pr-plan-pick-lbl">Which plan are you asking about?</legend>
               {PLAN_PICK_OPTIONS.map((option) => {
@@ -443,6 +438,8 @@ export function PricingContent({
             />
           </div>
         )}
+          </div>
+        </div>
       </section>
     </SiteShell>
   );

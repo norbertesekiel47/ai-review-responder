@@ -4,7 +4,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { SiteNav } from '../SiteNav';
+
+const islandCss = readFileSync(
+  resolve(process.cwd(), 'src/app/(public)/_styles/island.css'),
+  'utf-8',
+);
 
 // Render Next's Link as a plain anchor so these tests don't need an App Router
 // context (matches the pattern in DemoStatusIsland.test.tsx).
@@ -33,7 +40,7 @@ describe('SiteNav', () => {
       expect(html).not.toContain('href="/login"');
       expect(html).not.toContain('href="/signup"');
       expect(html).not.toContain('Log in');
-      expect(html).not.toContain('Sign up');
+      expect(html).not.toContain('Start free trial');
     });
 
     it('hides owner auth links when self-serve signup is disabled', () => {
@@ -41,22 +48,31 @@ describe('SiteNav', () => {
       expect(html).not.toContain('href="/login"');
       expect(html).not.toContain('href="/signup"');
       expect(html).not.toContain('Log in');
-      expect(html).not.toContain('Sign up');
+      expect(html).not.toContain('Start free trial');
     });
 
     it('shows owner auth links when self-serve signup is enabled', () => {
-      const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+      const html = renderToStaticMarkup(
+        createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+      );
       expect(html).toContain('href="/login"');
       expect(html).toContain('href="/signup"');
       expect(html).toContain('Log in');
-      expect(html).toContain('Sign up');
+      expect(html).toContain('Start free trial');
+    });
+
+    it('drops the trial claim from the CTA label when the trial flag is off', () => {
+      const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+      expect(html).toContain('Create account');
+      expect(html).not.toContain('Start free trial');
     });
   });
 
   describe('landmark + active page', () => {
     it('wraps the nav in a header labelled "Primary"', () => {
       const html = renderToStaticMarkup(createElement(SiteNav));
-      expect(html).toContain('<header aria-label="Primary">');
+      expect(html).toContain('<header aria-label="Primary"');
+      expect(html).toContain('rw-navwrap');
       expect(html).toContain('<nav');
     });
 
@@ -65,7 +81,7 @@ describe('SiteNav', () => {
       const html = renderToStaticMarkup(createElement(SiteNav));
       // The Features link is active.
       expect(html).toMatch(/href="\/features"[^>]*aria-current="page"/);
-      expect(html).toContain('underline');
+      expect(html).toMatch(/href="\/features"[^>]*class="is-active"/);
       // Pricing is not active.
       expect(html).not.toMatch(/href="\/pricing"[^>]*aria-current="page"/);
     });
@@ -88,9 +104,10 @@ describe('SiteNav', () => {
       expect(html).not.toContain(`id="${MENU_ID}"`);
     });
 
-    it('gives the toggle a >=44px touch target', () => {
+    it('gives the toggle a >=44px touch target via its chrome class', () => {
       const html = renderToStaticMarkup(createElement(SiteNav));
-      expect(html).toContain('size-11');
+      expect(html).toContain('rw-nav-toggle');
+      expect(islandCss).toMatch(/\.rw-nav-toggle \{[\s\S]{0,200}?width: 44px;[\s\S]{0,200}?height: 44px;/);
     });
 
     it('opens the menu and reveals the nav links on click', async () => {
@@ -140,13 +157,15 @@ describe('SiteNav', () => {
 
     it('includes auth links in the menu when self-serve is enabled', async () => {
       const user = userEvent.setup();
-      const { container } = render(createElement(SiteNav, { selfServeEnabled: true }));
+      const { container } = render(
+        createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+      );
 
       await user.click(screen.getByRole('button', { name: 'Open menu' }));
 
       const panel = container.querySelector(`#${MENU_ID}`) as HTMLElement;
       expect(within(panel).getByRole('link', { name: 'Log in' })).toBeInTheDocument();
-      expect(within(panel).getByRole('link', { name: 'Sign up' })).toBeInTheDocument();
+      expect(within(panel).getByRole('link', { name: 'Start free trial' })).toBeInTheDocument();
     });
 
     it('omits auth links from the menu when self-serve is disabled', async () => {
@@ -157,7 +176,7 @@ describe('SiteNav', () => {
 
       const panel = container.querySelector(`#${MENU_ID}`) as HTMLElement;
       expect(within(panel).queryByRole('link', { name: 'Log in' })).toBeNull();
-      expect(within(panel).queryByRole('link', { name: 'Sign up' })).toBeNull();
+      expect(within(panel).queryByRole('link', { name: 'Start free trial' })).toBeNull();
     });
 
     it('closes the menu and restores focus when a nav link is clicked', async () => {
@@ -188,13 +207,13 @@ describe('SiteNav', () => {
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
     });
 
-    it('applies focus-visible rings to all interactive elements', () => {
+    it('covers every nav control with the chrome focus-visible rule', () => {
+      // Daylight chrome: one `.rw-navwrap :focus-visible` rule in island.css
+      // gives all nav controls (logo, links, Log in, the CTA pill, hamburger)
+      // the forest outline — no per-element Tailwind ring utilities.
+      expect(islandCss).toMatch(/\.rw-navwrap :focus-visible[\s\S]{0,120}?outline: 2px solid var\(--rw-forest\)/);
       const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-      // SSR markup (panel is client-only/closed) renders 7 controls:
-      // logo + 3 desktop nav links + Log in + Sign up + hamburger.
-      // Uses the canonical teal outline treatment shared with PR #174 (P1 #18).
-      const occurrences = (html.match(/focus-visible:outline-rw-teal(?![-\w])/g) || []).length;
-      expect(occurrences).toBe(7);
+      expect(html).toContain('rw-navwrap');
     });
 
     it('suppresses auth links when comingSoon overrides self-serve', () => {
@@ -206,24 +225,18 @@ describe('SiteNav', () => {
     });
   });
 
-  it('gives nav links a teal focus-visible ring', () => {
-    const html = renderToStaticMarkup(createElement(SiteNav));
-    expect(html).toContain('focus-visible:outline-rw-teal');
+  it('renders the CTA pill in the action colour with the arrow disc', () => {
+    const html = renderToStaticMarkup(
+      createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+    );
+    expect(html).toMatch(/href="\/signup"[^>]*class="rw-pill rw-pill-forest"/);
+    expect(html).toContain('rw-pill-circ');
   });
 
-  it('gives the owner-auth links a focus-visible ring when shown', () => {
+  it('uses no legacy teal utilities or raw hex colours', () => {
     const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-    // Both the Log in and Sign up links carry the teal focus ring.
-    const ringCount = html.split('focus-visible:outline-rw-teal').length - 1;
-    // 3 nav links + Log in + Sign up = 5 ring occurrences.
-    expect(ringCount).toBeGreaterThanOrEqual(5);
-  });
-
-  it('uses the accessible-contrast text token, not the low-contrast teal, for text', () => {
-    const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
-    expect(html).toContain('text-rw-teal-strong');
-    // Teal (decoration) appears only as focus rings / borders, never as text.
-    // text-rw-teal-strong contains "text-rw-teal", so match bare teal precisely.
-    expect(html).not.toMatch(/text-rw-teal(?![-\w])/);
+    // Daylight chrome: colour comes from the .rw-nav* classes (ink2 / forest
+    // tokens in island.css), never Tailwind teal utilities or literals.
+    expect(html).not.toMatch(/text-rw-teal|bg-rw-teal|#[0-9a-fA-F]{6}/);
   });
 });

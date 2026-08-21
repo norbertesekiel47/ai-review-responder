@@ -38,7 +38,10 @@ describe('review stars use the brand glyph color, never garish yellow (P2 #28)',
       // Marketing page CSS moved out of globals.css into (public)/_styles by
       // PR 3b; globals.css is the Island TOKEN file now.
       ['src/app/(public)/_styles/island.css', /\.rw-demo-stars\s*\{[^}]*#97B3AE/i],
-      ['src/app/(public)/_styles/how-it-works.css', /\.hiw-feed-stars\s*\{[^}]*#97B3AE/i],
+      // Daylight Gallery II (2026-08 rebrand): marketing star glyphs are ink
+      // by design ("ratings are content, not action" —
+      // docs/design/daylight-ii/system-amendments.md). Still never yellow.
+      ['src/app/(public)/_styles/island.css', /\.rw-dl-stars\s*\{[^}]*var\(--rw-ink2\)/],
       ['src/app/(public)/_styles/island.css', /\.rw-bg-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-pcard-stars\s*\{[^}]*#97B3AE/i],
       ['src/components/auth/auth-island/auth-island.css', /\.rw-review-stars\s*\{[^}]*#97B3AE/i],

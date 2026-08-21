@@ -91,7 +91,7 @@ function CopyEmailButton({ email }: { email: string }) {
   );
 }
 
-export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
+export function ContactContent({ selfServeEnabled = false, trialEnabled = false }: { selfServeEnabled?: boolean; trialEnabled?: boolean }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const whileInView = prefersReducedMotion ? undefined : { opacity: 1, y: 0 };
   const cardInitial = prefersReducedMotion ? false : { opacity: 0, y: 20 };
@@ -99,7 +99,7 @@ export function ContactContent({ selfServeEnabled = false }: { selfServeEnabled?
   return (
     <LazyMotion features={domAnimation}>
     <PageShell sections={[]}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
+      <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled} />
 
       <main id="main-content" className="px-8 py-16 md:py-20">
         <m.div
