@@ -308,7 +308,7 @@ Mirror `worker/jobs/solicitation-batch/generate.ts` (42 lines) exactly: extract 
   solicitationSend: new Queue(QUEUE_NAMES.SOLICITATION_SEND, { connection: opts, defaultJobOptions }),
 ```
 
-and in `QUEUE_BY_NAME`:
+and a row in the topic→queue map, which is named **`topicToQueue`** (not `QUEUE_BY_NAME` — corrected during Task 1):
 
 ```ts
   [QUEUE_NAMES.SOLICITATION_SEND]: queues.solicitationSend,
@@ -351,7 +351,9 @@ Three registration facts, pinned so nobody has to guess:
    `SOLICITATION_PLATFORM_DAILY_CAP` and `SOLICITATION_UNSUBSCRIBE_MAILTO` whenever
    `SOLICITATION_SEND_ENABLED=true`.
 
-The `failed` hook import is added in Task 7; until then point it at a stub in the same file path so the module resolves, and delete the stub in Task 7. Confirm `solicitationSendWorker` is picked up by the existing loop that calls `attachEmitterErrorLogger` and `attachJobFailureSink` — an unlistened `'error'` is a fatal `uncaughtException`.
+The `failed` hook is added in Task 7 — Task 1 registers no `.on('failed', …)` at all, and needs no stub.
+
+**The `attachEmitterErrorLogger` / `attachJobFailureSink` loop does NOT auto-discover workers** (confirmed during Task 1). It iterates the explicit `workersByQueue` enumeration, so a new worker MUST get a row there or it silently receives neither listener — and an unlistened `'error'` is a fatal `uncaughtException`.
 
 - [ ] **Step 7: Add `docs/directory.md` rows**
 
@@ -586,6 +588,35 @@ amendment is needed.
 Assert both placeholders are gone from every body field before calling the adapter. A recipient
 receiving a literal `{{review_link}}` is a visible defect that no other test in this plan would
 catch (plan review C4).
+
+**The unsubscribe URL.** Spec §7.2 block 3 locks the shape: `https://repworth.net/u/<token>`.
+Build it as `${getWorkerConfig().NEXT_PUBLIC_APP_URL}/u/${rawToken}` — the same accessor and the
+same route the unsubscribe ingress already uses (`worker/ingress/unsubscribe.ts:195`). The
+landing page exists at `src/app/(public)/u/[token]/page.tsx`. **Fail closed when
+`NEXT_PUBLIC_APP_URL` is unset**, exactly as the ingress does at `unsubscribe.ts:202`: a message
+whose opt-out link cannot resolve is a compliance defect, not a degraded send.
+
+**Multipart is mandatory, and the row stores only ONE body — resolve it here.**
+`solicitation_outreach` has a single `rendered_body` (plain text, newline-joined by
+`assembleAskBody`). But `OutboundMessage` requires BOTH `bodyHtml` and `bodyText`, and
+`EmailAdapter` rejects a blank `bodyText` outright (`email-adapter.ts:92`). Spec §7.1 locks the
+reason: "Multipart: HTML + plain-text alternative, always. HTML-only is a meaningful spam
+signal."
+
+So derive both from the one stored body, after placeholder substitution:
+- `bodyText` = the substituted stored body, unchanged.
+- `bodyHtml` = the same text escaped with `escapeHtml` (`src/lib/shared/html.ts:2`) and newlines
+  turned into line breaks, with the unsubscribe URL rendered as a real anchor — §7.2 requires
+  it to be "human-facing, conspicuous".
+
+This derivation is mechanical, deterministic and content-free, the same class B4 already
+excludes from the byte-for-byte comparison. **`bodyText` must remain byte-identical to the
+stored body apart from the two placeholder substitutions** — that is what keeps the **Owner
+approval** contract honest, and it is the assertion to write.
+
+**The adapter also needs the unsubscribe URL as its own field**, separate from the body: it
+feeds `getEmailHeaders('solicitation', { unsubscribeUrl })` for the RFC 8058 `List-Unsubscribe`
+header (`email-adapter.ts:32-36`). Same URL, two places, one mint.
 
 **Logging:** every log line that references the token uses `unsubscribeTokenLogPrefix`
 (`src/lib/solicitation/unsubscribe.ts:293`), never the raw token. Never log the recipient
