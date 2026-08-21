@@ -54,3 +54,16 @@ owner-approved deviations entry, NOT an `allowed_edit_surface` amendment):
 
 Both rounds are counted in `.feature/state.json` (`planReviewRounds=2`). The findings above
 are the orchestrator's own eval-first review and are the only review output this gate has.
+
+### Correction to the round-2 record
+
+The round-2 diagnosis above is WRONG and is kept only as a record. `timeout` is not
+installed on this machine (no `timeout`, no `gtimeout`), so the three "wait windows"
+used to poll for the verdict returned instantly rather than waiting. The line counts
+that looked static were sampled seconds apart, not minutes apart. Codex was probably
+still working normally when it was killed. The kill was an orchestrator error, not a
+codex stall.
+
+Durable lesson: on this machine, never bound a wait with `timeout` — it silently
+becomes a no-op that returns success-looking output. Use the Bash tool's own
+`timeout` parameter, or a Monitor with an until-loop.
