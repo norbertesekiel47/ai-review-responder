@@ -109,3 +109,34 @@ title EXISTS, so 30 todos would satisfy it while asserting nothing. Two mitigati
 2. The final gate run is `scripts/verify-gate.sh --review`, whose `diff-coverage` row enforces
    changed-line coverage at 80% — "wrote code, wrote no test for it" fails mechanically.
 **Verdict:** ACCEPT with both mitigations.
+
+## D8 — `send-retry.ts` imports a constant from `src/lib/payments/`
+
+**When:** Task 5.
+**What:** `classifySendFailure` reuses `RETRYABLE_NETWORK_ERROR_CODES`,
+`errorStringProperty` and `errorNumberProperty` from
+`src/lib/payments/stripe-error-inspect.ts` rather than re-spelling a near-duplicate set.
+
+**Checked before accepting:**
+- That file has **zero imports**. It is pure constants plus defensive property readers, so the
+  import drags no Stripe SDK, no client and no config into the solicitation send path.
+- The eight codes (`ECONNABORTED`, `ECONNREFUSED`, `ECONNRESET`, `EAI_AGAIN`, `ENETDOWN`,
+  `ENETRESET`, `ENETUNREACH`, `ETIMEDOUT`) are OS-level socket codes and genuinely
+  provider-agnostic — nothing about them is Stripe-specific.
+- The repo rule is "no near-duplicate dependencies" and "precedent over invention". Copying
+  eight codes into a second set is exactly the drift that file's own header exists to prevent.
+
+**Verdict:** ACCEPT the import.
+
+**Residual debt, deliberately NOT fixed here.** That file's header calls itself "Single owner of
+the **Stripe** error-inspection vocabulary" and names "Two consumers". There are now three, and
+the third is not Stripe. The honest fix is to rename or relocate the provider-agnostic half.
+`src/lib/payments/stripe-error-inspect.ts` is **outside this ticket's edit surface**, and adding
+it would be `allowed_edit_surface` amendment **2 of 2**, which trips the step 5 abort criteria
+and forces a re-plan. That is a disproportionate price for a comment.
+
+**Follow-up ticket at step 8:** relocate the provider-agnostic error vocabulary
+(`RETRYABLE_NETWORK_ERROR_CODES`, `errorStringProperty`, `errorNumberProperty`) to a neutral
+home and update its three consumers. Small, mechanical, and it should not ride this branch.
+
+**For the step 7 standards reviewer:** this is a known, triaged decision, not a new finding.
