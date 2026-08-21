@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { ContactContent } from './ContactContent';
 
 export const metadata: Metadata = {
@@ -10,5 +11,6 @@ export const metadata: Metadata = {
 
 export default function HelpContactPage() {
   const selfServeEnabled = selfServeSignupEnabled();
-  return <ContactContent selfServeEnabled={selfServeEnabled} />;
+  const trialOn = selfServeEnabled && isTrialEnabled();
+  return <ContactContent selfServeEnabled={selfServeEnabled} trialEnabled={trialOn} />;
 }

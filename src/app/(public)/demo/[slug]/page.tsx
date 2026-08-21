@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import type { NormalizedReview } from '@/lib/reviews/types';
@@ -45,6 +46,7 @@ export default async function DemoViewerPage({
 }) {
   const { slug } = await params;
   const selfServeEnabled = selfServeSignupEnabled();
+  const trialOn = selfServeEnabled && isTrialEnabled();
   const demo = await getDemo(slug);
 
   if (!demo || demo.expires_at < new Date()) {
@@ -57,6 +59,7 @@ export default async function DemoViewerPage({
         variant="loading"
         businessName={demo.business_name}
         selfServeEnabled={selfServeEnabled}
+        trialEnabled={trialOn}
       />
     );
   }
@@ -67,6 +70,7 @@ export default async function DemoViewerPage({
         variant="error"
         businessName={demo.business_name}
         selfServeEnabled={selfServeEnabled}
+        trialEnabled={trialOn}
       />
     );
   }
@@ -103,6 +107,7 @@ export default async function DemoViewerPage({
       reviews={reviews}
       responses={responses}
       selfServeEnabled={selfServeEnabled}
+        trialEnabled={trialOn}
     />
   );
 }

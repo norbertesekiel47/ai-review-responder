@@ -52,11 +52,19 @@ describe('SiteNav', () => {
     });
 
     it('shows owner auth links when self-serve signup is enabled', () => {
-      const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+      const html = renderToStaticMarkup(
+        createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+      );
       expect(html).toContain('href="/login"');
       expect(html).toContain('href="/signup"');
       expect(html).toContain('Log in');
       expect(html).toContain('Start free trial');
+    });
+
+    it('drops the trial claim from the CTA label when the trial flag is off', () => {
+      const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+      expect(html).toContain('Create account');
+      expect(html).not.toContain('Start free trial');
     });
   });
 
@@ -149,7 +157,9 @@ describe('SiteNav', () => {
 
     it('includes auth links in the menu when self-serve is enabled', async () => {
       const user = userEvent.setup();
-      const { container } = render(createElement(SiteNav, { selfServeEnabled: true }));
+      const { container } = render(
+        createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+      );
 
       await user.click(screen.getByRole('button', { name: 'Open menu' }));
 
@@ -216,7 +226,9 @@ describe('SiteNav', () => {
   });
 
   it('renders the CTA pill in the action colour with the arrow disc', () => {
-    const html = renderToStaticMarkup(createElement(SiteNav, { selfServeEnabled: true }));
+    const html = renderToStaticMarkup(
+      createElement(SiteNav, { selfServeEnabled: true, trialEnabled: true }),
+    );
     expect(html).toMatch(/href="\/signup"[^>]*class="rw-pill rw-pill-forest"/);
     expect(html).toContain('rw-pill-circ');
   });

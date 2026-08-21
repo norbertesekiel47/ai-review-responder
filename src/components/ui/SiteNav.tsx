@@ -8,10 +8,16 @@ import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
 import { NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
-  /** When true, the right-side Log in / Start free trial cluster is hidden. */
+  /** When true, the right-side Log in / signup cluster is hidden. */
   comingSoon?: boolean;
   /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
+  /**
+   * True when the card-up-front trial is on: the CTA pill reads "Start free
+   * trial" (the approved Daylight chrome label). With the trial off it says
+   * "Create account" so the chrome never makes a stale trial claim.
+   */
+  trialEnabled?: boolean;
 }
 
 const MOBILE_MENU_ID = 'site-nav-mobile-menu';
@@ -38,8 +44,9 @@ const ArrowDisc = () => (
  * The mobile menu is a disclosure, NOT a focus trap: Escape closes and
  * restores focus; Tab flows naturally through the page.
  */
-export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNavProps) {
+export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEnabled = false }: SiteNavProps) {
   const showOwnerAuth = selfServeEnabled && !comingSoon;
+  const signupLabel = trialEnabled ? 'Start free trial' : 'Create account';
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -107,7 +114,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                     Log in
                   </Link>
                   <Link href="/signup" className="rw-pill rw-pill-forest">
-                    Start free trial
+                    {signupLabel}
                     <ArrowDisc />
                   </Link>
                 </>
@@ -174,7 +181,7 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false }: SiteNa
                         Log in
                       </Link>
                       <Link href="/signup" onClick={closeMenu} className="rw-pill rw-pill-forest">
-                        Start free trial
+                        {signupLabel}
                       </Link>
                     </>
                   )}

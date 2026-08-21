@@ -18,6 +18,8 @@ import { JudgeArtifact } from './JudgeArtifact';
 interface HowItWorksContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
+  /** Drives the nav CTA label ("Start free trial" vs "Create account"). */
+  trialEnabled?: boolean;
   /** Label for the /signup CTA when self-serve is on; null keeps the waitlist form. */
   signupCtaLabel?: string | null;
 }
@@ -170,6 +172,7 @@ const STICKY_TOP = 116;
 export function HowItWorksContent({
   comingSoon = false,
   selfServeEnabled = false,
+  trialEnabled = false,
   signupCtaLabel = null,
 }: HowItWorksContentProps) {
   const showSignupCta = selfServeEnabled && signupCtaLabel !== null;
@@ -185,7 +188,7 @@ export function HowItWorksContent({
   }, [prefersReducedMotion]);
 
   return (
-    <SiteShell scope="hiw-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled}>
+    <SiteShell scope="hiw-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled}>
       {/* Hero — blurred wash fading to bone before the hero ends */}
       <section className={`hiw-hero ${heroIn ? 'is-in' : ''}`} aria-labelledby="hiw-h1">
         <HeroWash />

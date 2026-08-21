@@ -201,6 +201,8 @@ function FeatureTOC({
 interface FeaturesContentProps {
   comingSoon?: boolean;
   selfServeEnabled?: boolean;
+  /** Drives the nav CTA label ("Start free trial" vs "Create account"). */
+  trialEnabled?: boolean;
   /** Label for the /signup CTA when self-serve is on; null keeps the waitlist form. */
   signupCtaLabel?: string | null;
 }
@@ -208,6 +210,7 @@ interface FeaturesContentProps {
 export function FeaturesContent({
   comingSoon = false,
   selfServeEnabled = false,
+  trialEnabled = false,
   signupCtaLabel = null,
 }: FeaturesContentProps) {
   const showSignupCta = selfServeEnabled && signupCtaLabel !== null;
@@ -265,7 +268,7 @@ export function FeaturesContent({
   };
 
   return (
-    <SiteShell scope="rw-feat-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled}>
+    <SiteShell scope="rw-feat-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled}>
       <HeroSection heroIn={heroIn} m1={m1} m2={m2} m3={m3} />
 
       <FeatureTOC tocRef={tocRef} tocSeen={tocSeen} onJump={scrollTo} />

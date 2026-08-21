@@ -4,6 +4,7 @@ import { SiteNav } from '@/components/ui/SiteNav';
 import { SiteFooter } from '@/components/ui/SiteFooter';
 import type { LegalDoc } from '@/lib/legal/content';
 import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 
 const CROSS_LINKS: ReadonlyArray<{ label: string; href: string }> = [
   { label: 'Privacy', href: '/legal/privacy' },
@@ -27,11 +28,12 @@ function sectionAnchorId(heading: string): string {
 
 export function LegalPage({ doc }: { doc: LegalDoc }) {
   const selfServeEnabled = selfServeSignupEnabled();
+  const trialOn = selfServeEnabled && isTrialEnabled();
   const tableCaption = `${doc.title} sub-processor table`;
 
   return (
     <PageShell sections={[]}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
+      <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialOn} />
       <main id="main-content" className="px-8 py-16 md:px-16">
         <article className="mx-auto max-w-2xl">
           <h1 className="mb-2 text-5xl md:text-6xl lg:text-7xl font-medium leading-tight text-rw-ink">

@@ -1,673 +1,332 @@
 /* ========================================================================
-   RepWorth Island — /pricing page CSS (`pr-` prefix).
+   /pricing — Daylight Gallery II (2026-08 rebrand).
+   Spec: docs/design/daylight-ii/ (the demo's pricing strip is the visual:
+   plan cards with left bars — sage-bar Copilot / gold Autopilot — an inline
+   "Opening soon" badge, the price as one unit with "per month", aligned door
+   slots). Shared primitives (.rw-dl-*, .rw-pill*) live in island.css; this
+   file carries the pricing page's delta: plan cards, the comparison matrix,
+   the FAQ, and the plan-interest chooser on the dark CTA band.
 
-   Consumed by: src/app/(public)/pricing/PricingContent.tsx, rendered inside
-   SiteShell's island chrome. The trailing `.rw-video-hero` / `.rw-vh-*` block
-   is an unused video-hero treatment carried over unchanged by PR 3b (a move,
-   not a cleanup) — see that PR's dead-rule candidates.
+   The view-model logic (flags, founding prices, purchasability, waitlist vs
+   signup) lives in PricingContent.tsx and is unchanged by the rebrand.
 
-   System: ISLAND (marketing / public). Style Reference: docs/design/island/DESIGN.md
-   TOKENS LIVE IN src/app/globals.css — this file CONSUMES `var(--rw-*)` and must
-   not DECLARE Island tokens. The one custom property it declares,
-   `--rw-vh-night` on the unused `.rw-video-hero`, is an element-scoped local,
-   not a palette token; the guard allows it by name and rejects any new
-   `--rw-*` declaration. Guard: src/__tests__/design-scope-purity.test.ts
-
-   Load order is owned by the four `@import`s at the BOTTOM of globals.css,
-   which pull in island.css, features.css, how-it-works.css, pricing.css in
-   that order — the exact order these blocks had inside globals.css before PR 3b
-   split them out. They are CSS `@import`s, not layout.tsx `import`s, so these
-   files stay inside the Tailwind entry and keep the Lightning CSS pass that
-   generates the `@supports (color: color-mix(…))` fallbacks; globals.css's
-   closing comment has the measurement. Adding, reordering or dropping one of
-   them changes the cascade; the guard pins the order.
+   System: ISLAND. TOKENS LIVE IN src/app/globals.css — this file consumes
+   `var(--rw-*)` and declares none (`--bar` is element-scoped plumbing set
+   inline per plan card). Guard: src/__tests__/design-scope-purity.test.ts
    ======================================================================== */
 
-/* ========================================================================
-   Pricing page — `pr-` prefix.
-   ======================================================================== */
 .pr-page {
-  position: relative; min-height: 100vh; background: var(--rw-sage);
-  color: var(--rw-ink); font-family: var(--rw-font-body);
+  background: var(--rw-sage);
+  font-family: var(--rw-font-body);
+  font-weight: 400;
+  color: var(--rw-ink2);
+  position: relative;
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: 'opsz' 16;
 }
-.pr-eyebrow {
-  font: 500 13px/1.2 var(--rw-font-body);
-  text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--rw-teal-strong); margin: 0;
+.pr-page h1,
+.pr-page h2,
+.pr-page h3 {
+  font-weight: 400;
+  margin: 0;
+  text-wrap: balance;
 }
+.pr-page p { margin: 0; }
 
-/* Hero */
-.pr-hero { padding: 72px 48px 24px; text-align: center; }
-.pr-hero h1 {
-  font-family: var(--rw-font-display);
-  font-size: clamp(40px, 5vw, 60px);
-  font-weight: 600; letter-spacing: -0.02em; line-height: 1.05;
-  color: var(--rw-ink);
-  margin: 14px auto 22px; max-width: 760px;
+/* ---------- Hero (centred intro) ---------- */
+.pr-hero {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 96px 48px 72px;
+  text-align: center;
 }
-.pr-hero p.sub {
-  font-size: 18px; color: var(--rw-ink-soft);
-  margin: 0 auto; max-width: 560px; line-height: 1.55;
+.pr-eyebrow { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 16px; }
+.pr-hero h1 { font-size: clamp(32px, 3.6vw, 48px); line-height: 1.12; }
+.pr-hero .sub {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--rw-ink2-soft);
+  max-width: 600px;
+  margin: 20px auto 0;
 }
+.pr-currency { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 12px; }
 
-.pr-currency {
-  margin: 20px 0 0;
-  color: var(--rw-teal-strong);
-  font: 600 12px var(--rw-font-body);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* Plans grid */
+/* ---------- Plan cards ---------- */
 .pr-plans {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px; max-width: 880px; margin: 40px auto 0;
-  padding: 0 24px; align-items: stretch;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 24px;
 }
 .pr-plan {
-  position: relative; background: var(--rw-cream);
-  border: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
-  border-radius: 22px; padding: 28px 22px 24px;
-  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--rw-ink) 14%, transparent);
-  display: flex; flex-direction: column;
-  transition: transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94), box-shadow 0.35s;
+  background: var(--rw-paper);
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
 }
-.pr-plan:hover { transform: translateY(-4px); box-shadow: 0 24px 50px -12px color-mix(in srgb, var(--rw-ink) 22%, transparent); }
-.pr-plan.is-featured {
-  background: color-mix(in srgb, var(--rw-cream) 90%, var(--rw-peach));
-  border-color: var(--rw-teal-strong);
-  box-shadow: 0 24px 50px -12px color-mix(in srgb, var(--rw-ink) 24%, transparent);
-  transform: translateY(-8px);
+.pr-plan::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--bar, var(--rw-sage-bar));
 }
-.pr-plan.is-featured:hover { transform: translateY(-12px); }
+/* Featured (purchasable Autopilot) = a stronger hairline, never a tint. */
+.pr-plan.is-featured { border-color: var(--rw-line-2); }
+.pr-plan-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.pr-plan-name { font-size: 20px; }
 .pr-ribbon {
-  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-  background: var(--rw-teal-strong); color: var(--rw-cream);
-  font: 600 11px var(--rw-font-body); letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 6px 14px; border-radius: 9999px; white-space: nowrap;
-  box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--rw-teal) 55%, transparent);
-}
-/* "Opening soon" on a closed tier: same slot, quieter — a status, not a recommendation. */
-.pr-ribbon.is-soon {
-  background: var(--rw-cream); color: var(--rw-teal-strong);
-  border: 1px solid color-mix(in srgb, var(--rw-teal) 45%, transparent);
-  box-shadow: none;
-}
-.pr-plan-hatch {
-  position: absolute; top: 0; left: 22px; right: 22px;
-  height: 4px; display: flex; gap: 3px;
-}
-.pr-plan-hatch span {
-  flex: 1; height: 4px; border-radius: 0 0 2px 2px;
-  background: color-mix(in srgb, var(--rw-teal) 24%, transparent);
-}
-.pr-plan.is-featured .pr-plan-hatch span { background: color-mix(in srgb, var(--rw-peach) 70%, transparent); }
-.pr-plan-swatch {
-  width: 40px; height: 40px; border-radius: 12px;
-  margin-bottom: 18px; position: relative; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--rw-ink);
-}
-.pr-plan-swatch.is-copilot { background: var(--rw-sage); }
-.pr-plan-swatch.is-autopilot { background: var(--rw-peach); }
-.pr-plan-swatch svg {
-  width: 22px; height: 22px;
-  stroke-width: 2.1;
-  position: relative; z-index: 1;
-}
-.pr-plan-name {
-  font: 600 13px var(--rw-font-body);
-  letter-spacing: 0.10em; text-transform: uppercase;
-  color: var(--rw-teal-strong); margin: 0 0 4px;
+  font-size: 13px;
+  border: 1px solid var(--rw-line-2);
+  border-radius: 9999px;
+  padding: 5px 11px;
+  color: var(--rw-ink2-soft);
+  white-space: nowrap;
 }
 .pr-plan-tag {
-  font: 400 14px var(--rw-font-body);
-  color: var(--rw-ink-soft); margin: 0 0 22px; min-height: 20px;
+  font-size: 15px;
+  color: var(--rw-ink2-soft);
+  margin-top: 8px;
+  line-height: 1.5;
+  min-height: 3em;
 }
-/* (.pr-slots* removed — the fabricated "spots remaining" scarcity widget was
-   deleted from PricingContent per ADR/audit; these rules are now dead.) */
-.pr-price { display: flex; align-items: baseline; gap: 6px; margin: 0 0 4px; }
-.pr-price-currency { font: 500 22px var(--rw-font-display); color: var(--rw-ink); }
-.pr-price-amt {
-  font: 700 48px/1 var(--rw-font-display);
-  color: var(--rw-ink); letter-spacing: -0.03em;
-}
-.pr-price-per { font: 400 14px var(--rw-font-body); color: var(--rw-ink-soft); }
-.pr-price-foot {
-  font: 400 13px var(--rw-font-body);
-  color: var(--rw-ink-soft); margin: 4px 0 0; min-height: 38px;
-}
+.pr-price { display: flex; align-items: baseline; gap: 2px; margin-top: 24px; }
+.pr-price-currency { font-size: 26px; line-height: 1; }
+.pr-price-amt { font-size: 44px; line-height: 1; }
+.pr-price-per { font-size: 15px; color: var(--rw-ink2-mute); margin-left: 8px; }
+.pr-price-foot { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 8px; }
 .pr-list-price { text-decoration: line-through; }
-.pr-overage-price {
-  margin: 12px 0 0;
-  color: var(--rw-ink);
-  font: 500 13px/1.5 var(--rw-font-body);
-}
+.pr-overage-price { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 4px; }
+
+/* Aligned door slot: both cards reserve the same block for CTA + status, so
+   the included-features lists start on the same line. */
+.pr-door { margin-top: 22px; min-height: 118px; }
 .pr-plan-cta {
-  margin-top: 22px; padding: 13px 20px; border-radius: 9999px; border: 0;
-  min-height: 44px; box-sizing: border-box;
-  font: 500 14px var(--rw-font-body); cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-  text-decoration: none; text-align: center; display: block;
-}
-.pr-plan-cta.primary {
-  background: var(--rw-teal-strong); color: var(--rw-cream);
-  box-shadow: 0 10px 20px -6px color-mix(in srgb, var(--rw-teal) 55%, transparent);
-}
-.pr-plan-cta.primary:hover {
-  transform: translateY(-1px) scale(1.02);
-  box-shadow: 0 18px 32px -8px color-mix(in srgb, var(--rw-teal) 65%, transparent);
-}
-.pr-plan-cta.ghost {
-  background: color-mix(in srgb, var(--rw-teal) 20%, transparent);
-  color: var(--rw-ink);
-  border: 1px solid color-mix(in srgb, var(--rw-teal) 45%, transparent);
-}
-.pr-plan-cta.ghost:hover { background: color-mix(in srgb, var(--rw-teal) 34%, transparent); }
-.pr-plan-cta:focus-visible { outline: 2px solid var(--rw-teal-strong); outline-offset: 3px; }
-/* Closed-tier status line: what is true now and what to do next, in owner language.
-   Sits in the CTA slot when there is no door (self-serve), under the ghost door otherwise. */
-.pr-plan-soon {
-  margin: 22px 0 0; color: var(--rw-ink-soft);
-  font: 500 13px/1.5 var(--rw-font-body); text-wrap: pretty;
-}
-.pr-plan-cta + .pr-plan-soon { margin-top: 10px; }
-.pr-divider { height: 1px; background: color-mix(in srgb, var(--rw-teal) 35%, transparent); margin: 24px 0 20px; }
-.pr-includes-lbl {
-  font: 600 11px var(--rw-font-body);
-  letter-spacing: 0.10em; text-transform: uppercase;
-  color: var(--rw-ink-soft); margin: 0 0 14px;
-}
-.pr-feature-list {
-  list-style: none; padding: 0; margin: 0;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.pr-feature-list li {
-  display: flex; gap: 10px;
-  font: 400 14px/1.5 var(--rw-font-body);
-  color: var(--rw-ink);
-}
-.pr-feature-list .check {
-  flex-shrink: 0; width: 18px; height: 18px; border-radius: 9999px;
-  display: flex; align-items: center; justify-content: center;
-  margin-top: 2px;
-}
-.pr-feature-list .check { background: var(--rw-teal-strong); }
-.pr-feature-list .check svg { width: 11px; height: 11px; color: var(--rw-cream); stroke-width: 3; }
-.pr-feature-list .hl { font-weight: 600; color: var(--rw-ink); }
-
-/* Guarantee strip */
-.pr-below-cards { text-align: center; margin-top: 40px; }
-.pr-guarantee {
-  display: inline-flex; align-items: center; gap: 12px;
-  margin-top: 28px; padding: 12px 20px;
-  background: color-mix(in srgb, var(--rw-sage) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--rw-teal) 45%, transparent);
+  display: inline-flex;
+  align-items: center;
   border-radius: 9999px;
+  padding: 12px 22px;
+  font-size: 15px;
+  line-height: 1;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), color 0.25s,
+    border-color 0.25s, transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.pr-guarantee svg { width: 18px; height: 18px; color: var(--rw-teal-strong); }
-.pr-guarantee span { font: 500 14px var(--rw-font-body); color: var(--rw-ink); }
+.pr-plan-cta:hover { transform: translateY(-1px); }
+.pr-plan-cta:focus-visible { outline: 2px solid var(--rw-forest); outline-offset: 3px; }
+.pr-plan-cta.primary { background: var(--rw-forest); color: #fff; }
+.pr-plan-cta.primary:hover { background: var(--rw-forest-ink); }
+.pr-plan-cta.ghost { border-color: var(--rw-line-2); color: var(--rw-ink2); }
+.pr-plan-cta.ghost:hover { border-color: var(--rw-ink2); }
+.pr-plan-soon { font-size: 14px; color: var(--rw-ink2-soft); line-height: 1.5; margin-top: 12px; }
+.pr-includes-lbl {
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rw-line);
+}
+.pr-feature-list { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.pr-feature-list li { display: flex; gap: 10px; font-size: 15px; line-height: 1.45; }
+.pr-feature-list .check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 1px solid var(--rw-line-2);
+  display: grid;
+  place-items: center;
+  color: var(--rw-ink2);
+}
+.pr-feature-list .check svg { width: 9px; height: 9px; stroke-width: 2.4; }
 
-/* Comparison matrix */
-.pr-matrix-wrap { max-width: 880px; margin: 96px auto 0; padding: 0 24px; }
-.pr-matrix-head { text-align: center; margin-bottom: 32px; }
-.pr-matrix-head h2 {
-  font: 600 36px var(--rw-font-display);
-  color: var(--rw-ink); margin: 0 0 10px; letter-spacing: -0.01em;
+/* Trial posture strip */
+.pr-below-cards { max-width: 880px; margin: 16px auto 0; padding: 0 24px; }
+.pr-guarantee {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--rw-ink2-soft);
+  border: 1px solid var(--rw-line);
+  border-radius: 9999px;
+  background: var(--rw-paper);
+  padding: 10px 18px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
 }
+.pr-guarantee svg { width: 16px; height: 16px; color: var(--rw-forest); flex: none; }
+
+/* ---------- Comparison matrix ---------- */
+.pr-matrix-wrap { max-width: 880px; margin: 96px auto 0; padding: 0 24px; }
+.pr-matrix-head { text-align: center; max-width: 720px; margin: 0 auto 48px; }
+.pr-matrix-head h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; }
 .pr-matrix-head p {
-  font: 400 16px var(--rw-font-body);
-  color: var(--rw-ink-soft); margin: 0;
+  font-size: 16px;
+  color: var(--rw-ink2-soft);
+  margin-top: 12px;
+  line-height: 1.5;
 }
 .pr-matrix {
-  background: var(--rw-cream); border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
+  background: var(--rw-paper);
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 10px 24px -14px color-mix(in srgb, var(--rw-ink) 14%, transparent);
 }
-.pr-matrix-grid {
-  display: grid; grid-template-columns: 1.6fr 1fr 1fr;
+.pr-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  border-top: 1px solid var(--rw-line);
 }
-.pr-matrix-row { display: contents; }
-.pr-matrix-cell {
-  padding: 16px 20px;
-  font: 400 14px var(--rw-font-body);
-  color: var(--rw-ink);
-  display: flex; align-items: center; gap: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 25%, transparent);
-}
-.pr-matrix-cell.num { justify-content: center; }
-.pr-matrix-cell.first {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  color: var(--rw-ink);
-  background: var(--rw-cream);
-}
-.pr-matrix-cell.hdr {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  font: 600 13px var(--rw-font-body);
-  letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--rw-ink-soft);
-  background: var(--rw-cream);
-  justify-content: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
-}
-.pr-matrix-cell.hdr.first { z-index: 3; justify-content: flex-start; }
-/* Ink, not teal-strong: teal-strong on the 65%-sage header tint measured 4.17:1 (AA fail);
-   the tint marks the column, the ink keeps the label readable. */
-.pr-matrix-cell.hdr.featured { color: var(--rw-ink); background: color-mix(in srgb, var(--rw-sage) 65%, var(--rw-cream)); }
-.pr-matrix-cell.featured { background: color-mix(in srgb, var(--rw-sage) 35%, var(--rw-cream)); }
+.pr-matrix-row:first-child { border-top: 0; }
+.pr-matrix-cell { padding: 12px 16px; font-size: 15px; }
+.pr-matrix-cell.hdr { font-size: 13px; color: var(--rw-ink2-mute); background: var(--rw-bone); }
+.pr-matrix-cell.hdr.featured { color: var(--rw-ink2); }
 .pr-matrix-cell.section {
-  font: 600 12px var(--rw-font-body);
-  letter-spacing: 0.10em; text-transform: uppercase;
-  color: var(--rw-teal-strong);
-  background: var(--rw-cream);
-  padding-top: 22px; padding-bottom: 12px;
-}
-.pr-matrix-cell.section.first {
   grid-column: 1 / -1;
-  border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+  background: var(--rw-bone);
 }
-.pr-matrix-row:last-child .pr-matrix-cell { border-bottom: 0; }
+.pr-matrix-cell.num { text-align: left; }
 .pr-check-yes {
-  width: 20px; height: 20px; border-radius: 9999px;
-  background: var(--rw-teal);
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--rw-line-2);
+  color: var(--rw-ink2);
 }
-.pr-check-yes svg { width: 11px; height: 11px; color: var(--rw-ink); stroke-width: 3; }
+.pr-check-yes svg { width: 9px; height: 9px; stroke-width: 2.4; }
 .pr-check-no {
-  display: inline-block; width: 14px; height: 2px;
-  background: var(--rw-teal); border-radius: 2px;
+  display: inline-block;
+  width: 10px;
+  height: 1px;
+  background: var(--rw-line-2);
+  vertical-align: middle;
 }
 
-/* FAQ */
-.pr-faq-wrap { max-width: 720px; margin: 96px auto 0; padding: 0 24px; }
-.pr-faq-head { text-align: center; margin-bottom: 28px; }
-.pr-faq-head h2 {
-  font: 600 36px var(--rw-font-display);
-  color: var(--rw-ink); margin: 0 0 10px; letter-spacing: -0.01em;
-}
-.pr-faq-head p { font: 400 16px var(--rw-font-body); color: var(--rw-ink-soft); margin: 0; }
-.pr-faq-item {
-  background: var(--rw-cream); border: 1px solid color-mix(in srgb, var(--rw-teal) 30%, transparent);
-  border-radius: 16px; margin-bottom: 10px; overflow: hidden;
-  transition: box-shadow 0.3s, border-color 0.3s;
-}
-.pr-faq-item.is-open {
-  border-color: var(--rw-teal-strong);
-  box-shadow: 0 10px 24px -14px color-mix(in srgb, var(--rw-ink) 18%, transparent);
-}
+/* ---------- FAQ ---------- */
+.pr-faq-wrap { max-width: 820px; margin: 96px auto; padding: 0 24px; }
+.pr-faq-head { text-align: center; margin-bottom: 40px; }
+.pr-faq-head h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; }
+.pr-faq-head p { font-size: 16px; color: var(--rw-ink2-soft); margin-top: 12px; }
+.pr-faq-wrap > .pr-faq-item:first-of-type { border-top: 1px solid var(--rw-line); }
+.pr-faq-item { border-bottom: 1px solid var(--rw-line); }
 .pr-faq-q {
-  width: 100%; background: transparent; border: 0;
-  padding: 20px 22px;
-  font: 500 16px var(--rw-font-body);
-  color: var(--rw-ink);
-  display: flex; justify-content: space-between; align-items: center;
-  cursor: pointer; text-align: left;
+  width: 100%;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  padding: 22px 0;
+  font-family: var(--rw-font-body);
+  font-weight: 400;
+  font-size: 19px;
+  line-height: 1.35;
+  color: var(--rw-ink2);
+  text-align: left;
 }
-.pr-faq-q:focus-visible { outline: 2px solid var(--rw-teal-strong); outline-offset: 2px; }
+.pr-faq-q:focus-visible { outline: 2px solid var(--rw-forest); outline-offset: 3px; border-radius: 4px; }
 .pr-faq-icon {
-  width: 28px; height: 28px; border-radius: 9999px;
-  background: color-mix(in srgb, var(--rw-teal) 24%, transparent);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--rw-teal-strong); flex-shrink: 0;
-  transition: transform 0.3s, background 0.3s, color 0.3s;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--rw-line-2);
+  display: grid;
+  place-items: center;
+  color: var(--rw-ink2);
+  transition: transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.pr-faq-item.is-open .pr-faq-icon {
-  background: var(--rw-teal-strong); color: var(--rw-cream);
-  transform: rotate(45deg);
-}
+.pr-faq-item.is-open .pr-faq-icon { transform: rotate(45deg); }
 .pr-faq-a {
-  display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .pr-faq-item.is-open .pr-faq-a { grid-template-rows: 1fr; }
 .pr-faq-a-inner {
   overflow: hidden;
-  font: 400 15px/1.6 var(--rw-font-body);
-  color: var(--rw-ink-soft);
-  padding: 0 22px;
+  font-size: 16px;
+  line-height: 1.56;
+  color: var(--rw-ink2-soft);
+  max-width: 64ch;
 }
-.pr-faq-item.is-open .pr-faq-a-inner { padding: 0 22px 22px; }
+.pr-faq-item.is-open .pr-faq-a-inner { padding-bottom: 24px; }
 
-/* CTA + footer */
-.pr-cta {
-  margin: 96px 0 0;
-  padding: 64px 48px 72px;
-  background: var(--rw-teal-strong);
-  color: var(--rw-cream);
-  border-radius: 0 0 3rem 3rem;
-  text-align: center;
-  display: flex; flex-direction: column; align-items: center; gap: 18px;
-}
-.pr-cta h2 {
-  font-family: var(--rw-font-display);
-  font-size: 44px; font-weight: 600;
-  margin: 0; letter-spacing: -0.015em;
-  color: var(--rw-cream);
-  text-wrap: balance;
-}
-.pr-cta p { font-size: 17px; max-width: 34em; color: var(--rw-cream); margin: 0; }
-/* Recipe lives in island.css (.rw-btn-pill-onband); only spacing is page-local. */
-.pr-cta-btn { margin-top: 6px; }
-
-/* Waitlist plan chooser (self-serve off): keeps the tier a card door pre-selected
-   visible and changeable above the lead form. Radios stay real (keyboard + SR);
-   the pill is the label. */
-.pr-plan-pick {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-  border: 0; padding: 0; margin: 0 0 18px; min-width: 0;
-}
-.pr-plan-pick-lbl {
-  width: 100%; text-align: center; margin: 0 0 6px; padding: 0;
-  font: 500 14px var(--rw-font-body); color: var(--rw-cream);
-}
+/* ---------- CTA band deltas (plan chooser on ink) ---------- */
+.pr-cta-pill { width: 100%; justify-content: center; }
+.pr-plan-pick { border: 0; margin: 0 0 14px; padding: 0; }
+.pr-plan-pick-lbl { font-size: 14px; color: rgba(255, 255, 255, 0.78); margin-bottom: 8px; padding: 0; }
 .pr-plan-pick-opt {
-  position: relative; display: inline-flex; align-items: center;
-  min-height: 44px; padding: 10px 18px; border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--rw-cream) 45%, transparent);
-  color: var(--rw-cream); font: 500 14px var(--rw-font-body);
-  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 9999px;
+  padding: 8px 14px;
+  margin: 4px 6px 0 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
 }
-.pr-plan-pick-opt:hover { border-color: var(--rw-cream); }
-.pr-plan-pick-opt.is-on { background: var(--rw-cream); color: var(--rw-teal-strong); border-color: var(--rw-cream); }
-.pr-plan-pick-opt input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.pr-plan-pick-opt:has(input:focus-visible) { outline: 2px solid var(--rw-cream); outline-offset: 3px; }
+.pr-plan-pick-opt:hover { border-color: rgba(255, 255, 255, 0.6); }
+.pr-plan-pick-opt.is-on { border-color: #fff; color: #fff; }
+.pr-plan-pick-opt input {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+.pr-plan-pick-opt.is-on input { background: #fff; border-color: #fff; }
+.pr-plan-pick-opt input:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 
-/* Responsive */
-@media (max-width: 1100px) {
-  .pr-plans { max-width: 760px; }
-  .pr-plan.is-featured { transform: none; }
-  .pr-plan.is-featured:hover { transform: translateY(-4px); }
-  .pr-matrix-grid { grid-template-columns: 1.4fr 1fr 1fr; font-size: 13px; }
-  .pr-matrix-cell { padding: 14px 8px; }
-}
+/* ---------- Responsive ---------- */
 @media (max-width: 720px) {
-  .pr-hero { padding: 48px 24px 16px; }
-  .pr-plans { grid-template-columns: 1fr; max-width: 440px; }
-  .pr-cta { padding: 48px 24px 56px; border-radius: 0 0 32px 32px; }
-  .pr-cta h2 { font-size: 32px; }
-
-  /* Comparison matrix stacks: the three-column grid used to hide the Autopilot
-     column off-screen with no swipe affordance on a phone. Each row becomes
-     label → [Copilot value | Autopilot value], the header row goes away and each
-     value cell labels itself from data-plan. */
-  .pr-matrix-wrap { padding: 0 16px; }
-  .pr-matrix-grid { display: block; }
-  .pr-matrix-row { display: grid; grid-template-columns: 1fr 1fr; }
+  .pr-hero { padding: 64px 18px 48px; }
+  .pr-plans { grid-template-columns: 1fr; padding: 0 12px; }
+  .pr-matrix-wrap, .pr-faq-wrap { padding: 0 12px; }
+  .pr-faq-wrap { margin: 56px auto; }
+  .pr-matrix-wrap { margin-top: 56px; }
+  /* The matrix stacks: hide the header row; each value cell self-labels via
+     its data-plan attribute so the Autopilot column is never off-screen. */
   .pr-matrix-row.hdr-row { display: none; }
-  .pr-matrix-cell { font-size: 14px; }
-  .pr-matrix-cell.first {
-    grid-column: 1 / -1;
-    position: static;
-    padding: 16px 16px 6px;
-    border-bottom: 0;
-    font-weight: 500;
-  }
-  .pr-matrix-cell.section.first {
-    padding: 22px 16px 10px;
-    border-bottom: 1px solid color-mix(in srgb, var(--rw-teal) 35%, transparent);
-  }
-  .pr-matrix-cell.num {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: 6px;
-    padding: 0 16px 16px;
-    min-height: 0;
-  }
+  .pr-matrix-row { grid-template-columns: 1fr; }
+  .pr-matrix-cell.first { padding-bottom: 4px; }
+  .pr-matrix-cell.num { display: flex; justify-content: space-between; gap: 12px; padding-top: 4px; }
   .pr-matrix-cell.num::before {
     content: attr(data-plan);
-    font: 600 11px var(--rw-font-body);
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--rw-ink-soft);
+    font-size: 13px;
+    color: var(--rw-ink2-mute);
   }
-  .pr-matrix-cell.num.featured { background: transparent; }
-  .pr-matrix-cell.num.featured::before { color: var(--rw-teal-strong); }
-  .pr-matrix-row:last-child .pr-matrix-cell.num { border-bottom: 0; }
 }
 
+/* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .pr-plan,
-  .pr-plan-cta,
-  .pr-faq-icon,
-  .pr-faq-a,
-  .pr-cta-btn { transition: none; }
-}
-
-/* ---------- Video intro hero (landing) ----------
-   Cinematic video section layered above the existing landing page; see
-   VideoHero.tsx for the layering contract. z-index:61 keeps it above the
-   landing's fixed marquee (z0) and section dot-nav (z60) while in view. The
-   fade target is the brand sage field, so the video melts into the page. */
-.rw-video-hero {
-  --rw-vh-night: hsl(201 100% 13%);
-  position: relative;
-  z-index: 61;
-  height: 100vh;
-  min-height: 620px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--rw-vh-night);
-  font-family: var(--rw-font-body);
-}
-.rw-vh-media {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-.rw-vh-media video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  will-change: transform;
-}
-.rw-vh-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(4, 26, 38, 0.32) 0%,
-    rgba(4, 26, 38, 0.12) 32%,
-    rgba(4, 26, 38, 0.28) 100%
-  );
-  pointer-events: none;
-}
-.rw-vh-fade {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* Short, bottom-weighted band so the hero reads fully dark/cinematic at rest
-     and the sage melt only appears in the final ~15% of the viewport, right at
-     the seam into the page. Raise `height` for a longer melt, lower it (or push
-     the first sage stop down) to start the fade even later. */
-  height: 18vh;
-  background: linear-gradient(
-    180deg,
-    rgba(210, 224, 211, 0) 0%,
-    rgba(210, 224, 211, 0) 22%,
-    rgba(210, 224, 211, 0.5) 62%,
-    var(--rw-sage) 100%
-  );
-  pointer-events: none;
-}
-
-/* When the landing carries the video intro above it, tighten the island's top
-   padding so it rises closer to the video's melt instead of leaving a tall
-   sage/marquee band between them. Scoped to the hero composition so the other
-   marketing pages (which use the default 80px) are untouched. */
-.rw-has-video-hero .rw-island-wrap {
-  padding-top: 20px;
-}
-
-.rw-vh-nav {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 24px 32px;
-}
-.rw-vh-logo {
-  font-family: var(--font-fraunces), Georgia, serif;
-  font-size: 30px;
-  letter-spacing: -0.02em;
-  line-height: 1;
-  color: #fff;
-  text-decoration: none;
-}
-.rw-vh-links {
-  display: flex;
-  align-items: center;
-  gap: 34px;
-}
-.rw-vh-links a {
-  font: 500 14px/1 var(--rw-font-body);
-  color: rgba(255, 255, 255, 0.72);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-.rw-vh-links a:hover {
-  color: #fff;
-}
-.rw-vh-btn {
-  border-radius: 9999px;
-  padding: 11px 24px;
-  font: 500 14px/1 var(--rw-font-body);
-  color: #fff;
-  text-decoration: none;
-  white-space: nowrap;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  transition: transform 0.25s ease, background 0.25s ease;
-}
-.rw-vh-btn:hover {
-  transform: scale(1.03);
-  background: rgba(255, 255, 255, 0.16);
-}
-
-.rw-vh-content {
-  position: relative;
-  z-index: 10;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 24px 24px 72px;
-  will-change: opacity, transform;
-}
-.rw-vh-title {
-  font-family: var(--font-fraunces), Georgia, serif;
-  font-weight: 400;
-  font-size: clamp(40px, 7.5vw, 100px);
-  line-height: 0.98;
-  letter-spacing: -0.02em;
-  color: #fff;
-  max-width: 1100px;
-  margin: 0;
-  text-shadow: 0 2px 40px color-mix(in srgb, var(--rw-ink) 28%, transparent);
-}
-.rw-vh-title em {
-  font-style: normal;
-  color: var(--rw-teal);
-}
-.rw-vh-sub {
-  font: 400 clamp(16px, 1.5vw, 19px) / 1.6 var(--rw-font-body);
-  color: rgba(255, 255, 255, 0.78);
-  max-width: 620px;
-  margin: 32px 0 0;
-}
-.rw-vh-cta {
-  margin-top: 44px;
-  padding: 18px 52px;
-  font-size: 16px;
-}
-
-.rw-vh-cue {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  padding: 0 0 30px;
-  margin: 0 auto;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-.rw-vh-cue-label {
-  font: 500 11px/1 var(--rw-font-body);
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-}
-.rw-vh-cue-line {
-  display: block;
-  width: 1px;
-  height: 34px;
-  background: linear-gradient(rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .rw-vh-title {
-    animation: rw-vh-rise 0.8s ease-out both;
-  }
-  .rw-vh-sub {
-    animation: rw-vh-rise 0.8s ease-out 0.2s both;
-  }
-  .rw-vh-cta {
-    animation: rw-vh-rise 0.8s ease-out 0.4s both;
-  }
-  .rw-vh-cue-line {
-    animation: rw-vh-cue 2s ease-in-out infinite;
-  }
-}
-@keyframes rw-vh-rise {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes rw-vh-cue {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(5px);
-  }
-}
-
-@media (max-width: 767px) {
-  .rw-vh-links {
-    display: none;
-  }
-  .rw-vh-nav {
-    padding: 18px 20px;
-  }
-  .rw-vh-content {
-    padding: 24px 20px 56px;
-  }
+  .pr-plan-cta, .pr-faq-icon, .pr-faq-a { transition: none; }
+  .pr-plan-cta:hover { transform: none; }
 }

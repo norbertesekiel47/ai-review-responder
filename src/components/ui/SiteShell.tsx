@@ -14,6 +14,8 @@ interface SiteShellProps {
   selfServeEnabled?: boolean;
   /** Forwarded to SiteNav. */
   comingSoon?: boolean;
+  /** Forwarded to SiteNav (drives the signup CTA label). */
+  trialEnabled?: boolean;
   /**
    * Optional node rendered between the marquee and the island wrap; used for a
    * page's section dot-nav (landing `rw-dot-nav`, how-it-works `hiw-dotnav`,
@@ -33,6 +35,7 @@ export function SiteShell({
   scope,
   selfServeEnabled = false,
   comingSoon = false,
+  trialEnabled = false,
   overlay,
   children,
 }: SiteShellProps) {
@@ -45,7 +48,7 @@ export function SiteShell({
           {/* Header / main / footer are siblings so each keeps its landmark role
               (a <footer>/<header> nested inside <main> is NOT a landmark). The
               skip link in (public)/layout.tsx targets #main-content. */}
-          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} />
+          <SiteNav comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled} />
           <main id="main-content">{children}</main>
           <SiteFooter />
         </div>

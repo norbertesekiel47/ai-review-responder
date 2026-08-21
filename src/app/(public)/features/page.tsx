@@ -11,11 +11,12 @@ export const metadata: Metadata = {
 
 export default function FeaturesPage() {
   const selfServeEnabled = selfServeSignupEnabled();
+  const trialOn = selfServeEnabled && isTrialEnabled();
   // Same door as the landing page and /pricing (see how-it-works/page.tsx).
   const signupCtaLabel = selfServeEnabled
     ? isTrialEnabled()
       ? `Start your ${trialPeriodDays()}-day free trial`
       : 'Create account'
     : null;
-  return <FeaturesContent selfServeEnabled={selfServeEnabled} signupCtaLabel={signupCtaLabel} />;
+  return <FeaturesContent selfServeEnabled={selfServeEnabled} trialEnabled={trialOn} signupCtaLabel={signupCtaLabel} />;
 }

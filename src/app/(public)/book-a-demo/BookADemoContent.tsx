@@ -21,7 +21,7 @@ const TRUST_SIGNALS = [
   'No commitment while you wait',
 ];
 
-export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnabled?: boolean }) {
+export function BookADemoContent({ selfServeEnabled = false, trialEnabled = false }: { selfServeEnabled?: boolean; trialEnabled?: boolean }) {
   const formRef = useRef<HTMLDivElement>(null);
   const sections = [{ ref: formRef, label: 'Waitlist' }];
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -37,7 +37,7 @@ export function BookADemoContent({ selfServeEnabled = false }: { selfServeEnable
 
   return (
     <PageShell sections={sections}>
-      <SiteNav selfServeEnabled={selfServeEnabled} />
+      <SiteNav selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled} />
 
       <main id="main-content">
       {/* Main content */}
