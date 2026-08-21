@@ -699,6 +699,23 @@ git commit -am "feat(899): send-retry — D12c classification as a pure module"
 
 Order inside `tx1` after the gate passes: create the **Lazy child** (`startOrGetSolicitationAskRun`), stamp `agent_run_id` on the Outreach row, `recordStep` `dispatch_gate_evaluated` status `completed`, mint the token, then CAS `delivery_status='queued' → 'sending'` with `sending_at = NOW()`. If the CAS matches zero rows another worker owns it — complete the outbox attempt and return.
 
+**Two near-identical column names — do not confuse them.**
+
+| Column | Table | Owner |
+|---|---|---|
+| `sending_at` | `solicitation_outreach` (the **Outreach row**) | **THIS ticket**, stamped with the `queued → sending` CAS above |
+| `sending_started_at` | `solicitation_batches` (the batch) | **#900**, NOT this ticket |
+
+The executor design is explicit (line 1126): "`sending_started_at` is written by the **first
+successful release** for the batch, CAS'd on `sending_started_at IS NULL`, in the release
+transaction." It has **no writer in the repo today** — every current reference is a read. Do not
+add one here, however tempting it looks when the batch still reads `approved` after a send.
+
+This is also why Task 2's `isBatchOpenForSend` accepts BOTH `approved` and `sending`: before
+#900 stamps the column the batch reads `approved`, after it reads `sending`, and both are open
+for dispatch. Migration 091's `solicitation_batches_send_ordering` CHECK only requires
+`sending_started_at >= approved_at` when present, so leaving it NULL is legal.
+
 - [ ] **Step 2: Provider call with NO lock held**
 
 Outside `sql.begin`: `await getMessagingAdapter().send(message)`. Never `EmailAdapter` or a Resend client directly, and no call site names a channel. The idempotency key is already the outreach row id inside `EmailAdapter` (`email-adapter.ts:58`) — do not add a second one.
