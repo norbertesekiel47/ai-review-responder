@@ -7,7 +7,76 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-18 (#872 **Ask withdrawal** — Quick summary immediately below. Prior entry: #665/#662 offboarding purge verifier + suppressions console.)
+Last updated: 2026-08-21 (#898 **Send governors** — Quick summary immediately below. Prior entry: #872 Ask withdrawal.)
+
+## Quick summary — #898 **Send governors** (2026-08-21, PR #904)
+
+**Nothing here sends mail, and that is the point.** #898 ships the schema and the
+three governors that #899 (the send worker) and #900 (the release-side consumer)
+will stand on, so those two land without a migration between them. Today the
+breaker can trip, page and be reset — but nothing reads it on the send path yet.
+
+**The asset being protected is the Sending identity** — one `reviews@` mailbox and
+one sending domain that every account sends through. That is why the **Send
+breaker** is a platform singleton and not a per-tenant dial: one account's bad
+contact list burns the deliverability everyone else is sending on. It is **not**
+the **Halt latch** — that stops one batch; this stops all sending, everywhere.
+
+**Three governors:**
+
+- **Send caps** — a platform ceiling and a per-account daily cap, counted on
+  UTC days.
+- **Send breaker** — a rolling 7-day window that trips above a **2% hard-bounce
+  rate** or a **0.3% complaint rate**, and never below 100 sends. The
+  `HealthAlertPoller` is its only tripper, so a trip lands within one poll
+  interval (5 min).
+- **Bounce discrimination** — the Solicitation lane now records `bounce_kind`
+  beside `bounced_at`, because the breaker must count hard bounces only.
+
+**Three things that surprise people:**
+
+- **The window is not a cohort.** The denominator is send-dated, the numerators
+  are signal-dated, so a burst of bounces from a send nine days ago still trips
+  it and the ratio can exceed 1.0. That is deliberate — the intuitive cohort
+  measure dilutes a fresh bad batch with sends whose bounces have not landed,
+  which is the fail-*open* direction.
+- **A reset is a bounded half-open probe, not a re-arm.** Resetting moves the
+  window's lower edge to that instant, so only post-reset activity is measured
+  and the breaker stays quiet until 100 fresh sends accumulate. Roll
+  `SOLICITATION_PLATFORM_DAILY_CAP` down *before* resetting — the ceiling is the
+  only thing bounding how much mail leaves during the probe.
+- **An open breaker is a STATE, not an event.** It re-pages every tick while it
+  stands, under a constant title so Sentry collapses the repeats. One dropped
+  page must never equal a silent platform-wide halt.
+
+**It never self-clears.** The only thing that closes a trip is an admin at
+**Safety → Send breaker** (`/admin/solicitation`), with a mandatory note enforced
+both by the route and by migration 110's `reset_consistency` CHECK — so "who
+cleared this, and why" cannot be unanswerable by omission. The latch table is
+append-only with at most one open trip, because a second breach would otherwise
+overwrite the very record someone reviews after the fact.
+
+**The cost of a trip, which is easy to miss:** the breaker and the 72-hour send
+window run on different clocks and nothing reconciles them. A trip that stays
+open for days converts every batch approved in the 72 hours before it — across
+every account — into `cancelled` / `send_window_elapsed`. That is a recorded
+trade (amendment B14): a cancelled batch is an honest terminal state an owner can
+act on; the alternative buries the trip under a stalled-batch alert storm.
+
+**The new shape:**
+
+| File | Role |
+|---|---|
+| `supabase/migrations/110_*.sql` | withhold vocabulary, `bounce_kind`, the latch table |
+| `src/lib/solicitation/send-breaker.ts` | window read model, trip, fail-closed read, reset |
+| `src/lib/solicitation/send-caps.ts` | ceiling resolver, account cap, UTC-day counters |
+| `worker/background/pollers/health-alert/checks.ts` | the only tripper; isolated so a write failure cannot discard the other findings |
+| `worker/ingress/resend/solicitation-lane.ts` | records `bounce_kind` |
+| `src/app/admin/solicitation/**` | the reset surface (Island system, AAL2) |
+| `docs/runbooks/solicitation-sending-domain.md` §8 | the operational procedure |
+
+**Operational note:** all send flags stay OFF. Migration 110 is applied to
+staging **and** production — lockstep complete, no standing exception.
 
 ## Quick summary — #872 **Ask withdrawal** (2026-08-18, PR #883)
 

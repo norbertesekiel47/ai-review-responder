@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0 — reset by the 2026-08-18 pass**
+**Merges since last architecture pass: 1** (last reset by the 2026-08-18 pass)
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-18/`.
 
 **That pass measured the counter itself and found it wrong by its own rule.** The
@@ -44,6 +44,43 @@ written down. It applies **only** to PRs whose entire content is a recorded
 handoff from `04-handoff-prompts.md`; a handoff PR that grows unrelated scope
 counts as a normal merge. Landing record: `docs/reviews/PATHFINDER-2026-08-15/`
 + each PR body.
+
+- **PR #904** — #898 **Send governors**: the schema and three governors #899/#900
+  stand on (2026-08-21, squash `b873a9a5`). **Architecturally: one migration, one
+  new TABLE, two new `src/lib/solicitation/` modules, one new admin page + two
+  routes, one new `HealthAlertPoller` check — no new dependency, no new env var,
+  no new flag, no new top-level directory.** Migration **110** was applied to
+  staging **and** production in lockstep on merge day (all three databases
+  byte-identical, `3e644c28…`), so it leaves **no standing exception** — the prod
+  exception list still names only 078.
+
+  What it adds to the map: **`solicitation_send_breaker` is the first
+  platform-scoped table with no `account_id`** — deliberately not a
+  `TENANT_TABLES` member and not in `TABLE_DISPOSITIONS`, carrying deny-all RLS
+  instead, because the event it records is platform-wide and `account_audit_log`
+  is account-scoped. **That table IS its own audit record.** Also: `checks.ts`
+  gains its **first WRITER** (every other check reads), isolated in its own
+  try/catch so a constraint violation or lock wait cannot discard the nine
+  findings collected before it. Three new LOCKED CONTEXT.md terms (**Send
+  breaker**, **Send breaker trip**, **Breaker window**), and the **Solicitation
+  lane**'s declared write surface widened by exactly one column (`bounce_kind`).
+
+  **What the next pass should look at.** (1) **`ci:admin-aal2` vs `fallow` are in
+  direct tension over the admin-route preamble** — this branch built the
+  extraction, failed the AAL2 audit on all three routes, and reverted; follow-up
+  **B3.11** carries the extraction plus the gate-shape change together, and that
+  is an architecture decision, not a lint fix. (2) **Three governors ship with no
+  consumer** — the breaker trips and pages but nothing reads it on the send path
+  until #900, so the whole surface is inert-by-construction and its first real
+  exercise is someone else's branch. (3) **`readBreakerWindow` still seq-scans**
+  (follow-up B3.8); 110's `sent_at` index cannot serve an OR-of-three, and the
+  migration's own comment claiming a bitmap scan is wrong — 110 is immutable and
+  at head, so the correction lives in the deviations file. (4) **B3.9**: the
+  level-triggered re-page rides a first-seen Sentry rule, so a multi-day halt
+  notifies twice then goes quiet — the alerting half of "an open breaker is a
+  STATE" is not actually delivered yet. (5) The **11 follow-ups B3.1–B3.11** are
+  the largest single-branch backlog this log has recorded; worth asking whether
+  that is healthy decomposition or deferred debt.
 
 - **PR #883** — #872 **Ask withdrawal**: the owner's post-approval recourse at
   ask granularity (2026-08-18, squash `094d71b9`). **Architecturally: one

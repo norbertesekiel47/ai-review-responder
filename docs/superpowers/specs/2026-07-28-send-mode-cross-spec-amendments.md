@@ -149,7 +149,10 @@ re-checks, plus #622's byte-match):
 
 1. batch not halted (D10 latch) and send window open
 2. `SOLICITATION_SEND_ENABLED` on
-3. `subscriptionGrantsFullAccess`
+3. `subscriptionGrantsFullAccess` — **checked at release, not here** (**B14**);
+   it is an account-level fact, so a per-child check could only ever defer, and
+   a deferring child strands a `queued` row. The numbering is kept for citation
+   stability; the gate itself is seven checks, not nine.
 4. suppression lookup (#621 §1.2)
 5. consent row existence + `SEND_ELIGIBLE_ATTESTATION_VERSIONS` (#620 §6.3;
    subsumes "contact still exists")
@@ -160,8 +163,8 @@ re-checks, plus #622's byte-match):
 9. re-moderation: clean provider verdict is a send precondition (#623 §3.4)
 
 Releaser-level gates (before any child): circuit breaker → platform ceiling →
-account cap (#622 §4.3 order), plus Judge availability per #619 D18's
-downgrade/hold split.
+account cap → `subscriptionGrantsFullAccess` (**B14**) — #622 §4.3's order, plus
+Judge availability per #619 D18's downgrade/hold split.
 
 ### B7. Expired-unapproved batches close their parent (Codex high 4)
 
@@ -380,6 +383,94 @@ address is **§7.5/§7.6**.
 Recorded here because it lived only on the ticket and the map — the #643 lesson: a binding
 decision outside `docs/superpowers/specs/` leaves a reader of the locked spec with "no
 batch produced".
+
+### B14. `subscriptionGrantsFullAccess` is a RELEASE-level gate, not a Dispatch-gate item (#898 round-1 review)
+
+**Amends B6 above.** Item **3** of the dispatch gate — `subscriptionGrantsFullAccess` —
+moves out of the per-child list and joins the **release-level** gates beside the circuit
+breaker and the two caps. B6's numbering is deliberately left alone (renumbering would
+break every citation of "B6 item 6"); item 3 now reads **"checked at release, not here"**,
+exactly as item 7 already does for the daily caps. The dispatch gate is therefore **seven**
+per-child checks, not nine.
+
+**Why the original placement could not work.** #898's grilling locked a decision whose
+conclusion was right and whose mechanism was not: *a lapsed subscription is recoverable
+inside the 72h send window, so the child DEFERS — the row stays `rendered` — and the
+existing `send_window_elapsed` cancellation is the terminal answer.* "The row stays
+`rendered`" is unachievable. #900's releaser CASes the **Outreach row**
+`rendered → queued` and stamps `queued_at` **before** the child's pre-send transaction
+opens — that CAS is the release, and the dispatch gate runs inside the child it releases.
+A child that defers therefore leaves behind a **`queued`** row, and #900's release
+predicate selects `rendered` only. Nothing ever looks at that row again: it is neither
+sent nor cancelled, no later tick reconsiders it, and it survives untouched until
+`send_window_elapsed` sweeps it — the silent-stranding failure mode the whole lifecycle
+CHECK ladder exists to make impossible. A gate that can only defer cannot live downstream
+of the transition that makes deferral unobservable.
+
+**What survives, and what changes.** The locked decision's **conclusion survives
+untouched**: there is **no `subscription_lapsed` member** in
+`solicitation_outreach_status_reason_consistency`, migration 110 deliberately adds none,
+and `send_window_elapsed` remains the terminal answer for an account that never recovers.
+Only the **mechanism** changes — from *"the child defers"* to *"the releaser never
+releases"*. This amendment needs **no migration, no new CHECK member and no new withhold
+reason**; it is a relocation of one call.
+
+**Why release level is where it belonged anyway.** `subscriptionGrantsFullAccess` is an
+**account-level** fact, and every child of a batch computes the same answer for it — a
+per-child check that is constant across children is a per-batch check written in the wrong
+place. That is the same argument B3 already applied to the account daily cap ("the cap is
+enforced **in the releaser only**"), and the same boundary the fixed order **breaker →
+platform ceiling → account cap → per-child** (#622 §4.3) draws: the first three are
+release-level because they are facts about the platform or the account, the fourth is
+per-child because it is a fact about one contact. Checking a subscription once per release
+is also strictly cheaper than once per child.
+
+**Consequence for a lapsed account, stated plainly.** An approved batch whose account
+lapses stops being released mid-drip. Its remaining rows stay `rendered` — which is now
+true rather than aspirational — and if the account does not recover, the 72h send window
+expires and the batch terminalizes `cancelled / send_window_elapsed` like any other
+unreleased batch. That is the same answer #900 §5 already gives for a Judge that never
+returns: fail-closed, never a silent send. Paying inside the window resumes the drip with
+no further intervention.
+
+**A trip's effect on in-flight batches — an accepted consequence, not a surprise**
+(round-1 adversarial finding 2 / triage B2.3). The **Send breaker** and the send window are
+on different clocks and nobody reconciled them: `BATCH_SEND_WINDOW_HOURS = 72`
+(`src/lib/solicitation/outreach.ts`, anchored on `approved_at`), while a realistic trip is
+open for **days** — long enough for the window to elapse under it. So a single trip is
+expected to take **every batch approved in the 72 hours before it, across every account**,
+to `cancelled / send_window_elapsed`: every remaining ask dead, every owner told the send
+window elapsed, for a cause that had nothing to do with their list. The alternative — #900
+suppressing the expiry sweep while the breaker is open — is **not** an improvement and must
+not be adopted casually: those batches then blow past the "≤10 days by construction" bound
+that `STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` is derived from (B7 above), and
+`solicitation_send_batch_stalled` fires for every one of them — an alert whose entire
+justification is that 11 days *cannot be reached*. The decision is to **accept the first
+horn**: expiry keeps running while the breaker is open, because a cancelled batch is an
+honest terminal state an owner can act on and a stalled-run alert storm is not. Operators
+must expect it; it is written into the runbook's §8 diagnosis so a trip's blast radius is
+read before the reset, not discovered after. Closing the gap properly (a halt-aware
+window, or a distinct `platform_halt` cancellation reason so the owner is not told
+something false) is **#900's**, not #898's.
+
+**§4.3's admin escape valve is superseded, and the schema's `1..50` range is inert**
+(round-1 adversarial finding 10 / triage B2.4). #622 §4.3 says the per-account override is
+resolved "so an admin can raise it without a deploy". **B3's `LEAST(configured, 10)`
+resolver is the locked mechanism and it is right** — the dial moves toward restraint only —
+so it is §4.3's prose that is stale, not the resolver. `auto_approval_policies.daily_send_cap`
+keeps migration 091's `1..50` CHECK, but **11–50 is inert**: a value in that range is
+accepted by the database, displayed as configured, and silently clamped to 10 by
+`resolveAccountDailySendCap`. Raising an account above 10 requires changing
+`DEFAULT_DAILY_SEND_CAP_ACCOUNT` and deploying — there is no runtime escape valve, by
+design (#622 §4.2: a bound a single legitimate operation can reach is not bounding
+anything). Recorded here so nobody re-adds a knob believing the existing one works, and so
+a future widening of the CHECK is recognised as the no-op it would be.
+
+**Provenance:** ticket **#898**, round-1 branch review (spec/adversarial findings, triage
+`docs/reviews/feat-898-solicitation-send-governors/round1-triage.md` B2.2/B2.3/B2.4), owner
+call **2026-08-19**. Recorded here rather than on the ticket for the #643 reason B13 gives:
+a reader of B6 who does not know about this would implement a deferring child and strand
+`queued` rows in production.
 
 ## C. Codex findings triage summary
 
