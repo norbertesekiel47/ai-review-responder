@@ -454,3 +454,28 @@ Two consequences worth carrying forward:
    fresh `env pull` before believing it.
 
 Prod remains OFF/unset. The production flip still rides the production bring-up.
+
+## Re-enabled on staging — 2026-08-21 (demo over, Solicitation work resumes)
+
+**Flag:** `SOLICITATION_WATCH_ENABLED=true` · **Environment:** staging only.
+
+The revert above was scoped to the beta demo. That demo is done, so staging
+returns to watch-mode. Same single surface as before — Vercel staging custom
+env, `--no-sensitive`, verified by a fresh `env pull` — carried live by `staging`
+push `c29a377e`.
+
+`SOLICITATION_SEND_ENABLED` remains **absent** on both platforms. That is the
+posture, not an oversight: watch-mode shows the contacts upload and batch view,
+while `requireSolicitationSendWriteAccess` demands BOTH flags, so the send and
+ask-generation surface stays closed.
+
+Railway staging still reads `true` and has since July. It is **inert** — the flag
+has zero read sites under `worker/**` — so it was left alone in both directions
+rather than churned to look tidy.
+
+### Net effect of the two 2026-08-21 flips
+
+Staging ends the day where it started, and the round trip was still worth it:
+it is what surfaced the Sensitive-typed-flag gotcha recorded above. The flag is
+now stored `--no-sensitive`, so the next person to read it gets its value
+instead of `""`.
