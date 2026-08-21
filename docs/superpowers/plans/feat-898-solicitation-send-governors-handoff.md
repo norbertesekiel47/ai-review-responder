@@ -92,7 +92,7 @@ consistency and all missed a cited `CONTEXT.md` section that had never been writ
 
 ---
 
-## State — post-review (step 7 complete)
+## State — step 8 in progress (PR open)
 
 | Field | Value |
 |---|---|
@@ -124,18 +124,35 @@ each case the test and the implementation shared the same wrong assumption:
 3. **Edge-triggered paging** — the plan specified the bug as a feature and the eval test asserted
    it, so a dropped Sentry event meant a silent permanent platform-wide halt.
 
-## Remaining — step 8, RISK = high lane
+## Step 8 — status (2026-08-21)
 
-1. Land on `staging` (push auto-deploys the full stack). **Migration 110 applies to the STAGING
-   Supabase project FIRST**, never prod before promotion.
-2. Smoke the breaker path on staging; `docs/runbooks/solicitation-sending-domain.md` §8 is the
-   procedure this branch wrote.
-3. Open the PR to `main`, confirm all CI checks green, then **PAUSE for explicit owner merge
-   approval**. Apply 110 to prod Supabase in lockstep at promotion.
-4. After merge: `git pull --ff-only`; re-sync `staging` per `deployment-guide.md`
-   (after a squash merge use `git reset --hard origin/main` + `--force-with-lease`, NOT a sync
-   merge); `scripts/feature-cleanup.sh` dry-run then `--apply`; promote deviations lessons to
-   lab-notes; `document-feature`; domain sweep; increment the arch-review counter.
+**PR: #904** — https://github.com/RepWorth/ai-review-responder/pull/904 (open, not draft).
+Branch rebased onto `main`; gate **GREEN 28/28** at `8376722c`.
+
+| Item | State |
+|---|---|
+| 1. Land on `staging` | **DONE** — 898 code rode staging as `fd539b36` on 2026-08-19 |
+| 1b. Migration 110 → **staging** Supabase | **DONE** 2026-08-21, verified by introspection (md5 matches local head byte-for-byte) |
+| 2. Smoke the breaker path on staging | **DONE** — 9-assertion latch smoke + 13-assertion admin smoke, all PASS |
+| 3. Open the PR, CI green, **PAUSE for owner merge approval** | PR open; **awaiting owner approval** |
+| 3b. Migration 110 → **prod** Supabase, in the merge window | **PENDING** |
+| 4. Post-merge sweep | **PENDING** |
+
+Ride evidence: `docs/runbooks/evidence/2026-08-21-898-send-governors-staging.md`.
+
+**The staging ride produced one finding worth carrying forward.** The 898 code sat
+on the staging worker for two days while the database was still pre-110, so the
+breaker check queried a table that did not exist. It logged a warning finding on
+every one of five `HealthAlertPoller` ticks and never crashed, then went silent on
+the first tick after 110 applied. That is a live proof of the round-1 try/catch
+isolation under exactly the failure class it was written for — and it was free,
+because nobody planned it.
+
+**Post-merge, still to do:** `git pull --ff-only`; re-sync `staging` per
+`deployment-guide.md` (after a squash merge use `git reset --hard origin/main` +
+`--force-with-lease`, **NOT** a sync merge); `scripts/feature-cleanup.sh` dry-run
+then `--apply`; promote the deviations lessons to lab-notes; `document-feature`;
+domain sweep; increment the arch-review counter.
 
 ## Lessons queued for lab-notes at step 8
 
