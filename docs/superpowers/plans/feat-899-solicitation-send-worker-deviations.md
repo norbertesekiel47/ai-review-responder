@@ -74,3 +74,38 @@ Bound waits with the Bash tool's own `timeout` parameter or a Monitor until-loop
 lesson: give `codex exec` its artifacts inline as a bundle rather than letting it read large
 spec files — it reviews a snapshot, which also means the file can be edited during the review.
 **Verdict:** ACCEPT.
+
+## D6 — two tenant-column surprises in the solicitation schema
+
+**When:** Task 0, while writing live-DB teardown.
+**What:**
+- `solicitation_suppressions` has **no `business_id`**, and a `global`-scope row carries no
+  `account_id` either. Cleanup must key on `account_id` and accept that global rows are not
+  tenant-scoped at all.
+- `job_outbox` has **no tenant columns whatsoever**. Cleanup must reach through
+  `payload->>'business_id'`.
+
+**Why it matters beyond teardown:** a later task that copies a business-scoped delete from
+another suite will silently strand rows, and a tenant-scoped read written by reflex will not
+compile against either table. Both are load-bearing for Tasks 2 and 6.
+**Promote at step 8:** yes — this belongs in lab-notes, not only here.
+**Verdict:** ACCEPT.
+
+## D7 — 30 of 34 eval titles landed as `it.todo`
+
+**When:** Task 0.
+**What:** only the two pure suites (`dispatch-gate`, `send-retry`) carry real assertions. The
+other 30 titles are `it.todo`, each with a comment naming its owning task and the exact claim
+to assert.
+**Implementer's reasoning, accepted:** their assertions turn on which collaborators
+`dispatch.ts` calls and in what order, which Tasks 2-6 own. Writing them now would pin internal
+seams the plan deliberately left open, and the /feature workflow explicitly sanctions `.todo`
+for "slices not yet buildable".
+**Risk this creates, and the mitigation:** the gate's `promised-tests` row checks only that a
+title EXISTS, so 30 todos would satisfy it while asserting nothing. Two mitigations, both required:
+1. Every implementation task's definition of done now includes converting ITS OWN todos to real
+   assertions. The orchestrator counts remaining todos after each task and refuses to advance
+   while that task's own titles are still `todo`.
+2. The final gate run is `scripts/verify-gate.sh --review`, whose `diff-coverage` row enforces
+   changed-line coverage at 80% — "wrote code, wrote no test for it" fails mechanically.
+**Verdict:** ACCEPT with both mitigations.
