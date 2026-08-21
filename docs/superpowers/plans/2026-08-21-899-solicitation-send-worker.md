@@ -322,13 +322,34 @@ Use `defaultJobOptions`, **not** `llmJobOptions` — this worker makes no LLM ca
 const solicitationSendWorker = new Worker<SolicitationSendPayload>(
   QUEUE_NAMES.SOLICITATION_SEND,
   withJobLogContext<SolicitationSendPayload>((job) => handleSolicitationSend(sql, job)),
-  workerOpts,
+  { ...workerOpts, concurrency: 1 },
 );
 
 solicitationSendWorker.on('failed', (job, err) =>
   handleSolicitationSendFailed(sql, job, err),
 );
+
+// Serial sending is structural, not incidental: one in-flight send at a time
+// means this worker can never burst against Resend's per-TEAM 10 req/s limit,
+// and it keeps the provider idempotency key's one-attempt-at-a-time assumption
+// true. The guard reads the EFFECTIVE options, so a future edit that drops
+// concurrency: 1 fails boot instead of silently double-sending.
+assertSingleConcurrencyWorker(QUEUE_NAMES.SOLICITATION_SEND, solicitationSendWorker.opts);
 ```
+
+Three registration facts, pinned so nobody has to guess:
+
+1. **Explicit `concurrency: 1` is required.** `assertSingleConcurrencyWorker` checks
+   `opts.concurrency !== 1` and therefore REJECTS an undefined concurrency, even though
+   BullMQ's own default is 1. Bare `workerOpts` would fail boot.
+2. **Do NOT add this worker to `assertSummedLlmWorkerSlots`** (`worker/index.ts:357`). That
+   list inventories `runLlmTask` callers, and this worker calls none — only `moderateResponse`,
+   which is a separate free endpoint outside the LLM task seam. The non-gated sum already sits
+   at the cap of 9, so adding it non-gated would fail boot for the wrong reason.
+3. **`assertSolicitationSendEnv` needs no change** (`worker/config/startup-assert.ts:476`). It
+   already asserts `SOLICITATION_RESEND_API_KEY`, `SOLICITATION_SEND_FROM_ADDRESS`,
+   `SOLICITATION_PLATFORM_DAILY_CAP` and `SOLICITATION_UNSUBSCRIBE_MAILTO` whenever
+   `SOLICITATION_SEND_ENABLED=true`.
 
 The `failed` hook import is added in Task 7; until then point it at a stub in the same file path so the module resolves, and delete the stub in Task 7. Confirm `solicitationSendWorker` is picked up by the existing loop that calls `attachEmitterErrorLogger` and `attachJobFailureSink` — an unlistened `'error'` is a fatal `uncaughtException`.
 
