@@ -40,6 +40,9 @@ B3.5 six non-send causes converge on `send_window_elapsed` · B3.6 no live Break
 B3.7 one-sided coincidence guard · **B3.8 breaker read model still seq-scans** ·
 **B3.9 re-page rides a first-seen Sentry rule, so a multi-day halt notifies twice then goes quiet**
 · **B3.10 `formatRate` duplication + the module-scope worker logger that blocks the obvious fix**
+· **B3.11 extract the admin-route `gate → parse → safeParse → 400` preamble — MUST ship together
+with the `ci:admin-aal2` gate-shape change, because that audit is fail-closed on exactly this
+move (attempted and reverted at step 8; see the deviations file's amendment 4)**
 
 ## Rejected
 

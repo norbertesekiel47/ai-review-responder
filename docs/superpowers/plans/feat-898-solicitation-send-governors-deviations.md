@@ -1216,3 +1216,80 @@ entry are ONE unit. Any task brief that authorises editing a SQL statement must 
 agents' surfaces guarantees a red gate and a hand-off.
 
 **Verdict:** ACCEPT.
+
+## SURFACE AMENDMENT 4 of 2 — the `fallow` gate turned red on the PR (owner-directed)
+
+**Found:** PR #904's CI went red on the one gate `verify-gate.sh` deliberately does NOT run
+(`ci:fallow*` is excluded there; it lives in ci.yml's own `fallow` job). Two categories:
+
+| Category | Finding |
+|---|---|
+| dead code | `BREAKER_TRIP_REASONS` exported with no consumer |
+| duplication | 4 clone groups — 3 of them the `gate → parse → safeParse → 400` preamble |
+
+**The duplication was not created by this branch.** `autonomy/unsuspend` and `batch/halt` have
+shared that preamble on `main`; `--gate new-only` tolerated it. The reset route joined as a third
+instance, which is what flipped the group to "new".
+
+**Amendment taken:** `.fallowrc.jsonc` only. Final state: the dead-code finding is FIXED, the
+route clone group is ACKNOWLEDGED, and the extraction is deferred to follow-up **B3.11**.
+
+### The extraction was built, then reverted — and the reason is the useful part
+
+The owner first chose EXTRACT over acknowledge. `requireAdminJson(request, schema)` was written
+into `src/lib/auth/admin-mfa-gate.ts` (no new file, beside the `requireAdminWithAal2` it composes)
+and all three routes were rewired: ~13 lines of preamble down to 2 each, error mapping owned by a
+module — textbook invariant #12. `fallow` went green. `lint`, `typecheck` and `build` all passed.
+
+Then `ci:admin-aal2` failed all three routes:
+
+> mutation handler POST must use `requireAdminWithAal2` — no call to it, and no `resolveAdminActor`
+> binding, is reachable from this handler. **A gate hidden behind an imported wrapper is not
+> visible to this audit and does not count.**
+
+That is not a mechanical false positive; it is the audit's stated design. It is an ALLOWLIST OF
+RECOGNIZED GATE SHAPES with a fail-closed posture, and its header says so outright: *"A handler
+that delegates to an opaque imported function has no gate this audit can see, so it is reported."*
+The property being protected is that you can read an admin handler and SEE its gate. The
+extraction deleted exactly that property from three routes at once.
+
+Clearing it would have meant widening a security control's vocabulary to satisfy a duplication
+linter, late, after both review rounds had closed. **Owner chose to revert.** Cost of the
+attempt, all reverted: 3 routes, 1 module. Cost of not reverting, avoided: 5 surface amendments,
+two shipped routes rewired, and an unreviewed edit to `ci:admin-aal2`.
+
+### Three things kept, because they stand on their own
+
+**1. `BREAKER_TRIP_REASONS` is now a union type, not an array.** And the first attempt at this was
+wrong in an instructive way: dropping `export` satisfied fallow and immediately failed ESLint —
+*"assigned a value but only used as a type."* The array had no runtime reader at all (the panel
+keys a `Record<BreakerTripReason, string>`; the DB-side authority is 110's `trip_reason` CHECK).
+**Generalisation: when a linter reports an unused EXPORT, check whether the VALUE has a reader
+before reaching for the `export` keyword — "unused export" and "unused value" have different
+fixes, and only one of them is `export`.**
+
+**2. `reset-route.test.ts` now mocks the auth PRIMITIVES.** Its header claimed it mirrored
+`autonomy/__tests__/routes.test.ts`; it did not. That file mocks `requireRole` + the AAL2 lookup,
+while this one mocked `requireAdminWithAal2` itself. That one level of difference is why the
+autonomy route survived the refactor untouched while six promised reset tests went 401. The fix
+is kept **after** the revert, and it still passes — which is the proof it was a real improvement
+rather than a workaround for a refactor that no longer exists.
+
+**3. The `.fallowrc.jsonc` entry records WHY the obvious fix is blocked**, so the next person to
+see this clone does not rebuild `requireAdminJson` and rediscover `ci:admin-aal2` the hard way.
+
+**Not fixed, deliberately:** the fourth clone group (8 lines, 2 instances — `SendBreakerClient` /
+`AutonomySuspensionsClient` sharing a `useState` + trim + submit-guard idiom) is reported at
+**warn** and does not fail the gate. Wrapping `useState` + `.trim()` is the "tiny pass-through
+helper" `.fallowrc.jsonc`'s own preamble rejects. Local gate: dead code 0, duplication 1 group
+(warn), **exit 0**.
+
+**Lesson, for lab-notes at step 8:** `verify-gate.sh` is green-by-construction on everything
+except `fallow`, which by design runs only in CI. A branch can be gate-green locally,
+review-complete and staging-proven, and still meet a red PR. Reproduce it with
+`pnpm test:coverage && pnpm ci:fallow:coverage` — a bare `fallow audit` does not predict it.
+**Second lesson: a fallow duplication finding on a route preamble is not automatically an
+extraction request. In this repo the admin-route preamble is load-bearing for `ci:admin-aal2`, and
+the two gates want opposite things.**
+
+**Verdict:** ACCEPT.

@@ -1,29 +1,54 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Unit suite for the admin send-breaker reset route (#898).
 //
-// Mirrors src/app/api/admin/autonomy/__tests__/routes.test.ts: the gate is
-// mocked at its seam, the shared postgres.js client is the worker mock harness,
-// and the route module is imported dynamically inside each case so the mocks
-// are in place first.
+// Mirrors src/app/api/admin/autonomy/__tests__/routes.test.ts, and mirrors it at
+// the level that file actually uses: the auth PRIMITIVES are mocked
+// (requireRole + the AAL2 lookup), never `requireAdminJson` itself. That matters
+// because the route's 400 shapes — `invalid_body` and the first schema issue —
+// live inside the shared gate helper now. Stubbing the helper would leave the
+// blank-note and body-actor cases asserting a mock instead of the shipped code,
+// which is the whole thing those cases exist to pin.
+//
+// The shared postgres.js client is the worker mock harness, and the route module
+// is imported dynamically inside each case so the mocks are in place first.
 
-const { gateMock, resetSendBreakerMock, loggerMock, mockSql, resetMockSql } = await vi.hoisted(
-  async () => {
-    const helpers = await import('../../../../../../../worker/__tests__/helpers/mock-sql');
-    return {
-      gateMock: vi.fn(),
-      resetSendBreakerMock: vi.fn(),
-      loggerMock: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      ...helpers.createMockSql(),
-    };
-  },
-);
-
-vi.mock('@/lib/auth/admin-mfa-gate', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/auth/admin-mfa-gate')>();
-  return { ...actual, requireAdminWithAal2: gateMock };
+const {
+  mockRequireRole,
+  mockRequireCurrentAal2FromSupabase,
+  resetSendBreakerMock,
+  loggerMock,
+  mockSql,
+  resetMockSql,
+} = await vi.hoisted(async () => {
+  const helpers = await import('../../../../../../../worker/__tests__/helpers/mock-sql');
+  return {
+    mockRequireRole: vi.fn(),
+    mockRequireCurrentAal2FromSupabase: vi.fn(),
+    resetSendBreakerMock: vi.fn(),
+    loggerMock: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    ...helpers.createMockSql(),
+  };
 });
+
+vi.mock('@supabase/ssr', () => ({
+  createServerClient: vi.fn(() => ({ auth: { mfa: {} } })),
+}));
+
+vi.mock('@/lib/db/auth', () => ({
+  requireRole: mockRequireRole,
+  cookieBackedServerClient: () => ({ auth: { mfa: {} } }),
+  AuthError: class AuthError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+    }
+  },
+}));
+
+vi.mock('@/lib/auth/mfa', () => ({
+  requireCurrentAal2FromSupabase: mockRequireCurrentAal2FromSupabase,
+}));
 
 vi.mock('@/lib/db/server', () => ({ sql: mockSql }));
 
@@ -59,24 +84,22 @@ describe('admin send-breaker reset route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMockSql();
-    gateMock.mockResolvedValue({
-      ok: true,
-      admin: {
-        id: ADMIN_ID,
-        role: 'admin',
-        email: 'admin@example.com',
-        name: 'Admin',
-        accountId: null,
-        locationId: null,
-      },
+    mockRequireRole.mockResolvedValue({
+      id: ADMIN_ID,
+      role: 'admin',
+      email: 'admin@example.com',
+      name: 'Admin',
+      accountId: null,
+      locationId: null,
     });
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({ ok: true });
     resetSendBreakerMock.mockResolvedValue({ reset: true, tripId: 'trip-1' });
   });
 
   it('the breaker reset route rejects a request without AAL2', async () => {
-    gateMock.mockResolvedValue({
+    mockRequireCurrentAal2FromSupabase.mockResolvedValue({
       ok: false,
-      response: NextResponse.json({ error: 'aal2_required' }, { status: 403 }),
+      reason: 'mfa_required',
     });
     const POST = await loadPost();
 

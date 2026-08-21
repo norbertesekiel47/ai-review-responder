@@ -33,8 +33,13 @@ export const BREAKER_MIN_SENDS = 100;
 export const BREAKER_HARD_BOUNCE_RATE = 0.02; // > 2%
 export const BREAKER_COMPLAINT_RATE = 0.003; // > 0.3% — Gmail's stated bar
 
-export const BREAKER_TRIP_REASONS = ['hard_bounce_rate', 'complaint_rate'] as const;
-export type BreakerTripReason = (typeof BREAKER_TRIP_REASONS)[number];
+// A union, not an `as const` array: nothing needs these at runtime. Every
+// consumer imports the TYPE (the panel keys a Record on it, so a third reason is
+// a compile error there), and the DB-side authority is migration 110's
+// solicitation_send_breaker_trip_reason_check. An array would have been a second
+// name for the same fact with no reader — and, kept un-exported to avoid that,
+// an "assigned but only used as a type" lint error.
+export type BreakerTripReason = 'hard_bounce_rate' | 'complaint_rate';
 
 /**
  * The Breaker window: one measurement of the last BREAKER_WINDOW_DAYS days.
