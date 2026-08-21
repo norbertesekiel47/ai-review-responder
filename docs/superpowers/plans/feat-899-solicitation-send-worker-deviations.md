@@ -140,3 +140,29 @@ and forces a re-plan. That is a disproportionate price for a comment.
 home and update its three consumers. Small, mechanical, and it should not ride this branch.
 
 **For the step 7 standards reviewer:** this is a known, triaged decision, not a new finding.
+
+## D9 — the plan invented an analytics event key that was already a registered contract
+
+**When:** Task 2. Caught by the implementer, who followed the plan but flagged the conflict.
+**What:** the plan specified `eventKey: solicitation_suppressed_at_dispatch:<outreachId>`
+(colon, per dispatch attempt). `docs/analytics/events.md:266-275` had already registered the
+event with `solicitation_suppressed_at_dispatch_<ask_id>` (underscore, "one refusal per Ask"),
+required properties `source` + `ask_id`, **no** optional properties, and explicit privacy notes.
+
+**Root cause:** the orchestrator guessed a key format instead of reading the registry — a
+straight "look up, don't guess" violation, and the registry existed precisely so this ticket
+could emit the event without a migration.
+
+**Resolution:** `docs/analytics/events.md` wins; it is the single owner. Corrected in
+`src/lib/solicitation/dispatch.ts` (key now keyed on the Ask, `outreach_id` property dropped
+because the contract lists no optional properties), in the integration test that pinned the old
+key, and in the plan. Re-ran the suite: 8 passed, 15 todo, and the run genuinely hit the
+database — `describeWithDb` emits a stderr warning and registers `describe.skip` when the DB is
+absent, and neither appeared.
+
+**The grain matters, it is not cosmetic.** Keying on the Ask means neither a BullMQ retry nor a
+regenerate re-dispatch inflates the refusal count. Keying on the Outreach row would have made a
+regenerate look like a second opt-out.
+
+**Verdict:** ACCEPT the correction. No surface amendment needed — every file touched was already
+in surface.

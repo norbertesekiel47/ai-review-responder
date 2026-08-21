@@ -606,11 +606,13 @@ describeWithDb(
         expect(row.disposition_reason).toBe('suppressed');
         expect(row.sent_at).toBeNull();
 
-        // Keyed on the Outreach row, so the count is one per dispatch attempt
-        // and a replay drops on ON CONFLICT (event_key).
+        // Keyed on the ASK, per the registered contract at
+        // docs/analytics/events.md:272 — "one refusal per Ask", so neither a
+        // BullMQ retry nor a regenerate re-dispatch inflates the count, and a
+        // replay drops on ON CONFLICT (event_key).
         expect(
           await countAnalyticsEvents(
-            `solicitation_suppressed_at_dispatch:${fixture.outreachId}`,
+            `solicitation_suppressed_at_dispatch_${fixture.askId}`,
           ),
         ).toBe(1);
       });

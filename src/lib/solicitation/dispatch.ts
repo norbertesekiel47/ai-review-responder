@@ -554,18 +554,23 @@ async function commitWithhold(
     // §9.4's signal: an opt-out that landed AFTER owner approval is the
     // earliest evidence the copy or the cadence is wrong. `scope` is
     // deliberately not a property — it would surface the `account_id`
-    // provenance §7.4 forbids. Keyed on the Outreach row, so one refusal is
-    // recorded per dispatch attempt and a replay drops on ON CONFLICT.
+    // provenance §7.4 forbids.
+    //
+    // Key, distinct id and the two properties are the REGISTERED contract at
+    // docs/analytics/events.md:266-275 — that doc is the owner, not this call
+    // site. It keys on the ASK, not the Outreach row: "one refusal per Ask",
+    // so neither a BullMQ retry nor a regenerate re-dispatch inflates the
+    // count. It also lists no optional properties, which is why outreach_id is
+    // absent despite being useful for debugging.
     await enqueueAnalyticsEvent(tx, {
       eventName: 'solicitation_suppressed_at_dispatch',
-      eventKey: `solicitation_suppressed_at_dispatch:${scope.outreachId}`,
+      eventKey: `solicitation_suppressed_at_dispatch_${input.askId}`,
       distinctId: scope.accountId,
       accountId: scope.accountId,
       businessId: scope.businessId,
       properties: {
         source: input.suppression.source,
         ask_id: input.askId,
-        outreach_id: scope.outreachId,
       },
     });
   }

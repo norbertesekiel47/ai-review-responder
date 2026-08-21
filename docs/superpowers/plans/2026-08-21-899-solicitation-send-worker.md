@@ -431,7 +431,17 @@ Migration 091 comments `consent_basis` / `consent_attestation_version` / `consen
 
 - [ ] **Step 4: Withhold path**
 
-On a `withhold` verdict, in the same `tx1`: set `delivery_status='withheld'` + `disposition_reason`, create the **Lazy child** via `startOrGetSolicitationAskRun`, `recordStep` `dispatch_gate_evaluated` with the verdict in `detail`, terminalize the child `completed` via `completeRun`, complete the outbox attempt, and call `closeBatchIfSettled`. On the `suppression` item also emit `solicitation_suppressed_at_dispatch` via `enqueueAnalyticsEvent` (`src/lib/analytics/enqueue.ts:20`, takes an executor so it joins `tx1`) with a deterministic `eventKey` of `solicitation_suppressed_at_dispatch:<outreachId>` — the event is already registered in both the DB (migration 097) and TypeScript (`src/lib/analytics/events.ts:27`), so no registration work is needed.
+On a `withhold` verdict, in the same `tx1`: set `delivery_status='withheld'` + `disposition_reason`, create the **Lazy child** via `startOrGetSolicitationAskRun`, `recordStep` `dispatch_gate_evaluated` with the verdict in `detail`, terminalize the child `completed` via `completeRun`, complete the outbox attempt, and call `closeBatchIfSettled`. On the `suppression` item also emit `solicitation_suppressed_at_dispatch` via `enqueueAnalyticsEvent` (`src/lib/analytics/enqueue.ts:20`, takes an executor so it joins `tx1`) — the event is already registered in the DB (migration 097) and in TypeScript (`src/lib/analytics/events.ts:27`), so no registration work is needed.
+
+**The key and properties are a REGISTERED contract — read `docs/analytics/events.md:266-275`, do not invent them.** (An earlier draft of this plan guessed a colon-separated per-attempt key; that was wrong and is corrected here.) The contract is:
+
+| Field | Value |
+|---|---|
+| Event key | `solicitation_suppressed_at_dispatch_<ask_id>` — underscore, keyed on the **Ask**: "one refusal per Ask", so neither a BullMQ retry nor a regenerate re-dispatch inflates the count |
+| Distinct id | account id |
+| Required properties | `source` (of the matched **Suppression ledger** row) and `ask_id` |
+| Optional properties | **none** — do not add `outreach_id`, however useful it looks |
+| Privacy | never the handle; `scope` deliberately absent, because reporting which scope matched would surface the `account_id` provenance §7.4 forbids |
 
 **Getting the Send batch parent run id — resolved here so nobody guesses.** `startOrGetSolicitationAskRun` requires a `parentRunId`, and there is today **no read-only lookup** for the **Send batch parent**; the only helper is `startOrGetSolicitationSendBatchRun`, which would CREATE one. The send worker must never invent a parent — a missing parent means generation never ran, which is an impossible state, and the house rule is to assert impossible states rather than branch around them.
 
