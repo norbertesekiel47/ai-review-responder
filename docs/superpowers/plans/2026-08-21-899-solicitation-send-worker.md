@@ -415,7 +415,13 @@ const state = deriveBatchState(batchRow, new Date());
 - Re-read the Outreach row `FOR UPDATE`. If `delivery_status = 'cancelled'` ⇒ no-op, complete the outbox attempt, return (test 10).
 - `suppressed`: `suppressionMatchSql` from `src/lib/solicitation/suppression.ts`. Do **not** re-spell its predicate.
 - `consent`: `solicitation_consent` on `(channel, normalized_handle, business_id)`, then `SEND_ELIGIBLE_ATTESTATION_VERSIONS` from `src/lib/solicitation/attestation.ts`.
-- `postalAddressPresent` / `postalAddressMatches`: `readPostalAddressState` from `src/lib/solicitation/postal-address.ts`, byte-compared against the footer inside the stored body.
+- `postalAddressPresent` / `postalAddressMatches`: `readPostalAddressState(tx, { accountId, businessId })` from `src/lib/solicitation/postal-address.ts:199`. It is account-scoped and returns `null` for a business outside the account.
+
+  **The byte-match, resolved exactly.** `assembleAskBody` (`src/lib/solicitation/ask-render.ts:57`) bakes `footer.postalAddress` into the body **verbatim, as its own line**, and refuses to assemble at all when the address is null or whitespace-only. So:
+  - `postalAddressPresent` = `state !== null && state.address !== null && state.address.trim().length > 0`
+  - `postalAddressMatches` = the stored body contains that address as an exact line
+
+  Do **not** re-derive the footer or re-run `assembleAskBody` at dispatch. The stored bytes are the contract; the check is a containment test against them. Migration 099's all-or-nothing CHECK means `address !== null` and `attestedAt !== null` cannot disagree, so the check never branches on "is this attested".
 
 - [ ] **Step 3: Stamp the consent snapshot on the Outreach row**
 
@@ -423,7 +429,29 @@ Migration 091 comments `consent_basis` / `consent_attestation_version` / `consen
 
 - [ ] **Step 4: Withhold path**
 
-On a `withhold` verdict, in the same `tx1`: set `delivery_status='withheld'` + `disposition_reason`, create the **Lazy child** via `startOrGetSolicitationAskRun`, `recordStep` `dispatch_gate_evaluated` with the verdict in `detail`, terminalize the child `completed` via `completeRun`, complete the outbox attempt, and call `closeBatchIfSettled`. On the `suppression` item also emit `solicitation_suppressed_at_dispatch` (already registered — `src/lib/analytics/events.ts:27`).
+On a `withhold` verdict, in the same `tx1`: set `delivery_status='withheld'` + `disposition_reason`, create the **Lazy child** via `startOrGetSolicitationAskRun`, `recordStep` `dispatch_gate_evaluated` with the verdict in `detail`, terminalize the child `completed` via `completeRun`, complete the outbox attempt, and call `closeBatchIfSettled`. On the `suppression` item also emit `solicitation_suppressed_at_dispatch` via `enqueueAnalyticsEvent` (`src/lib/analytics/enqueue.ts:20`, takes an executor so it joins `tx1`) with a deterministic `eventKey` of `solicitation_suppressed_at_dispatch:<outreachId>` — the event is already registered in both the DB (migration 097) and TypeScript (`src/lib/analytics/events.ts:27`), so no registration work is needed.
+
+**Getting the Send batch parent run id — resolved here so nobody guesses.** `startOrGetSolicitationAskRun` requires a `parentRunId`, and there is today **no read-only lookup** for the **Send batch parent**; the only helper is `startOrGetSolicitationSendBatchRun`, which would CREATE one. The send worker must never invent a parent — a missing parent means generation never ran, which is an impossible state, and the house rule is to assert impossible states rather than branch around them.
+
+So add a read-only helper to `src/lib/agents/run-spine.ts` (already in the edit surface):
+
+```ts
+/**
+ * Read the active Send batch parent for one batch. Returns null when there is
+ * none — which the send lane treats as an impossible state and throws on,
+ * rather than creating a parent the generation lane was supposed to create.
+ */
+export async function findActiveSolicitationSendBatchRun(
+  tx: TxClient,
+  input: { batchId: string; accountId: string; businessId: string },
+): Promise<{ runId: string } | null>;
+```
+
+The lookup is unambiguous: `agent_runs_one_active_per_subject` keys on
+`(kind, subject_type, subject_id)`, so `kind='solicitation_send_batch'` +
+`subject_type='solicitation_batch'` + `subject_id=batchId` + `status='running'` matches at most
+one row. Model it on `findActiveReviewRun` (`run-spine.ts:421`). `dispatchOutreach` throws with
+the batch id in the message when it returns null.
 
 Do **not** emit `solicitation_sent` on a withhold. Do **not** touch `moderation_status` / `moderation_detail` (decision 6).
 
@@ -544,8 +572,20 @@ URL **and** the review link — into the stored bytes **in memory**. Never write
 body back to Postgres. The postal address is already baked in verbatim and is part of the
 byte-match.
 
-Assert both placeholders are gone before calling the adapter. A recipient receiving a literal
-placeholder is a visible defect that no other test in this plan would catch (plan review C4).
+**Both placeholders are already exported constants — import them, never re-spell the literals:**
+
+```ts
+import { UNSUBSCRIBE_URL_PLACEHOLDER, REVIEW_LINK_PLACEHOLDER } from './ask-render';
+// '{{unsubscribe_url}}' and '{{review_link}}' — ask-render.ts:22 and :25.
+// Both are documented there as "Replaced by #630 at dispatch". This ticket is #630.
+```
+
+`ask-render.ts` is read-only for this ticket: importing requires no edit, so no surface
+amendment is needed.
+
+Assert both placeholders are gone from every body field before calling the adapter. A recipient
+receiving a literal `{{review_link}}` is a visible defect that no other test in this plan would
+catch (plan review C4).
 
 **Logging:** every log line that references the token uses `unsubscribeTokenLogPrefix`
 (`src/lib/solicitation/unsubscribe.ts:293`), never the raw token. Never log the recipient
