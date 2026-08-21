@@ -1011,11 +1011,8 @@ Revisit triggers:
   stand on (#898; wayfinder map #617, child of #630; plan
   `docs/superpowers/plans/2026-08-19-solicitation-send-governors.md` Task 2;
   specs `…-sender-deliverability-design.md` §3.2A/§3.2B/§4 and
-  `…-send-mode-cross-spec-amendments.md` B3/B6). **LOCAL-ONLY** — applied only
-  to the rebuildable local test container; staging and production application
-  rides step 8 of the feature workflow, and this marker is replaced by the
-  **Applied to STAGING … / PRODUCTION …** sentences at promotion. **Three
-  additive changes, no data change.**
+  `…-send-mode-cross-spec-amendments.md` B3/B6). **Three additive changes, no
+  data change.**
   **(a) Dispatch-gate withhold vocabulary.**
   `solicitation_outreach_status_reason_consistency` is DROP-then-ADD'd under its
   091 name with 109's predicate verbatim plus `'no_postal_address',
@@ -1097,6 +1094,24 @@ Revisit triggers:
   `'no_postal_address'` and `'postal_address_mismatch'`, once each, in the
   `withheld` arm; plus `to_regclass('public.solicitation_send_breaker')` and
   `solicitation_send_breaker_one_open` in `pg_indexes`.
+  **Applied to STAGING 2026-08-21** (`kubdiqdhqbhwmqfditeg`, via the Supabase
+  MCP `execute_sql`, the file's own single `BEGIN`/`COMMIT`, no error). Verified
+  by introspection, never by the migration ledger: the `withheld` arm carries
+  `no_postal_address` and `postal_address_mismatch` **once each**; the other four
+  arms, the member order within them and the outer `IS TRUE` wrapper are
+  byte-for-byte 109's; `to_regclass('public.solicitation_send_breaker')` resolves
+  and the table holds **0** rows; `bounce_kind` is `text`; both
+  `idx_solicitation_outreach_sent_at` and `solicitation_send_breaker_one_open`
+  are present; RLS is enabled with **0** policies (deny-all); all four new CHECKs
+  exist. `md5(pg_get_constraintdef(oid))` = `3e644c28c60a3d6135ed3eea7acee224`,
+  matching the local test DB at head byte-for-byte. Pre-flight showed staging at
+  109 — `owner_withdrawn` present, `no_postal_address` absent,
+  `solicitation_send_breaker` and `bounce_kind` absent — so the widening was a
+  no-op for existing data, exactly as the no-backfill proof predicts.
+  **PRODUCTION — NOT YET APPLIED.** It rides the #898 promotion to `main`, in the
+  same change window as that merge. This is a **pending lockstep**, not a
+  standing exception: prod sits one migration behind staging only until that
+  window closes, and the only sanctioned standing exception remains 078.
 
 - **109** — `outreach_owner_withdrawn_disposition`: adds `owner_withdrawn` to
   `solicitation_outreach`'s **cancel** disposition set for post-approval **Ask
