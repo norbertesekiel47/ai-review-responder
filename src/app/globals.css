@@ -47,6 +47,17 @@
      utilities belong to the Island block too. */
   --color-rw-red-600: var(--rw-red-600);
   --color-rw-red-700: var(--rw-red-700);
+  /* Daylight Gallery II (2026-08 marketing rebrand) */
+  --color-rw-ink2: var(--rw-ink2);
+  --color-rw-bone: var(--rw-bone);
+  --color-rw-paper: var(--rw-paper);
+  --color-rw-forest: var(--rw-forest);
+  --color-rw-forest-ink: var(--rw-forest-ink);
+  --color-rw-sage-bar: var(--rw-sage-bar);
+  --color-rw-teal-bar: var(--rw-teal-bar);
+  --color-rw-mist-bar: var(--rw-mist-bar);
+  --color-rw-blush-bar: var(--rw-blush-bar);
+  --color-rw-gold-bar: var(--rw-gold-bar);
 }
 
 /* ========================================================================
@@ -118,6 +129,30 @@
      the AA body-text error) — these are error-glyph reds only. */
   --rw-red-600: #DC2626;
   --rw-red-700: #B91C1C;
+
+  /* ---------- Daylight Gallery II (2026-08 marketing rebrand) ----------
+     The approved palette for the three marketing pages + the shared
+     SiteNav/SiteFooter chrome (docs/design/daylight-ii/system-amendments.md).
+     ADDED beside the legacy teal family, never repointed over it — auth,
+     approve, admin, legal, and help keep their teal page CSS (ADR 0004 still
+     applies there). Ink2 is text, hairlines, the dark CTA surface, and the
+     Judge bar; forest is the ONLY action colour (button fills, arrow discs,
+     live/verdict dots); the five bar accents appear only as 4–10px bars and
+     small dots, never as text or broad fills. Stars are ink2. */
+  --rw-ink2: #15191a;                    /* Daylight ink — text, hairline base, dark surface */
+  --rw-ink2-soft: rgba(21, 25, 26, 0.74); /* secondary text on bone/paper */
+  --rw-ink2-mute: rgba(21, 25, 26, 0.62); /* captions, labels, meta text */
+  --rw-line: rgba(21, 25, 26, 0.12);      /* hairline */
+  --rw-line-2: rgba(21, 25, 26, 0.22);    /* stronger hairline (outlines, quotes) */
+  --rw-bone: #f6f6f2;                     /* island canvas */
+  --rw-paper: #ffffff;                    /* cards on bone */
+  --rw-forest: #2e5b4f;                   /* the single ACTION colour */
+  --rw-forest-ink: #24483f;               /* forest hover */
+  --rw-sage-bar: #8fb99b;                 /* bar accent — Watch / Copilot */
+  --rw-teal-bar: #6f9d8f;                 /* bar accent — Post */
+  --rw-mist-bar: #8fb1e6;                     /* bar accent — Draft */
+  --rw-blush-bar: #eca396;                    /* bar accent — Triage */
+  --rw-gold-bar: #dcb94a;                     /* bar accent — Gate / Autopilot */
   --rw-font-display: var(--font-plus-jakarta), 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --rw-font-body: var(--font-dm-sans), 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --rw-font-serif: var(--font-fraunces), 'Fraunces', ui-serif, Georgia, serif;

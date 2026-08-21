@@ -40,11 +40,19 @@ describe('SiteFooter', () => {
     expect(html).toContain('href="/help/contact"');
   });
 
-  it('uses the accessible-contrast text token for footer links (ADR 0004)', () => {
+  it('renders the Daylight chrome layout: brand + blurb + hairline copyright row', () => {
     const html = renderToStaticMarkup(createElement(SiteFooter));
 
-    expect(html).toContain('text-rw-teal-strong');
-    // boundary match: text-rw-teal-strong contains "text-rw-teal".
-    expect(html).not.toMatch(/text-rw-teal(?![-\w])/);
+    expect(html).toContain('rw-foot-dl');
+    expect(html).toContain('rw-foot-brand');
+    expect(html).toContain('with a gate you control');
+    expect(html).toContain('rw-foot-copy');
+  });
+
+  it('uses no legacy teal utilities or raw hex colours', () => {
+    const html = renderToStaticMarkup(createElement(SiteFooter));
+    // Daylight chrome: colour comes from the .rw-foot-dl classes (ink2 tokens
+    // in island.css), never Tailwind teal utilities or literals.
+    expect(html).not.toMatch(/text-rw-teal|bg-rw-teal|#[0-9a-fA-F]{6}/);
   });
 });
