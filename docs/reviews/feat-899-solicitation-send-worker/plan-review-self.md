@@ -67,3 +67,63 @@ codex stall.
 Durable lesson: on this machine, never bound a wait with `timeout` — it silently
 becomes a no-op that returns success-looking output. Use the Bash tool's own
 `timeout` parameter, or a Monitor with an until-loop.
+
+---
+
+## S7 (critical) — the re-lint input cannot be built from the plan as written
+
+**Artifact:** plan Task 3 Step 1.
+
+The plan says "run the lint at the current `ASK_LINT_VERSION` over the stored bytes".
+`lintAsk` does not take bytes. Its input is:
+
+```ts
+interface AskLintInput {
+  subject: string;
+  body: string;                                  // ASSEMBLED, footer included
+  interpolationValues: readonly string[];        // powers the classes 1-4 exemption
+  subjectDisallowedValues: readonly string[];    // caller decides explicitly, fail-closed
+}
+```
+
+Two consequences the plan misses:
+
+1. The two value lists are built by `assembleInterpolation`
+   (`src/lib/solicitation/ask-generation.ts:349`), which is **not exported**.
+2. `assembleInterpolation` builds them from the **live ask row and visit**, not from the
+   stored snapshot. Calling it at dispatch would re-derive against data that may have
+   changed since render, so a re-lint could pass or fail for reasons that have nothing to
+   do with the approved bytes. That breaks the byte-for-byte **Owner approval** contract
+   the whole gate exists to protect.
+
+**Correct shape.** Add a pure mapper that takes the STORED snapshot and returns the two
+lists, and make both callers use it — this is the second use, so the abstraction is earned
+rather than speculative:
+
+```ts
+// src/lib/solicitation/ask-compliance-lint.ts — it already owns AskLintInput
+export function lintInputFromSnapshot(
+  snapshot: AskInterpolationInputs,
+  subject: string,
+  body: string,
+): AskLintInput;
+```
+
+`assembleInterpolation` is refactored to build its two lists through the same mapper, so
+"which stored values feed the lint" keeps exactly one owner. At dispatch the snapshot comes
+from `parseOutreachInterpolationInputs(row.interpolation_inputs, outreachId)`
+(`src/lib/solicitation/outreach.ts:634`) — already a sanctioned PgBouncer JSONB parse site.
+
+**A null snapshot is not a lint pass.** `parseOutreachInterpolationInputs` returns null for
+a never-assembled `render_failed` row and for a redacted row. Both must withhold, never send.
+
+**Missing failing test:** `withholds rather than sending when the stored interpolation snapshot is absent`
+
+### Surface amendment (auto-approved, recorded here)
+
+S7 needs two files added to `allowed_edit_surface`, both inside `src/lib/solicitation/`,
+a tree the surface already covers — so this is auto-approved under the step 2 rule and does
+NOT consume the abort budget's amendment allowance:
+
+- `src/lib/solicitation/ask-compliance-lint.ts` (new exported mapper)
+- `src/lib/solicitation/ask-generation.ts` (refactor its two lists through the mapper)
