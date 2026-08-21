@@ -23,16 +23,29 @@
 
 ---
 
-## The eight locked decisions (do not re-litigate)
+## The nine locked decisions (do not re-litigate)
 
 1. `QUEUE_NAMES.SOLICITATION_SEND` lands here. `enqueueSolicitationSend` does **not** — it ships with its producer in #900 (amendment B10).
 2. Resend's per-team 10 req/s pacing is **#900's**. #899 only classifies a 429 as retryable.
 3. Re-lint and re-moderation run **before `tx1` opens**, over the immutable stored bytes. Their verdicts are applied at gate slots 8 and 9 inside `tx1`.
-4. A retry that finds the row already `sending` **resumes** — no re-gate, same idempotency key.
+4. A retry that finds the row already `sending` **never re-gates**. See decision 9 for what it may and may not do.
 5. `SOLICITATION_SEND_ENABLED` off mid-drip ⇒ **defer**: leave the row `queued`, complete the outbox row, do not throw, do not terminalize.
 6. The dispatch moderation verdict **never overwrites** `moderation_status` / `moderation_detail` (render provenance, amendment B1).
 7. The **Lazy child** run is created **here**, inside `tx1`.
-8. Child terminal status follows what happened: `completed` (withheld or sent) / `cancelled` (halted) / `failed` (hard bounce or exhaustion).
+8. Child terminal status follows what happened: `completed` (withheld or sent) / `cancelled` (halted) / `failed` (hard bounce, `terminal_other`, or exhaustion).
+9. **Retry lives INSIDE one handler invocation, never across a process boundary.** The raw
+   unsubscribe token exists only in memory (invariant #5), so a fresh process cannot rebuild
+   the same unsubscribe URL. Therefore:
+   - Retryable provider failures are retried **in process**, with bounded jittered backoff,
+     while the raw token is still in scope. This is also CLAUDE.md's standing rule for every
+     outbound provider call.
+   - If the handler dies and BullMQ re-invokes, the raw token is gone. The worker **must not
+     re-send**. It completes the outbox row, leaves the Outreach row `sending`, and lets
+     #900's D12d sweep terminalize it `unknown` / `send_indeterminate` after
+     `UNKNOWN_GRACE_MINUTES`.
+   - Cost accepted and stated: a process crash mid-send loses that one contact to `unknown`.
+     That is precisely the state D12d created for "we do not know whether this was sent", and
+     it is the only answer that neither lies nor persists raw token material.
 
 ---
 
@@ -44,6 +57,8 @@
 | `src/lib/shared/worker-types.ts` | Add `SolicitationSendPayload extends BasePayload`. | modify |
 | `src/lib/agents/run-spine.ts` | Add two `STEP_PERSONA` entries: `dispatch_gate_evaluated`, `ask_sent`, both persona `solicitation`. | modify |
 | `src/lib/solicitation/send-retry.ts` | **Pure.** `classifySendFailure(err) => SendFailureClass`. D12c's table, one owner. | **create** |
+| `src/lib/solicitation/ask-compliance-lint.ts` | Add the pure `lintInputFromSnapshot` mapper — the single owner of which stored values feed the lint (plan review S7). | modify |
+| `src/lib/solicitation/ask-generation.ts` | Refactor `assembleInterpolation`'s two value lists through that mapper, so generation and dispatch cannot diverge. | modify |
 | `src/lib/solicitation/dispatch.ts` | The deep module. Exports `dispatchOutreach` (orchestrator) and `applyDispatchGate` (pure verdict). | **create** |
 | `worker/jobs/solicitation-send.ts` | Composition root. Extract outbox handle, call one domain function. | **create** |
 | `worker/jobs/solicitation-send/failed-hook.ts` | `'failed'` exhaustion hook: `failed` / `send_exhausted` + `closeBatchIfSettled`. | **create** |
@@ -53,7 +68,7 @@
 | `CONTEXT.md` | Retire "no writer yet" (**Dispatch gate**) and "zero production callers" (**Messaging adapter**). | modify |
 | `docs/superpowers/specs/…-cross-spec-amendments.md` | Record the four implementation decisions that refine B6/B4. | modify |
 
-**No new file beyond those four.** `src/lib/solicitation/outreach.ts` was considered for `dispatchOutreach` and rejected: it owns the *render* lifecycle, and `ask-generation.ts` is the precedent for one module per lane.
+**No new file beyond those four.** `src/lib/solicitation/outreach.ts` was considered for `dispatchOutreach` and rejected: it owns the *render* lifecycle, and `ask-generation.ts` is the precedent for one module per lane. `lintInputFromSnapshot` was considered as a new file and rejected: `ask-compliance-lint.ts` already owns `AskLintInput`, so the function that builds one belongs there.
 
 ---
 
@@ -192,6 +207,25 @@ Distribute them:
 `solicitation-send-failed-hook.test.ts`:
 23. `writes failed with send_exhausted on the terminal attempt and calls closeBatchIfSettled`
 
+**Seven more, added by the round-2/3 plan review** (`docs/reviews/feat-899-solicitation-send-worker/plan-review-self.md`). These are a `tests_to_add` EXTENSION, recorded as an owner-approved deviations entry — not an `allowed_edit_surface` amendment, so they do not consume the abort budget:
+
+`dispatch.integration.test.ts`:
+24. `does not call the Messaging adapter when re-invoked in a fresh process without the raw token`
+25. `ignores a stale outbox attempt and does not call the Messaging adapter`
+26. `closes the batch once the last Outreach row terminalizes across a mixed sent, withheld and failed set`
+27. `completes the outbox attempt when deferring on a flag-off so the watchdog does not re-pend it`
+28. `does not cancel an in-flight sending child when a halt lands after the CAS`
+29. `withholds rather than sending when the stored interpolation snapshot is absent`
+30. `terminalizes a terminal_other provider error without retrying or leaving the Outreach row sending`
+
+`dispatch.test.ts`:
+31. `never logs the raw unsubscribe token or the recipient handle`
+32. `retries a retryable provider failure in process with the same idempotency key and the same body`
+33. `substitutes the review-link placeholder only in the outbound message and never sends the stored placeholder`
+
+`solicitation-send-failed-hook.test.ts`:
+34. `does not terminalize, fail the child, or complete the outbox before the final BullMQ attempt`
+
 - [ ] **Step 2: Run the suites and confirm every non-`todo` test FAILS**
 
 Run: `cd <worktree> && pnpm vitest run src/lib/solicitation/__tests__/dispatch-gate.test.ts src/lib/solicitation/__tests__/send-retry.test.ts`
@@ -324,9 +358,35 @@ git commit -am "feat(899): register solicitation_send topic + worker; pure Dispa
 
 **Files:** Modify `src/lib/solicitation/dispatch.ts`; convert tests 3, 4, 5, 6, 10.
 
-- [ ] **Step 1: Open `tx1` and lock the batch row**
+- [ ] **Step 1: Open `tx1` in the exact precedent order**
 
-Follow `latchHalt` in `src/lib/solicitation/approval.ts` for the lock → CAS → cascade order. `SELECT … FOR UPDATE` is a **no-op outside `sql.begin()`** under PgBouncer — the whole of `tx1` must sit inside one `sql.begin(async (tx) => { … })`.
+`SELECT … FOR UPDATE` is a **no-op outside `sql.begin()`** under PgBouncer — the whole of `tx1` must sit inside one `sql.begin(async (tx) => { … })`.
+
+Four statements, in this order, copied from `src/lib/solicitation/ask-generation.ts:988-1010`:
+
+```ts
+// 1. Stale-attempt guard FIRST. Without it, attempt N-1's job can arrive after
+//    attempt N was dispatched and BOTH reach the provider. (plan review S2)
+const owns = await lockDispatchedOutboxAttemptIfOwned(tx, outboxId, attempt);
+if (!owns) { logger.warn('solicitation send: stale outbox attempt — nothing done', {...}); return; }
+
+// 2. Per-business advisory lock.
+await acquireSolicitationBatchLock(tx, input.businessId);
+
+// 3. Batch lifecycle row, locked.
+const [batchRow] = await tx<BatchLifecycleRow[]>`
+  SELECT built_at, approved_at, veto_deadline_at,
+         sending_started_at, send_closed_at, halted_at
+  FROM solicitation_batches
+  WHERE id = ${input.batchId}::uuid AND business_id = ${input.businessId}::uuid
+  FOR UPDATE
+`;
+
+// 4. batchOpen comes from the domain function, never a hand-rolled window check.
+const state = deriveBatchState(batchRow, new Date());
+```
+
+`attempt` is required: mirror `ask-generation.ts:789`'s `requireAttempt` and throw when the payload carries no `outbox_attempt`, rather than silently taking the unguarded path.
 
 - [ ] **Step 2: Gather `FastGateEvidence`**
 
@@ -365,10 +425,47 @@ git commit -am "feat(899): tx1 fast Dispatch gate evidence, consent snapshot sta
 
 **Files:** Modify `src/lib/solicitation/dispatch.ts`; convert tests 7, 8, 19, 20.
 
+- [ ] **Step 0: Extract the lint-input mapper (blocking prerequisite — plan review S7)**
+
+`lintAsk` (`src/lib/solicitation/ask-compliance-lint.ts:726`) does NOT take bytes. Its input is:
+
+```ts
+interface AskLintInput {
+  subject: string;
+  body: string;                                // ASSEMBLED, footer included
+  interpolationValues: readonly string[];      // classes 1-4 exemption corpus
+  subjectDisallowedValues: readonly string[];  // caller decides explicitly, fail-closed
+}
+```
+
+Today those two lists are built by `assembleInterpolation` (`ask-generation.ts:349`), which is
+**not exported** and builds them from the **live** ask row and visit. Calling it at dispatch
+would re-derive against data that may have changed since render, breaking the byte-for-byte
+**Owner approval** contract this gate exists to protect.
+
+Add a pure mapper to `ask-compliance-lint.ts` — it already owns `AskLintInput`, so it should
+own the function that builds one:
+
+```ts
+export function lintInputFromSnapshot(
+  snapshot: AskInterpolationInputs,
+  subject: string,
+  body: string,
+): AskLintInput;
+```
+
+Then refactor `assembleInterpolation` to build its two lists through the same mapper, so
+"which stored values feed the lint" keeps exactly one owner. This is the second use, so the
+abstraction is earned, not speculative.
+
 - [ ] **Step 1: Gather `SlowGateEvidence` with no lock held**
 
-Before `sql.begin`, read the stored subject and body, then:
-- `lintPassed`: run the lint at the current `ASK_LINT_VERSION` (`src/lib/solicitation/ask-compliance-lint.ts`) over the **stored bytes**.
+Before `sql.begin`, read the stored subject, body and `interpolation_inputs`, then:
+- Snapshot: `parseOutreachInterpolationInputs(row.interpolation_inputs, outreachId)`
+  (`src/lib/solicitation/outreach.ts:634` — an already-sanctioned PgBouncer JSONB parse site).
+  **A null snapshot is not a lint pass.** It means a never-assembled `render_failed` row or a
+  redacted row. Both withhold; neither ever sends.
+- `lintPassed`: `lintAsk(lintInputFromSnapshot(snapshot, subject, body)).blockedReason === null`.
 - `moderationClean`: `moderateResponse(`${subject}\n${body}`)` from `src/lib/moderation/moderate.ts`.
 
 **Fail-CLOSED here**, unlike generation. `moderationClean` is true only when the provider returned a clean verdict. `OPENAI_MODERATION_ENABLED=false` and a provider error are **both** false (#623 §3.4 — "a clean provider moderation verdict is a DISPATCH precondition, not a GENERATION precondition").
@@ -403,13 +500,35 @@ Use `mintUnsubscribeRawToken()` and `hashUnsubscribeToken()` from `src/lib/solic
 
 **Idempotent on `outreach_id`.** `ON CONFLICT` must match `solicitation_unsubscribe_tokens_outreach_uniq` **BYTE-FOR-BYTE** or Postgres will not infer the constraint. On conflict the existing row wins.
 
-- [ ] **Step 2: Handle the retry re-use path**
+- [ ] **Step 2: Handle the conflict path honestly (decision 9)**
 
-A retry re-enters with the token row already present. The raw token is **not recoverable** from the hash, so the mint must return the raw token only on first insert. On conflict, the row is already `sending` and Task 6's resume path owns it — the resume path re-issues to the provider with the same idempotency key and the provider returns the ORIGINAL message, so the body never needs re-substituting. Document this in the module comment; it is the whole reason B4 calls the mint "idempotent on `outreach_id`".
+A retry re-enters with the token row already present, and the raw token is **not recoverable
+from the hash**. The mint therefore returns the raw token only on first insert, and on
+conflict it returns nothing.
 
-- [ ] **Step 3: Substitute in memory only**
+This is the whole reason decision 9 exists. A conflict means we are in a fresh process after
+a crash: the worker **must not** re-send. It completes the outbox row, leaves the Outreach row
+`sending`, and lets #900's D12d sweep terminalize it `unknown`. Do NOT re-issue to the
+provider hoping idempotency saves you — if the original request never reached Resend, the
+retry's body is what gets sent, and it would carry no working unsubscribe URL.
 
-Build the `OutboundMessage` (`src/lib/messaging/messaging-adapter.ts:24-47` — every field required) by substituting the raw unsubscribe URL and the review-link placeholder into the stored bytes **in memory**. Never write the substituted body back to Postgres. The postal address is already baked in verbatim and is part of the byte-match.
+Document this in the module comment. B4's "idempotent on `outreach_id`" guarantees the token
+row is never duplicated; it does **not** guarantee a recoverable body.
+
+- [ ] **Step 3: Substitute BOTH placeholders in memory only**
+
+Build the `OutboundMessage` (`src/lib/messaging/messaging-adapter.ts:24-47` — every field
+required) by substituting **both** deterministic placeholders named by B4 — the unsubscribe
+URL **and** the review link — into the stored bytes **in memory**. Never write the substituted
+body back to Postgres. The postal address is already baked in verbatim and is part of the
+byte-match.
+
+Assert both placeholders are gone before calling the adapter. A recipient receiving a literal
+placeholder is a visible defect that no other test in this plan would catch (plan review C4).
+
+**Logging:** every log line that references the token uses `unsubscribeTokenLogPrefix`
+(`src/lib/solicitation/unsubscribe.ts:293`), never the raw token. Never log the recipient
+handle, the subject or the body.
 
 - [ ] **Step 4: Turn tests 11, 12, 13 green**
 
@@ -483,19 +602,31 @@ On success: stamp `provider_message_id` and `sent_at`. A `sent` row with NULL `p
 
 On `terminal_bounce`: `delivery_status='failed'`, `disposition_reason='send_failed'`, stamp `bounced_at`, child `failed`, **no** `solicitation_sent` outcome, and still call `closeBatchIfSettled`.
 
-On `retryable`: rethrow so BullMQ retries. Leave the row `sending`. Do not complete the outbox row.
+On `terminal_other` (plan review C2 — the third class the first draft left unhandled): `delivery_status='failed'`, `disposition_reason='send_failed'`, **no** `bounced_at` (nothing bounced), child `failed`, no `solicitation_sent` outcome, and `closeBatchIfSettled` still called. Never retried, never left `sending`. A class with no arm is how rows get stranded.
+
+On `retryable`: retry **in process** (Step 4). Only when the in-process budget is exhausted does this terminalize the same way `terminal_other` does.
 
 Use `recordOutcome` (`run-spine.ts:531`) — its `ON CONFLICT (agent_run_id, outcome_kind)` makes a post-commit retry safe.
 
-- [ ] **Step 4: Resume path (decision 4)**
+- [ ] **Step 4: In-process retry, and the no-resend resume path (decision 9)**
 
-At the very top of `dispatchOutreach`, before gathering slow evidence: if the Outreach row is already `sending`, **skip the Dispatch gate entirely**, rebuild the message, re-issue the provider call with the same idempotency key, and run `tx2`. Re-gating a `sending` row could record `withheld` for a message that already reached a real person — the same lie-with-teeth argument D12d makes for `unknown`.
+Two distinct paths. Conflating them is the bug this step exists to prevent.
+
+**(a) In-process retry.** Wrap the `adapter.send()` call in bounded jittered backoff while the raw token is still in scope — CLAUDE.md's standing rule for every outbound provider call. Every attempt carries the same idempotency key and the **same body**. This is where a 5xx, a timeout or a Resend per-team 429 is absorbed.
+
+**(b) Fresh-process re-invocation.** At the very top of `dispatchOutreach`: if the Outreach row is already `sending`, **skip the Dispatch gate entirely** AND **do not call the adapter**. The raw token is unrecoverable, so no correct message can be built. Complete the outbox row, log with `unsubscribeTokenLogPrefix`, and return. #900's D12d sweep terminalizes the row `unknown` after `UNKNOWN_GRACE_MINUTES`.
+
+Do NOT re-issue to the provider hoping idempotency saves you: if the original request never reached Resend, the retry's body is what gets sent, and it would carry no working unsubscribe URL.
+
+Re-gating is forbidden in both paths. Recording `withheld` for a message that may already have reached a real person is the lie-with-teeth argument D12d makes for `unknown`.
 
 Residual exposure, accepted and stated: a halt landing mid-retry does not stop this one child. That is D10's contract — halt excludes `sending` on purpose.
 
 - [ ] **Step 5: Turn tests 14, 15, 16, 17, 18 green**
 
-Test 16 asserts atomicity by aborting the transaction via `helpers/abort-injection.ts` and confirming that none of the five facts persisted. Do **not** use a temporary constraint — run-time DDL in a live-DB suite deadlocks (40P01) and fails `ci:live-db-suites`.
+Test 16 asserts atomicity by aborting the transaction via `src/lib/shared/__tests__/helpers/abort-injection.ts` (note the path — it is under `shared`, not `solicitation`) and confirming that none of the five facts persisted. Do **not** use a temporary constraint — run-time DDL in a live-DB suite deadlocks (40P01) and fails `ci:live-db-suites`.
+
+Also turn tests 24, 30 and 32 green here: the fresh-process no-send path, the `terminal_other` arm, and the in-process retry.
 
 - [ ] **Step 6: Commit**
 
@@ -519,7 +650,9 @@ Terminality here is the `'failed'`-EVENT predicate `attemptsMade >= max`. It is 
 
 - [ ] **Step 2: Delete the Task 1 stub and import the real hook in `worker/index.ts`**
 
-- [ ] **Step 3: Turn test 23 green, add the `docs/directory.md` row**
+- [ ] **Step 3: Turn tests 23 and 34 green, add the `docs/directory.md` row**
+
+Test 34 is the **negative** case and is the one that actually pins the predicate (plan review C3): on a non-final `'failed'` event the hook must do nothing at all — no terminalization, no child failure, no outbox completion, no `closeBatchIfSettled`. Without it, an implementation can terminalize early, close the batch, and leave a later retry operating against an already-`failed` Outreach row.
 
 - [ ] **Step 4: Commit**
 
@@ -544,7 +677,14 @@ Keep both entries inside their existing shape. `src/__tests__/claude-md-shape.te
 
 - [ ] **Step 2: Record the four refining decisions in the amendments doc**
 
-Add a `B15` section: slow gate items run before `tx1`; a `sending` row resumes without re-gating; a flag-off defers rather than terminalizing; the dispatch moderation verdict does not overwrite render provenance. Cite #899.
+Add a `B15` section recording six #899 implementation decisions:
+
+1. The two slow gate items (re-lint, re-moderation) run **before** `tx1` opens, over the immutable stored bytes. B6's ORDER is unchanged; only the gathering moved.
+2. A `sending` row is never re-gated, and in a fresh process is never re-sent (decision 9). The raw unsubscribe token is unrecoverable, so recovery is D12d's `unknown`, not a second send.
+3. A flag-off **defers** rather than terminalizing — 091/110 deliberately carry no `flag_off` withheld reason.
+4. The dispatch moderation verdict does **not** overwrite `moderation_status` / `moderation_detail`; those stay render provenance per B1.
+5. `lintInputFromSnapshot` is the single owner of "which stored values feed the lint", shared by generation and dispatch.
+6. **B10 clarified, not overridden.** B10 assigns the `QUEUE_NAMES` entry and the typed helper to "#630". That was written before #630 was decomposed into #899 (consumer) and #900 (producer). The constant lands with the **consumer** because a BullMQ worker cannot be registered without its queue name; the helper lands with the **producer**, which is what B10's actual argument protects against. Raised as a conflict by the round-3 review and rejected with this reasoning.
 
 - [ ] **Step 3: Confirm `docs/directory.md` is complete**
 
@@ -569,6 +709,10 @@ Task 0 (eval)
 ```
 
 Tasks 2, 3, 4 and 6 all edit `src/lib/solicitation/dispatch.ts` and are **serial**. Task 5 is the only parallel opportunity — dispatch it alongside Task 2.
+
+Task 3's **Step 0** (the `lintInputFromSnapshot` extraction) is the one part of Task 3 that touches `ask-compliance-lint.ts` and `ask-generation.ts` rather than `dispatch.ts`. It is a blocking prerequisite for the rest of Task 3 and must land as its own commit, so a regression in the shared mapper is bisectable away from the dispatch work.
+
+**Review-round budget is spent.** All three plan-gate rounds were used (`planReviewRounds=3`). The owner's call on finding C1 substitutes for an `APPROVED` verdict. Any further plan-level disagreement goes to the owner, not to another round.
 
 ---
 

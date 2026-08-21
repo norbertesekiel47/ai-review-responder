@@ -68,6 +68,8 @@
   "allowed_edit_surface": [
     "src/lib/solicitation/dispatch.ts",
     "src/lib/solicitation/send-retry.ts",
+    "src/lib/solicitation/ask-compliance-lint.ts",
+    "src/lib/solicitation/ask-generation.ts",
     "src/lib/solicitation/__tests__/**",
     "worker/jobs/solicitation-send.ts",
     "worker/jobs/solicitation-send/**",
@@ -110,7 +112,18 @@
     "classifies a provider 5xx, timeout or rate limit as retryable",
     "property: every provider error maps to exactly one retry class",
     "property: the Dispatch gate never reports a later item before an earlier one has passed",
-    "writes failed with send_exhausted on the terminal attempt and calls closeBatchIfSettled"
+    "writes failed with send_exhausted on the terminal attempt and calls closeBatchIfSettled",
+    "does not call the Messaging adapter when re-invoked in a fresh process without the raw token",
+    "ignores a stale outbox attempt and does not call the Messaging adapter",
+    "closes the batch once the last Outreach row terminalizes across a mixed sent, withheld and failed set",
+    "completes the outbox attempt when deferring on a flag-off so the watchdog does not re-pend it",
+    "does not cancel an in-flight sending child when a halt lands after the CAS",
+    "withholds rather than sending when the stored interpolation snapshot is absent",
+    "terminalizes a terminal_other provider error without retrying or leaving the Outreach row sending",
+    "never logs the raw unsubscribe token or the recipient handle",
+    "retries a retryable provider failure in process with the same idempotency key and the same body",
+    "substitutes the review-link placeholder only in the outbound message and never sends the stored placeholder",
+    "does not terminalize, fail the child, or complete the outbox before the final BullMQ attempt"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "950",
