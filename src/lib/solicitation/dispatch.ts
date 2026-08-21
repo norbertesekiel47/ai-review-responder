@@ -15,11 +15,14 @@
  * five inside tx1 under the batch row lock, which is why the evidence arrives
  * as two records rather than one.
  *
- * TASK 1 SCOPE. This file today implements the tracer only: the ONE case where
- * nothing is sent. A job arrives, `SOLICITATION_SEND_ENABLED` is off, the
- * outbox attempt completes, the row stays `queued` and no message goes out.
- * Tasks 2–7 fill in the fast/slow evidence, the token mint, the provider call
- * and the terminal transaction; every path they own throws a marked TODO here.
+ * TASK 2 SCOPE. Everything up to and including the WITHHOLD path is real: the
+ * flag-off defer, tx1 in its precedent order, the five FAST evidence items, the
+ * consent snapshot, the **Lazy child** and the inline `closeBatchIfSettled`
+ * join. What is still stubbed is the SLOW evidence (Task 3 — `lintPassed` and
+ * `moderationClean` are hard `true` here), the unsubscribe token mint (Task 4)
+ * and everything downstream of a PASSING gate (Task 6), which throws a marked
+ * TODO from inside tx1 so a path this file does not own yet cannot commit a
+ * half-dispatched row.
  *
  * Outbox contract: a defer is a SUCCESS, never a stranded `dispatched` row —
  * `completeOutboxNoop` mirrors `ask-generation.ts`'s helper of the same name.
@@ -37,10 +40,31 @@
  * (the tenant proof — a bare row UUID proves nothing).
  */
 
-import type { Sql } from 'postgres';
-import { markOutboxCompletedIfOwned } from '@/lib/shared/outbox';
+import type { Sql, TransactionSql } from 'postgres';
+import {
+  lockDispatchedOutboxAttemptIfOwned,
+  markOutboxCompletedIfOwned,
+} from '@/lib/shared/outbox';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import {
+  completeRun,
+  findActiveSolicitationSendBatchRun,
+  recordStep,
+  startOrGetSolicitationAskRun,
+} from '@/lib/agents/run-spine';
 import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
+import { acquireSolicitationBatchLock } from './batch-builder';
+import { normalizeEmail } from './handles';
+import {
+  BATCH_SEND_WINDOW_HOURS,
+  closeBatchIfSettled,
+  deriveBatchState,
+  type BatchLifecycleRow,
+  type BatchState,
+} from './outreach';
+import { readPostalAddressState } from './postal-address';
+import { suppressionMatchSql, type SuppressionChannel } from './suppression';
 // Type-only, and deliberately not a third declaration of the same two fields:
 // `ask-generation.ts` already owns `extractOutboxHandle`'s result shape for
 // this folder. A domain module that spends its own outbox attempt needs the
@@ -156,10 +180,109 @@ export interface DispatchOutreachInput {
   correlationId: string;
 }
 
-/** Only what the tracer reads. Tasks 2–6 widen this projection as their gates
- *  and their CAS need more; a column nobody reads is a column nobody maintains. */
+/**
+ * The ids every query in this lane is scoped by.
+ *
+ * `accountId` is RESOLVED from the Outreach row rather than carried in the
+ * queue payload: `solicitation_outreach_business_account_fk` binds
+ * (business_id, account_id) to `businesses`, so the row's account cannot drift
+ * from its location's, while a payload-supplied account id would be an
+ * unverified claim from a producer this module does not own.
+ */
+interface DispatchScope {
+  accountId: string;
+  businessId: string;
+  batchId: string;
+  outreachId: string;
+}
+
+/** What the pre-tx read resolves: the tenant anchor, and the status the two
+ *  cheap short-circuits above tx1 need. */
 interface OutreachDispatchRow {
+  account_id: string;
   delivery_status: string;
+}
+
+/** What tx1 re-reads under `FOR UPDATE`. Tasks 4 and 6 widen it (the rendered
+ *  subject, `attempt_no`); a column nobody reads is a column nobody maintains. */
+interface LockedOutreachRow {
+  ask_id: string;
+  contact_id: string;
+  delivery_status: string;
+  rendered_body: string | null;
+}
+
+interface ContactHandleRow {
+  email: string | null;
+}
+
+interface SuppressionMatchRow {
+  scope: string;
+  source: string;
+}
+
+interface ConsentRow {
+  id: string;
+  basis: string;
+  attestation_version: string;
+}
+
+/**
+ * The one channel this lane dispatches on, shared by the Suppression ledger
+ * lookup and the Consent ledger lookup so the two dimensions cannot drift
+ * apart — the exact argument `suppressionMatchSql` makes for taking `channel`
+ * as a parameter. `solicitation_outreach.channel` carries the same CHECK.
+ */
+const DISPATCH_CHANNEL: SuppressionChannel = 'email';
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+
+/**
+ * The two **Send batch parent** states under which a child dispatch may
+ * proceed. `veto_window` is deliberately absent — releasing inside the owner's
+ * veto window is what that window exists to prevent — and so are `halted`,
+ * `closed`, `expired`, `built` and `pending`, which belong to the **Halt
+ * latch**, the closure CAS and the approval lane respectively.
+ */
+const SEND_OPEN_BATCH_STATES: readonly BatchState[] = ['approved', 'sending'];
+
+/**
+ * Gate item 1, `batch_open`, from two domain owners and no hand-rolled clock
+ * arithmetic of its own: `deriveBatchState` owns the halted/closed/veto
+ * precedence, and `BATCH_SEND_WINDOW_HOURS` owns the send-window edge.
+ *
+ * The window is a separate question from the state on purpose.
+ * `deriveBatchState` answers "what does the owner see", and a batch past its
+ * send window still reads `sending` on their screen until a writer
+ * terminalizes its rows — so a state check alone would let a stale drip send
+ * on day four.
+ */
+function isBatchOpenForSend(row: BatchLifecycleRow, now: Date): boolean {
+  if (!SEND_OPEN_BATCH_STATES.includes(deriveBatchState(row, now))) return false;
+  // Both open states imply approval; this narrows the type rather than doubting
+  // the invariant.
+  if (row.approved_at === null) return false;
+  return now.getTime() < row.approved_at.getTime() + BATCH_SEND_WINDOW_HOURS * MS_PER_HOUR;
+}
+
+/**
+ * Gate item 6's byte-match — a containment test against the STORED bytes,
+ * never a re-render.
+ *
+ * `assembleAskBody` bakes `footer.postalAddress` in VERBATIM as its own line
+ * between the sender-identification line and the unsubscribe line, and refuses
+ * to assemble at all without one. So the whole check is "does that line still
+ * say what the column says", and re-running the assembler at dispatch would
+ * replace the artifact the owner approved with a fresh derivation of it.
+ *
+ * The needle is `\n<address>\n` rather than a split-and-compare so a multi-line
+ * address matches as the multi-line block it was baked in as. The address is
+ * NOT trimmed for the comparison: `assembleAskBody` did not trim it either, and
+ * trimming here would report a match for bytes that differ.
+ */
+function storedBodyCarriesPostalAddress(body: string | null, address: string): boolean {
+  if (body === null) return false;
+  return body.includes(`\n${address}\n`);
 }
 
 function requireAttempt(handle: OutboxHandle, door: string): number {
@@ -189,7 +312,7 @@ async function loadOutreachRow(
   input: DispatchOutreachInput,
 ): Promise<OutreachDispatchRow | undefined> {
   const [row] = await sql<OutreachDispatchRow[]>`
-    SELECT delivery_status
+    SELECT account_id, delivery_status
     FROM solicitation_outreach
     WHERE id = ${input.outreachId}::uuid
       AND business_id = ${input.businessId}::uuid
@@ -199,11 +322,401 @@ async function loadOutreachRow(
 }
 
 /**
- * The dispatch orchestrator. TASK 1 implements the flag-off arm only.
+ * The recipient's **Normalized handle**, or null when there is none to look up.
  *
- * The row read comes first so the deferral is logged against a real, in-scope
- * row rather than against a payload nobody has checked — and a payload naming
- * a row of another tenant resolves to nothing here, never to a send.
+ * `solicitation_contacts.email` already stores `normalizeEmail`'s output (#535
+ * §1.1) — the batch builder's plain-equality consent join is the standing proof
+ * — so re-running it is idempotent, and it closes the one case a stored value
+ * cannot: a row written before the normalizer covered it.
+ *
+ * A null handle makes BOTH ledger lookups return nothing. That reads as
+ * suppression failing open, and it is not: with no handle there is also no
+ * consent row, and `consent` is a terminal gate item, so the attempt is
+ * withheld `no_consent` — the accurate reason, since a handle that does not
+ * exist cannot have opted out.
+ */
+async function readContactHandle(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  contactId: string,
+): Promise<string | null> {
+  const [row] = await tx<ContactHandleRow[]>`
+    SELECT email
+    FROM solicitation_contacts
+    WHERE id = ${contactId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+  `;
+  if (!row || row.email === null) return null;
+  return normalizeEmail(row.email);
+}
+
+/**
+ * Gate item 4. The §1.2 predicate has ONE owner (`suppressionMatchSql`) and
+ * this is not it — the fragment is composed, never re-spelled.
+ *
+ * The fragment's `handleColumn` parameter names a column in an OUTER query at
+ * its other call site (the batch builder's LATERAL over `c.email`). Here there
+ * is no outer row to name, so it receives a value fragment and the whole
+ * lookup is wrapped as a subquery: that keeps the result set TYPED at this
+ * seam instead of arriving as the library's open `Row` shape.
+ *
+ * `scope` is selected but never surfaced — it is read so the shape matches the
+ * fragment's contract; §7.4 forbids exposing which scope matched to an owner.
+ */
+async function readSuppressionMatch(
+  tx: TransactionSql,
+  accountId: string,
+  handle: string,
+): Promise<SuppressionMatchRow | null> {
+  const [match] = await tx<SuppressionMatchRow[]>`
+    SELECT suppression.scope, suppression.source
+    FROM (
+      ${suppressionMatchSql(tx, tx`${handle}`, accountId, DISPATCH_CHANNEL)}
+    ) AS suppression
+  `;
+  return match ?? null;
+}
+
+/**
+ * Gate item 5's evidence — the ledger ROW, not a verdict. Whether its
+ * attestation version authorizes a send is `applyDispatchGate`'s membership
+ * test against `SEND_ELIGIBLE_ATTESTATION_VERSIONS`, never a "not v1" test
+ * here.
+ *
+ * `solicitation_consent` is keyed (channel, normalized_handle, business_id) and
+ * carries no account column: the location is the tenant scope (invariant #8),
+ * and it sits inside `scope.accountId` by the same composite FK that resolves
+ * it.
+ */
+async function readConsentRow(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  handle: string,
+): Promise<FastGateEvidence['consent']> {
+  const [row] = await tx<ConsentRow[]>`
+    SELECT id, basis, attestation_version
+    FROM solicitation_consent
+    WHERE channel = ${DISPATCH_CHANNEL}
+      AND normalized_handle = ${handle}
+      AND business_id = ${scope.businessId}::uuid
+  `;
+  if (!row) return null;
+  return {
+    rowId: row.id,
+    basis: row.basis,
+    attestationVersion: row.attestation_version,
+  };
+}
+
+/**
+ * The five FAST items, gathered inside tx1 under the batch row lock.
+ *
+ * Returns the matched suppression row alongside the evidence because the
+ * analytics event the withhold path owes carries its `source`, and re-reading
+ * the ledger after the verdict would be a second, racier answer to a question
+ * already asked under the lock.
+ */
+async function gatherFastGateEvidence(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  batch: BatchLifecycleRow,
+  outreach: LockedOutreachRow,
+  now: Date,
+): Promise<{ evidence: FastGateEvidence; suppression: SuppressionMatchRow | null }> {
+  const handle = await readContactHandle(tx, scope, outreach.contact_id);
+  const suppression = handle === null
+    ? null
+    : await readSuppressionMatch(tx, scope.accountId, handle);
+  const consent = handle === null ? null : await readConsentRow(tx, scope, handle);
+
+  // Account-scoped: a business outside this account returns null, never a row.
+  // Migration 099's all-or-nothing CHECK is why nothing branches on "is this
+  // attested" — a stored address always carries its complete attestation.
+  const postal = await readPostalAddressState(tx, {
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+  const stored = postal?.address ?? null;
+  const attestedAddress = stored !== null && stored.trim().length > 0 ? stored : null;
+
+  return {
+    suppression,
+    evidence: {
+      batchOpen: isBatchOpenForSend(batch, now),
+      sendFlagOn: solicitationSendEnabled(),
+      suppressed: suppression !== null,
+      consent,
+      postalAddressPresent: attestedAddress !== null,
+      postalAddressMatches: attestedAddress !== null
+        && storedBodyCarriesPostalAddress(outreach.rendered_body, attestedAddress),
+    },
+  };
+}
+
+/**
+ * Migration 091 comments `consent_basis` / `consent_attestation_version` /
+ * `consent_row_id` as "consent snapshot, stamped at dispatch by #630 (nullable
+ * until then)". THIS is that writer.
+ *
+ * Written for every attempt that reaches tx1, including one the gate then
+ * withholds: the snapshot answers "what did the Consent ledger say when this
+ * attempt was evaluated", and a withheld attempt is an evaluation. Writing the
+ * NULL triple when there is no consent row records the same fact.
+ */
+async function stampConsentSnapshot(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  consent: FastGateEvidence['consent'],
+): Promise<void> {
+  await tx`
+    UPDATE solicitation_outreach
+    SET consent_basis = ${consent?.basis ?? null},
+        consent_attestation_version = ${consent?.attestationVersion ?? null},
+        consent_row_id = ${consent?.rowId ?? null}::uuid,
+        updated_at = NOW()
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+  `;
+}
+
+interface WithholdCommitInput {
+  askId: string;
+  item: DispatchGateItem;
+  reason: OutreachWithheldReason;
+  suppression: SuppressionMatchRow | null;
+  outboxId: string;
+  attempt: number;
+}
+
+/**
+ * The whole withhold, in the caller's tx1: terminal row, **Lazy child**,
+ * receipt step, the suppression signal, the child's terminal, the outbox
+ * completion and the inline `closeBatchIfSettled` join.
+ *
+ * The child is created HERE (locked decision 7) — the spine records work
+ * performed, never work planned — and terminalizes `completed` (decision 8): a
+ * correct refusal is completed work, not a failure. `moderation_status` and
+ * `moderation_detail` are NOT touched; they are render provenance (decision 6).
+ *
+ * The parent is looked up, never minted: a missing **Send batch parent** means
+ * generation never ran, and asserting that impossible state beats inventing a
+ * parent the generation lane owns.
+ */
+async function commitWithhold(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  input: WithholdCommitInput,
+): Promise<void> {
+  const parent = await findActiveSolicitationSendBatchRun(tx, {
+    batchId: scope.batchId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+  if (!parent) {
+    throw new Error(
+      `solicitation send: no active send batch parent run for batch ${scope.batchId}`,
+    );
+  }
+
+  const child = await startOrGetSolicitationAskRun(tx, {
+    askId: input.askId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+    parentRunId: parent.runId,
+  });
+
+  await tx`
+    UPDATE solicitation_outreach
+    SET delivery_status = 'withheld',
+        disposition_reason = ${input.reason},
+        agent_run_id = ${child.runId}::uuid,
+        updated_at = NOW()
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+  `;
+
+  // ids and closed enum values only — never the handle, the subject or the body.
+  await recordStep(tx, {
+    runId: child.runId,
+    stepKey: 'dispatch_gate_evaluated',
+    detail: {
+      outreach_id: scope.outreachId,
+      ask_id: input.askId,
+      gate_item: input.item,
+      outcome: 'withhold',
+      disposition_reason: input.reason,
+    },
+  });
+
+  if (input.item === 'suppression' && input.suppression !== null) {
+    // §9.4's signal: an opt-out that landed AFTER owner approval is the
+    // earliest evidence the copy or the cadence is wrong. `scope` is
+    // deliberately not a property — it would surface the `account_id`
+    // provenance §7.4 forbids. Keyed on the Outreach row, so one refusal is
+    // recorded per dispatch attempt and a replay drops on ON CONFLICT.
+    await enqueueAnalyticsEvent(tx, {
+      eventName: 'solicitation_suppressed_at_dispatch',
+      eventKey: `solicitation_suppressed_at_dispatch:${scope.outreachId}`,
+      distinctId: scope.accountId,
+      accountId: scope.accountId,
+      businessId: scope.businessId,
+      properties: {
+        source: input.suppression.source,
+        ask_id: input.askId,
+        outreach_id: scope.outreachId,
+      },
+    });
+  }
+
+  await completeRun(tx, child.runId, 'completed');
+  await markOutboxCompletedIfOwned(tx, input.outboxId, input.attempt);
+  await closeBatchIfSettled(tx, {
+    batchId: scope.batchId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+}
+
+/** What tx1 decided, for the caller to log. A PASSING gate is not a member:
+ *  Task 6 owns that path and it throws from inside the transaction. */
+type DispatchTxOutcome =
+  | { kind: 'stale' }
+  | { kind: 'vanished' }
+  | { kind: 'cancelled' }
+  | { kind: 'deferred'; item: DispatchGateItem; batchState: BatchState }
+  | { kind: 'withheld'; item: DispatchGateItem; reason: OutreachWithheldReason };
+
+/**
+ * tx1: the whole of the **Dispatch gate**'s FAST evidence, and every write a
+ * non-sending verdict owes, under one transaction.
+ *
+ * `SELECT … FOR UPDATE` is a NO-OP outside `sql.begin()` under PgBouncer's
+ * transaction pooling — the row lock is dropped the instant the SELECT returns
+ * — which is why all four opening statements and every write below share one
+ * transaction rather than being sequenced by the caller.
+ *
+ * The opening order is `ask-generation.ts`'s, copied deliberately:
+ *
+ *  1. the stale-attempt guard FIRST. Without it, attempt N-1's job can arrive
+ *     after attempt N was dispatched and both reach the provider.
+ *  2. the per-business advisory lock, which by the GLOBAL LOCK ORDER on
+ *     `acquireSolicitationBatchLock` precedes every row lock in this lane.
+ *  3. the batch lifecycle row, locked.
+ *  4. the Outreach row, locked — the **Halt latch** sweep cancels `rendered`
+ *     and `queued` rows and never `sending`, so a job that arrives after it
+ *     finds `cancelled` and must do nothing at all.
+ */
+async function runDispatchTx(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  handle: { outboxId: string; attempt: number },
+): Promise<DispatchTxOutcome> {
+  const owns = await lockDispatchedOutboxAttemptIfOwned(tx, handle.outboxId, handle.attempt);
+  if (!owns) return { kind: 'stale' };
+
+  await acquireSolicitationBatchLock(tx, scope.businessId);
+
+  const [batchRow] = await tx<BatchLifecycleRow[]>`
+    SELECT built_at, approved_at, veto_deadline_at,
+           sending_started_at, send_closed_at, halted_at
+    FROM solicitation_batches
+    WHERE id = ${scope.batchId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+    FOR UPDATE
+  `;
+  if (!batchRow) {
+    throw new Error(`solicitation send: batch ${scope.batchId} vanished before dispatch`);
+  }
+
+  const [outreach] = await tx<LockedOutreachRow[]>`
+    SELECT ask_id, contact_id, delivery_status, rendered_body
+    FROM solicitation_outreach
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+      AND batch_id = ${scope.batchId}::uuid
+    FOR UPDATE
+  `;
+  if (!outreach) {
+    // There for the unlocked read, gone under the lock — an offboarding purge
+    // landing mid-flight. A retry would find the same nothing.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'vanished' };
+  }
+
+  if (outreach.delivery_status === 'cancelled') {
+    // Nothing to re-gate and nothing to re-terminalize — the sweep that
+    // cancelled it already wrote every terminal fact and already joined the
+    // batch. Completing the attempt is the only thing left owed.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'cancelled' };
+  }
+
+  const now = new Date();
+  const { evidence, suppression } = await gatherFastGateEvidence(
+    tx,
+    scope,
+    batchRow,
+    outreach,
+    now,
+  );
+
+  // TODO(Task 3): the two SLOW items — re-lint at the current ASK_LINT_VERSION
+  // and re-moderation over the immutable stored bytes — are gathered with NO
+  // lock held, BEFORE tx1 opens (decision 3), and applied at gate slots 8 and
+  // 9. Hard-true here so the five fast items are the only thing this task's
+  // verdict can turn on.
+  const slow: SlowGateEvidence = { lintPassed: true, moderationClean: true };
+
+  const verdict = applyDispatchGate(slow, evidence);
+
+  if (!verdict.pass && verdict.outcome === 'defer') {
+    // No DOMAIN state is written, not even the consent snapshot: a defer is a
+    // no-decision and the row is one #900's producer re-drips. The attempt is
+    // still completed — the watchdog reclaims every in-flight status, so a
+    // defer left `dispatched` is re-dispatched every stale window forever.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return {
+      kind: 'deferred',
+      item: verdict.item,
+      batchState: deriveBatchState(batchRow, now),
+    };
+  }
+
+  await stampConsentSnapshot(tx, scope, evidence.consent);
+
+  if (!verdict.pass) {
+    await commitWithhold(tx, scope, {
+      askId: outreach.ask_id,
+      item: verdict.item,
+      reason: verdict.reason,
+      suppression,
+      outboxId: handle.outboxId,
+      attempt: handle.attempt,
+    });
+    return { kind: 'withheld', item: verdict.item, reason: verdict.reason };
+  }
+
+  // TODO(Task 4): mint the unsubscribe token and substitute both placeholders
+  // in memory. TODO(Task 6): the `queued → sending` CAS, the provider call and
+  // the tx2 terminal transaction. Thrown from INSIDE tx1 on purpose — rolling
+  // this transaction back is what keeps a task that does not own the sending
+  // path from committing a half-dispatched row. Unreachable in every
+  // environment today: the flag is unset and #900's producer does not exist.
+  throw new Error('TODO(Task 4/6): solicitation send dispatch is not implemented yet');
+}
+
+/**
+ * The dispatch orchestrator.
+ *
+ * The unlocked row read comes first so the two cheapest refusals — a row that
+ * is not there and a lane that is switched off — never open a transaction, and
+ * so the deferral is logged against a real, in-scope row rather than against a
+ * payload nobody has checked. A payload naming a row of another tenant
+ * resolves to nothing here, never to a send.
  */
 export async function dispatchOutreach(
   sql: Sql,
@@ -240,10 +753,48 @@ export async function dispatchOutreach(
     return;
   }
 
-  // TODO(Task 2/3): gather the fast evidence inside tx1 and the slow evidence
-  // before it, then apply `applyDispatchGate`. TODO(Task 4): mint the
-  // unsubscribe token. TODO(Task 6): the CAS, the provider call and the
-  // terminal transaction. Unreachable today — the flag is unset in every
-  // environment and #900's producer does not exist yet.
-  throw new Error('TODO(Task 2): solicitation send dispatch is not implemented yet');
+  const scope: DispatchScope = {
+    accountId: row.account_id,
+    businessId: input.businessId,
+    batchId: input.batchId,
+    outreachId: input.outreachId,
+  };
+  const context = { batch_id: scope.batchId, outreach_id: scope.outreachId };
+
+  const outcome = await sql.begin(
+    async (tx): Promise<DispatchTxOutcome> =>
+      runDispatchTx(tx, scope, { outboxId, attempt }),
+  );
+
+  if (outcome.kind === 'stale') {
+    // Nothing done, and deliberately nothing completed either: a newer attempt
+    // owns this outbox row and completing it here would strand that attempt.
+    logger.warn('solicitation send: stale outbox attempt — nothing done', {
+      ...context,
+      outbox_id: outboxId,
+      outbox_attempt: attempt,
+    });
+    return;
+  }
+  if (outcome.kind === 'vanished') {
+    logger.warn('solicitation send no-op: outreach row vanished under lock', context);
+    return;
+  }
+  if (outcome.kind === 'cancelled') {
+    logger.log('solicitation send no-op: outreach row already cancelled', context);
+    return;
+  }
+  if (outcome.kind === 'deferred') {
+    logger.log('solicitation send deferred by the dispatch gate', {
+      ...context,
+      gate_item: outcome.item,
+      batch_state: outcome.batchState,
+    });
+    return;
+  }
+  logger.log('solicitation send withheld by the dispatch gate', {
+    ...context,
+    gate_item: outcome.item,
+    disposition_reason: outcome.reason,
+  });
 }
