@@ -121,6 +121,7 @@ const workerSchema = z.object({
   OUTBOX_WATCHDOG_STALE_MS: rawOpt,
   GOVERNOR_INTERVAL_MS: rawOpt,
   JUDGE_POLL_INTERVAL_MS: rawOpt,
+  SOLICITATION_RELEASE_POLL_INTERVAL_MS: rawOpt,
   // (#900) The Solicitation release lane's platform-wide daily ceiling. Also
   // declared on the SERVER schema (src/lib/config/server.ts), which #898
   // registered and boot-asserted while enforcement was still unbuilt; a var may

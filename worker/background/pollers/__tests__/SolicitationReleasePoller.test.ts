@@ -40,6 +40,7 @@ vi.mock('@/lib/shared/logger', async (importOriginal) => {
   return { ...actual, createWorkerLogger: () => loggerCalls };
 });
 
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import {
   runSolicitationReleaseCycle,
   startSolicitationReleasePoller,
@@ -62,17 +63,24 @@ function emptyReport() {
 }
 
 const DEFAULT_INTERVAL_MS = 60_000;
+const CYCLE_TIMEOUT_MS = 45_000;
 
 describe('SolicitationReleasePoller', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRunReleaseCycle.mockResolvedValue(emptyReport());
+    // `getIntervalMs()` reads the memoized `getWorkerConfig()`; clear the memo so
+    // each case's env override (set after this) is parsed fresh (convention #6).
+    delete process.env.SOLICITATION_RELEASE_POLL_INTERVAL_MS;
+    resetWorkerConfigForTests();
   });
 
   afterEach(() => {
     // The guard is created at module scope, so its timer outlives a case.
     stopSolicitationReleasePoller();
     vi.useRealTimers();
+    delete process.env.SOLICITATION_RELEASE_POLL_INTERVAL_MS;
+    resetWorkerConfigForTests();
   });
 
   it('hands the sql singleton to runReleaseCycle', async () => {
@@ -184,5 +192,37 @@ describe('SolicitationReleasePoller', () => {
 
     await vi.advanceTimersByTimeAsync(DEFAULT_INTERVAL_MS - 45_000);
     expect(mockRunReleaseCycle).toHaveBeenCalledTimes(2);
+  });
+
+  it('honours a configured interval that sits above the cycle deadline', () => {
+    vi.useFakeTimers();
+    process.env.SOLICITATION_RELEASE_POLL_INTERVAL_MS = '90000';
+    resetWorkerConfigForTests();
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+
+    startSolicitationReleasePoller();
+
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 90_000);
+  });
+
+  it('rejects a configured interval at or below the cycle deadline and uses the default', () => {
+    // The one relationship `GuardedPollOptions.timeoutMs` declares must hold is
+    // deadline < interval, so a hung cycle frees the single-flight flag BEFORE
+    // the next tick. Making the interval env-tunable is the only way an operator
+    // could break it, so a value at or below `CYCLE_TIMEOUT_MS` is rejected like
+    // any other invalid one rather than silently narrowing that guarantee — the
+    // boundary itself (exactly 45s) is the case a `>=` would let through.
+    vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+
+    for (const rejected of [String(CYCLE_TIMEOUT_MS), '30000', '0', '-1000', 'not-a-number', '60s']) {
+      process.env.SOLICITATION_RELEASE_POLL_INTERVAL_MS = rejected;
+      resetWorkerConfigForTests();
+
+      startSolicitationReleasePoller();
+
+      expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), DEFAULT_INTERVAL_MS);
+      stopSolicitationReleasePoller();
+    }
   });
 });

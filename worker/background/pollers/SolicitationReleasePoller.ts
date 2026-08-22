@@ -21,6 +21,7 @@
 // revisited.
 
 import type { Sql } from 'postgres';
+import { getWorkerConfig } from '@/lib/config/worker';
 import { sql } from '@/lib/db/server';
 import { runReleaseCycle } from '@/lib/solicitation/release';
 import { createWorkerLogger } from '@/lib/shared/logger';
@@ -37,9 +38,19 @@ const DEFAULT_INTERVAL_MS = 60_000;
 const CYCLE_TIMEOUT_MS = 45_000;
 
 function getIntervalMs(): number {
-  // TODO(#900 task 8): read SOLICITATION_RELEASE_POLL_INTERVAL_MS from
-  // getWorkerConfig(), parsed like JUDGE_POLL_INTERVAL_MS.
-  return DEFAULT_INTERVAL_MS;
+  const parsed = Number.parseInt(
+    getWorkerConfig().SOLICITATION_RELEASE_POLL_INTERVAL_MS || '',
+    10,
+  );
+  // `JUDGE_POLL_INTERVAL_MS`'s parse, with ONE extra rejection: a configured
+  // interval at or below `CYCLE_TIMEOUT_MS` is treated as invalid. The helper's
+  // own contract (`GuardedPollOptions.timeoutMs`) requires the deadline to sit
+  // BELOW the interval so a hung cycle frees the single-flight flag before the
+  // next tick; a shorter interval would let ticks land on an in-flight cycle and
+  // silently turn "recovery costs one interval" into "recovery costs several".
+  // Rejected values fall back to the default, exactly like a non-numeric one.
+  const withinContract = Number.isFinite(parsed) && parsed > CYCLE_TIMEOUT_MS;
+  return withinContract ? parsed : DEFAULT_INTERVAL_MS;
 }
 
 export async function runSolicitationReleaseCycle(exec: Sql): Promise<void> {

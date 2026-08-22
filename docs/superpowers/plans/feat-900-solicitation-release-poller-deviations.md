@@ -662,3 +662,63 @@ with two probes per case, chosen so that each reddens a different assertion.
 
 **Nothing else deviated.** Zero `it.fails` markers remain in the suite (34/34
 pass), and no audit moved except the one tenant-scope entry above.
+
+## Task 8 — a configurable interval can violate the deadline-below-interval contract, so the floor is part of the parse
+
+**What:** Step 2 asked for `SOLICITATION_RELEASE_POLL_INTERVAL_MS` parsed "like
+`JUDGE_POLL_INTERVAL_MS`" — accept any positive parsed value. That precedent is
+safe for `JudgeSweepPoller` only by accident: nothing there rests on the
+interval. Here it does. `CYCLE_TIMEOUT_MS` (45s) is deliberately BELOW
+`DEFAULT_INTERVAL_MS` (60s), and `GuardedPollOptions.timeoutMs` states the
+relationship as a contract — the deadline must fire before the next tick so a
+hung cycle frees the single-flight flag with recovery costing one interval, not
+several. Making the interval env-tunable is the only way an operator could break
+it: `SOLICITATION_RELEASE_POLL_INTERVAL_MS=30000` would arm ticks that land on an
+in-flight cycle. The plan's Step 2 did not mention the interaction, and Task 0's
+own deviation ("the poller's interval can never overlap a cycle") records the
+property that a bare positive-parse would quietly retire.
+
+**Why not clamp upward instead:** clamping a rejected value up to
+`CYCLE_TIMEOUT_MS + 1` is invention — no loop in the repo does it. Falling back
+to the default is the precedent's own failure mode for an unusable value
+(`JudgeSweepPoller`, `AnalyticsDispatchPoller`), so "below the deadline" simply
+joins "non-numeric", "zero" and "negative" in the invalid set.
+
+**What changed:** `getIntervalMs()` accepts a parsed value only when it is
+strictly greater than `CYCLE_TIMEOUT_MS`; everything else falls back to
+`DEFAULT_INTERVAL_MS`. Two loop-mechanics cases added — one that a valid
+override (90s) reaches `setInterval`, one table-driven case that the exact 45s
+boundary, 30s, `0`, `-1000`, `'not-a-number'` and `'60s'` all fall back. Both
+unmask-probed: relaxing the floor to `parsed > 0` and to `>= CYCLE_TIMEOUT_MS`
+each turns exactly one case red. The registry row states the floor.
+
+## Task 8 — `ci:config-coverage` does NOT pin the env-vars registry row
+
+**What:** the task brief named `pnpm ci:config-coverage` as "the one that pins
+your env-vars row". It does not. `scripts/ci/config-coverage-audit.ts` compares
+`REQUIRED_VAR_DECLARATIONS` against the three lanes' UNCONDITIONALLY-required
+var lists (`WORKER_REQUIRED_VARS` et al) and never reads
+`.claude/reference/env-vars.md`. A `rawOpt` var is optional by construction, so
+it is out of that audit's scope entirely — it passes with or without the row.
+No audit in `scripts/ci/` reads `env-vars.md` at all (grepped).
+
+**Why it matters:** the registry row is still mandatory — it is a CLAUDE.md house
+rule, not a machine-enforced one. Recording this stops a future session from
+inferring "config-coverage was green, so the row must be present."
+
+**What changed:** nothing in the code. The row was written and
+`ci:config-coverage` was run and is green; the two facts are simply unrelated.
+
+## Task 8 — the P2 backlog list is numbered continuously across all four priority bands, so the new entry is 17
+
+**What:** `docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md`
+numbers its items 1–16 straight through P1 (1–4), P2 (5–6), P3 (7–9) and the P4
+table (10–16). "Add a P2 entry" therefore has no free slot: item 7 is already
+`OutboxPoller` under P3. Renumbering 7–16 would rewrite the P3/P4 headings and
+every in-file cross-reference (`P2 #5/#6`, `P1 #2`, `P4 #11`, `P3 #9`) for a
+labelling problem.
+
+**What changed:** the entry sits at the end of the **P2** section — the right
+section — carrying the next free label, `### 17.`, with a one-line parenthetical
+saying why the number jumps so nobody "corrects" it later. Its `Fix` bullet ends
+with amendment B3's condition verbatim.
