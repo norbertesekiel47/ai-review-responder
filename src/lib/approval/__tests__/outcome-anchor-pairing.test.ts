@@ -31,6 +31,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
   'src/lib/solicitation/approval.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
+  'src/lib/solicitation/dispatch.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
@@ -138,9 +139,28 @@ const LOCK_HELD_BY_CALLER = new Set([
 // reviews/businesses lock, and must not gain any path that locks the send parent
 // before the batch, without leaving this carve-out and re-entering the global
 // reviews → businesses → child rows → agent_runs order.
+// dispatch.ts (#899) — subject `solicitation_ask`, the per-dispatch-attempt
+// Lazy child, plus the send parent it terminalizes through closeBatchIfSettled.
+// Its tx1 takes, IN THIS ORDER: the job_outbox attempt row FOR UPDATE, the
+// per-business advisory xact lock, the solicitation_batches row FOR UPDATE, the
+// solicitation_outreach row FOR UPDATE, and only then the agent_runs locks that
+// startOrGetSolicitationAskRun / recordStep / completeRun take. So batch → run
+// holds, exactly as the three entries above require.
+//
+// It takes NO reviews lock and NO businesses row lock: its only businesses read
+// is readPostalAddressState's plain SELECT, which takes no row lock at all, and
+// the spine INSERTs' implicit FK FOR KEY SHARE on businesses/accounts is the
+// same cycle-free key-share the weekly entry documents.
+//
+// Same forward-looking warning as the entries above: it must not grow a
+// reviews/businesses FOR UPDATE, and must not gain a path that locks either run
+// row before the batch. Note in particular that the two SLOW Dispatch gate
+// items (re-lint, re-moderation) run ABOVE tx1 with no lock held — moving them
+// inside would hold every lock above across a ~10s provider call.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
   'src/lib/solicitation/approval.ts',
   'src/lib/solicitation/ask-generation.ts',
+  'src/lib/solicitation/dispatch.ts',
   'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
 ]);
@@ -193,6 +213,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
       'src/lib/solicitation/approval.ts',
       'src/lib/solicitation/ask-generation.ts',
+      'src/lib/solicitation/dispatch.ts',
       'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
     ]);

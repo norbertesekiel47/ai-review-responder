@@ -166,3 +166,37 @@ regenerate look like a second opt-out.
 
 **Verdict:** ACCEPT the correction. No surface amendment needed — every file touched was already
 in surface.
+
+## D10 — `allowed_edit_surface` amendment 2 of 2, with the abort trigger WAIVED by the owner
+
+**When:** after Task 3, which found it. Task 3 correctly refused to fix it — out of its surface.
+**What:** Task 2 made `dispatch.ts` a run-spine caller, which
+`src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` detects by AST scan. Two of its four
+tests failed, so `pnpm test` was red and the step 5 gate could not go green.
+
+**Why it needed the owner.** That file sits outside the surface, and the step 5 abort criteria
+count "a 2nd amendment of `allowed_edit_surface`" as a trigger to write a post-mortem, tear the
+branch down and restart at step 1. Six tasks of correct, tested work would have been discarded
+over a test allowlist.
+
+**Owner decision:** amend and continue; abort trigger explicitly waived. Reasoning accepted: the
+abort rule exists to catch a mis-classified lane, and this is not that. It is the mechanical
+audit entry EVERY new run-spine caller in this repo must make —
+`src/lib/solicitation/{approval,ask-generation,outreach}.ts` all already carry the identical
+pair, and this is the fourth solicitation module doing the same thing.
+
+**What changed:** three entries, not the two first estimated — the file also self-pins the
+carve-out set in an assertion, so `CALLER_ALLOWLIST`, `NON_REVIEW_SUBJECT_CALLERS` and the
+pinning `toEqual` all needed `dispatch.ts`.
+
+**The lock analysis was WRITTEN, not copied.** That file's header explicitly warns that an
+earlier entry copied a sibling's premise verbatim and the premise was false, concluding "a lock
+analysis resting on an untrue premise is worthless even when its conclusion happens to be
+right." So the new entry states dispatch.ts's real order — `job_outbox` row → per-business
+advisory lock → `solicitation_batches` row → `solicitation_outreach` row → agent_runs — and
+records that its only `businesses` read (`readPostalAddressState`) takes no row lock. It also
+carries forward the warning that the two SLOW gate items must stay above tx1, since moving them
+inside would hold every one of those locks across a ~10s provider call.
+
+**Budget:** amendments 2 of 2 are now spent. Any further surface need aborts.
+**Verdict:** ACCEPT under the owner's waiver. Test now 4/4 green.

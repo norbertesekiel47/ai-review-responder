@@ -83,6 +83,7 @@
     "src/lib/shared/__tests__/**",
     "src/lib/agents/run-spine.ts",
     "src/lib/agents/__tests__/**",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "CONTEXT.md",
     "docs/directory.md",
     "docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md",
