@@ -1,77 +1,118 @@
 # Handoff — feat-900-solicitation-release-poller
 
-A resumed session bootstraps from this file. It never needs the prior transcript.
+A resumed session bootstraps from this file. **It never needs the prior transcript.**
 
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-900-solicitation-release-poller`
-**Branch:** `feat-900-solicitation-release-poller`
-**Issue:** #900 — Solicitation release poller.
-**Lane:** RISK = high · SURFACE = backend · `db_touching: true` · no migration.
-**Phase at last write:** `plan_approved`. Next step is `/feature` step 4 (EXECUTE).
+**Branch:** `feat-900-solicitation-release-poller` · **Issue:** #900
+**Lane:** RISK = high · SURFACE = backend · `db_touching: true` · **no migration**
+**Phase:** `executing` — mid `/feature` step 4. **Next action: dispatch Task 4.**
 
-## Read these, by path — do not restate them here
+## Reconciliation, already done — expect these values
+
+Run the resume skill's checks anyway; they should agree with this table. A
+mismatch means something changed after this file was written.
+
+| Check | Expected |
+|---|---|
+| `git rev-parse HEAD` | `9aa53e26` |
+| `.feature/state.json` `headSha` | `9aa53e26` (matches HEAD) |
+| `lastGreenGateSha` | `9aa53e26` — **gate is GREEN at HEAD, all 22 rows** |
+| `planReviewRounds` | 3 (plan gate CLOSED at `APPROVED`; do not re-open) |
+| `branchReviewRounds` | absent — step 7 has not started |
+| `git status --porcelain` | empty |
+| intake copies | identical (`diff -q` clean) |
+| `git rev-list --count HEAD..origin/main` | 0 |
+| `scripts/arm-check.sh` | ARMED |
+
+## Read these, by path — do not restate them
 
 | Artifact | Path |
 |---|---|
-| Intake contract (39 promised tests) | `.feature/intake.json`, audit copy in `docs/superpowers/plans/feat-900-solicitation-release-poller-intake.json` |
+| Intake contract (39 tests, 20 surface entries) | `.feature/intake.json` |
 | The plan (11 tasks, blocking edges) | `docs/superpowers/plans/2026-08-22-solicitation-release-poller.md` |
-| Deviations | `docs/superpowers/plans/feat-900-solicitation-release-poller-deviations.md` |
-| Plan review rounds 1–2 | `docs/reviews/feat-900-solicitation-release-poller/plan-round{1,2}-codex.md` |
+| **Deviations — READ EVERY ENTRY** | `docs/superpowers/plans/feat-900-solicitation-release-poller-deviations.md` |
+| Plan review rounds 1–3 | `docs/reviews/feat-900-solicitation-release-poller/plan-round{1,2,3}-codex.md` |
 | Design of record | `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` §4 D7/D9/D10, §5 D11/D12/D14, §7 D18 |
-| Amendments (win on conflict) | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` B3, B6, B7, B10, B14, B15 |
-| Glossary | `CONTEXT.md` — Halt latch, Owner approval, Send breaker, Dispatch gate, Batch state, Lazy child |
+| Amendments (**win on conflict**) | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` B3, B6, B7, B10, B14, B15 |
+| Glossary — **re-read before dispatching** | `CONTEXT.md`: Halt latch, Owner approval, Send breaker, Dispatch gate, Batch state, Lazy child, Settled batch |
 
-## Plan gate — closed
+## Done — 12 commits, oldest first
 
-Three rounds, counter at `planReviewRounds=3` in `.feature/state.json`.
+| Task | Commit | What |
+|---|---|---|
+| setup | `f8bc9e1d` `2b29fb73` `09ab44ff` | intake, plan, three codex plan-review rounds → `APPROVED` |
+| stubs | `8721ac13` | `release.ts` + poller contract stubs, `worker/index.ts` registration, two `directory.md` rows |
+| 0 | `ec6ec8d0` | eval task — 39 tests, complete bodies under `.fails` |
+| 1 | `2047cf1d` | `enqueueSolicitationSend` typed outbox helper (B10) |
+| 2 | `c2a00505` | `latchSystemHalt`, the third **Halt latch** arm |
+| — | `b655737f` | amendment 1 — `src/lib/agents/run-spine.ts` |
+| 3 | `b8957d97` | release phase: governors, Judge split, release transaction |
+| — | `383ed74d` `68b8198b` | amendment 2 — tenant-scope allowlist |
+| — | `9aa53e26` | amendment 3 — spine-caller allowlist |
 
-- Reviewer: codex, read-only. Thread `01a02a22-d338-7d92-9901-9c126aaa72af`.
-- Round 1: `REVISE`, 13 findings — 12 accepted, 1 rejected.
-- Round 2: `REVISE`, 2 residual (governor order, unknown-sweep atomicity).
-- Round 3: **`APPROVED`**.
+## Remaining — Tasks 4-10, SERIAL
 
-The review's primary question — *can the eval pass while the feature is still wrong?* — was
-answered **yes, thirteen times** across rounds 1–2. Every accepted finding became a test
-title. `tests_to_add` grew 27 → 39.
+Tasks 4-7 all edit `src/lib/solicitation/release.ts`. **No parallel dispatch.**
 
-## Eight owner decisions, locked at grilling
+| Task | Turns green | Notes |
+|---|---|---|
+| **4** | `latches send_window_elapsed past the 72h send window and cancels the live Outreach rows` | predicate P2 → `latchSystemHalt(reason:'send_window_elapsed')`. The latch owns the cancel, the step and the join — write nothing else. |
+| **5** | `latches batch_expired…`, `a batch that receives no approval for 7 days closes cleanly and raises no stalled alert`, and RE-VERIFY `does not latch batch_expired on a batch with no Send batch parent` | predicate P3. The `EXISTS` over `agent_runs` is mandatory or a watch-mode batch is latched. |
+| **6** | `terminalizes a sending Outreach row as unknown…`, `terminalizes the lazy child run…`, `rolls back unknown Outreach terminalization when lazy-child completion fails`, and RE-VERIFY both `does not terminalize…` | predicate P1. **Both belts**: grace period AND the in-flight `NOT EXISTS` **repeated inside the terminal CAS**. Also `completeRun` on the **Lazy child**. |
+| **7** | `closes a settled batch the inline path missed`, `runs the sweeps and the backstop while SOLICITATION_SEND_ENABLED is off` | backstop = `closeBatchIfSettled` per still-open batch. **No second join implementation.** |
+| **8** | poller loop-mechanics (already green) | ONLY: `SOLICITATION_RELEASE_POLL_INTERVAL_MS` (+ `env-vars.md` row) and the P2 backlog entry. Registration already shipped in `8721ac13`. |
+| **9** | — | refine the two `directory.md` rows; update `CONTEXT.md` **Halt latch** ("no writer yet" is now false) and **Send breaker** (future tense → present). |
+| **10** | — | open the deferred follow-up issue: amendment B14's `platform_halt` gap + the residual §7.1 yield-to-transactional obligation. |
 
-1. Amendment B14's `platform_halt` gap is DEFERRED to a new issue (Task 10). No migration here.
-2. The release phase checks `SOLICITATION_SEND_ENABLED`; no row reaches `queued` under a flag-off.
-3. `latchHalt` gains a third arm `latchSystemHalt`; `actorUserId` widens to `string | null`.
-4. A Judge downgrade writes a spine step and a Sentry warning. No owner notification.
-5. `UNKNOWN_GRACE_MINUTES = 60`, hardcoded, anchored on `solicitation_outreach.sending_at`.
-6. `solicitation_batches.sending_started_at` is stamped in the first release transaction, CAS on NULL.
-7. Drip pacing is a per-tick release budget. True yield-to-transactional is deferred.
-8. The flag gates the RELEASE PHASE ONLY. The three sweeps and the backstop always run.
+**8 tests remain `.fails`.** Each is owned by exactly one task above.
 
-## Facts a resumed session must not re-derive
+## Six facts a resumed session must NOT re-derive
 
-- **Spec §9's parent disposition rollup is already built.** `closeBatchIfSettled`
-  (`src/lib/solicitation/outreach.ts`) writes the `send_batch_closed` step detail with
-  `disposition` and all five counts. This feature adds no rollup code.
-- **Migration 091 enforces the Judge split.** `solicitation_batches_send_ordering` says
-  `sending_started_at IS NULL OR approved_at IS NOT NULL`, so a mid-drip downgrade is
-  impossible at the database once decision 6 stamps that column at first release.
-- **091's halt CHECK forces `halted_by IS NULL`** for `send_window_elapsed` and
-  `batch_expired`. That is why the actor type widens.
-- **The Lazy child run is created at `src/lib/solicitation/dispatch.ts:1752`, inside #899's
-  tx1, BEFORE the `sending` CAS.** A crash therefore leaves both a `sending` Outreach row
-  and a `running` child. The `unknown` sweep must terminalize both, in one transaction.
-- **Release-level governor order is quoted from amendment B6's closing paragraph:**
-  breaker → platform ceiling → account cap → `subscriptionGrantsFullAccess`, then the Judge
-  split. B6's per-child item numbering is a different list and does not govern it.
-- **Issue #895(b)** proves `latchHalt`'s `AND halted_at IS NULL` CAS is unreachable through
-  both existing arms. The new arm skips `lockBatchForAction`, so the CAS becomes the only
-  defense. The monotonicity property test is what pins it.
+1. **Spec §9's parent disposition rollup is already built.** `closeBatchIfSettled` writes the `send_batch_closed` step detail with `disposition` and all five counts. Add no rollup code — call the function.
+2. **Migration 091 enforces the Judge split.** `sending_started_at IS NULL OR approved_at IS NOT NULL` makes a mid-drip downgrade impossible at the database.
+3. **091's halt CHECK forces `halted_by IS NULL`** for both system reasons. That is why `actorUserId` is `string | null`.
+4. **The Lazy child is created at `src/lib/solicitation/dispatch.ts:1752`, inside #899's tx1, BEFORE the `sending` CAS.** A crash leaves both a `sending` row and a `running` child. Task 6 terminalizes **both, in one transaction**.
+5. **Release-level governor order is QUOTED from amendment B6's closing paragraph:** breaker → platform ceiling → account cap → `subscriptionGrantsFullAccess`, then the Judge split. B6's per-child numbering is a different list. A wrong order is silent (#910 B3.2).
+6. **Issue #895(b)'s unreachable CAS is now pinned.** Deleting `AND halted_at IS NULL` turns 2 of 4 tests red, counterexample `["owner","send_window_elapsed"]`.
 
-## Task order and parallelism
+## Two process rules that have each caught a real defect
 
-Task 0 (eval) → Tasks 1 and 2 **in parallel** (disjoint files, no edges) → Tasks 3, 4, 5, 6,
-7 **serial** (all edit `release.ts`) → Task 8 → Task 9 → Task 10.
+**THE UNMASK STEP IS MANDATORY.** `it.fails` passes whether a test fails for the
+right reason or the wrong one. Every task that removes a marker must run the
+test unmasked and confirm it passes **for the reason its name states**. This has
+already caught: three fixture defects in Task 0 (a `send_ordering` CHECK
+violation in every mid-drip fixture), and a Task 3 defect where `beforeEach`
+re-armed four delegating spies with themselves, so 31 cases died on stack
+overflow while `.fails` reported them fine.
 
-The first-task enforcement spot check runs after Task 0, before any parallel dispatch.
+**THREE TESTS PASS VACUOUSLY RIGHT NOW.** Each opens with
+`TASK 5/6 MUST RE-VERIFY THIS` and names the exact guard arm to delete to see it
+go red: P3's `EXISTS`, P1's `NOT EXISTS` belt, and the `NOT EXISTS` repeated
+inside the `unknown` CAS. Do not inherit a false green.
 
-## Ship lane
+## Amendment budget: SPENT — 3 of 2 used
 
-RISK = high: ride `staging` first, verify the touched path, then open the PR to `main` and
-PAUSE for explicit merge approval. No migration to apply in lockstep.
+All three were owner-approved individually. **Root cause, recorded in the
+deviations file: the intake declared ONE of the four governance registries this
+class of module must touch** — `directory.md` (declared), `run-spine.ts`
+`STEP_PERSONA`, `tenant-scope-allowlist.ts` `background-global-scan`, and
+`outcome-anchor-pairing.test.ts` `CALLER_ALLOWLIST`.
+
+**A fourth off-surface need is NOT another exception to request.** Stop, and
+surface it as a re-plan decision.
+
+**Step 8 promotion obligation:** that four-registry list goes into
+`.claude/reference/lab-notes.md`, not just the deviations file.
+
+## After Task 7 — the steps that follow
+
+- **Step 5:** final gate run is `scripts/verify-gate.sh --review` (adds coverage + a changed-line `diff-coverage` row).
+- **Step 6:** read the deviations file end to end, log ACCEPT / RE-PLAN per entry, commit the verdicts.
+- **Step 7:** `bash scripts/blast-radius.sh` first, then `bash scripts/feature-state.sh incr-round branch`, then ONE full round of three parallel agents (spec+correctness, standards, adversarial — RISK = high gets all three). Reports to `docs/reviews/<branch>/`, findings tables only in context. **COMMIT the reports and triage verdicts.**
+- **Step 8 (RISK = high):** ride `staging` first, verify, then PR to `main` and **PAUSE for explicit merge approval**. No migration to apply in lockstep.
+
+## Ship-lane reminder
+
+`SOLICITATION_SEND_ENABLED` stays OFF everywhere. Issue #915 names this ticket's
+`unknown` sweep as the blocker for ever flipping it, so **Task 6 is the one that
+discharges #915**.
