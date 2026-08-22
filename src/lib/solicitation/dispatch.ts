@@ -15,13 +15,34 @@
  * five inside tx1 under the batch row lock, which is why the evidence arrives
  * as two records rather than one.
  *
- * TASK 3 SCOPE. The whole seven-item gate is real now — the flag-off defer,
- * the two SLOW items gathered above tx1, tx1 in its precedent order, the five
- * FAST items, the consent snapshot, the **Lazy child** and the inline
- * `closeBatchIfSettled` join. What is still missing is the unsubscribe token
- * mint (Task 4) and everything downstream of a PASSING gate (Task 6), which
- * throws a marked TODO from inside tx1 so a path this file does not own yet
- * cannot commit a half-dispatched row.
+ * TASK 4 SCOPE. The whole seven-item gate is real, and so is everything a
+ * PASSING gate owes short of the wire: the unsubscribe token mint, both
+ * placeholder substitutions and the assembled `OutboundMessage`. What is still
+ * missing is Task 6 — the `queued → sending` CAS, the provider call and the
+ * tx2 terminal transaction — whose marked TODO now throws from the
+ * orchestrator, AFTER tx1 commits.
+ *
+ * That throw used to be INSIDE tx1, and Task 4 is why it moved: tx1 now WRITES
+ * the token row, so a rollback would destroy it on every attempt and the mint's
+ * whole idempotency contract would be neither observable nor testable. What
+ * commits is not a half-dispatched row — the Outreach row's `delivery_status`
+ * is untouched, the outbox attempt is left in flight for the watchdog to
+ * reclaim, and nothing has reached a provider. Unreachable in every environment
+ * today regardless: the flag is unset and #900's producer does not exist.
+ *
+ * INVARIANT #5 IS THE POINT OF THE MINT. Only the SHA-256 hash reaches
+ * Postgres; the raw token lives in this module's memory and in the recipient's
+ * link. It is therefore NOT recoverable from the row — so a retry that finds
+ * the token row already there (locked decision 9) cannot rebuild the same body
+ * and MUST NOT send. It completes the outbox attempt, leaves the Outreach row
+ * exactly as it found it, and returns; #900's D12d sweep terminalizes a
+ * `sending` row `unknown` / `send_indeterminate` after `UNKNOWN_GRACE_MINUTES`.
+ * Re-issuing to the provider and hoping the idempotency key saves us is the
+ * WRONG answer: if the first request never reached Resend, the RETRY's body is
+ * what gets delivered, carrying an unsubscribe URL that resolves to nothing — a
+ * CAN-SPAM defect, not a degraded send. B4's "idempotent on `outreach_id`"
+ * guarantees the token ROW is never duplicated; it guarantees nothing about a
+ * recoverable BODY.
  *
  * Outbox contract: a defer is a SUCCESS, never a stranded `dispatched` row —
  * `completeOutboxNoop` mirrors `ask-generation.ts`'s helper of the same name.
@@ -29,10 +50,11 @@
  * correctly deferred, turning a quiet no-op into a retry storm.
  *
  * PII contract: this lane holds the rendered subject, the rendered body, the
- * recipient handle and (from Task 4) a raw unsubscribe token. NONE of them is
- * ever logged. `createWorkerLogger` passes object args through the analytics
- * blocked-key sanitizer but logs string args VERBATIM, so redaction is this
- * module's obligation, not the logger's.
+ * recipient handle and a raw unsubscribe token. NONE of them is ever logged —
+ * the token only ever through `unsubscribeTokenLogPrefix`'s digest prefix.
+ * `createWorkerLogger` passes object args through the analytics blocked-key
+ * sanitizer but logs string args VERBATIM, so redaction is this module's
+ * obligation, not the logger's.
  *
  * Domain module (invariant #15): takes `sql: Sql` explicitly and never imports
  * `@/lib/db/server`; every query is tenant-scoped by the payload's business_id
@@ -40,13 +62,21 @@
  */
 
 import type { Sql, TransactionSql } from 'postgres';
+import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import {
   lockDispatchedOutboxAttemptIfOwned,
   markOutboxCompletedIfOwned,
 } from '@/lib/shared/outbox';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { escapeHtml } from '@/lib/shared/html';
 import { moderateResponse } from '@/lib/moderation/moderate';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { getWorkerConfig } from '@/lib/config/worker';
+import { isPlaceId } from '@/lib/reviews/url-parser';
+// Type-only: the assembled envelope's shape has ONE owner (#657's seam) and it
+// is not this file. Erased at compile time, so nothing here pulls the Resend
+// SDK in transitively — Task 6 adds the runtime `getMessagingAdapter()` call.
+import type { OutboundMessage } from '@/lib/messaging/messaging-adapter';
 import {
   completeRun,
   findActiveSolicitationSendBatchRun,
@@ -54,6 +84,7 @@ import {
   startOrGetSolicitationAskRun,
 } from '@/lib/agents/run-spine';
 import { lintAsk, lintInputFromSnapshot } from './ask-compliance-lint';
+import { REVIEW_LINK_PLACEHOLDER, UNSUBSCRIBE_URL_PLACEHOLDER } from './ask-render';
 import { SEND_ELIGIBLE_ATTESTATION_VERSIONS } from './attestation';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import { normalizeEmail } from './handles';
@@ -67,6 +98,11 @@ import {
 } from './outreach';
 import { readPostalAddressState } from './postal-address';
 import { suppressionMatchSql, type SuppressionChannel } from './suppression';
+import {
+  hashUnsubscribeToken,
+  mintUnsubscribeRawToken,
+  unsubscribeTokenLogPrefix,
+} from './unsubscribe';
 // Type-only, and deliberately not a third declaration of the same two fields:
 // `ask-generation.ts` already owns `extractOutboxHandle`'s result shape for
 // this folder. A domain module that spends its own outbox attempt needs the
@@ -222,17 +258,36 @@ interface OutreachDispatchRow {
   interpolation_inputs: unknown;
 }
 
-/** What tx1 re-reads under `FOR UPDATE`. Tasks 4 and 6 widen it (the rendered
- *  subject, `attempt_no`); a column nobody reads is a column nobody maintains. */
+/** What tx1 re-reads under `FOR UPDATE`. Task 6 widens it again (`attempt_no`);
+ *  a column nobody reads is a column nobody maintains.
+ *
+ *  `rendered_subject` is read HERE and not taken from the pre-tx read, even
+ *  though both resolve the same immutable bytes: the subject goes on the wire,
+ *  and every value that does should come from the read taken under the lock. */
 interface LockedOutreachRow {
   ask_id: string;
   contact_id: string;
   delivery_status: string;
+  rendered_subject: string | null;
   rendered_body: string | null;
 }
 
 interface ContactHandleRow {
   email: string | null;
+}
+
+/**
+ * The three `businesses` columns the outbound envelope needs, read inside tx1.
+ *
+ * Deliberately a separate read from `readPostalAddressState`, which also reads
+ * this table: that function owns the attested-address question and returns the
+ * five-column attestation unit, and widening it to carry envelope identity
+ * would give one accessor two unrelated duties.
+ */
+interface BusinessIdentityRow {
+  name: string;
+  owner_email: string;
+  google_place_id: string | null;
 }
 
 interface SuppressionMatchRow {
@@ -508,6 +563,13 @@ async function readConsentRow(
  * analytics event the withhold path owes carries its `source`, and re-reading
  * the ledger after the verdict would be a second, racier answer to a question
  * already asked under the lock.
+ *
+ * It returns the recipient's **Normalized handle** for the same reason. The
+ * send path needs it as the envelope's `to:` AND as the token row's
+ * `normalized_handle`, and a second read would be a second answer: the handle
+ * the ledgers were checked against is the ONLY handle it can be safe to send
+ * to, so it has to be the one that travels forward, not one re-derived after
+ * the gate has already spoken.
  */
 async function gatherFastGateEvidence(
   tx: TransactionSql,
@@ -515,7 +577,11 @@ async function gatherFastGateEvidence(
   batch: BatchLifecycleRow,
   outreach: LockedOutreachRow,
   now: Date,
-): Promise<{ evidence: FastGateEvidence; suppression: SuppressionMatchRow | null }> {
+): Promise<{
+  evidence: FastGateEvidence;
+  suppression: SuppressionMatchRow | null;
+  handle: string | null;
+}> {
   const handle = await readContactHandle(tx, scope, outreach.contact_id);
   const suppression = handle === null
     ? null
@@ -534,6 +600,7 @@ async function gatherFastGateEvidence(
 
   return {
     suppression,
+    handle,
     evidence: {
       batchOpen: isBatchOpenForSend(batch, now),
       sendFlagOn: solicitationSendEnabled(),
@@ -571,6 +638,233 @@ async function stampConsentSnapshot(
       AND account_id = ${scope.accountId}::uuid
       AND business_id = ${scope.businessId}::uuid
   `;
+}
+
+// ── The send handoff: token mint + message assembly ──────────────────────────
+
+/**
+ * Google's write-review deep link, the destination `assembleAskBody`'s
+ * `Leave a review: {{review_link}}` line promises. Shape attested in two places
+ * already — `src/lib/reviews/url-parser.ts` recognises it as a parseable input,
+ * and the review-generation design records it as the format.
+ *
+ * Deliberately NOT `businesses.google_maps_url`, which the `/r/google/<id>`
+ * redirect uses: that is a VIEW link. Sending a recipient who was asked to
+ * leave a review to a page that merely displays the business is the whole lane
+ * quietly failing at its one job.
+ */
+const GOOGLE_WRITE_REVIEW_URL_PREFIX = 'https://search.google.com/local/writereview?placeid=';
+
+/**
+ * The business's review link, or a THROW — there is no third answer.
+ *
+ * No new withheld reason (that needs a migration this ticket does not own) and
+ * no eighth gate item (B6/B14 lock the gate at seven). An ask whose entire call
+ * to action cannot be built is not a message worth sending, and a business that
+ * reached the send lane without a usable place id is an UPSTREAM bug: a loud
+ * failure names it as one, where a per-contact `withheld` row would file it
+ * away as a routine outcome nobody investigates.
+ *
+ * BOTH arms throw, and the second is the one a reader will assume is fine:
+ * migration 007's legacy rows carry hex CIDs (`0x…:0x…`) rather than canonical
+ * Place IDs, and `writereview?placeid=<hex cid>` resolves to nothing at all.
+ * A silently broken call to action is exactly what failing loudly prevents, so
+ * the value is VALIDATED rather than trusted — by `isPlaceId`, which already
+ * owns that question and already excludes hex CIDs.
+ */
+function buildReviewLink(placeId: string | null, outreachId: string): string {
+  const candidate = placeId?.trim() ?? '';
+  if (!isPlaceId(candidate)) {
+    throw new Error(
+      `solicitation send: outreach ${outreachId} cannot build its review link — the business `
+        + `has no canonical Google place id`,
+    );
+  }
+  // A no-op for every value `isPlaceId` admits (its charset is already
+  // URL-safe), kept so a future loosening of that regex cannot silently start
+  // producing malformed URLs here.
+  return `${GOOGLE_WRITE_REVIEW_URL_PREFIX}${encodeURIComponent(candidate)}`;
+}
+
+/**
+ * The human-facing opt-out URL (#622 §7.2 block 3), through the SAME accessor
+ * and the same route the unsubscribe ingress reads
+ * (`worker/ingress/unsubscribe.ts`). The landing page is
+ * `src/app/(public)/u/[token]/page.tsx`.
+ *
+ * FAIL CLOSED when `NEXT_PUBLIC_APP_URL` is unset, exactly as that ingress
+ * does: a message whose legally-required opt-out cannot resolve is a compliance
+ * defect, not a degraded send.
+ */
+function buildUnsubscribeUrl(rawToken: string): string {
+  const appUrl = getWorkerConfig().NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) {
+    throw new Error(
+      'NEXT_PUBLIC_APP_URL is unset — a solicitation ask cannot carry a resolvable unsubscribe URL',
+    );
+  }
+  return `${appUrl.replace(/\/+$/, '')}/u/${encodeURIComponent(rawToken)}`;
+}
+
+/** The mint's result. The raw token exists ONLY here and downstream in memory. */
+interface MintedUnsubscribeToken {
+  rawToken: string;
+  /** The stored representation, and the only loggable one. */
+  tokenHash: string;
+}
+
+/**
+ * B4's mint: one token row per **Outreach row**, hash only (invariant #5).
+ *
+ * `ON CONFLICT (outreach_id) WHERE outreach_id IS NOT NULL` is copied
+ * BYTE-FOR-BYTE from migration 096's `solicitation_unsubscribe_tokens_outreach_uniq`.
+ * A partial index is only inferred from a predicate that matches exactly — a
+ * near-miss does not fall back, it raises "no unique or exclusion constraint
+ * matching the ON CONFLICT specification" and fails the whole dispatch.
+ *
+ * `DO NOTHING … RETURNING` returns NO row on conflict, and that is the signal
+ * this function exists to produce: the hash is one-way, so an existing row
+ * cannot give the raw token back. Returning `null` rather than the row is what
+ * makes decision 9's refusal to re-send structural — a caller has nothing it
+ * could send WITH.
+ */
+async function mintUnsubscribeToken(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  input: { askId: string; handle: string },
+): Promise<MintedUnsubscribeToken | null> {
+  const rawToken = mintUnsubscribeRawToken();
+  const tokenHash = hashUnsubscribeToken(rawToken);
+
+  const [row] = await tx<{ id: string }[]>`
+    INSERT INTO solicitation_unsubscribe_tokens (
+      id, token_hash, normalized_handle, channel,
+      account_id, business_id, ask_id, outreach_id, sent_at
+    ) VALUES (
+      ${uuidv7()}::uuid, ${tokenHash}, ${input.handle}, ${DISPATCH_CHANNEL},
+      ${scope.accountId}::uuid, ${scope.businessId}::uuid,
+      ${input.askId}::uuid, ${scope.outreachId}::uuid, NOW()
+    )
+    ON CONFLICT (outreach_id) WHERE outreach_id IS NOT NULL DO NOTHING
+    RETURNING id
+  `;
+
+  return row === undefined ? null : { rawToken, tokenHash };
+}
+
+async function readBusinessIdentity(
+  tx: TransactionSql,
+  scope: DispatchScope,
+): Promise<BusinessIdentityRow> {
+  const [row] = await tx<BusinessIdentityRow[]>`
+    SELECT name, owner_email, google_place_id
+    FROM businesses
+    WHERE id = ${scope.businessId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+  `;
+  if (!row) {
+    // tx1 already read this location's attested postal address and the gate
+    // passed on it, so the row was there moments ago under the same lock.
+    throw new Error(
+      `solicitation send: business ${scope.businessId} vanished between the gate and the mint`,
+    );
+  }
+  return row;
+}
+
+/** Everything `assembleOutboundMessage` needs, so the function itself stays
+ *  PURE — no DB, no clock, no config read. */
+export interface OutboundMessageInput {
+  outreachId: string;
+  accountId: string;
+  businessId: string;
+  batchId: string;
+  businessName: string;
+  ownerEmail: string;
+  recipient: string;
+  subject: string;
+  /** The STORED bytes, exactly as the owner approved them. */
+  storedBody: string;
+  unsubscribeUrl: string;
+  reviewLink: string;
+}
+
+/**
+ * `<a>`-wraps a URL that has ALREADY been HTML-escaped. Both the href and the
+ * link text are that same escaped string, so the anchor is self-describing and
+ * §7.2's "conspicuous" opt-out is a visible URL rather than a bare word.
+ */
+function anchor(escapedUrl: string): string {
+  return `<a href="${escapedUrl}">${escapedUrl}</a>`;
+}
+
+/**
+ * PURE. B4's substitution and §7.1's mandatory multipart, in one owner.
+ *
+ * `bodyText` is the STORED body and nothing else — `replaceAll` over the two
+ * placeholder constants, no re-render, no reflow, no trim. That byte-identity
+ * is what keeps the **Owner approval** contract honest: the recipient reads the
+ * bytes the owner approved, with two deterministic tokens resolved. Everything
+ * else about the message is envelope, not content.
+ *
+ * `replaceAll`, not `replace`: lint class 7 already guarantees exactly one of
+ * each placeholder, so a second occurrence is an impossible state — but the
+ * failure mode of `replace` for that impossible state is a literal
+ * `{{review_link}}` in a recipient's inbox, and there is no reason to leave
+ * that reachable.
+ *
+ * `bodyHtml` is derived, never authored: escape the substituted text, promote
+ * the two URLs to real anchors, then turn newlines into line breaks. The
+ * escape runs FIRST and the anchors are inserted after it, so the anchor markup
+ * is structural and the surrounding copy can carry no injected HTML — the URLs
+ * are matched in their escaped form for exactly that reason. `solicitation_outreach`
+ * stores one plain-text body and `EmailAdapter` refuses a blank `bodyText`, so
+ * this derivation is what makes always-multipart possible from one column.
+ */
+export function assembleOutboundMessage(input: OutboundMessageInput): OutboundMessage {
+  const bodyText = input.storedBody
+    .replaceAll(UNSUBSCRIBE_URL_PLACEHOLDER, input.unsubscribeUrl)
+    .replaceAll(REVIEW_LINK_PLACEHOLDER, input.reviewLink);
+
+  const escapedUnsubscribe = escapeHtml(input.unsubscribeUrl);
+  const escapedReview = escapeHtml(input.reviewLink);
+  const bodyHtml = escapeHtml(bodyText)
+    .replaceAll(escapedUnsubscribe, anchor(escapedUnsubscribe))
+    .replaceAll(escapedReview, anchor(escapedReview))
+    .replaceAll('\n', '<br />\n');
+
+  // A literal placeholder reaching a recipient is a visible defect that no
+  // other check in this lane catches, and the substitution above is the only
+  // thing standing between the stored bytes and the wire.
+  for (const [field, value] of [
+    ['subject', input.subject],
+    ['bodyText', bodyText],
+    ['bodyHtml', bodyHtml],
+  ] as const) {
+    if (value.includes(UNSUBSCRIBE_URL_PLACEHOLDER) || value.includes(REVIEW_LINK_PLACEHOLDER)) {
+      throw new Error(
+        `solicitation send: outreach ${input.outreachId} would ship an unsubstituted `
+          + `placeholder in ${field}`,
+      );
+    }
+  }
+
+  return {
+    outreachId: input.outreachId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    batchId: input.batchId,
+    businessName: input.businessName,
+    ownerEmail: input.ownerEmail,
+    recipient: input.recipient,
+    subject: input.subject,
+    bodyHtml,
+    bodyText,
+    // The same URL the footer carries, handed over separately because the
+    // adapter also feeds it to the RFC 8058 List-Unsubscribe header. Two
+    // consumers, one mint.
+    unsubscribeUrl: input.unsubscribeUrl,
+  };
 }
 
 interface WithholdCommitInput {
@@ -677,14 +971,20 @@ async function commitWithhold(
   });
 }
 
-/** What tx1 decided, for the caller to log. A PASSING gate is not a member:
- *  Task 6 owns that path and it throws from inside the transaction. */
+/** What tx1 decided, for the caller to act on. */
 type DispatchTxOutcome =
   | { kind: 'stale' }
   | { kind: 'vanished' }
   | { kind: 'cancelled' }
   | { kind: 'deferred'; item: DispatchGateItem; batchState: BatchState }
-  | { kind: 'withheld'; item: DispatchGateItem; reason: OutreachWithheldReason };
+  | { kind: 'withheld'; item: DispatchGateItem; reason: OutreachWithheldReason }
+  /** Decision 9: the token row was already there, so the raw token — and with
+   *  it any sendable body — is gone. Nothing more may happen to this row here. */
+  | { kind: 'token_unrecoverable' }
+  /** The gate passed, the token is minted and the envelope is built. Task 6
+   *  puts `message` on the wire OUTSIDE tx1 (no lock across a remote call) and
+   *  commits the terminal facts in tx2. */
+  | { kind: 'assembled'; message: OutboundMessage; tokenLogPrefix: string };
 
 /**
  * tx1: the whole of the **Dispatch gate**'s FAST evidence, and every write a
@@ -731,7 +1031,7 @@ async function runDispatchTx(
   }
 
   const [outreach] = await tx<LockedOutreachRow[]>`
-    SELECT ask_id, contact_id, delivery_status, rendered_body
+    SELECT ask_id, contact_id, delivery_status, rendered_subject, rendered_body
     FROM solicitation_outreach
     WHERE id = ${scope.outreachId}::uuid
       AND account_id = ${scope.accountId}::uuid
@@ -755,7 +1055,7 @@ async function runDispatchTx(
   }
 
   const now = new Date();
-  const { evidence, suppression } = await gatherFastGateEvidence(
+  const { evidence, suppression, handle: recipient } = await gatherFastGateEvidence(
     tx,
     scope,
     batchRow,
@@ -795,13 +1095,67 @@ async function runDispatchTx(
     return { kind: 'withheld', item: verdict.item, reason: verdict.reason };
   }
 
-  // TODO(Task 4): mint the unsubscribe token and substitute both placeholders
-  // in memory. TODO(Task 6): the `queued → sending` CAS, the provider call and
-  // the tx2 terminal transaction. Thrown from INSIDE tx1 on purpose — rolling
-  // this transaction back is what keeps a task that does not own the sending
-  // path from committing a half-dispatched row. Unreachable in every
-  // environment today: the flag is unset and #900's producer does not exist.
-  throw new Error('TODO(Task 4/6): solicitation send dispatch is not implemented yet');
+  // Every impossible state below is ASSERTED, not branched around. Each one is
+  // unreachable through the gate that just passed — a null handle makes the
+  // consent lookup miss and withholds `no_consent`; a null subject or body
+  // makes the re-lint unevaluable and withholds `lint_failed` — so reaching one
+  // means the gate and this path disagree about what "passed" means, which is a
+  // bug to surface rather than a contact to quietly drop.
+  // Truthiness, not `!== null`: an empty string is as unsendable as a NULL —
+  // `EmailAdapter` refuses a blank recipient and a blank text part outright —
+  // and collapsing both into one assertion beats two arms that differ only in
+  // which impossible state they name.
+  if (!recipient) {
+    throw new Error(
+      `solicitation send: outreach ${scope.outreachId} passed the Dispatch gate with no `
+        + `recipient handle`,
+    );
+  }
+  if (!outreach.rendered_subject || !outreach.rendered_body) {
+    throw new Error(
+      `solicitation send: outreach ${scope.outreachId} passed the Dispatch gate with no `
+        + `stored artifact`,
+    );
+  }
+
+  const business = await readBusinessIdentity(tx, scope);
+  // BEFORE the mint: a business whose call to action cannot be built has no
+  // business burning a token row it could never use.
+  const reviewLink = buildReviewLink(business.google_place_id, scope.outreachId);
+
+  const minted = await mintUnsubscribeToken(tx, scope, {
+    askId: outreach.ask_id,
+    handle: recipient,
+  });
+  if (minted === null) {
+    // Decision 9, the whole reason this branch exists: a row already here means
+    // a PRIOR process minted it and died, and the hash cannot give that token
+    // back. The attempt is completed so the watchdog stops re-pending it, and
+    // NOTHING else is written — the Outreach row keeps the status that prior
+    // process left it in, which #900's D12d sweep resolves.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'token_unrecoverable' };
+  }
+
+  const message = assembleOutboundMessage({
+    outreachId: scope.outreachId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+    batchId: scope.batchId,
+    businessName: business.name,
+    ownerEmail: business.owner_email,
+    recipient,
+    subject: outreach.rendered_subject,
+    storedBody: outreach.rendered_body,
+    unsubscribeUrl: buildUnsubscribeUrl(minted.rawToken),
+    reviewLink,
+  });
+
+  return {
+    kind: 'assembled',
+    message,
+    tokenLogPrefix: unsubscribeTokenLogPrefix(minted.rawToken),
+  };
 }
 
 /**
@@ -891,9 +1245,44 @@ export async function dispatchOutreach(
     });
     return;
   }
-  logger.log('solicitation send withheld by the dispatch gate', {
+  if (outcome.kind === 'withheld') {
+    logger.log('solicitation send withheld by the dispatch gate', {
+      ...context,
+      gate_item: outcome.item,
+      disposition_reason: outcome.reason,
+    });
+    return;
+  }
+  if (outcome.kind === 'token_unrecoverable') {
+    // Decision 9's cost, stated where an operator will read it. No token
+    // prefix: this process never held the raw token, and the stored hash is
+    // not a value this lane logs to identify a row by.
+    logger.warn(
+      'solicitation send: unsubscribe token already minted by a prior process — not re-sending',
+      context,
+    );
+    return;
+  }
+
+  // The token prefix is the ONLY form of the token that may be logged
+  // (invariant #5, §9.5) — enough to correlate this attempt with its retry,
+  // worthless to whoever reads the log. The recipient, the subject and the body
+  // are on `outcome.message` and none of them appears here.
+  logger.log('solicitation send: unsubscribe token minted and message assembled', {
     ...context,
-    gate_item: outcome.item,
-    disposition_reason: outcome.reason,
+    unsubscribe_token: outcome.tokenLogPrefix,
   });
+
+  // TODO(Task 6): the `queued → sending` CAS (inside tx1, above), the provider
+  // call through `getMessagingAdapter()` with NO lock held, and the tx2
+  // terminal transaction. Thrown from OUT here rather than inside tx1 because
+  // tx1 now writes the token row, and rolling that back on every attempt would
+  // make B4's idempotent mint unobservable. What has committed is not a
+  // half-dispatched row: the Outreach row's status is untouched and the outbox
+  // attempt is still in flight, so the watchdog owns the retry. Unreachable in
+  // every environment today — the flag is unset and #900's producer does not
+  // exist.
+  throw new Error(
+    `TODO(Task 6): solicitation send has no provider call yet (outreach ${scope.outreachId})`,
+  );
 }

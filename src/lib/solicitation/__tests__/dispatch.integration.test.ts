@@ -32,10 +32,13 @@
 // speculatively written against a `dispatch.ts` that does not exist yet.
 
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
+import type { ModerationDecision } from '@/lib/moderation/output-filter';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { resetServerConfigForTests } from '@/lib/config/server';
+import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import { startOrGetSolicitationSendBatchRun } from '@/lib/agents/run-spine';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
@@ -62,10 +65,46 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import type { AskInterpolationInputs } from '../ask-prompt-policy';
-import { assembleAskBody } from '../ask-render';
+import {
+  assembleAskBody,
+  REVIEW_LINK_PLACEHOLDER,
+  UNSUBSCRIBE_URL_PLACEHOLDER,
+} from '../ask-render';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { dispatchOutreach } from '../dispatch';
 import { POSTAL_ADDRESS_ATTESTATION_VERSION } from '../postal-address';
+import {
+  hashUnsubscribeToken,
+  isWellFormedUnsubscribeToken,
+  mintUnsubscribeRawToken,
+} from '../unsubscribe';
+
+// ── Two seams stubbed, and only two ──────────────────────────────────────────
+//
+// The **Messaging adapter**, reached through `getMessagingAdapter()` so the stub
+// sits at the seam and never at `EmailAdapter` or a Resend client. Task 6 makes
+// this call real; until then it is the spy that proves decision 9's refusal
+// path never reaches a provider.
+const messagingMocks = vi.hoisted(() => ({ send: vi.fn() }));
+vi.mock('@/lib/messaging/messaging-adapter', () => ({
+  getMessagingAdapter: () => ({ send: messagingMocks.send }),
+}));
+
+// The moderation provider — a REMOTE call, and the one collaborator a live-DB
+// suite must not make for real. The default delegates to the production
+// function so every gate case below keeps the verdict it was written against
+// (with the provider off, that is a REFUSAL — §3.4 makes a clean provider
+// verdict a dispatch precondition). Only the mint cases, whose subject is what
+// happens AFTER the gate passes, swap in a clean verdict.
+const moderationMocks = vi.hoisted(() => ({
+  moderateResponse: vi.fn<(text: string) => Promise<ModerationDecision>>(),
+  real: { current: null as null | ((text: string) => Promise<ModerationDecision>) },
+}));
+vi.mock('@/lib/moderation/moderate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/moderation/moderate')>();
+  moderationMocks.real.current = actual.moderateResponse;
+  return { moderateResponse: moderationMocks.moderateResponse };
+});
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -128,6 +167,24 @@ const SEEDED_POSTAL_ADDRESS = '742 Evergreen Terrace\nSpringfield, IL 62704';
  *  omits v1 because its text disclaimed sending, and the gate is a MEMBERSHIP
  *  test against that list rather than a "not v1" test. */
 const STALE_ATTESTATION_VERSION = 'consent_attestation_v1';
+
+/** Canonical per `isPlaceId`. `seedLocation` leaves `google_place_id` NULL, and
+ *  an unbuildable review link THROWS (rulings 2/3) — so the send path needs a
+ *  location that carries one. */
+const SEEDED_PLACE_ID = 'ChIJdispatchLiveDb0000000000';
+
+/** Pinned, not inherited: the unsubscribe URL is built from this, and the
+ *  "never written to Postgres" claim is a claim about exactly this prefix. */
+const APP_URL = 'https://dispatch-live.test';
+
+/** ≥32 bytes — `mintUnsubscribeRawToken` signs with it and
+ *  `isWellFormedUnsubscribeToken` verifies against it. */
+const SESSION_SECRET = 'dispatch-live-db-session-secret-0123456789';
+
+const priorEnv = {
+  appUrl: process.env.NEXT_PUBLIC_APP_URL,
+  sessionSecret: process.env.SESSION_COOKIE_SECRET,
+};
 
 /** The subject stored on the fixture row. Lint-clean by construction: short,
  *  one clause, no URL, no digits, no disallowed interpolated value. */
@@ -498,6 +555,159 @@ async function withSendFlagOn(run: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Runs the body with a CLEAN provider verdict, restoring the delegating default
+ * afterwards so no later case inherits it. Only the mint cases use this: their
+ * subject starts where the gate ends, and item 9 refusing would mean they never
+ * reach it.
+ */
+async function withCleanModeration(run: () => Promise<void>): Promise<void> {
+  moderationMocks.moderateResponse.mockResolvedValue({
+    flagged: false,
+    severity: 'low',
+    reason: null,
+    categories: { openai_moderation: 'clean' },
+    score: 0,
+    source: null,
+    providerStatus: 'clean',
+  });
+  try {
+    await run();
+  } finally {
+    moderationMocks.moderateResponse.mockImplementation(
+      (text) => moderationMocks.real.current!(text),
+    );
+  }
+}
+
+/**
+ * Drives one dispatch to the point Task 4 reaches and no further.
+ *
+ * Task 6 owns the CAS, the provider call and tx2, and its marker throws from
+ * the orchestrator AFTER tx1 commits — so a passing gate always REJECTS here,
+ * and the rows tx1 left behind are exactly what these cases read. Delete this
+ * helper when Task 6 lands; the four titles below survive it unchanged.
+ */
+async function dispatchToTask6Marker(
+  fixture: QueuedOutreachFixture,
+  correlationId: string,
+): Promise<void> {
+  await withCleanModeration(async () => {
+    await withSendFlagOn(async () => {
+      await expect(
+        dispatchOutreach(sql(), {
+          batchId: fixture.batchId,
+          businessId,
+          outreachId: fixture.outreachId,
+          outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+          correlationId,
+        }),
+      ).rejects.toThrow(/TODO\(Task 6\)/);
+    });
+  });
+}
+
+/**
+ * The SAME invocation, re-run as a fresh process would. It resolves rather than
+ * rejecting: the mint conflicts, the raw token is gone, and decision 9's answer
+ * is to complete the attempt and return — never to throw and never to send.
+ */
+async function redispatchAfterCrash(
+  fixture: QueuedOutreachFixture,
+  correlationId: string,
+): Promise<void> {
+  await withCleanModeration(async () => {
+    await withSendFlagOn(async () => {
+      await dispatchOutreach(sql(), {
+        batchId: fixture.batchId,
+        businessId,
+        outreachId: fixture.outreachId,
+        outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+        correlationId,
+      });
+    });
+  });
+}
+
+interface UnsubscribeTokenRow {
+  id: string;
+  token_hash: string;
+  normalized_handle: string;
+  channel: string;
+  account_id: string | null;
+  business_id: string | null;
+  ask_id: string | null;
+  outreach_id: string | null;
+  sent_at: string | null;
+  redeemed_at: string | null;
+}
+
+async function readTokenRows(outreachId: string): Promise<UnsubscribeTokenRow[]> {
+  return sql()<UnsubscribeTokenRow[]>`
+    SELECT id, token_hash, normalized_handle, channel,
+           account_id, business_id, ask_id, outreach_id,
+           sent_at::text AS sent_at, redeemed_at::text AS redeemed_at
+    FROM solicitation_unsubscribe_tokens
+    WHERE outreach_id = ${outreachId}::uuid
+  `;
+}
+
+/** The mint's whole contract is ONE row per Outreach row, so every case that
+ *  reads the token asserts that count before touching a field. */
+async function readOnlyTokenRow(outreachId: string): Promise<UnsubscribeTokenRow> {
+  const rows = await readTokenRows(outreachId);
+  expect(rows).toHaveLength(1);
+  const [row] = rows;
+  if (!row) throw new Error(`no unsubscribe token row for outreach ${outreachId}`);
+  return row;
+}
+
+/** Every column of one table, untyped on purpose: the invariant #5 scan below
+ *  is a claim about ALL of them, and a hand-listed projection would quietly
+ *  stop covering a column added later. */
+async function readEveryColumn(
+  table: 'solicitation_unsubscribe_tokens' | 'solicitation_outreach',
+  outreachId: string,
+): Promise<Record<string, unknown>[]> {
+  const scope = table === 'solicitation_unsubscribe_tokens'
+    ? sql()`outreach_id = ${outreachId}::uuid`
+    : sql()`id = ${outreachId}::uuid
+        AND account_id = ${accountId()}::uuid
+        AND business_id = ${businessId}::uuid`;
+  return sql()<Record<string, unknown>[]>`
+    SELECT * FROM ${sql()(table)} WHERE ${scope}
+  `;
+}
+
+/**
+ * Invariant #5, asserted without knowing the raw token — which no test CAN
+ * know, because it never leaves `dispatch.ts`'s memory. That is the point, and
+ * it is also why the check cannot be a `.not.toContain(rawToken)`.
+ *
+ * Two nets, and between them a raw token has nowhere to hide: any
+ * `<nonce>.<mac>` substring is run through `isWellFormedUnsubscribeToken`,
+ * which VERIFIES the HMAC — so a leak is caught bare or embedded in JSON — and
+ * the `/u/` URL prefix is matched directly, catching a substituted body
+ * written back to a column.
+ */
+function carriesRawToken(text: string): boolean {
+  return (text.match(/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{40,}/g) ?? [])
+    .some((candidate) => isWellFormedUnsubscribeToken(candidate));
+}
+
+function assertCarriesNoRawToken(rows: readonly Record<string, unknown>[], table: string): void {
+  for (const row of rows) {
+    for (const [column, value] of Object.entries(row)) {
+      if (value === null || value === undefined) continue;
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+      expect(carriesRawToken(text), `${table}.${column} carries a raw unsubscribe token`)
+        .toBe(false);
+      expect(text, `${table}.${column} carries an unsubscribe URL`)
+        .not.toContain(`${APP_URL}/u/`);
+    }
+  }
+}
+
 describeWithDb(
   'solicitation dispatch lane',
   { enabled: Boolean(testDatabaseUrl), timeout: 90_000 },
@@ -528,6 +738,29 @@ describeWithDb(
         name: 'Dispatch Business',
         isPrimary: true,
       });
+      // `seedLocation` leaves `google_place_id` NULL, and the send path REFUSES
+      // to build a review link without a canonical one (rulings 2/3). Written
+      // here rather than in the fixture: it is a fact about the location, not
+      // about any one Outreach row.
+      await db`
+        UPDATE businesses SET google_place_id = ${SEEDED_PLACE_ID}
+        WHERE id = ${businessId}::uuid AND account_id = ${tenant.accountId}::uuid
+      `;
+
+      // Pinned so the unsubscribe URL is the same on every machine, and so a
+      // missing SESSION_COOKIE_SECRET cannot turn the mint into a boot error.
+      // Both accessors MEMOIZE — setting the variable without dropping the memo
+      // would leave the first parse in this process authoritative.
+      process.env.NEXT_PUBLIC_APP_URL = APP_URL;
+      process.env.SESSION_COOKIE_SECRET = SESSION_SECRET;
+      resetWorkerConfigForTests();
+      resetServerConfigForTests();
+
+      // The delegating default: every gate case below was written against the
+      // production verdict, and only the mint cases override it.
+      moderationMocks.moderateResponse.mockImplementation(
+        (text) => moderationMocks.real.current!(text),
+      );
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -563,6 +796,12 @@ describeWithDb(
         try {
           if (db) await db.end({ timeout: 5 });
         } finally {
+          if (priorEnv.appUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+          else process.env.NEXT_PUBLIC_APP_URL = priorEnv.appUrl;
+          if (priorEnv.sessionSecret === undefined) delete process.env.SESSION_COOKIE_SECRET;
+          else process.env.SESSION_COOKIE_SECRET = priorEnv.sessionSecret;
+          resetWorkerConfigForTests();
+          resetServerConfigForTests();
           await featureDatabaseLock?.release();
           featureDatabaseLock = undefined;
         }
@@ -900,13 +1139,93 @@ describeWithDb(
       // `solicitation_unsubscribe_tokens_outreach_uniq` is what makes this one
       // row per Outreach row. Only the SHA-256 hash is stored — the raw token
       // exists in memory and in the recipient's link, never in Postgres.
-      it.todo('mints one unsubscribe token row per outreach_id and stores only the SHA-256 hash');
+      it('mints one unsubscribe token row per outreach_id and stores only the SHA-256 hash', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        await dispatchToTask6Marker(fixture, 'dispatch-token-mint');
+
+        const token = await readOnlyTokenRow(fixture.outreachId);
+
+        // The stored representation is a digest and nothing else — migration
+        // 096's `..._token_hash_sha256_hex` CHECK is what makes a call site
+        // that forgot to hash impossible rather than merely discouraged.
+        expect(token.token_hash).toMatch(/^[a-f0-9]{64}$/);
+        // ...and it really is THIS token's digest shape: hashing the stored
+        // value again cannot reproduce it, which is the one-way property
+        // decision 9 is built on.
+        expect(hashUnsubscribeToken(token.token_hash)).not.toBe(token.token_hash);
+
+        // Redemption keys on the handle + channel; provenance is what the
+        // offboarding purge scrubs. `sent_at` is stamped at DISPATCH (B4
+        // amends #621's "minted at render"), and the row is unredeemed.
+        expect(token.normalized_handle).toBe(fixture.handle);
+        expect(token.channel).toBe('email');
+        expect(token.account_id).toBe(accountId());
+        expect(token.business_id).toBe(businessId);
+        expect(token.ask_id).toBe(fixture.askId);
+        expect(token.outreach_id).toBe(fixture.outreachId);
+        expect(token.sent_at).not.toBeNull();
+        expect(token.redeemed_at).toBeNull();
+
+        // Nothing reached a provider: Task 6 owns that call, and this attempt
+        // stopped at its marker.
+        expect(messagingMocks.send).not.toHaveBeenCalled();
+      });
+
       // The provider idempotency key is the Outreach row id, so a retry that
       // minted a NEW token would re-issue a different body under the same key.
-      it.todo('re-uses the existing token row on a retry so the provider idempotency retry has a stable body');
+      it('re-uses the existing token row on a retry so the provider idempotency retry has a stable body', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        await dispatchToTask6Marker(fixture, 'dispatch-token-first');
+        const first = await readOnlyTokenRow(fixture.outreachId);
+
+        // The retry. `ON CONFLICT (outreach_id) WHERE outreach_id IS NOT NULL`
+        // matches 096's partial index byte-for-byte, so the insert is a no-op
+        // rather than a unique violation — and the row that already exists is
+        // the one every later bounce, complaint and opt-out resolves against.
+        await redispatchAfterCrash(fixture, 'dispatch-token-retry');
+
+        const after = await readOnlyTokenRow(fixture.outreachId);
+        expect(after.id).toBe(first.id);
+        expect(after.token_hash).toBe(first.token_hash);
+        expect(after.sent_at).toBe(first.sent_at);
+      });
+
       // Assert across every column of `solicitation_unsubscribe_tokens` AND
       // `solicitation_outreach`: the raw token appears in none of them.
-      it.todo('substitutes the raw unsubscribe URL in memory and never writes it to Postgres');
+      it('substitutes the raw unsubscribe URL in memory and never writes it to Postgres', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        await dispatchToTask6Marker(fixture, 'dispatch-token-in-memory');
+
+        // NEGATIVE CONTROL. No test can hold the raw token — that IS invariant
+        // #5 — so the scan recognises one by shape and signature instead. If
+        // that detector stopped working, every assertion below would pass on
+        // an empty claim.
+        expect(carriesRawToken(`stored ${mintUnsubscribeRawToken()} value`)).toBe(true);
+
+        const tokenRows = await readEveryColumn(
+          'solicitation_unsubscribe_tokens',
+          fixture.outreachId,
+        );
+        expect(tokenRows).toHaveLength(1);
+        assertCarriesNoRawToken(tokenRows, 'solicitation_unsubscribe_tokens');
+
+        const outreachRows = await readEveryColumn('solicitation_outreach', fixture.outreachId);
+        expect(outreachRows).toHaveLength(1);
+        assertCarriesNoRawToken(outreachRows, 'solicitation_outreach');
+
+        // The other half of "in memory only": the STORED bytes are untouched.
+        // Substitution is mechanical and excluded from the byte-for-byte
+        // **Owner approval** contract precisely because it never lands here.
+        const storedBody = outreachRows[0]?.rendered_body;
+        expect(storedBody).toContain(UNSUBSCRIBE_URL_PLACEHOLDER);
+        expect(storedBody).toContain(REVIEW_LINK_PLACEHOLDER);
+      });
     });
 
     // ---- tx1 CAS, the provider call, tx2 (Task 6) --------------------------
@@ -936,7 +1255,45 @@ describeWithDb(
       // unrecoverable across a process boundary, so no correct message can be
       // built; re-issuing would send a body with a dead unsubscribe URL. The
       // row is left `sending` for #900's D12d sweep to call `unknown`.
-      it.todo('does not call the Messaging adapter when re-invoked in a fresh process without the raw token');
+      it('does not call the Messaging adapter when re-invoked in a fresh process without the raw token', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        // Invocation 1 mints and dies (here, at Task 6's marker; in production,
+        // at a crash between the mint and the provider's answer).
+        await dispatchToTask6Marker(fixture, 'dispatch-crash-first');
+        const before = await readOutreach(fixture.outreachId);
+
+        // Invocation 2 is the fresh process. It re-gates, re-reaches the mint,
+        // and finds the row already there — with no way back to the raw token.
+        messagingMocks.send.mockClear();
+        await redispatchAfterCrash(fixture, 'dispatch-crash-retry');
+
+        // THE claim. Re-issuing under the same idempotency key does not save
+        // us: if the first request never reached the provider, the RETRY's body
+        // is what gets delivered, carrying an unsubscribe URL for a token this
+        // process cannot reproduce.
+        //
+        // Task 6 wires `getMessagingAdapter().send(message)` on the passing
+        // path; this spy is stubbed at that seam so the assertion keeps its
+        // meaning the moment that call becomes real.
+        expect(messagingMocks.send).not.toHaveBeenCalled();
+
+        // Nothing else moved either. `delivery_status` is left exactly as the
+        // prior process left it — #900's D12d sweep is what terminalizes a
+        // `sending` row `unknown` / `send_indeterminate`, not this worker.
+        const after = await readOutreach(fixture.outreachId);
+        expect(after.delivery_status).toBe(before.delivery_status);
+        expect(after.disposition_reason).toBeNull();
+        expect(after.sent_at).toBeNull();
+        expect(after.provider_message_id).toBeNull();
+
+        // But the attempt IS spent, or the watchdog re-pends a row that can
+        // never make progress — a retry storm over an unrecoverable body.
+        const outbox = await readOutbox(fixture.outboxId);
+        expect(outbox.status).toBe('completed');
+        expect(outbox.completed_at).not.toBeNull();
+      });
       // At-least-once outbox delivery means the same attempt can arrive twice.
       // A stale attempt number must not reach the provider.
       it('ignores a stale outbox attempt and does not call the Messaging adapter', async () => {
