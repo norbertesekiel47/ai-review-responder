@@ -13,6 +13,48 @@ here, not amendments.
 
 ---
 
+## AMENDMENT 3 — `outcome-anchor-pairing.test.ts`, and the ROOT CAUSE of all three
+
+**What:** `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` added to
+`allowed_edit_surface` (19 → 20 entries). `src/lib/solicitation/release.ts`
+added to its `CALLER_ALLOWLIST`, its `NON_REVIEW_SUBJECT_CALLERS`, and the
+FOURTH test that pins that carve-out — the pin is deliberate, so a new entry is
+a conscious act rather than a silent one. Written with the lock-order
+justification the house style requires: batch → run is the sole order, no
+reviews or businesses lock is taken, and every governor runs ABOVE the
+transactions with no lock held.
+
+**ROOT CAUSE, stated once for all three amendments.** They are not three
+separate scope creeps. They are ONE intake defect with three symptoms: the
+intake declared **one of the four** governance registries that any new
+cross-account, spine-writing background loop must touch.
+
+| Registry | Declared at intake? |
+|---|---|
+| `docs/directory.md` | YES |
+| `src/lib/agents/run-spine.ts` — `STEP_PERSONA` | no → amendment 1 |
+| `scripts/ci/tenant-scope-allowlist.ts` — `background-global-scan` | no → amendment 2 |
+| `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` — `CALLER_ALLOWLIST` | no → amendment 3 |
+
+All four were foreseeable when the intake was written. None was foreseen. The
+abort budget fired on symptom 2 and would have torn down a branch whose work
+was on estimate and whose plan had passed three adversarial review rounds —
+which is why the owner overrode it, on the reasoning that the criterion targets
+a MIS-CLASSIFIED LANE and this lane was not mis-classified.
+
+**Owner sign-off taken 2026-08-22, separately for each of the three.**
+
+**PROMOTION OBLIGATION (step 8):** this four-registry list goes into
+`.claude/reference/lab-notes.md`, so the next feature touching this class
+declares them at intake instead of discovering them one gate failure at a time.
+Recording it only here leaves the lesson where the next session will not look.
+
+**Verified complete, with a caveat:** the full 12,897-test suite flags exactly
+these. The sibling registries in the same family — `cost-guard-contract`,
+`admin-aal2`, `analytics-events`, `purge-verification` — do not apply to this
+module. Tasks 4-7 add more spine writes, but all from `release.ts`, so they
+reuse this same entry.
+
 ## AMENDMENT 1 of 2 — `src/lib/agents/run-spine.ts` added to `allowed_edit_surface`
 
 **This is a surface amendment and it COUNTS toward the abort budget.** A second

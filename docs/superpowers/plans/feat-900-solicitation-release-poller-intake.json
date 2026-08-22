@@ -80,6 +80,7 @@
     "src/lib/config/worker.ts",
     "src/lib/agents/run-spine.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "docs/directory.md",
     "docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md",
     "docs/superpowers/plans/**",
