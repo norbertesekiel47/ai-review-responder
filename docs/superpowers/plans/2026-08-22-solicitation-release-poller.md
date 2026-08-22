@@ -222,12 +222,19 @@ Checked once per tick, in this order, each stopping the whole phase:
 
 Then per account, in this order:
 
-4. `subscriptionGrantsFullAccess(status)` (B14).
-5. `resolveAccountDailySendCap(policy)` minus `countAccountDispatchAttemptsToday(sql, accountId)`.
+4. `resolveAccountDailySendCap(policy)` minus `countAccountDispatchAttemptsToday(sql, accountId)`.
+5. `subscriptionGrantsFullAccess(status)` (B14).
 
 Then, and only then, per batch:
 
 6. The **Judge split** — `judgeEnabled()` and `isJudgeHealthy(sql)`, both read once per tick.
+
+**The order is quoted, not inferred** (round-2 finding 2). Amendment B6's closing paragraph
+states it: *"Releaser-level gates (before any child): circuit breaker → platform ceiling →
+account cap → `subscriptionGrantsFullAccess` (B14) — #622 §4.3's order, plus Judge
+availability per #619 D18's downgrade/hold split."* **Account cap precedes subscription.**
+B6's per-child numbering (item 3 subscription, item 7 caps) is a different list and does not
+govern here. A wrong order here is silent, which is exactly what issue #910's B3.2 records.
 
 **The Judge is evaluated LAST, and that position is load-bearing** (round-1 finding 2). A
 downgrade is a destructive write: it clears `approved_at`, `approval_method` and
@@ -261,7 +268,7 @@ Blocking edges are stated per task. **Tasks 1 and 2 are mutually independent** �
 - Modify: `src/lib/shared/__tests__/job-outbox-helpers.test.ts`
 - Create: `worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts`
 
-Author all **38** titles from `.feature/intake.json` `tests_to_add`, **verbatim**. The gate's `promised-tests` row matches them literally. A slice not yet buildable uses `it.todo(...)`; a later task converts it.
+Author all **39** titles from `.feature/intake.json` `tests_to_add`, **verbatim**. The gate's `promised-tests` row matches them literally. A slice not yet buildable uses `it.todo(...)`; a later task converts it.
 
 Eleven of the 38 came from the round-1 adversarial review, which found the original 27
 could all pass while the feature was still unsafe. Each closes a named silent-failure
@@ -560,6 +567,13 @@ row, not two.
 
   Then `closeBatchIfSettled(tx, { batchId, accountId, businessId })` last, in the same
   transaction.
+
+  **A success-path test cannot prove one transaction** (round-2 finding 6). The title
+  `rolls back unknown Outreach terminalization when lazy-child completion fails` injects a
+  failure between the Outreach UPDATE and `completeRun`, and asserts the row is still
+  `sending`. A split implementation passes the happy path, then commits `unknown` and dies
+  before terminalizing the child — leaving the child `running` forever, which is the wedge
+  this step exists to close, moved one row over.
 
 - [ ] **Step 4: Raise a Sentry alert per terminalization.** D12d requires it. This row may correspond to a delivered email whose `provider_message_id` was lost — the alert is the only signal.
 - [ ] **Step 5: Comment the lie-with-teeth rule at the write site.** On the Outreach row, `failed` would be wrong: the restraint policy's `over_contacted` check reads prior sends, so calling a possible send "not sent" can email that customer twice. State in the same comment why the CHILD RUN may still be `failed`.

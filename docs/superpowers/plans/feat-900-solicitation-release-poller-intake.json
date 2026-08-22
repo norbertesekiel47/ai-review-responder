@@ -94,7 +94,7 @@
     "does not release when the platform daily ceiling is reached",
     "does not release beyond the account daily send cap",
     "does not release when the subscription does not grant full access",
-    "evaluates the governors in the fixed order breaker then platform ceiling then account cap",
+    "evaluates the governors in the fixed order breaker then platform ceiling then account cap then subscription",
     "stamps sending_started_at on the first release only",
     "releases at most the per-tick budget and leaves the rest for the next tick",
     "a second release attempt for the same Outreach row inserts no second outbox row",
@@ -123,7 +123,8 @@
     "does not release when the send window elapses while waiting for the batch lock",
     "latchSystemHalt never cancels a sending Outreach row",
     "treats JUDGE_ENABLED false exactly as an unhealthy Judge",
-    "releases no more than the remaining platform capacity in one tick"
+    "releases no more than the remaining platform capacity in one tick",
+    "rolls back unknown Outreach terminalization when lazy-child completion fails"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "820",

@@ -29,6 +29,30 @@ entry and **not** an amendment. It does not count toward the abort budget.
 Owner-approved by the sign-off that locked the intake, under the workflow's
 rule that `tests_to_add` retitles and estimate corrections are entries here.
 
+## Plan round 2 — governor order corrected; one title retitled, one added
+
+**What:** `subscriptionGrantsFullAccess` moved from BEFORE the account cap to
+AFTER it. `evaluates the governors in the fixed order breaker then platform
+ceiling then account cap` retitled to `… then account cap then subscription`.
+One title added: `rolls back unknown Outreach terminalization when lazy-child
+completion fails`. Total 38 → 39.
+
+**Why:** amendment B6's closing paragraph states the release-level order
+verbatim — *circuit breaker → platform ceiling → account cap →
+`subscriptionGrantsFullAccess`*. The plan had inferred the order from B6's
+per-child item numbering (item 3 subscription, item 7 caps), which is a
+DIFFERENT list and does not govern the release level. The three-governor test
+title could pass with the wrong order, which is issue #910's B3.2 hazard exactly:
+a wrong governor order is silent.
+
+The added title exists because a success-path test cannot prove that the
+Outreach `unknown` write and the child-run terminalization share one
+transaction. Only injected failure between them proves it.
+
+**What changed:** the plan's governor-order section and Task 6 step 3; both
+intake copies. Still no `allowed_edit_surface` change — a deviations entry,
+not an amendment.
+
 ## Plan round 1 — two DESIGN changes, not just test additions
 
 **What:** (a) the Judge split moved from before the account cap to after every
