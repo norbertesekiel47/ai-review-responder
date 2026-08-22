@@ -41,6 +41,7 @@ import { resetServerConfigForTests } from '@/lib/config/server';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import { startOrGetSolicitationSendBatchRun } from '@/lib/agents/run-spine';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   acquireLiveDbLock,
@@ -82,10 +83,12 @@ import {
 // ── Two seams stubbed, and only two ──────────────────────────────────────────
 //
 // The **Messaging adapter**, reached through `getMessagingAdapter()` so the stub
-// sits at the seam and never at `EmailAdapter` or a Resend client. Task 6 makes
-// this call real; until then it is the spy that proves decision 9's refusal
-// path never reaches a provider.
-const messagingMocks = vi.hoisted(() => ({ send: vi.fn() }));
+// sits at the seam and never at `EmailAdapter` or a Resend client. It is both
+// the provider under test — its answer is what tx2 records — and the spy that
+// proves decision 9's refusal path never reaches a provider at all.
+const messagingMocks = vi.hoisted(() => ({
+  send: vi.fn<(message: unknown) => Promise<{ providerMessageId: string }>>(),
+}));
 vi.mock('@/lib/messaging/messaging-adapter', () => ({
   getMessagingAdapter: () => ({ send: messagingMocks.send }),
 }));
@@ -432,6 +435,13 @@ interface OutreachLifecycleRow {
   sending_at: string | null;
   sent_at: string | null;
   provider_message_id: string | null;
+  /** Stamped by `terminal_bounce` and by NOTHING else — it feeds the Suppression
+   *  ledger and the **Send breaker**'s hard-bounce numerator. */
+  bounced_at: string | null;
+  /** Left NULL by this lane on purpose: `send-breaker.ts` counts an
+   *  unclassified bounce WITH the hard ones, so the worker never asserts a kind
+   *  the provider did not give it. */
+  bounce_kind: string | null;
   agent_run_id: string | null;
   consent_basis: string | null;
   consent_attestation_version: string | null;
@@ -443,7 +453,8 @@ async function readOutreach(outreachId: string): Promise<OutreachLifecycleRow> {
   const [row] = await sql()<OutreachLifecycleRow[]>`
     SELECT delivery_status, disposition_reason,
            sending_at::text AS sending_at, sent_at::text AS sent_at,
-           provider_message_id, agent_run_id,
+           provider_message_id, bounced_at::text AS bounced_at, bounce_kind,
+           agent_run_id,
            consent_basis, consent_attestation_version, consent_row_id,
            moderation_status
     FROM solicitation_outreach
@@ -453,6 +464,51 @@ async function readOutreach(outreachId: string): Promise<OutreachLifecycleRow> {
   `;
   if (!row) throw new Error(`seeded outreach row ${outreachId} vanished`);
   return row;
+}
+
+/** The batch's closure stamp — D11's join, asserted from the batch row rather
+ *  than from `closeBatchIfSettled`'s return value. */
+async function readBatchClosedAt(batchId: string): Promise<string | null> {
+  const [row] = await sql()<{ send_closed_at: string | null }[]>`
+    SELECT send_closed_at::text AS send_closed_at
+    FROM solicitation_batches
+    WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  if (!row) throw new Error(`seeded batch ${batchId} vanished`);
+  return row.send_closed_at;
+}
+
+/** The **Send batch parent** the generation lane minted for this batch. */
+async function readSendParentRunId(batchId: string): Promise<string> {
+  const [row] = await sql()<{ id: string }[]>`
+    SELECT id FROM agent_runs
+    WHERE kind = 'solicitation_send_batch'
+      AND subject_type = 'solicitation_batch'
+      AND subject_id = ${batchId.toLowerCase()}
+      AND account_id = ${accountId()}::uuid
+      AND business_id = ${businessId}::uuid
+  `;
+  if (!row) throw new Error(`no send batch parent run for batch ${batchId}`);
+  return row.id;
+}
+
+interface OutcomeRow {
+  outcome_kind: string;
+  unit_count: number;
+  attributed_agent: string;
+}
+
+/** Every outcome on one run. Read per-run rather than per-batch: D14's whole
+ *  claim is about WHICH run carries `solicitation_sent`. */
+async function readOutcomes(runId: string): Promise<OutcomeRow[]> {
+  return sql()<OutcomeRow[]>`
+    SELECT outcome_kind, unit_count, attributed_agent
+    FROM agent_outcomes
+    WHERE agent_run_id = ${runId}::uuid
+    ORDER BY outcome_kind
+  `;
 }
 
 interface ChildRunRow {
@@ -580,37 +636,104 @@ async function withCleanModeration(run: () => Promise<void>): Promise<void> {
   }
 }
 
+/** The provider's answer for every case that is not about the provider. */
+const DEFAULT_PROVIDER_MESSAGE_ID = 'msg_dispatch_live_default';
+
 /**
- * Drives one dispatch to the point Task 4 reaches and no further.
- *
- * Task 6 owns the CAS, the provider call and tx2, and its marker throws from
- * the orchestrator AFTER tx1 commits — so a passing gate always REJECTS here,
- * and the rows tx1 left behind are exactly what these cases read. Delete this
- * helper when Task 6 lands; the four titles below survive it unchanged.
+ * The stub's steady state. `mockReset` clears the call log AND any
+ * `mockRejectedValue` a failure case installed — this suite has no `beforeEach`,
+ * so a leaked rejection would fail the next case for a reason it is not about.
  */
-async function dispatchToTask6Marker(
+function resetProviderSend(providerMessageId = DEFAULT_PROVIDER_MESSAGE_ID): void {
+  messagingMocks.send.mockReset();
+  messagingMocks.send.mockResolvedValue({ providerMessageId });
+}
+
+/**
+ * Runs the body with the provider REJECTING, then restores the steady state.
+ *
+ * The restore is a `mockImplementation`, deliberately NOT `resetProviderSend`:
+ * a reset would clear the CALL LOG on the way out, and "zero retries" is a claim
+ * about exactly that log, asserted after the helper returns.
+ */
+async function withProviderFailure(failure: unknown, run: () => Promise<void>): Promise<void> {
+  messagingMocks.send.mockClear();
+  messagingMocks.send.mockRejectedValue(failure);
+  try {
+    await run();
+  } finally {
+    messagingMocks.send.mockImplementation(
+      async () => ({ providerMessageId: DEFAULT_PROVIDER_MESSAGE_ID }),
+    );
+  }
+}
+
+/**
+ * One dispatch, all the way through: tx1, the provider call, tx2. Resolves —
+ * the passing path throws nothing now that Task 6 has landed.
+ */
+async function dispatchToCompletion(
   fixture: QueuedOutreachFixture,
   correlationId: string,
 ): Promise<void> {
   await withCleanModeration(async () => {
     await withSendFlagOn(async () => {
+      await dispatchOutreach(sql(), {
+        batchId: fixture.batchId,
+        businessId,
+        outreachId: fixture.outreachId,
+        outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+        correlationId,
+      });
+    });
+  });
+}
+
+/**
+ * The crash decision 9b is written for, produced without killing a process:
+ * tx1 COMMITS (token minted, child created, row CAS'd to `sending`), the
+ * provider is called, and tx2 is then aborted from inside — so nothing terminal
+ * survives and the outbox attempt is left in flight for the watchdog.
+ *
+ * The poison fires on the SECOND transaction only. `abortingExecutor` runs it
+ * after every `begin` callback, and poisoning tx1 would roll the mint back and
+ * leave nothing to resume from. `SELECT 1 / 0` is `approval.integration.test.ts`'s
+ * poison verbatim: a REAL Postgres error (22012), so the transaction is in
+ * genuinely aborted state rather than merely unwound by a JS throw — and it
+ * holds no schema, so a vitest timeout leaves nothing behind (never a temporary
+ * CHECK constraint; run-time DDL deadlocks the live-DB lane).
+ */
+async function crashAfterTx1(
+  fixture: QueuedOutreachFixture,
+  correlationId: string,
+): Promise<void> {
+  let opened = 0;
+  const poisoned = abortingExecutor(sql(), async (tx) => {
+    opened += 1;
+    if (opened < 2) return undefined;
+    return tx`SELECT 1 / 0`;
+  });
+
+  await withCleanModeration(async () => {
+    await withSendFlagOn(async () => {
       await expect(
-        dispatchOutreach(sql(), {
+        dispatchOutreach(poisoned, {
           batchId: fixture.batchId,
           businessId,
           outreachId: fixture.outreachId,
           outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
           correlationId,
         }),
-      ).rejects.toThrow(/TODO\(Task 6\)/);
+      ).rejects.toThrow(/division by zero/i);
     });
   });
 }
 
 /**
  * The SAME invocation, re-run as a fresh process would. It resolves rather than
- * rejecting: the mint conflicts, the raw token is gone, and decision 9's answer
- * is to complete the attempt and return — never to throw and never to send.
+ * rejecting: the row is already `sending`, the raw token is gone with the
+ * process that minted it, and decision 9's answer is to complete the attempt
+ * and return — never to re-gate, never to throw and never to send.
  */
 async function redispatchAfterCrash(
   fixture: QueuedOutreachFixture,
@@ -761,6 +884,10 @@ describeWithDb(
       moderationMocks.moderateResponse.mockImplementation(
         (text) => moderationMocks.real.current!(text),
       );
+      // The provider's steady state. Without a resolved value the adapter stub
+      // returns `undefined` and the sent arm writes a NULL provider_message_id,
+      // which 091 permits and every later bounce webhook cannot resolve.
+      resetProviderSend();
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -778,6 +905,10 @@ describeWithDb(
           // The suppression-at-dispatch signal. Deleted before agent_runs only
           // for readability — analytics_events has no FK to a run.
           await db`DELETE FROM analytics_events WHERE business_id = ${businessId}::uuid`;
+          // BEFORE agent_runs, and not incidentally: the outcome's FK is
+          // ON DELETE SET NULL, so deleting the runs first would ORPHAN every
+          // `solicitation_sent` row here rather than remove it.
+          await db`DELETE FROM agent_outcomes WHERE business_id = ${businessId}::uuid`;
           await db`DELETE FROM agent_runs WHERE business_id = ${businessId}::uuid`;
           // `solicitation_suppressions` is scoped by ACCOUNT, not by location:
           // a global-scope row carries no account_id at all and an
@@ -1143,7 +1274,8 @@ describeWithDb(
         await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
         const fixture = await seedQueuedOutreach();
 
-        await dispatchToTask6Marker(fixture, 'dispatch-token-mint');
+        resetProviderSend();
+        await dispatchToCompletion(fixture, 'dispatch-token-mint');
 
         const token = await readOnlyTokenRow(fixture.outreachId);
 
@@ -1168,9 +1300,10 @@ describeWithDb(
         expect(token.sent_at).not.toBeNull();
         expect(token.redeemed_at).toBeNull();
 
-        // Nothing reached a provider: Task 6 owns that call, and this attempt
-        // stopped at its marker.
-        expect(messagingMocks.send).not.toHaveBeenCalled();
+        // ONE token, ONE send. The mint is per Outreach row and so is the
+        // provider call, and the URL the recipient received resolves to exactly
+        // the row asserted above.
+        expect(messagingMocks.send).toHaveBeenCalledTimes(1);
       });
 
       // The provider idempotency key is the Outreach row id, so a retry that
@@ -1179,13 +1312,16 @@ describeWithDb(
         await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
         const fixture = await seedQueuedOutreach();
 
-        await dispatchToTask6Marker(fixture, 'dispatch-token-first');
+        // Invocation 1 mints, sends, and dies before tx2 commits — the row is
+        // left `sending` with its token, which is the state a retry meets.
+        await crashAfterTx1(fixture, 'dispatch-token-first');
         const first = await readOnlyTokenRow(fixture.outreachId);
 
-        // The retry. `ON CONFLICT (outreach_id) WHERE outreach_id IS NOT NULL`
-        // matches 096's partial index byte-for-byte, so the insert is a no-op
-        // rather than a unique violation — and the row that already exists is
-        // the one every later bounce, complaint and opt-out resolves against.
+        // The retry. It resumes rather than re-minting, so the row that already
+        // exists is the one every later bounce, complaint and opt-out resolves
+        // against. (The mint's own `ON CONFLICT (outreach_id) WHERE outreach_id
+        // IS NOT NULL` — 096's partial index byte-for-byte — is the second net
+        // under that, for a row a later writer moves out of `sending`.)
         await redispatchAfterCrash(fixture, 'dispatch-token-retry');
 
         const after = await readOnlyTokenRow(fixture.outreachId);
@@ -1200,7 +1336,7 @@ describeWithDb(
         await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
         const fixture = await seedQueuedOutreach();
 
-        await dispatchToTask6Marker(fixture, 'dispatch-token-in-memory');
+        await dispatchToCompletion(fixture, 'dispatch-token-in-memory');
 
         // NEGATIVE CONTROL. No test can hold the raw token — that IS invariant
         // #5 — so the scan recognises one by shape and signature instead. If
@@ -1232,25 +1368,239 @@ describeWithDb(
     describe('send and terminal transaction', () => {
       // Decision 4 + 9b. A row already `sending` means a prior invocation owned
       // it; re-gating could withhold a message that is already on the wire.
-      it.todo('resumes a sending Outreach row without re-running the Dispatch gate');
+      it('resumes a sending Outreach row without re-running the Dispatch gate', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        // The crash: tx1 committed (token + `sending`), tx2 never did.
+        await crashAfterTx1(fixture, 'dispatch-resume-crash');
+        expect((await readOutreach(fixture.outreachId)).delivery_status).toBe('sending');
+
+        // Now BREAK the gate underneath the row. If the resume path re-gated,
+        // item 4 would fire and this row would end up `withheld` / `suppressed`
+        // — a terminal lie about an ask that may already be in someone's inbox.
+        await seedAccountSuppression(fixture.handle);
+
+        messagingMocks.send.mockClear();
+        await redispatchAfterCrash(fixture, 'dispatch-resume');
+
+        const row = await readOutreach(fixture.outreachId);
+        // The gate did not run: no withhold, no reason, and the consent
+        // snapshot is the one the FIRST invocation stamped.
+        expect(row.delivery_status).toBe('sending');
+        expect(row.disposition_reason).toBeNull();
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+        // The suppression signal is a gate-item side effect, so its absence is
+        // second, independent evidence that item 4 was never evaluated.
+        expect(
+          await countAnalyticsEvents(`solicitation_suppressed_at_dispatch_${fixture.askId}`),
+        ).toBe(0);
+
+        // And no second message: the raw token died with the first process, so
+        // any body this one could build would carry a dead unsubscribe URL.
+        expect(messagingMocks.send).not.toHaveBeenCalled();
+
+        // The child is left `running` for #900's D12d sweep, and exactly ONE
+        // child exists — a re-gate would have created a second run for the ask.
+        expect(row.agent_run_id).not.toBeNull();
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('running');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+
+        // The attempt is spent, or the watchdog re-pends work that can never
+        // make progress.
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+      });
       // A `sent` row with a NULL provider_message_id makes every later bounce
       // and complaint unattributable — persisting it is not optional.
-      it.todo('persists provider_message_id on every successful send');
+      it('persists provider_message_id on every successful send', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+
+        // TWO sends with DIFFERENT provider ids: "every" is the claim, and one
+        // row cannot distinguish "persisted the id" from "persisted a constant".
+        for (const providerMessageId of ['msg_live_first', 'msg_live_second']) {
+          const fixture = await seedQueuedOutreach();
+          resetProviderSend(providerMessageId);
+
+          await dispatchToCompletion(fixture, `dispatch-sent-${providerMessageId}`);
+
+          const row = await readOutreach(fixture.outreachId);
+          expect(row.delivery_status).toBe('sent');
+          expect(row.provider_message_id).toBe(providerMessageId);
+          // 091 pairs the two: `(delivery_status = 'sent') = (sent_at IS NOT NULL)`.
+          expect(row.sent_at).not.toBeNull();
+          // The tx1 CAS's own stamp, and this row's alone — the batch's
+          // `sending_started_at` is #900's column and a different fact.
+          expect(row.sending_at).not.toBeNull();
+          // A successful send has nothing to explain.
+          expect(row.disposition_reason).toBeNull();
+          expect(row.bounced_at).toBeNull();
+        }
+
+        resetProviderSend();
+      });
       // D12a's all-or-nothing claim. Proved by aborting the transaction with
       // `abortingExecutor` and asserting NONE of the five facts survived — an
       // outbox row left incomplete keeps the watchdog owning the work, which is
       // why no orphan sweeper is needed.
-      it.todo('commits the terminal CAS, the child run terminal, the solicitation_sent outcome, the outbox completion and closeBatchIfSettled in one transaction');
+      it('commits the terminal CAS, the child run terminal, the solicitation_sent outcome, the outbox completion and closeBatchIfSettled in one transaction', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+        resetProviderSend('msg_live_atomic');
+
+        // tx1 commits, the provider is called, tx2 aborts on a REAL Postgres
+        // error — never a temporary CHECK constraint, which is run-time DDL and
+        // deadlocks the live-DB lane (40P01).
+        await crashAfterTx1(fixture, 'dispatch-terminal-atomic');
+
+        // The provider DID see the message. That is what makes the five
+        // assertions below a claim about atomicity rather than about a dispatch
+        // that never happened.
+        expect(messagingMocks.send).toHaveBeenCalledTimes(1);
+
+        const row = await readOutreach(fixture.outreachId);
+        // 1. the terminal CAS
+        expect(row.delivery_status).toBe('sending');
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+
+        // 2. the child run terminal
+        expect(row.agent_run_id).not.toBeNull();
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('running');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+
+        // 3. the outcome
+        expect(await readOutcomes(row.agent_run_id!)).toEqual([]);
+
+        // 4. the outbox completion — still in flight, so the watchdog owns the
+        // work and there is no orphan class for a sweeper to own.
+        const outbox = await readOutbox(fixture.outboxId);
+        expect(outbox.status).toBe('dispatched');
+        expect(outbox.completed_at).toBeNull();
+
+        // 5. the batch-closure join
+        expect(await readBatchClosedAt(fixture.batchId)).toBeNull();
+
+        resetProviderSend();
+      });
       // D14: outcomes live on CHILDREN. One on the Send batch parent would
       // double-count the batch in every downstream metric.
-      it.todo('emits solicitation_sent on the child run with unit_count 1, never on the Send batch parent');
+      it('emits solicitation_sent on the child run with unit_count 1, never on the Send batch parent', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+        const parentRunId = await readSendParentRunId(fixture.batchId);
+
+        await dispatchToCompletion(fixture, 'dispatch-outcome-child');
+
+        const row = await readOutreach(fixture.outreachId);
+        expect(row.agent_run_id).not.toBeNull();
+        expect(row.agent_run_id).not.toBe(parentRunId);
+
+        // Half 1: the outcome exists on the CHILD, once, counting one ask.
+        expect(await readOutcomes(row.agent_run_id!)).toEqual([
+          { outcome_kind: 'solicitation_sent', unit_count: 1, attributed_agent: 'solicitation' },
+        ]);
+
+        // Half 2, and the half that actually pins D14:
+        // `agent_outcomes_once_per_run_kind` is UNIQUE (agent_run_id,
+        // outcome_kind), so a parent-attributed emit would collapse a 25-ask
+        // batch into ONE row and under-report it by 24 forever.
+        expect(
+          (await readOutcomes(parentRunId)).filter(
+            (outcome) => outcome.outcome_kind === 'solicitation_sent',
+          ),
+        ).toEqual([]);
+      });
       // `terminal_bounce` is the only class that stamps `bounced_at`, and that
       // stamp is what feeds the Suppression ledger (#626).
-      it.todo('classifies a provider hard bounce as terminal with zero retries and stamps bounced_at');
+      it('classifies a provider hard bounce as terminal with zero retries and stamps bounced_at', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        // D12c row 1, in the shape `EmailAdapter` throws it: Resend's
+        // `ErrorResponse` on `cause`, a 4xx that is not 408/429, a
+        // recipient-scoped code, and the offending FIELD named in the message.
+        // All four conjuncts are required — `validation_error` covers a bad
+        // subject as readily as a bad recipient.
+        await withProviderFailure(
+          new Error('Resend refused the solicitation send', {
+            cause: {
+              name: 'validation_error',
+              statusCode: 422,
+              message: 'Invalid `to` field. The email address is not valid.',
+            },
+          }),
+          async () => {
+            await dispatchToCompletion(fixture, 'dispatch-hard-bounce');
+          },
+        );
+
+        // ZERO retries: re-mailing a dead address is how a sender's reputation
+        // dies, so the bounce class never re-enters the backoff ladder.
+        expect(messagingMocks.send).toHaveBeenCalledTimes(1);
+
+        const row = await readOutreach(fixture.outreachId);
+        expect(row.delivery_status).toBe('failed');
+        expect(row.disposition_reason).toBe('send_failed');
+        expect(row.bounced_at).not.toBeNull();
+        // Left NULL deliberately: `send-breaker.ts` counts an unclassified
+        // bounce WITH the hard ones, so this lane never asserts a kind the
+        // provider did not give it.
+        expect(row.bounce_kind).toBeNull();
+        // Nothing sent, so nothing to attribute a later webhook to.
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+
+        // Decision 8: a failure to send terminalizes the child `failed`, and
+        // there is no `ask_sent` step and no `solicitation_sent` outcome.
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('failed');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+        expect(await readOutcomes(row.agent_run_id!)).toEqual([]);
+
+        // The attempt is spent and the batch still joins — a terminal failure
+        // settles the batch exactly as a send does.
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+        expect(await readBatchClosedAt(fixture.batchId)).not.toBeNull();
+      });
       // The third class the first plan draft left unhandled: no `bounced_at`
       // (nothing bounced), still terminal, still joined. A class with no arm is
       // how rows get stranded in `sending` forever.
-      it.todo('terminalizes a terminal_other provider error without retrying or leaving the Outreach row sending');
+      it('terminalizes a terminal_other provider error without retrying or leaving the Outreach row sending', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+
+        // `classifySendFailure` is TOTAL over `unknown`, and everything its
+        // three rows cannot name lands here — including this real one, which
+        // `EmailAdapter` throws when Resend accepts a send but returns no id.
+        await withProviderFailure(
+          new Error('Resend accepted the solicitation send but returned no message id'),
+          async () => {
+            await dispatchToCompletion(fixture, 'dispatch-terminal-other');
+          },
+        );
+
+        expect(messagingMocks.send).toHaveBeenCalledTimes(1);
+
+        const row = await readOutreach(fixture.outreachId);
+        // Terminal, and NOT left `sending`: a `sending` row is #900's D12d
+        // sweep's to resolve after a grace window, and stranding a row we
+        // already have an answer for is what that arm exists to prevent.
+        expect(row.delivery_status).toBe('failed');
+        expect(row.disposition_reason).toBe('send_failed');
+        // NO bounce stamp — nothing bounced. Stamping one would suppress a
+        // contact over our own failure and feed the breaker a false numerator.
+        expect(row.bounced_at).toBeNull();
+        expect(row.sent_at).toBeNull();
+
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('failed');
+        expect(await readOutcomes(row.agent_run_id!)).toEqual([]);
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+        expect(await readBatchClosedAt(fixture.batchId)).not.toBeNull();
+      });
       // Decision 9b — the cost this plan accepts in writing. The raw token is
       // unrecoverable across a process boundary, so no correct message can be
       // built; re-issuing would send a body with a dead unsubscribe URL. The
@@ -1259,13 +1609,16 @@ describeWithDb(
         await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
         const fixture = await seedQueuedOutreach();
 
-        // Invocation 1 mints and dies (here, at Task 6's marker; in production,
-        // at a crash between the mint and the provider's answer).
-        await dispatchToTask6Marker(fixture, 'dispatch-crash-first');
+        // Invocation 1 mints, CASes the row to `sending`, calls the provider —
+        // and then dies before tx2 commits. In production that is a crash
+        // between the provider's answer and the terminal transaction; here it
+        // is `crashAfterTx1`, which produces the identical row state.
+        await crashAfterTx1(fixture, 'dispatch-crash-first');
         const before = await readOutreach(fixture.outreachId);
+        expect(before.delivery_status).toBe('sending');
 
-        // Invocation 2 is the fresh process. It re-gates, re-reaches the mint,
-        // and finds the row already there — with no way back to the raw token.
+        // Invocation 2 is the fresh process. It finds the row already
+        // `sending`, with no way back to the raw token that built its body.
         messagingMocks.send.mockClear();
         await redispatchAfterCrash(fixture, 'dispatch-crash-retry');
 

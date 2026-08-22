@@ -15,34 +15,44 @@
  * five inside tx1 under the batch row lock, which is why the evidence arrives
  * as two records rather than one.
  *
- * TASK 4 SCOPE. The whole seven-item gate is real, and so is everything a
- * PASSING gate owes short of the wire: the unsubscribe token mint, both
- * placeholder substitutions and the assembled `OutboundMessage`. What is still
- * missing is Task 6 — the `queued → sending` CAS, the provider call and the
- * tx2 terminal transaction — whose marked TODO now throws from the
- * orchestrator, AFTER tx1 commits.
+ * TWO TRANSACTIONS AND ONE PROVIDER CALL BETWEEN THEM. tx1 evaluates the gate,
+ * mints the token, creates the **Lazy child** and CASes `queued → sending`;
+ * `getMessagingAdapter().send` then runs with NO lock held; tx2 commits the
+ * five terminal facts at once — the `sending → sent | failed` CAS, the child's
+ * terminal, the `solicitation_sent` outcome, the outbox completion and the
+ * `closeBatchIfSettled` join. D12a: if tx2 does not commit, the outbox row is
+ * not completed either, so the watchdog still owns the work and there is no
+ * orphan class for a sweeper to own.
  *
- * That throw used to be INSIDE tx1, and Task 4 is why it moved: tx1 now WRITES
- * the token row, so a rollback would destroy it on every attempt and the mint's
- * whole idempotency contract would be neither observable nor testable. What
- * commits is not a half-dispatched row — the Outreach row's `delivery_status`
- * is untouched, the outbox attempt is left in flight for the watchdog to
- * reclaim, and nothing has reached a provider. Unreachable in every environment
- * today regardless: the flag is unset and #900's producer does not exist.
+ * THE CAS IS IN tx1 WITH THE MINT, and that pairing is load-bearing rather than
+ * stylistic. After tx1 commits, a token row ALWAYS implies a `sending` row —
+ * which is exactly what the resume path below assumes. Splitting them would
+ * leave a window where a committed token coexists with a still-`queued` row,
+ * and a fresh process arriving in that window would re-gate and re-send.
  *
  * INVARIANT #5 IS THE POINT OF THE MINT. Only the SHA-256 hash reaches
  * Postgres; the raw token lives in this module's memory and in the recipient's
- * link. It is therefore NOT recoverable from the row — so a retry that finds
- * the token row already there (locked decision 9) cannot rebuild the same body
- * and MUST NOT send. It completes the outbox attempt, leaves the Outreach row
- * exactly as it found it, and returns; #900's D12d sweep terminalizes a
- * `sending` row `unknown` / `send_indeterminate` after `UNKNOWN_GRACE_MINUTES`.
+ * link. It is therefore NOT recoverable from the row, which is what makes
+ * locked decision 9 structural rather than a rule to remember:
+ *
+ *  - RETRYABLE provider failures are retried IN PROCESS, under bounded jittered
+ *    backoff, while the raw token is still in scope (`sendWithBoundedRetry`).
+ *    That is the only retry this lane performs, and CLAUDE.md's standing rule
+ *    for every outbound provider call.
+ *  - A FRESH PROCESS that finds the row already `sending` — or, defensively,
+ *    finds the token row already minted — cannot rebuild the same body and MUST
+ *    NOT send. It completes the outbox attempt, leaves the Outreach row exactly
+ *    as it found it, and returns; #900's D12d sweep terminalizes a `sending` row
+ *    `unknown` / `send_indeterminate` after `UNKNOWN_GRACE_MINUTES`.
+ *
  * Re-issuing to the provider and hoping the idempotency key saves us is the
  * WRONG answer: if the first request never reached Resend, the RETRY's body is
  * what gets delivered, carrying an unsubscribe URL that resolves to nothing — a
  * CAN-SPAM defect, not a degraded send. B4's "idempotent on `outreach_id`"
  * guarantees the token ROW is never duplicated; it guarantees nothing about a
- * recoverable BODY.
+ * recoverable BODY. Re-GATING is forbidden on that path for the mirror-image
+ * reason: recording `withheld` for a message that may already have reached a
+ * real person is the lie-with-teeth D12d created `unknown` to avoid.
  *
  * Outbox contract: a defer is a SUCCESS, never a stranded `dispatched` row —
  * `completeOutboxNoop` mirrors `ask-generation.ts`'s helper of the same name.
@@ -61,7 +71,8 @@
  * (the tenant proof — a bare row UUID proves nothing).
  */
 
-import type { Sql, TransactionSql } from 'postgres';
+import { randomInt } from 'node:crypto'; // invariant #10: node's own crypto
+import type { PendingQuery, Row, Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import {
   lockDispatchedOutboxAttemptIfOwned,
@@ -73,13 +84,15 @@ import { moderateResponse } from '@/lib/moderation/moderate';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { isPlaceId } from '@/lib/reviews/url-parser';
-// Type-only: the assembled envelope's shape has ONE owner (#657's seam) and it
-// is not this file. Erased at compile time, so nothing here pulls the Resend
-// SDK in transitively — Task 6 adds the runtime `getMessagingAdapter()` call.
-import type { OutboundMessage } from '@/lib/messaging/messaging-adapter';
+// The seam, never `EmailAdapter` and never a Resend client: the adapter is
+// SELECTED in `getMessagingAdapter`, so this call site names no channel and a
+// WhatsApp adapter is a second adapter there rather than a branch here. The
+// envelope's shape has ONE owner (#657's seam) and it is not this file.
+import { getMessagingAdapter, type OutboundMessage } from '@/lib/messaging/messaging-adapter';
 import {
   completeRun,
   findActiveSolicitationSendBatchRun,
+  recordOutcome,
   recordStep,
   startOrGetSolicitationAskRun,
 } from '@/lib/agents/run-spine';
@@ -97,6 +110,7 @@ import {
   type BatchState,
 } from './outreach';
 import { readPostalAddressState } from './postal-address';
+import { classifySendFailure, type SendFailureClass } from './send-retry';
 import { suppressionMatchSql, type SuppressionChannel } from './suppression';
 import {
   hashUnsubscribeToken,
@@ -258,8 +272,14 @@ interface OutreachDispatchRow {
   interpolation_inputs: unknown;
 }
 
-/** What tx1 re-reads under `FOR UPDATE`. Task 6 widens it again (`attempt_no`);
- *  a column nobody reads is a column nobody maintains.
+/** What tx1 re-reads under `FOR UPDATE`. Deliberately still five columns —
+ *  `attempt_no` was pencilled in for this task and left out: nothing reads it,
+ *  and a column nobody reads is a column nobody maintains.
+ *
+ *  `delivery_status` is re-read here and NOT trusted from the pre-tx read: the
+ *  unlocked read is a hint, and a concurrent worker can CAS the row to
+ *  `sending` in the gap between the two. The authoritative resume check is the
+ *  one taken under this lock.
  *
  *  `rendered_subject` is read HERE and not taken from the pre-tx read, even
  *  though both resolve the same immutable bytes: the subject goes on the wire,
@@ -867,6 +887,252 @@ export function assembleOutboundMessage(input: OutboundMessageInput): OutboundMe
   };
 }
 
+// ── The provider call: bounded in-process retry (decision 9a) ────────────────
+
+/**
+ * Three attempts, and the ceiling is deliberately low. A retry here is only
+ * ever worth taking while the raw token is in scope, so the whole budget has to
+ * fit inside ONE handler invocation — a longer ladder just holds a worker slot
+ * open against a provider that has already said no twice.
+ */
+const SEND_MAX_ATTEMPTS = 3;
+const SEND_RETRY_BASE_DELAY_MS = 200;
+const SEND_RETRY_MAX_DELAY_MS = 2_000;
+
+/**
+ * Equal jitter: half the window is fixed so a retry is never immediate, half is
+ * random so a batch's concurrent retries do not re-collide in lockstep against
+ * a provider whose 10 req/s limit is per TEAM. `randomInt` is node's own
+ * (invariant #10).
+ */
+function sendRetryDelayMs(attempt: number): number {
+  const ceiling = Math.min(
+    SEND_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+    SEND_RETRY_MAX_DELAY_MS,
+  );
+  const fixed = Math.floor(ceiling / 2);
+  return fixed + randomInt(0, fixed + 1);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/** What the provider did, as tx2 needs to record it. */
+type SendResult =
+  | { kind: 'sent'; providerMessageId: string; attempts: number }
+  | { kind: 'failed'; failure: SendFailureClass; attempts: number };
+
+/**
+ * Puts ONE assembled message on the wire, absorbing `retryable` failures in
+ * process (decision 9a).
+ *
+ * The SAME `message` object is handed to every attempt — never a rebuilt one.
+ * `EmailAdapter` derives the provider idempotency key from `message.outreachId`
+ * (email-adapter.ts), so a retry that rebuilt the body would re-issue DIFFERENT
+ * content under the same key, which is worse than sending twice.
+ *
+ * Only `retryable` is retried; `terminal_bounce` and `terminal_other` return on
+ * the first attempt with zero delay, and an exhausted budget returns
+ * `retryable` — tx2 terminalizes that arm exactly as it terminalizes
+ * `terminal_other`, so no class is left without one.
+ *
+ * NOTHING FROM THE FAILURE IS LOGGED but its CLASS and the attempt number.
+ * Resend's error text quotes the offending field, so it can carry the recipient
+ * address (`email-adapter.ts` says so where it puts that text on `cause`); the
+ * classification is the whole of what an operator needs here.
+ */
+async function sendWithBoundedRetry(
+  message: OutboundMessage,
+  logger: ReturnType<typeof createWorkerLogger>,
+  context: Record<string, unknown>,
+): Promise<SendResult> {
+  for (let attempt = 1; attempt <= SEND_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const { providerMessageId } = await getMessagingAdapter().send(message);
+      return { kind: 'sent', providerMessageId, attempts: attempt };
+    } catch (err) {
+      const failure = classifySendFailure(err);
+      if (failure !== 'retryable' || attempt === SEND_MAX_ATTEMPTS) {
+        return { kind: 'failed', failure, attempts: attempt };
+      }
+      logger.warn('solicitation send: retryable provider failure — retrying in process', {
+        ...context,
+        failure_class: failure,
+        provider_attempt: attempt,
+      });
+      await sleep(sendRetryDelayMs(attempt));
+    }
+  }
+  // Unreachable: the loop either returns or exhausts on its last iteration,
+  // where `attempt === SEND_MAX_ATTEMPTS` takes the return above. Kept so the
+  // function is total for a reader as well as for the type checker.
+  return { kind: 'failed', failure: 'retryable', attempts: SEND_MAX_ATTEMPTS };
+}
+
+// ── tx2: the five terminal facts, in ONE transaction ─────────────────────────
+
+/**
+ * The one reason a dispatch that reached the provider can carry. 091's
+ * status/reason CHECK pairs `failed` with exactly `send_failed` and
+ * `send_exhausted`; the latter belongs to the `'failed'` exhaustion hook, which
+ * is the only writer that knows a BullMQ attempt ladder ran out.
+ */
+const SEND_FAILED_REASON = 'send_failed';
+
+interface TerminalCommitInput {
+  childRunId: string;
+  outboxId: string;
+  attempt: number;
+  result: SendResult;
+}
+
+/** `NOW()` or NULL, so one UPDATE can express both terminal shapes without a
+ *  second near-identical statement. */
+function nowIf(tx: TransactionSql, condition: boolean): PendingQuery<Row[]> | null {
+  return condition ? tx`NOW()` : null;
+}
+
+/**
+ * D12a's all-or-nothing terminal: the `sending → sent | failed` CAS, the
+ * **Lazy child**'s terminal, the `solicitation_sent` outcome, the outbox
+ * completion and the `closeBatchIfSettled` join, in the caller's tx2.
+ *
+ * THE ADVISORY LOCK IS THE FIRST STATEMENT, for the same reason it is in tx1:
+ * the offboarding purge takes this key and THEN row-locks (cascades into)
+ * `solicitation_outreach`, so a transaction that row-locked the Outreach row
+ * first and then waited for the batch row would be an ABBA deadlock against it
+ * (`acquireSolicitationBatchLock`'s docstring owns that contract).
+ *
+ * `bounced_at` is stamped for `terminal_bounce` and NOTHING ELSE — it feeds the
+ * Suppression ledger and the **Send breaker**'s hard-bounce numerator, and a
+ * 5xx recorded as a bounce would suppress a contact who never bounced.
+ * `bounce_kind` is deliberately left NULL: `send-breaker.ts` counts an
+ * unclassified bounce WITH the hard ones precisely so this lane never has to
+ * assert a kind the provider did not give it.
+ *
+ * `provider_message_id` is not optional on the sent arm. It is the join key
+ * every later bounce, complaint and opt-out webhook resolves against, so a
+ * `sent` row without one makes all three unattributable.
+ */
+async function commitSendTerminal(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  input: TerminalCommitInput,
+  logger: ReturnType<typeof createWorkerLogger>,
+  context: Record<string, unknown>,
+): Promise<void> {
+  await acquireSolicitationBatchLock(tx, scope.businessId);
+
+  const sent = input.result.kind === 'sent';
+  const bounced = input.result.kind === 'failed' && input.result.failure === 'terminal_bounce';
+
+  const terminalized = await tx<{ id: string }[]>`
+    UPDATE solicitation_outreach
+    SET delivery_status = ${sent ? 'sent' : 'failed'},
+        disposition_reason = ${sent ? null : SEND_FAILED_REASON},
+        sent_at = ${nowIf(tx, sent)},
+        provider_message_id = ${input.result.kind === 'sent' ? input.result.providerMessageId : null},
+        bounced_at = ${nowIf(tx, bounced)},
+        updated_at = NOW()
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+      AND delivery_status = 'sending'
+    RETURNING id
+  `;
+  if (terminalized.count === 0) {
+    // Another writer terminalized the row between tx1 and here — #900's D12d
+    // sweep is the only candidate today. Its verdict STANDS (the CAS is what
+    // makes that true), and the rest of tx2 still runs: the message really did
+    // reach the provider, so the child, the outcome and the outbox all owe
+    // their settlement regardless of who owns the row's final status.
+    logger.warn('solicitation send: terminal CAS found no sending row — another writer owns it', {
+      ...context,
+      provider_result: input.result.kind,
+    });
+  }
+
+  if (sent) {
+    await recordStep(tx, {
+      runId: input.childRunId,
+      stepKey: 'ask_sent',
+      detail: {
+        outreach_id: scope.outreachId,
+        provider_attempts: input.result.attempts,
+      },
+    });
+    // On the CHILD, never the **Send batch parent**:
+    // `agent_outcomes_once_per_run_kind` is UNIQUE (agent_run_id, outcome_kind),
+    // so 25 sends attributed to the parent would collapse into one row and every
+    // downstream count would under-report the batch by 24.
+    await recordOutcome(tx, {
+      runId: input.childRunId,
+      accountId: scope.accountId,
+      businessId: scope.businessId,
+      attributedAgent: 'solicitation',
+      outcomeKind: 'solicitation_sent',
+      unitCount: 1,
+    });
+  }
+
+  // Decision 8: `completed` for a send, `failed` for every terminal provider
+  // outcome — including an exhausted retry budget, which is a failure to send
+  // and not a refusal to. The failure arm records the CLASS and the attempt
+  // count and nothing else; the provider's own text is never persisted here
+  // (see `sendWithBoundedRetry`).
+  if (input.result.kind === 'sent') {
+    await completeRun(tx, input.childRunId, 'completed');
+  } else {
+    await completeRun(tx, input.childRunId, 'failed', {
+      failure_class: input.result.failure,
+      provider_attempts: input.result.attempts,
+    });
+  }
+
+  await markOutboxCompletedIfOwned(tx, input.outboxId, input.attempt);
+  await closeBatchIfSettled(tx, {
+    batchId: scope.batchId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+}
+
+/**
+ * The **Lazy child** for one dispatch attempt — decision 7, and the ONE owner of
+ * that creation for both of this lane's outcomes (a withhold and a send create
+ * exactly the same child).
+ *
+ * Created at RELEASE and never at build: the spine records work performed, never
+ * work planned. The parent is looked up, never minted — a missing **Send batch
+ * parent** means generation never ran, and asserting that impossible state beats
+ * inventing a parent the generation lane owns.
+ */
+async function startLazyChild(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  askId: string,
+): Promise<{ runId: string }> {
+  const parent = await findActiveSolicitationSendBatchRun(tx, {
+    batchId: scope.batchId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+  if (!parent) {
+    throw new Error(
+      `solicitation send: no active send batch parent run for batch ${scope.batchId}`,
+    );
+  }
+  return startOrGetSolicitationAskRun(tx, {
+    askId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+    parentRunId: parent.runId,
+  });
+}
+
 interface WithholdCommitInput {
   askId: string;
   item: DispatchGateItem;
@@ -881,37 +1147,16 @@ interface WithholdCommitInput {
  * receipt step, the suppression signal, the child's terminal, the outbox
  * completion and the inline `closeBatchIfSettled` join.
  *
- * The child is created HERE (locked decision 7) — the spine records work
- * performed, never work planned — and terminalizes `completed` (decision 8): a
- * correct refusal is completed work, not a failure. `moderation_status` and
- * `moderation_detail` are NOT touched; they are render provenance (decision 6).
- *
- * The parent is looked up, never minted: a missing **Send batch parent** means
- * generation never ran, and asserting that impossible state beats inventing a
- * parent the generation lane owns.
+ * The child terminalizes `completed` (decision 8): a correct refusal is
+ * completed work, not a failure. `moderation_status` and `moderation_detail`
+ * are NOT touched; they are render provenance (decision 6).
  */
 async function commitWithhold(
   tx: TransactionSql,
   scope: DispatchScope,
   input: WithholdCommitInput,
 ): Promise<void> {
-  const parent = await findActiveSolicitationSendBatchRun(tx, {
-    batchId: scope.batchId,
-    accountId: scope.accountId,
-    businessId: scope.businessId,
-  });
-  if (!parent) {
-    throw new Error(
-      `solicitation send: no active send batch parent run for batch ${scope.batchId}`,
-    );
-  }
-
-  const child = await startOrGetSolicitationAskRun(tx, {
-    askId: input.askId,
-    accountId: scope.accountId,
-    businessId: scope.businessId,
-    parentRunId: parent.runId,
-  });
+  const child = await startLazyChild(tx, scope, input.askId);
 
   await tx`
     UPDATE solicitation_outreach
@@ -978,13 +1223,20 @@ type DispatchTxOutcome =
   | { kind: 'cancelled' }
   | { kind: 'deferred'; item: DispatchGateItem; batchState: BatchState }
   | { kind: 'withheld'; item: DispatchGateItem; reason: OutreachWithheldReason }
-  /** Decision 9: the token row was already there, so the raw token — and with
-   *  it any sendable body — is gone. Nothing more may happen to this row here. */
-  | { kind: 'token_unrecoverable' }
-  /** The gate passed, the token is minted and the envelope is built. Task 6
-   *  puts `message` on the wire OUTSIDE tx1 (no lock across a remote call) and
-   *  commits the terminal facts in tx2. */
-  | { kind: 'assembled'; message: OutboundMessage; tokenLogPrefix: string };
+  /** Decision 9, the ONE resume outcome. Some prior invocation owns this
+   *  dispatch: the row is already `sending`, or — defensively — its token row
+   *  is already there, and either way the raw token is gone with it, so no
+   *  correct body can be rebuilt. Nothing more may happen to the row here. */
+  | { kind: 'in_flight_elsewhere'; detector: 'sending_row' | 'token_conflict' | 'cas_lost' }
+  /** The gate passed, the child exists, the row is CAS'd to `sending` and the
+   *  envelope is built. The caller puts `message` on the wire OUTSIDE tx1 (no
+   *  lock across a remote call) and commits the terminal facts in tx2. */
+  | {
+    kind: 'assembled';
+    message: OutboundMessage;
+    tokenLogPrefix: string;
+    childRunId: string;
+  };
 
 /**
  * tx1: the whole of the **Dispatch gate**'s FAST evidence, and every write a
@@ -1052,6 +1304,16 @@ async function runDispatchTx(
     // batch. Completing the attempt is the only thing left owed.
     await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
     return { kind: 'cancelled' };
+  }
+
+  if (outreach.delivery_status === 'sending') {
+    // Decision 9b under the LOCK. The orchestrator already short-circuits on
+    // this from its unlocked read; this is the race-tight repeat, because a
+    // concurrent worker can CAS the row between that read and this one. The
+    // gate is skipped ENTIRELY — re-gating a row whose message may already have
+    // reached a real person could record `withheld` about a delivered ask.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'in_flight_elsewhere', detector: 'sending_row' };
   }
 
   const now = new Date();
@@ -1128,13 +1390,71 @@ async function runDispatchTx(
     handle: recipient,
   });
   if (minted === null) {
-    // Decision 9, the whole reason this branch exists: a row already here means
-    // a PRIOR process minted it and died, and the hash cannot give that token
-    // back. The attempt is completed so the watchdog stops re-pending it, and
-    // NOTHING else is written — the Outreach row keeps the status that prior
-    // process left it in, which #900's D12d sweep resolves.
+    // The SAME refusal as the `sending` arm above, reached by a different
+    // detector. Since the CAS below shares this transaction, a committed token
+    // row implies a `sending` row and this branch is normally unreachable — it
+    // survives for the row a later writer moved OUT of `sending` (D12d's
+    // `unknown`, the exhaustion hook's `failed`) and #900 then re-dripped. The
+    // hash cannot give the raw token back either way, so the answer is
+    // identical: complete the attempt, write NOTHING else, return.
+    //
+    // The mint therefore runs BEFORE the child is created deliberately. A
+    // conflict here must leave no run behind — creating one, stamping
+    // `agent_run_id` over a terminal row's and recording a step would be three
+    // writes about work this invocation is refusing to do.
     await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'token_unrecoverable' };
+    return { kind: 'in_flight_elsewhere', detector: 'token_conflict' };
+  }
+
+  const child = await startLazyChild(tx, scope, outreach.ask_id);
+
+  await tx`
+    UPDATE solicitation_outreach
+    SET agent_run_id = ${child.runId}::uuid,
+        updated_at = NOW()
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+  `;
+
+  // ids and closed enum values only — never the handle, the subject or the body.
+  await recordStep(tx, {
+    runId: child.runId,
+    stepKey: 'dispatch_gate_evaluated',
+    detail: {
+      outreach_id: scope.outreachId,
+      ask_id: outreach.ask_id,
+      outcome: 'send',
+    },
+  });
+
+  // The claim, and the last write tx1 makes. `sending_at` is the OUTREACH row's
+  // stamp; `solicitation_batches.sending_started_at` is a different column with
+  // a different owner (#900's first successful release, in the release
+  // transaction) and is deliberately NOT written here — which is why
+  // `isBatchOpenForSend` admits `approved` as well as `sending`.
+  //
+  // Zero rows means another writer owns this dispatch. Unreachable while this
+  // transaction holds the row's `FOR UPDATE` — the status was read under it a
+  // few statements ago — so the guard is belt and braces, and it is what makes
+  // the stamp and the status move as one act rather than as two.
+  const claimed = await tx<{ id: string }[]>`
+    UPDATE solicitation_outreach
+    SET delivery_status = 'sending',
+        sending_at = NOW(),
+        updated_at = NOW()
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+      AND delivery_status = 'queued'
+    RETURNING id
+  `;
+  if (claimed.count === 0) {
+    // Its own detector rather than the `sending` one: all this observed is
+    // "the row was no longer `queued`", and claiming it was `sending`
+    // specifically would put a fact in the log nothing here established.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'in_flight_elsewhere', detector: 'cas_lost' };
   }
 
   const message = assembleOutboundMessage({
@@ -1155,6 +1475,7 @@ async function runDispatchTx(
     kind: 'assembled',
     message,
     tokenLogPrefix: unsubscribeTokenLogPrefix(minted.rawToken),
+    childRunId: child.runId,
   };
 }
 
@@ -1181,6 +1502,27 @@ export async function dispatchOutreach(
     // leaves nothing to dispatch, and a retry would find the same nothing.
     await completeOutboxNoop(sql, outboxId, attempt);
     logger.warn('solicitation send no-op: outreach row missing', {
+      batch_id: input.batchId,
+      outreach_id: input.outreachId,
+    });
+    return;
+  }
+
+  // Decision 9b, and the FIRST thing decided about a row that exists: a
+  // `sending` row belongs to an invocation that already put (or may already
+  // have put) this ask on the wire. The Dispatch gate is skipped entirely and
+  // the adapter is never reached — the raw unsubscribe token died with that
+  // process, so no correct message can be built and no honest verdict can be
+  // recorded. The attempt is completed so the watchdog stops re-pending work
+  // that can never progress, and #900's D12d sweep terminalizes the row
+  // `unknown` / `send_indeterminate` after `UNKNOWN_GRACE_MINUTES`.
+  //
+  // NO TOKEN PREFIX ON THIS LINE. `unsubscribeTokenLogPrefix` takes the RAW
+  // token, which is exactly what this process does not have; the stored hash is
+  // not a value this lane logs to identify a row by (invariant #5, §9.5).
+  if (row.delivery_status === 'sending') {
+    await completeOutboxNoop(sql, outboxId, attempt);
+    logger.warn('solicitation send: outreach row already sending — not re-sending', {
       batch_id: input.batchId,
       outreach_id: input.outreachId,
     });
@@ -1253,13 +1595,13 @@ export async function dispatchOutreach(
     });
     return;
   }
-  if (outcome.kind === 'token_unrecoverable') {
-    // Decision 9's cost, stated where an operator will read it. No token
-    // prefix: this process never held the raw token, and the stored hash is
-    // not a value this lane logs to identify a row by.
+  if (outcome.kind === 'in_flight_elsewhere') {
+    // Decision 9's cost, stated where an operator will read it — one line for
+    // one refusal, with the detector that reached it. No token prefix: this
+    // process never held the raw token.
     logger.warn(
-      'solicitation send: unsubscribe token already minted by a prior process — not re-sending',
-      context,
+      'solicitation send: dispatch already in flight elsewhere — not re-sending',
+      { ...context, detector: outcome.detector },
     );
     return;
   }
@@ -1273,16 +1615,44 @@ export async function dispatchOutreach(
     unsubscribe_token: outcome.tokenLogPrefix,
   });
 
-  // TODO(Task 6): the `queued → sending` CAS (inside tx1, above), the provider
-  // call through `getMessagingAdapter()` with NO lock held, and the tx2
-  // terminal transaction. Thrown from OUT here rather than inside tx1 because
-  // tx1 now writes the token row, and rolling that back on every attempt would
-  // make B4's idempotent mint unobservable. What has committed is not a
-  // half-dispatched row: the Outreach row's status is untouched and the outbox
-  // attempt is still in flight, so the watchdog owns the retry. Unreachable in
-  // every environment today — the flag is unset and #900's producer does not
-  // exist.
-  throw new Error(
-    `TODO(Task 6): solicitation send has no provider call yet (outreach ${scope.outreachId})`,
-  );
+  // THE WIRE, with NO lock held: tx1 committed above, and the batch row it
+  // locked is free again before this round trip starts. Retryable failures are
+  // absorbed inside this call (decision 9a) while the raw token is in scope.
+  const result = await sendWithBoundedRetry(outcome.message, logger, context);
+
+  // tx2. A failure here commits NOTHING — not the terminal status, not the
+  // child's terminal, not the outcome, and not the outbox completion — so the
+  // watchdog still owns the work (D12a). That is precisely why this lane needs
+  // no orphan sweeper, and why the throw is allowed to propagate.
+  await sql.begin(async (tx) => {
+    await commitSendTerminal(
+      tx,
+      scope,
+      {
+        childRunId: outcome.childRunId,
+        outboxId,
+        attempt,
+        result,
+      },
+      logger,
+      context,
+    );
+  });
+
+  if (result.kind === 'sent') {
+    logger.log('solicitation send: ask sent', {
+      ...context,
+      // The PROVIDER's id, which identifies the message and not the recipient —
+      // and the join key every later bounce and complaint arrives on.
+      provider_message_id: result.providerMessageId,
+      provider_attempts: result.attempts,
+    });
+    return;
+  }
+
+  logger.warn('solicitation send: terminal provider failure', {
+    ...context,
+    failure_class: result.failure,
+    provider_attempts: result.attempts,
+  });
 }

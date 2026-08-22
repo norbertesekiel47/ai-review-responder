@@ -27,6 +27,7 @@
 
 import { beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
+import type { OutboundMessage } from '@/lib/messaging/messaging-adapter';
 import type { ModerationDecision } from '@/lib/moderation/output-filter';
 import { resetServerConfigForTests } from '@/lib/config/server';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
@@ -57,10 +58,11 @@ const mocks = vi.hoisted(() => ({
   findActiveSolicitationSendBatchRun: vi.fn<() => Promise<{ runId: string } | null>>(),
   startOrGetSolicitationAskRun: vi.fn<() => Promise<{ runId: string; created: boolean }>>(),
   recordStep: vi.fn<() => Promise<void>>(),
+  recordOutcome: vi.fn<() => Promise<void>>(),
   completeRun: vi.fn<() => Promise<void>>(),
   closeBatchIfSettled: vi.fn<() => Promise<unknown>>(),
   moderateResponse: vi.fn<(text: string) => Promise<ModerationDecision>>(),
-  send: vi.fn<() => Promise<unknown>>(),
+  send: vi.fn<(message: OutboundMessage) => Promise<{ providerMessageId: string }>>(),
   /** Filled by the moderation module mock so a case can delegate to the REAL
    *  `moderateResponse` — which is what makes the flag-off case a test of the
    *  production mapping rather than of a stub. */
@@ -81,6 +83,7 @@ vi.mock('@/lib/agents/run-spine', () => ({
   findActiveSolicitationSendBatchRun: mocks.findActiveSolicitationSendBatchRun,
   startOrGetSolicitationAskRun: mocks.startOrGetSolicitationAskRun,
   recordStep: mocks.recordStep,
+  recordOutcome: mocks.recordOutcome,
   completeRun: mocks.completeRun,
 }));
 
@@ -98,9 +101,9 @@ vi.mock('@/lib/moderation/moderate', async (importOriginal) => {
   return { moderateResponse: mocks.moderateResponse };
 });
 
-// The seam, never `EmailAdapter` and never a Resend client. Task 3 reaches it in
-// no path at all — which is precisely the claim "never sends" makes, and wiring
-// the stub here keeps that claim honest once Task 6 makes the call real.
+// The seam, never `EmailAdapter` and never a Resend client. Every "never sends"
+// claim below is an assertion on THIS stub, so a future call site that reached
+// around the seam would not silence them — it would fail them.
 vi.mock('@/lib/messaging/messaging-adapter', () => ({
   getMessagingAdapter: () => ({ send: mocks.send }),
 }));
@@ -258,6 +261,41 @@ function queuePostGate(
   );
 }
 
+/**
+ * The rest of tx1 on the PASSING path, in `runDispatchTx`'s order: the
+ * `agent_run_id` stamp and the `queued → sending` CAS. The child creation and
+ * the `dispatch_gate_evaluated` step run through the mocked run-spine and issue
+ * no query, so they take no slot.
+ *
+ * The CAS is `RETURNING id`, so an empty result is the "another worker owns it"
+ * arm — `cas: 'lost'` drives exactly that.
+ */
+function queueTx1Tail(harness: MockSqlHarness, options: { cas?: 'won' | 'lost' } = {}): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([]),                                           // agent_run_id stamp
+    options.cas === 'lost'
+      ? mkTaggedResult<{ id: string }>([])
+      : mkTaggedResult([{ id: OUTREACH_ID }]),                    // queued → sending CAS
+  );
+}
+
+/**
+ * tx2's two awaited queries: the advisory lock (`acquireSolicitationBatchLock`
+ * is the FIRST statement, mirroring tx1's global lock order) and the terminal
+ * `sending → sent | failed` CAS. Everything else in that transaction — the
+ * child's terminal, the outcome, the outbox completion, the batch-closure join
+ * — runs through a mocked collaborator.
+ */
+function queueTx2(harness: MockSqlHarness): void {
+  harness.sqlReturnQueue.push(
+    mkTaggedResult([]),                                           // advisory lock
+    mkTaggedResult([{ id: OUTREACH_ID }]),                        // terminal CAS
+  );
+}
+
+/** The provider's answer for a case that is not about the provider. */
+const PROVIDER_MESSAGE_ID = 'msg_dispatch_unit';
+
 function dispatchInput(correlationId: string) {
   return {
     batchId: BATCH_ID,
@@ -330,8 +368,10 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     mocks.findActiveSolicitationSendBatchRun.mockResolvedValue({ runId: 'parent-run' });
     mocks.startOrGetSolicitationAskRun.mockResolvedValue({ runId: 'child-run', created: true });
     mocks.recordStep.mockResolvedValue(undefined);
+    mocks.recordOutcome.mockResolvedValue(undefined);
     mocks.completeRun.mockResolvedValue(undefined);
     mocks.closeBatchIfSettled.mockResolvedValue({});
+    mocks.send.mockResolvedValue({ providerMessageId: PROVIDER_MESSAGE_ID });
     // Default: the REAL moderation function. A case that needs a scripted
     // verdict overrides it; a case about the production mapping does not.
     mocks.moderateResponse.mockImplementation((text) => mocks.realModerateResponse.current!(text));
@@ -424,13 +464,14 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     mocks.moderateResponse.mockResolvedValue(CLEAN_PROVIDER_VERDICT);
     queueFastGatePassing(harness);
     queuePostGate(harness);
+    queueTx1Tail(harness);
+    queueTx2(harness);
 
-    // The gate passes, the token is minted, the envelope is assembled — and
-    // Task 6's marker throws AFTER tx1 commits. Everything under test here has
-    // already been logged by then.
-    await expect(
-      dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('redaction')),
-    ).rejects.toThrow(/TODO\(Task 6\)/);
+    // The whole passing path: the gate, the mint, the CAS, the provider call
+    // and the terminal transaction — so every line this lane can emit about a
+    // real send has been emitted by the time the scan below runs.
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('redaction'));
+    expect(mocks.send).toHaveBeenCalledTimes(1);
 
     const lines = loggedLines();
     // Sanity: this case is worthless if nothing was logged at all.
@@ -466,7 +507,69 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
   // calls carry byte-identical `outreachId` (the provider idempotency key) and
   // byte-identical bodies. A retry that rebuilds the body can send a DIFFERENT
   // message under the same key, which is worse than sending twice.
-  it.todo('retries a retryable provider failure in process with the same idempotency key and the same body');
+  it('retries a retryable provider failure in process with the same idempotency key and the same body', async () => {
+    mocks.moderateResponse.mockResolvedValue(CLEAN_PROVIDER_VERDICT);
+    queueFastGatePassing(harness);
+    queuePostGate(harness);
+    queueTx1Tail(harness);
+    queueTx2(harness);
+
+    // Resend's shape: the SDK's `ErrorResponse` rides on `cause`, which is
+    // where `classifySendFailure` reads the provider's own fields from. A 500
+    // is D12c's row 2 — retryable.
+    mocks.send.mockRejectedValueOnce(
+      new Error('Resend refused the solicitation send', {
+        cause: { name: 'internal_server_error', statusCode: 500, message: 'upstream boom' },
+      }),
+    );
+
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('retryable-send'));
+
+    // TWO calls, ONE handler invocation. The retry lives inside this call
+    // because the raw unsubscribe token only exists inside it (decision 9).
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    const [first] = mocks.send.mock.calls[0]!;
+    const [second] = mocks.send.mock.calls[1]!;
+
+    // The IDEMPOTENCY KEY. `EmailAdapter` derives it from `outreachId`, so the
+    // two attempts are the same request to Resend rather than two sends.
+    expect(first.outreachId).toBe(OUTREACH_ID);
+    expect(second.outreachId).toBe(first.outreachId);
+
+    // And the BODY, which is the half a retry can silently get wrong: a rebuilt
+    // message would carry a NEW unsubscribe URL under that same key, so the
+    // recipient's opt-out link would resolve to a token nothing minted.
+    expect(second.bodyText).toBe(first.bodyText);
+    expect(second.bodyHtml).toBe(first.bodyHtml);
+    expect(second.subject).toBe(first.subject);
+    expect(second.unsubscribeUrl).toBe(first.unsubscribeUrl);
+    expect(second.recipient).toBe(first.recipient);
+    // Byte-identity is not an accident of assembly here — it is the SAME
+    // object, never re-derived between attempts.
+    expect(second).toBe(first);
+    // Sanity: the body really did carry a resolvable opt-out URL, so the
+    // equality above is a claim about a real message.
+    expect(first.bodyText).toContain(`${APP_URL}/u/`);
+
+    // The retry SUCCEEDED, so the terminal transaction records a send: the
+    // outcome lands on the child run with unit_count 1 and the run completes.
+    expect(mocks.recordOutcome).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runId: 'child-run',
+        outcomeKind: 'solicitation_sent',
+        unitCount: 1,
+      }),
+    );
+    expect(mocks.completeRun).toHaveBeenCalledWith(expect.anything(), 'child-run', 'completed');
+
+    // Nothing about the provider's failure text reached a log line — Resend
+    // quotes the offending field, which can be the recipient address.
+    for (const line of loggedLines()) {
+      expect(line).not.toContain('upstream boom');
+      expect(line).not.toContain(HANDLE);
+    }
+  });
 
   // Task 4. Both placeholders are substituted in memory only. Assert the
   // outbound `OutboundMessage` contains neither literal placeholder, and that
@@ -519,10 +622,10 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     mocks.moderateResponse.mockResolvedValue(CLEAN_PROVIDER_VERDICT);
     queueFastGatePassing(harness);
     queuePostGate(harness);
+    queueTx1Tail(harness);
+    queueTx2(harness);
 
-    await expect(
-      dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('substitution')),
-    ).rejects.toThrow(/TODO\(Task 6\)/);
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('substitution'));
 
     const written = boundValues(harness).filter(
       (value): value is string => typeof value === 'string',
@@ -534,7 +637,12 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     // Nothing wrote a body at all: the substituted copy lives only in memory,
     // and `rendered_body` is never an UPDATE target on this path.
     expect(harness.sqlCalls.some((call) => call.text.includes('rendered_body ='))).toBe(false);
-    expect(mocks.send).not.toHaveBeenCalled();
+
+    // ...and the substituted bytes DID reach the wire. Without this half the
+    // claim above would be satisfied by a lane that substituted nothing.
+    const [sentMessage] = mocks.send.mock.calls[0]!;
+    expect(sentMessage.bodyText).toContain(EXPECTED_REVIEW_LINK);
+    expect(sentMessage.bodyText).toContain(`${APP_URL}/u/`);
   });
 
   // Ruling 2 + 3. There is no `no_review_link` withheld reason (that needs a
