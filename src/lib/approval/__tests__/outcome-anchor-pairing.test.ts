@@ -35,6 +35,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
+  'worker/jobs/solicitation-send/failed-hook.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/publisher/mark-posted.ts', // in-file reviews FOR UPDATE as tx statement #1
   'worker/jobs/ResponseGeneratorWorker.ts', // in-file reviews FOR UPDATE before terminal draft checkpoint
   'worker/jobs/response-generation/persist.ts', // in-file reviews FOR UPDATE as tx statement #1
@@ -157,12 +158,31 @@ const LOCK_HELD_BY_CALLER = new Set([
 // row before the batch. Note in particular that the two SLOW Dispatch gate
 // items (re-lint, re-moderation) run ABOVE tx1 with no lock held — moving them
 // inside would hold every lock above across a ~10s provider call.
+// worker/jobs/solicitation-send/failed-hook.ts (#899) — subject `solicitation_ask`,
+// the same Lazy child dispatch.ts writes, reached on the TERMINAL BullMQ attempt
+// only. Its single tx takes, IN THIS ORDER: the per-business advisory xact lock
+// (statement #1, before any row lock), the job_outbox attempt row via
+// markOutboxFailed, the solicitation_outreach row FOR UPDATE, then completeRun's
+// agent_runs lock, then closeBatchIfSettled. Batch-scoped advisory → row →
+// agent_runs, so batch → run holds exactly as the entries above require.
+//
+// It takes NO reviews lock and NO businesses row lock; it reads no businesses
+// row at all. Its ONLY divergence from dispatch.ts is that it never takes the
+// solicitation_batches row FOR UPDATE itself — closeBatchIfSettled does, after
+// the advisory lock is already held, which is the same order by a shorter path.
+//
+// Same forward-looking warning as the entries above: it must not grow a
+// reviews/businesses FOR UPDATE, and the advisory lock must stay statement #1 —
+// holding the Outreach row while waiting for the batch row is an ABBA deadlock
+// against the offboarding purge, which takes them in the documented order
+// (worker/jobs/account-offboarding/purge-stages.ts:270-284).
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
   'src/lib/solicitation/approval.ts',
   'src/lib/solicitation/ask-generation.ts',
   'src/lib/solicitation/dispatch.ts',
   'src/lib/solicitation/outreach.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
+  'worker/jobs/solicitation-send/failed-hook.ts',
 ]);
 
 const SCAN_ROOTS = ['src', 'worker'];
@@ -216,6 +236,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
       'src/lib/solicitation/dispatch.ts',
       'src/lib/solicitation/outreach.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
+      'worker/jobs/solicitation-send/failed-hook.ts',
     ]);
   });
 
