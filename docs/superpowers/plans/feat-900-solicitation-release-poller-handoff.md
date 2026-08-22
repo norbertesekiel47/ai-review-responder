@@ -12,17 +12,26 @@ A resumed session bootstraps from this file. **It never needs the prior transcri
 Run the resume skill's checks anyway; they should agree with this table. A
 mismatch means something changed after this file was written.
 
+Deliberately self-verifying — no hardcoded SHAs, because the commit that writes
+this file changes HEAD.
+
 | Check | Expected |
 |---|---|
-| `git rev-parse HEAD` | `9aa53e26` |
-| `.feature/state.json` `headSha` | `9aa53e26` (matches HEAD) |
-| `lastGreenGateSha` | `9aa53e26` — **gate is GREEN at HEAD, all 22 rows** |
+| `.feature/state.json` `headSha` | **equals** `git rev-parse HEAD` |
+| `lastGreenGateSha` | **equals** HEAD — gate is GREEN at HEAD, all 22 rows |
+| `phase` | `executing` **or** `gate_green` — see the note below |
 | `planReviewRounds` | 3 (plan gate CLOSED at `APPROVED`; do not re-open) |
 | `branchReviewRounds` | absent — step 7 has not started |
 | `git status --porcelain` | empty |
 | intake copies | identical (`diff -q` clean) |
 | `git rev-list --count HEAD..origin/main` | 0 |
 | `scripts/arm-check.sh` | ARMED |
+
+**On `phase`:** `scripts/verify-gate.sh` stamps `gate_green` every time it runs
+green, so that value keeps overwriting `executing`. **`gate_green` here does NOT
+mean step 5 is finished** — it means the gate was green at that commit. The true
+position is mid-step-4 with Tasks 4-10 outstanding. Trust this document's
+"Remaining" table over the phase string.
 
 ## Read these, by path — do not restate them
 
