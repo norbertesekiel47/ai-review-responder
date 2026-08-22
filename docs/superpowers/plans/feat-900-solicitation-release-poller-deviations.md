@@ -13,6 +13,76 @@ here, not amendments.
 
 ---
 
+# STEP 6 READ-BACK — 2026-08-22 — **31 ACCEPT, 0 RE-PLAN**
+
+All 31 entries below were read end to end, not skimmed. The RE-PLAN test is the
+narrow one the abort criteria name: *does this deviation invalidate a locked
+intake decision?* None does. Every entry records something the plan did not
+anticipate and argues why the IMPLEMENTATION is right, rather than bending a test
+to fit code already written.
+
+**Verdict: ACCEPT on all 31.** The four that came closest, and why each survives:
+
+1. **`Task 6 — the unknown sweep reaches a sending row the send-window sweep's own fixture expected it to leave alone`** — the strongest RE-PLAN candidate on the branch, because editing a test to match code is the classic failure mode. It survives on three independent grounds: the changed assertion still pins what it always pinned (a `cancelled` result would still red it, so "halt never cancels a `sending` row" is intact); that invariant ALSO has its own direct test in `approval-system-halt.integration.test.ts`, which calls the latch alone and never runs phase 1; and the alternative — narrowing P1 with a batch predicate to preserve the old assertion — would have re-opened issue #915's wedge on the halted-batch case that needs the escape most. D12d names this exact interaction as the deadlock the `unknown` terminal exists to resolve.
+
+2. **`Task 6 — a sending row with no running Lazy child is a branch, not an assertion`** — a deliberate departure from "assert impossible states, don't branch around them". ACCEPT, because the rule's remedy causes the harm the rule exists to prevent: a throw propagates out of `sql.begin`, out of `runReleaseCycle`, and aborts the tick BEFORE phases 2 and 3, so one anomalous row would hold every other account's wedged batch shut. The cited precedent (`recordDeferStepOnParent`) fits, and the departure is documented at the site rather than left silent.
+
+3. **`Task 8 — a configurable interval can violate the deadline-below-interval contract`** — the plan said parse it like `JUDGE_POLL_INTERVAL_MS`. ACCEPT the departure: that precedent is safe there only because nothing in `JudgeSweepPoller` rests on the interval, whereas here `CYCLE_TIMEOUT_MS < DEFAULT_INTERVAL_MS` is a stated contract in `GuardedPollOptions`. Fallback-to-default is the precedent's own failure mode for an unusable value; clamping upward would be invention. Both relaxations were probed.
+
+4. **`Task 7 — every still-open batch the tick saw is a RE-SCAN`** — an ambiguity in the plan's own phrasing, resolved rather than guessed. ACCEPT: the reading is forced, not preferred (the backstop test's batch is reachable by no earlier phase), and the scan's arms are migration 091's one-active-send index predicate byte for byte, which is what makes the triple principled instead of arbitrary.
+
+**Two entries were re-verified against the code during this read-back rather than
+taken on the implementing agent's word:**
+
+- **The halted-batch join leak** (`Task 7`) was reported as *harmless, because a halted batch holds no active-send slot*. That understates it: an unclosed batch leaves its **Send batch parent** open, and `solicitation_send_batch_stalled` fires at 11 days — an alert amendment B7 justifies by claiming 11 days is unreachable. Re-checked from source: `commitSendTerminal` (`src/lib/solicitation/dispatch.ts:1103`) runs inside ONE `sql.begin` (line 1970) containing the batch lock, the Outreach terminal UPDATE, the child `completeRun`, the outbox completion AND `closeBatchIfSettled`. A crash before commit rolls back the terminalization too. Every other production writer of `delivery_status` likewise calls the join on the same `tx`; the sole exception, `supersedeLiveRender`, touches `rendered` rows only. **ACCEPT — on UNREACHABILITY, not harmlessness.** The distinction is deliberate: "harmless" invites a future change to split that transaction; "unreachable because the join shares the writer's transaction" names the property that must be preserved.
+
+- **The unpinned outer `NOT EXISTS` belt** (`Task 6`) — ACCEPT, with the owner's decision to document rather than test. It is a bounding arm, not the correctness guard, and no test pins it. A comment now states that at the site, including the starvation mechanism it prevents and the honest admission that the greater-than-`scanLimit` backlog has not been shown reachable. A test here would assert scan composition rather than behaviour.
+
+**Owner decisions taken during the read-back:** the outer-belt comment above;
+`.claude/reference/lab-notes.md` added to `allowed_edit_surface` as **AMENDMENT 4**,
+so the four-registry lesson lands where the next session will look; and the
+`approval.ts` row in `docs/directory.md` gains `latchSystemHalt`, reversing Task
+9's restraint — `docs/directory.md` is the code map and was already on the
+surface, so omitting the third arm was a choice rather than a constraint.
+
+**Carried into step 7:** reviewers must be told the production diff is 2.1x its
+estimate, and that the outer belt in P1 is deliberately unpinned.
+
+---
+
+## AMENDMENT 4 — `.claude/reference/lab-notes.md`, the promotion the other three earned
+
+**This is the FOURTH surface amendment on a branch whose budget was two.** It is
+recorded as an amendment rather than slipped through as a documentation edit,
+because the honest count is the point of the budget.
+
+**What:** `.claude/reference/lab-notes.md` added to `allowed_edit_surface`
+(20 → 21 entries). Both intake copies updated, `scripts/arm-check.sh` re-run and
+still ARMED.
+
+**Why:** AMENDMENT 3 records a PROMOTION OBLIGATION — the four-registry list that
+caused all three earlier amendments must reach the lab notes, "so the next feature
+touching this class declares them at intake instead of discovering them one gate
+failure at a time. Recording it only here leaves the lesson where the next session
+will not look." That obligation cannot be discharged without writing the file.
+
+**Why it is not the abort event the budget describes:** the abort criterion exists
+to catch a MIS-CLASSIFIED LANE — a feature whose true shape outgrew its controls.
+This amendment adds no production code, no test, and no behaviour; it is a
+documentation-only edit whose entire content is the lesson of the three amendments
+that preceded it. Declining it would have made the branch's own root-cause finding
+unavailable to the next session, which is the opposite of what the budget protects.
+**Owner sign-off taken 2026-08-22**, with the alternatives (file it as an issue,
+leave it in this file) offered and declined.
+
+**What changed:** one new dated section in `.claude/reference/lab-notes.md` with
+three entries — the four-registry rule, the reclassify-trigger lesson, and the
+`it.fails`-is-not-evidence rule that five caught defects on this branch earned.
+Plus a one-clause correction to #899's `sending_started_at` entry, whose "no
+writer in the repo today" clause this feature spends.
+
+---
+
 ## RE-CLASSIFICATION TRIGGER FIRED — owner elected to proceed as ONE PR
 
 **What:** the step 5 gate's `reclassify` row went WARN at Task 8's commit

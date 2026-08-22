@@ -329,8 +329,8 @@ async function sweepUnknownOutreach(sql: Sql, scanLimit: number): Promise<number
 }
 
 /**
- * P1 — dispatch attempts wedged in `sending`. BOTH BELTS, and neither is
- * sufficient alone.
+ * P1 — dispatch attempts wedged in `sending`. BOTH BELTS, and they do DIFFERENT
+ * jobs — see the note on the outer belt below before deleting either.
  *
  * The grace period is not evidence of a wedge by itself: a job the OutboxPoller
  * is still carrying is a normal delivery in progress, and terminalizing it would
@@ -338,6 +338,24 @@ async function sweepUnknownOutreach(sql: Sql, scanLimit: number): Promise<number
  * evidence by itself either: the outbox watchdog re-pends on a 15-minute window,
  * so a row can be momentarily un-owned while recovering normally, which is
  * exactly why `UNKNOWN_GRACE_MINUTES` must exceed that window.
+ *
+ * THE OUTER `NOT EXISTS` BELOW IS A BOUNDING ARM, NOT THE CORRECTNESS GUARD, AND
+ * NO TEST PINS IT. The correctness guard is the same clause REPEATED inside
+ * `terminalizeWedgedOutreach`'s CAS, which is what actually refuses a row the
+ * watchdog re-pended after this unlocked scan; `does not terminalize a sending
+ * row whose outbox row is re-pended after selection` is its sole pin. Deleting
+ * this outer clause therefore leaves the whole suite GREEN — verified by probe,
+ * not assumed — so it reads as redundant and is not.
+ *
+ * What it buys is a BOUNDED scan. Without it this statement selects every
+ * past-grace `sending` row including the ones the CAS will reject, and those
+ * rejects consume `scanLimit`. A backlog of more than `scanLimit` rows that are
+ * past grace AND still legitimately in flight would then crowd genuinely wedged
+ * rows out of every tick — starving the one sweep that can unwedge a location,
+ * which is issue #915's failure mode arriving through the door built to close
+ * it. That backlog has NOT been shown reachable in practice; the belt is cheap
+ * insurance against a case whose cost is unbounded and whose likelihood is
+ * merely unquantified.
  *
  * No batch predicate, and that absence is the point rather than an omission. A
  * wedged row on a halted or overdue batch is the case D12d singles out — the
