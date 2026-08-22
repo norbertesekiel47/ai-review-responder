@@ -83,6 +83,10 @@ export const queues = {
   csvIngest: new Queue(QUEUE_NAMES.CSV_INGEST, { connection: opts, defaultJobOptions }),
   buildSolicitationBatch: new Queue(QUEUE_NAMES.BUILD_SOLICITATION_BATCH, { connection: opts, defaultJobOptions }),
   generateSolicitationAsks: new Queue(QUEUE_NAMES.GENERATE_SOLICITATION_ASKS, { connection: opts, defaultJobOptions: llmJobOptions }),
+  // defaultJobOptions, NOT llmJobOptions: the dispatch lane (#899) makes no LLM
+  // call, so the extra two attempts would only widen the window in which a
+  // provider send is retried.
+  solicitationSend: new Queue(QUEUE_NAMES.SOLICITATION_SEND, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Queues emit 'error' on Redis connection failures; without a listener that
@@ -132,4 +136,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.CSV_INGEST]: queues.csvIngest,
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: queues.buildSolicitationBatch,
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: queues.generateSolicitationAsks,
+  [QUEUE_NAMES.SOLICITATION_SEND]: queues.solicitationSend,
 };

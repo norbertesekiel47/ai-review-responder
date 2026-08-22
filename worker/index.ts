@@ -32,6 +32,8 @@ import { handleSolicitationBatch } from './jobs/solicitation-batch';
 import { handleSolicitationBatchFailed } from './jobs/solicitation-batch/failed-hook';
 import { handleGenerateSolicitationAsks } from './jobs/solicitation-batch/generate';
 import { handleGenerateSolicitationAsksFailed } from './jobs/solicitation-batch/generate-failed-hook';
+import { handleSolicitationSend } from './jobs/solicitation-send';
+import { handleSolicitationSendFailed } from './jobs/solicitation-send/failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -58,6 +60,7 @@ import type {
   CsvIngestPayload,
   BuildSolicitationBatchPayload,
   GenerateSolicitationAsksPayload,
+  SolicitationSendPayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -327,6 +330,28 @@ generateSolicitationAsksWorker.on('failed', (job, err) =>
   handleGenerateSolicitationAsksFailed(sql, job, err),
 );
 
+// Dispatch lane (#899): one job per Outreach row. Its `'failed'` exhaustion
+// hook terminalizes the Outreach row `failed` / `send_exhausted` and joins the
+// batch; the shared job-failure sink below still raises the Sentry issue.
+const solicitationSendWorker = new Worker<SolicitationSendPayload>(
+  QUEUE_NAMES.SOLICITATION_SEND,
+  withJobLogContext<SolicitationSendPayload>((job) => handleSolicitationSend(sql, job)),
+  { ...workerOpts, concurrency: 1 },
+);
+
+// Serial sending is structural, not incidental: one in-flight send at a time
+// means this worker can never burst against Resend's per-TEAM 10 req/s limit,
+// and it keeps the provider idempotency key's one-attempt-at-a-time assumption
+// true. The guard reads the EFFECTIVE options, so a future edit that drops
+// concurrency: 1 fails boot instead of silently double-sending — and it rejects
+// an UNDEFINED concurrency too, which is why bare workerOpts is not enough even
+// though BullMQ's own default is 1.
+assertSingleConcurrencyWorker(QUEUE_NAMES.SOLICITATION_SEND, solicitationSendWorker.opts);
+
+solicitationSendWorker.on('failed', (job, err) =>
+  handleSolicitationSendFailed(sql, job, err),
+);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -451,6 +476,7 @@ const workersByQueue = {
   [QUEUE_NAMES.CSV_INGEST]: csvIngestWorker,
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: solicitationBatchWorker,
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: generateSolicitationAsksWorker,
+  [QUEUE_NAMES.SOLICITATION_SEND]: solicitationSendWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

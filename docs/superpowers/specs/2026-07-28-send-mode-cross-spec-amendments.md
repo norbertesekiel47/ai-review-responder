@@ -472,6 +472,53 @@ call **2026-08-19**. Recorded here rather than on the ticket for the #643 reason
 a reader of B6 who does not know about this would implement a deferring child and strand
 `queued` rows in production.
 
+### B15. Six decisions the Dispatch gate's implementation settled (#899)
+
+Recorded here for the same reason B13 and B14 give: each is something a reader of B6 alone
+would get wrong, and the cost is paid by a real recipient.
+
+1. **The two SLOW gate items run ABOVE the transaction, with no lock held.** Re-lint and
+   re-moderation are gathered before `tx1` opens; their verdicts are applied at B6 positions 8
+   and 9 inside it. Re-moderation is a ~10s provider call, and production.md forbids holding a
+   lock across a slow remote call — the batch row lock is what a concurrent **Halt latch**
+   needs. Safe only because ADR 0020 (#860) makes stored bytes immutable after approval, so the
+   verdict cannot go stale between gathering and applying. **B6's ORDER is unchanged**; only the
+   gathering moved, so a suppressed contact still reports `suppressed`, never `lint_failed`.
+
+2. **A row already `sending` is never re-gated, and in a fresh process is never re-sent.** The
+   raw unsubscribe token exists only in memory (invariant #5), so a process that crashed between
+   `tx1` and the provider response holds only a hash and cannot rebuild the same unsubscribe URL.
+   Retry is therefore **in-process only**, with bounded jittered backoff while the token is still
+   in scope; a fresh-process re-invocation completes its outbox attempt, leaves the row `sending`
+   and lets D12d's sweep terminalize it `unknown`. Re-issuing on the hope that provider
+   idempotency covers it is wrong: if the original request never reached the provider, the
+   retry's body is what gets sent — with no working opt-out link.
+
+3. **A flag-off DEFERS; it never terminalizes.** 091/110 carry no `flag_off` withheld member,
+   deliberately. The child completes its outbox attempt, leaves the row `queued`, and the 72h
+   `send_window_elapsed` halt reclaims it. Inventing a reason would terminalize a row the owner
+   never withdrew.
+
+4. **The dispatch moderation verdict does not overwrite `moderation_status` / `moderation_detail`.**
+   Those stay RENDER provenance per B1. The dispatch verdict lives in the
+   `dispatch_gate_evaluated` step detail and in `disposition_reason`.
+
+5. **`lintInputFromSnapshot` is the single owner of which stored values feed the lint.**
+   `lintAsk` takes an `AskLintInput`, not bytes, and its two value lists were built from the
+   LIVE ask row and visit. Re-deriving them at dispatch would re-lint against data that may have
+   moved since approval — breaking the byte-for-byte **Owner approval** contract the gate exists
+   to protect. Generation and dispatch now share one mapper over the STORED snapshot.
+
+6. **B10 clarified, not overridden.** B10 assigns the `QUEUE_NAMES` entry and the typed helper to
+   "#630". That predates #630's decomposition into #899 (consumer) and #900 (producer). The
+   constant lands with the **consumer**, because a BullMQ worker cannot be registered without its
+   queue name; the helper lands with the **producer**, which is what B10's stated argument — a
+   helper with no caller turning later raw inserts red — actually protects against.
+
+**Provenance:** ticket **#899**, plan-gate rounds 2-3 and implementation. Points 1, 2 and 4 were
+owner calls; point 2 was reopened by the round-3 adversarial review after the first formulation
+proved unimplementable, and re-decided.
+
 ## C. Codex findings triage summary
 
 | Codex finding | Triage |

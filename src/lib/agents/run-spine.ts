@@ -72,6 +72,12 @@ export const STEP_PERSONA = {
   batch_halted: 'solicitation',
   ask_regeneration_requested: 'solicitation',
   ask_withdrawn: 'solicitation',
+  // (#899) The two steps the dispatch lane records on the **Lazy child**.
+  // `agent_run_steps.step_key` carries no DB CHECK, so this map is the whole
+  // vocabulary — adding a key needs no migration, and misspelling one is
+  // caught here rather than by Postgres.
+  dispatch_gate_evaluated: 'solicitation',
+  ask_sent: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;
@@ -430,6 +436,52 @@ export async function findActiveReviewRun(
       AND status = 'running'
   `;
   return run ?? null;
+}
+
+export interface FindSolicitationSendBatchRunInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+}
+
+/**
+ * Read-only lookup of the active **Send batch parent** for one Solicitation
+ * batch (#899), modelled on `findActiveReviewRun` above.
+ *
+ * It exists because the send lane's **Lazy child** needs a `parentRunId` and
+ * the only other door — `startOrGetSolicitationSendBatchRun` — would CREATE
+ * one. A send worker that mints its own parent papers over "generation never
+ * ran", which is an impossible state; the caller asserts on the null instead.
+ *
+ * Unambiguous by construction: `agent_runs_one_active_per_subject` keys on
+ * (kind, subject_type, subject_id), so those three plus `status = 'running'`
+ * match at most one row. The tenant columns are a SCOPE on top of that key
+ * (invariant #8) — a batch id belonging to another account resolves to null
+ * here, never to a foreign parent.
+ *
+ * Takes NO row lock, deliberately. This lane's sole lock order is batch → run
+ * (see `CloseBatchIfSettledInput.failure` for the ABBA deadlock that rule
+ * exists to prevent), and a lock taken here would be taken before the batch
+ * lock on any future caller that has not already got it.
+ *
+ * `subject_id` is TEXT, so the batch id is lowercased to match — the same
+ * normalization `closeBatchIfSettled`, this lane's other reader of that key,
+ * applies.
+ */
+export async function findActiveSolicitationSendBatchRun(
+  tx: TxClient,
+  input: FindSolicitationSendBatchRunInput,
+): Promise<{ runId: string } | null> {
+  const [run] = await tx<{ id: string }[]>`
+    SELECT id FROM agent_runs
+    WHERE kind = 'solicitation_send_batch'
+      AND subject_type = 'solicitation_batch'
+      AND subject_id = ${input.batchId.toLowerCase()}
+      AND status = 'running'
+      AND account_id = ${input.accountId}::uuid
+      AND business_id = ${input.businessId}::uuid
+  `;
+  return run ? { runId: run.id } : null;
 }
 
 export interface RecordStepInput {
