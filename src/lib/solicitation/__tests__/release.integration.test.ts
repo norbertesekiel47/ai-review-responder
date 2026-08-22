@@ -78,6 +78,24 @@ vi.mock('@/lib/responses/judge-health', async (importOriginal) => {
   return { ...actual, isJudgeHealthy: spies.isJudgeHealthy };
 });
 
+// The alerting sinks, spread over the REAL module rather than replacing it:
+// several modules in this suite's import graph import `@sentry/node`, and only
+// these two calls are ever asserted. Nothing here initialises Sentry, so the
+// real functions are no-ops anyway — the spies are about ASSERTING them.
+const sentrySpies = vi.hoisted(() => ({
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+}));
+
+vi.mock('@sentry/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@sentry/node')>();
+  return {
+    ...actual,
+    captureException: sentrySpies.captureException,
+    captureMessage: sentrySpies.captureMessage,
+  };
+});
+
 import { STALLED_THRESHOLD_SEND_BATCH_DAYS } from '@/lib/agents/read';
 import { resetServerConfigForTests } from '@/lib/config/server';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
@@ -170,7 +188,27 @@ async function setPlatformHeadroom(headroom: number): Promise<number> {
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-async function seedUpload(onBusinessId: string): Promise<string> {
+/**
+ * The tenant a fixture writes for. Every helper below TAKES it rather than
+ * closing over `accountId()`/`userId()`, because the P4 fairness case needs a
+ * SECOND account and a helper bound to the primary tenant cannot be called for
+ * it — which is how this file briefly grew a hand-inlined second copy of five of
+ * its own helpers. One defaulted parameter removes that whole class.
+ */
+interface SeedIds {
+  accountId: string;
+  userId: string;
+}
+
+function primaryIds(): SeedIds {
+  return { accountId: accountId(), userId: userId() };
+}
+
+function foreignIds(): SeedIds {
+  return { accountId: foreignAccountId(), userId: foreignUserId() };
+}
+
+async function seedUpload(onBusinessId: string, ids: SeedIds = primaryIds()): Promise<string> {
   const uploadId = randomUUID();
   await sql()`
     INSERT INTO contact_csv_uploads (
@@ -178,10 +216,10 @@ async function seedUpload(onBusinessId: string): Promise<string> {
       raw_csv, status, report, attested_by_user_id, attested_at,
       attestation_version, completed_at
     ) VALUES (
-      ${uploadId}::uuid, ${accountId()}::uuid, ${onBusinessId}::uuid,
+      ${uploadId}::uuid, ${ids.accountId}::uuid, ${onBusinessId}::uuid,
       ${`release-${uploadId}.csv`}, 1, ${checksum(uploadId)},
       NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${userId()}::uuid, NOW(), 'release-test', NOW()
+      ${ids.userId}::uuid, NOW(), 'release-test', NOW()
     )
   `;
   return uploadId;
@@ -202,6 +240,8 @@ async function seedContact(uploadId: string, onBusinessId: string): Promise<stri
 
 interface BatchInput {
   onBusinessId?: string;
+  /** Defaults to the primary tenant; the fairness case passes the foreign one. */
+  ids?: SeedIds;
   /**
    * Interval strings off NOW(), e.g. `'1 hour'`. NULL when omitted. A NEGATIVE
    * interval puts the stamp in the FUTURE — `NOW() - INTERVAL '-14 minutes'` is
@@ -223,10 +263,14 @@ interface BatchInput {
     | 'batch_expired';
 }
 
+/** Carries its tenant, so every downstream helper reads the ids off the batch
+ *  instead of being handed them a second time (or closing over one tenant). */
 interface SeededBatch {
   batchId: string;
   uploadId: string;
   businessId: string;
+  accountId: string;
+  userId: string;
 }
 
 /**
@@ -236,7 +280,8 @@ interface SeededBatch {
  */
 async function seedBatch(input: BatchInput = {}): Promise<SeededBatch> {
   const onBusinessId = input.onBusinessId ?? businessId;
-  const uploadId = await seedUpload(onBusinessId);
+  const ids = input.ids ?? primaryIds();
+  const uploadId = await seedUpload(onBusinessId, ids);
   const batchId = randomUUID();
   const ownerHalt =
     input.haltReason === 'owner_veto'
@@ -249,20 +294,20 @@ async function seedBatch(input: BatchInput = {}): Promise<SeededBatch> {
       veto_deadline_at, sending_started_at, send_closed_at,
       halted_at, halt_reason, halted_by
     ) VALUES (
-      ${batchId}::uuid, ${accountId()}::uuid, ${onBusinessId}::uuid,
+      ${batchId}::uuid, ${ids.accountId}::uuid, ${onBusinessId}::uuid,
       ${uploadId}::uuid, NOW() - INTERVAL '40 days',
       NOW() - ${input.builtAgo ?? null}::interval,
       NOW() - ${input.approvedAgo ?? null}::interval,
       ${input.approvalMethod ?? null},
-      ${input.approvalMethod === 'owner' ? userId() : null}::uuid,
+      ${input.approvalMethod === 'owner' ? ids.userId : null}::uuid,
       NOW() - ${input.vetoDeadlineAgo ?? null}::interval,
       NOW() - ${input.sendingStartedAgo ?? null}::interval,
       NOW() - ${input.sendClosedAgo ?? null}::interval,
       NOW() - ${input.haltedAgo ?? null}::interval,
-      ${input.haltReason ?? null}, ${ownerHalt ? userId() : null}::uuid
+      ${input.haltReason ?? null}, ${ownerHalt ? ids.userId : null}::uuid
     )
   `;
-  return { batchId, uploadId, businessId: onBusinessId };
+  return { batchId, uploadId, businessId: onBusinessId, ...ids };
 }
 
 /** The shape every releasable case starts from: approved, veto deadline past. */
@@ -312,7 +357,7 @@ async function seedSendParent(input: SendParentInput): Promise<string> {
       id, account_id, business_id, kind, subject_type, subject_id,
       status, started_at, ended_at, correlation_id
     ) VALUES (
-      ${runId}::uuid, ${accountId()}::uuid, ${input.batch.businessId}::uuid,
+      ${runId}::uuid, ${input.batch.accountId}::uuid, ${input.batch.businessId}::uuid,
       'solicitation_send_batch', 'solicitation_batch', ${input.batch.batchId},
       ${status}, NOW() - ${input.startedAgo ?? '1 minute'}::interval,
       ${status === 'running' ? null : sql()`NOW()`},
@@ -358,7 +403,7 @@ async function seedAsk(batch: SeededBatch): Promise<{ askId: string; contactId: 
       id, account_id, business_id, batch_id, contact_id, status,
       withheld_reason, evidence, decided_at
     ) VALUES (
-      ${askId}::uuid, ${accountId()}::uuid, ${batch.businessId}::uuid,
+      ${askId}::uuid, ${batch.accountId}::uuid, ${batch.businessId}::uuid,
       ${batch.batchId}::uuid, ${contactId}::uuid, 'send', NULL,
       ${sql().json({ contact_id: contactId, policy_version: 'release-fixture', decision: 'send' })},
       NOW()
@@ -399,7 +444,7 @@ async function seedOutreach(input: OutreachInput): Promise<SeededOutreach> {
   const status = input.deliveryStatus ?? 'rendered';
   const dispatched = status === 'queued' || status === 'sending' || status === 'sent';
   const outreachId = await insertOutreach(sql(), {
-    accountId: accountId(),
+    accountId: input.batch.accountId,
     businessId: input.batch.businessId,
     batchId: input.batch.batchId,
     askId,
@@ -481,84 +526,32 @@ async function seedInFlightSendJob(
  * Its `approved_at` is deliberately OLDER than `approvedBatchInput`'s, because
  * P4 orders `approved_at ASC`: this is the batch that takes the scan slot.
  */
-async function seedCappedForeignCandidate(): Promise<void> {
-  const uploadId = randomUUID();
-  const batchId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads (
-      id, account_id, business_id, filename, byte_size, content_sha256,
-      raw_csv, status, report, attested_by_user_id, attested_at,
-      attestation_version, completed_at
-    ) VALUES (
-      ${uploadId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
-      ${`release-foreign-${uploadId}.csv`}, 1, ${checksum(uploadId)},
-      NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${foreignUserId()}::uuid, NOW(), 'release-test', NOW()
-    )
-  `;
-  await sql()`
-    INSERT INTO solicitation_batches (
-      id, account_id, business_id, source_upload_id, created_at,
-      built_at, approved_at, approval_method, approved_by_user_id,
-      veto_deadline_at, sending_started_at
-    ) VALUES (
-      ${batchId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
-      ${uploadId}::uuid, NOW() - INTERVAL '40 days',
-      NOW() - INTERVAL '5 hours', NOW() - INTERVAL '4 hours', 'owner',
-      ${foreignUserId()}::uuid, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '3 hours'
-    )
-  `;
-  await sql()`
-    INSERT INTO agent_runs (
-      id, account_id, business_id, kind, subject_type, subject_id,
-      status, started_at, ended_at, correlation_id
-    ) VALUES (
-      ${randomUUID()}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
-      'solicitation_send_batch', 'solicitation_batch', ${batchId},
-      'running', NOW() - INTERVAL '4 hours', NULL, 'release-integration'
-    )
-  `;
+async function seedCappedForeignCandidate(): Promise<SeededBatch> {
+  const batch = await seedBatch({
+    ids: foreignIds(),
+    onBusinessId: foreignBusinessId,
+    builtAgo: '5 hours',
+    approvedAgo: '4 hours',
+    approvalMethod: 'owner',
+    vetoDeadlineAgo: '3 hours',
+    sendingStartedAgo: '3 hours',
+  });
+  await seedSendParent({ batch, startedAgo: '4 hours' });
 
   // The cap's own number, so the account is at it exactly — one attempt fewer
-  // and the arm under test would not fire.
+  // and the arm under test would not fire. The trailing `rendered` row is what
+  // makes the batch a P4 candidate at all.
   const statuses = [
     ...Array.from({ length: DEFAULT_DAILY_SEND_CAP_ACCOUNT }, () => 'queued' as const),
     'rendered' as const,
   ];
   for (const status of statuses) {
-    const contactId = randomUUID();
-    const askId = randomUUID();
-    await sql()`
-      INSERT INTO solicitation_contacts (id, business_id, name, email, created_by_upload_id)
-      VALUES (
-        ${contactId}::uuid, ${foreignBusinessId}::uuid, 'Foreign Candidate',
-        ${`${contactId}@example.test`}, ${uploadId}::uuid
-      )
-    `;
-    await sql()`
-      INSERT INTO solicitation_asks (
-        id, account_id, business_id, batch_id, contact_id, status,
-        withheld_reason, evidence, decided_at
-      ) VALUES (
-        ${askId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
-        ${batchId}::uuid, ${contactId}::uuid, 'send', NULL,
-        ${sql().json({ contact_id: contactId, policy_version: 'release-fixture', decision: 'send' })},
-        NOW()
-      )
-    `;
-    await insertOutreach(sql(), {
-      accountId: foreignAccountId(),
-      businessId: foreignBusinessId,
-      batchId,
-      askId,
-      contactId,
-      deliveryStatus: status,
-      // NOW(), not an interval back: the cap's basis is the UTC DAY, and a
-      // stamp minutes before midnight would land on yesterday and make this
-      // fixture time-of-day dependent.
-      queuedAt: status === 'queued' ? sql()`NOW()` : null,
-    });
+    // `'0 seconds'` is NOW() exactly, and it is deliberate: the cap's basis is
+    // the UTC DAY, so a stamp minutes before midnight would land on yesterday
+    // and make this fixture time-of-day dependent.
+    await seedOutreach({ batch, deliveryStatus: status, queuedAgo: '0 seconds' });
   }
+  return batch;
 }
 
 /** Open the **Send breaker**. 110 admits at most one open trip. */
@@ -1047,11 +1040,43 @@ describeWithDb(
         const report = await cycle(sql(), { scanLimit: 1 });
 
         expect(report.released).toBe(1);
-        // The capped account never became a candidate at all, so it consumed no
-        // slot — and there is nothing to withhold.
-        expect(report.withheldByReason.account_cap).toBeUndefined();
+        // The capped account never became a candidate, so it consumed no scan
+        // slot — but it IS counted. Round-2 finding: excluding it in SQL means
+        // the per-account gate never runs for it, so before this counter a
+        // fully cap-bound tick reported `withheldByReason: {}` and was
+        // byte-identical to an idle tick, in the designed steady state (the cap
+        // forces a 25-ask batch across ≥3 calendar days).
+        expect(report.withheldByReason.account_cap).toBe(1);
+        expect(report.releasePhaseStoppedBy).toBeNull();
         expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
         expect(await readSendJobs(outreachId)).toHaveLength(1);
+      });
+
+      it('names the account cap on a tick where every candidate account is capped', async () => {
+        // The other half of the same round-2 finding, and the one the staging
+        // ramp actually reads: with NO releasable account left, the tick must
+        // still say WHICH gate stopped it (the intake's observability bullet).
+        // An idle tick reports `{}`; this one must not.
+        await seedCappedForeignCandidate();
+
+        const report = await cycle(sql(), { scanLimit: 1 });
+
+        expect(report.released).toBe(0);
+        expect(report.withheldByReason.account_cap).toBe(1);
+        // Still a PER-ACCOUNT withhold, not a phase-level stop: the three
+        // phase-level gates all passed, and another account could have released.
+        expect(report.releasePhaseStoppedBy).toBeNull();
+      });
+
+      it('reports no withhold at all on a tick with no work due', async () => {
+        // The control for the case above, and what makes that assertion mean
+        // something: "nothing was due" must stay distinguishable from "something
+        // was due and the cap withheld it".
+        const report = await cycle();
+
+        expect(report.released).toBe(0);
+        expect(report.withheldByReason).toEqual({});
+        expect(report.releasePhaseStoppedBy).toBeNull();
       });
 
       it('does not release when the subscription does not grant full access', async () => {
@@ -1837,6 +1862,31 @@ describeWithDb(
         expect((await readBatch(batch.batchId)).sending_started_at).toBeNull();
       });
 
+      it('raises a Sentry warning for a phase-level failure and still propagates it', async () => {
+        // Round-2 finding. Before `alertPhaseFailure` the alerting was inverted:
+        // an ITEM failure (blast radius one row) raised a Sentry issue, while a
+        // PHASE failure — a scan, the breaker read, `groupByAccount` — raised
+        // NOTHING. `createGuardedPoll` catches and never rethrows, and
+        // `logger.error` has no Sentry hook, so the failure class that can wedge
+        // the lane by suppressing every later phase (P5's backstop join
+        // included) was the only one with no alert.
+        //
+        // ALERTING IS NOT CATCHING: the same case asserts the throw still
+        // reaches the caller, because the breaker's throw IS the halt signal.
+        const failure = new Error('breaker probe: phase-level sink');
+        spies.readSendBreaker.mockRejectedValue(failure);
+
+        await expect(cycle()).rejects.toThrow('breaker probe: phase-level sink');
+
+        expect(sentrySpies.captureException).toHaveBeenCalledWith(
+          failure,
+          expect.objectContaining({
+            level: 'warning',
+            tags: { subsystem: 'solicitation-release', phase: 'release' },
+          }),
+        );
+      });
+
       it('rolls back rendered-to-queued when enqueueSolicitationSend throws', async () => {
         // Round-1 finding 4: atomicity is proved by a FORCED FAILURE, not by
         // inspection. If the CAS and the enqueue ever split across
@@ -1932,6 +1982,47 @@ describeWithDb(
         expect((await readRun(childRunId)).status).toBe('running');
       });
 
+      it('one poisoned batch does not cost its sibling batches on the same account', async () => {
+        // Round-2 finding. The release phase's `try` wrapped the whole ACCOUNT
+        // block, per-batch loop included, while `applyJudgeSplit`,
+        // `selectRenderedOutreach` and `releaseOutreachRow` are per-batch and
+        // per-row. So one poisoned batch discarded the account's REMAINING
+        // batches — deterministically, every tick, because the scan is
+        // `approved_at ASC` and the poisoned batch is always selected first —
+        // until they crossed the 72h send window and were cancelled. That is
+        // #915's wedge narrowed to one account, not closed.
+        //
+        // Two batches, two locations (091 admits one active send per business),
+        // and the POISONED one is the older approval, so P4 reaches it first.
+        const poisoned = await seedBatch(approvedBatchInput({ approvedAgo: '2 hours' }));
+        await seedSendParent({ batch: poisoned });
+        const poisonedRow = await seedOutreach({ batch: poisoned });
+
+        const sibling = await seedBatch(
+          approvedBatchInput({ onBusinessId: siblingBusinessId, approvedAgo: '1 hour' }),
+        );
+        await seedSendParent({ batch: sibling });
+        const siblingRow = await seedOutreach({ batch: sibling });
+        await seedSolicitationPolicy(10);
+
+        // ONCE: only the first release of the tick fails, which is the poisoned
+        // batch's. The delegate re-armed in `beforeEach` serves the sibling.
+        spies.enqueueSolicitationSend.mockRejectedValueOnce(new Error('outbox insert failed'));
+
+        const report = await cycle();
+
+        expect(report.itemFailures).toBe(1);
+        expect(report.released).toBe(1);
+        // The sibling released, which is the whole point.
+        expect((await readOutreach(siblingRow.outreachId)).delivery_status).toBe('queued');
+        expect(await readSendJobs(siblingRow.outreachId)).toHaveLength(1);
+        // The poisoned batch is left exactly as it was — isolated, not swallowed
+        // — and its unit rolled back whole (invariant #2).
+        expect((await readOutreach(poisonedRow.outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(poisonedRow.outreachId)).toHaveLength(0);
+        expect((await readBatch(poisoned.batchId)).sending_started_at).toBeNull();
+      });
+
       it('does not clear approval when a concurrent Halt latch wins the batch lock', async () => {
         // Round-1 finding 7. A **Halt latch** does NOT clear `approved_at`, so
         // without the downgrade CAS's `halted_at IS NULL AND send_closed_at IS
@@ -1965,6 +2056,44 @@ describeWithDb(
         expect(after.approval_method).toBe('owner');
         expect(after.approved_by_user_id).toBe(userId());
         expect(await readSteps(parentRunId, 'approval_downgraded')).toHaveLength(0);
+      });
+
+      it('does not downgrade when the approval window shuts while waiting for the batch lock', async () => {
+        // Round-2 finding: the round-1 Judge fix was PARTIAL.
+        // `approval_window_open` is computed by P4's SCAN and
+        // `downgradeApproval`'s CAS did not re-assert it, so a downgrade taken
+        // shortly before the window shut reproduced the original chain exactly —
+        // `expired` **Batch state**, `approveBatch` refuses it (D2), P3 latches
+        // `batch_expired` next tick, no notification on either step.
+        //
+        // `heldForJudge: 0` is the assertion that keeps this case honest: it
+        // proves the SCAN saw the window open, so the CAS is what refused.
+        spies.isJudgeHealthy.mockResolvedValue(false);
+        const batch = await seedBatch(approvedBatchInput({ builtAgo: '6 days' }));
+        const parentRunId = await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch });
+
+        const shutting = precedingExecutor(sql(), (tx) => tx`
+          UPDATE solicitation_batches
+          SET built_at = NOW() - INTERVAL '8 days'
+          WHERE id = ${batch.batchId}::uuid
+            AND account_id = ${accountId()}::uuid
+            AND business_id = ${batch.businessId}::uuid
+            AND built_at > NOW() - INTERVAL '8 days'
+        `);
+
+        const report = await cycle(shutting);
+
+        expect(report.downgraded).toBe(0);
+        expect(report.heldForJudge).toBe(0);
+        const after = await readBatch(batch.batchId);
+        expect(after.approved_at).not.toBeNull();
+        expect(after.approval_method).toBe('owner');
+        expect(after.approved_by_user_id).toBe(userId());
+        expect(after.veto_deadline_at).not.toBeNull();
+        expect(await readSteps(parentRunId, 'approval_downgraded')).toHaveLength(0);
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
       });
 
       it('does not release when the send window elapses while waiting for the batch lock', async () => {
