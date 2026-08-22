@@ -365,3 +365,61 @@ business those ids carry. Same justification as the three sibling
 `ci:db-imports`, `ci:outbox-seam`, `ci:outbox-status`, `ci:static-policy`,
 `ci:live-db-suites`, `ci:config-coverage`, `ci:process-env`,
 `ci:directory-map`, `ci:outbox-topics`, `ci:feature-surface`, `ci:rls-audit`.
+
+## Task 4 — `ci:tenant-scope` reports predicate P2 as a SECOND global scan; the Task 3 entry does not cover it
+
+**What:** predicate P2 — the `send_window_elapsed` sweep's candidate scan,
+stated verbatim in the plan's "The four predicates, stated once" — is a
+platform-wide read of `solicitation_batches` with no tenant predicate, exactly
+like P4. `pnpm ci:tenant-scope` therefore reports ONE new finding:
+
+```
+src/lib/solicitation/release.ts: solicitation_batches: missing account_id or business_id scope
+```
+
+One finding, not two: unlike P4 this statement binds no second table (there is
+no `EXISTS` arm — see the predicate's docstring for why a batch with no live
+Outreach row must still be selected).
+
+**Why the AMENDMENT 2 entry does not already cover it:** allowlist matching is
+`file + table + normalized SQL`, and the two entries added for Task 3 pin P4's
+exact `RELEASE_CANDIDATE_SCAN_SQL` text. `src/lib/solicitation/release.ts` is
+already in `CATEGORY_PATH_RULES['background-global-scan'].allowedFiles`, so the
+FILE is admitted and only the statement is not — this needs one more entry, not
+a widened category.
+
+**Why it cannot be fixed in code:** identical to the P4 argument recorded above.
+The sweep must find overdue batches across every account before any tenant id
+is known, and the audit proves scope only from a value-bound predicate. Every
+write that follows is bound to the account and business the scanned ids carry —
+`latchSystemHalt` re-reads the row under `FOR UPDATE OF b` with both tenant
+predicates spelled, and the latch's cancel, spine step and join are all scoped.
+
+**Why Task 4 did not apply it:** `scripts/ci/tenant-scope-allowlist.ts` IS on
+`allowed_edit_surface` (amendment 2), but the branch's surface-amendment budget
+is spent and Task 4's brief instructs it to STOP and report a NEW finding rather
+than edit that file. The owner decides. Everything else on Task 4's verification
+list passes.
+
+**The exact change, paste-ready.** In `scripts/ci/tenant-scope-allowlist.ts`:
+`ALLOWLIST_BASELINE` 385 → 386; add ONE entry, `file:
+"src/lib/solicitation/release.ts"`, `table: "solicitation_batches"`, category
+`background-global-scan`, with this `sqlSnippet` (hoist it as
+`SEND_WINDOW_SWEEP_SCAN_SQL` beside `RELEASE_CANDIDATE_SCAN_SQL`; Task 5's P3
+will want the same treatment):
+
+```
+SELECT id, account_id, business_id FROM solicitation_batches WHERE approved_at IS NOT NULL AND approved_at <= NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND halted_at IS NULL AND send_closed_at IS NULL ORDER BY approved_at ASC LIMIT ${scanLimit}
+```
+
+Reason to record: the `send_window_elapsed` sweep is the lane that reclaims an
+overdue batch's `rendered`/`queued` rows, and until it runs 091's
+`solicitation_batches_one_active_send_per_business` index blocks that location
+forever (issue #915). It must therefore see every account's approved batches
+before it can decide which have run out of window; the scan projects only ids,
+and `latchSystemHalt` re-locks each row with both tenant predicates before any
+write. Same class as `RELEASE_CANDIDATE_SCAN_REASON`'s three peers.
+
+**What changed:** nothing off-surface. The implementation is committed with
+`ci:tenant-scope` red on this ONE finding, exactly as Task 3 committed before
+AMENDMENT 2 was signed off.

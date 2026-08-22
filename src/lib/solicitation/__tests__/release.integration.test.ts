@@ -1255,7 +1255,7 @@ describeWithDb(
     // ── the two system Halt latch sweeps ────────────────────────────────────
 
     describe('the send-window and approval-window sweeps', () => {
-      it.fails(
+      it(
         'latches send_window_elapsed past the 72h send window and cancels the live Outreach rows',
         async () => {
           // Strictly past the boundary by 419 microseconds so a JS round-trip of

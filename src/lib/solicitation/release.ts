@@ -61,6 +61,7 @@ import { isJudgeHealthy } from '@/lib/responses/judge-health';
 import { enqueueSolicitationSend } from '@/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
+import { latchSystemHalt } from './approval';
 import { solicitationSendEnabled } from './flags';
 import { BATCH_SEND_WINDOW_HOURS } from './outreach';
 import { readSendBreaker } from './send-breaker';
@@ -168,18 +169,13 @@ export async function runReleaseCycle(
   return report;
 }
 
-// ── phases 1-3 and 5: stubs, in order ───────────────────────────────────────
+// ── phases 1, 3 and 5: stubs, in order ──────────────────────────────────────
 //
 // Each returns 0 and writes nothing, so the tick is a no-op for its phase while
 // the ORDER above is already fixed. A later task replaces the body only.
 
 /** Task 6 (#900): the `unknown` sweep (D12d) — predicate P1, both belts. */
 async function sweepUnknownOutreach(_sql: Sql, _scanLimit: number): Promise<number> {
-  return 0;
-}
-
-/** Task 4 (#900): the `send_window_elapsed` sweep — predicate P2 + `latchSystemHalt`. */
-async function sweepSendWindowElapsed(_sql: Sql, _scanLimit: number): Promise<number> {
   return 0;
 }
 
@@ -191,6 +187,87 @@ async function sweepBatchExpired(_sql: Sql, _scanLimit: number): Promise<number>
 /** Task 7 (#900): the backstop join (D11) — `closeBatchIfSettled`, no second implementation. */
 async function runBackstopJoin(_sql: Sql, _scanLimit: number): Promise<number> {
   return 0;
+}
+
+// ── phase 2: the `send_window_elapsed` sweep ────────────────────────────────
+
+/** P2's projection: the tenant triple and nothing else. Everything a **Halt
+ *  latch** needs beyond it — the **Batch state** it stamps as `state_at_halt`,
+ *  the **Send batch parent** it appends `batch_halted` to — the latch derives
+ *  itself from the row it locks, so a second projection here would be a second
+ *  reader of facts that must be read once, under that lock. */
+interface SweepCandidateBatch {
+  id: string;
+  account_id: string;
+  business_id: string;
+}
+
+/**
+ * The `send_window_elapsed` sweep — an approved batch whose 72h send window ran
+ * out, latched with no actor.
+ *
+ * Runs BEFORE the release phase (see the module header): an overdue batch must
+ * never release, and reclaiming its `rendered`/`queued` rows is what frees 091's
+ * `solicitation_batches_one_active_send_per_business` index for that location.
+ *
+ * ONE transaction per batch, and its whole body is the latch call. **The latch
+ * owns the cancel, the spine step and the settlement join** — this sweep writes
+ * nothing of its own, because a second writer of any of those three is a second
+ * receipt for one halt. It does not hand-roll a `SELECT … FOR UPDATE` either:
+ * `latchSystemHalt` re-reads the row `FOR UPDATE OF b` itself, and skips only
+ * the ADVISORY lock, which no sweep takes.
+ *
+ * Counts what was LATCHED, not what was scanned. `not_latched` is a batch
+ * another writer terminalized between the scan and the lock — nothing happened,
+ * so nothing is reported.
+ */
+async function sweepSendWindowElapsed(sql: Sql, scanLimit: number): Promise<number> {
+  const batches = await selectSendWindowElapsedBatches(sql, scanLimit);
+
+  let latched = 0;
+  for (const batch of batches) {
+    const result = await sql.begin(async (tx) =>
+      latchSystemHalt(tx, {
+        batchId: batch.id,
+        accountId: batch.account_id,
+        businessId: batch.business_id,
+        reason: 'send_window_elapsed',
+      }),
+    );
+    if (result.status === 'latched') latched += 1;
+  }
+  return latched;
+}
+
+/**
+ * P2 — batches past the send window.
+ *
+ * `approved_at` is the anchor rather than `built_at`: the window this reason
+ * names is the one that opens when the owner approves. `<=` is the boundary the
+ * release predicate's `>` complements exactly, so no batch can be both overdue
+ * and releasable in the same tick.
+ *
+ * No live-Outreach `EXISTS` arm, unlike P4. A batch whose rows are all terminal
+ * but whose `send_closed_at` is still NULL is exactly the wedge this lane
+ * exists to clear: it must be selected so the latch's join can close it.
+ *
+ * `halted_at IS NULL` also carries the idempotence — the latch's CAS makes the
+ * halt monotone, so a batch this sweep already handled never comes back.
+ */
+async function selectSendWindowElapsedBatches(
+  sql: Sql,
+  scanLimit: number,
+): Promise<SweepCandidateBatch[]> {
+  return sql<SweepCandidateBatch[]>`
+    SELECT id, account_id, business_id
+      FROM solicitation_batches
+     WHERE approved_at IS NOT NULL
+       AND approved_at <= NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS})
+       AND halted_at IS NULL
+       AND send_closed_at IS NULL
+     ORDER BY approved_at ASC
+     LIMIT ${scanLimit}
+  `;
 }
 
 // ── phase 4: the release phase ──────────────────────────────────────────────
