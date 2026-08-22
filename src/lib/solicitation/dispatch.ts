@@ -71,7 +71,7 @@
  * (the tenant proof — a bare row UUID proves nothing).
  */
 
-import { randomInt } from 'node:crypto'; // invariant #10: node's own crypto
+import { createHash, randomInt } from 'node:crypto'; // invariant #10: node's own crypto
 import type { PendingQuery, Row, Sql, TransactionSql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid'; // invariant #10 posture: uuid lib is the repo-standard UUIDv7 source
 import {
@@ -156,6 +156,37 @@ export interface SlowGateEvidence {
   /** false when OPENAI_MODERATION_ENABLED is off — this lane inverts the reply
    *  lane's fail-open: an unmoderated ask is not a send-eligible ask. */
   moderationClean: boolean;
+}
+
+/**
+ * What the unlocked gather produces: the two verdicts, plus proof of WHICH bytes
+ * they were computed over.
+ *
+ * The digest is deliberately NOT a member of `SlowGateEvidence`. That type is
+ * the pure gate's input, and the gate decides on verdicts alone — handing it a
+ * digest it never reads would widen a pure interface for a caller's benefit.
+ * tx1 is the only consumer.
+ */
+export interface SlowGateResult {
+  evidence: SlowGateEvidence;
+  /**
+   * SHA-256 of the exact `rendered_subject` + `rendered_body` the verdicts were
+   * computed over, so tx1 can PROVE it is sending the bytes that were linted and
+   * moderated rather than assuming it.
+   *
+   * Decision 3 gathers the slow items from an UNLOCKED read, which is safe only
+   * because stored bytes are immutable after approval. But that immutability is
+   * enforced by a domain module (ADR 0020's refusal in `regenerateAsk`), NOT by
+   * the schema — nothing in Postgres stops a repair script, a new lane or a
+   * future writer from editing `rendered_body` between the gather and tx1.
+   * Without this digest the worker would moderate old bytes and send new ones,
+   * silently, and the **Owner approval** byte-for-byte contract would be a
+   * convention rather than a check. Round-1 adversarial review, finding A4.
+   *
+   * `null` only when there were no bytes to hash — a `render_failed` or redacted
+   * row, which `lintPassed: false` already withholds.
+   */
+  evaluatedBytesDigest: string | null;
 }
 
 /** Evidence gathered inside tx1 under the batch row lock. */
@@ -426,10 +457,21 @@ async function loadOutreachRow(
  * turns this into `lint_failed`, which is the accurate reading — the re-lint is
  * precisely the check that could not be performed.
  */
-const SLOW_GATE_UNEVALUABLE: SlowGateEvidence = {
-  lintPassed: false,
-  moderationClean: false,
+const SLOW_GATE_UNEVALUABLE: SlowGateResult = {
+  evidence: { lintPassed: false, moderationClean: false },
+  evaluatedBytesDigest: null,
 };
+
+/**
+ * The identity of the bytes a slow verdict was computed over. Length-prefixed so
+ * a subject/body pair cannot be re-partitioned to collide (`"ab"+"c"` and
+ * `"a"+"bc"` must not hash alike). `node:crypto` per invariant #10.
+ */
+export function digestEvaluatedBytes(subject: string, body: string): string {
+  return createHash('sha256')
+    .update(`${subject.length}:${subject}|${body.length}:${body}`)
+    .digest('hex');
+}
 
 /**
  * Gate items 8 and 9, gathered with NO LOCK HELD (decision 3).
@@ -466,7 +508,7 @@ const SLOW_GATE_UNEVALUABLE: SlowGateEvidence = {
 async function gatherSlowGateEvidence(
   row: OutreachDispatchRow,
   outreachId: string,
-): Promise<SlowGateEvidence> {
+): Promise<SlowGateResult> {
   const snapshot = parseOutreachInterpolationInputs(row.interpolation_inputs, outreachId);
   const subject = row.rendered_subject;
   const body = row.rendered_body;
@@ -484,8 +526,11 @@ async function gatherSlowGateEvidence(
   const decision = await moderateResponse(`${subject}\n${body}`);
 
   return {
-    lintPassed,
-    moderationClean: decision.providerStatus === 'clean' && !decision.flagged,
+    evidence: {
+      lintPassed,
+      moderationClean: decision.providerStatus === 'clean' && !decision.flagged,
+    },
+    evaluatedBytesDigest: digestEvaluatedBytes(subject, body),
   };
 }
 
@@ -1228,6 +1273,16 @@ type DispatchTxOutcome =
    *  is already there, and either way the raw token is gone with it, so no
    *  correct body can be rebuilt. Nothing more may happen to the row here. */
   | { kind: 'in_flight_elsewhere'; detector: 'sending_row' | 'token_conflict' | 'cas_lost' }
+  /** The stored bytes changed between the unlocked slow-item gather and the
+   *  lock, so the lint and moderation verdicts in hand describe an artifact this
+   *  row no longer holds. Nothing is wrong with the ask — we raced a writer — so
+   *  the row is left alone for a later attempt to re-gather and decide honestly.
+   *  Round-1 adversarial review, finding A4. */
+  | { kind: 'bytes_changed_under_gate' }
+  /** The row is not `queued`, so it was never released for this attempt. No
+   *  gate, no writes, nothing to terminalize — the row belongs to another point
+   *  in its lifecycle. Round-1 standards review. */
+  | { kind: 'not_dispatchable'; status: string }
   /** The gate passed, the child exists, the row is CAS'd to `sending` and the
    *  envelope is built. The caller puts `message` on the wire OUTSIDE tx1 (no
    *  lock across a remote call) and commits the terminal facts in tx2. */
@@ -1262,7 +1317,7 @@ async function runDispatchTx(
   tx: TransactionSql,
   scope: DispatchScope,
   handle: { outboxId: string; attempt: number },
-  slow: SlowGateEvidence,
+  slow: SlowGateResult,
 ): Promise<DispatchTxOutcome> {
   const owns = await lockDispatchedOutboxAttemptIfOwned(tx, handle.outboxId, handle.attempt);
   if (!owns) return { kind: 'stale' };
@@ -1316,6 +1371,55 @@ async function runDispatchTx(
     return { kind: 'in_flight_elsewhere', detector: 'sending_row' };
   }
 
+  // ONLY a `queued` row is dispatchable, and this guard must stand BEFORE any
+  // write — round-1 standards review, and the root cause of three HIGH findings.
+  //
+  // `queued` is the release's own CAS (#900), so a row arriving in any other
+  // status was never released for THIS attempt. Without this guard the two
+  // branches above were the only short-circuits, and a `rendered`, `sent`,
+  // `withheld`, `failed` or `unknown` row would walk the whole gate before the
+  // `queued` predicate on the CAS below finally rejected it — by which point
+  // tx1 has already committed real damage:
+  //
+  //   * `commitWithhold` carries no status predicate, so a gate failure would
+  //     terminalize a never-released `rendered` row as `withheld` (091's CHECKs
+  //     accept that transition, so nothing downstream catches it);
+  //   * on a gate PASS the unsubscribe token row commits before the CAS fails,
+  //     and because a hash cannot yield its raw token, #900's later legitimate
+  //     release then hits `token_conflict` and refuses that contact FOREVER.
+  //
+  // Both are latent today only because #900 does not exist to enqueue this
+  // topic. Completing the attempt is the whole of what is owed: the row belongs
+  // to another lifecycle point, and this attempt has nothing to say about it.
+  if (outreach.delivery_status !== 'queued') {
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'not_dispatchable', status: outreach.delivery_status };
+  }
+
+  // A4: PROVE the locked bytes are the ones the slow items were computed over.
+  //
+  // `slow` was gathered from an unlocked read, and its safety rests on stored
+  // bytes being immutable after approval — which ADR 0020 enforces in a DOMAIN
+  // MODULE, not in the schema. Nothing in Postgres stops a repair script, a new
+  // lane, or a future writer from editing `rendered_body` in between. Without
+  // this comparison the worker would moderate one artifact and send another,
+  // silently, and the **Owner approval** byte-for-byte contract would be a
+  // convention rather than a check.
+  //
+  // Treated as a DEFER, not a withhold: nothing about the ask is wrong, we
+  // simply raced a writer, and the next attempt re-gathers against the new bytes
+  // and decides honestly. Withholding here would terminalize a row over a race.
+  if (
+    slow.evaluatedBytesDigest !== null
+    && outreach.rendered_subject !== null
+    && outreach.rendered_body !== null
+    && digestEvaluatedBytes(outreach.rendered_subject, outreach.rendered_body)
+      !== slow.evaluatedBytesDigest
+  ) {
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { kind: 'bytes_changed_under_gate' };
+  }
+
   const now = new Date();
   const { evidence, suppression, handle: recipient } = await gatherFastGateEvidence(
     tx,
@@ -1328,7 +1432,7 @@ async function runDispatchTx(
   // The two SLOW items arrive already decided, from above tx1 (decision 3).
   // `applyDispatchGate` is the only place the two records meet, so the gate's
   // B6 order survives the split gathering.
-  const verdict = applyDispatchGate(slow, evidence);
+  const verdict = applyDispatchGate(slow.evidence, evidence);
 
   if (!verdict.pass && verdict.outcome === 'defer') {
     // No DOMAIN state is written, not even the consent snapshot: a defer is a
@@ -1577,6 +1681,27 @@ export async function dispatchOutreach(
   }
   if (outcome.kind === 'cancelled') {
     logger.log('solicitation send no-op: outreach row already cancelled', context);
+    return;
+  }
+  if (outcome.kind === 'not_dispatchable') {
+    // Only `queued` is dispatchable. Anything else means this attempt is not the
+    // one that owns the row — warn rather than log, because with #900 releasing
+    // correctly it should never happen, and a run of these is the signal that
+    // something is enqueueing outside the release CAS.
+    logger.warn('solicitation send no-op: outreach row is not queued', {
+      ...context,
+      delivery_status: outcome.status,
+    });
+    return;
+  }
+  if (outcome.kind === 'bytes_changed_under_gate') {
+    // The lint/moderation verdicts in hand describe bytes this row no longer
+    // holds, so they cannot authorise this send. Nothing is wrong with the ask —
+    // a later attempt re-gathers against the current bytes and decides honestly.
+    logger.warn(
+      'solicitation send no-op: stored bytes changed between the gate and the lock',
+      context,
+    );
     return;
   }
   if (outcome.kind === 'deferred') {
