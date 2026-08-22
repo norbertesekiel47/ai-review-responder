@@ -179,9 +179,11 @@ const LOCK_HELD_BY_CALLER = new Set([
 // (worker/jobs/account-offboarding/purge-stages.ts:270-284).
 //
 // src/lib/solicitation/release.ts (#900) — subject `solicitation_send_batch`,
-// the Send batch parent. Its ONE spine write today is the `approval_downgraded`
-// step on the Judge-downgrade path; Tasks 4-7 add `completeRun` on the Lazy
-// child and reach `closeBatchIfSettled`, all from this same file.
+// the Send batch parent. It makes three spine writes, all from this one file:
+// the `approval_downgraded` step on the Judge-downgrade path, `completeRun` on
+// the **Lazy child** in the `unknown` sweep, and `closeBatchIfSettled` from four
+// call sites (the sweep, both **Halt latch** sweeps through `latchSystemHalt`,
+// and the backstop join).
 //
 // Every one of its transactions takes the solicitation_batches row FOR UPDATE as
 // its FIRST row lock, before any agent_runs touch — batch → run, the sole order

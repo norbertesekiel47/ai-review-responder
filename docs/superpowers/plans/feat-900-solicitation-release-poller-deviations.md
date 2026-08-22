@@ -396,6 +396,22 @@ through a `stop()` + `start()` mid-cycle (start runs one cycle immediately) and
 adds a second case for the #414 property the numbers actually encode — a cycle
 that outruns its deadline frees the flag and the loop recovers in one interval.
 
+**CORRECTION (round-1 branch review, 2026-08-22).** The reasoning above is
+INVERTED, and this entry is kept rather than deleted because it records what was
+believed. A deadline BELOW the interval does not make an interval-driven overlap
+unreachable — it is precisely what GUARANTEES the single-flight flag is free when
+the next tick arrives. `guarded-poll.ts` releases the flag in its `finally`, at
+the deadline, and its own contract says a timed-out cycle "keeps running
+detached", so a cycle that outruns 45s is still running when the 60s tick starts
+a second one. What is true is the narrower property the replacement test actually
+asserts: the flag is freed and the loop recovers in one interval. The overrun an
+overlap could cause is bounded elsewhere, not here — both caps are re-read from
+the database per cycle and count COMMITTED `queued_at` rows, so an overlapping
+cycle already sees what the detached one committed (the intake invariant now says
+this). Task 8's floor (`interval > CYCLE_TIMEOUT_MS`) HARDENS this arrangement
+rather than preventing overlap: it keeps recovery at one interval instead of
+several, which is the property `GuardedPollOptions.timeoutMs` states.
+
 ## Task 0 — the file split is 33 / 4 / 1 / 1, not 36 / 3
 
 **What:** the task brief said `release.integration.test.ts` carries 36 of the 39
@@ -880,3 +896,32 @@ glossary's authoritative owner of the latch's writer count.
 
 **What changed:** nothing. Recorded so step 6 can decide whether one clause
 belongs on that row, rather than rediscovering the gap later.
+
+## Round 1 fixes — two promised test bodies changed their propagation assertion
+
+**What:** the accepted error-isolation finding gives every phase's per-item loop
+a `try`/`catch` (`isolateItem` / `recordItemFailure`), so `runReleaseCycle` no
+longer PROPAGATES a per-item throw. Two of the 39 promised titles asserted
+propagation as their harness — `rolls back rendered-to-queued when
+enqueueSolicitationSend throws` and `rolls back unknown Outreach terminalization
+when lazy-child completion fails` both used `await expect(cycle()).rejects`.
+
+**Why the titles did not change:** neither case is ABOUT propagation. Both are
+atomicity cases — a forced failure must leave the transaction rolled back as one
+unit — and every one of those assertions is unchanged. What replaced the
+`rejects` line is `expect(report.itemFailures).toBe(1)` plus the phase's own
+"nothing happened" counter, which is a strictly stronger harness: it proves the
+failure was isolated AND counted, not merely thrown.
+
+**What did NOT change:** `propagates a Send breaker read failure and enqueues no
+solicitation_send row`. The breaker read is a PHASE-level call outside every
+per-item catch, and its throw IS the halt signal (#622 §3.2B) — isolating it
+would be the invariant violation that case exists to catch.
+
+**Also recorded:** the `unknown` sweep's `findRunningLazyChild` still returns
+`null` rather than throwing, but for a different stated reason. The old
+justification ("a throw would abort the tick before phases 2 and 3") is no
+longer true with isolation in place; the real reason is that refusing the
+Outreach terminalization because the spine half has nothing to write would leave
+the row `sending` forever, which is issue #915's wedge re-created by the sweep
+built to close it.

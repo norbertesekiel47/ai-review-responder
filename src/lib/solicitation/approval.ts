@@ -180,9 +180,9 @@ async function lockBatchForAction(
  * this SELECT is a second owner of the send-parent correlation, and that
  * correlation is the `subject_id` text compare `canonicalBatchId` exists to
  * keep honest. `FOR UPDATE OF b` stays here and is deliberate for BOTH callers:
- * the system arm's docstring makes the batch row lock the caller's obligation,
- * and re-taking a lock this transaction already holds is a no-op — so this
- * read is defensive for a caller that forgot, never a second lock in the order.
+ * for `lockBatchForAction` it follows the advisory lock, and for
+ * `latchSystemHalt` it is the **only** row lock on that path — its sweep callers
+ * hold nothing when they call in. Never delete it as a redundant re-take.
  *
  * The system arm skips only the ADVISORY lock, which its callers (the release
  * cycle's sweeps) do not take at all — so no cycle exists against the
@@ -791,12 +791,14 @@ export type LatchSystemHaltResult =
  * elapsing and the approval window elapsing are the same write as an owner
  * veto, with no one to attribute it to.
  *
- * **The caller MUST already hold the batch row lock**, and this is the one
- * contract this function cannot check for itself. It is not a weakening: the
- * release cycle's sweeps select candidates OUTSIDE any lock, then take the
- * batch row lock and terminalize under it, so the lock is already theirs by the
- * time they call in. Re-reading the row here under `FOR UPDATE OF b` makes a
- * forgetful caller safe rather than merely wrong.
+ * **IT TAKES THE BATCH ROW LOCK ITSELF, and there is no caller precondition to
+ * forget** (corrected at the round-1 branch review; the docstring previously
+ * claimed the opposite). Both callers — the release cycle's two sweeps — select
+ * candidates OUTSIDE any lock and then open a bare `sql.begin` whose entire body
+ * is this call, so `readBatchForAction`'s `FOR UPDATE OF b` below is the ONLY
+ * row lock on this path. Read it as a redundant re-take and delete it, and the
+ * halt CAS, the outreach cancellations, the spine step and `closeBatchIfSettled`
+ * all run unserialised against `haltBatch`, `adminHaltBatch` and `withdrawAsk`.
  *
  * It does NOT call `lockBatchForAction`, and the missing half is the ADVISORY
  * lock, not the row lock. That lock exists to serialise the HUMAN verbs against

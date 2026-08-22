@@ -39,7 +39,7 @@
     "Halt never terminalizes the Send batch parent directly. closeBatchIfSettled is the single owner of parent terminalization.",
     "Lock order is batch then run, never run then batch. Nothing takes the agent_runs lock for the send parent before calling closeBatchIfSettled.",
     "A row already sending is never re-gated and never re-sent. The unknown sweep is the only writer that may terminalize it.",
-    "Caps are enforced in the releaser ONLY. The single-replica worker serializes them by construction; if the releaser is ever parallelized this resolution must be revisited."
+    "Caps are enforced in the releaser ONLY. Single-replica does NOT mean single-concurrent-cycle: worker/background/guarded-poll.ts frees the single-flight flag at the 45s deadline and the timed-out cycle keeps running detached, so the next tick can start a second cycle while the first runs on. What actually bounds the overrun is that BOTH caps are re-read from the database per cycle and count COMMITTED queued_at rows, so an overlapping cycle already sees everything the detached one committed; the excess is at most the detached cycle's selected-but-uncommitted rows, i.e. its remaining per-tick budget. If the releaser is ever parallelized ACROSS REPLICAS this resolution must be revisited, because that re-read is not a reservation."
   ],
   "edge_cases": [
     "A duplicate release attempt for the same Outreach row inserts no second outbox row - the partial unique index makes the helper return null.",
