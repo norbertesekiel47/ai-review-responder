@@ -18,6 +18,7 @@ import {
   enqueueJudgeVerdict,
   enqueuePendingPostNotice,
   enqueuePublishResponse,
+  enqueueSolicitationSend,
   enqueueStripeSubscriptionMirrorSync,
   enqueueValidatePlaceId,
   normalizeGenerateResponsePayload,
@@ -617,86 +618,61 @@ describe('job outbox helpers', () => {
     expect(objectArgs(tx)).toContainEqual({ account_id: 'account-1' });
   });
 
-  // #900 task 0 (the eval task). `enqueueSolicitationSend` is task 1's; the
-  // helper is loaded through a DYNAMIC import so a missing export fails THIS
-  // case rather than the whole file at collection (vite's ssr transform
-  // validates imported names), and so `pnpm typecheck` stays green meanwhile.
-  // `it.fails` runs the body today and task 1 deletes the marker.
-  it.fails(
-    'enqueueSolicitationSend returns null when an in-flight solicitation_send row already exists',
-    async () => {
-      const helpers = (await import('../job-outbox-helpers')) as Record<string, unknown>;
-      const enqueueSolicitationSend = helpers.enqueueSolicitationSend as
-        | undefined
-        | ((
-            tx: unknown,
-            input: {
-              outreachId: string;
-              batchId: string;
-              businessId: string;
-              correlationId?: string;
-              outboxId?: string;
-            },
-          ) => Promise<string | null>);
-      if (!enqueueSolicitationSend) {
-        throw new Error('enqueueSolicitationSend not implemented (#900 task 1)');
-      }
+  it('enqueueSolicitationSend returns null when an in-flight solicitation_send row already exists', async () => {
+    // The happy path first, so the predicate assertions below are made against
+    // a statement that actually inserted.
+    const inserted = createMockTx();
+    inserted.mockResolvedValueOnce([{ id: 'outbox-uuid' }]);
+    const outboxId = await enqueueSolicitationSend(inserted, {
+      outreachId: 'outreach-1',
+      batchId: 'batch-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
 
-      // The happy path first, so the predicate assertions below are made against
-      // a statement that actually inserted.
-      const inserted = createMockTx();
-      inserted.mockResolvedValueOnce([{ id: 'outbox-uuid' }]);
-      const outboxId = await enqueueSolicitationSend(inserted, {
-        outreachId: 'outreach-1',
-        batchId: 'batch-1',
-        businessId: 'business-1',
-        correlationId: 'corr-1',
-      });
+    expect(outboxId).toBe('outbox-uuid');
+    expect(inserted).toHaveBeenCalledOnce();
+    const text = sqlText(inserted.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    // Byte-for-byte the predicate of migration 091's
+    // `job_outbox_solicitation_send_inflight`. A bind parameter inside an
+    // ON CONFLICT ... WHERE defeats partial-index inference, so the in-flight
+    // set is re-spelled by hand — members AND order, per
+    // src/lib/shared/job-outbox-status.ts and `ci:outbox-status`.
+    expect(text).toContain(
+      "WHERE topic = 'solicitation_send' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING RETURNING id",
+    );
+    expect(inserted.mock.calls[0]).toContain(QUEUE_NAMES.SOLICITATION_SEND);
+    // 091's stated contract: `generate_solicitation_asks` stores the BATCH id
+    // in aggregate_id, `solicitation_send` stores the OUTREACH id. One job per
+    // dispatch attempt, because the Dispatch gate is per-child.
+    expect(inserted.mock.calls[0]).toContain('solicitation_outreach');
+    expect(inserted.mock.calls[0]).toContain('outreach-1');
+    expect(objectArgs(inserted)).toContainEqual({
+      outreach_id: 'outreach-1',
+      batch_id: 'batch-1',
+      business_id: 'business-1',
+      correlation_id: 'corr-1',
+    });
 
-      expect(outboxId).toBe('outbox-uuid');
-      expect(inserted).toHaveBeenCalledOnce();
-      const text = sqlText(inserted.mock.calls[0]!);
-      expect(text).toContain('INSERT INTO job_outbox');
-      expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
-      // Byte-for-byte the predicate of migration 091's
-      // `job_outbox_solicitation_send_inflight`. A bind parameter inside an
-      // ON CONFLICT ... WHERE defeats partial-index inference, so the in-flight
-      // set is re-spelled by hand — members AND order, per
-      // src/lib/shared/job-outbox-status.ts and `ci:outbox-status`.
-      expect(text).toContain(
-        "WHERE topic = 'solicitation_send' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING RETURNING id",
-      );
-      expect(inserted.mock.calls[0]).toContain(QUEUE_NAMES.SOLICITATION_SEND);
-      // 091's stated contract: `generate_solicitation_asks` stores the BATCH id
-      // in aggregate_id, `solicitation_send` stores the OUTREACH id. One job per
-      // dispatch attempt, because the Dispatch gate is per-child.
-      expect(inserted.mock.calls[0]).toContain('solicitation_outreach');
-      expect(inserted.mock.calls[0]).toContain('outreach-1');
-      expect(objectArgs(inserted)).toContainEqual({
-        outreach_id: 'outreach-1',
-        batch_id: 'batch-1',
-        business_id: 'business-1',
-        correlation_id: 'corr-1',
-      });
+    // THE CASE ITSELF: ON CONFLICT ... DO NOTHING suppressed the insert, so
+    // there is no RETURNING row — the atomic, exception-free "a send job for
+    // this Outreach row is already in flight" signal. The releaser treats a
+    // null here as a bug and throws (a `rendered` row cannot already own an
+    // in-flight send job), so this helper must report it rather than raise.
+    const suppressed = createMockTx(); // resolves []
+    const second = await enqueueSolicitationSend(suppressed, {
+      outreachId: 'outreach-1',
+      batchId: 'batch-1',
+      businessId: 'business-1',
+    });
 
-      // THE CASE ITSELF: ON CONFLICT ... DO NOTHING suppressed the insert, so
-      // there is no RETURNING row — the atomic, exception-free "a send job for
-      // this Outreach row is already in flight" signal. The releaser treats a
-      // null here as a bug and throws (a `rendered` row cannot already own an
-      // in-flight send job), so this helper must report it rather than raise.
-      const suppressed = createMockTx(); // resolves []
-      const second = await enqueueSolicitationSend(suppressed, {
-        outreachId: 'outreach-1',
-        batchId: 'batch-1',
-        businessId: 'business-1',
-      });
-
-      expect(second).toBeNull();
-      expect(objectArgs(suppressed)).toContainEqual({
-        outreach_id: 'outreach-1',
-        batch_id: 'batch-1',
-        business_id: 'business-1',
-      });
-    },
-  );
+    expect(second).toBeNull();
+    expect(objectArgs(suppressed)).toContainEqual({
+      outreach_id: 'outreach-1',
+      batch_id: 'batch-1',
+      business_id: 'business-1',
+    });
+  });
 });
