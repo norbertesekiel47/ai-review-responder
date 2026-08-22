@@ -23,7 +23,7 @@
 
 ---
 
-## The nine locked decisions (do not re-litigate)
+## The ten locked decisions (do not re-litigate)
 
 1. `QUEUE_NAMES.SOLICITATION_SEND` lands here. `enqueueSolicitationSend` does **not** — it ships with its producer in #900 (amendment B10).
 2. Resend's per-team 10 req/s pacing is **#900's**. #899 only classifies a 429 as retryable.
@@ -46,6 +46,22 @@
    - Cost accepted and stated: a process crash mid-send loses that one contact to `unknown`.
      That is precisely the state D12d created for "we do not know whether this was sent", and
      it is the only answer that neither lies nor persists raw token material.
+10. **The review link is the write-review deep link, and a missing or non-canonical place id
+    throws.** No spec in the solicitation family ever named the URL — #622 owns "review link
+    content" per ask-generation §731 and never delivers it — so this was decided at Task 4.
+    - Shape: `https://search.google.com/local/writereview?placeid=${businesses.google_place_id}`,
+      attested at `src/lib/reviews/url-parser.ts:13` and
+      `docs/superpowers/specs/2026-05-09-review-generation-engine-design.md:104`.
+    - **Not `businesses.google_maps_url`**, which is a VIEW link. The ask's call to action is
+      "Leave a review", so a view link sends the recipient to the wrong page.
+    - **Throw on null AND on non-canonical.** `google_place_id` is nullable and migration 007
+      shows legacy rows holding hex CIDs (`0x...:0x...`), which would mint a `placeid=<hexcid>`
+      URL that resolves to nothing — CLAUDE.md carries that as a standing gotcha. Validate with
+      the existing `isPlaceId` (`url-parser.ts:77`); do not write a second validator.
+    - Why throw rather than withhold: 091/110 carry no suitable `disposition_reason`, adding one
+      needs a migration this ticket promised not to add, and the gate is locked at seven items.
+      A business reaching the send lane without a usable place id is an UPSTREAM bug, and a loud
+      failure names it as such where a `withheld` row would bury it as a routine outcome.
 
 ---
 

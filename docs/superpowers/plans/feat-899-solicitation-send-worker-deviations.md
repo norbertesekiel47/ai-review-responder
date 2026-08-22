@@ -200,3 +200,41 @@ inside would hold every one of those locks across a ~10s provider call.
 
 **Budget:** amendments 2 of 2 are now spent. Any further surface need aborts.
 **Verdict:** ACCEPT under the owner's waiver. Test now 4/4 green.
+
+## D11 — the review link was never specified, and the obvious source can mint a broken URL
+
+**When:** Task 4, which STOPPED and reported rather than guessing. Correct call.
+**What:** every ask body carries exactly one `{{review_link}}` (the lint class
+`review_link_placeholder_exactly_once` enforces it), so dispatch must substitute a real URL. No
+spec in the solicitation family ever defines it: #622 §7.2 locks only the three footer blocks,
+ask-generation §731 assigns "review link content" to #622, and #622 does not deliver it.
+
+**Two non-equivalent candidates, neither authoritative:**
+- `businesses.google_maps_url` — the only Google CTA in production today
+  (`src/app/r/google/[responseId]/route.ts:91`), but a **view** link, not a write-review link.
+- `https://search.google.com/local/writereview?placeid=<id>` — a real write-review deep link,
+  named at `src/lib/reviews/url-parser.ts:13` and in the 2026-05-09 review-generation spec, both
+  for other purposes.
+
+**The hazard Task 4 found, which the orchestrator had missed:** `google_place_id` is nullable
+AND migration 007 shows legacy rows holding **hex CIDs** rather than canonical Place IDs. So the
+write-review shape can mint a URL that resolves to nothing — silently, in a real customer's
+inbox. CLAUDE.md already carries this as a standing gotcha ("Google Maps URLs use hex CIDs, not
+canonical Place IDs").
+
+**Owner ruling:** use the write-review deep link; **throw** when the place id is null OR fails
+`isPlaceId` (`url-parser.ts:77` — the existing validator, not a new one). No new withheld reason
+(needs a migration), no eighth gate item (B6/B14 lock it at seven). A business reaching the send
+lane without a usable place id is an upstream bug; a loud failure names it, a `withheld` row
+would bury it.
+
+**Test added (a `tests_to_add` extension, not a surface amendment):**
+`throws rather than sending when the business has no canonical Google place id` — covering BOTH
+arms, null and hex CID, because the CID arm is the one a future reader will assume is fine.
+
+**Follow-up for step 8:** the right long-term home is a per-location readiness check. The **Send
+handoff** already withholds a whole location for a missing **Attested postal address**, and a
+missing or non-canonical place id is the same class of fact. File it against the send-handoff
+owner rather than growing this ticket.
+
+**Verdict:** ACCEPT.
