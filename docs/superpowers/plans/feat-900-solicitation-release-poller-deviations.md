@@ -259,7 +259,22 @@ these three for the reason their titles state** — after the sweep exists, dele
 its predicate's guard arm and confirm the case goes RED. A green run alone is
 not evidence for any of the three until then.
 
-## Task 3 — BLOCKER: `ci:tenant-scope` needs an allowlist entry, and that file is off-surface
+## AMENDMENT 2 of 2 — `scripts/ci/tenant-scope-allowlist.ts` added to `allowed_edit_surface`
+
+**This is the SECOND and LAST surface amendment. A third trips the abort
+criteria.** Owner sign-off taken 2026-08-22; `allowed_edit_surface` 18 → 19
+entries, both intake copies synced, `scripts/arm-check.sh` re-run and still
+ARMED.
+
+**Resolves the blocker recorded below**, which is kept as written because it is
+the argument the entry rests on. Applied exactly as the paste-ready section
+specifies: baseline 383 → 385, `src/lib/solicitation/release.ts` added to
+`CATEGORY_PATH_RULES['background-global-scan'].allowedFiles`, and two entries
+sharing one hoisted `RELEASE_CANDIDATE_SCAN_SQL` /
+`RELEASE_CANDIDATE_SCAN_REASON`. `pnpm ci:tenant-scope` passes at 385/385.
+Nothing else in that file was touched and no other category was widened.
+
+## Task 3 — the blocker this amendment resolves: `ci:tenant-scope` and predicate P4
 
 **What:** predicate P4 — the release phase's candidate scan, stated verbatim in
 the plan's "The four predicates, stated once" — is a cross-account scan of
@@ -278,10 +293,12 @@ possible entry point (`solicitation_batches`, `businesses`, `accounts`) is a
 `background-global-scan` allowlist entries. There is no SQL formulation that
 avoids it.
 
-**Why Task 3 did not apply it:** `scripts/ci/tenant-scope-allowlist.ts` is not in
-`allowed_edit_surface`, and the edit-surface guard blocks it (verified: exit 2).
-Adding it is a **second surface amendment** and needs owner sign-off, so Task 3
-stopped at the boundary rather than taking that decision itself.
+**Why Task 3 did not apply it on its first pass:**
+`scripts/ci/tenant-scope-allowlist.ts` was not in `allowed_edit_surface`, and the
+edit-surface guard blocked it (verified: exit 2). Adding it is a **second surface
+amendment** and needed owner sign-off, so Task 3 stopped at the boundary rather
+than taking that decision itself. Sign-off was then given — see AMENDMENT 2 of 2
+above — and the change below was applied verbatim in a second commit.
 
 **The exact change, paste-ready.** In `scripts/ci/tenant-scope-allowlist.ts`:
 `ALLOWLIST_BASELINE` 383 → 385; add `'src/lib/solicitation/release.ts'` to

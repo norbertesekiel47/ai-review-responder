@@ -162,7 +162,20 @@ export interface TenantScopeAllowlistEntry {
 //     The breaker's other statements need no entry —
 //     `solicitation_send_breaker` is platform-scoped and therefore not a
 //     TENANT_TABLES member.
-export const ALLOWLIST_BASELINE = 383;
+//   - 2026-08-22 (383 → 385): #900's release-candidate scan
+//     (`runReleaseCycle`, `src/lib/solicitation/release.ts`). ONE statement,
+//     counted twice because the audit attributes it to two tables
+//     (`solicitation_batches` at the top level, `solicitation_outreach` inside
+//     the `EXISTS`). The releaser is a PLATFORM-WIDE loop and amendment B3 puts
+//     every send governor in it alone, so it must see all accounts' approved
+//     batches before it can decide which may release — a per-account form would
+//     still need a cross-account read of the account list first. Same class as
+//     the three `background-global-scan` peers (`judge-store.ts`,
+//     `judge-health.ts`, `auto-approval/governor.ts`), which also scan every
+//     account for work. The scan is global; every WRITE that follows it carries
+//     `account_id` AND `business_id` in a top-level predicate and needs no
+//     entry.
+export const ALLOWLIST_BASELINE = 385;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -218,6 +231,12 @@ export const CATEGORY_PATH_RULES: Partial<
       'src/lib/responses/judge-store.ts',
       'src/lib/responses/judge-health.ts',
       'src/lib/auto-approval/governor.ts',
+      // The Solicitation release cycle (#900). Same class as the three above:
+      // a background loop that scans every account for work before enqueueing
+      // scoped work. Its ONE cross-account statement is the candidate scan;
+      // every write it performs afterwards is bound to that batch's account_id
+      // AND business_id.
+      'src/lib/solicitation/release.ts',
     ],
   },
   'provider-ingress': {
@@ -347,6 +366,21 @@ const ADMIN_SUPPRESSION_CORRECTIONS_LOOKUP_SQL =
 // between this read and the UPDATE that follows it.
 const SOLICITATION_LANE_ATTRIBUTION_SQL =
   "SELECT o.id, o.account_id, o.business_id, c.email FROM solicitation_outreach o JOIN solicitation_contacts c ON c.id = o.contact_id WHERE o.provider_message_id = ${emailId} LIMIT 2 FOR UPDATE OF o";
+
+// #900's release-candidate scan (predicate P4). One statement the audit
+// attributes to two tables (solicitation_batches at the top level +
+// solicitation_outreach inside the EXISTS that proves the batch still has a
+// live `rendered` attempt), so it is hoisted here once rather than copy-pasted
+// into both entries.
+const RELEASE_CANDIDATE_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id, b.sending_started_at FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ORDER BY b.approved_at ASC LIMIT ${scanLimit}";
+
+const RELEASE_CANDIDATE_SCAN_REASON =
+  "runReleaseCycle's release-candidate scan (#900, predicate P4) — the SolicitationReleasePoller's per-tick discovery of approved batches with a live `rendered` attempt whose veto window has closed. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience: the releaser is a PLATFORM-WIDE loop, and amendment B3 enforces every send governor — the platform daily ceiling, the per-account daily send cap, the per-tick drip budget — IN THE RELEASER ONLY, as a single choke point serialized by the single-replica worker, which is what replaces atomic-reservation machinery. A loop that must decide which of ALL accounts may send next cannot be handed a tenant id; a per-account formulation would still have to read the list of candidate accounts cross-account first, so it moves the exemption rather than removing it. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS THREE PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before enqueueing scoped work; this is the send lane's member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT, and that distinction is what makes this entry safe rather than a widening. This statement is read-only and projects ids plus one lifecycle stamp — no review text, no contact data, no provenance. Everything the cycle does afterwards is bound to the account_id AND business_id those ids carry: the locked batch re-read, the rendered→queued CAS on solicitation_outreach, the sending_started_at stamp, the Judge downgrade CAS, and each closeBatchIfSettled call all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. "
+  + "The module's other cross-account reads are already exempt in their own homes (countPlatformDispatchAttemptsToday in send-caps.ts, readSendBreaker/readBreakerWindow in send-breaker.ts, isJudgeHealthy in judge-health.ts); this is the release lane's ONE additional global statement.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3088,6 +3122,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH bounds AS ( SELECT NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) AS signal_floor, COALESCE( (SELECT MAX(reset_at) FROM solicitation_send_breaker), '-infinity'::timestamptz ) AS reset_floor ) SELECT COUNT(*) FILTER ( WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor) )::int AS sends, COUNT(*) FILTER ( WHERE o.bounced_at >= b.signal_floor AND o.sent_at >= b.reset_floor AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL) )::int AS hard_bounces, COUNT(*) FILTER ( WHERE o.complained_at >= b.signal_floor AND o.sent_at >= b.reset_floor )::int AS complaints FROM solicitation_outreach o CROSS JOIN bounds b WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor) OR (o.sent_at >= b.reset_floor AND (o.bounced_at >= b.signal_floor OR o.complained_at >= b.signal_floor))",
     category: 'platform-cross-account',
     reason: "readBreakerWindow (#898, #622 §3.2B) — the reputation circuit breaker's rolling 7-day read model. Cross-account BY DESIGN, and for a stronger reason than the daily ceiling above: the asset the breaker protects is the ONE shared Sending identity (one mailbox, one sending domain), so a per-tenant hard-bounce or complaint rate is not a smaller version of this measurement but a different and useless one — a single account's bad list burns the deliverability every other account sends on. Read-only; three FILTERed counters in ONE statement so the numerators and the denominator describe the same instant. Projects three integers and no tenant rows, ids or provenance. Round-1 review re-shaped the statement without changing what it reads: the window's lower edge is now GREATEST(NOW() - 7 days, MAX(reset_at)) so an admin reset is a real recovery, and a real WHERE bounds the scan the aggregate FILTERs never restricted. Still cross-account, still projecting three integers. Round-2 review split the single bound into TWO floors: signal_floor (the rolling 7-day edge, which dates the numerators and preserves the locked asymmetry) and reset_floor (the last admin reset, which bounds rows by sent_at on BOTH sides). The first shape bounded the denominator only, so a pre-reset send whose complaint landed post-reset re-tripped a legitimate recovery. The hard-bounce FILTER also counts an UNCLASSIFIED bounce (bounced_at set, bounce_kind NULL): classifyBounce defaults an unrecognised provider type to 'soft', which is fail-OPEN on a governor specified fail-closed, so the lane now stores NULL rather than asserting a kind it cannot know and this half counts it with the hard ones.",
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_CANDIDATE_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

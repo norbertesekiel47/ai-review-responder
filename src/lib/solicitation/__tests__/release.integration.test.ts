@@ -1363,6 +1363,9 @@ describeWithDb(
       });
 
       it('does not latch batch_expired on a batch with no Send batch parent', async () => {
+        // TASK 5 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
+        // still a stub returning 0), so only deleting P3's `EXISTS` arm after
+        // the sweep exists and watching this go RED is evidence.
         // B7's `EXISTS` over `agent_runs` is what "that have a Send batch
         // parent" means. Without it a WATCH-MODE batch — built, never sent, no
         // send lane at all — is latched with a reason describing a lane it was
@@ -1416,6 +1419,9 @@ describeWithDb(
       );
 
       it('does not terminalize a sending row while an in-flight outbox row still exists', async () => {
+        // TASK 6 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
+        // still a stub returning 0), so only deleting P1's `NOT EXISTS` belt
+        // after the sweep exists and watching this go RED is evidence.
         // Both belts. The grace period alone is not sufficient evidence of a
         // wedge: a job the OutboxPoller is still carrying is a normal delivery
         // in progress, and terminalizing it would race a real provider send.
@@ -1479,6 +1485,10 @@ describeWithDb(
       );
 
       it('does not terminalize a sending row whose outbox row is re-pended after selection', async () => {
+        // TASK 6 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
+        // still a stub returning 0), so only deleting the `NOT EXISTS` REPEATED
+        // INSIDE the CAS after the sweep exists and watching this go RED is
+        // evidence — P1's outer belt alone does not make it pass.
         // Round-1 finding 5. P1 runs OUTSIDE the terminalizing transaction, so
         // the outbox watchdog can re-pend the row between the select and the
         // UPDATE. A `delivery_status = 'sending'` guard alone would then write
