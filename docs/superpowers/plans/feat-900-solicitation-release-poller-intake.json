@@ -79,6 +79,7 @@
     "src/lib/shared/__tests__/**",
     "src/lib/config/worker.ts",
     "src/lib/agents/run-spine.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "docs/directory.md",
     "docs/future-plans/2026-06-17-worker-scaling-hardening-backlog.md",
     "docs/superpowers/plans/**",
