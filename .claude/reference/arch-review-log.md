@@ -6,8 +6,15 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** (last reset by the 2026-08-18 pass)
+**Merges since last architecture pass: 2** (last reset by the 2026-08-18 pass)
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-18/`.
+
+Incremented to 2 by **#912** (#899 solicitation send worker, 2026-08-22) — below the
+≥ 5 threshold, so no pass is due. **#911** merged the same day and is deliberately NOT
+counted: it changed two test fixtures and zero production lines, and this log's own
+window measure is "first-parent commits **with production lines**". Recorded here rather
+than left implicit, because the 2026-08-18 pass's headline finding was that the counter
+had been wrong by its own rule and nobody had checked.
 
 **That pass measured the counter itself and found it wrong by its own rule.** The
 window held **32 first-parent commits, 11 with production lines**; the counter read
