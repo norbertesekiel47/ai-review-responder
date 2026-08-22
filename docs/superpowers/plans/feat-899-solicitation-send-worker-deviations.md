@@ -35,6 +35,42 @@ Every entry is something the plan did not anticipate. Each carries a triage verd
 
 ---
 
+## D0 — the intake's line estimate was too low; the LANE is unchanged
+
+**When:** measured after Task 4, before the step 5 gate could surprise anyone with it.
+**What:** the gate's `reclassify` WARN row compares each bucket against its estimate and fires at
+2×. Measured at Task 4 (Tasks 6-8 still to come):
+
+| Bucket | Estimate | 2× trigger | Actual so far |
+|---|---|---|---|
+| production | 950 | 1900 | 1658 |
+| test | 1500 | 3000 | 2424 |
+
+Production will cross 1900 once Task 6 lands. This is a real miss and it is the orchestrator's,
+not any implementer's.
+
+**Cause, honestly:** `src/lib/solicitation/dispatch.ts` alone is 1288 lines against a ~500
+estimate. Three things the estimate did not account for:
+1. Seven gate items each need real evidence gathering, not a predicate — two DB lookups, a
+   byte-match, a snapshot parse, a lint call and a moderation call.
+2. Two transactions plus message assembly, multipart derivation and the token mint.
+3. **House comment density.** This codebase documents WHY at length — the sibling
+   `ask-generation.ts` is 1707 lines. A line estimate that ignores that is measuring a
+   different codebase.
+
+**Re-running step 0 with the real numbers, as the trigger requires:**
+- **RISK = high** — unchanged. Worker plus a real outbound email.
+- **SURFACE = backend** — unchanged.
+- **SIZE** — checked against every epic criterion and it is NOT an epic: the surface is 23
+  specific globs and has held for six tasks; it spans one risk domain, not several; it
+  decomposed into 9 tracer tickets (the guideline is "more than ~8", so marginally over, and
+  each one stayed genuinely thin); and no open investigation question survived grilling.
+- **Revised estimates:** ~2000 production, ~2600 test.
+
+**Verdict:** the lane was right, the estimate was low. The trigger did its job — it forced this
+check rather than letting a 2× overrun pass unexamined. No re-plan; the WARN row is expected at
+step 5 and this entry is its documented response.
+
 ## D1 — `tests_to_add` extended from 23 to 34 titles
 
 **When:** step 3 plan gate, rounds 2 and 3.
