@@ -488,3 +488,232 @@ raise module shape, and this report's argument is why that finding was rejected.
 - **Low stale task-log comments — ACCEPTED, FIX.** Four statements are false at HEAD. Comments that lie are worse than no comments.
 - **Low third `seedUpload` copy — ACCEPTED, DEFERRED.** Valid and correctly reasoned (one new NOT NULL column breaks three files). Deferred with G to the same follow-up issue: test-fixture consolidation touches two files this branch never opened.
 - **Low no glossary term coined — ACCEPTED, DEFERRED.** A fair observation: every sibling send-lane concept has a `CONTEXT.md` term. Deferred to the same follow-up; coining a LOCKED term is a domain-modelling act that deserves its own deliberation, not a review-time patch.
+
+---
+
+# ROUND 2 VERIFICATION
+
+Verification-only pass over `git diff a23d8afd..HEAD` (`cabeff32`, `1bd27676`).
+No live-DB suite was executed (two sibling verifiers share the machine and the
+test database); evidence below is read + `pnpm typecheck` + `pnpm ci:tenant-scope`,
+on top of the orchestrator's `verify-gate.sh --review` GREEN at `1bd27676`.
+
+## Summary
+
+| finding | fixed? | evidence |
+|---|---|---|
+| 1 — `latchSystemHalt` docstring inversion | **YES** | All three sites corrected and now mutually consistent: `approval.ts:794-801`, `approval.ts:182-184` (`readBatchForAction`), `CONTEXT.md` **Halt latch**. `rg "already hold\|caller's obligation"` over `src worker docs CONTEXT.md .claude` returns no surviving copy of the old premise. The two `release.ts` sweep docstrings (`:711`, `:791`) already said the true thing and still do — five descriptions of the seam, one fact. |
+| 2 — error isolation | **YES** (with a residual, new finding N1) | All five per-item loops isolated: `isolateItem` at `release.ts:335` (P5), `:429` (P1), `:723` (P2), `:801` (P3); bare `try`/`recordItemFailure` at `:1002-1081` (P4). Every round-1 throw site is inside one of them. No silent catch. `ReleaseCycleReport.itemFailures` reaches the tick line (`SolicitationReleasePoller.ts:58` spreads the whole report). `findRunningLazyChild`'s new justification is TRUE. |
+| 3 — tenant-scope ledger | **YES** | `tenant-scope-allowlist.ts:165-201` now reads 383→385→386→388→389→390, contiguous, terminating at `ALLOWLIST_BASELINE = 390` (`:202`). `pnpm ci:tenant-scope` → `passed — entries: 390 (baseline: 390)` after the P4 SQL re-pin. |
+| 4 — stale task-log comments | **YES** for the five named sites; **PARTIAL** repo-wide (new finding N2) | All four false statements gone, dead `not implemented (#900 task 1)` branch removed from both sites. Real-trap comments KEPT. One same-class comment outside the round-1 site list now dangles. |
+| deferred: guard blocks + `stopPhase` | unchanged (correct) | Three copies of the guard triple survive at `release.ts:983-993`, `:1025-1039`, `:1039-1053`; `stopPhase` still undocumented. Not re-raised — #919. |
+| deferred: `seedUpload` copies | unchanged across files; **grew in-file** (new finding N3) | The three cross-file copies are untouched. |
+| deferred: no glossary term | unchanged (correct) | `CONTEXT.md` diff touches only **Halt latch**. Not re-raised — #919. |
+
+## Fix 1 — the lock docstring
+
+The round-1 requirement was that all three descriptions say the same true thing,
+because a partial fix is worse than none. Verified:
+
+- `approval.ts:794-801` — "**IT TAKES THE BATCH ROW LOCK ITSELF, and there is no
+  caller precondition to forget**", naming the correction and stating what
+  deleting the lock would cost.
+- `approval.ts:182-184` (`readBatchForAction`, the docstring round 1 did not
+  name but which repeated the same false premise) — now "for `latchSystemHalt`
+  it is the **only** row lock on that path — its sweep callers hold nothing when
+  they call in. Never delete it as a redundant re-take." The sentence that
+  invited the deletion ("re-taking a lock this transaction already holds is a
+  no-op") is gone.
+- `CONTEXT.md` **Halt latch** — "select candidates outside any lock and hold
+  **no** lock across the call".
+
+No fourth spelling exists. Consistency check across all five mentions of
+`FOR UPDATE OF b` in the two files passes.
+
+## Fix 2 — error isolation
+
+**Every round-1 throw site is now isolated.** The round-1 table listed
+`terminalizeWedgedOutreach`'s deliberate throw, `completeRun`,
+`closeBatchIfSettled`, any statement-level DB error (P1), `latchSystemHalt`
+(P2/P3) and `closeBatchIfSettled` (P5). P1/P2/P3/P5 are wrapped by
+`isolateItem`; P4 by the bare `try` at `:1002`. Nothing that round 1 named
+survives unwrapped. The phase SCANS are deliberately outside, and
+`isolateItem`'s docstring says so and gives the right reason (a scan failure has
+no item to blame; the crash-net owns it) — that is a correct departure, not a
+gap.
+
+**No silent catch.** `recordItemFailure` (`:228-247`) counts, then
+`Sentry.captureException` inside its own `try`, then `logger.error` **outside**
+that guard. That is byte-for-byte the shape of the two existing alert helpers in
+the same file (`alertUnknownTerminalization:655-677`, `applyJudgeSplit:1260-1282`),
+which themselves cite `emitConsentEvent` / `llmCircuitBreaker.emitTransition`.
+Precedent followed, not invented.
+
+**`isolateItem` is not a single-caller abstraction.** Four call sites (`:335`,
+`:429`, `:723`, `:801`). `recordItemFailure` has two (`isolateItem` + P4).
+`tallyPhase` has four. `PhaseTally` is used by four functions. The house rule is
+satisfied by a wide margin.
+
+**`findRunningLazyChild`'s new justification is true.** The old one ("a throw
+would abort the tick before phases 2 and 3") is now false and has been removed
+rather than left standing. The replacement — a throw would roll the transaction
+back, leave the Outreach row `sending`, and P1 would re-select and re-fail it
+every tick — is exactly what the code does: `terminalizeWedgedOutreach` runs
+inside `sql.begin`, and P1's scan is `ORDER BY` on the wedged row. The stronger
+consequence is also right: the sweep exists to unwedge `sending` rows, so
+refusing to terminalize one because its spine half has nothing to write
+re-creates #915 inside the sweep built to close it.
+
+**`no-any` / typing.** No `any` anywhere in the new code. The fix also *removed*
+two `as Record<string, unknown>` casts from the integration test in favour of
+`vi.importActual<typeof import(...)>` — a net improvement.
+
+`pnpm typecheck` clean.
+
+## Fix 3 — the ledger
+
+Contiguous and terminating at the constant. Note the fix also re-pinned
+`RELEASE_CANDIDATE_SCAN_SQL` for the new `capped_accounts` CTE and argued in
+`RELEASE_CANDIDATE_SCAN_REASON` why the second `solicitation_outreach`
+occurrence shares one entry (matching is by file+table+normalized SQL). The
+audit agrees: 390/390.
+
+## Fix 4 — the stale comments
+
+- `release.integration.test.ts` — the 11-line `.fails` convention header deleted;
+  the "Live-DB conventions this file obeys (`ci:live-db-suites`)" block, which
+  records a real trap, **kept**. Correct call.
+- `release.test.ts` — `.fails` paragraph deleted, `(#900 task 0, the eval task)`
+  trimmed to `(#900)`; the "WHY A FAKE EXECUTOR AND NOT THE LIVE DATABASE"
+  paragraph **kept**. Correct call.
+- both `not implemented (#900 task 1)` ternaries deleted (`:62-65`, `:824-826`),
+  replaced by a direct typed delegate.
+- `release.ts:184-185` — "The scaffold is the phase order. Later tasks FILL these
+  slots" → "The list IS the phase order… Nothing here may be reordered or run
+  conditionally." The contract survives; the branch narration does not.
+- `outcome-anchor-pairing.test.ts:181-186` — the spine-write inventory is now
+  accurate (three writes, four `closeBatchIfSettled` call sites), which matters
+  because that file guards the anchor-pairing contract.
+
+`rg "it\.fails"` over `src worker scripts` returns exactly one hit — see N2.
+
+---
+
+## New findings introduced or left by the fixes
+
+| # | Severity | file:line | Finding |
+|---|---|---|---|
+| N1 | Medium | `src/lib/solicitation/release.ts:1002-1081` | P4's isolation unit is the ACCOUNT, but the throws it isolates are per-BATCH and per-ROW; one poisoned batch still starves that account's remaining batches on every tick until they age out. |
+| N2 | Low | `worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts:18-19` | Deleting the `.fails` convention left the only back-reference to it dangling — the repo now has a comment that answers a question nothing asks. |
+| N3 | Low | `src/lib/solicitation/__tests__/release.integration.test.ts:484-547` | `seedCappedForeignCandidate` re-spells FIVE of the file's own seed helpers inline because each hard-codes `accountId()`/`userId()`. New code, same file, distinct from deferred finding 6. |
+
+### N1 (Medium) — P4 isolates the account, but the failures are per-batch
+
+`isolateItem`'s own docstring states the principle the fix adopted: *"One
+poisoned item must cost one item, not the lane."* P4 does not meet it. The
+`try` at `:1002` opens before gate 4 and closes at `:1080`, so it spans the
+per-account gate reads **and** the whole `for (const batch of accountBatches)`
+loop at `:1024` **and** the per-outreach loop inside it. A throw from
+`judgeAvailable()`, `applyJudgeSplit`, `selectRenderedOutreach` or
+`releaseOutreachRow` — all per-batch or per-row — therefore discards every
+remaining batch of that account.
+
+That is the round-1 wedge, narrowed rather than closed:
+
+- `selectReleaseCandidates` is `ORDER BY b.approved_at ASC` (`:1161`);
+- `groupByAccount` (`:1166-1177`) is insertion-ordered and its own docstring says
+  so — *"the oldest approval still leads inside each account"*;
+- so the poisoned batch leads its account's group on **every** subsequent tick,
+  and the account's other approved batches release nothing until they cross
+  `BATCH_SEND_WINDOW_HOURS` and P2 latches them `send_window_elapsed` —
+  owner-approved batches destroyed by an unrelated row's failure.
+
+Blast radius is one account for up to 72h rather than the platform forever, so
+this is strictly better than round 1. But the comment at `:997-1001` overstates
+it — *"costs its own tick and no one else's"* — when it costs that account
+**every** tick.
+
+The stated justification does not justify the granularity, either. It reads:
+*"A bare `try` rather than `isolateItem` because the body's `continue` and
+`break` target these loops and may not cross a function boundary."* That argues
+for a bare `try` over the wrapper — which is right — not for the account as the
+unit. A second bare `try` around the body of `for (const batch of accountBatches)`
+uses the identical technique: its inner `break`s target the candidate loop, which
+would sit inside the try, and its `continue` targets the batch loop, which is
+legal from inside a `try`. The finer unit is available at the same cost.
+
+**Fix.** Either move the isolation to the batch (a second bare `try` at `:1025`
+with `recordItemFailure('release', { account_id, batch_id }, …)`, leaving the
+account-level one for the two gate reads that are genuinely per-account), or —
+if the account really is the intended unit — say so honestly at `:997`: the unit
+is the account, a per-batch failure costs the account's whole tick, and it
+recurs deterministically.
+
+### N2 (Low) — the deleted `.fails` convention left a dangling reference
+
+`SolicitationReleasePoller.test.ts:18-19`:
+
+> `// These need no `.fails` marker: the poller and its exports already exist, so`
+> `// every case below is green from this commit.`
+
+This is a branch file (added by this branch) and was not on round 1's site list,
+so it is not a re-raise — it became dangling **because** the fix deleted the two
+blocks that defined the convention. `rg "it\.fails|\.fails\b"` over `src worker
+scripts` now returns this comment and nothing else. CLAUDE.md Working rules:
+*"When deleting a doc … grep the filename to clean every cross-reference in the
+same change."* Same act, same rule.
+
+Its line 3 also still carries the full `(#900 task 0, the eval task)` form that
+`release.test.ts:6` was trimmed to `(#900)` — a one-word inconsistency worth
+folding into the same edit.
+
+**Fix.** Delete `:18-19`; trim `:3` to `(#900)`. The paragraph above them —
+why the poller is a shallow composition root and asserts no rules — is a real
+trap and must stay.
+
+### N3 (Low) — a fourth copy of the fixture pair, this time inside the file
+
+`seedCappedForeignCandidate` (`:484-547`) inlines `contact_csv_uploads` (a copy
+of `seedUpload:173`), `solicitation_batches` (`seedBatch:237`), `agent_runs`
+(`seedSendParent:307`), `solicitation_contacts` (`seedContact:190`) and
+`solicitation_asks` (`seedAsk:353`). It correctly reuses the shared
+`insertOutreach` helper for the sixth.
+
+The cause is mechanical and cheap to remove: every one of those five helpers
+closes over `accountId()` / `userId()` rather than taking them, so a
+second-tenant fixture cannot call any of them. Widening five signatures in ONE
+file removes ~60 lines of duplicated DDL-shaped SQL.
+
+This is **not** deferred finding 6 re-raised. Finding 6 is about three
+near-identical copies across three files and was deferred to #919 as
+"test-fixture consolidation touches two files this branch never opened". N3 is
+new code added by `cabeff32`, entirely inside a file this branch owns, and the
+remedy is local to it. The reason it is worth an entry rather than a shrug is
+finding 6's own argument: one new `NOT NULL` column on `contact_csv_uploads` now
+breaks four sites instead of three, and this file now contains two spellings of
+the same INSERT with nothing marking which is canonical.
+
+---
+
+## Untriaged appendix (out of round-2 scope — unchanged code, not raised)
+
+- `src/lib/solicitation/__tests__/batch-view.integration.test.ts:32` ("A namespace
+  access is `undefined` until Task 3 lands") and
+  `src/lib/solicitation/__tests__/dispatch.integration.test.ts:1259` ("Task 3 —")
+  are the same task-log-narration class as finding 5 but belong to earlier
+  branches (#629 / #899) and are untouched here. Not this branch's to fix.
+- The module-header rewrite at `release.ts:44-55` ("SINGLE-REPLICA DOES NOT MEAN
+  SINGLE-CONCURRENT-CYCLE") makes a factual claim about `guarded-poll.ts`. Spot-
+  checked and TRUE: `worker/background/guarded-poll.ts:80` states the detached
+  contract and `:107-112` frees `inFlight` in `finally` after `withTimeout`
+  rejects. No new lying comment.
+
+## ROUND 2 TRIAGE (orchestrator, 2026-08-22)
+
+All four round-1 fixes on this axis verified YES. Three new findings, all accepted:
+
+- **N1 P4 isolation granularity — ACCEPT, FIX.** Verified at `release.ts:1002`: the `try` wraps the whole account block INCLUDING the per-batch loop, while `applyJudgeSplit`, `selectRenderedOutreach` and `releaseOutreachRow` are per-batch/per-row. One poisoned batch discards that account's remaining batches every tick until they cross 72h. That is round 1's wedge narrowed, not closed — unacceptable on the branch whose purpose is closing a wedge — and the comment at `:997` ("costs its own tick and no one else's") is true only at account level, which is the kind of comment that stops the next reader looking.
+- **N2 orphaned `.fails` back-reference — ACCEPT, FIX.** Verified: it is now the ONLY `.fails` hit in `src`, `worker` and `scripts`, explaining itself against a convention the fix deleted. CLAUDE.md is explicit — grep the filename and clean every cross-reference in the same change.
+- **N3 in-file seed duplication — ACCEPT, FIX.** Accepted even though its cross-file cousin is deferred to #919, and the distinction is deliberate: #919 covers three files this branch never opened, while N3 is duplication the fix round ITSELF introduced into a file the branch owns. Leaving new duplication because an older instance was deferred is the wrong lesson.
+
+The three deferred findings were correctly confirmed unchanged and not re-raised.

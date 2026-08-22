@@ -453,3 +453,303 @@ not treated as evidence.
 - **MEDIUM module shape — REJECTED.** The standards agent owns this axis, examined the same file directly, and declined to flag it with reasoning (652 code lines vs 496 comment, narrow interface, no seam with a second caller). This finding asserts the opposite without naming the seam that should have been extracted or the second caller that would use it. Where two agents disagree, the one that owns the axis and gave the better argument wins.
 - **MEDIUM tenant-scope ledger — ACCEPTED, FIX.** Also found by the standards agent. Orchestrator's own error: the P2 entry was added without a ledger bullet and every later task copied that pattern.
 - **MEDIUM error isolation — ACCEPTED, FIX.** The standards agent's version is sharper and is the one being actioned.
+
+---
+
+# ROUND 2 VERIFICATION
+
+**Axis:** adversarial approach. **Scope:** verification only — the five accepted findings, and
+whether the fixes introduced anything new. The rejected module-shape finding is not revisited.
+**Fix commits:** `cabeff32`, `1bd27676`. **Diff read:** `git diff a23d8afd..HEAD` in full
+(`release.ts` 444 lines, `approval.ts` 20, the allowlist, the two test files, the deviations file,
+the intake, CONTEXT.md, env-vars.md).
+**Tests:** not executed — two sibling agents share the machine and the test database. Gate evidence
+is the orchestrator's `verify-gate.sh --review` GREEN at `1bd27676`, 28 rows.
+
+## Verdicts
+
+| finding | fixed? | evidence |
+|---|---|---|
+| **HIGH — Judge downgrade × `batch_expired`** | **PARTIAL** | The triaged case is closed and closed correctly. Residual: the guard is a scan-time boolean and the CAS does not re-assert it, so a downgrade taken shortly *before* the window shuts produces the identical outcome. See V1. |
+| **HIGH — P4 starvation** | **YES** | The safety argument survives attack from four directions; the counting basis is byte-identical to the enforced gate; the cost profile does not change class. See V2. |
+| **MEDIUM — detached-cycle cap overrun (re-grade)** | **YES (re-grade upheld)** | Both counters are cycle-local and DB-seeded; `budgetRemaining` is the only unconditional decrement and each release is its own transaction, so no path lets one cycle's uncommitted work exceed the per-tick budget. See V3. |
+| **MEDIUM — tenant-scope ledger** | **YES** | Four new ledger bullets (`385→386`, `386→388`, `388→389`, `389→390`) reconcile the comment with `ALLOWLIST_BASELINE = 390`. The new CTE is a second `solicitation_outreach` occurrence inside one statement and shares the P4 entry; the reason string names it explicitly. Baseline does not move. |
+| **MEDIUM — error isolation** | **YES** | All four sweeps via `isolateItem`, the release phase via a per-account `try`/`recordItemFailure` with the boundary-crossing reason stated. No `undefined`-conflation at any call site. The approach question is answered in V4 — it got *louder*, not quieter. |
+| **NEW — the capped-account exclusion is silent** | *new, LOW* | A fully cap-bound platform is now byte-identical to an idle one in the cycle report. See N1. |
+| **NEW — `isolateItem`'s scan carve-out names a sink that does not exist** | *new, LOW/MEDIUM* | `guarded-poll` catches every scan throw and `logger.error` has no Sentry hook, so the failures that suppress whole phases are now the only ones with no Sentry sink. See N2. |
+
+---
+
+## V1 — Judge hold: the hole is narrowed, not closed
+
+**What the fix does, verified.** `applyJudgeSplit` (`release.ts:1250-1256`) now returns `'held'` when
+`batch.sending_started_at !== null || !batch.approval_window_open`. `approval_window_open` is
+projected by P4 as `b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})`
+(`release.ts:1142-1144`) — DB clock, so #520 does not apply. A hold takes no lock and writes nothing;
+the new integration case asserts exactly that (`expect(await readBatch(batch.batchId)).toEqual(before)`
+plus zero `approval_downgraded` steps).
+
+**What it opens — checked and clean.** A held batch keeps `approved_at`, so:
+
+- P3 cannot see it. `selectExpiredBatches` requires `b.approved_at IS NULL` (`release.ts:1157`), and
+  the docstring says so ("keeps P3 disjoint from P2").
+- P2 *will* take it. `selectSendWindowElapsedBatches` requires only `approved_at IS NOT NULL AND
+  approved_at <= NOW() - 72h AND halted_at IS NULL AND send_closed_at IS NULL` — no
+  `sending_started_at` arm — so a batch that never started dripping is still swept
+  (`release.ts:762-770`). **There is no batch that holds forever.**
+- The terminal state is the right one. `send_window_elapsed` is honest: the halt-reason vocabulary
+  has five members and none of them is judge-shaped, and what actually ran out for a batch held
+  across a multi-day Judge outage *is* the 72h send window. Inventing a sixth reason for it would be
+  a worse answer than reusing the true one.
+- Recovery still works. `selectReleaseCandidates` does not require `approval_window_open` — it only
+  *projects* it — so a batch past its approval window releases normally the moment the Judge is
+  healthy again. The window governs only the destructive branch, which is exactly right.
+
+**The residual, which is why this is PARTIAL.** `approval_window_open` is evaluated once, at scan
+time, and `downgradeApproval`'s CAS (`release.ts:1327-1338`) re-asserts `approved_at IS NOT NULL`,
+`sending_started_at IS NULL`, `halted_at IS NULL`, `send_closed_at IS NULL` — and **not the approval
+window**. So the guard answers "is the window open *now*", never "will it still be open long enough
+for the owner to act". A downgrade taken at `built_at + 6d23h` produces, step for step, the chain
+round 1 filed:
+
+1. downgrade clears the four approval columns, leaves `built_at`;
+2. one hour later `deriveBatchState` reads `expired` and `approveBatch` refuses it (D2);
+3. P3 matches all five arms — it necessarily has a send parent — and latches `batch_expired`;
+4. neither step notifies the owner.
+
+Round 1's own reachability paragraph named this slice: *"an approval landing in the last stretch of
+the 7-day approval window."* That slice is not a corner. For an owner who approves late — say at
+`built_at + 6d20h` — the *entire* pre-first-release exposure window is inside the last four hours of
+the approval window, so every downgrade that batch can suffer lands on the destructive side of the
+new boundary. The fix moves the failure from "certain for the past-window class" to "certain for the
+about-to-close class", and the about-to-close class is the tail of the same distribution that made
+the finding reachable in the first place.
+
+I am not asking for a redesign. The honest options are one line each: refuse the downgrade unless
+some minimum window remains (`built_at > NOW() - (7d - grace)`), or re-assert the window arm inside
+the CAS and treat the loser as a hold, or — the one the plan already declined — notify.
+
+**Second-order, and cheap to fix.** The intake was updated for the caps invariant in this same
+commit but not for this behaviour. `user_visible_behavior[6]` still reads *"A Judge outage before the
+first release returns the batch to owner review: … the batch reappears as approvable in the Requests
+panel"* unconditionally, and `[7]` still scopes holding to *"mid-drip"*. The hold set has grown a
+second member and neither line says so. Round 1 filed this exact sentence as evidence; the code moved
+and the sentence did not.
+
+---
+
+## V2 — P4 starvation: the safety argument survives, attacked four ways
+
+**The argument.** `capped_accounts` excludes any account with `COUNT(*) >= DEFAULT_DAILY_SEND_CAP_ACCOUNT`
+(10) queued today; `resolveAccountDailySendCap` is `LEAST(configured, 10)`; therefore the resolved cap
+is never above 10, therefore an excluded account would have been `continue`d by the TypeScript gate
+anyway, therefore the arm can only under-exclude.
+
+I attacked it on four fronts and it holds on all four.
+
+1. **Can the resolver ever exceed 10?** No. `send-caps.ts:24-27`: `null → 10`, otherwise
+   `Math.min(configured, 10)`. Both branches are `≤ 10`. The schema CHECK admits 1..50 and this
+   resolver is what makes 50 harmless — the arm rides on the same fact.
+2. **Can the counting bases disagree?** No. The CTE's `WHERE queued_at >= date_trunc('day', NOW() AT
+   TIME ZONE 'UTC') AT TIME ZONE 'UTC'` is character-for-character `countAccountDispatchAttemptsToday`'s
+   (`send-caps.ts:73`), trailing conversion included — the one that #898's review found is
+   load-bearing rather than redundant. There is no drift to exploit, and a drift would weaken a bound,
+   not invert it.
+3. **Under-exclusion direction.** An account that lowered its own dial (cap 3, five sends today) has
+   `count = 5 < 10`, so it stays a candidate and is `continue`d at the gate exactly as before —
+   costing one scan slot, which is the pre-existing behaviour and not a regression. Over-exclusion,
+   which would starve an account that could still send, is unreachable while (1) holds.
+4. **Cost profile at scale.** Not a new class. The CTE aggregates the same relation under the same
+   predicate as `countPlatformDispatchAttemptsToday`, which already runs once per tick in the same
+   phase; migration 091:423 provides `(account_id, queued_at)`, so it is an index-only scan plus a
+   HashAggregate, and a CTE with an aggregate is materialized once per statement. The change roughly
+   doubles one existing per-tick aggregate. It does not introduce an unindexed path.
+
+**The new fairness question — is a capped account now invisible until the day rolls?** Yes, and that
+is the correct outcome, not a new problem: the pre-fix behaviour was identical (`continue` on every
+tick, release nothing) minus the scan slot it wasted on everyone else. What *is* new is that the
+account also disappears from the report — filed separately as N1.
+
+**One coupling I am not filing but am recording.** The arm and `resolveAccountDailySendCap` are two
+owners of "is this account capped", joined only by a docstring paragraph and locked decision #619
+D20 ("the dial moves toward restraint only"). If the clamp is ever raised above
+`DEFAULT_DAILY_SEND_CAP_ACCOUNT` — an enterprise account allowed 25/day — the arm silently flips from
+under- to **over**-excluding, and re-creates precisely the starvation it was added to fix, for the
+highest-cap accounts on the platform. No test pins the coupling; the docstring is the whole guard.
+It is protected by a locked decision today, which is why it is an appendix item and not a finding.
+
+---
+
+## V3 — the detached-cycle re-grade holds
+
+The re-grade rests on two claims. Both verified in source.
+
+- **Both figures are cycle-local and DB-seeded.** `platformRemaining = platformCap -
+  (await countPlatformDispatchAttemptsToday(sql))` is a `let` inside `runReleasePhase`
+  (`release.ts:940`); `accountRemaining = cap - (await countAccountDispatchAttemptsToday(sql,
+  accountId))` is a `let` inside the per-account body (`release.ts:1006`). Neither is module state,
+  and both read `queued_at`, which `releaseOutreachRow` stamps inside the same transaction as the
+  `rendered → queued` CAS. A concurrent cycle therefore sees everything a detached cycle has
+  committed.
+- **No path exceeds the per-tick budget.** `budgetRemaining` starts at `perTickBudget`
+  (`RELEASE_PER_TICK_BUDGET = 2`; the poller passes no `ReleaseCycleOptions`, so 2 is what production
+  gets) and is decremented on every single release alongside the other two — it is the only
+  unconditional decrement, and exhausting it sets `stopPhase` at all three checkpoints. Each release
+  is its own `sql.begin`, so at most **one** row is uncommitted at any instant, and at most
+  `budgetRemaining` further rows can ever be released by that cycle. The overrun a detached cycle can
+  cause is `min(stale headroom, budgetRemaining) ≤ 2`. **The bound is right, and this is a
+  documentation error rather than a defect.**
+
+One imprecision in the corrected wording, recorded rather than filed: both the intake invariant and
+the module header state the bound for *a* detached cycle. Under a sustained pile-up — cycle duration
+chronically above the 60s interval, so k cycles are alive at once — the worst case is `k ×` the
+remaining per-tick budget, and it lands as a one-time overshoot per account at the instant it crosses
+its cap (after which both the TypeScript gate and, now, the `capped_accounts` arm exclude it for the
+rest of the day). A "per detached cycle" qualifier would make the sentence exactly true.
+
+---
+
+## V4 — error isolation: the right response, and it got louder rather than quieter
+
+**Shape verified.** `isolateItem` wraps the per-item body in the four sweeps
+(`unknown_sweep`, `send_window_sweep`, `batch_expired_sweep`, `backstop_join`), each passing the
+tenant triple plus the row id as Sentry `extra` and the phase as a **tag**. The release phase uses a
+bare `try` with `recordItemFailure` because its body carries `continue`/`break` targeting two
+enclosing loops — a genuine constraint, correctly stated in the comment rather than worked around.
+Every call site handles the new `undefined` correctly: `result?.status === 'closed' | 'latched'`,
+and `if (moved !== true) continue` — no falsy conflation anywhere.
+
+**The approach question — does per-item isolation convert a loud failure into a quiet one?** No; it
+is the other direction, and I checked the pre-fix path to be sure. Before this commit, an item throw
+propagated to `createGuardedPoll`, which caught it and called `logger.error(onErrorMessage, ...)`
+(`worker/background/guarded-poll.ts:106-113`) — and `createWorkerLogger`'s `error` is a plain JSON
+line with **no Sentry hook** (`src/lib/shared/logger.ts:115`). So the old behaviour was: one log
+line per tick, no Sentry issue, and every later phase suppressed. The new behaviour is: one Sentry
+`captureException` at `warning` per failure with the ids attached, one error log line per failure,
+a counter on the report, and the later phases still run. Strictly more signal.
+
+**Is `itemFailures` enough to notice a phase failing every item?** Adequate, with one gap worth
+naming. It is on the tick line the poller logs unconditionally
+(`SolicitationReleasePoller.ts`: `logger.log('Release cycle complete', { ...report })`), so
+`itemFailures: 50` is visible every 60s, and each distinct failure mode raises its own Sentry issue
+grouped by the error rather than by the message. What does not exist is a **saturation** signal —
+nothing distinguishes one failed item from every failed item, there is no threshold, and
+`HealthAlertPoller` has no arm for it. Given that a fully-poisoned phase also shows as its own
+counter reading zero on the same line, I do not think that rises to a finding; it is the appendix
+item below.
+
+---
+
+## N1 — NEW (LOW): the capped-account exclusion drops candidates with no counter
+
+**Design decision:** move the cap check from the loop (where it recorded `withheldByReason.account_cap`)
+into the scan (where nothing records anything). The new test asserts the consequence directly:
+`expect(report.withheldByReason.account_cap).toBeUndefined()`, commented *"there is nothing to
+withhold."*
+
+**Concrete consequence.** After the exclusion, `account_cap` is reachable only for an account whose
+*configured* cap is below 10 with today's count between that cap and 9, or for an account that
+exhausts `accountRemaining` mid-tick — which requires `accountRemaining ≤ 2`, the per-tick budget.
+The dominant population, an account at the default 10/day, can no longer produce the counter at all.
+So a tick in which every account with due rows is cap-bound reports `released: 0`, no
+`releasePhaseStoppedBy`, and an empty `withheldByReason` — **byte-identical to a tick with no due
+work**. That is precisely the distinction `withheldByReason` was built to draw; `runReleasePhase`'s
+own docstring says an operator reading a withhold count "is being told 'some rows could not, and here
+is which dial'", and `logBudgetExhausted` justifies its warn level as letting "the staging ramp tell
+'paced' from 'capped'". Capped is now the state with no reading. It also contradicts the convention
+`RELEASE_SCAN_LIMIT`'s docstring states for the whole module — *"Bounds the tick, and every phase logs
+what it dropped"* (`release.ts:181`) — since P4's new drop arm is the one that logs nothing.
+
+**Cost of fixing:** one projection. Either fold the excluded-account count into
+`withheldByReason.account_cap` from the same statement, or give it its own report field
+(`scanExcludedCapped`) so the two remain distinguishable. No structural change.
+
+**Not filed as HIGH or MEDIUM** because nothing downstream consumes the field — I grepped `docs/`
+and no runbook reads `withheldByReason`, so no written procedure breaks. It is a self-inflicted blind
+spot in the lane's own instrumentation, on the eve of a staging ramp.
+
+---
+
+## N2 — NEW (LOW/MEDIUM): the scan carve-out's stated fallback does not exist
+
+**The new claim,** in `isolateItem`'s docstring (`release.ts` ~197), introduced by `cabeff32`:
+
+> *"It does NOT wrap a phase's SCAN. A scan that throws is a database-wide failure with no item to
+> blame, and the crash-net (`worker/index.ts`) is where that belongs."*
+
+**It never reaches the crash-net.** `createGuardedPoll` catches everything `runReleaseCycle` throws
+and never rethrows — `catch (err) { logger.error(onErrorMessage, toError(err)); }`
+(`worker/background/guarded-poll.ts:106-113`) — and `start()` adds a second `.catch(logUnhandledPollError)`
+behind it. So a scan throw is never an `unhandledRejection` and `worker/index.ts`'s
+`isCrashNetRecoverableDbError` classifier never sees it. And `logger.error` writes one JSON line and
+nothing else (`src/lib/shared/logger.ts:115` — the logger has no Sentry hook at all).
+
+**Why this matters more after the fix than before it.** The containment behaviour is pre-existing and
+unchanged; what is new is the rationale, and the asymmetry the fix created. As of this commit:
+
+- an **item** failure — blast radius one row — raises a Sentry issue, an error log line and a report
+  counter;
+- a **scan**, `readSendBreaker` or `groupByAccount` failure — blast radius *every phase after it*,
+  on every tick, for as long as the condition persists, including P5's backstop join — raises **no
+  Sentry event at all** and appears only as one log line per tick, with no counter.
+
+The failure class that can actually wedge the lane is now the only one with no alerting sink, and the
+comment tells the next reader that case is covered by a mechanism that will not see it. This is the
+same shape round 1 filed twice and the orchestrator accepted twice: a load-bearing rationale that does
+not describe the code (F1's inverted deviation reasoning; F6's contradictory docstrings).
+
+**Reachability is not theoretical.** `selectReleaseCandidates` is now the second full-relation
+aggregate in that path (V2.4); PgBouncer's `statement_timeout` is the standing hazard this repo
+already documents. A `selectReleaseCandidates` that starts timing out silently disables the backstop
+join platform-wide — and P5 is the mechanism that exists to close batches nothing else will close.
+
+**Cheap fix, two halves.** Correct the sentence to say where a scan throw actually lands
+(`guarded-poll`'s catch, one log line, no Sentry). Then either accept that explicitly, or wrap the
+five phase calls in `runReleaseCycle` in a per-phase catch that records to the report and to Sentry —
+which is the "at minimum" half of round 1's F6 remedy that the fix did not take, and which would also
+stop `readSendBreaker`'s deliberate halt-signal throw from taking P5 with it.
+
+---
+
+## Round 2 appendix — untriaged
+
+Not findings. Recorded so they are not rediscovered.
+
+**U1 — the `capped_accounts` arm and `resolveAccountDailySendCap` are two owners of one predicate.**
+Safe only while `LEAST(configured, DEFAULT_DAILY_SEND_CAP_ACCOUNT)` holds. Raise the clamp for one
+enterprise account and the arm flips from under- to over-excluding and re-creates the starvation it
+fixed. Guarded by locked decision #619 D20 and by a docstring, by nothing executable.
+
+**U2 — the corrected overrun bound is per detached cycle, not per platform.** With k concurrent
+cycles the worst case is `k ×` the remaining per-tick budget. A three-word qualifier in the intake
+invariant and the module header would close it.
+
+**U3 — no saturation signal on `itemFailures`.** Nothing distinguishes one failed item from every
+failed item; no threshold, no `HealthAlertPoller` arm. Each failure does raise its own Sentry issue,
+so this is a convenience gap rather than a blind spot.
+
+**U4 — the release phase's isolation context carries `account_id` only.** Every other phase passes
+the full tenant triple plus the row id. The account is the correct isolation *unit*, but the Sentry
+`extra` cannot name the poisoned batch or outreach row; an operator has to read the error message to
+find it. One extra field on the two places the loop knows a `batch.id` would close it.
+
+**U5 — a throwing `isJudgeHealthy` is now re-probed per account.** The memoized `judgeAvailable()`
+caches only a *resolved* value, so under the new per-account catch a throwing probe is retried once
+per account instead of once per tick. Harmless — the phase releases nothing either way, and the
+"never ask twice and get two answers mid-drip" property depends on successful probes, which still
+memoize.
+
+**U6 — `downgradeApproval`'s trailing comment still reads "the batch simply reappears as
+approvable."** True at that call site now, because the caller guarantees the window is open — but it
+is the sentence V1's residual makes conditional, and it is one of the two places a future reader
+will check.
+
+## ROUND 2 TRIAGE (orchestrator, 2026-08-22)
+
+This round attacked the orchestrator's own re-grade, which is what it was asked to do.
+
+- **The MEDIUM re-grade — UPHELD.** Both counters are cycle-local `let`s seeded by a fresh `COUNT(*)` over committed `queued_at`; each release is its own `sql.begin`, so at most one row is uncommitted at any instant and no path exceeds the per-tick budget. The re-grade from HIGH to MEDIUM was correct and the fix being documentation-only was correct.
+- **Error isolation — verified LOUDER, not quieter.** The approach question was answered rather than assumed: pre-fix an item throw produced one `guarded-poll` log line and NO Sentry, because `logger.error` has no Sentry hook; post-fix each failure raises a Sentry issue plus a counter on the tick line.
+- **N2 `isolateItem` names a Sentry sink that does not exist — ACCEPT, FIX, and it is the branch's FOURTH false-rationale finding.** The docstring says an unisolated scan throw belongs to "the crash-net (`worker/index.ts`)". It does not: `createGuardedPoll` catches and never rethrows, and `logger.error` has no Sentry hook. So scan, `readSendBreaker` and `groupByAccount` failures — which suppress every later phase including P5's backstop join, on every tick — have NO Sentry sink, while the comment tells the next reader they are covered. Same class as the `latchSystemHalt` lock docstring and the two overlap claims. A pattern worth naming: on this branch, a load-bearing rationale in a comment has been wrong four times.
+- **Judge fix PARTIAL — ACCEPT, FIX.** `approval_window_open` is a scan-time boolean and `downgradeApproval`'s CAS never re-asserts it, so a downgrade taken shortly before the window shuts reproduces round 1's chain exactly. The CAS must re-assert the window.
+- **P4 starvation — YES**, safety argument attacked four ways and held.
