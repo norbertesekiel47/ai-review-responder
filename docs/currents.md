@@ -7,7 +7,53 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-21 (#898 **Send governors** — Quick summary immediately below. Prior entry: #872 Ask withdrawal.)
+Last updated: 2026-08-22 (#899 **Solicitation send worker** — Quick summary immediately below. Prior entry: #898 Send governors.)
+
+## Quick summary — #899 **Solicitation send worker** (2026-08-22, PR #912)
+
+**The first code in this repo that can put a real email in front of a real customer.**
+It is merged and inert: `SOLICITATION_SEND_ENABLED` is off in every environment, and
+**it must stay off until #900 ships** (see the blocker below).
+
+What it does, per job, for one **Outreach row**:
+
+```
+tx1 (short): stale-attempt guard → per-business advisory lock → batch row → outreach row
+             → seven-item Dispatch gate → consent snapshot → Lazy child
+             → unsubscribe token mint → CAS queued → sending
+provider:    NO lock held. Idempotency key = the outreach row id.
+             Retryable failures absorbed IN-PROCESS, while the raw token is still in scope.
+tx2 (short): CAS sending → sent|failed  +  child terminal  +  solicitation_sent outcome
+             +  outbox completion  +  closeBatchIfSettled      ← ONE transaction
+```
+
+**No migration** — #898's migration 110 already carried this family's schema work.
+
+The new shape:
+
+| File | What it owns |
+|---|---|
+| `src/lib/solicitation/dispatch.ts` | The deep module. `applyDispatchGate` (pure, owns B6's order and the withheld-reason mapping) and `dispatchOutreach` (the orchestrator). |
+| `src/lib/solicitation/send-retry.ts` | `classifySendFailure` — D12c's terminal/retryable split, pure. |
+| `worker/jobs/solicitation-send.ts` | Composition root. Extract the outbox handle, call one domain function. |
+| `worker/jobs/solicitation-send/failed-hook.ts` | The only writer of `send_exhausted`. Picks its terminal by arrival status. |
+
+**Four behaviours worth knowing** (a reader of amendment B6 alone would get each wrong;
+all four are now recorded upstream as **B15**):
+
+1. The two SLOW gate items (re-lint, re-moderation) run **above** `tx1` with no lock held —
+   re-moderation is a ~10s provider call. `tx1` then proves the locked bytes still match the
+   ones those verdicts were computed over, so the guarantee is checked rather than assumed.
+2. A row already `sending` is **never re-gated and never re-sent**. The raw unsubscribe token
+   died with the crashed process, so no correct message can be rebuilt.
+3. A flag-off **defers**; it never terminalizes. 091/110 carry no `flag_off` withheld reason.
+4. The exhaustion hook writes `unknown`/`send_indeterminate` for a `sending` row, not `failed` —
+   calling a possible send "not sent" can put that customer in a future batch and email them twice.
+
+> **⚠️ Enablement blocker — issue #915.** #899's recovery path for a crash between its two
+> transactions IS #900's D12d `unknown` sweep. Until that ships, a dead process leaves a row
+> in `sending` that nothing can terminalize: the batch never settles and the one-active-send
+> index blocks every future batch for that location. Merging was safe; **flipping the flag is not.**
 
 ## Quick summary — #898 **Send governors** (2026-08-21, PR #904)
 
