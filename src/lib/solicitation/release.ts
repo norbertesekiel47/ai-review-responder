@@ -54,16 +54,22 @@
 
 import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
-import { recordStep } from '@/lib/agents/run-spine';
+import { completeRun, recordStep } from '@/lib/agents/run-spine';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
 import { isJudgeHealthy } from '@/lib/responses/judge-health';
 import { enqueueSolicitationSend } from '@/lib/shared/job-outbox-helpers';
 import { createWorkerLogger } from '@/lib/shared/logger';
+import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { latchSystemHalt } from './approval';
 import { solicitationSendEnabled } from './flags';
-import { BATCH_APPROVAL_WINDOW_DAYS, BATCH_SEND_WINDOW_HOURS } from './outreach';
+import {
+  BATCH_APPROVAL_WINDOW_DAYS,
+  BATCH_SEND_WINDOW_HOURS,
+  closeBatchIfSettled,
+  UNKNOWN_GRACE_MINUTES,
+} from './outreach';
 import { readSendBreaker } from './send-breaker';
 import {
   countAccountDispatchAttemptsToday,
@@ -81,6 +87,20 @@ const JUDGE_UNAVAILABLE_REASON = 'judge_unavailable';
  *  title collapses a fleet-wide Judge outage into ONE issue that keeps
  *  receiving events rather than N issues. */
 const DOWNGRADE_ALERT_MESSAGE = 'Solicitation batch approval downgraded: Judge unavailable';
+
+/**
+ * The one reason an `unknown` terminalization ever carries. Migration 091 pairs
+ * `unknown` with `send_indeterminate` EXCLUSIVELY on the Outreach row, so the
+ * two are never spelled apart; the **Lazy child**'s error names the same reason
+ * so one wedge reads as one fact on both sides of the spine.
+ */
+const SEND_INDETERMINATE_REASON = 'send_indeterminate';
+
+/** Stable Sentry title, for the same reason `DOWNGRADE_ALERT_MESSAGE` is one:
+ *  `captureMessage` groups by its text, so a fleet-wide provider incident that
+ *  wedges N dispatches collapses into ONE issue that keeps receiving events. */
+const UNKNOWN_ALERT_MESSAGE =
+  'Solicitation dispatch terminalized unknown: send outcome indeterminate';
 
 /**
  * Which release-level gate withheld a release. A closed union — a new member
@@ -169,19 +189,271 @@ export async function runReleaseCycle(
   return report;
 }
 
-// ── phases 1 and 5: stubs, in order ─────────────────────────────────────────
+// ── phase 5: stub ───────────────────────────────────────────────────────────
 //
-// Each returns 0 and writes nothing, so the tick is a no-op for its phase while
-// the ORDER above is already fixed. A later task replaces the body only.
-
-/** Task 6 (#900): the `unknown` sweep (D12d) — predicate P1, both belts. */
-async function sweepUnknownOutreach(_sql: Sql, _scanLimit: number): Promise<number> {
-  return 0;
-}
+// Returns 0 and writes nothing, so the tick is a no-op for its phase while the
+// ORDER above is already fixed. A later task replaces the body only.
 
 /** Task 7 (#900): the backstop join (D11) — `closeBatchIfSettled`, no second implementation. */
 async function runBackstopJoin(_sql: Sql, _scanLimit: number): Promise<number> {
   return 0;
+}
+
+// ── phase 1: the `unknown` sweep (D12d) ─────────────────────────────────────
+
+/** P1's projection: the Outreach row's tenant triple plus the batch it belongs
+ *  to, which is the row the terminalizing transaction locks FIRST. `ask_id` is
+ *  deliberately absent — the **Lazy child** is resolved from the value the CAS
+ *  returns UNDER the batch lock, never from this unlocked read. */
+interface WedgedOutreachRow {
+  id: string;
+  account_id: string;
+  business_id: string;
+  batch_id: string;
+}
+
+/**
+ * The `unknown` sweep (D12d) — the sweep issue #915 names as the blocker on
+ * ever flipping `SOLICITATION_SEND_ENABLED` on.
+ *
+ * D10 deliberately excludes `sending` from the halt sweep, so a dispatch that
+ * died between #899's tx1 and tx2 has NO other escape: it blocks
+ * `closeBatchIfSettled` forever and permanently consumes that location's one
+ * active-send slot under 091's `solicitation_batches_one_active_send_per_business`.
+ * That is why this phase runs FIRST — a row it resolves can settle its batch in
+ * the same tick, through phase 2, phase 3 or phase 5's join.
+ *
+ * PER-ROW, and structurally unlike the two sweeps that follow it. Those latch a
+ * BATCH and hand the whole body to `latchSystemHalt`; this one terminalizes ONE
+ * Outreach row, terminalizes that row's **Lazy child**, and joins — three writes
+ * this module owns, in one transaction per row. Deliberately NOT sharing a body
+ * with either of them: same loop shape, entirely different transaction.
+ *
+ * Counts what was TERMINALIZED, not what was scanned. Zero rows from the CAS
+ * means the outbox watchdog re-pended the row between the scan and the lock —
+ * nothing happened, so nothing is reported and nothing is alerted.
+ */
+async function sweepUnknownOutreach(sql: Sql, scanLimit: number): Promise<number> {
+  const rows = await selectWedgedSendingOutreach(sql, scanLimit);
+
+  let terminalized = 0;
+  for (const row of rows) {
+    const moved = await sql.begin(async (tx) => terminalizeWedgedOutreach(tx, row));
+    if (!moved) continue;
+    terminalized += 1;
+    alertUnknownTerminalization(row);
+  }
+  return terminalized;
+}
+
+/**
+ * P1 — dispatch attempts wedged in `sending`. BOTH BELTS, and neither is
+ * sufficient alone.
+ *
+ * The grace period is not evidence of a wedge by itself: a job the OutboxPoller
+ * is still carrying is a normal delivery in progress, and terminalizing it would
+ * race a real provider send. The absence of an in-flight outbox row is not
+ * evidence by itself either: the outbox watchdog re-pends on a 15-minute window,
+ * so a row can be momentarily un-owned while recovering normally, which is
+ * exactly why `UNKNOWN_GRACE_MINUTES` must exceed that window.
+ *
+ * No batch predicate, and that absence is the point rather than an omission. A
+ * wedged row on a halted or overdue batch is the case D12d singles out — the
+ * halt sweep will not touch it, so this sweep is its ONLY resolver.
+ *
+ * The in-flight status list is spelled by hand, members AND order, per
+ * `src/lib/shared/job-outbox-status.ts` — it is a byte-for-byte contract that
+ * cannot be parameterized, and `ci:outbox-status` checks both.
+ */
+async function selectWedgedSendingOutreach(
+  sql: Sql,
+  scanLimit: number,
+): Promise<WedgedOutreachRow[]> {
+  return sql<WedgedOutreachRow[]>`
+    SELECT o.id, o.account_id, o.business_id, o.batch_id
+      FROM solicitation_outreach o
+     WHERE o.delivery_status = 'sending'
+       AND o.sending_at <= NOW() - make_interval(mins => ${UNKNOWN_GRACE_MINUTES})
+       AND NOT EXISTS (
+         SELECT 1 FROM job_outbox jo
+          WHERE jo.topic = ${QUEUE_NAMES.SOLICITATION_SEND}
+            AND jo.aggregate_id = o.id
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
+       )
+     ORDER BY o.sending_at ASC
+     LIMIT ${scanLimit}
+  `;
+}
+
+/**
+ * Terminalize ONE wedged Outreach row: the batch lock, the `sending` → `unknown`
+ * CAS, the **Lazy child**'s terminal transition and the settlement join, in ONE
+ * transaction. Returns whether the row moved.
+ *
+ * **LOCK ORDER IS BATCH → RUN THROUGHOUT**, the sole order in this lane. The
+ * batch row is locked before anything, every `agent_runs` write follows it, and
+ * `closeBatchIfSettled` re-takes the same batch lock last. Taking the run lock
+ * first would be the ABBA deadlock `CloseBatchIfSettledInput.failure` exists to
+ * prevent.
+ *
+ * ONE transaction is a correctness requirement, not tidiness. A split
+ * implementation commits `unknown` and can then die before terminalizing the
+ * child — leaving it `running` forever, which trips `deriveRunDisplayState`'s
+ * 48h `stalled` rule and re-opens the wedge from the spine side, one row over.
+ */
+async function terminalizeWedgedOutreach(
+  tx: TransactionSql,
+  row: WedgedOutreachRow,
+): Promise<boolean> {
+  const [locked] = await tx<{ id: string }[]>`
+    SELECT b.id
+      FROM solicitation_batches b
+     WHERE b.id = ${row.batch_id}::uuid
+       AND b.account_id = ${row.account_id}::uuid
+       AND b.business_id = ${row.business_id}::uuid
+     FOR UPDATE OF b
+  `;
+  // ASSERT, do not branch. `solicitation_outreach.batch_id` is a foreign key and
+  // the tenant triple came off the row itself, so a batch that is not there for
+  // its own child's account and business is a broken invariant, not a race.
+  // Same call this lane's join already makes (`closeBatchIfSettled` throws on
+  // exactly this read).
+  if (locked === undefined) {
+    throw new Error(
+      `sweepUnknownOutreach: batch ${row.batch_id} not found for outreach ${row.id}'s account and business`,
+    );
+  }
+
+  // THE LIE WITH TEETH, and why it is spelled `unknown` here and `failed` one
+  // statement below. On the OUTREACH ROW, `failed` would be a lie the restraint
+  // policy acts on: its `over_contacted` check reads prior sends, so calling a
+  // message that may already have reached a real person "not sent" can put that
+  // customer in a future batch and email them twice. `unknown` is the honest
+  // answer — possibly contacted, never a confirmed send. On the CHILD RUN,
+  // `failed` is not that lie: nothing reads `agent_runs` for over-contact.
+  //
+  // 091 pairs `unknown` with `send_indeterminate` exclusively — never spell
+  // either alone.
+  //
+  // THE `NOT EXISTS` IS REPEATED FROM P1 ON PURPOSE. P1 runs outside this
+  // transaction, so the outbox watchdog can re-pend the row between the scan and
+  // this UPDATE; a `delivery_status = 'sending'` guard alone would then write
+  // `unknown` over a normal recovery already in flight. Zero rows means the
+  // watchdog won — skip the row and write nothing else for it.
+  const [terminal] = await tx<{ ask_id: string }[]>`
+    UPDATE solicitation_outreach o
+       SET delivery_status = 'unknown',
+           disposition_reason = 'send_indeterminate',
+           updated_at = NOW()
+     WHERE o.id = ${row.id}::uuid
+       AND o.account_id = ${row.account_id}::uuid
+       AND o.business_id = ${row.business_id}::uuid
+       AND o.delivery_status = 'sending'
+       AND NOT EXISTS (
+         SELECT 1 FROM job_outbox jo
+          WHERE jo.topic = ${QUEUE_NAMES.SOLICITATION_SEND}
+            AND jo.aggregate_id = o.id
+            AND jo.status IN ('pending', 'dispatching', 'dispatched')
+       )
+    RETURNING o.ask_id
+  `;
+  if (terminal === undefined) return false;
+
+  const child = await findRunningLazyChild(tx, row, terminal.ask_id);
+  if (child !== null) {
+    // NO `solicitation_sent` OUTCOME. D12d: `unknown` is "possibly contacted"
+    // for over-contact purposes and NOT a confirmed send for metrics or
+    // `review_attributed`, so the value ledger must stay silent about it.
+    await completeRun(tx, child, 'failed', {
+      code: SEND_INDETERMINATE_REASON,
+      outreach_id: row.id,
+    });
+  }
+
+  await closeBatchIfSettled(tx, {
+    batchId: row.batch_id,
+    accountId: row.account_id,
+    businessId: row.business_id,
+  });
+  return true;
+}
+
+/**
+ * The **Lazy child** left `running` by the process that died mid-dispatch.
+ *
+ * Resolved by subject rather than by `solicitation_outreach.agent_run_id`: the
+ * child is per-dispatch-ATTEMPT and its subject is the ask, so the subject key
+ * is the join `startOrGetSolicitationAskRun` itself writes. Scoped by account
+ * AND business — `subject_id` is a bare TEXT key carrying no tenant proof.
+ *
+ * `status = 'running'` is what makes this the CRASHED attempt's child and not a
+ * historical one: a terminal child belongs to an attempt that already accounted
+ * for itself, and re-terminalizing it would be a no-op that reads like a fact.
+ *
+ * `null` is a legitimate answer, deliberately NOT an assertion. A `sending` row
+ * normally does have a running child (#899's tx1 mints it before the CAS), but
+ * this is the one loop on the platform whose whole purpose is to unwedge
+ * locations that nothing else can unwedge — a throw here would abort the tick
+ * before phases 2 and 3 ever ran, letting one anomalous row hold every other
+ * account's wedged batch shut. The Outreach terminalization is the act that
+ * matters; the child transition is the spine's half of it.
+ */
+async function findRunningLazyChild(
+  tx: TransactionSql,
+  row: WedgedOutreachRow,
+  askId: string,
+): Promise<string | null> {
+  const [child] = await tx<{ id: string }[]>`
+    SELECT r.id
+      FROM agent_runs r
+     WHERE r.kind = 'solicitation_ask'
+       AND r.subject_type = 'solicitation_ask'
+       AND r.subject_id = ${askId}
+       AND r.account_id = ${row.account_id}::uuid
+       AND r.business_id = ${row.business_id}::uuid
+       AND r.status = 'running'
+     ORDER BY r.started_at DESC
+     LIMIT 1
+  `;
+  return child?.id ?? null;
+}
+
+/**
+ * The alert D12d requires, one per terminalization.
+ *
+ * It is the ONLY signal that a send may have reached a customer unattributably:
+ * the row may correspond to a delivered email whose `provider_message_id` died
+ * with the process that sent it, so nothing else in the system will ever
+ * report it.
+ *
+ * Best-effort, AFTER the durable write and in its own catch, matching
+ * `applyJudgeSplit` below: an alerting failure must never flip a completed
+ * terminalization into a failed tick. ids only — this lane's rendered subject,
+ * body and recipient handle never leave the database.
+ */
+function alertUnknownTerminalization(row: WedgedOutreachRow): void {
+  try {
+    Sentry.captureMessage(UNKNOWN_ALERT_MESSAGE, {
+      level: 'warning',
+      tags: { subsystem: 'solicitation-release', reason: SEND_INDETERMINATE_REASON },
+      extra: {
+        outreach_id: row.id,
+        batch_id: row.batch_id,
+        account_id: row.account_id,
+        business_id: row.business_id,
+      },
+    });
+  } catch {
+    // The log line below is the fallback sink for Sentry itself being
+    // unreachable, so it lives OUTSIDE this guard.
+  }
+  logger.warn(UNKNOWN_ALERT_MESSAGE, {
+    outreach_id: row.id,
+    batch_id: row.batch_id,
+    account_id: row.account_id,
+    business_id: row.business_id,
+    reason: SEND_INDETERMINATE_REASON,
+  });
 }
 
 // ── phase 2: the `send_window_elapsed` sweep ────────────────────────────────

@@ -1299,9 +1299,24 @@ describeWithDb(
             delivery_status: 'cancelled',
             disposition_reason: 'send_window_elapsed',
           });
-          // NEVER `sending`: that row is past the point of no return and
-          // resolves itself. Halt means "no further sends", not "undo".
-          expect((await readOutreach(sending.outreachId)).delivery_status).toBe('sending');
+          // NEVER `cancelled`: that row is past the point of no return, and
+          // halt means "no further sends", not "undo" — D10 excludes `sending`
+          // from the halt sweep on purpose.
+          //
+          // It "resolves itself" through PHASE 1, not by being left alone, and
+          // this fixture is D12d's own example: the row has sat `sending` for
+          // 68 hours with no in-flight outbox row, so the `unknown` sweep — which
+          // runs FIRST and carries no batch predicate — terminalizes it in the
+          // same tick. That escape is exactly what D12d says it is for: without
+          // it a wedged `sending` row blocks `closeBatchIfSettled` forever and
+          // permanently consumes the location's one active-send slot.
+          //
+          // (Asserted as `sending` until Task 6 built the sweep, when this
+          // interaction became reachable — see the deviations file.)
+          expect(await readOutreach(sending.outreachId)).toMatchObject({
+            delivery_status: 'unknown',
+            disposition_reason: 'send_indeterminate',
+          });
 
           const steps = await readSteps(parentRunId, 'batch_halted');
           expect(steps).toHaveLength(1);
@@ -1387,7 +1402,7 @@ describeWithDb(
     // ── the `unknown` sweep (D12d, the #915 blocker) ────────────────────────
 
     describe('the unknown sweep', () => {
-      it.fails(
+      it(
         'terminalizes a sending Outreach row as unknown after the grace period when no in-flight outbox row exists',
         async () => {
           const batch = await seedBatch(
@@ -1420,9 +1435,16 @@ describeWithDb(
       );
 
       it('does not terminalize a sending row while an in-flight outbox row still exists', async () => {
-        // TASK 6 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
-        // still a stub returning 0), so only deleting P1's `NOT EXISTS` belt
-        // after the sweep exists and watching this go RED is evidence.
+        // RE-VERIFIED by Task 6, 2026-08-22, and no longer vacuous — but the
+        // probe found the belts are NOT independently pinned by this case, and
+        // the finding is recorded here rather than left to be rediscovered.
+        // Deleting P1's outer `NOT EXISTS` ALONE leaves this GREEN: the outbox
+        // row is seeded before the cycle, so the belt REPEATED INSIDE THE CAS
+        // still refuses it. Deleting the CAS belt alone also leaves it green,
+        // for the mirror reason. It goes RED — `expected 1 to be +0`, the row
+        // WAS terminalized — only when BOTH belts are deleted, and green again
+        // the moment either is restored. So this case pins the PAIR; the case
+        // below is what pins the CAS belt on its own.
         // Both belts. The grace period alone is not sufficient evidence of a
         // wedge: a job the OutboxPoller is still carrying is a normal delivery
         // in progress, and terminalizing it would race a real provider send.
@@ -1447,7 +1469,7 @@ describeWithDb(
         expect((await readRun(childRunId)).status).toBe('running');
       });
 
-      it.fails(
+      it(
         'terminalizes the lazy child run in the same transaction as the unknown outreach row',
         async () => {
           // Round-1 finding 6, confirmed at src/lib/solicitation/dispatch.ts:1752:
@@ -1486,10 +1508,14 @@ describeWithDb(
       );
 
       it('does not terminalize a sending row whose outbox row is re-pended after selection', async () => {
-        // TASK 6 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
-        // still a stub returning 0), so only deleting the `NOT EXISTS` REPEATED
-        // INSIDE the CAS after the sweep exists and watching this go RED is
-        // evidence — P1's outer belt alone does not make it pass.
+        // RE-VERIFIED by Task 6, 2026-08-22, and no longer vacuous: with the
+        // `NOT EXISTS` REPEATED INSIDE the CAS deleted, this is the ONLY case in
+        // the file that goes RED (`expected 1 to be +0` — the re-pended row WAS
+        // terminalized), and it goes green again the moment that belt is
+        // restored. P1's outer belt is irrelevant here BY CONSTRUCTION: the
+        // re-pend lands after the unlocked selection, so the outer belt never
+        // sees it, and deleting the outer belt alone leaves this case green.
+        // This case is therefore the CAS belt's sole pin.
         // Round-1 finding 5. P1 runs OUTSIDE the terminalizing transaction, so
         // the outbox watchdog can re-pend the row between the select and the
         // UPDATE. A `delivery_status = 'sending'` guard alone would then write
@@ -1677,7 +1703,7 @@ describeWithDb(
         expect((await readBatch(batch.batchId)).sending_started_at).toBeNull();
       });
 
-      it.fails('rolls back unknown Outreach terminalization when lazy-child completion fails', async () => {
+      it('rolls back unknown Outreach terminalization when lazy-child completion fails', async () => {
         // Round-2 finding 6: a success-path test cannot prove one transaction.
         // A split implementation passes the happy path, then commits `unknown`
         // and dies before terminalizing the child — leaving the child `running`
