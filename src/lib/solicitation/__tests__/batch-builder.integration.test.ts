@@ -566,7 +566,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('build_solicitation_batch atomically records decisions and completes the parent and owned outbox', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    const contactId = await seedContact(uploadId, '2026-07-23');
+    const contactId = await seedContact(uploadId, daysAgoUtc(7));
     const batch = await seedBatch(3);
 
     const result = await build(batch);
@@ -709,8 +709,8 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('priorBatch reads only would-have-sent asks and never velocity_banked decisions', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    const bankedContactId = await seedContact(uploadId, '2026-07-23');
-    const sentContactId = await seedContact(uploadId, '2026-07-22');
+    const bankedContactId = await seedContact(uploadId, daysAgoUtc(7));
+    const sentContactId = await seedContact(uploadId, daysAgoUtc(8));
     const recent = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     await seedPriorAsk({
       contactId: bankedContactId,
@@ -750,7 +750,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('concurrent location batches serialize so the later batch observes earlier would-have-sent history', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const first = await seedBatch();
     const second = await seedBatch();
 
@@ -778,7 +778,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('retry after committed construction does not create an extra parent or duplicate asks or child runs', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const batch = await seedBatch(2);
 
     await build(batch);
@@ -841,7 +841,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('a dispatched builder serializes behind delete_data offboarding and closes without history effects', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const batch = await seedBatch(2);
     const offboardingId = randomUUID();
     const accountLockHeld = deferred();
@@ -926,7 +926,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
 
   it('build_solicitation_batch removes no-parent unbuilt work when the flag or subscription gate closes', async () => {
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const flagClosed = await seedBatch(2);
     const untouched = await seedBatch(2);
 
@@ -1010,7 +1010,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
 
   it('build_solicitation_batch gate closure after parent start completes the owned outbox and fails that parent as gate_closed', async () => {
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const target = await seedBatch(3);
     const untouched = await seedBatch(3);
     const targetParentId = await seedParentRun(target.batchId);
@@ -1067,7 +1067,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('build_solicitation_batch exhausted failure marks only the owned parent failed and keeps the unbuilt batch hidden', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    await seedContact(uploadId, '2026-07-23');
+    await seedContact(uploadId, daysAgoUtc(7));
     const target = await seedBatch(3);
     const untouched = await seedBatch(3);
     const targetParentId = await seedParentRun(target.batchId);
@@ -1143,7 +1143,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   it('repeated visit and evaluation histories remain buildable under a bounded statement timeout', async () => {
     process.env.SOLICITATION_WATCH_ENABLED = 'true';
     const uploadId = await seedCompletedUpload();
-    const contactId = await seedContact(uploadId, '2026-07-23');
+    const contactId = await seedContact(uploadId, daysAgoUtc(7));
     const fixtureSeed = randomUUID();
     const historyRows = 4_000;
 
@@ -1211,7 +1211,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         visit_id,
         ${contactId}::uuid,
         ${businessId}::uuid,
-        '2026-07-23'::date - n,
+        ${daysAgoUtc(7)}::date - n,
         upload_id
       FROM fixtures
     `;
@@ -1288,7 +1288,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         id, contact_id, business_id, visit_date, upload_id
       )
       SELECT
-        gen_random_uuid(), id, ${businessId}::uuid, '2026-07-23'::date,
+        gen_random_uuid(), id, ${businessId}::uuid, ${daysAgoUtc(7)}::date,
         ${uploadId}::uuid
       FROM contacts
     `;
