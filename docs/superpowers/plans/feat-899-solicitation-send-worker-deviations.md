@@ -1,5 +1,40 @@
 # Deviations — #899 Solicitation send worker
 
+## STEP 6 READ-BACK — completed, all twelve entries triaged
+
+Read end to end after Task 7. Verdicts, in order: **D0** ACCEPT (estimate low, lane re-confirmed
+at step 0) · **D1** ACCEPT (tests extended 23→34) · **D2** ACCEPT (surface amendment 1, auto)
+· **D3** ACCEPT (decision 4 revised, owner re-decided as decision 9) · **D4** REJECT-recorded
+(codex C5 on B10) · **D5** ACCEPT (review-round tooling failures) · **D6** ACCEPT (tenant-column
+traps) · **D7** ACCEPT with two mitigations, **both discharged** — every task converted its own
+todos and zero remain · **D8** ACCEPT (payments constant reuse, follow-up filed) · **D9** ACCEPT
+(analytics key corrected to the registered contract) · **D10** ACCEPT under owner waiver (surface
+amendment 2) · **D11** ACCEPT (review-link ruling).
+
+**No entry invalidates a locked decision, so the abort criteria are not triggered.** D3 comes
+closest — it revised locked decision 4 — but that decision had been locked on a false premise
+(that a retry could rebuild the unsubscribe URL), and the owner re-decided it explicitly rather
+than an implementer working around it.
+
+## STEP 7 PREP — how to read `docs/reviews/.../blast-radius.md`
+
+Four changed files have wide importer counts, and **all four took purely ADDITIVE changes** — no
+existing symbol changed shape, so no listed importer's semantics move:
+
+| File | Importers | Change |
+|---|---|---|
+| `src/lib/shared/worker-types.ts` | 126 | one new interface |
+| `worker/index.ts` | 94 | one worker registration |
+| `src/lib/shared/queue-names.ts` | 73 | one new constant |
+| `src/lib/agents/run-spine.ts` | 53 | two step keys + one new exported function |
+
+**The file that actually carries semantic risk is `src/lib/solicitation/ask-generation.ts`
+(6 importers)** — Task 3 refactored `assembleInterpolation` to build its two lint-input lists
+through the new shared `lintInputFromSnapshot`, and removed two now-duplicated fields from
+`AssembledChild`. That is the one place a caller could have relied on the old behaviour, and it
+is where the spec reviewer should spend its blast-radius attention. `ask-compliance-lint.ts`
+(7 importers) gained an export only.
+
 ## STEP 8 CHECKLIST — carry every one of these out of this branch
 
 Collected here so the post-merge sweep has one list. Items 1-3 are follow-up TICKETS, not
