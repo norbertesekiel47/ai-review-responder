@@ -5,7 +5,7 @@ A resumed session bootstraps from this file. **It never needs the prior transcri
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-900-solicitation-release-poller`
 **Branch:** `feat-900-solicitation-release-poller` · **Issue:** #900
 **Lane:** RISK = high · SURFACE = backend · `db_touching: true` · **no migration**
-**Phase:** `reviewed` — steps 0–7 COMPLETE. **Next action: step 8, ride staging.**
+**Phase:** `reviewed` — steps 0–7 COMPLETE, **step 8.1 (ride) and 8.2 (verify) DONE**. **Next action: step 8.3 — PR open, awaiting owner merge approval.**
 
 ## Reconciliation — run the checks, they should agree
 
@@ -38,9 +38,20 @@ Self-verifying by design; no hardcoded SHAs, because the commit writing this fil
 
 ## Step 8, and nothing before it is outstanding
 
-1. **Ride staging first.** Land the branch on `staging` (push → full stack auto-deploys). **No migration to apply** — 091 and 110 already carry every column, CHECK member and index this feature writes.
-2. **Verify on staging.** Smoke the touched path. `SOLICITATION_SEND_ENABLED` stays OFF — the release phase is inert, so what is verifiable is that the three sweeps and the backstop run and the poller registers cleanly at boot. Do NOT flip the flag; #915 governs that and this branch does not discharge the flip decision, only its blocker.
-3. **Open the PR to `main`,** confirm GitHub CI green, then **PAUSE for the owner's explicit merge approval.** Do not merge on your own judgment.
+1. ~~**Ride staging first.**~~ **DONE 2026-08-22.** `staging` fast-forwarded to `b546c735` (it was byte-equal to `main` first, so the ride is a clean ff). Railway staging deploy `b71c19b8` SUCCESS; both Vercel builds Ready. **No migration applied and none needed** — 091 and 110 already carry every column, CHECK member and index this feature writes.
+2. ~~**Verify on staging.**~~ **DONE 2026-08-22 — evidence below.** `SOLICITATION_SEND_ENABLED` was **not set** on the staging worker and was **not flipped**; #915 governs that flip and this branch does not discharge it, only its blocker.
+
+   | Check | Result |
+   |---|---|
+   | Worker boots on `b546c735` | clean — `Worker listening`, `[boot] readiness cure complete` |
+   | New boot assertion demanded | none — `startup-assert.ts:477` early-returns while the send flag is off |
+   | Poller registers | `[SolicitationReleasePoller] Starting (interval=60000ms)` (default; `SOLICITATION_RELEASE_POLL_INTERVAL_MS` unset) |
+   | Cycles repeat | 3 ticks, START times 23:26:29 / 23:27:29 / 23:28:29 UTC — exactly 60s apart |
+   | Errors | none. The two `error`-level lines are the `tsx` command echo and the **pre-existing** `LIST_UNSUBSCRIBE_EMAIL` warning, both present on the prior deploy `35b86bb6` |
+   | Zero counts are honest, not a silent skip | staging holds **0** `solicitation_batches` and **0** `solicitation_outreach` rows, breaker closed — so there is nothing for any sweep to act on |
+
+   **The bar this clears, and the bar it does not.** It proves the deployed worker registers the loop and completes a cycle against real Postgres every 60s. It does **not** exercise the three sweep predicates against data — staging has no send-mode rows to seed them, and predicate behaviour is covered by the live-DB suites `release.integration.test.ts` and `approval-system-halt.integration.test.ts`, both PASS in the gate. Do not re-derive this as a gap; it is the bar step 8.2 was written to.
+3. **Open the PR to `main`,** confirm GitHub CI green, then **PAUSE for the owner's explicit merge approval.** Do not merge on your own judgment. **This is the current step.**
 
 ## After merge — obligations already identified, do not rediscover them
 
