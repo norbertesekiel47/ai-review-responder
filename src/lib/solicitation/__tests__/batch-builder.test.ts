@@ -66,6 +66,28 @@ import {
  * so a narrowed projection fails closed rather than sending. Three call sites
  * push this row and all three go through here.
  */
+/**
+ * A UTC calendar date N days before today, as `YYYY-MM-DD`.
+ *
+ * Restraint-policy fixtures MUST be relative. Both gates this file exercises are
+ * day-count comparisons against TODAY — `stale_visit` fires when
+ * `daysSinceVisit > FRESHNESS_WINDOW_DAYS[vertical]` (14-45 by vertical) and
+ * `over_contacted` when the prior decision is `< MIN_GAP_DAYS` (30) old — so a
+ * hard-coded date does not fail on the day it is written; it silently crosses a
+ * boundary on some later run and flips the expected decision.
+ *
+ * That is not hypothetical: this file's `2026-07-23` fixtures passed until
+ * 2026-08-22, when they hit exactly 30 days and two assertions inverted at once
+ * (`over_contacted` stopped firing here; `stale_visit` started firing in the
+ * integration twin). Seven days is comfortably inside the smallest freshness
+ * window and well under the gap, so the intent holds whenever the suite runs.
+ */
+function utcDaysAgo(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 function businessRow(
   overrides: {
     owner_email_bounced?: boolean;
@@ -448,7 +470,7 @@ describe('solicitation batch candidate loader', () => {
       mkTaggedResult([businessRow()]),
       mkTaggedResult([{
         contact_id: 'contact-1',
-        last_visit_date: '2026-07-23',
+        last_visit_date: utcDaysAgo(7),
         consent_attested: true,
         consent_upload_id: 'upload-1',
         consent_attestation_version: 'consent_attestation_v2',
@@ -461,7 +483,7 @@ describe('solicitation batch candidate loader', () => {
       mkTaggedResult([{
         contact_id: 'contact-1',
         prior_batch_id: 'prior-batch-1',
-        prior_decision_at: '2026-07-23T00:00:00.000Z',
+        prior_decision_at: `${utcDaysAgo(7)}T00:00:00.000Z`,
       }]),
       mkTaggedResult([{ id: 'ask-1' }]),
       mkTaggedResult([{ id: 'ask-1' }]),
