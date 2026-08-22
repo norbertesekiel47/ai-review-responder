@@ -109,20 +109,76 @@ describe('classifySendFailure invariants', () => {
     fc.anything(),
   );
 
+  /**
+   * "Exactly one class per error" is not a claim about the RESULT — a single
+   * returned value trivially equals one member of any list it belongs to, which
+   * is all `SEND_FAILURE_CLASSES.filter(cls => cls === verdict).length === 1`
+   * ever asserted. It is a claim about the classifier being a FUNCTION from
+   * thrown values to classes, and that decomposes into exactly three checkable
+   * facts, all asserted below:
+   *
+   *   TOTAL        — every input yields a member of the union,
+   *   NON-THROWING — and yields it by returning, never by propagating. A
+   *                  classifier that throws inside a catch block loses the
+   *                  original failure, so "no class" is not a legal answer and
+   *                  totality without this is only half the property.
+   *   DETERMINISTIC — the same input always yields the same class, which is
+   *                  what stops the in-process retry loop (which re-classifies
+   *                  on every attempt) from flipping a decision mid-flight.
+   */
   it('property: every provider error maps to exactly one retry class', () => {
     fc.assert(
       fc.property(arbThrown, (thrown) => {
+        const classify = () => classifySendFailure(thrown);
+
+        // NON-THROWING. Asserted before the value is read, so an input that
+        // escapes the table by throwing fails here rather than aborting the
+        // property run with an error that looks like a harness fault.
+        expect(classify).not.toThrow();
+
         // TOTAL — no input escapes the table. An unclassifiable error must land
-        // in `terminal_other`, never propagate out of the classifier.
-        const verdict = classifySendFailure(thrown);
+        // in `terminal_other`.
+        const verdict = classify();
         expect(SEND_FAILURE_CLASSES).toContain(verdict);
 
-        // EXACTLY ONE — the classes are mutually exclusive, so the same input
-        // cannot be both retryable and terminal, and re-classifying the same
-        // error (which the in-process retry loop does on every attempt) can
-        // never flip a decision mid-flight.
-        expect(SEND_FAILURE_CLASSES.filter((cls) => cls === verdict)).toHaveLength(1);
-        expect(classifySendFailure(thrown)).toBe(verdict);
+        // DETERMINISTIC — pure over its argument, so the retry loop sees one
+        // verdict per failure however many times it asks.
+        expect(classify()).toBe(verdict);
+        expect(classify()).toBe(verdict);
+      }),
+    );
+  });
+
+  /**
+   * The stronger property, and the one with teeth: `terminal_bounce` is the only
+   * class that stamps `bounced_at`, feeds the Suppression ledger and the Send
+   * breaker's hard-bounce numerator — i.e. the only one that can silence a real
+   * customer forever over a provider error.
+   *
+   * The NECESSARY condition asserted here comes from D12c ("provider 4xx
+   * invalid-recipient"), not from the module's control flow: a bounce is a
+   * statement about the RECIPIENT, and only the provider's own 4xx response
+   * carries one. Everything else in `arbThrown` — a socket error, a bare
+   * `new Error(message)`, arbitrary junk from a rejecting SDK — carries no such
+   * statement, so no amount of message text may promote it to a suppression.
+   * Deliberately not a restatement of `isRecipientRejection`: it checks only for
+   * a reachable 4xx status, which the implementation must have but is free to
+   * demand more than.
+   */
+  it('property: terminal_bounce requires a provider 4xx, never message text alone', () => {
+    const reachable4xx = (thrown: unknown): boolean =>
+      [thrown, (thrown as { cause?: unknown } | null | undefined)?.cause].some((candidate) => {
+        if (!candidate || typeof candidate !== 'object' || !('statusCode' in candidate)) {
+          return false;
+        }
+        const status = (candidate as { statusCode: unknown }).statusCode;
+        return typeof status === 'number' && status >= 400 && status < 500;
+      });
+
+    fc.assert(
+      fc.property(arbThrown, (thrown) => {
+        if (classifySendFailure(thrown) !== 'terminal_bounce') return;
+        expect(reachable4xx(thrown)).toBe(true);
       }),
     );
   });

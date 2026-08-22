@@ -11,6 +11,24 @@
 // other half: BullMQ ran out of attempts, so the dispatch never got an answer
 // at all. Migration 091's status/reason CHECK carries both.
 //
+// "NEVER GOT AN ANSWER" IS TWO DIFFERENT FACTS, AND THIS HOOK MUST NOT CONFLATE
+// THEM. The arrival status says which one happened:
+//
+//   * `queued` — the attempt died ABOVE tx1's CAS, so nothing was ever put on
+//     the wire. `failed` / `send_exhausted` is the honest reading.
+//   * `sending` — the attempt died AFTER tx1 claimed the row, so the message
+//     may already have reached the recipient and no one here can tell.
+//     `unknown` / `send_indeterminate` is the honest reading, and it is why
+//     D12d minted that pair in the first place.
+//
+// Writing `failed` for a `sending` row is D12d's named lie-with-teeth: the
+// restraint policy's `over_contacted` check counts PRIOR SENDS, so a possible
+// send recorded as "not sent" puts that customer back in a future batch and
+// emails them twice. This hook therefore shares `send_indeterminate` with
+// #900's D12d sweep rather than owning it — the sweep terminalizes a `sending`
+// row that timed out, this hook terminalizes one whose job ladder ran out, and
+// both are making the same claim about the same unknowable fact.
+//
 // PII contract: this lane's subject, body, recipient handle and unsubscribe
 // token never reach it, and nothing here logs anything but ids, an error CLASS
 // and closed enum values.
@@ -23,26 +41,53 @@ import { closeBatchIfSettled } from '@/lib/solicitation/outreach';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
 import type { SolicitationSendPayload } from '@/lib/shared/worker-types';
+// Log-field hygiene only, and the one helper in that file with no lane-specific
+// semantics: it turns a constructor name into a bounded identifier and makes no
+// claim about transport errors or exhaustion arithmetic, which is what its
+// "deliberately NOT generalized past this folder" docstring is actually about.
+// `isSendAttemptExhausted` below stays local for exactly that reason.
+import { boundedErrorClass } from '../solicitation-batch/failed-hook-shared';
 
 const logger = createWorkerLogger('[SolicitationSendWorker.failed]');
 
-/** The one reason this hook writes. 091 pairs `failed` with exactly
- *  `send_failed` (dispatch.ts's tx2) and this one. */
-const SEND_EXHAUSTED_REASON = 'send_exhausted';
-
 /**
- * A constructor name safe to put in a log field: bounded length, strict
- * identifier shape. Local rather than imported from
- * `worker/jobs/solicitation-batch/failed-hook-shared.ts`, whose docstring binds
- * it to that folder ("Deliberately NOT generalized past this folder") — the
- * judge hook keeps its own copy for the same reason.
+ * The two status/reason pairs this hook writes, keyed by the status the row
+ * arrived in. Both are legal under 091's `solicitation_outreach_status_reason_
+ * consistency` CHECK as re-stated by 110, so this split needs no migration.
+ *
+ * `childStatus` is `failed` on BOTH arms, and deliberately so. `agent_runs`
+ * carries no `unknown` (091: running/completed/cancelled/failed), and of the
+ * three terminals only `failed` is true of an indeterminate dispatch: the RUN
+ * did not finish the work it started, whatever the provider did with the bytes.
+ * `completed` would assert a send this hook cannot witness and `cancelled`
+ * would assert a decision nobody made. The indeterminacy lives in
+ * `failure_class`, and the Outreach row — not the run — is the authoritative
+ * record of whether a customer may have been contacted.
  */
-function boundedErrorClass(err: unknown): string {
-  if (!(err instanceof Error)) return 'UnknownError';
-  const constructorName = err.constructor.name;
-  return /^[A-Za-z][A-Za-z0-9_$]{0,99}$/.test(constructorName)
-    ? constructorName
-    : 'UnknownError';
+const TERMINAL_BY_ARRIVAL = {
+  queued: {
+    deliveryStatus: 'failed',
+    dispositionReason: 'send_exhausted',
+    childStatus: 'failed',
+    failureClass: 'send_exhausted',
+  },
+  sending: {
+    deliveryStatus: 'unknown',
+    dispositionReason: 'send_indeterminate',
+    childStatus: 'failed',
+    failureClass: 'send_indeterminate',
+  },
+} as const;
+
+type TerminalArrivalStatus = keyof typeof TERMINAL_BY_ARRIVAL;
+
+/** The two live statuses a dispatched job can leave behind. `rendered` is
+ *  deliberately absent (that row was never dispatched, and 091's
+ *  status/timestamp CHECK would then record a dispatch that never happened),
+ *  and so is every terminal status, which belongs to whichever writer got
+ *  there first. */
+function isTerminalizableArrival(status: string): status is TerminalArrivalStatus {
+  return status === 'queued' || status === 'sending';
 }
 
 function isSendAttemptExhausted(job: Job<SolicitationSendPayload>): boolean {
@@ -88,6 +133,11 @@ interface SendExhaustionOutcome {
   childFailed: boolean;
   /** Why nothing was terminalized, for the log line. */
   status: 'terminalized' | 'stale' | 'vanished' | 'already_terminal';
+  /** WHICH terminal was written, so an operator can tell the honest-failure arm
+   *  from the indeterminate one without re-reading the row. Null when nothing
+   *  was terminalized. */
+  deliveryStatus: string | null;
+  dispositionReason: string | null;
 }
 
 interface SendExhaustionHandle {
@@ -128,6 +178,8 @@ async function commitSendExhaustion(
     terminalized: false,
     childFailed: false,
     status: 'stale',
+    deliveryStatus: null,
+    dispositionReason: null,
   };
 
   await sql.begin(async (tx: TransactionSql) => {
@@ -156,40 +208,51 @@ async function commitSendExhaustion(
       return;
     }
 
-    // `('queued', 'sending')` and nothing else: those are the two live statuses
-    // a dispatched job can leave behind — `queued` when the attempt died above
-    // tx1's CAS, `sending` when it died after it. `rendered` is deliberately
-    // absent (that row was never dispatched, and 091's status/timestamp CHECK
-    // would then record a dispatch that never happened), and so is every
-    // terminal status, which belongs to whichever writer got there first.
-    const terminalized = await tx<{ id: string }[]>`
-      UPDATE solicitation_outreach
-      SET delivery_status = 'failed',
-          disposition_reason = ${SEND_EXHAUSTED_REASON},
-          updated_at = NOW()
-      WHERE id = ${handle.outreachId}::uuid
-        AND account_id = ${row.account_id}::uuid
-        AND business_id = ${handle.businessId}::uuid
-        AND delivery_status IN ('queued', 'sending')
-      RETURNING id
-    `;
-    if (terminalized.count === 0) {
+    if (!isTerminalizableArrival(row.delivery_status)) {
       // Another writer owns the row's final status — tx2 landing after the
       // last attempt threw, or #900's D12d sweep calling it `unknown`. Its
       // verdict STANDS, and it already joined the batch.
       outcome.status = 'already_terminal';
       return;
     }
+
+    // THE ARRIVAL STATUS PICKS THE TERMINAL — see the module header. Read under
+    // the `FOR UPDATE` above, so the CAS below re-asserts the exact value this
+    // arm was chosen for rather than a two-member `IN` list: a predicate that
+    // admitted both would let a row that moved `queued → sending` under us take
+    // the `failed` verdict computed for the status it no longer has.
+    const terminal = TERMINAL_BY_ARRIVAL[row.delivery_status];
+
+    const terminalized = await tx<{ id: string }[]>`
+      UPDATE solicitation_outreach
+      SET delivery_status = ${terminal.deliveryStatus},
+          disposition_reason = ${terminal.dispositionReason},
+          updated_at = NOW()
+      WHERE id = ${handle.outreachId}::uuid
+        AND account_id = ${row.account_id}::uuid
+        AND business_id = ${handle.businessId}::uuid
+        AND delivery_status = ${row.delivery_status}
+      RETURNING id
+    `;
+    if (terminalized.count === 0) {
+      outcome.status = 'already_terminal';
+      return;
+    }
     outcome.terminalized = true;
     outcome.status = 'terminalized';
+    outcome.deliveryStatus = terminal.deliveryStatus;
+    outcome.dispositionReason = terminal.dispositionReason;
 
     if (row.agent_run_id !== null) {
       // Decision 8's failure arm: a dispatch that never got a provider answer
-      // is a failure to send. A NULL run means the attempt died above tx1 and
-      // no child was ever created — there is nothing to terminalize, and
-      // creating one here would record work this hook did not perform.
-      await completeRun(tx, row.agent_run_id, 'failed', {
-        failure_class: 'send_exhausted',
+      // is a failure to send — and one that MAY have sent is still a run that
+      // did not finish its work, so both arms terminalize `failed` and differ
+      // only in the `failure_class` they record. A NULL run means the attempt
+      // died above tx1 and no child was ever created — there is nothing to
+      // terminalize, and creating one here would record work this hook did not
+      // perform.
+      await completeRun(tx, row.agent_run_id, terminal.childStatus, {
+        failure_class: terminal.failureClass,
         error_class: errorClass,
       });
       outcome.childFailed = true;
@@ -198,6 +261,8 @@ async function commitSendExhaustion(
     // A **Settled batch** has no Outreach row left in `rendered`, `queued` or
     // `sending`. An exhausted row that never joined would leave the batch open
     // forever and permanently consume the account's one active-batch slot.
+    // `unknown` settles a batch exactly as `failed` does — it is terminal, and
+    // the fact it records is "we will never know", not "we are still trying".
     await closeBatchIfSettled(tx, {
       batchId: handle.batchId,
       accountId: row.account_id,
@@ -212,9 +277,9 @@ async function commitSendExhaustion(
  * Exhausted-attempt terminalizer for `solicitation_send`.
  *
  * Fires on the FINAL BullMQ attempt and on no other: before it, the job still
- * belongs to BullMQ, and terminalizing early would write `failed` on a row a
- * later attempt is still allowed to dispatch — with a stable provider
- * idempotency key, a "failed" row whose message may yet be delivered.
+ * belongs to BullMQ, and terminalizing early would write a terminal status on a
+ * row a later attempt is still allowed to dispatch — with a stable provider
+ * idempotency key, a terminalized row whose message may yet be delivered.
  */
 export async function handleSolicitationSendFailed(
   sql: Sql,
@@ -271,5 +336,11 @@ export async function handleSolicitationSendFailed(
     outbox_attempt: attempt,
     error_class: errorClass,
     child_failed: outcome.childFailed,
+    // Which of the two honest terminals was written. A run of
+    // `send_indeterminate` is the signal that dispatches are dying between the
+    // CAS and the provider answer, which is a different operational problem
+    // from a run of `send_exhausted`.
+    delivery_status: outcome.deliveryStatus ?? 'none',
+    disposition_reason: outcome.dispositionReason ?? 'none',
   });
 }

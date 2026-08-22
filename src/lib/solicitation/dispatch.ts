@@ -57,7 +57,11 @@
  * Outbox contract: a defer is a SUCCESS, never a stranded `dispatched` row —
  * `completeOutboxNoop` mirrors `ask-generation.ts`'s helper of the same name.
  * Leaving the attempt in flight would have the watchdog re-pend a row that was
- * correctly deferred, turning a quiet no-op into a retry storm.
+ * correctly deferred, turning a quiet no-op into a retry storm. A defer also
+ * owes a `dispatch_gate_evaluated` step on the **Send batch parent**
+ * (`recordDeferStepOnParent`) — without it a deferred contact leaves no trace
+ * on the spine at all, and both defer paths write the same step for the same
+ * reason.
  *
  * PII contract: this lane holds the rendered subject, the rendered body, the
  * recipient handle and a raw unsubscribe token. NONE of them is ever logged —
@@ -418,9 +422,19 @@ function requireAttempt(handle: OutboxHandle, door: string): number {
 }
 
 /**
- * A defer is a SUCCESS: complete the owned attempt in a minimal transaction so
- * the row can never strand in `dispatched`. A stale attempt no-ops inside the
- * CAS itself. Shape copied from `ask-generation.ts`'s `completeOutboxNoop`.
+ * A no-op refusal is a SUCCESS: complete the owned attempt in a minimal
+ * transaction so the row can never strand in `dispatched`. A stale attempt
+ * no-ops inside the CAS itself.
+ *
+ * A DELIBERATE second copy of `ask-generation.ts`'s helper of the same name,
+ * not an oversight. Its real owner is `src/lib/shared/outbox.ts` — where
+ * `markOutboxCompletedIfOwned` already lives and where both lanes already
+ * import from — and that is where it should be hoisted the next time this file
+ * is opened for a reason that includes it. What it must NOT become is an export
+ * of `ask-generation.ts`: this module's only edge to that one is `import type
+ * { OutboxHandle }`, deliberately type-only, and a value import would drag the
+ * LLM task seam, the cost guard and the Redis cost tracker into the dispatch
+ * lane's module graph to borrow five lines.
  */
 async function completeOutboxNoop(
   sql: Sql,
@@ -705,7 +719,13 @@ async function stampConsentSnapshot(
   `;
 }
 
-// ── The send handoff: token mint + message assembly ──────────────────────────
+// ── The outbound envelope: token mint + message assembly ─────────────────────
+//
+// NOT "the send handoff", which is a LOCKED term for a different act in a
+// different module at a different point in the lifecycle: the
+// `enqueueGenerateSolicitationAsks` call at the end of `constructBatch`
+// (`batch-builder.ts`), where a batch becomes send-mode work. What follows is
+// per-CONTACT and runs inside one dispatch attempt.
 
 /**
  * Google's write-review deep link, the destination `assembleAskBody`'s
@@ -1061,6 +1081,25 @@ function nowIf(tx: TransactionSql, condition: boolean): PendingQuery<Row[]> | nu
  * `provider_message_id` is not optional on the sent arm. It is the join key
  * every later bounce, complaint and opt-out webhook resolves against, so a
  * `sent` row without one makes all three unattributable.
+ *
+ * WHICH IS WHY EVERYTHING ABOUT THE SEND HANGS OFF THE CAS. When the CAS
+ * matches no row another writer already terminalized it, and this transaction
+ * therefore CANNOT persist `provider_message_id` — the column belongs to a row
+ * whose final status it does not own. Recording `solicitation_sent` and
+ * completing the child anyway would publish a send the lane can never attribute
+ * a bounce, complaint or opt-out to, and would close the 503-retry window on a
+ * message nothing in Postgres links back to the provider. So the outcome, the
+ * `ask_sent` step and the child's terminal are all conditional on the CAS, and
+ * `closeBatchIfSettled` with them — the writer that DID terminalize the row
+ * joined the batch in its own transaction, and a **Settled batch** joined twice
+ * is a duplicate receipt step (the exhaustion hook makes the identical call for
+ * the identical reason).
+ *
+ * The outbox attempt is the ONE thing still owed on that branch. It is spent
+ * either way: this invocation reached the provider and can make no further
+ * progress on the row, so leaving the attempt in flight would only have the
+ * watchdog re-dispatch a job whose sole remaining act is to observe that the
+ * row is no longer `queued`.
  */
 async function commitSendTerminal(
   tx: TransactionSql,
@@ -1091,13 +1130,21 @@ async function commitSendTerminal(
   if (terminalized.count === 0) {
     // Another writer terminalized the row between tx1 and here — #900's D12d
     // sweep is the only candidate today. Its verdict STANDS (the CAS is what
-    // makes that true), and the rest of tx2 still runs: the message really did
-    // reach the provider, so the child, the outcome and the outbox all owe
-    // their settlement regardless of who owns the row's final status.
+    // makes that true), and NOTHING about the send may be committed on top of
+    // it: `provider_message_id` did not persist, so a `solicitation_sent`
+    // outcome here would be a value-ledger row with no join key behind it, and
+    // a `completed` child would claim a delivery this transaction failed to
+    // record. Only the outbox attempt is settled — see the docstring.
     logger.warn('solicitation send: terminal CAS found no sending row — another writer owns it', {
       ...context,
+      outreach_id: scope.outreachId,
       provider_result: input.result.kind,
+      // The id that DID come back from the provider, so the send is at least
+      // recoverable from the log even though the row could not take it.
+      provider_message_id: input.result.kind === 'sent' ? input.result.providerMessageId : null,
     });
+    await markOutboxCompletedIfOwned(tx, input.outboxId, input.attempt);
+    return;
   }
 
   if (sent) {
@@ -1176,6 +1223,89 @@ async function startLazyChild(
     businessId: scope.businessId,
     parentRunId: parent.runId,
   });
+}
+
+interface DeferStepDetail {
+  gateItem: DispatchGateItem;
+  askId?: string;
+  batchState?: BatchState;
+}
+
+/**
+ * The spine step a DEFER owes — the intake contract's edge case 2, which
+ * promises a flag-off defer "records a spine step", and the observability
+ * entry that depends on it.
+ *
+ * ON THE **Send batch parent**, never the **Lazy child**. The child is
+ * per-dispatch-ATTEMPT and is created at the moment a dispatch actually happens
+ * (decision 7); a defer never dispatches, so minting one for it would put a run
+ * on the spine for work that was declined before it started — and #900 re-drips
+ * the same row, so that run would then need reconciling against the real
+ * attempt's child. The parent already exists, `findActiveSolicitationSendBatchRun`
+ * already reads it, and a defer is a fact about the batch's progress rather than
+ * about one contact's dispatch.
+ *
+ * BEST-EFFORT, and that asymmetry with `startLazyChild` is deliberate. That
+ * function THROWS on a missing parent, because a real dispatch the spine cannot
+ * account for is a bug to surface. Here a throw would convert a quiet
+ * no-decision into a BullMQ failure ladder whose last rung is the exhaustion
+ * hook terminalizing a row nobody decided anything about — strictly worse than
+ * a defer with no step. The caller reports which happened.
+ *
+ * ids and closed enum values only — never the handle, the subject or the body.
+ */
+async function recordDeferStepOnParent(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  detail: DeferStepDetail,
+): Promise<boolean> {
+  const parent = await findActiveSolicitationSendBatchRun(tx, {
+    batchId: scope.batchId,
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+  });
+  if (parent === null) return false;
+
+  await recordStep(tx, {
+    runId: parent.runId,
+    stepKey: 'dispatch_gate_evaluated',
+    detail: {
+      outreach_id: scope.outreachId,
+      ...(detail.askId === undefined ? {} : { ask_id: detail.askId }),
+      gate_item: detail.gateItem,
+      outcome: 'defer',
+      ...(detail.batchState === undefined ? {} : { batch_state: detail.batchState }),
+    },
+  });
+  return true;
+}
+
+/**
+ * The flag-off defer, as its own minimal transaction — decision 5 reached
+ * ABOVE tx1, so it has no transaction to join.
+ *
+ * The opening order is tx1's: the stale-attempt guard is the ownership CAS
+ * itself (`markOutboxCompletedIfOwned` matches on the exact attempt), so
+ * attempt N-1 arriving after attempt N was dispatched writes NOTHING — neither
+ * the completion nor the step. The advisory lock follows for the same global
+ * lock-order reason it does everywhere else in this lane.
+ */
+async function commitFlagOffDefer(
+  sql: Sql,
+  scope: DispatchScope,
+  handle: { outboxId: string; attempt: number },
+): Promise<{ ownsAttempt: boolean; stepRecorded: boolean }> {
+  const result = { ownsAttempt: false, stepRecorded: false };
+
+  await sql.begin(async (tx: TransactionSql) => {
+    result.ownsAttempt = await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    if (!result.ownsAttempt) return;
+
+    await acquireSolicitationBatchLock(tx, scope.businessId);
+    result.stepRecorded = await recordDeferStepOnParent(tx, scope, { gateItem: 'send_flag' });
+  });
+
+  return result;
 }
 
 interface WithholdCommitInput {
@@ -1266,7 +1396,10 @@ type DispatchTxOutcome =
   | { kind: 'stale' }
   | { kind: 'vanished' }
   | { kind: 'cancelled' }
-  | { kind: 'deferred'; item: DispatchGateItem; batchState: BatchState }
+  /** `stepRecorded` is false only when the **Send batch parent** run is gone or
+   *  already terminal — see `recordDeferStepOnParent` on why that is reported
+   *  rather than thrown. */
+  | { kind: 'deferred'; item: DispatchGateItem; batchState: BatchState; stepRecorded: boolean }
   | { kind: 'withheld'; item: DispatchGateItem; reason: OutreachWithheldReason }
   /** Decision 9, the ONE resume outcome. Some prior invocation owns this
    *  dispatch: the row is already `sending`, or — defensively — its token row
@@ -1439,11 +1572,22 @@ async function runDispatchTx(
     // no-decision and the row is one #900's producer re-drips. The attempt is
     // still completed — the watchdog reclaims every in-flight status, so a
     // defer left `dispatched` is re-dispatched every stale window forever.
+    //
+    // The SPINE step is not domain state: without it a deferred attempt leaves
+    // no trace anywhere but a log line, and the batch's own run cannot account
+    // for why a contact it planned to reach was not reached.
+    const batchState = deriveBatchState(batchRow, now);
+    const stepRecorded = await recordDeferStepOnParent(tx, scope, {
+      gateItem: verdict.item,
+      askId: outreach.ask_id,
+      batchState,
+    });
     await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
     return {
       kind: 'deferred',
       item: verdict.item,
-      batchState: deriveBatchState(batchRow, now),
+      batchState,
+      stepRecorded,
     };
   }
 
@@ -1633,21 +1777,6 @@ export async function dispatchOutreach(
     return;
   }
 
-  // Decision 5: the flag flipped between enqueue and run ⇒ DEFER. The row keeps
-  // its current status — most often `queued` — and #900's producer re-drips it
-  // once the lane is switched back on. Never a withhold: there is no `flag_off`
-  // reason in 091/110 and terminalizing here would end an attempt the owner
-  // still owns.
-  if (!solicitationSendEnabled()) {
-    await completeOutboxNoop(sql, outboxId, attempt);
-    logger.log('solicitation send deferred: send flag disabled', {
-      batch_id: input.batchId,
-      outreach_id: input.outreachId,
-      delivery_status: row.delivery_status,
-    });
-    return;
-  }
-
   const scope: DispatchScope = {
     accountId: row.account_id,
     businessId: input.businessId,
@@ -1655,6 +1784,34 @@ export async function dispatchOutreach(
     outreachId: input.outreachId,
   };
   const context = { batch_id: scope.batchId, outreach_id: scope.outreachId };
+
+  // Decision 5: the flag flipped between enqueue and run ⇒ DEFER. The row keeps
+  // its current status — most often `queued` — and #900's producer re-drips it
+  // once the lane is switched back on. Never a withhold: there is no `flag_off`
+  // reason in 091/110 and terminalizing here would end an attempt the owner
+  // still owns.
+  //
+  // `send_flag` is the gate's OWN item 2, evaluated early rather than replaced,
+  // which is why the step this writes is indistinguishable from the one tx1's
+  // gate-defer writes. The two paths differ in WHERE the flag was read, never in
+  // what they claim happened.
+  if (!solicitationSendEnabled()) {
+    const defer = await commitFlagOffDefer(sql, scope, { outboxId, attempt });
+    if (!defer.ownsAttempt) {
+      logger.warn('solicitation send: stale outbox attempt on a flag-off defer — nothing done', {
+        ...context,
+        outbox_id: outboxId,
+        outbox_attempt: attempt,
+      });
+      return;
+    }
+    logger.log('solicitation send deferred: send flag disabled', {
+      ...context,
+      delivery_status: row.delivery_status,
+      spine_step_recorded: defer.stepRecorded,
+    });
+    return;
+  }
 
   // Decision 3: gate items 8 and 9 are decided HERE, above the transaction, so
   // no lock is held across the moderation provider's round trip.
@@ -1709,6 +1866,7 @@ export async function dispatchOutreach(
       ...context,
       gate_item: outcome.item,
       batch_state: outcome.batchState,
+      spine_step_recorded: outcome.stepRecorded,
     });
     return;
   }

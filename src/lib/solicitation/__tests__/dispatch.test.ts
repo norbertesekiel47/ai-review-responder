@@ -56,10 +56,13 @@ import { isWellFormedUnsubscribeToken, mintUnsubscribeRawToken } from '../unsubs
 
 const mocks = vi.hoisted(() => ({
   lockDispatchedOutboxAttemptIfOwned: vi.fn<() => Promise<boolean>>(),
-  markOutboxCompletedIfOwned: vi.fn<() => Promise<void>>(),
+  markOutboxCompletedIfOwned: vi.fn<() => Promise<boolean>>(),
   findActiveSolicitationSendBatchRun: vi.fn<() => Promise<{ runId: string } | null>>(),
   startOrGetSolicitationAskRun: vi.fn<() => Promise<{ runId: string; created: boolean }>>(),
-  recordStep: vi.fn<() => Promise<void>>(),
+  // Typed with its real arity: a case below reads the recorded `detail` back to
+  // prove no PII reached the spine, and a zero-arg mock type makes that
+  // unexpressible.
+  recordStep: vi.fn<(tx: unknown, input: unknown) => Promise<void>>(),
   recordOutcome: vi.fn<() => Promise<void>>(),
   completeRun: vi.fn<() => Promise<void>>(),
   closeBatchIfSettled: vi.fn<() => Promise<unknown>>(),
@@ -187,10 +190,21 @@ function outreachDispatchRow() {
   };
 }
 
+/** The `solicitation_batches` lifecycle columns tx1 reads, as a fixture shape.
+ *  Nullable where the real row is, so a case can latch a halt on one. */
+interface BatchRowFixture {
+  built_at: Date;
+  approved_at: Date | null;
+  veto_deadline_at: Date | null;
+  sending_started_at: Date | null;
+  send_closed_at: Date | null;
+  halted_at: Date | null;
+}
+
 /** Approved, past its veto window, inside the send window and already dripping —
  *  `deriveBatchState` reads `sending`, one of the two states the gate's
  *  `batch_open` item admits. */
-function openBatchRow() {
+function openBatchRow(): BatchRowFixture {
   const now = Date.now();
   return {
     built_at: new Date(now - 2 * 60 * 60 * 1000),
@@ -208,11 +222,14 @@ function openBatchRow() {
  * awaited queries strictly FIFO, so an empty slot is a real query with an empty
  * result, not a gap.
  */
-function queueFastGatePassing(harness: MockSqlHarness): void {
+function queueFastGatePassing(
+  harness: MockSqlHarness,
+  options: { batchRow?: BatchRowFixture } = {},
+): void {
   harness.sqlReturnQueue.push(
     mkTaggedResult([outreachDispatchRow()]),                      // pre-tx read
     mkTaggedResult([]),                                           // advisory lock
-    mkTaggedResult([openBatchRow()]),                             // batch FOR UPDATE
+    mkTaggedResult([options.batchRow ?? openBatchRow()]),          // batch FOR UPDATE
     mkTaggedResult([{
       ask_id: ASK_ID,
       contact_id: CONTACT_ID,
@@ -288,11 +305,24 @@ function queueTx1Tail(harness: MockSqlHarness, options: { cas?: 'won' | 'lost' }
  * child's terminal, the outcome, the outbox completion, the batch-closure join
  * — runs through a mocked collaborator.
  */
-function queueTx2(harness: MockSqlHarness): void {
+function queueTx2(harness: MockSqlHarness, options: { cas?: 'won' | 'lost' } = {}): void {
   harness.sqlReturnQueue.push(
     mkTaggedResult([]),                                           // advisory lock
-    mkTaggedResult([{ id: OUTREACH_ID }]),                        // terminal CAS
+    options.cas === 'lost'
+      ? mkTaggedResult<{ id: string }>([])
+      : mkTaggedResult([{ id: OUTREACH_ID }]),                    // terminal CAS
   );
+}
+
+/**
+ * A batch the **Halt latch** has already latched. `deriveBatchState` reads
+ * `halted`, which is not one of the two states `isBatchOpenForSend` admits, so
+ * gate item 1 (`batch_open`) DEFERS — the only defer reachable through
+ * `applyDispatchGate` from the orchestrator, since item 2's flag is
+ * short-circuited above tx1.
+ */
+function haltedBatchRow(): BatchRowFixture {
+  return { ...openBatchRow(), halted_at: new Date(Date.now() - 5 * 60 * 1000) };
 }
 
 /** The provider's answer for a case that is not about the provider. */
@@ -366,7 +396,10 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     resetWorkerConfigForTests();
     resetServerConfigForTests();
     mocks.lockDispatchedOutboxAttemptIfOwned.mockResolvedValue(true);
-    mocks.markOutboxCompletedIfOwned.mockResolvedValue(undefined);
+    // `true` — the real helper returns whether the attempt CAS matched, and the
+    // flag-off defer branches on it. A stubbed `undefined` would make every
+    // defer look stale.
+    mocks.markOutboxCompletedIfOwned.mockResolvedValue(true);
     mocks.findActiveSolicitationSendBatchRun.mockResolvedValue({ runId: 'parent-run' });
     mocks.startOrGetSolicitationAskRun.mockResolvedValue({ runId: 'child-run', created: true });
     mocks.recordStep.mockResolvedValue(undefined);
@@ -673,5 +706,154 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
       )).toBe(false);
       expect(mocks.send).not.toHaveBeenCalled();
     }
+  });
+
+  // Round-2 adversarial review, finding F2. tx2's terminal CAS is what persists
+  // `provider_message_id`, and CONTEXT.md's **Messaging adapter** entry makes
+  // that id "the only join key the Solicitation lane can attribute a bounce or
+  // complaint on". When the CAS matches no row the id did NOT persist, so a
+  // `solicitation_sent` outcome recorded anyway is a value-ledger row with
+  // nothing behind it and a permanently open 503-retry window.
+  it('does not emit solicitation_sent when the terminal CAS matches no row', async () => {
+    mocks.moderateResponse.mockResolvedValue(CLEAN_PROVIDER_VERDICT);
+    queueFastGatePassing(harness);
+    queuePostGate(harness);
+    queueTx1Tail(harness);
+    queueTx2(harness, { cas: 'lost' });
+
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('tx2-cas-lost'));
+
+    // The send really did happen — this is not a case about refusing to send.
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+
+    // And NOTHING about it was committed. The outcome is the value ledger, the
+    // `ask_sent` step is the spine's record of the same act, and the child's
+    // `completed` terminal is the claim that the dispatch finished; all three
+    // describe a send this transaction failed to persist.
+    expect(mocks.recordOutcome).not.toHaveBeenCalled();
+    expect(mocks.recordStep).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ stepKey: 'ask_sent' }),
+    );
+    expect(mocks.completeRun).not.toHaveBeenCalled();
+
+    // Nor the batch join: the writer that DID terminalize the row joined in its
+    // own transaction, and a Settled batch joined twice is a duplicate receipt.
+    expect(mocks.closeBatchIfSettled).not.toHaveBeenCalled();
+
+    // The one thing still owed. This invocation can make no further progress on
+    // the row, so leaving the attempt in flight would only have the watchdog
+    // re-dispatch a job whose sole act is to observe the row is not `queued`.
+    expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledWith(
+      expect.anything(),
+      OUTBOX_ID,
+      1,
+    );
+
+    // Operator-visible, with the provider id the row could not take — so the
+    // send stays recoverable from the log.
+    expect(loggedLines().some((line) => line.includes(PROVIDER_MESSAGE_ID))).toBe(true);
+  });
+
+  // Round-2 adversarial review, finding F3. The intake contract's edge case 2
+  // promises a defer "records a spine step" and the observability entry depends
+  // on it; neither defer path wrote one. The step goes on the **Send batch
+  // parent** because the **Lazy child** is per-dispatch-ATTEMPT and a defer
+  // never dispatches — minting a child would put a run on the spine for work
+  // that was declined before it started.
+  it('records a dispatch_gate_evaluated step on the parent when the gate defers', async () => {
+    mocks.moderateResponse.mockResolvedValue(CLEAN_PROVIDER_VERDICT);
+    queueFastGatePassing(harness, { batchRow: haltedBatchRow() });
+
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('gate-defer-step'));
+
+    expect(mocks.recordStep).toHaveBeenCalledTimes(1);
+    expect(mocks.recordStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        // The PARENT's run id — `startOrGetSolicitationAskRun` would have
+        // returned 'child-run', and it is never called on a defer.
+        runId: 'parent-run',
+        stepKey: 'dispatch_gate_evaluated',
+        detail: expect.objectContaining({
+          outreach_id: OUTREACH_ID,
+          ask_id: ASK_ID,
+          gate_item: 'batch_open',
+          outcome: 'defer',
+          batch_state: 'halted',
+        }),
+      }),
+    );
+    expect(mocks.startOrGetSolicitationAskRun).not.toHaveBeenCalled();
+
+    // Still a defer in every other respect: no domain write, no send, and the
+    // attempt spent so the watchdog does not re-pend a correctly deferred row.
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(boundValues(harness)).not.toContain('withheld');
+    expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledWith(
+      expect.anything(),
+      OUTBOX_ID,
+      1,
+    );
+
+    // ids and closed enum values ONLY — the recipient handle, the subject and
+    // the body are none of the spine's business.
+    const detail = JSON.stringify(mocks.recordStep.mock.calls[0]![1]);
+    expect(detail).not.toContain(HANDLE);
+    expect(detail).not.toContain(STORED_SUBJECT);
+  });
+
+  // The other defer path, and the one the intake contract names literally: the
+  // flag flips off between enqueue and run. It is short-circuited above tx1, so
+  // it has its own minimal transaction — but it owes the SAME step, under the
+  // gate's own item 2, because it is the same fact read at a different moment.
+  it('records the same parent step when the flag-off defer short-circuits above tx1', async () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'false';
+    resetWorkerConfigForTests();
+    harness.sqlReturnQueue.push(
+      mkTaggedResult([outreachDispatchRow()]),                    // pre-tx read
+      mkTaggedResult([]),                                         // advisory lock
+    );
+
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('flag-off-step'));
+
+    expect(mocks.recordStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runId: 'parent-run',
+        stepKey: 'dispatch_gate_evaluated',
+        detail: expect.objectContaining({
+          outreach_id: OUTREACH_ID,
+          gate_item: 'send_flag',
+          outcome: 'defer',
+        }),
+      }),
+    );
+
+    // Deferred, never terminalized: 091/110 carry no `flag_off` reason, and the
+    // gate itself was never reached — the moderation provider included.
+    expect(mocks.moderateResponse).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.startOrGetSolicitationAskRun).not.toHaveBeenCalled();
+    expect(mocks.markOutboxCompletedIfOwned).toHaveBeenCalledWith(
+      expect.anything(),
+      OUTBOX_ID,
+      1,
+    );
+  });
+
+  // A stale attempt writes NOTHING on the flag-off path either — the ownership
+  // CAS runs first, so attempt N-1 arriving after attempt N was dispatched
+  // cannot append a step to the parent about a decision it does not own.
+  it('writes no parent step on a flag-off defer whose outbox attempt is stale', async () => {
+    process.env.SOLICITATION_SEND_ENABLED = 'false';
+    resetWorkerConfigForTests();
+    mocks.markOutboxCompletedIfOwned.mockResolvedValue(false);
+    harness.sqlReturnQueue.push(mkTaggedResult([outreachDispatchRow()]));
+
+    await dispatchOutreach(harness.mockSql as unknown as Sql, dispatchInput('flag-off-stale'));
+
+    expect(mocks.recordStep).not.toHaveBeenCalled();
+    expect(mocks.findActiveSolicitationSendBatchRun).not.toHaveBeenCalled();
   });
 });

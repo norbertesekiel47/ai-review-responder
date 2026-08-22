@@ -117,11 +117,19 @@ function sendJob(attemptsMade: number, maxAttempts: number): Job<SolicitationSen
   } as never as Job<SolicitationSendPayload>;
 }
 
-const outreachRow = {
-  account_id: ACCOUNT_ID,
-  agent_run_id: CHILD_RUN_ID,
-  delivery_status: 'sending',
-};
+/**
+ * The row as the hook finds it under its `FOR UPDATE`. The ARRIVAL STATUS is
+ * the parameter, because it is the whole of what picks the terminal: a row that
+ * never left `queued` was never dispatched and is honestly `failed`, while one
+ * already `sending` may have reached the recipient and is honestly `unknown`.
+ */
+function outreachRow(deliveryStatus: 'queued' | 'sending' | string) {
+  return {
+    account_id: ACCOUNT_ID,
+    agent_run_id: CHILD_RUN_ID,
+    delivery_status: deliveryStatus,
+  };
+}
 
 beforeEach(() => {
   outboxMocks.markOutboxFailed.mockReset();
@@ -135,16 +143,20 @@ beforeEach(() => {
 });
 
 describe('handleSolicitationSendFailed', () => {
-  // On the terminal attempt: `delivery_status='failed'` with
-  // `disposition_reason='send_exhausted'`, the Lazy child terminalized
-  // `failed`, the outbox row marked failed, and `closeBatchIfSettled` called in
-  // the SAME transaction — a Settled batch has no Outreach row left in
-  // `rendered`, `queued` or `sending`, and an exhausted row that never joins
-  // leaves the batch open forever and permanently consumes the account's one
-  // active-batch slot.
+  // On the terminal attempt, for a row that never left `queued`:
+  // `delivery_status='failed'` with `disposition_reason='send_exhausted'`, the
+  // Lazy child terminalized `failed`, the outbox row marked failed, and
+  // `closeBatchIfSettled` called in the SAME transaction — a Settled batch has
+  // no Outreach row left in `rendered`, `queued` or `sending`, and an exhausted
+  // row that never joins leaves the batch open forever and permanently consumes
+  // the account's one active-batch slot.
+  //
+  // `queued` IS THE ARM THIS CLAIM BELONGS TO. The row never reached tx1's CAS,
+  // so nothing was put on the wire and "failed" is a fact rather than a guess.
+  // The `sending` arm is the case below, and it must not answer `failed`.
   it('writes failed with send_exhausted on the terminal attempt and calls closeBatchIfSettled', async () => {
     const { sql, calls, txCalls, beginMock } = makeSqlStub([
-      [outreachRow],
+      [outreachRow('queued')],
       [{ id: OUTREACH_ID }],
     ]);
 
@@ -176,12 +188,16 @@ describe('handleSolicitationSendFailed', () => {
     );
 
     // The terminal row write itself, with 091's `failed` ↔ `send_exhausted`
-    // pairing and the CAS that keeps another writer's verdict standing.
+    // pairing and the CAS that keeps another writer's verdict standing. Both
+    // halves arrive as BOUND values now that the arrival status picks them, and
+    // the CAS re-asserts the exact status the arm was chosen for rather than a
+    // two-member `IN` list.
     const update = txCalls.find((call) => call.text.includes('UPDATE solicitation_outreach'));
     expect(update).toBeDefined();
-    expect(update!.text).toContain("delivery_status = 'failed'");
-    expect(update!.text).toContain("delivery_status IN ('queued', 'sending')");
+    expect(update!.values).toContain('failed');
     expect(update!.values).toContain('send_exhausted');
+    expect(update!.values).toContain('queued');
+    expect(update!.values).not.toContain('unknown');
 
     // Decision 8's failure arm: a dispatch that never got a provider answer is
     // a failure to send, so the Lazy child terminalizes `failed`.
@@ -200,13 +216,77 @@ describe('handleSolicitationSendFailed', () => {
     );
   });
 
+  // THE LIE-WITH-TEETH CASE. A `sending` row got past tx1's CAS, so the message
+  // may already have reached the recipient and nothing in this process can tell.
+  // Calling that `failed` is not a conservative approximation: the restraint
+  // policy's `over_contacted` check counts PRIOR SENDS, so a possible send
+  // recorded as "not sent" makes the same customer eligible for a future batch
+  // and emails them twice. `unknown` / `send_indeterminate` — the pair D12d
+  // minted for exactly this — is the only honest answer, and 091's status/reason
+  // CHECK already carries it, so this needs no migration.
+  it('terminalizes an exhausted sending row as unknown rather than failed', async () => {
+    const { sql, txCalls } = makeSqlStub([
+      [outreachRow('sending')],
+      [{ id: OUTREACH_ID }],
+    ]);
+
+    await handleSolicitationSendFailed(sql, sendJob(3, 3), new TypeError('provider exploded'));
+
+    const update = txCalls.find((call) => call.text.includes('UPDATE solicitation_outreach'));
+    expect(update).toBeDefined();
+    // THE claim, stated in both directions: `unknown` / `send_indeterminate` is
+    // written, and neither half of the `failed` pair appears anywhere on the
+    // statement — a row that merely gained an `unknown` alongside a `failed`
+    // would still be the bug.
+    expect(update!.values).toContain('unknown');
+    expect(update!.values).toContain('send_indeterminate');
+    expect(update!.values).not.toContain('failed');
+    expect(update!.values).not.toContain('send_exhausted');
+    // And the CAS still guards on the status the row actually arrived in.
+    expect(update!.values).toContain('sending');
+
+    // The child terminalizes `failed` on BOTH arms — `agent_runs` has no
+    // `unknown`, and of running/completed/cancelled/failed only `failed` is true
+    // of a run that did not finish its work. The indeterminacy lives in
+    // `failure_class`, where a reader cannot mistake it for a confirmed
+    // non-delivery.
+    expect(spineMocks.completeRun).toHaveBeenCalledWith(
+      expect.anything(),
+      CHILD_RUN_ID,
+      'failed',
+      expect.objectContaining({ failure_class: 'send_indeterminate', error_class: 'TypeError' }),
+    );
+
+    // `unknown` is terminal, so the batch still settles: the fact recorded is
+    // "we will never know", not "we are still trying".
+    expect(outreachMocks.closeBatchIfSettled).toHaveBeenCalledWith(
+      expect.anything(),
+      { batchId: BATCH_ID, accountId: ACCOUNT_ID, businessId: BUSINESS_ID },
+    );
+  });
+
+  // A row that some other writer already terminalized is not this hook's to
+  // re-terminalize under EITHER pair — its verdict stands, and it already
+  // joined the batch in its own transaction.
+  it('leaves an already-terminal row alone and does not join the batch a second time', async () => {
+    const { sql, txCalls } = makeSqlStub([[outreachRow('sent')]]);
+
+    await handleSolicitationSendFailed(sql, sendJob(3, 3), new Error('too late'));
+
+    // The attempt is still spent — that CAS ran before the row was read.
+    expect(outboxMocks.markOutboxFailed).toHaveBeenCalledTimes(1);
+    expect(txCalls.some((call) => call.text.includes('UPDATE solicitation_outreach'))).toBe(false);
+    expect(spineMocks.completeRun).not.toHaveBeenCalled();
+    expect(outreachMocks.closeBatchIfSettled).not.toHaveBeenCalled();
+  });
+
   // The negative half, and the one that catches the `isTerminalAttempt`
   // confusion above: with `attemptsMade` one short of `max`, the hook writes
   // NOTHING — no Outreach terminal, no child terminal, no outbox completion.
   // BullMQ still owns the job.
   it('does not terminalize, fail the child, or complete the outbox before the final BullMQ attempt', async () => {
     const { sql, calls, txCalls, beginMock } = makeSqlStub([
-      [outreachRow],
+      [outreachRow('sending')],
       [{ id: OUTREACH_ID }],
     ]);
 
