@@ -90,3 +90,22 @@ that were linted and moderated. Today only convention (ADR 0020's refusal, which
 domain module, not the schema) stands between that and sending unmoderated copy. The fix is
 cheap and turns the branch's central guarantee — "we send exactly what we moderated" — from an
 assumption into a check.
+
+---
+
+## Round-1 outcome (all three axes)
+
+**A4 FIXED** in `43e64f6e` — `SlowGateResult` now carries a SHA-256 of the exact bytes the lint
+and moderation verdicts were computed over, and tx1 refuses to send when the locked row's bytes
+do not match. Deliberately a DEFER, not a withhold: nothing is wrong with the ask, we raced a
+writer, and the next attempt re-gathers and decides honestly.
+
+The digest is NOT a member of `SlowGateEvidence`. That type is the pure gate's input and the
+gate decides on verdicts alone — handing it a digest it never reads would widen a pure interface
+for a caller's convenience. tx1 is its only consumer.
+
+**A1 + A2 stand as a documented ship-order constraint**, not code: #900 is a HARD enablement
+dependency and `SOLICITATION_SEND_ENABLED` must not be flipped anywhere until its D12d `unknown`
+sweep ships. Recorded in the deviations step-8 checklist and to be repeated in the PR body.
+
+**A3** remains the D11 step-8 follow-up (per-location readiness belongs on the **Send handoff**).
