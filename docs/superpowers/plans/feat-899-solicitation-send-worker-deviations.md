@@ -1,5 +1,35 @@
 # Deviations — #899 Solicitation send worker
 
+## STEP 8 CHECKLIST — carry every one of these out of this branch
+
+Collected here so the post-merge sweep has one list. Items 1-3 are follow-up TICKETS, not
+edits to this branch. Items 4-6 are edits the step 8 sweep makes on `main`, where this
+worktree's edit-surface guard does not apply — so none of them needs a surface amendment.
+
+1. **Relocate the provider-agnostic error vocabulary** out of
+   `src/lib/payments/stripe-error-inspect.ts` (see D8). Its header claims "Stripe" ownership and
+   "two consumers"; there are now three and the third is solicitation. Mechanical, and it should
+   not ride a feature branch.
+2. **Per-location place-id readiness check** (see D11). The **Send handoff** already withholds a
+   whole location for a missing **Attested postal address**; a missing or non-canonical
+   `google_place_id` is the same class of fact and belongs there, not in a per-contact throw.
+3. **Re-check `queued`-row recovery in #900.** A flag-off defer (decision 5) leaves the row
+   `queued`, and #900's release predicate reads `rendered` — so only the 72h
+   `send_window_elapsed` halt reclaims it. Confirm that is intended when #900 is built.
+4. **`docs/analytics/events.md` → flip `solicitation_suppressed_at_dispatch`** from
+   `**Status:** planned` to `live`, and replace "Owner: #630's dispatch path (not yet built)".
+   **This does NOT fail CI** — `ci:analytics-events` only enforces that code events are
+   documented and that `live` doc entries exist in code, so a stale `planned` passes. It is a
+   registry-accuracy fix, and that registry is the single owner of the event's key and
+   properties (it already caught one defect here — see D9).
+5. **Lab-notes: the two tenant-column traps** (see D6) — `solicitation_suppressions` has no
+   `business_id` and global rows carry no `account_id`; `job_outbox` has no tenant columns at
+   all. Both will bite the next author who writes a business-scoped delete by reflex.
+6. **Lab-notes: `timeout(1) `is not installed on this machine** (see D5). A command wrapped in
+   `timeout N …` exits 127 instantly and can read as a fast clean return — it cost a killed
+   review round in this very session.
+
+
 Every entry is something the plan did not anticipate. Each carries a triage verdict
 (ACCEPT / RE-PLAN) added at step 6, before review.
 
