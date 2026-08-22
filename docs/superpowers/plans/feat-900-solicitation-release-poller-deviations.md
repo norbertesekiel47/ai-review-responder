@@ -99,3 +99,83 @@ Outreach row re-opened the wedge from the spine side.
 
 **What changed:** the plan's governor-order section, Task 3 step 4, and Task 6
 steps 2–3. No intake decision was invalidated, so no RE-PLAN.
+
+## Task 0 — `approval_downgraded` is not a `STEP_PERSONA` key, and its owner is off-surface
+
+**What:** Task 3 step 4 mandates `recordStep(tx, { stepKey: 'approval_downgraded', … })`.
+`AgentStepKey` is derived from `STEP_PERSONA` in `src/lib/agents/run-spine.ts`,
+which carries no such key today — and that file is NOT in
+`allowed_edit_surface`.
+
+**Why:** `agent_run_steps.step_key` has no DB CHECK, so `STEP_PERSONA` is the
+whole vocabulary; a missing key is a TypeScript error at the call site, not a
+runtime surprise. `release.integration.test.ts` asserts the step exists with
+`detail.reason = 'judge_unavailable'`, so Task 3 cannot land without it.
+
+**What changed:** nothing yet — the eval task writes only tests. Task 3 needs
+either a one-line `STEP_PERSONA` addition (`approval_downgraded: 'solicitation'`)
+plus a surface amendment for `src/lib/agents/run-spine.ts`, or an existing key.
+Flagging it here so the amendment is a decision rather than a surprise mid-task.
+
+## Task 0 — `SOLICITATION_PLATFORM_DAILY_CAP` lives in the SERVER config, not the worker one
+
+**What:** the plan's governor list reads
+`resolvePlatformDailyCap(getWorkerConfig().SOLICITATION_PLATFORM_DAILY_CAP)`.
+The var is registered in `src/lib/config/server.ts:221`, not in
+`src/lib/config/worker.ts`, so that expression does not typecheck today.
+
+**Why:** #898 registered and boot-asserted it on the server schema while
+enforcement was still unbuilt. Both schemas may legitimately declare the same
+var (the `RESEND_FROM_EMAIL` precedent), so the fix is a one-line addition to
+`worker.ts` — which IS on the surface.
+
+**What changed:** the tests set `process.env.SOLICITATION_PLATFORM_DAILY_CAP`
+and clear BOTH memos (`resetServerConfigForTests` + `resetWorkerConfigForTests`),
+so they hold whichever schema Task 3 reads.
+
+## Task 0 — three fixture traps the plan's predicates do not mention
+
+**What:** three live-schema constraints shaped the fixtures and will shape the
+implementation:
+
+1. `solicitation_batches_send_ordering` requires `sending_started_at >=
+   approved_at`, so a mid-drip `unknown`-sweep fixture cannot pair a
+   90-minute-old drip start with a one-hour-old approval. Hence
+   `wedgedBatchInput()` in `release.integration.test.ts`.
+2. `solicitation_batches_one_active_send_per_business` admits ONE approved,
+   unhalted, unclosed batch per business. A case needing two live approved
+   batches needs a second LOCATION, not a second batch — the flag-scope case
+   uses three.
+3. `agent_outcomes`' column is `outcome_kind`, not `kind`. Caught by probing
+   every reader against the live schema rather than by the suite, because a
+   `.fails` body masks a bad query behind the expected `not implemented` throw.
+
+**Why:** each would have surfaced as a CHECK violation or a 42703 inside an
+implementation task, reading as "the feature is wrong" rather than "the fixture
+is wrong".
+
+**What changed:** fixtures only. Recorded so Task 6 and Task 7 inherit them.
+
+## Task 0 — the poller's interval can never overlap a cycle, so single-flight is reached through stop/start
+
+**What:** `SolicitationReleasePoller`'s `CYCLE_TIMEOUT_MS` (45s) is below
+`DEFAULT_INTERVAL_MS` (60s) by design, so a hung cycle always frees the
+single-flight flag one deadline BEFORE the next tick. An interval-driven
+overlap is therefore unreachable, and the first draft of the loop-mechanics
+test asserted one and failed.
+
+**What changed:** `SolicitationReleasePoller.test.ts` reaches the overlap
+through a `stop()` + `start()` mid-cycle (start runs one cycle immediately) and
+adds a second case for the #414 property the numbers actually encode — a cycle
+that outruns its deadline frees the flag and the loop recovers in one interval.
+
+## Task 0 — the file split is 33 / 4 / 1 / 1, not 36 / 3
+
+**What:** the task brief said `release.integration.test.ts` carries 36 of the 39
+titles "except the three listed under the other three files"; six titles are
+listed under those three files. The actual split is 33 live-DB release titles,
+4 in `approval-system-halt.integration.test.ts`, 1 in `release.test.ts`, 1 in
+`job-outbox-helpers.test.ts`.
+
+**What changed:** nothing but the count. The plan's own Step 2 table is correct
+and was followed verbatim; all 39 titles verify present character-for-character.
