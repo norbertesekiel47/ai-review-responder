@@ -175,7 +175,7 @@ export interface TenantScopeAllowlistEntry {
 //     account for work. The scan is global; every WRITE that follows it carries
 //     `account_id` AND `business_id` in a top-level predicate and needs no
 //     entry.
-export const ALLOWLIST_BASELINE = 385;
+export const ALLOWLIST_BASELINE = 386;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -381,6 +381,18 @@ const RELEASE_CANDIDATE_SCAN_REASON =
   + "SAME CLASS AS ITS THREE PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before enqueueing scoped work; this is the send lane's member of that set. "
   + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT, and that distinction is what makes this entry safe rather than a widening. This statement is read-only and projects ids plus one lifecycle stamp — no review text, no contact data, no provenance. Everything the cycle does afterwards is bound to the account_id AND business_id those ids carry: the locked batch re-read, the rendered→queued CAS on solicitation_outreach, the sending_started_at stamp, the Judge downgrade CAS, and each closeBatchIfSettled call all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. "
   + "The module's other cross-account reads are already exempt in their own homes (countPlatformDispatchAttemptsToday in send-caps.ts, readSendBreaker/readBreakerWindow in send-breaker.ts, isJudgeHealthy in judge-health.ts); this is the release lane's ONE additional global statement.";
+
+// #900's send-window sweep scan (predicate P2). ONE table, not two: unlike P4
+// this statement carries no EXISTS arm, because a batch whose send window has
+// elapsed must be latched whether or not it still has a live `rendered` row.
+const SEND_WINDOW_SWEEP_SCAN_SQL =
+  "SELECT id, account_id, business_id FROM solicitation_batches WHERE approved_at IS NOT NULL AND approved_at <= NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND halted_at IS NULL AND send_closed_at IS NULL ORDER BY approved_at ASC LIMIT ${scanLimit}";
+
+const SEND_WINDOW_SWEEP_SCAN_REASON =
+  "runReleaseCycle's send_window_elapsed sweep scan (#900, predicate P2) — phase 2 of the SolicitationReleasePoller's tick, which finds approved batches past the 72h send window and latches them through latchSystemHalt. "
+  + "CROSS-ACCOUNT FOR THE SAME REASON AS P4 ABOVE, and for one of its own: this sweep is the lane that RECLAIMS an overdue batch's rendered/queued rows, and until it runs migration 091's solicitation_batches_one_active_send_per_business index blocks that location from ever sending again (issue #915). A reclaimer that had to be handed a tenant id could not find the wedged locations it exists to unwedge. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately, so a mid-drip flag flip cannot strand a location forever. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3136,6 +3148,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
     category: 'background-global-scan',
     reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: SEND_WINDOW_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: SEND_WINDOW_SWEEP_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

@@ -13,6 +13,39 @@ here, not amendments.
 
 ---
 
+## STANDING SIGN-OFF — `ci:tenant-scope` entries for EVERY global scan in `release.ts`
+
+**NOT a surface amendment, and it does not touch the spent abort budget.**
+`scripts/ci/tenant-scope-allowlist.ts` has been on `allowed_edit_surface` since
+AMENDMENT 2, and `src/lib/solicitation/release.ts` is already a member of
+`CATEGORY_PATH_RULES['background-global-scan'].allowedFiles`. The file and the
+category are admitted; only each individual STATEMENT is not, because allowlist
+matching is `file + table + normalized SQL`.
+
+**What the owner approved (2026-08-22, one decision covering all of them):**
+each remaining task adds its own predicate's entry as it lands, in the
+`background-global-scan` category, with a hoisted `*_SCAN_SQL` /
+`*_SCAN_REASON` pair beside the P4 constants and a reason in the house style.
+The alternative offered was a fresh sign-off per predicate; the owner chose one,
+on the reasoning that all four predicates were stated verbatim in the plan and
+survived three adversarial plan-review rounds, so the entries are the plan
+executing rather than scope creep.
+
+| Predicate | Task | Entries | State |
+|---|---|---|---|
+| P4 — release candidates | 3 | 2 (`solicitation_batches`, `solicitation_outreach`) | applied, baseline 383 → 385 |
+| P2 — `send_window_elapsed` | 4 | 1 (`solicitation_batches`) | applied, baseline 385 → 386 |
+| P3 — `batch_expired` | 5 | expect 2 (`solicitation_batches`, `agent_runs` in the `EXISTS`) | pending |
+| P1 — `unknown` | 6 | expect 1 (`solicitation_outreach`; `job_outbox` is not a `TENANT_TABLES` member) | pending |
+| backstop join | 7 | 0 or 1, depending on whether it re-scans or reuses the tick's ids | pending |
+
+**The standing sign-off covers global scans in `release.ts` and nothing else.**
+Widening any OTHER category, adding any OTHER file, or touching any other
+registry is still a stop-and-surface event. The amendment budget remains spent
+at 3 of 2.
+
+---
+
 ## AMENDMENT 3 — `outcome-anchor-pairing.test.ts`, and the ROOT CAUSE of all three
 
 **What:** `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` added to
