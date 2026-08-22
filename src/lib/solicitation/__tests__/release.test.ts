@@ -4,12 +4,7 @@ import type postgresType from 'postgres';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The account daily send cap, as a PROPERTY rather than as three examples
-// (#900 task 0, the eval task).
-//
-// Registered with `it.fails` and carrying a complete body: `runReleaseCycle`
-// throws `not implemented` today, and `.fails` runs the body, so the fake
-// executor and every arbitrary below are exercised from this commit onward.
-// Task 3 deletes the marker.
+// (#900).
 //
 // WHY A FAKE EXECUTOR AND NOT THE LIVE DATABASE. The cap's COUNTING BASIS and
 // its UTC-day boundary are live-DB facts and are proved in
@@ -190,6 +185,11 @@ function batchRow(model: ReleaseModel): Record<string, unknown> {
     halted_at: null,
     halt_reason: null,
     built_at: new Date(Date.now() - 2 * 60 * 60_000),
+    // The DB-computed arm P4 projects: `built_at` still inside the 7-day
+    // approval window, so a Judge downgrade would be legal. This property never
+    // reaches the Judge split (the probe is healthy), but a candidate row must
+    // carry every column the split reads.
+    approval_window_open: true,
     send_parent_run_id: 'send-parent-run',
   };
 }

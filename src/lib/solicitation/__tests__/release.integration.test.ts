@@ -24,17 +24,6 @@ import {
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THE `.fails` CONVENTION (#900 task 0, the eval task).
-//
-// `runReleaseCycle` throws `not implemented` today, so EVERY case below is
-// registered with `it.fails` and carries a COMPLETE body. `.fails` runs the
-// body, so the seeding, the fixtures and the imports are exercised from this
-// commit onward — `it.todo` would have let a typo in a 40-line fixture hide
-// until the implementation task tripped over it. Each later task deletes the
-// `.fails` marker from exactly the titles it turns green (task 3 the release
-// phase and the Judge split, task 4/5 the two expiry sweeps, task 6 the
-// `unknown` sweep, task 7 the backstop and the flag scope).
-//
 // Live-DB conventions this file obeys (`ci:live-db-suites`):
 //   - named `*.integration.test.ts`, so vitest runs it in the serialized
 //     `integration` project;
@@ -57,9 +46,7 @@ import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreac
 // DELEGATING spies over the four collaborators whose FAILURE is the subject of
 // a case. Each forwards to the real implementation, so every other case runs
 // against real behaviour; a case that needs a failure overrides its own spy in
-// its own body. `enqueueSolicitationSend` does not exist yet (#900 task 1), so
-// its delegate falls back to a loud throw naming the task rather than to
-// `undefined`, which would fail with an unreadable "not a function".
+// its own body.
 const spies = vi.hoisted(() => ({
   readSendBreaker: vi.fn(),
   enqueueSolicitationSend: vi.fn(),
@@ -75,14 +62,7 @@ vi.mock('../send-breaker', async (importOriginal) => {
 
 vi.mock('@/lib/shared/job-outbox-helpers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/shared/job-outbox-helpers')>();
-  const real = (actual as Record<string, unknown>).enqueueSolicitationSend;
-  spies.enqueueSolicitationSend.mockImplementation(
-    typeof real === 'function'
-      ? (real as (...args: unknown[]) => unknown)
-      : () => {
-          throw new Error('enqueueSolicitationSend not implemented (#900 task 1)');
-        },
-  );
+  spies.enqueueSolicitationSend.mockImplementation(actual.enqueueSolicitationSend);
   return { ...actual, enqueueSolicitationSend: spies.enqueueSolicitationSend };
 });
 
@@ -102,7 +82,10 @@ import { STALLED_THRESHOLD_SEND_BATCH_DAYS } from '@/lib/agents/read';
 import { resetServerConfigForTests } from '@/lib/config/server';
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
-import { countPlatformDispatchAttemptsToday } from '../send-caps';
+import {
+  countPlatformDispatchAttemptsToday,
+  DEFAULT_DAILY_SEND_CAP_ACCOUNT,
+} from '../send-caps';
 import {
   RELEASE_PER_TICK_BUDGET,
   runReleaseCycle,
@@ -120,9 +103,17 @@ const businessId = randomUUID();
 const siblingBusinessId = randomUUID();
 const thirdBusinessId = randomUUID();
 
+// A SECOND ACCOUNT, and the P4 fairness case is the only thing that needs one:
+// the daily send cap is per ACCOUNT, so "a capped account must not starve
+// everybody else" is not expressible inside one tenant. Seeded here rather than
+// inside the case so its rows are torn down by the shared hooks — a leftover
+// release CANDIDATE would join every other case's scan.
+const foreignBusinessId = randomUUID();
+
 let db: postgresType.Sql | undefined;
 let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
+let foreignTenant: TenantSeed | undefined;
 const envBackup = new Map<string, string | undefined>();
 
 function sql(): postgresType.Sql {
@@ -133,6 +124,16 @@ function sql(): postgresType.Sql {
 function accountId(): string {
   if (!tenant) throw new Error('release integration tenant was not seeded');
   return tenant.accountId;
+}
+
+function foreignAccountId(): string {
+  if (!foreignTenant) throw new Error('release integration foreign tenant was not seeded');
+  return foreignTenant.accountId;
+}
+
+function foreignUserId(): string {
+  if (!foreignTenant) throw new Error('release integration foreign tenant was not seeded');
+  return foreignTenant.userId;
 }
 
 function userId(): string {
@@ -469,6 +470,97 @@ async function seedInFlightSendJob(
   return outboxId;
 }
 
+/**
+ * The OTHER account's release candidate, seeded AT its daily send cap.
+ *
+ * `DEFAULT_DAILY_SEND_CAP_ACCOUNT` dispatch attempts already made today (the
+ * cap counts `queued_at` in the UTC day), plus one `rendered` row so the batch
+ * is a P4 candidate, plus a **Send batch parent** so nothing else in the tick
+ * refuses it for an unrelated reason.
+ *
+ * Its `approved_at` is deliberately OLDER than `approvedBatchInput`'s, because
+ * P4 orders `approved_at ASC`: this is the batch that takes the scan slot.
+ */
+async function seedCappedForeignCandidate(): Promise<void> {
+  const uploadId = randomUUID();
+  const batchId = randomUUID();
+  await sql()`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, report, attested_by_user_id, attested_at,
+      attestation_version, completed_at
+    ) VALUES (
+      ${uploadId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
+      ${`release-foreign-${uploadId}.csv`}, 1, ${checksum(uploadId)},
+      NULL, 'completed', ${sql().json({ accepted: 1 })},
+      ${foreignUserId()}::uuid, NOW(), 'release-test', NOW()
+    )
+  `;
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at,
+      built_at, approved_at, approval_method, approved_by_user_id,
+      veto_deadline_at, sending_started_at
+    ) VALUES (
+      ${batchId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
+      ${uploadId}::uuid, NOW() - INTERVAL '40 days',
+      NOW() - INTERVAL '5 hours', NOW() - INTERVAL '4 hours', 'owner',
+      ${foreignUserId()}::uuid, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '3 hours'
+    )
+  `;
+  await sql()`
+    INSERT INTO agent_runs (
+      id, account_id, business_id, kind, subject_type, subject_id,
+      status, started_at, ended_at, correlation_id
+    ) VALUES (
+      ${randomUUID()}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
+      'solicitation_send_batch', 'solicitation_batch', ${batchId},
+      'running', NOW() - INTERVAL '4 hours', NULL, 'release-integration'
+    )
+  `;
+
+  // The cap's own number, so the account is at it exactly — one attempt fewer
+  // and the arm under test would not fire.
+  const statuses = [
+    ...Array.from({ length: DEFAULT_DAILY_SEND_CAP_ACCOUNT }, () => 'queued' as const),
+    'rendered' as const,
+  ];
+  for (const status of statuses) {
+    const contactId = randomUUID();
+    const askId = randomUUID();
+    await sql()`
+      INSERT INTO solicitation_contacts (id, business_id, name, email, created_by_upload_id)
+      VALUES (
+        ${contactId}::uuid, ${foreignBusinessId}::uuid, 'Foreign Candidate',
+        ${`${contactId}@example.test`}, ${uploadId}::uuid
+      )
+    `;
+    await sql()`
+      INSERT INTO solicitation_asks (
+        id, account_id, business_id, batch_id, contact_id, status,
+        withheld_reason, evidence, decided_at
+      ) VALUES (
+        ${askId}::uuid, ${foreignAccountId()}::uuid, ${foreignBusinessId}::uuid,
+        ${batchId}::uuid, ${contactId}::uuid, 'send', NULL,
+        ${sql().json({ contact_id: contactId, policy_version: 'release-fixture', decision: 'send' })},
+        NOW()
+      )
+    `;
+    await insertOutreach(sql(), {
+      accountId: foreignAccountId(),
+      businessId: foreignBusinessId,
+      batchId,
+      askId,
+      contactId,
+      deliveryStatus: status,
+      // NOW(), not an interval back: the cap's basis is the UTC DAY, and a
+      // stamp minutes before midnight would land on yesterday and make this
+      // fixture time-of-day dependent.
+      queuedAt: status === 'queued' ? sql()`NOW()` : null,
+    });
+  }
+}
+
 /** Open the **Send breaker**. 110 admits at most one open trip. */
 async function tripSendBreaker(): Promise<string> {
   const tripId = randomUUID();
@@ -696,6 +788,15 @@ describeWithDb(
       ] as const) {
         await seedLocation(db, tenant.accountId, { businessId: id, name, isPrimary: id === businessId });
       }
+      foreignTenant = await seedTenantAccount(db, {
+        userName: 'Release Foreign Owner',
+        accountDisplayName: 'Release Foreign Account',
+      });
+      await seedLocation(db, foreignTenant.accountId, {
+        businessId: foreignBusinessId,
+        name: 'Release Foreign Location',
+        isPrimary: true,
+      });
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     beforeEach(async () => {
@@ -720,18 +821,10 @@ describeWithDb(
         '@/lib/responses/judge-health',
       );
       spies.isJudgeHealthy.mockImplementation(judge.isJudgeHealthy);
-      const helpers = (await vi.importActual('@/lib/shared/job-outbox-helpers')) as Record<
-        string,
-        unknown
-      >;
-      const real = helpers.enqueueSolicitationSend;
-      spies.enqueueSolicitationSend.mockImplementation(
-        typeof real === 'function'
-          ? (real as (...args: unknown[]) => unknown)
-          : () => {
-              throw new Error('enqueueSolicitationSend not implemented (#900 task 1)');
-            },
+      const helpers = await vi.importActual<typeof import('@/lib/shared/job-outbox-helpers')>(
+        '@/lib/shared/job-outbox-helpers',
       );
+      spies.enqueueSolicitationSend.mockImplementation(helpers.enqueueSolicitationSend);
 
       // The releasable default: lane on, Judge available, ceiling out of the
       // way. Every case that is ABOUT a governor narrows exactly one of these.
@@ -750,7 +843,15 @@ describeWithDb(
       resetServerConfigForTests();
       resetWorkerConfigForTests();
 
-      const ownedBusinesses = [businessId, siblingBusinessId, thirdBusinessId];
+      // The foreign location and account are in every list: a leftover release
+      // CANDIDATE over there would join every later case's scan.
+      const ownedBusinesses = [
+        businessId,
+        siblingBusinessId,
+        thirdBusinessId,
+        foreignBusinessId,
+      ];
+      const ownedAccounts = [accountId(), foreignAccountId()];
       await sql()`
         DELETE FROM job_outbox
         WHERE topic = ${QUEUE_NAMES.SOLICITATION_SEND}
@@ -761,18 +862,19 @@ describeWithDb(
       await sql()`DELETE FROM solicitation_batches WHERE business_id IN ${sql()(ownedBusinesses)}`;
       await sql()`DELETE FROM solicitation_contacts WHERE business_id IN ${sql()(ownedBusinesses)}`;
       await sql()`DELETE FROM contact_csv_uploads WHERE business_id IN ${sql()(ownedBusinesses)}`;
-      await sql()`DELETE FROM agent_runs WHERE account_id = ${accountId()}::uuid`;
-      await sql()`DELETE FROM auto_approval_policies WHERE account_id = ${accountId()}::uuid`;
-      await sql()`DELETE FROM account_audit_log WHERE account_id = ${accountId()}::uuid`;
+      await sql()`DELETE FROM agent_runs WHERE account_id IN ${sql()(ownedAccounts)}`;
+      await sql()`DELETE FROM auto_approval_policies WHERE account_id IN ${sql()(ownedAccounts)}`;
+      await sql()`DELETE FROM account_audit_log WHERE account_id IN ${sql()(ownedAccounts)}`;
     }, 60_000);
 
     afterAll(async () => {
       try {
         if (db) {
-          for (const id of [businessId, siblingBusinessId, thirdBusinessId]) {
+          for (const id of [businessId, siblingBusinessId, thirdBusinessId, foreignBusinessId]) {
             await db`DELETE FROM businesses WHERE id = ${id}::uuid`;
           }
           if (tenant) await cleanupTenantAccount(db, tenant);
+          if (foreignTenant) await cleanupTenantAccount(db, foreignTenant);
         }
       } finally {
         try {
@@ -922,6 +1024,34 @@ describeWithDb(
         expect(report.releasePhaseStoppedBy).toBeNull();
         expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
         expect(await readSendJobs(outreachId)).toHaveLength(0);
+      });
+
+      it('keeps releasing for other accounts when a capped account fills the candidate scan', async () => {
+        // Round-1 finding: P4 scans `ORDER BY approved_at ASC LIMIT scanLimit`
+        // and the account cap is evaluated AFTER it, so before the
+        // `capped_accounts` arm a capped account's batches held candidate slots
+        // for their whole 72h send window while releasing nothing — and
+        // oldest-first ordering favours exactly the accounts that have had the
+        // most time to spend a daily cap. That is the locked edge case "no row
+        // is skipped permanently" failing in the strongest way: the skipped row
+        // is skipped until P2 cancels it.
+        //
+        // `scanLimit: 1` IS the scan window here, and the foreign batch's older
+        // `approved_at` is what would take it.
+        await seedCappedForeignCandidate();
+        const batch = await seedBatch(approvedBatchInput());
+        await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch });
+
+        const report = await cycle(sql(), { scanLimit: 1 });
+
+        expect(report.released).toBe(1);
+        // The capped account never became a candidate at all, so it consumed no
+        // slot — and there is nothing to withhold.
+        expect(report.withheldByReason.account_cap).toBeUndefined();
+        expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
+        expect(await readSendJobs(outreachId)).toHaveLength(1);
       });
 
       it('does not release when the subscription does not grant full access', async () => {
@@ -1223,6 +1353,32 @@ describeWithDb(
         const steps = await readSteps(parentRunId, 'approval_downgraded');
         expect(steps).toHaveLength(1);
         expect(jsonObject(steps[0]!.detail)).toMatchObject({ reason: 'judge_unavailable' });
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+      });
+
+      it('holds instead of downgrading when the batch can no longer be re-approved', async () => {
+        // Round-1 finding. A downgrade's whole promise is the one
+        // `user_visible_behavior` states — the batch reappears as APPROVABLE.
+        // Past `built_at` + the 7-day approval window that promise is false:
+        // **Batch state** reads `expired`, `approveBatch` refuses it (D2), and
+        // P3 latches it `batch_expired` on the very next tick — an
+        // owner-approved batch destroyed with no notification on either step.
+        // Holding leaves it to P2's honest `send_window_elapsed` instead.
+        spies.isJudgeHealthy.mockResolvedValue(false);
+        const batch = await seedBatch(approvedBatchInput({ builtAgo: '8 days' }));
+        const parentRunId = await seedSendParent({ batch });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch });
+        const before = await readBatch(batch.batchId);
+
+        const report = await cycle();
+
+        expect(report.heldForJudge).toBe(1);
+        expect(report.downgraded).toBe(0);
+        expect(report.released).toBe(0);
+        // A hold writes nothing and takes no lock.
+        expect(await readBatch(batch.batchId)).toEqual(before);
+        expect(await readSteps(parentRunId, 'approval_downgraded')).toHaveLength(0);
         expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
       });
 
@@ -1692,8 +1848,14 @@ describeWithDb(
         await seedSolicitationPolicy(10);
         const { outreachId } = await seedOutreach({ batch });
 
-        await expect(cycle()).rejects.toThrow('outbox insert failed');
+        // The cycle no longer PROPAGATES a per-item throw — it isolates it to
+        // the account and reports it (round-1 error-isolation finding). What
+        // this case is about is unchanged and is asserted below: the
+        // transaction rolled back as one unit.
+        const report = await cycle();
 
+        expect(report.itemFailures).toBe(1);
+        expect(report.released).toBe(0);
         const row = await readOutreach(outreachId);
         expect(row.delivery_status).toBe('rendered');
         expect(row.queued_at).toBeNull();
@@ -1721,8 +1883,51 @@ describeWithDb(
         const childRunId = await seedLazyChild(sending.askId, batch.businessId);
         await attachLazyChild(sending.outreachId, childRunId);
 
-        await expect(cycle()).rejects.toThrow('child completion failed');
+        // Isolated to the item rather than propagated (round-1 error-isolation
+        // finding); the atomicity this case is about is asserted below.
+        const report = await cycle();
 
+        expect(report.itemFailures).toBe(1);
+        expect(report.unknownTerminalized).toBe(0);
+        expect((await readOutreach(sending.outreachId)).delivery_status).toBe('sending');
+        expect((await readRun(childRunId)).status).toBe('running');
+      });
+
+      it('one failing item does not stop the phases after it', async () => {
+        // Round-1 finding: every scan is `ORDER BY … ASC`, so without per-item
+        // isolation one deterministically-failing row is re-selected as the
+        // FIRST row of its phase on every subsequent tick and aborts every
+        // phase after it — platform-wide, and permanently. That is issue #915's
+        // wedge arriving through the door built to close it.
+        //
+        // The poisoned item is in phase 1; the work that must survive it is in
+        // phase 4, on another location.
+        spies.completeRun.mockRejectedValue(new Error('child completion failed'));
+        const wedged = await seedBatch(wedgedBatchInput());
+        await seedSendParent({ batch: wedged });
+        const sending = await seedOutreach({
+          batch: wedged,
+          deliveryStatus: 'sending',
+          queuedAgo: '65 minutes',
+          sendingAgo: '61 minutes',
+        });
+        const childRunId = await seedLazyChild(sending.askId, wedged.businessId);
+        await attachLazyChild(sending.outreachId, childRunId);
+
+        const healthy = await seedBatch(approvedBatchInput({ onBusinessId: siblingBusinessId }));
+        await seedSendParent({ batch: healthy });
+        await seedSolicitationPolicy(10);
+        const { outreachId } = await seedOutreach({ batch: healthy });
+
+        const report = await cycle();
+
+        expect(report.itemFailures).toBe(1);
+        expect(report.unknownTerminalized).toBe(0);
+        expect(report.released).toBe(1);
+        expect((await readOutreach(outreachId)).delivery_status).toBe('queued');
+        expect(await readSendJobs(outreachId)).toHaveLength(1);
+        // Isolation is not swallowing: the failed item is left exactly as it
+        // was, for the next tick and for the Sentry issue the catch raised.
         expect((await readOutreach(sending.outreachId)).delivery_status).toBe('sending');
         expect((await readRun(childRunId)).status).toBe('running');
       });
