@@ -13,6 +13,42 @@ here, not amendments.
 
 ---
 
+## AMENDMENT 1 of 2 — `src/lib/agents/run-spine.ts` added to `allowed_edit_surface`
+
+**This is a surface amendment and it COUNTS toward the abort budget.** A second
+one triggers the abort criteria: stop, post-mortem, tear down, restart at step 1.
+
+**What:** `src/lib/agents/run-spine.ts` added to `allowed_edit_surface`
+(17 → 18 entries). Both intake copies updated, `scripts/arm-check.sh` re-run
+and still ARMED.
+
+**Why:** Task 3 step 4 records the Judge downgrade as an `approval_downgraded`
+spine step — the DURABLE record, where the Sentry warning is ephemeral. But
+`AgentStepKey` derives from `STEP_PERSONA` in that file, which carries 21 keys
+and none that fits. `policy_gate` belongs to the Reply lane's auto-approval gate
+and `batch_approved` is the opposite fact; filing a Judge-driven un-approval
+under either collapses two distinct facts into one key, which is exactly what
+the `CONTEXT.md` glossary discipline forbids.
+
+Not auto-approved under step 2's rule, because `src/lib/agents/` is not a
+directory tree the surface already covers. **Owner sign-off taken 2026-08-22.**
+
+**What changed:** Task 3 adds one line — `approval_downgraded: 'solicitation'`.
+Nothing else in that file may be touched.
+
+## Task 0 correction — `SOLICITATION_PLATFORM_DAILY_CAP` needs NO amendment
+
+**What:** Task 0 flagged that the plan's
+`getWorkerConfig().SOLICITATION_PLATFORM_DAILY_CAP` does not typecheck, because
+#898 registered the var on the SERVER schema (`src/lib/config/server.ts:221`).
+
+**Why it is not an amendment:** `src/lib/config/worker.ts` is already on the
+surface, and both schemas may legitimately declare the same var (the
+`RESEND_FROM_EMAIL` precedent). Task 3 adds one line there.
+
+**What changed:** nothing to the surface. Recorded so a reader does not count
+this as a second amendment.
+
 ## Plan round 1 — intake `tests_to_add` grew 27 → 38, estimates raised
 
 **What:** `tests_to_add` gained eleven titles. `estimated_prod_lines` 780 → 820.
