@@ -492,3 +492,96 @@ approval window's single owner in `outreach.ts` — it is the sibling the task
 brief predicted next to `BATCH_SEND_WINDOW_HOURS`, so no constant was invented.
 The `ci:tenant-scope` findings landed at exactly the 2 the standing sign-off
 predicted, and no other audit moved.
+
+## Task 6 — the `unknown` sweep reaches a `sending` row the send-window sweep's own fixture expected it to leave alone
+
+**What:** `latches send_window_elapsed past the 72h send window and cancels the
+live Outreach rows` — a Task 4 case that was green — went RED the moment phase 1
+existed: `AssertionError: expected 'unknown' to be 'sending'`. Its fixture seeds
+a row that has sat `sending` for 68 hours with no in-flight outbox row, which is
+precisely predicate P1's subject, and P1 carries no batch predicate. Phase 1 runs
+FIRST, so the row is terminalized `unknown` / `send_indeterminate` in the same
+tick that phase 2 latches its batch.
+
+**Why the implementation is right and the assertion was stale:** this is D12d's
+own stated example, not a collision. The spec says the `unknown` terminal
+"resolves a deadlock this spec would otherwise ship: D10 deliberately excludes
+`sending` from the halt sweep, so without an escape a wedged `sending` row would
+block `closeBatchIfSettled` forever and permanently consume the account's
+one-active-batch slot (D8)". The case's own comment already said the row
+"resolves itself" — phase 1 IS that resolution, and it was unreachable while the
+sweep was a stub. Narrowing P1 with a batch predicate to preserve the old
+assertion would have re-opened exactly the wedge #915 exists to close, on the
+halted-batch case that needs it most.
+
+**What changed:** one assertion in `release.integration.test.ts`, from
+`delivery_status === 'sending'` to `toMatchObject({ delivery_status: 'unknown',
+disposition_reason: 'send_indeterminate' })`, with the D12d reasoning written
+above it. It still pins what it always pinned — the halt does NOT cancel a
+`sending` row — and now also pins the phase-1/phase-2 interaction. Test-only, on
+the branch surface (`src/lib/solicitation/__tests__/**`); no production
+behaviour was bent to fit it, so ACCEPT rather than RE-PLAN.
+
+## Task 6 — the two vacuous negative cases are re-verified, and the belts are NOT independently pinned by the case that names them
+
+**What:** the entry "Task 3 — three negative cases were unmasked while they still
+pass VACUOUSLY" left Task 6 owing evidence for two of them. Both are now
+discharged, and the probe contradicted the brief's expectation for one of them.
+
+- `does not terminalize a sending row whose outbox row is re-pended after
+  selection` — RED with the `NOT EXISTS` **repeated inside the CAS** deleted
+  (`expected 1 to be +0`), and the ONLY case in the file that reddens; green the
+  moment that belt is restored. It is that belt's sole pin, by construction: the
+  re-pend lands after the unlocked selection, so P1's outer belt never sees it.
+- `does not terminalize a sending row while an in-flight outbox row still
+  exists` — **still green with P1's outer `NOT EXISTS` deleted.** Its outbox row
+  is seeded before the cycle, so the CAS belt refuses the row anyway. It is also
+  still green with the CAS belt deleted alone. It goes RED (`expected 1 to be
+  +0`) only when BOTH belts are deleted. So this case pins the PAIR, not the
+  outer belt; the task brief's "test 4 pins P1's outer `NOT EXISTS`" is not what
+  the code does.
+
+**Why it matters rather than being a curiosity:** the outer belt is a
+liveness/bounding arm, not a correctness arm — the CAS belt is what makes the
+sweep safe. Nothing in the suite would catch the outer belt being dropped, and a
+future reader should know that before deleting it as redundant.
+
+**What changed:** both `TASK 6 MUST RE-VERIFY THIS` comments rewritten to record
+the result instead of asking for it, including the "pins the pair" finding. No
+production change.
+
+## Task 6 — a `sending` row with no running Lazy child is a branch, not an assertion
+
+**What:** `findRunningLazyChild` returns `null` rather than throwing when no
+`running` `solicitation_ask` run exists for the terminalized row's ask, which
+departs from the house rule "assert impossible states, don't branch around them"
+(and from `startLazyChild`, which throws on a missing **Send batch parent**).
+
+**Why:** the precedent that fits is `recordDeferStepOnParent`, which is
+best-effort for the same shape of reason. This sweep is the only loop on the
+platform that can unwedge a location; a throw propagates out of `sql.begin`, out
+of `runReleaseCycle`, and aborts the tick BEFORE phases 2 and 3 run — so one
+anomalous row would hold every other account's wedged batch shut, which is the
+#915 failure mode reintroduced by the guard meant to catch it. The Outreach
+terminalization is the act that matters; the child transition is the spine's
+half of it, and it is pinned by its own case.
+
+**What changed:** nothing beyond the docstring, which states the departure and
+the reason. Recorded so a reviewer reads it as a decision rather than an
+oversight.
+
+## Task 6 — standing sign-off applied for P1: 1 entry, baseline 388 → 389
+
+**What:** the `## STANDING SIGN-OFF` table's P1 row reads "expect 1 …; pending".
+Recording the outcome here rather than editing that row, because this task's
+brief scopes this file to APPEND ONLY.
+
+**Confirmed from the audit output, not assumed:** `pnpm ci:tenant-scope` reported
+exactly ONE finding — `src/lib/solicitation/release.ts: solicitation_outreach:
+missing account_id or business_id scope` — and no `job_outbox` finding, since it
+is not a `TENANT_TABLES` member. One entry added in the `background-global-scan`
+category with a hoisted `UNKNOWN_SWEEP_SCAN_SQL` / `UNKNOWN_SWEEP_SCAN_REASON`
+pair beside `BATCH_EXPIRED_SWEEP_SCAN_SQL`; `ALLOWLIST_BASELINE` 388 → 389. The
+reason names #915 plainly, as the standing sign-off asks. Passes at 389/389.
+Nothing else in that file was touched and no other category was widened; the
+amendment budget is untouched and remains spent at 3 of 2.

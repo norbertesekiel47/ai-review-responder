@@ -175,7 +175,7 @@ export interface TenantScopeAllowlistEntry {
 //     account for work. The scan is global; every WRITE that follows it carries
 //     `account_id` AND `business_id` in a top-level predicate and needs no
 //     entry.
-export const ALLOWLIST_BASELINE = 388;
+export const ALLOWLIST_BASELINE = 389;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -409,6 +409,18 @@ const BATCH_EXPIRED_SWEEP_SCAN_REASON =
   + "THE agent_runs ARM IS THE SECOND FINDING and is correlated, not unscoped: r.account_id = b.account_id AND r.business_id = b.business_id bind the subquery to the outer row's tenant on both columns, so the EXISTS can never see another account's send parent. It is a finding only because the audit requires a binding to a VALUE, and the outer row this correlates to is itself part of the global scan. "
   + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
   + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, batch_halted spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
+
+// #900's `unknown` sweep scan (predicate P1). ONE table, not two: job_outbox is
+// not a TENANT_TABLES member, so the in-flight NOT EXISTS raises no finding of
+// its own. The only entry is solicitation_outreach at the top level.
+const UNKNOWN_SWEEP_SCAN_SQL =
+  "SELECT o.id, o.account_id, o.business_id, o.batch_id FROM solicitation_outreach o WHERE o.delivery_status = 'sending' AND o.sending_at <= NOW() - make_interval(mins => ${UNKNOWN_GRACE_MINUTES}) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SOLICITATION_SEND} AND jo.aggregate_id = o.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY o.sending_at ASC LIMIT ${scanLimit}";
+
+const UNKNOWN_SWEEP_SCAN_REASON =
+  "runReleaseCycle's unknown sweep scan (#900, predicate P1, D12d) — phase 1 of the SolicitationReleasePoller's tick, which finds dispatch attempts wedged in `sending` past UNKNOWN_GRACE_MINUTES with no in-flight solicitation_send outbox row and terminalizes them unknown/send_indeterminate. THIS IS THE SWEEP ISSUE #915 NAMES AS THE BLOCKER ON FLIPPING SOLICITATION_SEND_ENABLED ON, and the reason it may not be scoped: D10 deliberately excludes `sending` from the halt sweep, so without this phase a wedged row blocks closeBatchIfSettled forever and permanently consumes that location's one active-send slot under migration 091's solicitation_batches_one_active_send_per_business index. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience: a platform-wide unwedger must DISCOVER the wedged rows before any tenant id is known — nobody reports a wedge, which is the whole nature of the failure — and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have wedged rows, so it moves the exemption rather than removing it. Unlike P2, P3 and P4 the entry point here is the Outreach row itself rather than the batch, because the wedge is a fact about ONE dispatch attempt and carries no batch predicate at all — a wedged row on a halted or overdue batch is exactly the case D12d singles out. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's recovery member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects four ids and nothing else — no rendered subject, no rendered body, no recipient handle, no interpolation inputs. Everything the sweep then does is bound to the account_id AND business_id those ids carry: the FOR UPDATE OF b batch re-read, the sending→unknown CAS on solicitation_outreach, the Lazy child lookup on agent_runs, and closeBatchIfSettled all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3185,6 +3197,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: BATCH_EXPIRED_SWEEP_SCAN_SQL,
     category: 'background-global-scan',
     reason: BATCH_EXPIRED_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: UNKNOWN_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: UNKNOWN_SWEEP_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",
