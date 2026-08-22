@@ -175,7 +175,7 @@ export interface TenantScopeAllowlistEntry {
 //     account for work. The scan is global; every WRITE that follows it carries
 //     `account_id` AND `business_id` in a top-level predicate and needs no
 //     entry.
-export const ALLOWLIST_BASELINE = 386;
+export const ALLOWLIST_BASELINE = 388;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -393,6 +393,22 @@ const SEND_WINDOW_SWEEP_SCAN_REASON =
   + "CROSS-ACCOUNT FOR THE SAME REASON AS P4 ABOVE, and for one of its own: this sweep is the lane that RECLAIMS an overdue batch's rendered/queued rows, and until it runs migration 091's solicitation_batches_one_active_send_per_business index blocks that location from ever sending again (issue #915). A reclaimer that had to be handed a tenant id could not find the wedged locations it exists to unwedge. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately, so a mid-drip flag flip cannot strand a location forever. "
   + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
   + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
+
+// #900's batch_expired sweep scan (predicate P3). Two tables again, like P4 but
+// for a different reason: solicitation_batches at the top level plus agent_runs
+// inside the EXISTS that proves the batch HAS a Send batch parent. That EXISTS
+// is the predicate's point rather than a refinement — a watch-mode batch has no
+// send parent and must never be latched with a send-lane reason — so it is
+// hoisted here once and shared by both entries rather than copy-pasted.
+const BATCH_EXPIRED_SWEEP_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approved_at IS NULL AND b.built_at IS NOT NULL AND b.built_at <= NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND EXISTS ( SELECT 1 FROM agent_runs r WHERE r.kind = 'solicitation_send_batch' AND r.subject_type = 'solicitation_batch' AND r.subject_id = b.id::text AND r.account_id = b.account_id AND r.business_id = b.business_id ) ORDER BY b.built_at ASC LIMIT ${scanLimit}";
+
+const BATCH_EXPIRED_SWEEP_SCAN_REASON =
+  "runReleaseCycle's batch_expired sweep scan (#900, predicate P3, amendment B7) — phase 3 of the SolicitationReleasePoller's tick, which finds batches NEITHER lane approved before the 7-day approval window ran out and latches them through latchSystemHalt. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience, for the same structural reason as P4 and P2 above and one of its own: B7 exists to make #619 D2's \"≤10 days by construction\" true for the NEVER-APPROVED case, and deriveRunDisplayState calls a send parent stalled at STALLED_THRESHOLD_SEND_BATCH_DAYS (11). A sweep that had to be handed a tenant id could only make that threshold unreachable for the accounts someone remembered to name, which is exactly the fleet-wide false-stalled alert the amendment forbids. The audit proves scope only from a value-bound predicate, and a platform releaser must discover expired batches before any tenant id is known; every possible entry point (solicitation_batches, businesses, accounts) is a TENANT_TABLES member, so no SQL formulation avoids it. "
+  + "THE agent_runs ARM IS THE SECOND FINDING and is correlated, not unscoped: r.account_id = b.account_id AND r.business_id = b.business_id bind the subquery to the outer row's tenant on both columns, so the EXISTS can never see another account's send parent. It is a finding only because the audit requires a binding to a VALUE, and the outer row this correlates to is itself part of the global scan. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, batch_halted spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3155,6 +3171,20 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: SEND_WINDOW_SWEEP_SCAN_SQL,
     category: 'background-global-scan',
     reason: SEND_WINDOW_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: BATCH_EXPIRED_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BATCH_EXPIRED_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "agent_runs",
+    sqlSnippet: BATCH_EXPIRED_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BATCH_EXPIRED_SWEEP_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

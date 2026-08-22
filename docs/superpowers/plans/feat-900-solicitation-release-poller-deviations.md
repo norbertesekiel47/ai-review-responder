@@ -35,7 +35,7 @@ executing rather than scope creep.
 |---|---|---|---|
 | P4 — release candidates | 3 | 2 (`solicitation_batches`, `solicitation_outreach`) | applied, baseline 383 → 385 |
 | P2 — `send_window_elapsed` | 4 | 1 (`solicitation_batches`) | applied, baseline 385 → 386 |
-| P3 — `batch_expired` | 5 | expect 2 (`solicitation_batches`, `agent_runs` in the `EXISTS`) | pending |
+| P3 — `batch_expired` | 5 | 2 (`solicitation_batches`, `agent_runs` in the `EXISTS`) | applied, baseline 386 → 388 |
 | P1 — `unknown` | 6 | expect 1 (`solicitation_outreach`; `job_outbox` is not a `TENANT_TABLES` member) | pending |
 | backstop join | 7 | 0 or 1, depending on whether it re-scans or reuses the tick's ids | pending |
 
@@ -456,3 +456,39 @@ write. Same class as `RELEASE_CANDIDATE_SCAN_REASON`'s three peers.
 **What changed:** nothing off-surface. The implementation is committed with
 `ci:tenant-scope` red on this ONE finding, exactly as Task 3 committed before
 AMENDMENT 2 was signed off.
+
+## Task 5 — the vacuous negative case is re-verified; one of the three obligations is discharged
+
+**What:** `does not latch batch_expired on a batch with no Send batch parent`
+no longer passes vacuously. With P3's `EXISTS` over `agent_runs` deleted it is
+the ONLY case in `release.integration.test.ts` that goes red
+(`AssertionError: expected 1 to be +0` — the watch-mode batch WAS latched), and
+it goes green again the moment the arm is restored. Its `TASK 5 MUST RE-VERIFY
+THIS` comment is rewritten to record that result rather than to ask for it.
+
+**Why it is recorded here:** the entry "Task 3 — three negative cases were
+unmasked while they still pass VACUOUSLY" names three cases and says a green run
+alone is not evidence for any of them. This discharges the first. **Task 6 still
+owns the other two** — `does not terminalize a sending row while an in-flight
+outbox row still exists` and `… whose outbox row is re-pended after selection`
+— and must delete P1's `NOT EXISTS` belt to prove each.
+
+**What changed:** the comment on that one case, plus the two `it.fails` markers
+Task 5 unmasked. No production behaviour beyond the sweep itself.
+
+**Sensitivity proved, not assumed**, for all three:
+`latches batch_expired on a never-approved batch…` and `a batch that receives no
+approval for 7 days…` both go red when P3's interval is widened to 500 days
+(`expected +0 to be 1`), which is Task 4's 500-hour probe in days. The second
+case's STALLED assertion was probed SEPARATELY, because the interval widening
+only reaches its first line: seeding the **Send batch parent** 12 days back
+instead of 7 keeps the sweep firing and fails exactly that assertion
+(`expected 1036800007 to be less than 950400000`), so amendment B7's
+no-stalled-alert obligation is enforced by the test rather than merely stated
+in its title.
+
+**Nothing else deviated.** `BATCH_APPROVAL_WINDOW_DAYS = 7` was already the
+approval window's single owner in `outreach.ts` — it is the sibling the task
+brief predicted next to `BATCH_SEND_WINDOW_HOURS`, so no constant was invented.
+The `ci:tenant-scope` findings landed at exactly the 2 the standing sign-off
+predicted, and no other audit moved.
