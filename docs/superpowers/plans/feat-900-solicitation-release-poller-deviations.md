@@ -585,3 +585,80 @@ pair beside `BATCH_EXPIRED_SWEEP_SCAN_SQL`; `ALLOWLIST_BASELINE` 388 → 389. Th
 reason names #915 plainly, as the standing sign-off asks. Passes at 389/389.
 Nothing else in that file was touched and no other category was widened; the
 amendment budget is untouched and remains spent at 3 of 2.
+
+## Task 7 — "every still-open batch the tick saw" is a RE-SCAN, and the plan's triple is migration 091's index predicate
+
+**What:** the plan's phrase admits two readings — re-scan at phase 5, or replay
+the ids phases 1–4 touched. Task 7 chose the RE-SCAN, and the choice is forced
+rather than preferred: `closes a settled batch the inline path missed` seeds a
+batch that is approved, mid-drip and fully terminal (`sent` + `withheld`), which
+NO earlier phase can select — P1 finds no `sending` row, P4's `EXISTS` finds no
+`rendered` row, P2 and P3 see a batch inside both of its windows. A replay
+reading leaves the backstop reachable only for batches something else already
+closed inline, which is every batch except the one whose join was lost.
+
+**Why the scan's three arms are the plan's exact triple, and why that is
+principled rather than arbitrary:** `approved_at IS NOT NULL AND halted_at IS
+NULL AND send_closed_at IS NULL` is migration 091's
+`solicitation_batches_one_active_send_per_business` predicate **byte for byte**
+(091 line 183). The scanned set is therefore exactly the set of batches
+OCCUPYING a location's single active-send slot, so an unclosed batch inside it
+is a wedged location — the #915 failure — and one outside it wedges nothing.
+The unique partial index also serves the scan. This was verified against the
+migration rather than inferred, because the arms read like three arbitrary
+lifecycle filters until you notice they are one index.
+
+**One residual, recorded rather than fixed:** a HALTED batch whose last live row
+is terminalized by the send worker with the join lost is outside this set and
+outside every phase (P1 only sees `sending` rows). It holds no active-send slot,
+so it wedges no location — it is a stale-open row, not a wedge — and widening
+the predicate would have meant departing from the plan's stated triple on Task
+7's own authority. Flagging it for step 6 rather than taking that decision here.
+
+**What changed:** `runBackstopJoin` + `selectOpenSendBatches` in
+`release.ts`; `SweepCandidateBatch`'s docstring now says P2, P3 **and P5** share
+it (three ids that are exactly `closeBatchIfSettled`'s whole input, so the
+backstop needs no projection of its own); the module header's phase-5 line now
+says RE-SCANNED and why. No new type, no shared sweep helper.
+
+**Standing sign-off applied for P5: 1 entry, baseline 389 → 390.** The table's
+P5 row reads "0 or 1, depending on whether it re-scans"; the re-scan reading
+costs exactly ONE finding —
+`src/lib/solicitation/release.ts: solicitation_batches: missing account_id or
+business_id scope` — because unlike P3 and P4 this statement binds no second
+table: the settled predicate is NOT spelled in the scan, since a second spelling
+of it would be the second implementation of the join D11 forbids. Hoisted
+`BACKSTOP_SCAN_SQL` / `BACKSTOP_SCAN_REASON` beside `UNKNOWN_SWEEP_SCAN_SQL`;
+passes at 390/390. Nothing else in that file was touched, no other category was
+widened, and the amendment budget remains spent at 3 of 2.
+
+## Task 7 — the two unmask probes, and what each one actually pins
+
+**What:** both markers were deleted and both cases pass. Sensitivity was PROVED
+with two probes per case, chosen so that each reddens a different assertion.
+
+- **Narrowing the scan** (`AND b.sending_started_at IS NULL`, which excludes the
+  mid-drip settled batch) reds BOTH cases and only those two:
+  `closes a settled batch…` on `expected +0 to be 1`, and the flag-scope case on
+  `expected 0 to be greater than or equal to 1` — with its three sweep
+  assertions still green. That is the BACKSTOP half of the flag-scope case.
+- **Declaring a `failure`** (`{ code: 'gate_closed', gate: 'flag_disabled' }`,
+  the trap the task brief names) leaves `backstopClosed` correct at 1 and reds
+  both cases on `expected 'failed' to be 'completed'` — the Send batch parent's
+  terminal status. So the durable receipt is pinned SEPARATELY from the counter,
+  and the "a backstop is not a terminalizer" rule is enforced by the tests
+  rather than merely commented.
+- **Moving the flag read to the top of `runReleaseCycle`** reds EXACTLY ONE case
+  — `runs the sweeps and the backstop while SOLICITATION_SEND_ENABLED is off`,
+  on `expected +0 to be 1` (`sendWindowElapsed`). `does not release while
+  SOLICITATION_SEND_ENABLED is off` stays GREEN, which is precisely the hazard
+  locked decision 8 exists for: the obvious flag-off case passes under either
+  scope. That case is the sole pin on the flag's scope, and the two halves of
+  its title are independently pinned (this probe reds the sweeps assertion, the
+  scan probe reds the backstop assertion).
+
+**Step 2 needed no code:** `solicitationSendEnabled` is read at exactly one site
+(`release.ts:766`, inside `runReleasePhase`). No second read was added.
+
+**Nothing else deviated.** Zero `it.fails` markers remain in the suite (34/34
+pass), and no audit moved except the one tenant-scope entry above.

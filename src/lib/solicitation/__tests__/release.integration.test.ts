@@ -1562,7 +1562,7 @@ describeWithDb(
     // ── the flag scope and the backstop join ────────────────────────────────
 
     describe('the flag scope and the backstop join', () => {
-      it.fails('runs the sweeps and the backstop while SOLICITATION_SEND_ENABLED is off', async () => {
+      it('runs the sweeps and the backstop while SOLICITATION_SEND_ENABLED is off', async () => {
         // Locked decision 8, and the whole reason the flag gates PHASE 4 ONLY.
         // If the flag gated the cycle, flipping it off mid-drip would stop the
         // `send_window_elapsed` sweep, and 091's one-active-send index would
@@ -1629,7 +1629,7 @@ describeWithDb(
         expect((await readRun(settledParentRunId)).status).toBe('completed');
       });
 
-      it.fails('closes a settled batch the inline path missed', async () => {
+      it('closes a settled batch the inline path missed', async () => {
         // D11: ONE implementation of the join, two callers. The inline caller is
         // the send worker's terminal transaction; this is the backstop for the
         // tick where that call was lost — a crash between the terminal CAS and

@@ -175,7 +175,7 @@ export interface TenantScopeAllowlistEntry {
 //     account for work. The scan is global; every WRITE that follows it carries
 //     `account_id` AND `business_id` in a top-level predicate and needs no
 //     entry.
-export const ALLOWLIST_BASELINE = 389;
+export const ALLOWLIST_BASELINE = 390;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -421,6 +421,20 @@ const UNKNOWN_SWEEP_SCAN_REASON =
   + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience: a platform-wide unwedger must DISCOVER the wedged rows before any tenant id is known — nobody reports a wedge, which is the whole nature of the failure — and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have wedged rows, so it moves the exemption rather than removing it. Unlike P2, P3 and P4 the entry point here is the Outreach row itself rather than the batch, because the wedge is a fact about ONE dispatch attempt and carries no batch predicate at all — a wedged row on a halted or overdue batch is exactly the case D12d singles out. No SQL formulation avoids it. "
   + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's recovery member of that set. "
   + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects four ids and nothing else — no rendered subject, no rendered body, no recipient handle, no interpolation inputs. Everything the sweep then does is bound to the account_id AND business_id those ids carry: the FOR UPDATE OF b batch re-read, the sending→unknown CAS on solicitation_outreach, the Lazy child lookup on agent_runs, and closeBatchIfSettled all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted.";
+
+// #900's backstop join scan (predicate P5, D11). ONE table: the statement binds
+// only solicitation_batches, because the settled predicate itself is NOT spelled
+// here — closeBatchIfSettled owns it, and a second spelling of it in this scan
+// would be the second implementation of the join D11 exists to forbid.
+const BACKSTOP_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL ORDER BY b.approved_at ASC LIMIT ${scanLimit}";
+
+const BACKSTOP_SCAN_REASON =
+  "runReleaseCycle's backstop join scan (#900, predicate P5, D11) — phase 5 of the SolicitationReleasePoller's tick, which hands every still-open send batch to closeBatchIfSettled so a batch whose INLINE join was lost (a crash between the send worker's terminal CAS and its join) is still closed and its Send batch parent still terminalized. "
+  + "THE THREE ARMS ARE MIGRATION 091's solicitation_batches_one_active_send_per_business PREDICATE, BYTE FOR BYTE (approved_at IS NOT NULL AND send_closed_at IS NULL AND halted_at IS NULL), which is what makes the scanned set exactly the set of batches OCCUPYING a location's single active-send slot. An unclosed batch inside that set is a WEDGED LOCATION — the failure issue #915 exists to close — while an unclosed batch outside it wedges nothing. The unique partial index also serves the scan. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience, for the same structural reason as P1, P2, P3 and P4 above: a lost join is by definition a fact nobody reports, so a platform-wide backstop must DISCOVER the affected batches before any tenant id is known, and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have open batches, so it moves the exemption rather than removing it. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately (locked decision 8), so a mid-drip flag flip cannot strand a settled batch open. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's join-recovery member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects three ids and nothing else — no rendered subject, no rendered body, no recipient handle, no provenance. The only thing that follows is closeBatchIfSettled, called once per scanned batch in its own transaction with the account_id AND business_id those ids carry: its FOR UPDATE batch re-read, its grouped outreach tally, its send-parent lookup, its send_closed_at CAS, its send_batch_closed step and its terminal transition all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. The backstop declares NO failure, so it can neither close a parentless batch nor file a parent as failed.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3204,6 +3218,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: UNKNOWN_SWEEP_SCAN_SQL,
     category: 'background-global-scan',
     reason: UNKNOWN_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: BACKSTOP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BACKSTOP_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

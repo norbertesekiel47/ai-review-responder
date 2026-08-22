@@ -11,7 +11,10 @@
 //   4. RELEASE phase            — the only phase gated on
 //                                 `SOLICITATION_SEND_ENABLED`.
 //   5. backstop join (D11)      — `closeBatchIfSettled` over every still-open
-//                                 batch the tick saw. One implementation, two
+//                                 batch, RE-SCANNED rather than replayed from
+//                                 the ids phases 1-4 touched: the batch whose
+//                                 join was lost is by construction one no other
+//                                 phase can select. One implementation, two
 //                                 callers; the backstop cannot drift from the
 //                                 inline path.
 //
@@ -189,14 +192,93 @@ export async function runReleaseCycle(
   return report;
 }
 
-// ── phase 5: stub ───────────────────────────────────────────────────────────
-//
-// Returns 0 and writes nothing, so the tick is a no-op for its phase while the
-// ORDER above is already fixed. A later task replaces the body only.
+// ── phase 5: the backstop join (D11) ────────────────────────────────────────
 
-/** Task 7 (#900): the backstop join (D11) — `closeBatchIfSettled`, no second implementation. */
-async function runBackstopJoin(_sql: Sql, _scanLimit: number): Promise<number> {
-  return 0;
+/**
+ * The backstop join (D11) — `closeBatchIfSettled` over every still-open batch,
+ * one transaction each.
+ *
+ * ONE IMPLEMENTATION, TWO CALLERS. The other caller is the send worker's
+ * terminal transaction, which joins as it terminalizes the last live Outreach
+ * row; this is the backstop for the tick where that call was LOST. A second
+ * implementation here would be a second definition of a **Settled batch** — and
+ * the glossary asks that condition of the domain table exactly once, which is
+ * why nothing in this function spells `rendered`, `queued` or `sending`.
+ *
+ * IT RE-SCANS rather than replaying the ids the earlier phases touched, and the
+ * two readings of "every still-open batch the tick saw" are NOT interchangeable.
+ * The batch this phase exists for is by definition one no other phase touched:
+ * every row of it is already terminal, so P1 finds no `sending` row, P4's
+ * `EXISTS` finds no `rendered` row, and both expiry sweeps see a batch inside
+ * its windows. Accumulating ids would leave the backstop reachable only for
+ * batches something else had already closed inline — which is every batch
+ * except the one whose join was lost.
+ *
+ * NO `failure` IS DECLARED, and that is the whole difference between a backstop
+ * and a terminalizer. `closed_without_parent` is reachable ONLY when the caller
+ * hands over a failure (see its own docstring): without one, a parentless batch
+ * is an ordinary built batch awaiting approval and must be left alone. This
+ * caller therefore cannot observe that status at all — a parentless batch
+ * answers `no_send_parent` here, and nothing is written.
+ *
+ * Counts what was CLOSED, matching the two sweeps' "counts what was latched".
+ * `not_settled` is the ordinary answer for a live batch and is the cheap one —
+ * the grouped tally short-circuits before the parent lookup. `already_closed`
+ * is a writer that won the race between the scan and the lock. Neither is an
+ * event, so neither is reported.
+ */
+async function runBackstopJoin(sql: Sql, scanLimit: number): Promise<number> {
+  const batches = await selectOpenSendBatches(sql, scanLimit);
+
+  let closed = 0;
+  for (const batch of batches) {
+    const result = await sql.begin(async (tx) =>
+      closeBatchIfSettled(tx, {
+        batchId: batch.id,
+        accountId: batch.account_id,
+        businessId: batch.business_id,
+      }),
+    );
+    if (result.status === 'closed') closed += 1;
+  }
+  return closed;
+}
+
+/**
+ * P5 — batches still open in the send lane.
+ *
+ * **THE THREE ARMS ARE MIGRATION 091's `solicitation_batches_one_active_send_per_business`
+ * PREDICATE, BYTE FOR BYTE** (`approved_at IS NOT NULL AND send_closed_at IS
+ * NULL AND halted_at IS NULL`), and that identity is the reason the set is this
+ * one rather than a wider "anything unclosed". A batch matching it is exactly a
+ * batch OCCUPYING its location's single active-send slot, so an unclosed batch
+ * in this set is a wedged location — the failure #915 exists to close — while an
+ * unclosed batch outside it wedges nothing. The unique partial index also serves
+ * the scan.
+ *
+ * A HALTED batch is deliberately out of scope, twice over: it holds no slot, and
+ * its join already has an inline owner in `latchSystemHalt`, which calls this
+ * same function under the same batch lock in the transaction that latches it.
+ * A never-approved batch is out of scope for the reason `closeBatchIfSettled`
+ * states itself — it has not entered the send lane, and closing it would slam
+ * the door on a batch the owner still has days to approve.
+ *
+ * `approved_at ASC` for the same reason P2 and P4 order that way: the oldest
+ * approval leads, so a lost join is never starved behind a newer batch.
+ */
+async function selectOpenSendBatches(
+  sql: Sql,
+  scanLimit: number,
+): Promise<SweepCandidateBatch[]> {
+  return sql<SweepCandidateBatch[]>`
+    SELECT b.id, b.account_id, b.business_id
+      FROM solicitation_batches b
+     WHERE b.approved_at IS NOT NULL
+       AND b.halted_at IS NULL
+       AND b.send_closed_at IS NULL
+     ORDER BY b.approved_at ASC
+     LIMIT ${scanLimit}
+  `;
 }
 
 // ── phase 1: the `unknown` sweep (D12d) ─────────────────────────────────────
@@ -458,8 +540,11 @@ function alertUnknownTerminalization(row: WedgedOutreachRow): void {
 
 // ── phase 2: the `send_window_elapsed` sweep ────────────────────────────────
 
-/** The sweep projection, shared by P2 and P3: the tenant triple and nothing
- *  else. Everything a **Halt latch** needs beyond it — the **Batch state** it
+/** The sweep projection, shared by P2, P3 and P5: the tenant triple and nothing
+ *  else. P5 shares it because those three ids ARE `closeBatchIfSettled`'s whole
+ *  input, so the backstop needs no projection of its own — the phases differ in
+ *  predicate, not in what they read. Everything a **Halt latch** needs beyond
+ *  it — the **Batch state** it
  *  stamps as `state_at_halt`, the **Send batch parent** it appends
  *  `batch_halted` to — the latch derives itself from the row it locks, so a
  *  second projection here would be a second reader of facts that must be read
