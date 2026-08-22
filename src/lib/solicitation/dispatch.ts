@@ -1426,6 +1426,111 @@ type DispatchTxOutcome =
   };
 
 /**
+ * Load the **Outreach row** under its lock and decide whether THIS attempt may
+ * proceed at all.
+ *
+ * Extracted from `runDispatchTx` so that function reads as lock -> triage ->
+ * gate -> commit, rather than opening with five arrival-status branches before
+ * its real work starts. Every branch here ends the attempt; none of them writes
+ * anything to the row.
+ *
+ * Returns the row when dispatch may continue, or the outcome that ends it.
+ */
+async function lockAndTriageOutreach(
+  tx: TransactionSql,
+  scope: DispatchScope,
+  handle: { outboxId: string; attempt: number },
+  slow: SlowGateResult,
+): Promise<
+  { proceed: true; outreach: LockedOutreachRow }
+  | { proceed: false; outcome: DispatchTxOutcome }
+> {
+  const [outreach] = await tx<LockedOutreachRow[]>`
+    SELECT ask_id, contact_id, delivery_status, rendered_subject, rendered_body
+    FROM solicitation_outreach
+    WHERE id = ${scope.outreachId}::uuid
+      AND account_id = ${scope.accountId}::uuid
+      AND business_id = ${scope.businessId}::uuid
+      AND batch_id = ${scope.batchId}::uuid
+    FOR UPDATE
+  `;
+  if (!outreach) {
+    // There for the unlocked read, gone under the lock — an offboarding purge
+    // landing mid-flight. A retry would find the same nothing.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { proceed: false, outcome: { kind: 'vanished' } };
+  }
+
+  if (outreach.delivery_status === 'cancelled') {
+    // Nothing to re-gate and nothing to re-terminalize — the sweep that
+    // cancelled it already wrote every terminal fact and already joined the
+    // batch. Completing the attempt is the only thing left owed.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { proceed: false, outcome: { kind: 'cancelled' } };
+  }
+
+  if (outreach.delivery_status === 'sending') {
+    // Decision 9b under the LOCK. The orchestrator already short-circuits on
+    // this from its unlocked read; this is the race-tight repeat, because a
+    // concurrent worker can CAS the row between that read and this one. The
+    // gate is skipped ENTIRELY — re-gating a row whose message may already have
+    // reached a real person could record `withheld` about a delivered ask.
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { proceed: false, outcome: { kind: 'in_flight_elsewhere', detector: 'sending_row' } };
+  }
+
+  // ONLY a `queued` row is dispatchable, and this guard must stand BEFORE any
+  // write — round-1 standards review, and the root cause of three HIGH findings.
+  //
+  // `queued` is the release's own CAS (#900), so a row arriving in any other
+  // status was never released for THIS attempt. Without this guard the two
+  // branches above were the only short-circuits, and a `rendered`, `sent`,
+  // `withheld`, `failed` or `unknown` row would walk the whole gate before the
+  // `queued` predicate on the CAS below finally rejected it — by which point
+  // tx1 has already committed real damage:
+  //
+  //   * `commitWithhold` carries no status predicate, so a gate failure would
+  //     terminalize a never-released `rendered` row as `withheld` (091's CHECKs
+  //     accept that transition, so nothing downstream catches it);
+  //   * on a gate PASS the unsubscribe token row commits before the CAS fails,
+  //     and because a hash cannot yield its raw token, #900's later legitimate
+  //     release then hits `token_conflict` and refuses that contact FOREVER.
+  //
+  // Both are latent today only because #900 does not exist to enqueue this
+  // topic. Completing the attempt is the whole of what is owed: the row belongs
+  // to another lifecycle point, and this attempt has nothing to say about it.
+  if (outreach.delivery_status !== 'queued') {
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { proceed: false, outcome: { kind: 'not_dispatchable', status: outreach.delivery_status } };
+  }
+
+  // A4: PROVE the locked bytes are the ones the slow items were computed over.
+  //
+  // `slow` was gathered from an unlocked read, and its safety rests on stored
+  // bytes being immutable after approval — which ADR 0020 enforces in a DOMAIN
+  // MODULE, not in the schema. Nothing in Postgres stops a repair script, a new
+  // lane, or a future writer from editing `rendered_body` in between. Without
+  // this comparison the worker would moderate one artifact and send another,
+  // silently, and the **Owner approval** byte-for-byte contract would be a
+  // convention rather than a check.
+  //
+  // Treated as a DEFER, not a withhold: nothing about the ask is wrong, we
+  // simply raced a writer, and the next attempt re-gathers against the new bytes
+  // and decides honestly. Withholding here would terminalize a row over a race.
+  if (
+    slow.evaluatedBytesDigest !== null
+    && outreach.rendered_subject !== null
+    && outreach.rendered_body !== null
+    && digestEvaluatedBytes(outreach.rendered_subject, outreach.rendered_body)
+      !== slow.evaluatedBytesDigest
+  ) {
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
+    return { proceed: false, outcome: { kind: 'bytes_changed_under_gate' } };
+  }
+  return { proceed: true, outreach };
+}
+
+/**
  * tx1: the whole of the **Dispatch gate**'s FAST evidence, and every write a
  * non-sending verdict owes, under one transaction.
  *
@@ -1469,88 +1574,10 @@ async function runDispatchTx(
     throw new Error(`solicitation send: batch ${scope.batchId} vanished before dispatch`);
   }
 
-  const [outreach] = await tx<LockedOutreachRow[]>`
-    SELECT ask_id, contact_id, delivery_status, rendered_subject, rendered_body
-    FROM solicitation_outreach
-    WHERE id = ${scope.outreachId}::uuid
-      AND account_id = ${scope.accountId}::uuid
-      AND business_id = ${scope.businessId}::uuid
-      AND batch_id = ${scope.batchId}::uuid
-    FOR UPDATE
-  `;
-  if (!outreach) {
-    // There for the unlocked read, gone under the lock — an offboarding purge
-    // landing mid-flight. A retry would find the same nothing.
-    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'vanished' };
-  }
+  const triaged = await lockAndTriageOutreach(tx, scope, handle, slow);
+  if (!triaged.proceed) return triaged.outcome;
+  const outreach = triaged.outreach;
 
-  if (outreach.delivery_status === 'cancelled') {
-    // Nothing to re-gate and nothing to re-terminalize — the sweep that
-    // cancelled it already wrote every terminal fact and already joined the
-    // batch. Completing the attempt is the only thing left owed.
-    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'cancelled' };
-  }
-
-  if (outreach.delivery_status === 'sending') {
-    // Decision 9b under the LOCK. The orchestrator already short-circuits on
-    // this from its unlocked read; this is the race-tight repeat, because a
-    // concurrent worker can CAS the row between that read and this one. The
-    // gate is skipped ENTIRELY — re-gating a row whose message may already have
-    // reached a real person could record `withheld` about a delivered ask.
-    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'in_flight_elsewhere', detector: 'sending_row' };
-  }
-
-  // ONLY a `queued` row is dispatchable, and this guard must stand BEFORE any
-  // write — round-1 standards review, and the root cause of three HIGH findings.
-  //
-  // `queued` is the release's own CAS (#900), so a row arriving in any other
-  // status was never released for THIS attempt. Without this guard the two
-  // branches above were the only short-circuits, and a `rendered`, `sent`,
-  // `withheld`, `failed` or `unknown` row would walk the whole gate before the
-  // `queued` predicate on the CAS below finally rejected it — by which point
-  // tx1 has already committed real damage:
-  //
-  //   * `commitWithhold` carries no status predicate, so a gate failure would
-  //     terminalize a never-released `rendered` row as `withheld` (091's CHECKs
-  //     accept that transition, so nothing downstream catches it);
-  //   * on a gate PASS the unsubscribe token row commits before the CAS fails,
-  //     and because a hash cannot yield its raw token, #900's later legitimate
-  //     release then hits `token_conflict` and refuses that contact FOREVER.
-  //
-  // Both are latent today only because #900 does not exist to enqueue this
-  // topic. Completing the attempt is the whole of what is owed: the row belongs
-  // to another lifecycle point, and this attempt has nothing to say about it.
-  if (outreach.delivery_status !== 'queued') {
-    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'not_dispatchable', status: outreach.delivery_status };
-  }
-
-  // A4: PROVE the locked bytes are the ones the slow items were computed over.
-  //
-  // `slow` was gathered from an unlocked read, and its safety rests on stored
-  // bytes being immutable after approval — which ADR 0020 enforces in a DOMAIN
-  // MODULE, not in the schema. Nothing in Postgres stops a repair script, a new
-  // lane, or a future writer from editing `rendered_body` in between. Without
-  // this comparison the worker would moderate one artifact and send another,
-  // silently, and the **Owner approval** byte-for-byte contract would be a
-  // convention rather than a check.
-  //
-  // Treated as a DEFER, not a withhold: nothing about the ask is wrong, we
-  // simply raced a writer, and the next attempt re-gathers against the new bytes
-  // and decides honestly. Withholding here would terminalize a row over a race.
-  if (
-    slow.evaluatedBytesDigest !== null
-    && outreach.rendered_subject !== null
-    && outreach.rendered_body !== null
-    && digestEvaluatedBytes(outreach.rendered_subject, outreach.rendered_body)
-      !== slow.evaluatedBytesDigest
-  ) {
-    await markOutboxCompletedIfOwned(tx, handle.outboxId, handle.attempt);
-    return { kind: 'bytes_changed_under_gate' };
-  }
 
   const now = new Date();
   const { evidence, suppression, handle: recipient } = await gatherFastGateEvidence(
