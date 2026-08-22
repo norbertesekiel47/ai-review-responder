@@ -50,6 +50,19 @@ export const BATCH_APPROVAL_WINDOW_DAYS = 7;
  */
 export const BATCH_SEND_WINDOW_HOURS = 72;
 
+/**
+ * How long a dispatch attempt may sit in `sending` before the release cycle is
+ * allowed to call its outcome indeterminate (#900, D12d). Anchored on
+ * `solicitation_outreach.sending_at`, never on the batch's stamps.
+ *
+ * Lives here with the two batch windows because it is the third and last clock
+ * the send lane runs on, and one home keeps them comparable. It is deliberately
+ * NOT sufficient evidence on its own: the `unknown` sweep also requires the
+ * absence of an in-flight `solicitation_send` outbox row, so a job the
+ * OutboxPoller is still carrying is never terminalized as wedged.
+ */
+export const UNKNOWN_GRACE_MINUTES = 60;
+
 /** Fixed precedence, highest first. */
 export const BATCH_STATES = [
   'halted',

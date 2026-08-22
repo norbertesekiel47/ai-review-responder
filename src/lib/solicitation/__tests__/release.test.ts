@@ -235,7 +235,7 @@ describe('runReleaseCycle invariants', () => {
     delete process.env.SOLICITATION_PLATFORM_DAILY_CAP;
   });
 
-  it.fails(
+  it(
     'property: the account daily send cap is never exceeded across arbitrary release sequences',
     async () => {
       await fc.assert(

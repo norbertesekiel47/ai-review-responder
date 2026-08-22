@@ -215,3 +215,94 @@ listed under those three files. The actual split is 33 live-DB release titles,
 
 **What changed:** nothing but the count. The plan's own Step 2 table is correct
 and was followed verbatim; all 39 titles verify present character-for-character.
+
+## Task 3 — a FOURTH fixture defect: `beforeEach` re-armed every delegating spy with itself
+
+**What:** `release.integration.test.ts`'s `beforeEach` re-armed its four
+delegating spies from a plain `await import(...)`. This file `vi.mock`s all four
+of those modules, so a dynamic import inside it returns the **mock**, not the
+original — `spies.readSendBreaker.mockImplementation(breaker.readSendBreaker)`
+therefore set each spy's implementation to the spy itself. Every case that
+reached one died with `RangeError: Maximum call stack size exceeded` before its
+own assertions ran. 31 of the 33 cases failed that way; the only two that did
+not were the flag-off case (returns before any spy is touched) and the breaker
+read-failure case (overrides the spy with `mockRejectedValue` first).
+
+**Why it was invisible:** `it.fails` passes whether the body fails for the right
+reason or the wrong one. The recursion presented as "the feature is not built
+yet" in exactly the same shape as a genuine red, and would have presented as a
+mysterious mass failure to whichever task first unmasked. Found by the mandatory
+unmask step, which is the fourth defect that step has caught on this branch.
+
+**What changed:** the four re-arms now use
+`vi.importActual<typeof import('…')>('…')`. The re-arm itself is KEPT and is
+load-bearing: `vi.clearAllMocks()` clears calls, not implementations, so without
+it a case's `mockResolvedValue(false)` leaks into the next case. Test-only, on
+Task 3's surface, and the header comment now states the trap. No production
+behaviour is involved, so ACCEPT rather than RE-PLAN.
+
+## Task 3 — three negative cases were unmasked while they still pass VACUOUSLY
+
+**What:** `does not latch batch_expired on a batch with no Send batch parent`
+(Task 5), `does not terminalize a sending row while an in-flight outbox row
+still exists` and `does not terminalize a sending row whose outbox row is
+re-pended after selection` (both Task 6) all pass today — because their sweeps
+are still stubs returning 0, not because the predicate they describe works.
+
+**Why they were unmasked anyway:** `it.fails` on a body that PASSES is a hard
+suite failure ("Expect test to fail"), so leaving the marker would have left the
+suite red on a green tree. Task 3's verification contract requires both suites
+green.
+
+**What changed:** the three markers were removed. **Tasks 5 and 6 must re-verify
+these three for the reason their titles state** — after the sweep exists, delete
+its predicate's guard arm and confirm the case goes RED. A green run alone is
+not evidence for any of the three until then.
+
+## Task 3 — BLOCKER: `ci:tenant-scope` needs an allowlist entry, and that file is off-surface
+
+**What:** predicate P4 — the release phase's candidate scan, stated verbatim in
+the plan's "The four predicates, stated once" — is a cross-account scan of
+`solicitation_batches`, exactly like every other background global scan in
+`src/lib`. `ci:tenant-scope` therefore reports two findings against
+`src/lib/solicitation/release.ts` (one per table the statement binds:
+`solicitation_batches` at the top level, `solicitation_outreach` in the
+`EXISTS`). Every other statement in the module IS scoped and needs nothing.
+
+**Why it cannot be fixed in code:** the audit proves scope only from a
+`column = $N` / `IN ($N)` / `= ANY($N)` predicate bound to a value. A platform
+releaser must discover candidates before any tenant id is known, and every
+possible entry point (`solicitation_batches`, `businesses`, `accounts`) is a
+`TENANT_TABLES` member. This is the same shape as `judge-store.ts`,
+`judge-health.ts` and `auto-approval/governor.ts`, all three of which carry
+`background-global-scan` allowlist entries. There is no SQL formulation that
+avoids it.
+
+**Why Task 3 did not apply it:** `scripts/ci/tenant-scope-allowlist.ts` is not in
+`allowed_edit_surface`, and the edit-surface guard blocks it (verified: exit 2).
+Adding it is a **second surface amendment** and needs owner sign-off, so Task 3
+stopped at the boundary rather than taking that decision itself.
+
+**The exact change, paste-ready.** In `scripts/ci/tenant-scope-allowlist.ts`:
+`ALLOWLIST_BASELINE` 383 → 385; add `'src/lib/solicitation/release.ts'` to
+`CATEGORY_PATH_RULES['background-global-scan'].allowedFiles`; add two entries,
+category `background-global-scan`, differing only in `table`
+(`solicitation_batches`, `solicitation_outreach`), both carrying this
+`sqlSnippet`:
+
+```
+SELECT b.id, b.account_id, b.business_id, b.sending_started_at FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ORDER BY b.approved_at ASC LIMIT ${scanLimit}
+```
+
+Reason to record on both: the release cycle is the single choke point that
+enforces every send governor (amendment B3), so it must see every account's
+approved batches before it can decide which of them may release; the scan
+projects only ids, and every write that follows it is bound to the account and
+business those ids carry. Same justification as the three sibling
+`background-global-scan` files.
+
+**Everything else on Task 3's verification list passes:** `pnpm typecheck`,
+`pnpm lint`, both release suites, both approval suites, and
+`ci:db-imports`, `ci:outbox-seam`, `ci:outbox-status`, `ci:static-policy`,
+`ci:live-db-suites`, `ci:config-coverage`, `ci:process-env`,
+`ci:directory-map`, `ci:outbox-topics`, `ci:feature-surface`, `ci:rls-audit`.

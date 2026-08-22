@@ -700,15 +700,30 @@ describeWithDb(
 
     beforeEach(async () => {
       vi.clearAllMocks();
-      // Re-arm the delegates `vi.clearAllMocks()` just wiped. A case that wants
-      // a failure overrides its own spy after this hook.
-      const breaker = await import('../send-breaker');
+      // Re-arm the delegates, so the PREVIOUS case's `mockRejectedValue` /
+      // `mockResolvedValue` cannot leak into this one (`vi.clearAllMocks()`
+      // clears calls, not implementations). A case that wants a failure
+      // overrides its own spy after this hook.
+      //
+      // `vi.importActual`, NOT a plain `import`: this file `vi.mock`s all four
+      // modules, so a plain dynamic import returns the MOCK, and re-arming a
+      // spy with itself is an infinitely recursive implementation — every case
+      // that reaches one dies with `Maximum call stack size exceeded` long
+      // before its own assertions run.
+      const breaker = await vi.importActual<typeof import('../send-breaker')>('../send-breaker');
       spies.readSendBreaker.mockImplementation(breaker.readSendBreaker);
-      const spine = await import('@/lib/agents/run-spine');
+      const spine = await vi.importActual<typeof import('@/lib/agents/run-spine')>(
+        '@/lib/agents/run-spine',
+      );
       spies.completeRun.mockImplementation(spine.completeRun);
-      const judge = await import('@/lib/responses/judge-health');
+      const judge = await vi.importActual<typeof import('@/lib/responses/judge-health')>(
+        '@/lib/responses/judge-health',
+      );
       spies.isJudgeHealthy.mockImplementation(judge.isJudgeHealthy);
-      const helpers = (await import('@/lib/shared/job-outbox-helpers')) as Record<string, unknown>;
+      const helpers = (await vi.importActual('@/lib/shared/job-outbox-helpers')) as Record<
+        string,
+        unknown
+      >;
       const real = helpers.enqueueSolicitationSend;
       spies.enqueueSolicitationSend.mockImplementation(
         typeof real === 'function'
@@ -772,7 +787,7 @@ describeWithDb(
     // ── the release phase ───────────────────────────────────────────────────
 
     describe('release phase', () => {
-      it.fails(
+      it(
         'releases a rendered Outreach row past its veto deadline and enqueues exactly one solicitation_send outbox row',
         async () => {
           const batch = await seedBatch(approvedBatchInput());
@@ -805,7 +820,7 @@ describeWithDb(
         },
       );
 
-      it.fails('does not release a row before its veto deadline', async () => {
+      it('does not release a row before its veto deadline', async () => {
         // D9's veto window is a PREDICATE, not a timer: the row is due only
         // once NOW() has passed the deadline stamped at approval.
         const batch = await seedBatch(
@@ -823,7 +838,7 @@ describeWithDb(
         expect((await readBatch(batch.batchId)).sending_started_at).toBeNull();
       });
 
-      it.fails('does not release a halted batch', async () => {
+      it('does not release a halted batch', async () => {
         // The **Halt latch** is monotone and there is no resume, so the release
         // predicate's `halted_at IS NULL` arm is the whole answer.
         const batch = await seedBatch(
@@ -840,7 +855,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('does not release while SOLICITATION_SEND_ENABLED is off', async () => {
+      it('does not release while SOLICITATION_SEND_ENABLED is off', async () => {
         setEnv('SOLICITATION_SEND_ENABLED', 'false');
         const batch = await seedBatch(approvedBatchInput());
         await seedSendParent({ batch });
@@ -857,7 +872,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('does not release while the Send breaker is open', async () => {
+      it('does not release while the Send breaker is open', async () => {
         await tripSendBreaker();
         const batch = await seedBatch(approvedBatchInput());
         await seedSendParent({ batch });
@@ -872,7 +887,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('does not release when the platform daily ceiling is reached', async () => {
+      it('does not release when the platform daily ceiling is reached', async () => {
         const batch = await seedBatch(approvedBatchInput());
         await seedSendParent({ batch });
         await seedSolicitationPolicy(10);
@@ -889,7 +904,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('does not release beyond the account daily send cap', async () => {
+      it('does not release beyond the account daily send cap', async () => {
         const batch = await seedBatch(approvedBatchInput());
         await seedSendParent({ batch });
         await seedSolicitationPolicy(1);
@@ -909,7 +924,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('does not release when the subscription does not grant full access', async () => {
+      it('does not release when the subscription does not grant full access', async () => {
         // Invariant #11: entitlement is `subscriptionGrantsFullAccess`, never a
         // raw equality against 'active'. `past_due` is the case that separates
         // the two — it has a grace window elsewhere, and none here.
@@ -929,7 +944,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails(
+      it(
         'evaluates the governors in the fixed order breaker then platform ceiling then account cap then subscription',
         async () => {
           // THE ORDER IS THE ASSERTION, not that each gate works alone. Amendment
@@ -983,7 +998,7 @@ describeWithDb(
         },
       );
 
-      it.fails('stamps sending_started_at on the first release only', async () => {
+      it('stamps sending_started_at on the first release only', async () => {
         // Decision 6: stamped in the FIRST release transaction, CAS on NULL. It
         // is the boundary between "a Judge outage may return this batch to the
         // owner" and "a Judge outage may only hold it", so a second stamp would
@@ -1007,7 +1022,7 @@ describeWithDb(
         );
       });
 
-      it.fails('releases at most the per-tick budget and leaves the rest for the next tick', async () => {
+      it('releases at most the per-tick budget and leaves the rest for the next tick', async () => {
         // The drip's pacing lever (decision 7). No row is skipped permanently —
         // the remainder is simply next tick's work.
         const batch = await seedBatch(approvedBatchInput());
@@ -1034,7 +1049,7 @@ describeWithDb(
         expect(await readSendJobs()).toHaveLength(3);
       });
 
-      it.fails('a second release attempt for the same Outreach row inserts no second outbox row', async () => {
+      it('a second release attempt for the same Outreach row inserts no second outbox row', async () => {
         const batch = await seedBatch(approvedBatchInput());
         await seedSendParent({ batch });
         await seedSolicitationPolicy(10);
@@ -1072,7 +1087,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(1);
       });
 
-      it.fails('never releases an approved batch with a NULL veto_deadline_at', async () => {
+      it('never releases an approved batch with a NULL veto_deadline_at', async () => {
         // D9 FAIL-CLOSED: no deadline means never released. A batch approved
         // through a path that forgot to stamp one must sit until the 72h sweep
         // terminalizes it — it must NOT be treated as "deadline already past".
@@ -1094,7 +1109,7 @@ describeWithDb(
         expect(after.veto_deadline_at).toBeNull();
       });
 
-      it.fails('releases no more than the remaining platform capacity in one tick', async () => {
+      it('releases no more than the remaining platform capacity in one tick', async () => {
         // Round-1 finding 11. A single check at the top of the phase lets a
         // budget-two tick overrun a ceiling with ONE slot left; the remainder
         // has to decrement on every successful release.
@@ -1124,7 +1139,7 @@ describeWithDb(
     // ── the Judge split (D18) ───────────────────────────────────────────────
 
     describe('the Judge availability split', () => {
-      it.fails(
+      it(
         'downgrades an approved batch to owner review when the Judge is unhealthy before the first release',
         async () => {
           spies.isJudgeHealthy.mockResolvedValue(false);
@@ -1159,7 +1174,7 @@ describeWithDb(
         },
       );
 
-      it.fails('holds with no state change when the Judge is unhealthy mid-drip', async () => {
+      it('holds with no state change when the Judge is unhealthy mid-drip', async () => {
         // Mid-drip is `sending_started_at IS NOT NULL`, and 091's
         // `solicitation_batches_send_ordering` CHECK makes a downgrade there
         // impossible at the database. The correct behaviour is a HOLD: no
@@ -1186,7 +1201,7 @@ describeWithDb(
         expect(await readSendJobs(outreachId)).toHaveLength(0);
       });
 
-      it.fails('treats JUDGE_ENABLED false exactly as an unhealthy Judge', async () => {
+      it('treats JUDGE_ENABLED false exactly as an unhealthy Judge', async () => {
         // D18 requires BOTH reads to fail closed. The health probe is left
         // HEALTHY here on purpose: if the flag were ignored, this batch would
         // release, and the case would be the only thing standing between a
@@ -1211,7 +1226,7 @@ describeWithDb(
         expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
       });
 
-      it.fails('does not downgrade a cap-exhausted batch when the Judge is unhealthy', async () => {
+      it('does not downgrade a cap-exhausted batch when the Judge is unhealthy', async () => {
         // Round-1 finding 2, and the reason the Judge is evaluated LAST. A
         // downgrade is DESTRUCTIVE — it erases the owner's approval evidence —
         // so it may only fire for a batch that has passed every other gate and
@@ -1347,7 +1362,7 @@ describeWithDb(
         expect((await readBatch(batch.batchId)).send_closed_at).not.toBeNull();
       });
 
-      it.fails('does not latch batch_expired on a batch with no Send batch parent', async () => {
+      it('does not latch batch_expired on a batch with no Send batch parent', async () => {
         // B7's `EXISTS` over `agent_runs` is what "that have a Send batch
         // parent" means. Without it a WATCH-MODE batch — built, never sent, no
         // send lane at all — is latched with a reason describing a lane it was
@@ -1400,7 +1415,7 @@ describeWithDb(
         },
       );
 
-      it.fails('does not terminalize a sending row while an in-flight outbox row still exists', async () => {
+      it('does not terminalize a sending row while an in-flight outbox row still exists', async () => {
         // Both belts. The grace period alone is not sufficient evidence of a
         // wedge: a job the OutboxPoller is still carrying is a normal delivery
         // in progress, and terminalizing it would race a real provider send.
@@ -1463,7 +1478,7 @@ describeWithDb(
         },
       );
 
-      it.fails('does not terminalize a sending row whose outbox row is re-pended after selection', async () => {
+      it('does not terminalize a sending row whose outbox row is re-pended after selection', async () => {
         // Round-1 finding 5. P1 runs OUTSIDE the terminalizing transaction, so
         // the outbox watchdog can re-pend the row between the select and the
         // UPDATE. A `delivery_status = 'sending'` guard alone would then write
@@ -1610,7 +1625,7 @@ describeWithDb(
     // ── atomicity and the interleavings ─────────────────────────────────────
 
     describe('atomicity and the lock-wait interleavings', () => {
-      it.fails('propagates a Send breaker read failure and enqueues no solicitation_send row', async () => {
+      it('propagates a Send breaker read failure and enqueues no solicitation_send row', async () => {
         // The Send breaker FAILS CLOSED: `readSendBreaker` returns state or
         // THROWS, and the throw IS the halt signal (#622 §3.2B). A caller that
         // wraps it in try/catch and proceeds has broken the invariant — and
@@ -1629,7 +1644,7 @@ describeWithDb(
         expect((await readBatch(batch.batchId)).sending_started_at).toBeNull();
       });
 
-      it.fails('rolls back rendered-to-queued when enqueueSolicitationSend throws', async () => {
+      it('rolls back rendered-to-queued when enqueueSolicitationSend throws', async () => {
         // Round-1 finding 4: atomicity is proved by a FORCED FAILURE, not by
         // inspection. If the CAS and the enqueue ever split across
         // transactions, the row commits `queued` with no job — and P4 selects
@@ -1675,7 +1690,7 @@ describeWithDb(
         expect((await readRun(childRunId)).status).toBe('running');
       });
 
-      it.fails('does not clear approval when a concurrent Halt latch wins the batch lock', async () => {
+      it('does not clear approval when a concurrent Halt latch wins the batch lock', async () => {
         // Round-1 finding 7. A **Halt latch** does NOT clear `approved_at`, so
         // without the downgrade CAS's `halted_at IS NULL AND send_closed_at IS
         // NULL` arms a candidate that waited on the batch lock while the owner
@@ -1710,7 +1725,7 @@ describeWithDb(
         expect(await readSteps(parentRunId, 'approval_downgraded')).toHaveLength(0);
       });
 
-      it.fails('does not release when the send window elapses while waiting for the batch lock', async () => {
+      it('does not release when the send window elapses while waiting for the batch lock', async () => {
         // Round-1 finding 8. P4 selects candidates BEFORE any lock is taken, so
         // a candidate that then waits on the batch lock — behind the
         // `send_window_elapsed` sweep or a long release — can become overdue.
