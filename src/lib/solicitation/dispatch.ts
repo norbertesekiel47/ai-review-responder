@@ -171,7 +171,7 @@ export interface SlowGateEvidence {
  * digest it never reads would widen a pure interface for a caller's benefit.
  * tx1 is the only consumer.
  */
-export interface SlowGateResult {
+interface SlowGateResult {
   evidence: SlowGateEvidence;
   /**
    * SHA-256 of the exact `rendered_subject` + `rendered_body` the verdicts were
@@ -414,35 +414,34 @@ function storedBodyCarriesPostalAddress(body: string | null, address: string): b
   return body.includes(`\n${address}\n`);
 }
 
-function requireAttempt(handle: OutboxHandle, door: string): number {
-  if (handle.attempt === undefined) {
-    throw new Error(`${door} requires an exact outbox_attempt`);
-  }
-  return handle.attempt;
-}
-
 /**
- * A no-op refusal is a SUCCESS: complete the owned attempt in a minimal
- * transaction so the row can never strand in `dispatched`. A stale attempt
- * no-ops inside the CAS itself.
+ * Resolve the exact attempt this job owns, then finish it with nothing done.
  *
- * A DELIBERATE second copy of `ask-generation.ts`'s helper of the same name,
- * not an oversight. Its real owner is `src/lib/shared/outbox.ts` — where
- * `markOutboxCompletedIfOwned` already lives and where both lanes already
- * import from — and that is where it should be hoisted the next time this file
- * is opened for a reason that includes it. What it must NOT become is an export
- * of `ask-generation.ts`: this module's only edge to that one is `import type
- * { OutboxHandle }`, deliberately type-only, and a value import would drag the
- * LLM task seam, the cost guard and the Redis cost tracker into the dispatch
- * lane's module graph to borrow five lines.
+ * ONE helper rather than the two the generation lane keeps separate, because
+ * this lane has exactly one reason to need an attempt number outside the
+ * dispatch transaction — closing it. Folding the guard in keeps the
+ * "exact attempt required" rule beside the only code that depends on it, and
+ * leaves no near-duplicate of `ask-generation.ts`'s pair.
+ *
+ * A no-op refusal is a SUCCESS. Completing the attempt is what stops the row
+ * stranding in `dispatched` and the watchdog re-pending work that can never
+ * progress; a stale attempt no-ops inside the CAS itself.
+ *
+ * The eventual owner of this is `src/lib/shared/outbox.ts`, beside
+ * `markOutboxCompletedIfOwned` — hoist it there the next time that file is open
+ * for a reason that includes this one. It must NOT become an export of
+ * `ask-generation.ts`: this module's only edge to that one is
+ * `import type { OutboxHandle }`, deliberately type-only, and a value import
+ * would drag the LLM task seam, the cost guard and the Redis cost tracker into
+ * the dispatch lane's module graph to borrow five lines.
  */
-async function completeOutboxNoop(
-  sql: Sql,
-  outboxId: string,
-  attempt: number,
-): Promise<void> {
+async function completeOutboxNoop(sql: Sql, handle: OutboxHandle): Promise<void> {
+  if (handle.attempt === undefined) {
+    throw new Error('solicitation_send requires an exact outbox_attempt');
+  }
+  const attempt = handle.attempt;
   await sql.begin(async (tx) => {
-    await markOutboxCompletedIfOwned(tx, outboxId, attempt);
+    await markOutboxCompletedIfOwned(tx, handle.outboxId, attempt);
   });
 }
 
@@ -481,7 +480,7 @@ const SLOW_GATE_UNEVALUABLE: SlowGateResult = {
  * a subject/body pair cannot be re-partitioned to collide (`"ab"+"c"` and
  * `"a"+"bc"` must not hash alike). `node:crypto` per invariant #10.
  */
-export function digestEvaluatedBytes(subject: string, body: string): string {
+function digestEvaluatedBytes(subject: string, body: string): string {
   return createHash('sha256')
     .update(`${subject.length}:${subject}|${body.length}:${body}`)
     .digest('hex');
@@ -1736,19 +1735,118 @@ async function runDispatchTx(
  * payload nobody has checked. A payload naming a row of another tenant
  * resolves to nothing here, never to a send.
  */
+/**
+ * Every tx1 outcome EXCEPT `assembled` ends the invocation with one log line and
+ * no further work. Extracted from `dispatchOutreach` so the orchestrator reads
+ * as the four steps it actually performs — gather, tx1, wire, tx2 — rather than
+ * carrying eight terminal branches inline.
+ *
+ * Returns true when the invocation is finished. It is a TYPE PREDICATE rather
+ * than a bare boolean so the caller's surviving branch is *proven* to be
+ * `assembled` — a plain boolean would leave the orchestrator reaching into a
+ * union and re-asserting what this function already decided.
+ *
+ * A `switch` rather than an if-chain so TypeScript's exhaustiveness check fails
+ * the build when a new outcome variant is added and nobody decided how an
+ * operator hears about it.
+ */
+function reportNonSendOutcome(
+  outcome: DispatchTxOutcome,
+  logger: ReturnType<typeof createWorkerLogger>,
+  context: Record<string, unknown>,
+  handle: { outboxId: string; attempt: number },
+): outcome is Exclude<DispatchTxOutcome, { kind: 'assembled' }> {
+  switch (outcome.kind) {
+    case 'assembled':
+      return false;
+
+    case 'stale':
+      // Nothing done, and deliberately nothing completed either: a newer attempt
+      // owns this outbox row and completing it here would strand that attempt.
+      logger.warn('solicitation send: stale outbox attempt — nothing done', {
+        ...context,
+        outbox_id: handle.outboxId,
+        outbox_attempt: handle.attempt,
+      });
+      return true;
+
+    case 'vanished':
+      logger.warn('solicitation send no-op: outreach row vanished under lock', context);
+      return true;
+
+    case 'cancelled':
+      logger.log('solicitation send no-op: outreach row already cancelled', context);
+      return true;
+
+    case 'not_dispatchable':
+      // Only `queued` is dispatchable. Anything else means this attempt is not
+      // the one that owns the row — warn rather than log, because with #900
+      // releasing correctly it should never happen, and a run of these is the
+      // signal that something is enqueueing outside the release CAS.
+      logger.warn('solicitation send no-op: outreach row is not queued', {
+        ...context,
+        delivery_status: outcome.status,
+      });
+      return true;
+
+    case 'bytes_changed_under_gate':
+      // The lint/moderation verdicts in hand describe bytes this row no longer
+      // holds, so they cannot authorise this send. Nothing is wrong with the
+      // ask — a later attempt re-gathers against the current bytes and decides
+      // honestly.
+      logger.warn(
+        'solicitation send no-op: stored bytes changed between the gate and the lock',
+        context,
+      );
+      return true;
+
+    case 'deferred':
+      logger.log('solicitation send deferred by the dispatch gate', {
+        ...context,
+        gate_item: outcome.item,
+        batch_state: outcome.batchState,
+        spine_step_recorded: outcome.stepRecorded,
+      });
+      return true;
+
+    case 'withheld':
+      logger.log('solicitation send withheld by the dispatch gate', {
+        ...context,
+        gate_item: outcome.item,
+        disposition_reason: outcome.reason,
+      });
+      return true;
+
+    case 'in_flight_elsewhere':
+      // Decision 9's cost, stated where an operator will read it — one line for
+      // one refusal, with the detector that reached it. No token prefix: this
+      // process never held the raw token.
+      logger.warn(
+        'solicitation send: dispatch already in flight elsewhere — not re-sending',
+        { ...context, detector: outcome.detector },
+      );
+      return true;
+  }
+}
+
 export async function dispatchOutreach(
   sql: Sql,
   input: DispatchOutreachInput,
 ): Promise<void> {
   const logger = createWorkerLogger('solicitation-send', input.correlationId);
   const { outboxId } = input.outboxHandle;
-  const attempt = requireAttempt(input.outboxHandle, 'solicitation_send');
+  // The exact-attempt guard now lives in `completeOutboxNoop`; runDispatchTx
+  // takes the handle and asserts for itself.
+  const attempt = input.outboxHandle.attempt;
+  if (attempt === undefined) {
+    throw new Error('solicitation_send requires an exact outbox_attempt');
+  }
 
   const row = await loadOutreachRow(sql, input);
   if (!row) {
     // No-op SUCCESS: an offboarding purge (or a payload for another tenant)
     // leaves nothing to dispatch, and a retry would find the same nothing.
-    await completeOutboxNoop(sql, outboxId, attempt);
+    await completeOutboxNoop(sql, input.outboxHandle);
     logger.warn('solicitation send no-op: outreach row missing', {
       batch_id: input.batchId,
       outreach_id: input.outreachId,
@@ -1769,7 +1867,7 @@ export async function dispatchOutreach(
   // token, which is exactly what this process does not have; the stored hash is
   // not a value this lane logs to identify a row by (invariant #5, §9.5).
   if (row.delivery_status === 'sending') {
-    await completeOutboxNoop(sql, outboxId, attempt);
+    await completeOutboxNoop(sql, input.outboxHandle);
     logger.warn('solicitation send: outreach row already sending — not re-sending', {
       batch_id: input.batchId,
       outreach_id: input.outreachId,
@@ -1822,72 +1920,7 @@ export async function dispatchOutreach(
       runDispatchTx(tx, scope, { outboxId, attempt }, slow),
   );
 
-  if (outcome.kind === 'stale') {
-    // Nothing done, and deliberately nothing completed either: a newer attempt
-    // owns this outbox row and completing it here would strand that attempt.
-    logger.warn('solicitation send: stale outbox attempt — nothing done', {
-      ...context,
-      outbox_id: outboxId,
-      outbox_attempt: attempt,
-    });
-    return;
-  }
-  if (outcome.kind === 'vanished') {
-    logger.warn('solicitation send no-op: outreach row vanished under lock', context);
-    return;
-  }
-  if (outcome.kind === 'cancelled') {
-    logger.log('solicitation send no-op: outreach row already cancelled', context);
-    return;
-  }
-  if (outcome.kind === 'not_dispatchable') {
-    // Only `queued` is dispatchable. Anything else means this attempt is not the
-    // one that owns the row — warn rather than log, because with #900 releasing
-    // correctly it should never happen, and a run of these is the signal that
-    // something is enqueueing outside the release CAS.
-    logger.warn('solicitation send no-op: outreach row is not queued', {
-      ...context,
-      delivery_status: outcome.status,
-    });
-    return;
-  }
-  if (outcome.kind === 'bytes_changed_under_gate') {
-    // The lint/moderation verdicts in hand describe bytes this row no longer
-    // holds, so they cannot authorise this send. Nothing is wrong with the ask —
-    // a later attempt re-gathers against the current bytes and decides honestly.
-    logger.warn(
-      'solicitation send no-op: stored bytes changed between the gate and the lock',
-      context,
-    );
-    return;
-  }
-  if (outcome.kind === 'deferred') {
-    logger.log('solicitation send deferred by the dispatch gate', {
-      ...context,
-      gate_item: outcome.item,
-      batch_state: outcome.batchState,
-      spine_step_recorded: outcome.stepRecorded,
-    });
-    return;
-  }
-  if (outcome.kind === 'withheld') {
-    logger.log('solicitation send withheld by the dispatch gate', {
-      ...context,
-      gate_item: outcome.item,
-      disposition_reason: outcome.reason,
-    });
-    return;
-  }
-  if (outcome.kind === 'in_flight_elsewhere') {
-    // Decision 9's cost, stated where an operator will read it — one line for
-    // one refusal, with the detector that reached it. No token prefix: this
-    // process never held the raw token.
-    logger.warn(
-      'solicitation send: dispatch already in flight elsewhere — not re-sending',
-      { ...context, detector: outcome.detector },
-    );
-    return;
-  }
+  if (reportNonSendOutcome(outcome, logger, context, { outboxId, attempt })) return;
 
   // The token prefix is the ONLY form of the token that may be logged
   // (invariant #5, §9.5) — enough to correlate this attempt with its retry,
