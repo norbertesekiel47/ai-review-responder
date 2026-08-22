@@ -768,3 +768,45 @@ labelling problem.
 section — carrying the next free label, `### 17.`, with a one-line parenthetical
 saying why the number jumps so nobody "corrects" it later. Its `Fix` bullet ends
 with amendment B3's condition verbatim.
+
+## Task 9 — the `release.ts` row said "four predicates"; Task 7 made it five
+
+**What:** the stub-commit row for `src/lib/solicitation/release.ts` reads *"Owns
+the four predicates"*. That was true of the plan's "The four predicates, stated
+once" (P1–P4) and stopped being true at Task 7, which added **P5** —
+`selectOpenSendBatches`, the backstop's own re-scan, whose three arms are
+migration 091's `solicitation_batches_one_active_send_per_business` predicate
+byte for byte. This is the only claim in either row that had drifted from the
+code rather than merely aged.
+
+**Why it matters:** P5 is the phase the standing sign-off table and the Task 7
+tenant-scope entry both count separately (baseline 389 → 390), so a row saying
+"four" undercounts the module's global scans against the allowlist that admits
+them.
+
+**What changed:** the row now says "the five scan predicates (P1–P5)", and gains
+three facts the finished code carries and the stub row could not: the module is
+the only producer of `solicitation_send` jobs; it owns the
+`unknown`/`send_indeterminate` **Outreach row** terminal; and two traps — the
+`unknown` sweep's TWO belts (grace period AND the in-flight `NOT EXISTS`
+repeated inside the terminal CAS) and the backstop being a second CALLER of
+`closeBatchIfSettled`, never a second implementation. The poller row's "Every
+minute by default" became "Every 60s by default, overridable with
+`SOLICITATION_RELEASE_POLL_INTERVAL_MS`", with Task 8's floor named as a trap: a
+configured interval at or below `CYCLE_TIMEOUT_MS` (45s) is REJECTED and falls
+back to the default.
+
+## Task 9 — the `approval.ts` directory row does not mention `latchSystemHalt`, and was left alone
+
+**What:** `src/lib/solicitation/approval.ts` gained 166 lines in Task 3 — the
+system arm of the latch — and its `docs/directory.md` row still describes only
+*"the five verbs of the send lane a human triggers"*.
+
+**Why it was NOT edited:** the row is incomplete, not wrong. `latchSystemHalt`
+is by construction not a verb a human triggers, so every sentence in that row
+remains true, and Task 9's brief scopes step 1 to the two #900 rows. The third
+arm is now stated in the `CONTEXT.md` **Halt latch** entry, which is the
+glossary's authoritative owner of the latch's writer count.
+
+**What changed:** nothing. Recorded so step 6 can decide whether one clause
+belongs on that row, rather than rediscovering the gap later.
