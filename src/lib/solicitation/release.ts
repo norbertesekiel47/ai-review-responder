@@ -1334,8 +1334,18 @@ async function selectReleaseCandidates(
   `;
 
   // The `LEFT JOIN` guarantees at least one row; a row with a NULL `id` is the
-  // aggregate alone, not a batch. Every candidate column is NOT NULL in 091 or
-  // computed non-null here, so one null id identifies that row completely.
+  // aggregate alone, not a batch. The four columns the guard below tests are
+  // the ones that identify that row: the three ids, and `approval_window_open`,
+  // which this statement computes.
+  //
+  // `sending_started_at` is DELIBERATELY NOT in that guard, and this note says
+  // so because the previous version of it claimed the opposite. The column is
+  // nullable by design — 091 declares a bare `TIMESTAMPTZ` — and is NULL for
+  // every batch that has not begun dripping, which is every first-release
+  // candidate. Tightening the guard to match the old claim would drop exactly
+  // the batches this phase exists to release, and the phase would then report
+  // `released: 0` with `releasePhaseStoppedBy: null` — an idle-looking tick,
+  // which is the failure mode the `account_cap` counter was fixed to remove.
   const batches: ReleaseCandidateBatch[] = [];
   for (const row of rows) {
     if (row.id === null || row.account_id === null || row.business_id === null) continue;

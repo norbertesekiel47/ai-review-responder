@@ -1899,9 +1899,11 @@ describeWithDb(
         const { outreachId } = await seedOutreach({ batch });
 
         // The cycle no longer PROPAGATES a per-item throw — it isolates it to
-        // the account and reports it (round-1 error-isolation finding). What
-        // this case is about is unchanged and is asserted below: the
-        // transaction rolled back as one unit.
+        // the BATCH and reports it (round-1 error isolation, narrowed from the
+        // account to the batch in round 2; `release.ts` states both units). An
+        // earlier version of this note said "the account", which was true only
+        // between those two rounds. What this case is about is unchanged and is
+        // asserted below: the transaction rolled back as one unit.
         const report = await cycle();
 
         expect(report.itemFailures).toBe(1);
