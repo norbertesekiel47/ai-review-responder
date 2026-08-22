@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// LOOP MECHANICS ONLY (#900 task 0, the eval task).
+// LOOP MECHANICS ONLY (#900).
 //
 // `SolicitationReleasePoller.ts` is a deliberately SHALLOW composition root: it
 // owns the `sql` singleton, the interval and the `createGuardedPoll`
@@ -14,9 +14,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // the four things this file is responsible for: it hands over the singleton,
 // `start` fires immediately and then on the interval, `stop` clears the timer,
 // and a slow cycle does not overlap the next tick.
-//
-// These need no `.fails` marker: the poller and its exports already exist, so
-// every case below is green from this commit.
 
 const { mockSql, mockRunReleaseCycle, loggerCalls } = vi.hoisted(() => ({
   // A sentinel, not a mock database: the only claim under test is that THIS

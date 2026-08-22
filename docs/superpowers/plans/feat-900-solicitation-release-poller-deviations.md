@@ -925,3 +925,44 @@ longer true with isolation in place; the real reason is that refusing the
 Outreach terminalization because the spine half has nothing to write would leave
 the row `sending` forever, which is issue #915's wedge re-created by the sweep
 built to close it.
+
+## Round 2 fixes — the Judge split deviates from locked `user_visible_behavior` bullet 7, and both intake copies were corrected
+
+**What:** bullet 7 of the locked `user_visible_behavior` list read, without
+condition:
+
+> A Judge outage before the first release returns the batch to owner review:
+> `approved_at`, `approval_method` and `approved_by_user_id` are cleared and the
+> batch reappears as approvable in the Requests panel.
+
+After the round-1 fix (`cabeff32`) and the round-2 CAS arm that completes it,
+that is false whenever `built_at` has crossed `BATCH_APPROVAL_WINDOW_DAYS`: the
+batch is HELD, nothing is cleared, and P2 terminalizes it `send_window_elapsed`
+at the 72h mark instead.
+
+**Why the code is right and the bullet is wrong.** Round 1 established that the
+bullet was ALREADY unsatisfiable in that state — the downgrade fired, the batch
+became `expired`, `approveBatch` refuses an `expired` batch (D2), and P3 latched
+it `batch_expired` on the very next tick, destroying an owner-approved batch with
+no notification on either step. So the choice was never "keep the promise or
+break it"; it was which way to break it. Holding is the less destructive arm and
+it terminalizes with the honest reason: what actually ran out is the send window.
+Round 2 then closed the residual — `approval_window_open` was a SCAN-TIME
+snapshot and `downgradeApproval`'s CAS did not re-assert it, so a downgrade taken
+in the seconds before the window shut reproduced the original chain exactly. The
+CAS now re-asserts `built_at` under the batch lock, which makes the promise a
+property of the WRITE rather than of the read that preceded it.
+
+**What changed:** bullets 7 and 8 of `user_visible_behavior` now describe the
+shipped hold/downgrade split, in BOTH copies of the intake (`.feature/intake.json`
+and `docs/superpowers/plans/feat-900-solicitation-release-poller-intake.json`,
+which are byte-identical and must stay so). Bullet 6 — the `unknown` sweep — was
+NOT touched: it is unrelated to the Judge split and the shipped code matches it
+exactly.
+
+**Also recorded:** round 2 adds five test titles that are not on the locked
+`tests_to_add` list (a sibling-batch isolation case, two `account_cap`
+observability cases plus their idle-tick control, a phase-level Sentry sink case,
+and an approval-window lock-wait case). All 39 promised titles remain present and
+unchanged; these are additive, and each was proved sensitive by a deliberate
+guard-deletion probe before it was kept.

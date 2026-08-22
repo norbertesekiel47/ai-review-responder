@@ -20,8 +20,8 @@
     "A batch whose 72h send window elapses is halted with reason send_window_elapsed, its live Outreach rows are cancelled, and its Send batch parent terminalizes cancelled.",
     "A batch that receives no approval within the 7-day approval window is halted with reason batch_expired and closes the same way, so it never reaches the 11-day stalled threshold.",
     "An Outreach row wedged in sending with no in-flight outbox row past 60 minutes terminalizes unknown and raises a Sentry alert, freeing the location's one-active-send slot.",
-    "A Judge outage before the first release returns the batch to owner review: approved_at, approval_method and approved_by_user_id are cleared and the batch reappears as approvable in the Requests panel.",
-    "A Judge outage mid-drip holds the batch with no state change; releases resume on recovery, or the 72h window expires and the batch terminalizes cancelled."
+    "A Judge outage before the first release returns the batch to owner review - approved_at, approval_method, approved_by_user_id and veto_deadline_at are cleared and the batch reappears as approvable in the Requests panel - but only while the batch is still inside the 7-day approval window, which the downgrade CAS re-asserts under the batch lock rather than trusting the scan.",
+    "A Judge outage holds the batch with no state change in every other case: mid-drip, and once the approval window has shut (a downgrade there would leave a batch approveBatch refuses, and P3 would latch it batch_expired next tick). Releases resume on recovery, or the 72h send window expires and the batch terminalizes cancelled."
   ],
   "invariants": [
     "Invariant #2 - transactional outbox: the rendered-to-queued CAS and the solicitation_send job_outbox INSERT commit in ONE transaction.",
