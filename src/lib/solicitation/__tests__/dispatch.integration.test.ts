@@ -25,11 +25,12 @@
 //     JS-derived stamp can land before the `NOW()`-defaulted column it must not
 //     precede and trip a constraint unrelated to the case under test (#520).
 //
-// The bootstrap below is REAL and is the shape Tasks 2–6 extend; the twenty-three
-// cases are `it.todo` until the task that owns each one converts it. Fixture
-// builders (batch → ask → Outreach row, consent row, suppression row, attested
-// postal address) land with the first task that needs them rather than being
-// speculatively written against a `dispatch.ts` that does not exist yet.
+// All twenty-three cases are live — no `it.todo` remains. `seedQueuedOutreach`
+// is the ONE fixture chain (upload → contact → batch → send Ask → queued
+// Outreach row → dispatched outbox row); extend it rather than building a
+// second. Note `solicitation_batches_one_active_send_per_business` (D8) admits
+// only one approved-and-unclosed batch per location, so seeding a sibling batch
+// means retiring the previous one — the fixture already does this.
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';

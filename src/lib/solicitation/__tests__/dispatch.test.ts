@@ -21,9 +21,11 @@
 // executor as a parameter (invariant #15), so the harness is passed in rather
 // than injected through a module mock.
 //
-// One title is still `it.todo`: Task 6 chooses which collaborators it calls and
-// in what order, and writing that assertion now would pin an internal seam the
-// plan has deliberately left to the implementer.
+// Every title here is a real assertion — no `it.todo` remains. The two that
+// pin ORDER rather than outcome are the load-bearing ones: re-moderation must
+// resolve BEFORE the first `sql.begin` (no lock held across a ~10s provider
+// call), and an in-process retry must reuse one message object so the
+// idempotency key and the body are identical by construction.
 
 import { beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
