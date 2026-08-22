@@ -5082,3 +5082,72 @@ rows in `solicitation_outreach`, so the no-backfill proof held there too, and co
 standing exception untouched** before and after. All three databases agree byte-for-byte:
 `md5(pg_get_constraintdef(...)) = 3e644c28c60a3d6135ed3eea7acee224` on prod, staging and local head.
 Lockstep complete, no standing exception. All send flags remain OFF.
+
+---
+
+## 2026-08-22 — #899 Solicitation send worker (PR #912, squash `2204e6a6`)
+
+**The first code in this repo that can put a real email in front of a real customer.** Merged
+inert: `SOLICITATION_SEND_ENABLED` is off everywhere, and issue **#915** records that it must
+stay off until #900 ships. **No migration** — #898's 110 carried this family's schema work.
+
+### Files
+
+New: `src/lib/solicitation/dispatch.ts` (2001), `src/lib/solicitation/send-retry.ts` (181),
+`worker/jobs/solicitation-send.ts` (41), `worker/jobs/solicitation-send/failed-hook.ts` (346).
+Modified: `run-spine.ts` (+52 — two `STEP_PERSONA` keys plus `findActiveSolicitationSendBatchRun`),
+`queue-names.ts` (+5), `worker-types.ts` (+15), `worker/index.ts` (+26), `worker/queues.ts` (+5),
+`ask-compliance-lint.ts` (+44 — the new `lintInputFromSnapshot` mapper), `ask-generation.ts` (+34/-23
+— routed through it), `outcome-anchor-pairing.test.ts` (+42 — two new spine callers allowlisted),
+`CONTEXT.md`, `docs/directory.md`, the cross-spec amendments doc. Tests: 3,602 lines across five suites.
+
+### Shape
+
+`tx1` (stale-attempt guard → advisory lock → batch row → outreach row → seven-item **Dispatch gate**
+→ consent snapshot → **Lazy child** → token mint → CAS `queued`→`sending`), then the provider call
+with **no lock held** and bounded in-process retry, then `tx2` committing five terminal facts at once
+(CAS, child terminal, `solicitation_sent`, outbox completion, `closeBatchIfSettled`).
+
+### Decisions (ten locked; six recorded upstream as amendment **B15**)
+
+1. Slow gate items (re-lint, re-moderation) run **above** `tx1` — a ~10s provider call must not be
+   held under the batch lock. `tx1` verifies a digest of the bytes those verdicts saw, so the
+   **Owner approval** byte-for-byte contract is checked, not assumed.
+2. Retry is **in-process only**. A fresh process never re-sends: the raw unsubscribe token existed
+   only in memory (invariant #5), so no correct message can be rebuilt.
+3. A flag-off **defers**; 091/110 carry no `flag_off` withheld reason.
+4. The dispatch moderation verdict never overwrites `moderation_status` (render provenance, B1).
+5. Review link is `writereview?placeid=…`, and **throws** on a null or non-canonical place id —
+   migration 007's legacy hex CIDs would mint a URL resolving to nothing.
+6. `QUEUE_NAMES.SOLICITATION_SEND` ships with the consumer; the typed helper ships with its
+   producer (#900), which is B10 clarified for the post-decomposition world.
+
+### Review — one round, three axes; four defects fixed
+
+**Two reviewers independently found the same bug:** `tx1` short-circuited only on `cancelled` and
+`sending`, so any other status walked the whole gate and committed writes. A never-released
+`rendered` row would have been silently terminalized `withheld` (091's CHECKs accept it), and on a
+gate pass the token row committed before the CAS failed — after which #900's later legitimate
+release would hit `token_conflict` and refuse that contact **forever**.
+
+Also fixed: the exhaustion hook wrote `failed`/`send_exhausted` for a `sending` row (D12d's
+lie-with-teeth — it can email someone twice), `tx2` emitted `solicitation_sent` even when its
+terminal CAS matched nothing (losing the only bounce-attribution key), and the gate trusted a byte
+immutability only a domain module enforces. Plus a glossary violation, a stale directory row, a
+tautological property assertion, and a fifth copy of `boundedErrorClass`.
+
+Reports and triage verdicts: `docs/reviews/feat-899-solicitation-send-worker/`.
+
+### Gotchas found (promoted to lab-notes 2026-08-22)
+
+`timeout(1)` is absent on macOS and its absence looks like success · `solicitation_suppressions`
+and `job_outbox` carry no tenant columns · hard-coded restraint-policy fixture dates are time bombs
+(detonated mid-feature, fixed in #911) · `docs/analytics/events.md` owns event keys, not the code ·
+local `fallow` cannot predict its own CI gate · every new run-spine caller owes three allowlist
+edits · `sending_at` and `sending_started_at` are different columns with different owners.
+
+### Follow-ups
+
+**#913** relocate the provider-agnostic error vocabulary out of `src/lib/payments/`.
+**#914** Send handoff should withhold a location with no canonical place id.
+**#915** enablement blocker: #900 before any flag flip.

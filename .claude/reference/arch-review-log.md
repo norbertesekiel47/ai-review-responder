@@ -6,8 +6,36 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** (last reset by the 2026-08-18 pass)
+**Merges since last architecture pass: 2** (last reset by the 2026-08-18 pass)
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-18/`.
+
+- **PR #912** — #899 Solicitation send worker (2026-08-22, squash `2204e6a6`). **No migration**
+  (110 carried it), **no new env var**, **no new dependency**, **no flag added** — but
+  `SOLICITATION_SEND_ENABLED` changed meaning: from this merge it genuinely sends, and issue
+  **#915** records that it must not be flipped until #900's `unknown` sweep ships.
+  **New single owners:** `applyDispatchGate` for amendment B6's order and the withheld-reason
+  mapping; `classifySendFailure` for D12c; `lintInputFromSnapshot` for which stored values feed
+  the lint (previously derived from live data inside `ask-generation.ts`, which quietly broke the
+  byte-for-byte **Owner approval** contract at dispatch). **First production caller** of the
+  `getMessagingAdapter()` seam — exercised without widening it by one field, which is the
+  evidence map decision 14's narrowness condition held. **Allowlist baselines moved:**
+  `outcome-anchor-pairing.test.ts` gained two non-review-subject spine callers (the third and
+  fourth solicitation modules to need it).
+  **What the next pass should look at:** (a) that allowlist is now a four-entry enumeration with
+  a hand-written lock analysis per entry — the same "scope is an ENUMERATION" meta-class the
+  2026-08-18 pass logged as X10, now with a fourth instance; (b) `dispatch.ts` is 2,001 lines and
+  `runDispatchTx`/`commitSendTerminal` are the two functions that grew fastest under review
+  pressure; (c) `completeOutboxNoop` is deliberately duplicated between the generation and
+  dispatch lanes with `src/lib/shared/outbox.ts` named as its real owner — a third copy is the
+  signal to hoist; (d) whether #900 landing makes the `in_flight_elsewhere` resume path's three
+  detectors collapse to one.
+
+Incremented to 2 by **#912** (#899 solicitation send worker, 2026-08-22) — below the
+≥ 5 threshold, so no pass is due. **#911** merged the same day and is deliberately NOT
+counted: it changed two test fixtures and zero production lines, and this log's own
+window measure is "first-parent commits **with production lines**". Recorded here rather
+than left implicit, because the 2026-08-18 pass's headline finding was that the counter
+had been wrong by its own rule and nobody had checked.
 
 **That pass measured the counter itself and found it wrong by its own rule.** The
 window held **32 first-parent commits, 11 with production lines**; the counter read
