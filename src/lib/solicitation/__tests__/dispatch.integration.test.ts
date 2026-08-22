@@ -71,8 +71,10 @@ import {
   REVIEW_LINK_PLACEHOLDER,
   UNSUBSCRIBE_URL_PLACEHOLDER,
 } from '../ask-render';
+import { haltBatch, type HaltBatchResult } from '../approval';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { dispatchOutreach } from '../dispatch';
+import { closeBatchIfSettled } from '../outreach';
 import { POSTAL_ADDRESS_ATTESTATION_VERSION } from '../postal-address';
 import {
   hashUnsubscribeToken,
@@ -222,6 +224,20 @@ type ConsentFixture = 'send_eligible' | 'stale_attestation' | 'absent';
 
 interface SeedQueuedOutreachOptions {
   consent?: ConsentFixture;
+  /**
+   * Attach this row to an EXISTING batch instead of minting a fresh one.
+   *
+   * The batch-closure cases need SEVERAL Outreach rows on ONE batch, and D8's
+   * `solicitation_batches_one_active_send_per_business` admits one
+   * approved-and-unclosed batch per location — so a second call that minted its
+   * own batch would retire the first, which is the very closure fact those
+   * cases are about. When present, the retire step, the batch INSERT and the
+   * **Send batch parent** mint are all skipped: that batch already has all
+   * three. Everything else — upload, contact, consent, ask, Outreach row,
+   * outbox row — is seeded exactly as it is for a fresh batch, so this stays
+   * ONE fixture chain rather than a second one.
+   */
+  batchId?: string;
   /** The model-authored body the fixture assembles the footer onto. */
   llmBody?: string;
   /**
@@ -276,35 +292,39 @@ async function seedQueuedOutreach(
     `;
   }
 
-  // D8's `solicitation_batches_one_active_send_per_business` admits ONE
-  // approved-and-unclosed batch per location, so every fixture retires the
-  // previous one. Closing rather than halting keeps the halt latch's own case
-  // (test: "no-ops when the batch is halted…") the only halted batch in play.
-  await sql()`
-    UPDATE solicitation_batches
-    SET send_closed_at = NOW()
-    WHERE business_id = ${businessId}::uuid
-      AND approved_at IS NOT NULL
-      AND send_closed_at IS NULL
-      AND halted_at IS NULL
-  `;
+  const attachedBatchId = options.batchId;
+  const batchId = attachedBatchId ?? randomUUID();
 
-  // Approved, past its veto window, inside the 72h send window and already
-  // dripping — `deriveBatchState` reads `sending`, which with `approved`
-  // is the only pair the Dispatch gate's batch_open item lets through.
-  const batchId = randomUUID();
-  await sql()`
-    INSERT INTO solicitation_batches (
-      id, account_id, business_id, source_upload_id, created_at, built_at,
-      approved_at, approval_method, approved_by_user_id, veto_deadline_at,
-      sending_started_at
-    ) VALUES (
-      ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${uploadId}::uuid, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '2 hours',
-      NOW() - INTERVAL '90 minutes', 'owner', ${userId()}::uuid,
-      NOW() - INTERVAL '60 minutes', NOW() - INTERVAL '45 minutes'
-    )
-  `;
+  if (attachedBatchId === undefined) {
+    // D8's `solicitation_batches_one_active_send_per_business` admits ONE
+    // approved-and-unclosed batch per location, so every fixture retires the
+    // previous one. Closing rather than halting keeps the halt latch's own case
+    // (test: "no-ops when the batch is halted…") the only halted batch in play.
+    await sql()`
+      UPDATE solicitation_batches
+      SET send_closed_at = NOW()
+      WHERE business_id = ${businessId}::uuid
+        AND approved_at IS NOT NULL
+        AND send_closed_at IS NULL
+        AND halted_at IS NULL
+    `;
+
+    // Approved, past its veto window, inside the 72h send window and already
+    // dripping — `deriveBatchState` reads `sending`, which with `approved`
+    // is the only pair the Dispatch gate's batch_open item lets through.
+    await sql()`
+      INSERT INTO solicitation_batches (
+        id, account_id, business_id, source_upload_id, created_at, built_at,
+        approved_at, approval_method, approved_by_user_id, veto_deadline_at,
+        sending_started_at
+      ) VALUES (
+        ${batchId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
+        ${uploadId}::uuid, NOW() - INTERVAL '3 hours', NOW() - INTERVAL '2 hours',
+        NOW() - INTERVAL '90 minutes', 'owner', ${userId()}::uuid,
+        NOW() - INTERVAL '60 minutes', NOW() - INTERVAL '45 minutes'
+      )
+    `;
+  }
 
   const askId = randomUUID();
   await sql()`
@@ -366,15 +386,18 @@ async function seedQueuedOutreach(
 
   // The **Send batch parent** the generation lane mints. The send worker looks
   // it up and NEVER creates one, so a fixture without it is not "a batch with
-  // no parent" — it is the impossible state `dispatchOutreach` throws on.
-  await sql().begin(async (tx) => {
-    await startOrGetSolicitationSendBatchRun(tx, {
-      batchId,
-      accountId: accountId(),
-      businessId,
-      correlationId: `dispatch-fixture-${batchId}`,
+  // no parent" — it is the impossible state `dispatchOutreach` throws on. An
+  // attached row inherits the one its batch already carries.
+  if (attachedBatchId === undefined) {
+    await sql().begin(async (tx) => {
+      await startOrGetSolicitationSendBatchRun(tx, {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        correlationId: `dispatch-fixture-${batchId}`,
+      });
     });
-  });
+  }
 
   return { batchId, askId, outreachId, outboxId, attempt: 1, handle };
 }
@@ -1693,7 +1716,74 @@ describeWithDb(
       // `sending`. Every terminal writer calls `closeBatchIfSettled` in the
       // SAME transaction, so the last writer across a MIXED terminal set — not
       // just an all-sent one — is what closes it.
-      it.todo('closes the batch once the last Outreach row terminalizes across a mixed sent, withheld and failed set');
+      it('closes the batch once the last Outreach row terminalizes across a mixed sent, withheld and failed set', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+
+        // ONE batch, THREE children — the two later fixtures attach to the
+        // first one's batch rather than minting their own, because a fresh
+        // batch would retire this one (D8) and close it for the wrong reason.
+        const sent = await seedQueuedOutreach();
+        const withheld = await seedQueuedOutreach({
+          batchId: sent.batchId,
+          consent: 'absent',
+        });
+        const failed = await seedQueuedOutreach({ batchId: sent.batchId });
+
+        // 1. A withhold is a terminal writer and calls the join like every
+        //    other one — and the batch stays OPEN, because two siblings are
+        //    still live. "Not before" is half of this claim.
+        await withSendFlagOn(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: withheld.batchId,
+            businessId,
+            outreachId: withheld.outreachId,
+            outboxHandle: { outboxId: withheld.outboxId, attempt: withheld.attempt },
+            correlationId: 'dispatch-mixed-withheld',
+          });
+        });
+        expect((await readOutreach(withheld.outreachId)).delivery_status).toBe('withheld');
+        expect(await readBatchClosedAt(sent.batchId)).toBeNull();
+
+        // 2. A terminal provider failure — a DIFFERENT terminal status, which
+        //    is what makes this a mixed set rather than three of a kind.
+        await withProviderFailure(
+          new Error('Resend accepted the solicitation send but returned no message id'),
+          async () => {
+            await dispatchToCompletion(failed, 'dispatch-mixed-failed');
+          },
+        );
+        expect((await readOutreach(failed.outreachId)).delivery_status).toBe('failed');
+        expect(await readBatchClosedAt(sent.batchId)).toBeNull();
+
+        // 3. The LAST row to terminalize is what closes the batch, whichever
+        //    terminal status it happens to carry.
+        resetProviderSend('msg_live_mixed_close');
+        await dispatchToCompletion(sent, 'dispatch-mixed-sent');
+        expect((await readOutreach(sent.outreachId)).delivery_status).toBe('sent');
+
+        const closedAt = await readBatchClosedAt(sent.batchId);
+        expect(closedAt).not.toBeNull();
+
+        // Closed ONCE. `closeBatchIfSettled` CASes `send_closed_at` on NULL and
+        // gates the receipt step behind that CAS, so the parent carries exactly
+        // one `send_batch_closed` — three terminal writers, one closure.
+        const parentRunId = await readSendParentRunId(sent.batchId);
+        const parent = await readChildRun(parentRunId);
+        expect(parent.step_keys.filter((key) => key === 'send_batch_closed')).toHaveLength(1);
+
+        // ...and a fourth caller writes nothing at all, which is what makes the
+        // join safe to call from every terminal writer in the lane.
+        const second = await sql().begin(async (tx) =>
+          closeBatchIfSettled(tx, {
+            batchId: sent.batchId,
+            accountId: accountId(),
+            businessId,
+          }));
+        expect(second).toMatchObject({ status: 'already_closed' });
+        expect(await readBatchClosedAt(sent.batchId)).toBe(closedAt);
+
+        resetProviderSend();
+      });
       // The flag-off defer still completes the outbox attempt. Leaving it
       // in-flight would have the watchdog re-pend a row that was correctly
       // deferred, turning a quiet no-op into a retry storm.
@@ -1720,7 +1810,64 @@ describeWithDb(
       // The Halt latch deliberately excludes `sending`. A halt that lands after
       // the CAS must leave the in-flight child alone; cancelling it would
       // terminalize a run whose message is already on the wire.
-      it.todo('does not cancel an in-flight sending child when a halt lands after the CAS');
+      it('does not cancel an in-flight sending child when a halt lands after the CAS', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const inFlight = await seedQueuedOutreach();
+        // A sibling left `queued` on the SAME batch, so the sweep has something
+        // it may legitimately cancel. Without it, "left the sending row alone"
+        // is indistinguishable from "the sweep never ran".
+        const stillQueued = await seedQueuedOutreach({ batchId: inFlight.batchId });
+
+        // The halt lands in the ONE window D10 is written about: tx1 has
+        // committed (the row is `sending`, the token is minted), the message is
+        // at the provider, and tx2 has not run yet. The adapter call is the
+        // only moment that window exists, so that is where the halt is fired —
+        // through the real `haltBatch`, never a hand-rolled UPDATE.
+        let halt: HaltBatchResult | undefined;
+        messagingMocks.send.mockImplementation(async () => {
+          halt = await haltBatch(sql(), {
+            batchId: inFlight.batchId,
+            accountId: accountId(),
+            businessId,
+            haltedByUserId: userId(),
+          });
+          return { providerMessageId: 'msg_live_halt_after_cas' };
+        });
+
+        await dispatchToCompletion(inFlight, 'dispatch-halt-after-cas');
+        resetProviderSend();
+
+        // The latch really did land, and its sweep really did run: ONE
+        // cancellation, and it is the `queued` sibling.
+        expect(halt?.status).toBe('halted');
+        expect(halt?.status === 'halted' ? halt.cancelledCount : -1).toBe(1);
+        const swept = await readOutreach(stillQueued.outreachId);
+        expect(swept.delivery_status).toBe('cancelled');
+        expect(swept.disposition_reason).toBe('owner_halt');
+
+        // THE claim. Halt means "no further sends", not "undo": a row past the
+        // CAS is past the point of no return, and the residual exposure is one
+        // child's send-transaction duration.
+        const row = await readOutreach(inFlight.outreachId);
+        expect(row.delivery_status).toBe('sent');
+        expect(row.provider_message_id).toBe('msg_live_halt_after_cas');
+        expect(row.sent_at).not.toBeNull();
+        expect(row.disposition_reason).toBeNull();
+
+        // Its child finished too — `completed`, never `cancelled`. Terminalizing
+        // the run of a message already on the wire as refused would make the
+        // spine lie about what the recipient received.
+        expect(row.agent_run_id).not.toBeNull();
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('completed');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated', 'ask_sent']);
+
+        // tx2 committed in full behind the halt: the attempt is spent, and its
+        // own `closeBatchIfSettled` is what finally settles the halted batch —
+        // the halt's join found this row still live and correctly declined.
+        expect((await readOutbox(inFlight.outboxId)).status).toBe('completed');
+        expect(await readBatchClosedAt(inFlight.batchId)).not.toBeNull();
+      });
     });
   },
 );

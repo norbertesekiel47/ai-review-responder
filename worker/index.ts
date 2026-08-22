@@ -33,6 +33,7 @@ import { handleSolicitationBatchFailed } from './jobs/solicitation-batch/failed-
 import { handleGenerateSolicitationAsks } from './jobs/solicitation-batch/generate';
 import { handleGenerateSolicitationAsksFailed } from './jobs/solicitation-batch/generate-failed-hook';
 import { handleSolicitationSend } from './jobs/solicitation-send';
+import { handleSolicitationSendFailed } from './jobs/solicitation-send/failed-hook';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -329,9 +330,9 @@ generateSolicitationAsksWorker.on('failed', (job, err) =>
   handleGenerateSolicitationAsksFailed(sql, job, err),
 );
 
-// Dispatch lane (#899): one job per Outreach row. The `'failed'` exhaustion
-// hook lands with Task 7; until then the shared job-failure sink below is the
-// only terminal-attempt observer.
+// Dispatch lane (#899): one job per Outreach row. Its `'failed'` exhaustion
+// hook terminalizes the Outreach row `failed` / `send_exhausted` and joins the
+// batch; the shared job-failure sink below still raises the Sentry issue.
 const solicitationSendWorker = new Worker<SolicitationSendPayload>(
   QUEUE_NAMES.SOLICITATION_SEND,
   withJobLogContext<SolicitationSendPayload>((job) => handleSolicitationSend(sql, job)),
@@ -346,6 +347,10 @@ const solicitationSendWorker = new Worker<SolicitationSendPayload>(
 // an UNDEFINED concurrency too, which is why bare workerOpts is not enough even
 // though BullMQ's own default is 1.
 assertSingleConcurrencyWorker(QUEUE_NAMES.SOLICITATION_SEND, solicitationSendWorker.opts);
+
+solicitationSendWorker.on('failed', (job, err) =>
+  handleSolicitationSendFailed(sql, job, err),
+);
 
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 

@@ -1555,6 +1555,14 @@ Composition roots for the two solicitation queues plus their exhaustion hooks; d
 | `generate-failed-hook.ts` | `handleGenerateSolicitationAsksFailed` — exhaustion handler for `generate_solicitation_asks`. Retryable classes (`TransientLLMError`, `CostInfraUnavailableError`) with watchdog budget left stay `dispatched`; whole-batch terminal failures run `settleGenerationExhaustion` (CAS + domain settlement) with bounded in-hook retries and a `grantSettlementRedrive` handoff to the watchdog; regeneration jobs get the bare attempt-guarded CAS. |
 | `failed-hook-shared.ts` | The mechanics both hooks share, owned once (clone caught on **#628**): `isExhaustedJob` (BullMQ attempt arithmetic), `boundedErrorClass` (log-safe constructor name), `makeFailureLogger` (log-and-swallow reporter). Deliberately not generalized to other lanes. |
 
+#### `worker/jobs/solicitation-send/` — dispatch-lane exhaustion hook
+
+The `solicitation_send` success path is the top-level `worker/jobs/solicitation-send.ts` shim above; this folder holds the hook that lands only when BullMQ runs out of attempts.
+
+| File | What it does |
+|------|--------------|
+| `failed-hook.ts` | **(#899)** `handleSolicitationSendFailed` — exhaustion terminalizer for `solicitation_send`, and the ONLY writer of `send_exhausted` (`dispatch.ts`'s tx2 owns `send_failed`). Fires on the terminal attempt only, under the `'failed'`-EVENT predicate `attemptsMade >= max` — deliberately NOT `isTerminalAttempt`, the catch-block form, which fires one attempt early here. One transaction: `acquireSolicitationBatchLock` FIRST (advisory-before-row-locks, or ABBA against the offboarding purge), then the `markOutboxFailed` ownership CAS, the `failed`/`send_exhausted` row CAS over `('queued','sending')`, the **Lazy child**'s `failed` terminal and `closeBatchIfSettled`. A stale attempt, a vanished row or a row another writer already terminalized writes nothing further; a failed transaction leaves the outbox row `dispatched` for the watchdog. |
+
 #### `worker/jobs/billing/` — billing workers + helpers
 
 Stripe-facing billing handlers and their helpers (`billing/StripeSubscriptionMirrorSyncWorker.ts` keeps its row in the main table above).
