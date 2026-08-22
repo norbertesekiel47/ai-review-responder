@@ -13,6 +13,52 @@ here, not amendments.
 
 ---
 
+## RE-CLASSIFICATION TRIGGER FIRED — owner elected to proceed as ONE PR
+
+**What:** the step 5 gate's `reclassify` row went WARN at Task 8's commit
+(`de893769`). Production changed lines **1717** against `estimated_prod_lines`
+820, i.e. 4.7% past the 2x threshold of 1640. The test bucket is INSIDE its
+estimate: 2942 against 2300 (2x = 4600).
+
+| File | Added |
+|---|---|
+| `src/lib/solicitation/release.ts` | 1206 |
+| `src/lib/solicitation/approval.ts` | 166 |
+| `scripts/ci/tenant-scope-allowlist.ts` | 138 |
+| `src/lib/shared/job-outbox-helpers.ts` | 74 |
+| `worker/background/pollers/SolicitationReleasePoller.ts` | 74 |
+| four others | 31 |
+
+**The leniency argument that was REJECTED, recorded so nobody re-runs it:** the
+largest single contributor to the overshoot is `tenant-scope-allowlist.ts`
+(+138), whose bulk is justification prose rather than logic; excluding it puts
+production at 1551, under the threshold. That file IS production TypeScript, the
+gate counted it correctly, and all four entries exist because of this feature.
+The overrun is real.
+
+**Why the lane was still right.** RISK = high was correct and is unchanged, and
+every control it mandates is still scheduled and none was skipped: the three
+parallel review agents at step 7, the staging ride, and the PR pause for explicit
+merge approval. What the EPIC path would have bought is different in kind —
+decomposition into several smaller PRs. That is a **reviewability** argument, and
+it is a real one: the plan decomposed into 11 tasks against the epic criterion of
+"more than ~8 tracer tickets", and a 1707-line production diff is hard to review
+well in one sitting.
+
+**Owner decision, 2026-08-22: proceed as ONE PR.** Splitting the branch into
+stacked PRs and tearing down to re-plan as an epic were both offered and both
+declined — the work was complete, gate-green and sensitivity-proven at the time
+of the decision, so a teardown would have destroyed 39 verified tests over an
+estimate error. **The compensating control is the step 7 review round, which must
+NOT be trimmed**: RISK = high gets all three agents, and the reviewers should be
+told the diff is 2x its estimate so they size their pass accordingly.
+
+**Lesson for the next intake of this class:** 820 was estimated before the plan
+decomposed into 11 tasks. A task count above ~8 is itself an epic signal, and the
+estimate should have been revisited at that moment rather than at step 5.
+
+---
+
 ## STANDING SIGN-OFF — `ci:tenant-scope` entries for EVERY global scan in `release.ts`
 
 **NOT a surface amendment, and it does not touch the spent abort budget.**
