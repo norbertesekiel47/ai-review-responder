@@ -63,7 +63,7 @@ import { createWorkerLogger } from '@/lib/shared/logger';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { latchSystemHalt } from './approval';
 import { solicitationSendEnabled } from './flags';
-import { BATCH_SEND_WINDOW_HOURS } from './outreach';
+import { BATCH_APPROVAL_WINDOW_DAYS, BATCH_SEND_WINDOW_HOURS } from './outreach';
 import { readSendBreaker } from './send-breaker';
 import {
   countAccountDispatchAttemptsToday,
@@ -169,18 +169,13 @@ export async function runReleaseCycle(
   return report;
 }
 
-// ── phases 1, 3 and 5: stubs, in order ──────────────────────────────────────
+// ── phases 1 and 5: stubs, in order ─────────────────────────────────────────
 //
 // Each returns 0 and writes nothing, so the tick is a no-op for its phase while
 // the ORDER above is already fixed. A later task replaces the body only.
 
 /** Task 6 (#900): the `unknown` sweep (D12d) — predicate P1, both belts. */
 async function sweepUnknownOutreach(_sql: Sql, _scanLimit: number): Promise<number> {
-  return 0;
-}
-
-/** Task 5 (#900): the `batch_expired` sweep (B7) — predicate P3 + `latchSystemHalt`. */
-async function sweepBatchExpired(_sql: Sql, _scanLimit: number): Promise<number> {
   return 0;
 }
 
@@ -191,11 +186,14 @@ async function runBackstopJoin(_sql: Sql, _scanLimit: number): Promise<number> {
 
 // ── phase 2: the `send_window_elapsed` sweep ────────────────────────────────
 
-/** P2's projection: the tenant triple and nothing else. Everything a **Halt
- *  latch** needs beyond it — the **Batch state** it stamps as `state_at_halt`,
- *  the **Send batch parent** it appends `batch_halted` to — the latch derives
- *  itself from the row it locks, so a second projection here would be a second
- *  reader of facts that must be read once, under that lock. */
+/** The sweep projection, shared by P2 and P3: the tenant triple and nothing
+ *  else. Everything a **Halt latch** needs beyond it — the **Batch state** it
+ *  stamps as `state_at_halt`, the **Send batch parent** it appends
+ *  `batch_halted` to — the latch derives itself from the row it locks, so a
+ *  second projection here would be a second reader of facts that must be read
+ *  once, under that lock. One type, because both sweeps hand the latch the same
+ *  three ids; the sweeps themselves stay separate — different predicate,
+ *  different ordering column, different halt reason. */
 interface SweepCandidateBatch {
   id: string;
   account_id: string;
@@ -266,6 +264,96 @@ async function selectSendWindowElapsedBatches(
        AND halted_at IS NULL
        AND send_closed_at IS NULL
      ORDER BY approved_at ASC
+     LIMIT ${scanLimit}
+  `;
+}
+
+// ── phase 3: the `batch_expired` sweep ──────────────────────────────────────
+
+/**
+ * The `batch_expired` sweep (amendment B7) — a batch NEITHER lane approved
+ * before its 7-day approval window ran out, latched with no actor.
+ *
+ * This is what makes D2's "≤10 days by construction" true for the never-approved
+ * case, and B7 states the obligation as a test: such a batch closes cleanly and
+ * raises no stalled alert. `deriveRunDisplayState` calls a **Send batch parent**
+ * stalled at `STALLED_THRESHOLD_SEND_BATCH_DAYS` (11), so a sweep anchored on
+ * the 7-day window makes that threshold unreachable rather than merely unlikely.
+ *
+ * Deliberately NOT sharing a body with `sweepSendWindowElapsed` above. The two
+ * differ in predicate, in ordering column and in halt reason; what they share is
+ * the latch, and the latch is already the one shared implementation.
+ *
+ * ONE transaction per batch, and its whole body is the latch call — the same
+ * contract phase 2 keeps: **the latch owns the cancel, the spine step and the
+ * settlement join**, and it re-reads the row `FOR UPDATE OF b` itself, so this
+ * sweep hand-rolls no `SELECT … FOR UPDATE` of its own.
+ *
+ * Counts what was LATCHED, not what was scanned.
+ */
+async function sweepBatchExpired(sql: Sql, scanLimit: number): Promise<number> {
+  const batches = await selectExpiredBatches(sql, scanLimit);
+
+  let latched = 0;
+  for (const batch of batches) {
+    const result = await sql.begin(async (tx) =>
+      latchSystemHalt(tx, {
+        batchId: batch.id,
+        accountId: batch.account_id,
+        businessId: batch.business_id,
+        reason: 'batch_expired',
+      }),
+    );
+    if (result.status === 'latched') latched += 1;
+  }
+  return latched;
+}
+
+/**
+ * P3 — batches past the approval window with nobody having approved them.
+ *
+ * `built_at` is the anchor, because that is where `BATCH_APPROVAL_WINDOW_DAYS`
+ * is anchored for its two other readers (`deriveBatchState` in JS,
+ * `closeBatchIfSettled` in SQL) — the **Batch state** this sweep terminalizes is
+ * exactly the deferred `expired` those two already derive. `<=` spells the same
+ * boundary they do, so no batch can read `expired` on the owner's screen and
+ * still be a release candidate here.
+ *
+ * **THE `EXISTS` OVER `agent_runs` IS THE PREDICATE'S POINT, not a refinement.**
+ * It is what B7 means by "that have a Send batch parent". A WATCH-MODE batch has
+ * no send lane at all: it was built, never dispatched, and no parent was ever
+ * minted. Latching it would stamp `batch_expired` — a send-lane reason — on a
+ * batch that was never in the send lane, and would cancel its Outreach rows with
+ * a disposition describing a lane it never entered. Delete this arm and every
+ * watch-mode batch in the platform is latched on its eighth day.
+ *
+ * `approved_at IS NULL` keeps P3 disjoint from P2 (which requires the opposite),
+ * so the two sweeps can never both select one batch in a tick.
+ *
+ * `halted_at IS NULL` also carries the idempotence — the latch's CAS makes the
+ * halt monotone, so a batch this sweep already handled never comes back.
+ */
+async function selectExpiredBatches(
+  sql: Sql,
+  scanLimit: number,
+): Promise<SweepCandidateBatch[]> {
+  return sql<SweepCandidateBatch[]>`
+    SELECT b.id, b.account_id, b.business_id
+      FROM solicitation_batches b
+     WHERE b.approved_at IS NULL
+       AND b.built_at IS NOT NULL
+       AND b.built_at <= NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
+       AND b.halted_at IS NULL
+       AND b.send_closed_at IS NULL
+       AND EXISTS (
+         SELECT 1 FROM agent_runs r
+          WHERE r.kind = 'solicitation_send_batch'
+            AND r.subject_type = 'solicitation_batch'
+            AND r.subject_id = b.id::text
+            AND r.account_id = b.account_id
+            AND r.business_id = b.business_id
+       )
+     ORDER BY b.built_at ASC
      LIMIT ${scanLimit}
   `;
 }

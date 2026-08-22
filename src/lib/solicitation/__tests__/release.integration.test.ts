@@ -1312,7 +1312,7 @@ describeWithDb(
         },
       );
 
-      it.fails(
+      it(
         'latches batch_expired on a never-approved batch past the approval window and closes its parent',
         async () => {
           const batch = await seedBatch({ builtAgo: '7 days 419 microseconds' });
@@ -1340,7 +1340,7 @@ describeWithDb(
         },
       );
 
-      it.fails('a batch that receives no approval for 7 days closes cleanly and raises no stalled alert', async () => {
+      it('a batch that receives no approval for 7 days closes cleanly and raises no stalled alert', async () => {
         // B7's stated obligation. `deriveRunDisplayState` calls a send parent
         // STALLED at 11 days, so the 7-day sweep exists precisely to make that
         // threshold unreachable for an unapproved batch. Asserting only "the
@@ -1363,9 +1363,10 @@ describeWithDb(
       });
 
       it('does not latch batch_expired on a batch with no Send batch parent', async () => {
-        // TASK 5 MUST RE-VERIFY THIS: it passes VACUOUSLY today (the sweep is
-        // still a stub returning 0), so only deleting P3's `EXISTS` arm after
-        // the sweep exists and watching this go RED is evidence.
+        // RE-VERIFIED by Task 5, 2026-08-22, and no longer vacuous: with P3's
+        // `EXISTS` arm deleted this case is the ONLY one in the file that goes
+        // RED (`expected 1 to be +0` — the watch-mode batch WAS latched), and it
+        // goes green again the moment the arm is restored.
         // B7's `EXISTS` over `agent_runs` is what "that have a Send batch
         // parent" means. Without it a WATCH-MODE batch — built, never sent, no
         // send lane at all — is latched with a reason describing a lane it was
