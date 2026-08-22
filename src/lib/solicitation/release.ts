@@ -74,6 +74,7 @@ import { createWorkerLogger, toError } from '@/lib/shared/logger';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { latchSystemHalt } from './approval';
+import type { SystemHaltReason } from './approval';
 import { solicitationSendEnabled } from './flags';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
@@ -478,11 +479,13 @@ interface WedgedOutreachRow {
  * That is why this phase runs FIRST — a row it resolves can settle its batch in
  * the same tick, through phase 2, phase 3 or phase 5's join.
  *
- * PER-ROW, and structurally unlike the two sweeps that follow it. Those latch a
- * BATCH and hand the whole body to `latchSystemHalt`; this one terminalizes ONE
- * Outreach row, terminalizes that row's **Lazy child**, and joins — three writes
- * this module owns, in one transaction per row. Deliberately NOT sharing a body
- * with either of them: same loop shape, entirely different transaction.
+ * PER-ROW, and structurally unlike the two sweeps that follow it. Those two are
+ * ONE body, `sweepSystemHalt`, which latches a BATCH and hands its whole
+ * transaction to `latchSystemHalt`; this one terminalizes ONE Outreach row,
+ * terminalizes that row's **Lazy child**, and joins — three writes this module
+ * owns, in one transaction per row. It does NOT join `sweepSystemHalt`, and the
+ * reason is the transaction rather than the loop: the loop shape is the same,
+ * the writes inside it are not, and a parameter cannot express that difference.
  *
  * Counts what was TERMINALIZED, not what was scanned. Zero rows from the CAS
  * means the outbox watchdog re-pended the row between the scan and the lock —
@@ -764,17 +767,19 @@ interface SweepCandidateBatch {
 }
 
 /**
- * The `send_window_elapsed` sweep — an approved batch whose 72h send window ran
- * out, latched with no actor.
+ * The shared body of the two system-halt sweeps, phases 2 and 3.
  *
- * Runs BEFORE the release phase (see the module header): an overdue batch must
- * never release, and reclaiming its `rendered`/`queued` rows is what frees 091's
- * `solicitation_batches_one_active_send_per_business` index for that location.
+ * The two differ in exactly three values — the candidate predicate, the
+ * isolation label and the halt reason — and in nothing else. An earlier comment
+ * here argued they should stay separate bodies "because they differ in
+ * predicate, ordering column and halt reason"; every one of those three is a
+ * parameter, so the argument named the parameters rather than a reason not to
+ * take them, and two byte-identical bodies had to be kept in step by hand.
  *
  * ONE transaction per batch, and its whole body is the latch call. **The latch
- * owns the cancel, the spine step and the settlement join** — this sweep writes
+ * owns the cancel, the spine step and the settlement join** — a sweep writes
  * nothing of its own, because a second writer of any of those three is a second
- * receipt for one halt. It does not hand-roll a `SELECT … FOR UPDATE` either:
+ * receipt for one halt. Neither sweep hand-rolls a `SELECT … FOR UPDATE`:
  * `latchSystemHalt` re-reads the row `FOR UPDATE OF b` itself, and skips only
  * the ADVISORY lock, which no sweep takes.
  *
@@ -782,13 +787,21 @@ interface SweepCandidateBatch {
  * another writer terminalized between the scan and the lock — nothing happened,
  * so nothing is reported.
  */
-async function sweepSendWindowElapsed(sql: Sql, scanLimit: number): Promise<PhaseTally> {
-  const batches = await selectSendWindowElapsedBatches(sql, scanLimit);
+async function sweepSystemHalt(
+  sql: Sql,
+  scanLimit: number,
+  spec: {
+    label: string;
+    reason: SystemHaltReason;
+    select: (sql: Sql, scanLimit: number) => Promise<SweepCandidateBatch[]>;
+  },
+): Promise<PhaseTally> {
+  const batches = await spec.select(sql, scanLimit);
 
   const tally: PhaseTally = { handled: 0, failed: 0 };
   for (const batch of batches) {
     const result = await isolateItem(
-      'send_window_sweep',
+      spec.label,
       { batch_id: batch.id, account_id: batch.account_id, business_id: batch.business_id },
       tally,
       () =>
@@ -797,13 +810,29 @@ async function sweepSendWindowElapsed(sql: Sql, scanLimit: number): Promise<Phas
             batchId: batch.id,
             accountId: batch.account_id,
             businessId: batch.business_id,
-            reason: 'send_window_elapsed',
+            reason: spec.reason,
           }),
         ),
     );
     if (result?.status === 'latched') tally.handled += 1;
   }
   return tally;
+}
+
+/**
+ * The `send_window_elapsed` sweep — an approved batch whose 72h send window ran
+ * out, latched with no actor.
+ *
+ * Runs BEFORE the release phase (see the module header): an overdue batch must
+ * never release, and reclaiming its `rendered`/`queued` rows is what frees 091's
+ * `solicitation_batches_one_active_send_per_business` index for that location.
+ */
+async function sweepSendWindowElapsed(sql: Sql, scanLimit: number): Promise<PhaseTally> {
+  return sweepSystemHalt(sql, scanLimit, {
+    label: 'send_window_sweep',
+    reason: 'send_window_elapsed',
+    select: selectSendWindowElapsedBatches,
+  });
 }
 
 /**
@@ -849,39 +878,15 @@ async function selectSendWindowElapsedBatches(
  * stalled at `STALLED_THRESHOLD_SEND_BATCH_DAYS` (11), so a sweep anchored on
  * the 7-day window makes that threshold unreachable rather than merely unlikely.
  *
- * Deliberately NOT sharing a body with `sweepSendWindowElapsed` above. The two
- * differ in predicate, in ordering column and in halt reason; what they share is
- * the latch, and the latch is already the one shared implementation.
- *
- * ONE transaction per batch, and its whole body is the latch call — the same
- * contract phase 2 keeps: **the latch owns the cancel, the spine step and the
- * settlement join**, and it re-reads the row `FOR UPDATE OF b` itself, so this
- * sweep hand-rolls no `SELECT … FOR UPDATE` of its own.
- *
- * Counts what was LATCHED, not what was scanned.
+ * Its ONLY difference from phase 2 is the three values below; everything else is
+ * `sweepSystemHalt`, which carries the transaction and latch-ownership contract.
  */
 async function sweepBatchExpired(sql: Sql, scanLimit: number): Promise<PhaseTally> {
-  const batches = await selectExpiredBatches(sql, scanLimit);
-
-  const tally: PhaseTally = { handled: 0, failed: 0 };
-  for (const batch of batches) {
-    const result = await isolateItem(
-      'batch_expired_sweep',
-      { batch_id: batch.id, account_id: batch.account_id, business_id: batch.business_id },
-      tally,
-      () =>
-        sql.begin(async (tx) =>
-          latchSystemHalt(tx, {
-            batchId: batch.id,
-            accountId: batch.account_id,
-            businessId: batch.business_id,
-            reason: 'batch_expired',
-          }),
-        ),
-    );
-    if (result?.status === 'latched') tally.handled += 1;
-  }
-  return tally;
+  return sweepSystemHalt(sql, scanLimit, {
+    label: 'batch_expired_sweep',
+    reason: 'batch_expired',
+    select: selectExpiredBatches,
+  });
 }
 
 /**
@@ -1007,6 +1012,161 @@ function withhold(
 }
 
 /**
+ * The three capacity gates in amendment B6's fixed order, asked as ONE question.
+ *
+ * The release phase re-asks them at three nesting depths — before an account,
+ * before a batch, before a row — because a release consumes all three counters
+ * at once and any one of them can run out between two rows. Spelling the ladder
+ * out at each depth is what made the two inner copies byte-identical clones.
+ *
+ * It returns the reason and decides nothing else. WHICH loop ends, and whether
+ * the whole phase stops, is the caller's to decide, and the callers differ.
+ */
+function capacityStop(
+  budgetRemaining: number,
+  platformRemaining: number,
+  accountRemaining: number,
+): ReleaseWithheldReason | null {
+  if (budgetRemaining <= 0) return 'per_tick_budget';
+  if (platformRemaining <= 0) return 'platform_ceiling';
+  if (accountRemaining <= 0) return 'account_cap';
+  return null;
+}
+
+/**
+ * The three counters ONE release spends at once, held in one mutable object.
+ *
+ * Mutable and shared BY REFERENCE on purpose: the account arm and the batch arm
+ * below both spend them, and three separate `let`s cannot cross a function
+ * boundary. `account` is re-seeded per account from that account's cap read;
+ * `budget` and `platform` live for the whole tick.
+ */
+interface ReleaseCounters {
+  budget: number;
+  platform: number;
+  account: number;
+}
+
+/**
+ * What the two release arms need from their enclosing tick.
+ *
+ * It exists so the arms can be MODULE-SCOPE functions rather than bodies nested
+ * five levels deep inside `runReleasePhase`. `sql` arrives here as a parameter
+ * and is never imported (invariant #15).
+ */
+interface ReleaseArmContext {
+  sql: Sql;
+  scanLimit: number;
+  report: ReleaseCycleReport;
+  counters: ReleaseCounters;
+  /** Only `failed` is folded — this phase's "handled" is `report.released`. */
+  isolated: { failed: number };
+  /** Read ONCE per tick and lazily; see its definition in `runReleasePhase`. */
+  judgeAvailable: () => Promise<boolean>;
+  /** All THREE counters. Sets the tick-wide stop for the two that are tick-wide. */
+  capacityExhausted: () => boolean;
+}
+
+/**
+ * The batch arm — release rows of ONE batch.
+ *
+ * `'stop'` means a counter ended the batch loop; the caller decides whether the
+ * whole phase stops, which it learns from the tick-wide stop flag rather than
+ * from this return value.
+ */
+async function runBatchArm(
+  ctx: ReleaseArmContext,
+  batch: ReleaseCandidateBatch,
+): Promise<'next' | 'stop'> {
+  if (ctx.capacityExhausted()) return 'stop';
+
+  // 6. The Judge split, LAST and only for a batch that has passed every other
+  //    gate and still has capacity. A downgrade is DESTRUCTIVE, so it must never
+  //    fire for a batch the account cap alone would have stopped.
+  if (!(await ctx.judgeAvailable())) {
+    withhold(ctx.report, 'judge_unhealthy');
+    const outcome = await applyJudgeSplit(ctx.sql, batch);
+    if (outcome === 'downgraded') ctx.report.downgraded += 1;
+    else if (outcome === 'held') ctx.report.heldForJudge += 1;
+    return 'next';
+  }
+
+  const candidates = await selectRenderedOutreach(ctx.sql, batch, ctx.scanLimit);
+  for (const outreachId of candidates) {
+    if (ctx.capacityExhausted()) break;
+
+    if (!(await releaseOutreachRow(ctx.sql, batch, outreachId))) continue;
+
+    // All three, on EVERY release. See the module header.
+    ctx.report.released += 1;
+    ctx.counters.budget -= 1;
+    ctx.counters.platform -= 1;
+    ctx.counters.account -= 1;
+  }
+  return 'next';
+}
+
+/**
+ * The account arm — the two per-account gate reads, then every batch.
+ *
+ * THIS PHASE HAS TWO ISOLATION UNITS, and each one is the unit its work actually
+ * belongs to. The ACCOUNT is the outer one, and it covers exactly the two gate
+ * reads below: the cap read and the subscription read are per-account questions,
+ * so a throw from either costs that account its tick and no one else's. The
+ * BATCH is the inner one: `applyJudgeSplit`, `selectRenderedOutreach` and
+ * `releaseOutreachRow` are per-batch and per-row, so one poisoned batch must cost
+ * that batch and leave its SIBLINGS releasable. Without the inner unit a single
+ * failing batch discarded the account's whole remaining tick — deterministically,
+ * every tick, until those batches crossed the 72h send window, which is issue
+ * #915's wedge narrowed rather than closed.
+ *
+ * Both units are `isolateItem` rather than a bare `try`. An earlier revision used
+ * bare `try`s because "the bodies' `continue` and `break` target these loops and
+ * may not cross a function boundary" — true of that shape, and no longer true of
+ * this one: the batch arm RETURNS its control signal, so the boundary costs
+ * nothing and the two arms stop being nested five deep.
+ */
+async function runAccountArm(
+  ctx: ReleaseArmContext,
+  accountId: string,
+  batches: readonly ReleaseCandidateBatch[],
+): Promise<void> {
+  // 4. The account cap, BEFORE the subscription (B6's closing paragraph). The
+  //    order matters and is silent when wrong: both gates refuse, only the
+  //    reported reason lies, and the operator chases the wrong dial.
+  const cap = resolveAccountDailySendCap({
+    dailySendCap: await readAccountDailySendCap(ctx.sql, accountId),
+  });
+  ctx.counters.account = cap - (await countAccountDispatchAttemptsToday(ctx.sql, accountId));
+  if (ctx.counters.account <= 0) {
+    withhold(ctx.report, 'account_cap');
+    return;
+  }
+
+  // 5. Entitlement, never a raw equality against 'active' (invariant #11). A
+  //    lapsed subscription is RECOVERABLE inside the send window: the rows stay
+  //    `rendered`, so paying resumes the drip with no intervention.
+  const status = await readAccountSubscriptionStatus(ctx.sql, accountId);
+  if (!subscriptionGrantsFullAccess(status)) {
+    withhold(ctx.report, 'subscription');
+    return;
+  }
+
+  for (const batch of batches) {
+    // The batch id is what an operator needs to find the poisoned unit, and the
+    // account-level isolation below cannot name it. A throw yields `undefined`,
+    // which is not `'stop'`, so a poisoned batch costs itself and no sibling.
+    const outcome = await isolateItem(
+      'release',
+      { account_id: accountId, batch_id: batch.id },
+      ctx.isolated,
+      () => runBatchArm(ctx, batch),
+    );
+    if (outcome === 'stop') break;
+  }
+}
+
+/**
  * The release phase, governors in amendment B6's order.
  *
  * `releasePhaseStoppedBy` names a PHASE-level stop — the three checks below run
@@ -1043,17 +1203,24 @@ async function runReleasePhase(
   const platformCap = resolvePlatformDailyCap(
     getWorkerConfig().SOLICITATION_PLATFORM_DAILY_CAP,
   );
-  let platformRemaining = platformCap - (await countPlatformDispatchAttemptsToday(sql));
+  const platformRemaining = platformCap - (await countPlatformDispatchAttemptsToday(sql));
   if (platformRemaining <= 0) {
     report.releasePhaseStoppedBy = 'platform_ceiling';
     return;
   }
 
-  let budgetRemaining = bounds.perTickBudget;
-  if (budgetRemaining <= 0) {
+  if (bounds.perTickBudget <= 0) {
     withhold(report, 'per_tick_budget');
     return;
   }
+
+  const counters: ReleaseCounters = {
+    budget: bounds.perTickBudget,
+    platform: platformRemaining,
+    // No account is in scope yet. `runAccountArm` re-seeds this from that
+    // account's own cap read before anything reads it.
+    account: Number.POSITIVE_INFINITY,
+  };
 
   // Judge availability is read ONCE per tick and LAZILY: a tick with nothing
   // releasable must not pay for the health probe, and a tick with something
@@ -1095,128 +1262,51 @@ async function runReleasePhase(
       released: report.released,
     });
   };
+  /**
+   * `capacityStop` applied: count the withhold, and decide how far to stop.
+   *
+   * `account_cap` deliberately does NOT set `stopPhase` — the cap is
+   * per-account, so a SIBLING account may still release this tick. The other two
+   * are tick-wide. That asymmetry is why the three counters cannot collapse into
+   * one, and why this returns a boolean the caller acts on rather than breaking
+   * anything itself: its callers end different loops.
+   */
+  const applyStop = (stop: ReleaseWithheldReason | null): boolean => {
+    if (stop === null) return false;
+    withhold(report, stop);
+    if (stop === 'per_tick_budget') logBudgetExhausted();
+    if (stop !== 'account_cap') stopPhase = true;
+    return true;
+  };
+  /** The account-loop gate: TICK-WIDE counters only. `counters.account` still
+   *  holds the PREVIOUS account's remainder here, and reading it would refuse
+   *  the next account on a cap that is not its own. */
+  const tickCapacityExhausted = (): boolean =>
+    applyStop(capacityStop(counters.budget, counters.platform, Number.POSITIVE_INFINITY));
+  /** The in-account gate: all three counters. */
+  const capacityExhausted = (): boolean =>
+    applyStop(capacityStop(counters.budget, counters.platform, counters.account));
+
+  const ctx: ReleaseArmContext = {
+    sql,
+    scanLimit: bounds.scanLimit,
+    report,
+    counters,
+    isolated,
+    judgeAvailable,
+    capacityExhausted,
+  };
 
   for (const [accountId, accountBatches] of byAccount) {
     if (stopPhase) break;
-    if (budgetRemaining <= 0) {
-      withhold(report, 'per_tick_budget');
-      logBudgetExhausted();
-      break;
-    }
-    if (platformRemaining <= 0) {
-      withhold(report, 'platform_ceiling');
-      break;
-    }
+    if (tickCapacityExhausted()) break;
 
-    // THIS PHASE HAS TWO ISOLATION UNITS, and each one is the unit its work
-    // actually belongs to (see `isolateItem`).
-    //
-    // The ACCOUNT is the outer one, and it covers exactly the two gate reads
-    // below: the cap read and the subscription read are per-account questions,
-    // so a throw from either costs that account its tick and no one else's.
-    //
-    // The BATCH is the inner one, and it is the finer unit the work inside the
-    // batch loop deserves: `applyJudgeSplit`, `selectRenderedOutreach` and
-    // `releaseOutreachRow` are per-batch and per-row, so one poisoned batch must
-    // cost that batch and leave its SIBLINGS releasable. Without the inner
-    // `try` a single failing batch discarded the account's whole remaining tick
-    // — deterministically, every tick, until those batches crossed the 72h send
-    // window — which is issue #915's wedge narrowed, not closed.
-    //
-    // Bare `try`s rather than `isolateItem` because the bodies' `continue` and
-    // `break` target these loops and may not cross a function boundary.
-    try {
-      // 4. The account cap, BEFORE the subscription (B6's closing paragraph). The
-      //    order matters and is silent when wrong: both gates refuse, only the
-      //    reported reason lies, and the operator chases the wrong dial.
-      const cap = resolveAccountDailySendCap({
-        dailySendCap: await readAccountDailySendCap(sql, accountId),
-      });
-      let accountRemaining = cap - (await countAccountDispatchAttemptsToday(sql, accountId));
-      if (accountRemaining <= 0) {
-        withhold(report, 'account_cap');
-        continue;
-      }
-
-      // 5. Entitlement, never a raw equality against 'active' (invariant #11). A
-      //    lapsed subscription is RECOVERABLE inside the send window: the rows
-      //    stay `rendered`, so paying resumes the drip with no intervention.
-      const status = await readAccountSubscriptionStatus(sql, accountId);
-      if (!subscriptionGrantsFullAccess(status)) {
-        withhold(report, 'subscription');
-        continue;
-      }
-
-      for (const batch of accountBatches) {
-        try {
-          if (budgetRemaining <= 0) {
-            withhold(report, 'per_tick_budget');
-            logBudgetExhausted();
-            stopPhase = true;
-            break;
-          }
-          if (platformRemaining <= 0) {
-            withhold(report, 'platform_ceiling');
-            stopPhase = true;
-            break;
-          }
-          if (accountRemaining <= 0) {
-            withhold(report, 'account_cap');
-            break;
-          }
-
-          // 6. The Judge split, LAST and only for a batch that has passed every
-          //    other gate and still has capacity. A downgrade is DESTRUCTIVE, so
-          //    it must never fire for a batch the account cap alone would have
-          //    stopped.
-          if (!(await judgeAvailable())) {
-            withhold(report, 'judge_unhealthy');
-            const outcome = await applyJudgeSplit(sql, batch);
-            if (outcome === 'downgraded') report.downgraded += 1;
-            else if (outcome === 'held') report.heldForJudge += 1;
-            continue;
-          }
-
-          const candidates = await selectRenderedOutreach(sql, batch, bounds.scanLimit);
-          for (const outreachId of candidates) {
-            if (budgetRemaining <= 0) {
-              withhold(report, 'per_tick_budget');
-              logBudgetExhausted();
-              stopPhase = true;
-              break;
-            }
-            if (platformRemaining <= 0) {
-              withhold(report, 'platform_ceiling');
-              stopPhase = true;
-              break;
-            }
-            if (accountRemaining <= 0) {
-              withhold(report, 'account_cap');
-              break;
-            }
-
-            if (!(await releaseOutreachRow(sql, batch, outreachId))) continue;
-
-            // All three, on EVERY release. See the module header.
-            report.released += 1;
-            budgetRemaining -= 1;
-            platformRemaining -= 1;
-            accountRemaining -= 1;
-          }
-        } catch (error) {
-          // The batch id is what an operator needs to find the poisoned unit,
-          // and the account-level catch below cannot name it.
-          recordItemFailure(
-            'release',
-            { account_id: accountId, batch_id: batch.id },
-            isolated,
-            error,
-          );
-        }
-      }
-    } catch (error) {
-      recordItemFailure('release', { account_id: accountId }, isolated, error);
-    }
+    await isolateItem(
+      'release',
+      { account_id: accountId },
+      isolated,
+      () => runAccountArm(ctx, accountId, accountBatches),
+    );
   }
 
   report.itemFailures += isolated.failed;

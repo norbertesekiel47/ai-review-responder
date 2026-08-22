@@ -5,7 +5,7 @@ A resumed session bootstraps from this file. **It never needs the prior transcri
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-900-solicitation-release-poller`
 **Branch:** `feat-900-solicitation-release-poller` · **Issue:** #900
 **Lane:** RISK = high · SURFACE = backend · `db_touching: true` · **no migration**
-**Phase:** `reviewed` — steps 0–7 COMPLETE, **step 8.1 (ride) and 8.2 (verify) DONE**. **Next action: step 8.3 — PR open, awaiting owner merge approval.**
+**Phase:** `reviewed` — steps 0–7 COMPLETE, **step 8.1 (ride), 8.2 (verify) and the 8.3 CI cycle DONE**. **Next action: confirm PR #920 green, then the owner's merge approval.**
 
 ## Reconciliation — run the checks, they should agree
 
@@ -51,13 +51,34 @@ Self-verifying by design; no hardcoded SHAs, because the commit writing this fil
    | Zero counts are honest, not a silent skip | staging holds **0** `solicitation_batches` and **0** `solicitation_outreach` rows, breaker closed — so there is nothing for any sweep to act on |
 
    **The bar this clears, and the bar it does not.** It proves the deployed worker registers the loop and completes a cycle against real Postgres every 60s. It does **not** exercise the three sweep predicates against data — staging has no send-mode rows to seed them, and predicate behaviour is covered by the live-DB suites `release.integration.test.ts` and `approval-system-halt.integration.test.ts`, both PASS in the gate. Do not re-derive this as a gap; it is the bar step 8.2 was written to.
-3. **Open the PR to `main`,** confirm GitHub CI green, then **PAUSE for the owner's explicit merge approval.** Do not merge on your own judgment. **This is the current step.**
+3. **PR #920 is open** — https://github.com/RepWorth/ai-review-responder/pull/920.
+   First CI run: every required check GREEN, **`fallow` RED**. Four findings,
+   three of them this branch's. Fixed on the branch; see the step 8 entry at the
+   bottom of the deviations file for the full account. **PAUSE for the owner's
+   explicit merge approval** once the re-run is green. Do not merge on your own
+   judgment. **This is the current step.**
+
+   **Why the local gate did not catch it, and how to reproduce it.**
+   `verify-gate.sh` runs 28 checks and `ci:fallow:coverage` is NOT one of them.
+   CLAUDE.md already records that a bare `fallow audit` does not predict the real
+   gate in either direction. To reproduce it you must export
+   `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` first, or
+   `pnpm test:coverage` silently skips the live-DB lane and every CRAP number
+   comes out inflated:
+
+   ```
+   export TEST_DATABASE_POOL_URL=…   # and DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL
+   pnpm test:coverage && pnpm ci:fallow:coverage
+   ```
+
+   Green as of this handoff: `exit 0`, `complexity 0`,
+   `✓ No issues in 33 changed files`.
 
 ## After merge — obligations already identified, do not rediscover them
 
 - `git pull --ff-only` on local `main`; realign `staging` per `deployment-guide.md` §"Re-sync staging" (**squash-merge means the branches diverged — `git reset --hard origin/main` + `--force-with-lease`, NOT a sync merge**).
 - `bash scripts/feature-cleanup.sh` (dry run, review, then `--apply`).
-- **PROMOTION OBLIGATION, recorded in the round 3 triage:** the false-rationale pattern goes into `.claude/reference/lab-notes.md`. Six times on this branch a load-bearing rationale in a comment was FALSE; all six were claims about **this module's own internal structure**, while every cross-file claim was correct. That file is already on `allowed_edit_surface` (amendment 4).
+- **PROMOTION OBLIGATION, recorded in the round 3 triage and STRENGTHENED at step 8:** the false-rationale pattern goes into `.claude/reference/lab-notes.md`. **Eight** times on this branch a load-bearing rationale in a comment was FALSE; every one was a claim about **this module's own internal structure**, while every cross-file claim was correct. The last two are the sharpest evidence: #7 was *"Deliberately NOT sharing a body … the two differ in predicate, in ordering column and in halt reason"* — all three are parameters, and a LINTER caught it, not a reviewer. #8 was written by the fix round itself: a `fallow-ignore` whose justification claimed it dropped a clone group below `minOccurrences`; deleting it and re-running showed the gate passed anyway, so it was removed. **The transferable rule: a suppression is a claim, and a claim gets tested — delete it and re-run before you keep it.** That file is already on `allowed_edit_surface` (amendment 4).
 - `document-feature` skill sweep · final `domain-modeling` pass · increment the merge counter in `.claude/reference/arch-review-log.md`.
 
 ## Read these, by path — do not restate them
@@ -95,7 +116,7 @@ Self-verifying by design; no hardcoded SHAs, because the commit writing this fil
 
 - **#917** — B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening) + the §7.1 yield-to-transactional obligation.
 - **#918** — no CI audit enforces the `env-vars.md` registry row; the house rule is convention only.
-- **#919** — release-phase counter object + `stopPhase`; `seedUpload` hand-copied in SIX test files; no `CONTEXT.md` term for the release lane; the sub-default configured-cap gap; the subscription gate's structural shape.
+- **#919** — ~~release-phase counter object + `stopPhase`~~ **DISCHARGED at step 8** (the fallow gate forced it; `ReleaseCounters` + `capacityStop` + the two extracted arms). Still open: `seedUpload` hand-copied in SIX test files; no `CONTEXT.md` term for the release lane; the sub-default configured-cap gap; the subscription gate's structural shape; **and new — extract a shared `lockBatchForHalt` preamble** for `haltBatch`/`adminHaltBatch` (clone `dup:ddc3f485`, pre-existing on `main`, out of #900's scope).
 
 ## Amendment budget: 4 of 2, all owner-approved
 

@@ -966,3 +966,101 @@ observability cases plus their idle-tick control, a phase-level Sentry sink case
 and an approval-window lock-wait case). All 39 promised titles remain present and
 unchanged; these are additive, and each was proved sensitive by a deliberate
 guard-deletion probe before it was kept.
+
+---
+
+## Step 8 — the `fallow` PR gate was the first thing to actually run it, and it was red
+
+**What.** PR #920's CI went green on every required check and RED on `fallow`.
+Four findings, all in files this branch touched:
+
+| Finding | Verdict |
+|---|---|
+| `runReleasePhase` CRITICAL — cyclomatic 25 `!`, cognitive 58 `!`, 205 lines | NEW — fixed |
+| clone `c77b3abb6f87acd9-1` (22 lines) — the batch-loop and row-loop guard triples, byte-identical | NEW — fixed |
+| clone `c77b3abb6f87acd9-2` (10 lines) — `sweepSendWindowElapsed` vs `sweepBatchExpired` | NEW — fixed |
+| clone `ddc3f485` (22 lines) — `haltBatch` vs `adminHaltBatch` preamble | **INHERITED** — no change needed |
+
+**Why it reached CI at all.** The local `verify-gate.sh` runs 26 checks and
+`ci:fallow:coverage` is not one of them — CLAUDE.md already records that the
+fallow PR gate is fed by the `test` job's coverage artifact and that a bare
+`fallow audit` does not predict it in either direction. So nothing on this branch
+had ever run the gate that failed. Reproducing it locally needs
+`TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` exported first, or
+`pnpm test:coverage` silently skips the live-DB lane and every CRAP number comes
+out inflated.
+
+**What changed.**
+
+1. **The guard triple, and this closes a deferred item rather than opening a new
+   one.** Round 1's standards agent filed it as Finding 2 (Medium) — *"three
+   copies of one guard triple, plus a control flag"* — and it was ACCEPTed and
+   DEFERRED to #919. Its proposed shape was a counters owner with an
+   `openAccount` seed and a `Number.POSITIVE_INFINITY` default; what shipped here
+   is that shape as a plain mutable `ReleaseCounters` object plus a module-scope
+   `capacityStop`. **#919 no longer carries "release-phase counter object +
+   `stopPhase`".**
+
+   `stopPhase` survives and is now documented, because its asymmetry is real:
+   `account_cap` must NOT set it (a sibling account may still release this tick)
+   while the two tick-wide counters must. Two closures rather than one make the
+   third call site honest — the account-loop gate reads tick-wide counters ONLY,
+   because `counters.account` still holds the PREVIOUS account's remainder there
+   and reading it would refuse the next account on a cap that is not its own.
+   That was a live bug the object shape introduced and the split closed.
+
+2. **The two arms extracted.** Cutting the guard triple alone took cyclomatic
+   25 → 20 (clean) but left cognitive at 42, still breaching: cognitive is
+   nesting-weighted and the phase was five deep. `runAccountArm` and
+   `runBatchArm` are now module-scope, `runReleasePhase` is 205 → 135 lines, and
+   the function is out of the findings entirely.
+
+   This retires the "bare `try`s because `continue`/`break` may not cross a
+   function boundary" note. It was TRUE of that shape and is not true of this
+   one: the batch arm returns its control signal, so both isolation units are
+   `isolateItem` and the two-unit contract is unchanged — account for the two
+   gate reads, batch for everything inside.
+
+3. **The two sweeps unified into `sweepSystemHalt`.** The docstring said
+   *"Deliberately NOT sharing a body … the two differ in predicate, in ordering
+   column and in halt reason"*. Every one of those three is a parameter, so the
+   sentence named the parameters rather than a reason not to take them. **This is
+   the SEVENTH instance of the branch's false-rationale pattern, and it is again
+   a claim about this module's own internal structure** — the promotion
+   obligation to `lab-notes.md` now has a seventh data point and one that a
+   linter, not a reviewer, caught.
+
+   `sweepUnknownOutreach` does NOT join them, and that rationale was re-checked
+   rather than assumed: it owns three writes in its own transaction, so the
+   difference is the transaction and not the loop. It was sharpened to say so.
+
+4. **`ddc3f485` needed NOTHING, and finding that out is the point of this entry.**
+   It is pre-existing on `main` — `fallow dupes --trace
+   src/lib/solicitation/approval.ts:593` on `main` returns the same fingerprint —
+   and #900 only added `latchSystemHalt` to that file, which pulled the whole file
+   into the audit's changed-file scope.
+
+   A finding-level `// fallow-ignore-next-line code-duplication` was written for
+   it, with a paragraph explaining that suppressing one of the two instances drops
+   the group below `minOccurrences`. **Then it was tested by deleting it and
+   re-running the gate, which passed anyway** (`exit=0`, "excluded 1 inherited
+   finding"). Once the two NEW `release.ts` clone groups were gone, the audit
+   classified `ddc3f485` as inherited on its own. So the suppression was dead
+   weight carrying an unverified claim — an EIGHTH false rationale, this one
+   written by the fix round itself and caught only because it was probed rather
+   than trusted. It was removed; `approval.ts` is byte-identical to what review
+   round 3 signed off.
+
+   The real fix — extracting a shared `lockBatchForHalt` preamble — stays #919
+   work: `haltBatch` and `adminHaltBatch` are shipped, reviewed #629/#865 code
+   that #900 does not otherwise touch.
+
+   **The transferable lesson: a suppression is a claim, and a claim gets tested.**
+   Delete it and re-run before you keep it.
+
+**Verification.** 46 live-DB tests across `release.integration.test.ts` and
+`approval-system-halt.integration.test.ts` pass unchanged — no test was edited to
+fit the refactor, which is the whole point of doing it behind a green suite. The
+real gate was then reproduced end to end: `pnpm test:coverage` (0 skips, live-DB
+lane included) followed by `pnpm ci:fallow:coverage` → **exit 0**, `complexity 0`,
+`✓ No issues in 33 changed files`.
