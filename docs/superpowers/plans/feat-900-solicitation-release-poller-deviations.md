@@ -29,6 +29,37 @@ entry and **not** an amendment. It does not count toward the abort budget.
 Owner-approved by the sign-off that locked the intake, under the workflow's
 rule that `tests_to_add` retitles and estimate corrections are entries here.
 
+## Step 3→4 checkpoint — Task 8's registration moved forward, into the stub commit
+
+**What:** `src/lib/solicitation/release.ts` and
+`worker/background/pollers/SolicitationReleasePoller.ts` were created as
+contract stubs (full public interfaces, throwing bodies) at the plan
+checkpoint, together with their two `docs/directory.md` rows and the
+`worker/index.ts` registration that Task 8 owned.
+
+**Why:** two audits make the plan's original ordering unreachable.
+1. `ci:feature-surface` fails when an `allowed_edit_surface` entry matches no
+   file tracked at HEAD or changed on the branch. Both new files were surface
+   entries, so the gate could not go green at the checkpoint.
+2. `ci:db-imports` grants composition-root status **only** to a poller
+   registered in `worker/index.ts`. An unregistered poller that imports
+   `@/lib/db/server` fails the audit the moment it exists. Registration cannot
+   follow the module it registers.
+3. `ci:directory-map` requires a row for every production file under `worker/`
+   and `src/lib/` in the same change.
+
+Narrowing the surface and re-adding it later was rejected: that is two
+`allowed_edit_surface` amendments, which trips the abort budget for a
+bootstrapping-order problem rather than a design problem.
+
+**What changed:** Task 8 now owns only the env var
+(`SOLICITATION_RELEASE_POLL_INTERVAL_MS`), the P2 backlog entry and the
+poller's loop-mechanics tests. Task 9 refines the two directory rows rather
+than writing them. Task 0's expected red moves from "module not found" to
+"`runReleaseCycle: not implemented`" — a **stronger** red, since it proves the
+contract is importable and the behaviour absent. No intake decision is
+invalidated, so ACCEPT, not RE-PLAN.
+
 ## Plan round 2 — governor order corrected; one title retitled, one added
 
 **What:** `subscriptionGrantsFullAccess` moved from BEFORE the account cap to

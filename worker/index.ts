@@ -115,6 +115,7 @@ import { startAnalyticsDispatchPoller, stopAnalyticsDispatchPoller } from './bac
 import { healthBulkheadSql, startHealthAlertPoller, stopHealthAlertPoller } from './background/pollers/HealthAlertPoller';
 import { closeHealthSql } from './background/pollers/health-alert/health-db';
 import { startJudgeSweepPoller, stopJudgeSweepPoller } from './background/pollers/JudgeSweepPoller';
+import { startSolicitationReleasePoller, stopSolicitationReleasePoller } from './background/pollers/SolicitationReleasePoller';
 import {
   startAutonomyGovernorScheduler,
   stopAutonomyGovernorScheduler,
@@ -728,6 +729,7 @@ async function main(): Promise<void> {
     () => startAccountOffboardingTeardownRetryPoller(),
     () => startHealthAlertPoller(),
     () => startJudgeSweepPoller(),
+    () => startSolicitationReleasePoller(),
     () => startAutonomyGovernorScheduler(),
   ];
 
@@ -840,6 +842,7 @@ const shutdown = createGracefulShutdown({
     stopAccountOffboardingTeardownRetryPoller();
     stopHealthAlertPoller();
     stopJudgeSweepPoller();
+    stopSolicitationReleasePoller();
     stopAutonomyGovernorScheduler();
     // Flush the partial unknown-token window (#644 §1.6) before the process
     // leaves. A rate signal, not a correctness input — an ungraceful crash may
