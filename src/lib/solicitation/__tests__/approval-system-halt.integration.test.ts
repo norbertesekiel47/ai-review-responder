@@ -22,58 +22,29 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
-import { adminHaltBatch, haltBatch } from '../approval';
+import {
+  adminHaltBatch,
+  haltBatch,
+  latchSystemHalt,
+  type LatchSystemHaltResult,
+  type SystemHaltReason,
+} from '../approval';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The THIRD arm of the **Halt latch** — `latchSystemHalt` (#900 task 2).
 //
-// Every case is registered with `it.fails` and carries a complete body: the
-// export does not exist yet, so `.fails` runs the seeding today and task 2
-// deletes the marker.
-//
-// `latchSystemHalt` is loaded through a DYNAMIC import inside each body rather
-// than a named top-level import. A named import of a missing export fails the
-// whole FILE at collection — vite's ssr transform validates imported names —
-// which would take the two owner-arm verbs down with it and run none of the
-// titles this eval promises. `pnpm typecheck` stays green for the same reason.
-//
-// The two OWNER arms are imported normally: they exist, and the property case
-// needs them to prove the latch is monotone ACROSS actor classes, not just
-// within the new one.
+// All three arms are imported normally now that the system one exists. The
+// property case needs the two OWNER arms because it proves the latch is
+// monotone ACROSS actor classes, not merely within the new one — and that is
+// also the only way to reach `latchHalt`'s `halted_at IS NULL` CAS at all:
+// both owner arms refuse at `state === 'halted'` first (#895(b)), so the system
+// arm skipping that guard is what makes the CAS the sole defense.
 //
 // Applies NO migration SQL — `pnpm test:db:setup` provisions the schema and
 // `assertSchemaReady` asserts it (#573). Holds the cross-process live-DB lock
 // because the property case reseeds one batch many times and an unrelated
 // writer would make its step and audit counts unreadable.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** The two reasons 091's halt-consistency CHECK requires `halted_by IS NULL` for. */
-type SystemHaltReason = 'send_window_elapsed' | 'batch_expired';
-
-interface LatchSystemHaltInput {
-  batchId: string;
-  accountId: string;
-  businessId: string;
-  reason: SystemHaltReason;
-}
-
-type LatchSystemHaltResult =
-  | { status: 'not_latched' }
-  | { status: 'latched'; cancelledCount: number; close: { status: string } };
-
-type LatchSystemHalt = (
-  tx: postgresType.TransactionSql,
-  input: LatchSystemHaltInput,
-) => Promise<LatchSystemHaltResult>;
-
-async function loadLatchSystemHalt(): Promise<LatchSystemHalt> {
-  const mod = (await import('../approval')) as Record<string, unknown>;
-  const fn = mod.latchSystemHalt;
-  if (typeof fn !== 'function') {
-    throw new Error('latchSystemHalt not implemented (#900 task 2)');
-  }
-  return fn as LatchSystemHalt;
-}
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
@@ -217,7 +188,6 @@ async function latchUnderLock(
   batchId: string,
   reason: SystemHaltReason,
 ): Promise<LatchSystemHaltResult> {
-  const latchSystemHalt = await loadLatchSystemHalt();
   return sql().begin(async (tx) => {
     const locked = await tx<{ id: string }[]>`
       SELECT id FROM solicitation_batches
@@ -351,7 +321,7 @@ describeWithDb(
       }
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
-    it.fails('latchSystemHalt writes a NULL halted_by and no account_audit_log row', async () => {
+    it('latchSystemHalt writes a NULL halted_by and no account_audit_log row', async () => {
       // Migration 091's `solicitation_batches_halt_consistency` requires
       // `halted_by IS NULL` for exactly `send_window_elapsed` and
       // `batch_expired`, so widening `actorUserId` to `string | null` makes the
@@ -390,7 +360,7 @@ describeWithDb(
       expect(halt.send_closed_at).not.toBeNull();
     });
 
-    it.fails('a second system halt on an already halted batch writes nothing', async () => {
+    it('a second system halt on an already halted batch writes nothing', async () => {
       // `latchSystemHalt` skips the two owner arms' `state === 'halted'` guard —
       // there is no actor to refuse — so `latchHalt`'s `AND halted_at IS NULL`
       // CAS becomes the ONLY defense. Issue #895(b) proved that arm is
@@ -415,7 +385,7 @@ describeWithDb(
       expect(await countAuditRows()).toBe(0);
     });
 
-    it.fails('latchSystemHalt never cancels a sending Outreach row', async () => {
+    it('latchSystemHalt never cancels a sending Outreach row', async () => {
       // Round-1 finding 9. Cancelling a `sending` row would discard a real
       // provider delivery from lifecycle accounting, so a later batch could
       // treat that contact as unsent and email them again. Halt means "no
@@ -460,7 +430,7 @@ describeWithDb(
 
     // Property tests (fast-check): the house style for invariant-level coverage.
     describe('Halt latch invariants', () => {
-      it.fails('property: the Halt latch is monotone under arbitrary halt orderings', async () => {
+      it('property: the Halt latch is monotone under arbitrary halt orderings', async () => {
         // The latch is monotone ACROSS ACTOR CLASSES, not merely within one.
         // Delete `latchHalt`'s `AND halted_at IS NULL` and this goes RED — which
         // is the whole point of writing it: the two owner arms refuse at
