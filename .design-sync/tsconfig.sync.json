@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/lib/*": ["./src/lib/*"],
+      "@/types/*": ["./src/types/*"],
+      "@/*": ["./src/*"],
+      "next/link": ["./.design-sync/shims/next-link"],
+      "next/image": ["./.design-sync/shims/next-image"],
+      "next/navigation": ["./.design-sync/shims/next-navigation"]
+    }
+  }
+}

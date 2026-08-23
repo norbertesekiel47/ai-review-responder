@@ -1,0 +1,69 @@
+/* Brand fonts for the design-system bundle.
+ *
+ * In the app these load through `next/font/local` in src/app/layout.tsx, which
+ * emits @font-face rules and a CSS variable per family at build time. Nothing
+ * outside a Next build produces those rules, so this file restates them for the
+ * bundle. The .woff2 files are the same ones the app ships; the variable names
+ * match layout.tsx exactly, because globals.css reads them
+ * (--rw-font-display, --rw-font-body, --rw-font-serif, --rw-font-mono all
+ * resolve through the --font-* variables, which are appended to the compiled
+ * stylesheet by the build-css step in NOTES.md — cfg.extraFonts harvests
+ * @font-face rules only, never declarations).
+ */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('../src/app/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('../src/app/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  src: url('../src/app/fonts/dm-sans-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../src/app/fonts/fraunces-latin.woff2') format('woff2');
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../src/app/fonts/fraunces-italic-latin.woff2') format('woff2');
+  font-weight: 300 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../src/app/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Young Serif';
+  src: url('../src/app/fonts/young-serif-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
