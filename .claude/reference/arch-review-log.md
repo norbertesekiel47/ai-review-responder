@@ -6,9 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 8** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893
-and #909 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is
+**Merges since last architecture pass: 9** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893,
+#909 and #886 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is
 test-only and does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -49,6 +49,29 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **refactor #886** — `ApprovalPanel.tsx`'s lane-write seam extracted to a
+  sibling `lane-writes.ts` (2026-08-23; deferred from the #872 branch review,
+  standards finding #1 — the only *major* finding on that branch, rejected as a
+  blocker THERE and accepted as a follow-up). Unblocked because #865 and #872
+  both landed: nothing else edits the file, and there is no locked
+  `allowed_edit_surface` to widen. **1,123 → 703 lines**, back under the 1,000
+  the thermo-nuclear review treats as a presumptive blocker. What moved is the
+  whole `── The write ──` section that already read as a seam — `LaneStatus`,
+  `LANE_REFUSAL_COPY`, `NOT_REGENERABLE_COPY`, `postLaneAction`, the four
+  `Announce` sentences and `useLaneWrites` (which now owns FOUR writes, and that
+  is what pushed the section over). `LaneWriteOutcome`/`LaneRefresh` are exported
+  from the new module rather than the panel, and `RequestsClient` imports them
+  from there — they are the write's vocabulary, not the panel's. `countPhrase`
+  moved with them: the panel's prose reads it too, and leaving it behind would
+  make the new module import from its own importer. **The line falls where it
+  does on purpose**: the panel's other three hooks (`useExcludedAsks`,
+  `usePendingRegeneration`, `useArmedWithdrawal`) are about what is on SCREEN
+  and stay; the write seam is about what is on the WIRE. The docblock's "one
+  file-local hook each" claim was corrected rather than left true-ish — three
+  are file-local, one is not, and the reason is written down. **Behaviour frozen
+  and proven so: the requests `__tests__` directory is 83 green, UNTOUCHED** (a
+  test needing an edit would have been evidence the move changed behaviour).
+  `docs/directory.md` gains the row in the same PR. **Counts: +1 production
 - **refactor #909** — the admin gate→parse→400 preamble extracted, AND
   `ci:admin-aal2` widened by one gate shape, in one PR (2026-08-23; follow-up
   B3.11 from #898). `requireAdminJson(request, schema)` composes
