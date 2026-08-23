@@ -1126,6 +1126,20 @@ Revisit triggers:
   at head. The same pre-flight and post-check confirmed the **078 standing
   exception is untouched** — `businesses.subscription_tier` still nullable and
   neither tier CHECK present, before and after.
+  **SUPERSEDED 2026-08-23 — the hash above is a point-in-time receipt, not a
+  standing expectation.** Migration **111** replaced
+  `solicitation_outreach_status_reason_consistency` to admit `platform_halt`, so
+  `3e644c28c60a3d6135ed3eea7acee224` no longer describes the live definition on
+  any database. That is supersession, not drift: 111 is applied everywhere and
+  the three databases still agree with each other. Do NOT re-run 110's hash and
+  read a mismatch as a lockstep failure — a session did exactly that on
+  2026-08-23 and reported a false divergence. **Every hash in this log is scoped
+  to the query that produced it**, and a later migration touching the same
+  constraint invalidates the number while leaving lockstep intact. The lockstep
+  test is whether the databases agree with EACH OTHER at head, never whether one
+  matches a receipt written before a later migration landed. 111's own receipt
+  (`00cb1b60044b44c408553999433ee2d2`) covers a different constraint pair under a
+  different aggregation, so the two numbers were never comparable.
 
 - **109** — `outreach_owner_withdrawn_disposition`: adds `owner_withdrawn` to
   `solicitation_outreach`'s **cancel** disposition set for post-approval **Ask
@@ -2540,6 +2554,30 @@ Revisit triggers:
   'solicitation_outreach_status_reason_consistency');` — both definitions must
   contain `'platform_halt'` once, and the batch one must NOT contain it inside
   its `halted_by IS NOT NULL` arm.
+  **Applied to STAGING and to PRODUCTION (`kubdiqdhqbhwmqfditeg`,
+  `udeyaqnvpojbwgoaxwdg`), confirmed by introspection 2026-08-23** — never by the
+  migration ledger. **Lockstep complete, no standing exception.** The three
+  databases agree byte-for-byte:
+  `md5(string_agg(conname || '=' || pg_get_constraintdef(oid), '|' ORDER BY conname))`
+  over both constraints = **`00cb1b60044b44c408553999433ee2d2`** on prod, on
+  staging and on the local test DB at head. Both reason lists carry
+  `'platform_halt'` once; **both actor arms carry exactly
+  `('owner_veto','owner_halt','admin_halt')` and NOT `platform_halt`** — the one
+  assertion that separates 111 from a careless widening, and the one
+  `release.integration.test.ts` makes against the local database. Prod holds
+  **0** rows in `solicitation_outreach` and **0** batches with
+  `halt_reason = 'platform_halt'`, so the two-statement rollback above is still
+  legal there. The same introspection confirmed the **078 standing exception is
+  untouched** — `businesses.subscription_tier` still nullable, neither tier CHECK
+  present.
+  **This record was written four days late, and the gap is the point.** #926
+  merged on 2026-08-22 with no promotion line here and no `LOCAL-ONLY` marker
+  either, so the entry was silent rather than negative — a reader could not tell
+  an applied migration from an unapplied one. The migration was in fact already
+  applied to both projects; only the record was missing. Compare 110, whose entry
+  carried date, both projects and a hash on the day it landed. A silent entry is
+  the failure mode this log's `LOCAL-ONLY` convention exists to prevent, and it
+  cost a full introspection pass to resolve after the fact.
 
 ## Key Tables Reference
 
