@@ -5151,3 +5151,105 @@ edits · `sending_at` and `sending_started_at` are different columns with differ
 **#913** relocate the provider-agnostic error vocabulary out of `src/lib/payments/`.
 **#914** Send handoff should withhold a location with no canonical place id.
 **#915** enablement blocker: #900 before any flag flip.
+
+## 2026-08-23 — #900 Solicitation release poller (PR #920, squash `a321634a`)
+
+`SolicitationReleasePoller` — the one Postgres-state-driven loop that drives the send lane.
+Five phases in a fixed order, every 60s. **No migration**: 091 and 110 already carried every
+column, CHECK member and index this feature writes.
+
+Lane: RISK = high · SURFACE = backend · `db_touching: true`. Rode `staging` first (Railway
+deploy verified: worker boots clean, poller registers at the 60s default, three cycles land
+exactly 60s apart, zero errors, and staging holds no send-mode rows so the zero counts are
+honest rather than a silent skip).
+
+### The five phases
+
+1. **`unknown` sweep (D12d)** — an Outreach row wedged in `sending` past 60 minutes with no
+   in-flight outbox row terminalizes `unknown`, terminalizes its **Lazy child**, joins, and
+   raises a Sentry alert. This frees the location's one-active-send slot under 091's
+   `solicitation_batches_one_active_send_per_business`, which is **#915's blocker**.
+2. **`send_window_elapsed`** — a batch past its 72h send window is latched with no actor.
+3. **`batch_expired` (B7)** — a batch never approved inside its 7-day approval window, same
+   latch. Makes `STALLED_THRESHOLD_SEND_BATCH_DAYS` (11) unreachable rather than unlikely.
+4. **Release** — the four send governors in amendment B6's fixed order (Send breaker →
+   platform ceiling → account cap → per-child), then the `rendered → queued` CAS and one
+   `solicitation_send` job per row. **The only phase `SOLICITATION_SEND_ENABLED` gates.**
+5. **Backstop join** — a second CALLER of `closeBatchIfSettled`, never a second implementation.
+
+### Files
+
+| File | What it owns |
+|---|---|
+| `src/lib/solicitation/release.ts` (new, 1,739 lines) | `runReleaseCycle`, `sweepSystemHalt`, `runAccountArm` / `runBatchArm`, `capacityStop`, the P1–P4 predicates. |
+| `worker/background/pollers/SolicitationReleasePoller.ts` (new) | Composition root only. Owns `sql`, the interval, the guarded-poll scaffolding. |
+| `src/lib/solicitation/approval.ts` | + `latchSystemHalt`, the Halt latch's third and actor-less arm. |
+| `src/lib/shared/job-outbox-helpers.ts` | + `enqueueSolicitationSend` (B10). |
+| `src/lib/agents/run-spine.ts` | + `approval_downgraded` in `STEP_PERSONA`. |
+
+### Decisions worth keeping
+
+- **The poller does NOT read `SOLICITATION_SEND_ENABLED`, departing from its `JudgeSweepPoller`
+  precedent.** The flag gates phase 4 inside the domain module. Gating the cycle would stop the
+  sweeps, so a batch flipped off mid-drip would keep its `queued` rows forever and 091's index
+  would block that location permanently — the wedge #915 exists to close.
+- **`latchSystemHalt` applies NO guard list.** The human arms refuse `halted`, `closed` and
+  `pending` because an actor is owed an answer; a clock is owed nothing, so `latchHalt`'s
+  `halted_at IS NULL` CAS is the whole of its idempotence.
+- **Two isolation units, each the unit its work belongs to.** Account for the two per-account
+  gate reads; batch for everything inside. Without the inner unit one poisoned batch discarded
+  the account's whole remaining tick every tick — #915's wedge narrowed, not closed.
+- **The account cap is checked BEFORE the subscription** (B6's closing paragraph). Both gates
+  refuse; only the reported reason differs, and getting it wrong sends the operator to the
+  wrong dial.
+
+### Env vars
+
+`SOLICITATION_RELEASE_POLL_INTERVAL_MS` — optional, 60s default. Parsed like
+`JUDGE_POLL_INTERVAL_MS` with one extra rejection: a value at or below the 45s
+`CYCLE_TIMEOUT_MS` is invalid, because `GuardedPollOptions` requires the per-cycle deadline
+to sit below the interval.
+
+### Review
+
+19 accepted findings across 3 rounds (12/5/2 found; 11/5/2 accepted; 13 fixed, 5 deferred to
+#919, 1 rejected). Round counters hit the cap at 3/3. The rejected finding was module shape:
+the standards agent — whose axis it is — examined the single-export file and declined to flag
+it; the adversarial agent asserted the opposite without naming a seam.
+
+Reports and triage verdicts: `docs/reviews/feat-900-solicitation-release-poller/`.
+
+### Step 8 cost two extra CI cycles, and both are worth recording
+
+- **CI run 1: `fallow` red** on three new findings — `runReleasePhase` CRITICAL (cyclomatic 25,
+  cognitive 58, 205 lines) and two clone groups, all one root: the three capacity gates
+  re-spelled at three nesting depths. Fixed by `capacityStop` + `ReleaseCounters` + extracting
+  the two arms (205 → 135 lines), and by unifying the two sweeps into `sweepSystemHalt`.
+  **This discharged round 1's Finding 2, which had been accepted and deferred to #919** — so
+  that deferral shrank. A fourth finding, clone `dup:ddc3f485` in `approval.ts`, was proven
+  pre-existing on `main` and needed nothing.
+- **CI run 2: `test` red — the clock, not the code.** That run spanned 23:59:14 → 00:01:34 UTC.
+  Three fixtures seed "an attempt already made today" as `NOW() - '5 minutes'`; the account cap
+  counts on a UTC-day predicate, so after midnight the row lands in yesterday and the cap stops
+  binding. Fixed with an opt-in `queuedWithinUtcDay` clamp, proven by reproducing the exact
+  assertion and clearing it on the same clock.
+
+### Gotchas found (promoted to lab-notes 2026-08-22/23)
+
+Eight false rationales on one branch, every one a claim about the module's own internals ·
+a lint suppression is a claim, so delete it and re-run before keeping it · any fixture meaning
+"already happened today" must be clamped inside the UTC day · `prettier --write` reformats the
+whole file because this repo has no prettier config · the `fallow` PR gate IS reproducible
+locally, but only with **both** `TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL` exported ·
+a cross-account spine-writing loop owes FOUR governance registries · the reclassify trigger
+measures the diff, not the lane · `it.fails` is not evidence without a sensitivity probe.
+
+### Follow-ups
+
+**#917** B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening) plus
+the §7.1 yield-to-transactional obligation.
+**#918** no CI audit enforces the `env-vars.md` registry row.
+**#919** `seedUpload` hand-copied in six test files · no `CONTEXT.md` term for the release lane ·
+the sub-default configured-cap gap · the subscription gate's structural shape · and new: extract
+a shared `lockBatchForHalt` preamble for `haltBatch`/`adminHaltBatch`.
+**#915** the enablement decision itself — this merge removed its blocker, not the decision.

@@ -7,7 +7,51 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-22 (#899 **Solicitation send worker** — Quick summary immediately below. Prior entry: #898 Send governors.)
+Last updated: 2026-08-23 (#900 **Solicitation release poller** — Quick summary immediately below. Prior entry: #899 Solicitation send worker.)
+
+## Quick summary — #900 **Solicitation release poller** (2026-08-23, PR #920)
+
+**The loop that decides which approved messages are allowed to go out today — and the
+thing that finally lets a wedged send batch close by itself.** One
+Postgres-state-driven poller, five phases in a fixed order, every 60 seconds.
+
+```
+phase 1  unknown sweep      an Outreach row stuck `sending` past 60 min with no in-flight
+                            outbox row → terminalize `unknown` + Sentry alert.
+                            THIS IS WHAT DISCHARGES #915's BLOCKER.
+phase 2  send_window_elapsed a batch past its 72h send window → Halt latch, no actor
+phase 3  batch_expired       a batch never approved inside its 7-day window → same latch
+                            (makes the 11-day `stalled` alert unreachable, not just unlikely)
+phase 4  RELEASE             Send breaker → platform ceiling → account cap → per-child.
+                            The ONLY phase `SOLICITATION_SEND_ENABLED` gates.
+                            Outreach rows CAS `rendered → queued`, one send job each.
+phase 5  backstop join       a second CALLER of `closeBatchIfSettled`, never a second
+                            implementation
+```
+
+**"Flag off" does NOT mean "poller idle", and that is deliberate.** The flag suppresses
+phase 4 only. Gating the whole cycle would strand a batch flipped off mid-drip with
+`queued` rows forever, and migration 091's one-active-send index would then block that
+location permanently — the exact wedge phase 1 exists to clear.
+
+**No migration** — 091 and 110 already carried every column, CHECK member and index.
+
+**Still inert in production.** `SOLICITATION_SEND_ENABLED` is off everywhere. This merge
+removes #915's *blocker*; the flip itself is a separate decision.
+
+The new shape:
+
+| File | What it owns |
+|---|---|
+| `src/lib/solicitation/release.ts` | The deep module. `runReleaseCycle` (the five-phase order), `sweepSystemHalt` (one body, both clock-driven sweeps), `runAccountArm` / `runBatchArm` (the two isolation units), `capacityStop` (the three capacity gates asked once). |
+| `worker/background/pollers/SolicitationReleasePoller.ts` | Composition root. Owns `sql`, the interval and the guarded-poll scaffolding — and nothing else. Deliberately does NOT read the send flag. |
+| `src/lib/solicitation/approval.ts` | Gains `latchSystemHalt`, the Halt latch's THIRD arm — the one with no actor, which migration 091's halt-consistency CHECK enforces by requiring `halted_by IS NULL` for exactly its two reasons. |
+| `src/lib/shared/job-outbox-helpers.ts` | Gains `enqueueSolicitationSend`, the typed enqueue for the release → send handoff. |
+
+**One env var:** `SOLICITATION_RELEASE_POLL_INTERVAL_MS` — optional, 60s default. It
+rejects one more class than its `JUDGE_POLL_INTERVAL_MS` precedent: a value at or below
+the 45s cycle timeout is invalid, because a hung cycle must free the single-flight flag
+before the next tick.
 
 ## Quick summary — #899 **Solicitation send worker** (2026-08-22, PR #912)
 
