@@ -2,6 +2,7 @@
 
 import type { RegenBudgetStatus } from '@/lib/costs/tracker';
 import type { AskAttemptView } from '@/lib/solicitation/batch-view';
+import { isCancellableDeliveryStatus } from '@/lib/solicitation/delivery-status';
 import './requests.css';
 
 /**
@@ -303,7 +304,7 @@ export function WithdrawableAskList({
   return (
     <ul className="rq-asks">
       {rows.map((row) => {
-        const live = row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued';
+        const live = isCancellableDeliveryStatus(row.deliveryStatus);
         return (
           <li key={row.outreachId} className="rq-ask">
             <span className="rq-ask-name">{displayName(row)}</span>

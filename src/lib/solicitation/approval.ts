@@ -66,6 +66,7 @@ import { recordStep } from '@/lib/agents/run-spine';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { acquireSolicitationBatchLock } from './batch-builder';
+import { isCancellableDeliveryStatus, WITHDRAWABLE_BATCH_STATES } from './delivery-status';
 import {
   canonicalBatchId,
   closeBatchIfSettled,
@@ -1092,7 +1093,7 @@ export async function requestAskRegeneration(
  * inside `withdrawAsk`.
  */
 export function isWithdrawableState(state: BatchState): boolean {
-  return state === 'veto_window' || state === 'approved' || state === 'sending';
+  return (WITHDRAWABLE_BATCH_STATES as readonly BatchState[]).includes(state);
 }
 
 export interface WithdrawAskInput {
@@ -1161,9 +1162,9 @@ export function classifyWithdrawal(
   }
   if (!isWithdrawableState(state)) return { kind: 'not_withdrawable', state };
   if (attempt === null) return { kind: 'not_live', deliveryStatus: null };
-  // `rendered`/`queued` — the Halt latch's own row predicate. `sending` is past
-  // the point of no return and lands below.
-  if (attempt.deliveryStatus === 'rendered' || attempt.deliveryStatus === 'queued') {
+  // The Halt latch's own row predicate (`CANCELLABLE_DELIVERY_STATUSES`).
+  // `sending` is past the point of no return and lands below.
+  if (isCancellableDeliveryStatus(attempt.deliveryStatus)) {
     return { kind: 'withdraw' };
   }
   return { kind: 'not_live', deliveryStatus: attempt.deliveryStatus };

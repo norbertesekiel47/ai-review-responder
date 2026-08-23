@@ -6,8 +6,8 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — reset by the **2026-08-22 pass**
-(entry below), then #891 counted 2026-08-23. Full artifacts:
+**Merges since last architecture pass: 2** — reset by the **2026-08-22 pass**
+(entry below), then #891 and #890 counted 2026-08-23. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -48,6 +48,15 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **feat #890** — the three named delivery-status owners (2026-08-23). The 2026-08-18
+  pass's H1, corrected 2026-08-23 from one constant to THREE: `CONTEXT.md:75`'s own
+  third-caller trigger had fired (six live spellings of the cancellable set, plus the
+  LIVE set and the failed-hook's ARRIVAL set answering different questions). New
+  dependency-free leaf `src/lib/solicitation/delivery-status.ts`; five TS call sites
+  rewired (`classifyWithdrawal`, `isWithdrawableState`, `useArmedWithdrawal`,
+  `AskList`'s gate, `HaltableState`, `isTerminalizableArrival`); the three SQL sites
+  stay byte-identical (query-shape pins), now mechanically tied to the constants by
+  `delivery-status.test.ts`. **Counts: +1 production merge.**
 - **fix #891** — `batchDidClose` positive close predicate (2026-08-23). The 2026-08-18
   pass's H2, corrected 2026-08-23: `!== 'not_settled'` was a wrong proxy carrying a live
   wire defect (`no_send_parent` reported `closed: true` with nothing written). One
