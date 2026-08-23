@@ -1,18 +1,24 @@
 /* ========================================================================
-   /pricing — Daylight Gallery II (2026-08 rebrand).
+   /pricing — Daylight Gallery II (2026-08 rebrand; premium pass 2026-08-22).
    Spec: docs/design/daylight-ii/ (the demo's pricing strip is the visual:
-   plan cards with left bars — sage-bar Copilot / gold Autopilot — an inline
+   plan cards with bars — sage-bar Copilot / gold Autopilot — an inline
    "Opening soon" badge, the price as one unit with "per month", aligned door
-   slots). Shared primitives (.rw-dl-*, .rw-pill*) live in island.css; this
-   file carries the pricing page's delta: plan cards, the comparison matrix,
-   the FAQ, and the plan-interest chooser on the dark CTA band.
+   slots). The premium pass borrows the /how-it-works vocabulary the founder
+   approved — the two-column hero with a product artifact, masked-line h1
+   entrance, dossier header rows on the cards, ledger rules, paper/bone band
+   rhythm, scroll reveals — and drops the page's private FAQ styles for the
+   shared `.rw-dl-faq*` primitives. Shared primitives (.rw-dl-*, .rw-pill*)
+   live in island.css; this file carries the pricing page's delta: hero +
+   gate artifact, plan cards, the comparison ledger, the FAQ split, and the
+   plan-interest chooser on the dark CTA band.
 
    The view-model logic (flags, founding prices, purchasability, waitlist vs
    signup) lives in PricingContent.tsx and is unchanged by the rebrand.
 
    System: ISLAND. TOKENS LIVE IN src/app/globals.css — this file consumes
    `var(--rw-*)` and declares none (`--bar` is element-scoped plumbing set
-   inline per plan card). Guard: src/__tests__/design-scope-purity.test.ts
+   inline per plan card / gate row / matrix tick).
+   Guard: src/__tests__/design-scope-purity.test.ts
    ======================================================================== */
 
 .pr-page {
@@ -32,62 +38,120 @@
   margin: 0;
   text-wrap: balance;
 }
-.pr-page p { margin: 0; }
+/* Zero-specificity reset (`:where`), so a class rule like `.pr-lede { margin-top }`
+   is not out-specified by the page scope. */
+:where(.pr-page p) { margin: 0; }
+.pr-page section h2 { scroll-margin-top: 120px; }
 
-/* ---------- Hero (centred intro) ---------- */
-.pr-hero {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 96px 48px 72px;
-  text-align: center;
+/* ---------- Hero (copy left, the gate artifact right) ---------- */
+.pr-hero { position: relative; }
+.pr-hero-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 104px;
+  align-items: center;
+  padding-top: 112px;
+  padding-bottom: 88px;
 }
-.pr-eyebrow { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 16px; }
-.pr-hero h1 { font-size: clamp(32px, 3.6vw, 48px); line-height: 1.12; }
-.pr-hero .sub {
+.pr-eyebrow { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 22px; }
+.pr-h1 { font-size: clamp(44px, 4.2vw, 64px); line-height: 1.04; letter-spacing: 0; }
+.pr-h1 .ln { display: block; overflow: hidden; }
+.pr-h1 .ln span {
+  display: block;
+  transform: translateY(110%);
+  opacity: 0;
+  transition: transform 0.9s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.6s;
+}
+.pr-hero.is-in .pr-h1 .ln span { transform: none; opacity: 1; }
+.pr-h1 .ln:nth-child(2) span { transition-delay: 0.1s; }
+.pr-h1 .ln:nth-child(3) span { transition-delay: 0.2s; }
+.pr-lede {
   font-size: 18px;
   line-height: 1.5;
   color: var(--rw-ink2-soft);
-  max-width: 600px;
-  margin: 20px auto 0;
+  max-width: 40ch;
+  margin-top: 32px;
 }
-.pr-currency { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 12px; }
+.pr-hero-links { margin-top: 32px; }
+.pr-fade {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.pr-hero.is-in .pr-fade { opacity: 1; transform: none; }
+.pr-hero.is-in .pr-fade.d1 { transition-delay: 0.45s; }
+.pr-hero.is-in .pr-fade.d2 { transition-delay: 0.6s; }
+.pr-hero.is-in .pr-fade.d3 { transition-delay: 0.75s; }
 
-/* ---------- Plan cards ---------- */
+/* The gate artifact: two rows, one per plan, each with its bar dot. */
+.pr-gate-rows { display: grid; }
+.pr-gate-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 0;
+  border-top: 1px solid var(--rw-line);
+}
+.pr-gate-row:first-child { border-top: 0; padding-top: 2px; }
+.pr-gate-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bar, var(--rw-forest));
+  border: 1px solid var(--rw-line);
+  margin-top: 6px;
+}
+.pr-gate-k { font-size: 13px; color: var(--rw-ink2-mute); }
+.pr-gate-v { font-size: 22px; line-height: 1.25; margin-top: 4px; }
+.pr-gate-s { font-size: 14px; line-height: 1.5; color: var(--rw-ink2-soft); margin-top: 6px; max-width: 38ch; }
+
+/* ---------- Plans (two dossier cards under a ledger rule) ---------- */
+.pr-plans-band { padding-bottom: 112px; }
+.pr-ledger-hd {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+  margin-bottom: 24px;
+}
+.pr-ledger-rule { flex: 1; height: 1px; background: var(--rw-line); }
 .pr-plans {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 0 24px;
+  gap: 24px;
+  align-items: stretch;
 }
 .pr-plan {
   background: var(--rw-paper);
   border: 1px solid var(--rw-line);
+  border-top: 0;
   border-radius: 8px;
-  padding: 32px;
-  position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
-.pr-plan::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--bar, var(--rw-sage-bar));
-}
+/* The plan's colour bar runs the full width of the card top — the same 8px
+   ribbon the /how-it-works dossier steps wear. */
+.pr-plan::before { content: ''; display: block; height: 8px; background: var(--bar, var(--rw-sage-bar)); }
 /* Featured (purchasable Autopilot) = a stronger hairline, never a tint. */
 .pr-plan.is-featured { border-color: var(--rw-line-2); }
-.pr-plan-name-row {
+/* min-height: the badge row and the plain row must be the same height so the
+   price and the included list land on the same line across both cards. */
+.pr-plan-hd {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  min-height: 62px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--rw-line);
+  font-size: 15px;
+  color: var(--rw-ink2-mute);
 }
-.pr-plan-name { font-size: 20px; }
+.pr-plan-hd b { font-weight: 400; color: var(--rw-ink2); font-size: 15px; }
+.pr-plan-name { font-size: 17px; color: var(--rw-ink2); }
 .pr-ribbon {
+  margin-left: auto;
   font-size: 13px;
   border: 1px solid var(--rw-line-2);
   border-radius: 9999px;
@@ -95,24 +159,31 @@
   color: var(--rw-ink2-soft);
   white-space: nowrap;
 }
-.pr-plan-tag {
-  font-size: 15px;
-  color: var(--rw-ink2-soft);
-  margin-top: 8px;
-  line-height: 1.5;
-  min-height: 3em;
+.pr-plan-bd {
+  padding: 28px 28px 32px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
-.pr-price { display: flex; align-items: baseline; gap: 2px; margin-top: 24px; }
-.pr-price-currency { font-size: 26px; line-height: 1; }
-.pr-price-amt { font-size: 44px; line-height: 1; }
-.pr-price-per { font-size: 15px; color: var(--rw-ink2-mute); margin-left: 8px; }
-.pr-price-foot { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 8px; }
+/* The plan's one-line promise is the card's big statement (the dossier h3). */
+.pr-plan-tag {
+  font-size: 24px;
+  line-height: 1.3;
+  min-height: 2.6em;
+  max-width: 22ch;
+  text-wrap: balance;
+}
+.pr-price { display: flex; align-items: baseline; gap: 4px; margin-top: 28px; }
+.pr-price-currency { font-size: 28px; line-height: 1; }
+.pr-price-amt { font-size: 64px; line-height: 1; }
+.pr-price-per { font-size: 15px; color: var(--rw-ink2-mute); margin-left: 10px; }
+.pr-price-foot { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 12px; }
 .pr-list-price { text-decoration: line-through; }
 .pr-overage-price { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 4px; }
 
 /* Aligned door slot: both cards reserve the same block for CTA + status, so
    the included-features lists start on the same line. */
-.pr-door { margin-top: 22px; min-height: 118px; }
+.pr-door { margin-top: 24px; min-height: 118px; }
 .pr-plan-cta {
   display: inline-flex;
   align-items: center;
@@ -126,21 +197,23 @@
     border-color 0.25s, transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .pr-plan-cta:hover { transform: translateY(-1px); }
+.pr-plan-cta:active { transform: translateY(0); }
 .pr-plan-cta:focus-visible { outline: 2px solid var(--rw-forest); outline-offset: 3px; }
 .pr-plan-cta.primary { background: var(--rw-forest); color: #fff; }
 .pr-plan-cta.primary:hover { background: var(--rw-forest-ink); }
+.pr-plan-cta.primary:focus-visible { outline-color: var(--rw-ink2); }
 .pr-plan-cta.ghost { border-color: var(--rw-line-2); color: var(--rw-ink2); }
 .pr-plan-cta.ghost:hover { border-color: var(--rw-ink2); }
-.pr-plan-soon { font-size: 14px; color: var(--rw-ink2-soft); line-height: 1.5; margin-top: 12px; }
+.pr-plan-soon { font-size: 14px; color: var(--rw-ink2-soft); line-height: 1.5; margin-top: 12px; max-width: 40ch; }
 .pr-includes-lbl {
   font-size: 13px;
   color: var(--rw-ink2-mute);
-  margin-top: 22px;
+  margin-top: 24px;
   padding-top: 22px;
   border-top: 1px solid var(--rw-line);
 }
 .pr-feature-list { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
-.pr-feature-list li { display: flex; gap: 10px; font-size: 15px; line-height: 1.45; }
+.pr-feature-list li { display: flex; gap: 12px; font-size: 15px; line-height: 1.45; }
 .pr-feature-list .check {
   flex: none;
   width: 16px;
@@ -154,36 +227,22 @@
 }
 .pr-feature-list .check svg { width: 9px; height: 9px; stroke-width: 2.4; }
 
-/* Trial posture strip */
-.pr-below-cards { max-width: 880px; margin: 16px auto 0; padding: 0 24px; }
+/* Trial posture line under the cards (a plain line, not a badge). */
 .pr-guarantee {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  font-size: 14px;
-  color: var(--rw-ink2-soft);
-  border: 1px solid var(--rw-line);
-  border-radius: 9999px;
-  background: var(--rw-paper);
-  padding: 10px 18px;
-  width: max-content;
-  max-width: 100%;
-  margin: 0 auto;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+  margin-top: 20px;
 }
 .pr-guarantee svg { width: 16px; height: 16px; color: var(--rw-forest); flex: none; }
 
-/* ---------- Comparison matrix ---------- */
-.pr-matrix-wrap { max-width: 880px; margin: 96px auto 0; padding: 0 24px; }
-.pr-matrix-head { text-align: center; max-width: 720px; margin: 0 auto 48px; }
-.pr-matrix-head h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; }
-.pr-matrix-head p {
-  font-size: 16px;
-  color: var(--rw-ink2-soft);
-  margin-top: 12px;
-  line-height: 1.5;
-}
+/* ---------- Compare (paper band; the matrix as a ledger) ---------- */
+.pr-compare .rw-dl-intro { margin-bottom: 56px; }
 .pr-matrix {
+  max-width: 960px;
+  margin: 0 auto;
   background: var(--rw-paper);
   border: 1px solid var(--rw-line);
   border-radius: 8px;
@@ -195,11 +254,32 @@
   border-top: 1px solid var(--rw-line);
 }
 .pr-matrix-row:first-child { border-top: 0; }
-.pr-matrix-cell { padding: 12px 16px; font-size: 15px; }
-.pr-matrix-cell.hdr { font-size: 13px; color: var(--rw-ink2-mute); background: var(--rw-bone); }
-.pr-matrix-cell.hdr.featured { color: var(--rw-ink2); }
+.pr-matrix-cell { padding: 14px 20px; font-size: 15px; }
+.pr-matrix-cell.num { border-left: 1px solid var(--rw-line); }
+.pr-matrix-cell.hdr { padding: 20px; font-size: 13px; color: var(--rw-ink2-mute); }
+.pr-matrix-cell.hdr.first { align-self: end; }
+.pr-matrix-plan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  color: var(--rw-ink2);
+}
+.pr-matrix-tick {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bar, var(--rw-forest));
+  border: 1px solid var(--rw-line);
+  flex: none;
+}
+.pr-matrix-price { display: block; margin-top: 4px; }
+/* The purchasable-Autopilot column sits on bone — the canvas, not a tint. */
+.pr-matrix-cell.featured { background: var(--rw-bone); }
 .pr-matrix-cell.section {
   grid-column: 1 / -1;
+  padding: 10px 20px;
   font-size: 13px;
   color: var(--rw-ink2-mute);
   background: var(--rw-bone);
@@ -223,57 +303,16 @@
   vertical-align: middle;
 }
 
-/* ---------- FAQ ---------- */
-.pr-faq-wrap { max-width: 820px; margin: 96px auto; padding: 0 24px; }
-.pr-faq-head { text-align: center; margin-bottom: 40px; }
-.pr-faq-head h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; }
-.pr-faq-head p { font-size: 16px; color: var(--rw-ink2-soft); margin-top: 12px; }
-.pr-faq-wrap > .pr-faq-item:first-of-type { border-top: 1px solid var(--rw-line); }
-.pr-faq-item { border-bottom: 1px solid var(--rw-line); }
-.pr-faq-q {
-  width: 100%;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: center;
-  padding: 22px 0;
-  font-family: var(--rw-font-body);
-  font-weight: 400;
-  font-size: 19px;
-  line-height: 1.35;
-  color: var(--rw-ink2);
-  text-align: left;
-}
-.pr-faq-q:focus-visible { outline: 2px solid var(--rw-forest); outline-offset: 3px; border-radius: 4px; }
-.pr-faq-icon {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--rw-line-2);
+/* ---------- FAQ (heading left, the shared accordion right) ---------- */
+.pr-faq {
   display: grid;
-  place-items: center;
-  color: var(--rw-ink2);
-  transition: transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 56px;
+  align-items: start;
 }
-.pr-faq-item.is-open .pr-faq-icon { transform: rotate(45deg); }
-.pr-faq-a {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.pr-faq-item.is-open .pr-faq-a { grid-template-rows: 1fr; }
-.pr-faq-a-inner {
-  overflow: hidden;
-  font-size: 16px;
-  line-height: 1.56;
-  color: var(--rw-ink2-soft);
-  max-width: 64ch;
-}
-.pr-faq-item.is-open .pr-faq-a-inner { padding-bottom: 24px; }
+.pr-faq-tx .rw-dl-lede { margin-top: 18px; max-width: 30ch; }
+.pr-faq-tx .rw-dl-txtlink { display: inline-block; margin-top: 28px; }
+.pr-faq .rw-dl-faq { max-width: none; margin: 0; }
 
 /* ---------- CTA band deltas (plan chooser on ink) ---------- */
 .pr-cta-pill { width: 100%; justify-content: center; }
@@ -306,18 +345,28 @@
 .pr-plan-pick-opt input:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 
 /* ---------- Responsive ---------- */
+@media (max-width: 1040px) {
+  .pr-hero-col { grid-template-columns: 1fr; gap: 40px; padding-top: 64px; padding-bottom: 64px; }
+  .pr-faq { grid-template-columns: 1fr; gap: 32px; }
+}
 @media (max-width: 720px) {
-  .pr-hero { padding: 64px 18px 48px; }
-  .pr-plans { grid-template-columns: 1fr; padding: 0 12px; }
-  .pr-matrix-wrap, .pr-faq-wrap { padding: 0 12px; }
-  .pr-faq-wrap { margin: 56px auto; }
-  .pr-matrix-wrap { margin-top: 56px; }
+  .pr-plans { grid-template-columns: 1fr; }
+  .pr-plans-band { padding-bottom: 56px; }
+  .pr-price-amt { font-size: 56px; }
+  .pr-plan-tag { min-height: 0; }
+  .pr-door { min-height: 0; }
   /* The matrix stacks: hide the header row; each value cell self-labels via
      its data-plan attribute so the Autopilot column is never off-screen. */
   .pr-matrix-row.hdr-row { display: none; }
   .pr-matrix-row { grid-template-columns: 1fr; }
   .pr-matrix-cell.first { padding-bottom: 4px; }
-  .pr-matrix-cell.num { display: flex; justify-content: space-between; gap: 12px; padding-top: 4px; }
+  .pr-matrix-cell.num {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 4px;
+    border-left: 0;
+  }
   .pr-matrix-cell.num::before {
     content: attr(data-plan);
     font-size: 13px;
@@ -325,8 +374,14 @@
   }
 }
 
-/* ---------- Reduced motion ---------- */
+/* ---------- Reduced motion: land on the final frame ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .pr-plan-cta, .pr-faq-icon, .pr-faq-a { transition: none; }
+  .pr-fade,
+  .pr-h1 .ln span {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .pr-plan-cta { transition: none; }
   .pr-plan-cta:hover { transform: none; }
 }

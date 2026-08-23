@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState, type Dispatch, type SetStateAction } from 'react';
 import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm';
 import type { LeadPlanInterest } from '@/components/sections/lead-intake/LeadIntakeForm';
+import { Reveal } from '@/components/ui/Reveal';
 import { SiteShell } from '@/components/ui/SiteShell';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import type {
   PlanPresentationViewModel,
   PlanPriceView,
@@ -13,6 +15,8 @@ import type { SubscriptionTierValue } from '@/lib/accounts/tier-config';
 
 interface PlanCopy {
   tier: SubscriptionTierValue;
+  /** Dossier number on the card's header row. */
+  n: string;
   name: string;
   tag: string;
   features: readonly string[];
@@ -21,6 +25,7 @@ interface PlanCopy {
 const PLANS: readonly PlanCopy[] = [
   {
     tier: 'copilot',
+    n: '01',
     name: 'Copilot',
     tag: 'The agent team prepares every public action for your approval.',
     features: [
@@ -33,6 +38,7 @@ const PLANS: readonly PlanCopy[] = [
   },
   {
     tier: 'autopilot',
+    n: '02',
     name: 'Autopilot',
     tag: 'The same agent team may act inside the rules you set.',
     features: [
@@ -44,6 +50,13 @@ const PLANS: readonly PlanCopy[] = [
     ],
   },
 ];
+
+// Bar-only accents (Daylight Gallery II): Copilot wears the sage bar, Autopilot
+// the gold bar — the Judge/ink bar never marks a purchasable tier.
+const PLAN_BAR: Record<SubscriptionTierValue, string> = {
+  copilot: 'var(--rw-sage-bar)',
+  autopilot: 'var(--rw-gold-bar)',
+};
 
 type MatrixRow =
   | { section: string }
@@ -66,7 +79,17 @@ const MATRIX: readonly MatrixRow[] = [
   { label: 'Included locations', values: ['1', '1'] },
 ];
 
-const BASE_FAQS = [
+interface FaqItem {
+  q: string;
+  a: string;
+}
+
+const TRIAL_FAQ: FaqItem = {
+  q: 'How does the 30-day trial work?',
+  a: 'Choose a plan explicitly and provide a card up front. Your 30-day trial starts through Stripe, and monthly billing for that plan begins after the trial unless you cancel.',
+};
+
+const BASE_FAQS: readonly FaqItem[] = [
   {
     q: 'Can I change plans later?',
     a: 'Yes. You can change plans from Billing. Eligible plan changes are previewed first and Stripe applies any required proration.',
@@ -79,13 +102,58 @@ const BASE_FAQS = [
     q: 'Is there a contract?',
     a: 'RepWorth plans are month-to-month and renew each month until cancelled.',
   },
-] as const;
+];
 
 const PLAN_PICK_OPTIONS: readonly { value: LeadPlanInterest | null; label: string }[] = [
   { value: 'copilot', label: 'Copilot' },
   { value: 'autopilot', label: 'Autopilot' },
   { value: null, label: 'Not sure yet' },
 ];
+
+// Hero h1, pre-broken into masked lines (the Daylight hero entrance: each line
+// rises out of its own overflow mask, +0.1s per line — the same move as
+// /how-it-works).
+const HERO_LINES = ['Choose how', 'your agent', 'team works.'];
+
+// The hero artifact: the one thing a buyer must understand before the cards —
+// where the same review stops on each plan. Every line restates a claim the
+// page already makes (plan tags, the matrix, the FAQ); nothing new is asserted.
+const GATE_ROWS = [
+  {
+    tier: 'copilot' as const,
+    name: 'Copilot',
+    stop: 'Waits for your tap',
+    sub: 'Owner approval before every public response.',
+  },
+  {
+    tier: 'autopilot' as const,
+    name: 'Autopilot',
+    stop: 'Posts after the veto window',
+    sub: 'Only 4–5★ unflagged replies, and only once moderation, judge, and governor all pass.',
+  },
+];
+
+// The CTA band's copy follows the same two facts as the cards: is self-serve
+// on, and can Autopilot be bought today.
+const CTA_COPY = {
+  waitlist: {
+    h2: 'Join the early access waitlist.',
+    sub: 'Tell us about your business and we’ll reach out when early access opens for your area.',
+  },
+  choose: {
+    h2: 'Ready to choose your plan?',
+    sub: 'Create your account, choose Copilot or Autopilot, and continue to secure checkout.',
+  },
+  copilot: {
+    h2: 'Start with Copilot today.',
+    sub: 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.',
+  },
+} as const;
+
+function ctaCopy(selfServeEnabled: boolean, autopilotOpen: boolean) {
+  if (!selfServeEnabled) return CTA_COPY.waitlist;
+  return autopilotOpen ? CTA_COPY.choose : CTA_COPY.copilot;
+}
 
 const CheckIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -175,59 +243,111 @@ function PlanCard({
   const isAutopilot = plan.tier === 'autopilot';
   const featured = isAutopilot && autopilotOpen;
   const primary = autopilotOpen ? isAutopilot : !isAutopilot;
-  // Bar-only accents (Daylight Gallery II): Copilot wears the sage bar,
-  // Autopilot the gold bar — the Judge/ink bar never marks a purchasable tier.
-  const bar = isAutopilot ? 'var(--rw-gold-bar)' : 'var(--rw-sage-bar)';
 
   return (
     <article
       className={`pr-plan ${featured ? 'is-featured' : ''}`}
-      style={{ ['--bar' as string]: bar }}
+      style={{ ['--bar' as string]: PLAN_BAR[plan.tier] }}
     >
-      <div className="pr-plan-name-row">
+      {/* Dossier header row (the /how-it-works step header): number · name · status. */}
+      <div className="pr-plan-hd">
+        <b>{plan.n}</b>
         <h2 className="pr-plan-name">{plan.name}</h2>
         {featured && <div className="pr-ribbon">More autonomy</div>}
         {isAutopilot && !autopilotOpen && <div className="pr-ribbon is-soon">Opening soon</div>}
       </div>
-      <p className="pr-plan-tag">{plan.tag}</p>
 
-      <div className="pr-price">
-        <span className="pr-price-currency">$</span>
-        <span className="pr-price-amt">{formatDollars(price.basePriceCents)}</span>
-        <span className="pr-price-per">per month</span>
-      </div>
-      {priceVariant === 'founding' ? (
-        <p className="pr-price-foot">
-          Founding rate locked for the account&apos;s life.{' '}
-          <span className="pr-list-price">${formatDollars(price.listBasePriceCents)} list</span>
+      <div className="pr-plan-bd">
+        <p className="pr-plan-tag">{plan.tag}</p>
+
+        <div className="pr-price">
+          <span className="pr-price-currency">$</span>
+          <span className="pr-price-amt">{formatDollars(price.basePriceCents)}</span>
+          <span className="pr-price-per">per month</span>
+        </div>
+        {priceVariant === 'founding' ? (
+          <p className="pr-price-foot">
+            Founding rate locked for the account&apos;s life.{' '}
+            <span className="pr-list-price">${formatDollars(price.listBasePriceCents)} list</span>
+          </p>
+        ) : (
+          <p className="pr-price-foot">Monthly billing. Cancel anytime.</p>
+        )}
+        <p className="pr-overage-price">
+          One location included · ${formatDollars(price.locationsOveragePriceCents)}/month per extra location
         </p>
-      ) : (
-        <p className="pr-price-foot">Monthly billing. Cancel anytime.</p>
-      )}
-      <p className="pr-overage-price">
-        One location included · ${formatDollars(price.locationsOveragePriceCents)}/month per extra location
-      </p>
 
-      <div className="pr-door">
-        <PlanDoor
-          plan={plan}
-          purchasable={purchasable}
-          primary={primary}
-          selfServeEnabled={selfServeEnabled}
-          onPlanInterest={onPlanInterest}
-        />
+        <div className="pr-door">
+          <PlanDoor
+            plan={plan}
+            purchasable={purchasable}
+            primary={primary}
+            selfServeEnabled={selfServeEnabled}
+            onPlanInterest={onPlanInterest}
+          />
+        </div>
+
+        <p className="pr-includes-lbl">What&apos;s included</p>
+        <ul className="pr-feature-list">
+          {plan.features.map((feature) => (
+            <li key={feature}>
+              <span className="check"><CheckIcon /></span>
+              <span>{feature}</span>
+            </li>
+          ))}
+        </ul>
       </div>
-
-      <p className="pr-includes-lbl">What&apos;s included</p>
-      <ul className="pr-feature-list">
-        {plan.features.map((feature) => (
-          <li key={feature}>
-            <span className="check"><CheckIcon /></span>
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
     </article>
+  );
+}
+
+// Hero — copy left, the gate artifact right. `heroIn` flips once after mount
+// and the CSS transition delays stage the entrance.
+function PricingHero({ heroIn }: { heroIn: boolean }) {
+  return (
+    <section className={`pr-hero ${heroIn ? 'is-in' : ''}`} aria-labelledby="pr-h1">
+      <div className="rw-dl-col pr-hero-col">
+        <div>
+          <p className="pr-eyebrow pr-fade">Pricing</p>
+          <h1 className="pr-h1" id="pr-h1">
+            {HERO_LINES.map((line) => (
+              <span key={line} className="ln">
+                <span>{line}</span>
+              </span>
+            ))}
+          </h1>
+          <p className="pr-lede pr-fade d1">
+            Two monthly plans. One included location. Clear control over every public action.
+          </p>
+          <div className="pr-hero-links pr-fade d2">
+            <Link href="/how-it-works" className="rw-dl-txtlink">
+              See how the gate works <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </div>
+
+        <article className="rw-dl-card pr-gate pr-fade d3" aria-label="Sample: where the same review stops on each plan">
+          <div className="rw-dl-cap">
+            <span className="rw-dl-cap-dot" />
+            <span>Sample · the same 5★ review on each plan</span>
+            <span className="rw-dl-cap-tail">The gate</span>
+          </div>
+          <div className="pr-gate-rows">
+            {GATE_ROWS.map((row) => (
+              <div key={row.tier} className="pr-gate-row" style={{ ['--bar' as string]: PLAN_BAR[row.tier] }}>
+                <span className="pr-gate-dot" aria-hidden="true" />
+                <div>
+                  <div className="pr-gate-k">{row.name}</div>
+                  <div className="pr-gate-v">{row.stop}</div>
+                  <p className="pr-gate-s">{row.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="rw-dl-fine">Negative and flagged reviews are never auto-posted on either plan.</p>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -244,6 +364,210 @@ function MatrixCell({ value, plan, featured }: { value: string | boolean; plan: 
   return <div className={className} data-plan={plan}>{value}</div>;
 }
 
+// Matrix column header: plan name with its bar tick, and the monthly price under
+// it so the table reads on its own without scrolling back to the cards.
+function MatrixPlanHeader({
+  tier,
+  name,
+  price,
+  featured,
+}: {
+  tier: SubscriptionTierValue;
+  name: string;
+  price: PlanPriceView;
+  featured: boolean;
+}) {
+  return (
+    <div className={`pr-matrix-cell hdr ${featured ? 'featured' : ''}`}>
+      <span className="pr-matrix-plan">
+        <i className="pr-matrix-tick" style={{ ['--bar' as string]: PLAN_BAR[tier] }} aria-hidden="true" />
+        {name}
+      </span>
+      <span className="pr-matrix-price">${formatDollars(price.basePriceCents)} per month</span>
+    </div>
+  );
+}
+
+// The comparison ledger on its paper band. No horizontal scroll at any width:
+// ≥721px the three columns fit the 960px ledger; ≤720px each row stacks (label,
+// then the two plan values, each self-labelled via data-plan) so the Autopilot
+// column is never off-screen.
+function ComparisonMatrix({
+  prices,
+  autopilotOpen,
+}: {
+  prices: PlanPresentationViewModel['prices'];
+  autopilotOpen: boolean;
+}) {
+  return (
+    <section className="rw-dl-band is-paper pr-compare" aria-labelledby="pr-cmp-h">
+      <div className="rw-dl-col">
+        <Reveal>
+          <div className="rw-dl-intro">
+            <h2 className="rw-dl-h2" id="pr-cmp-h">Compare the control boundary</h2>
+            <p>The agent team is the same. The authority you grant it is different.</p>
+          </div>
+        </Reveal>
+        <Reveal delay={120}>
+          <section className="pr-matrix" aria-label="Plan comparison">
+            <div className="pr-matrix-grid">
+              <div className="pr-matrix-row hdr-row">
+                <div className="pr-matrix-cell hdr first">Feature</div>
+                <MatrixPlanHeader tier="copilot" name="Copilot" price={prices.copilot} featured={false} />
+                {/* The bone column follows the same rule as the featured card:
+                    emphasis only on a tier you can get today. */}
+                <MatrixPlanHeader tier="autopilot" name="Autopilot" price={prices.autopilot} featured={autopilotOpen} />
+              </div>
+              {MATRIX.map((row) =>
+                'section' in row ? (
+                  <div key={row.section} className="pr-matrix-row">
+                    <div className="pr-matrix-cell section first">{row.section}</div>
+                  </div>
+                ) : (
+                  <div key={row.label} className="pr-matrix-row">
+                    <div className="pr-matrix-cell first">{row.label}</div>
+                    <MatrixCell value={row.values[0]} plan="Copilot" featured={false} />
+                    <MatrixCell value={row.values[1]} plan="Autopilot" featured={autopilotOpen} />
+                  </div>
+                ),
+              )}
+            </div>
+          </section>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+// FAQ — heading left, the shared `.rw-dl-faq*` accordion right. The accordion
+// keeps `aria-expanded` / `aria-controls` as its contract.
+function PricingFaq({ faqs }: { faqs: readonly FaqItem[] }) {
+  const [openFaq, setOpenFaq] = useState(0);
+  const faqBaseId = useId();
+  return (
+    <section className="rw-dl-band pr-faq-band" aria-labelledby="pr-faq-h">
+      <div className="rw-dl-col pr-faq">
+        <Reveal>
+          <div className="pr-faq-tx">
+            <h2 className="rw-dl-h2" id="pr-faq-h">Frequently asked</h2>
+            <p className="rw-dl-lede">What to know before you choose a plan.</p>
+            <Link href="/how-it-works" className="rw-dl-txtlink">
+              More answers on How it works <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </Reveal>
+        <Reveal delay={120}>
+          <div className="rw-dl-faq">
+            {faqs.map((item, index) => {
+              const isOpen = openFaq === index;
+              const panelId = `${faqBaseId}-faq-panel-${index}`;
+              const buttonId = `${faqBaseId}-faq-button-${index}`;
+              return (
+                <div key={item.q} className={`rw-dl-faq-item ${isOpen ? 'is-open' : ''}`}>
+                  <button
+                    type="button"
+                    id={buttonId}
+                    className="rw-dl-faq-q"
+                    onClick={() => setOpenFaq(isOpen ? -1 : index)}
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
+                  >
+                    <span>{item.q}</span>
+                    <span className="rw-dl-faq-toggle" aria-hidden>+</span>
+                  </button>
+                  <section className="rw-dl-faq-a" id={panelId} aria-labelledby={buttonId}>
+                    <div className="rw-dl-faq-a-inner">{item.a}</div>
+                  </section>
+                </div>
+              );
+            })}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+// The plan-interest chooser on the dark band (waitlist posture only): the tier
+// the visitor asked about via a card door stays visible and changeable here,
+// and the form sends it with the lead.
+function PlanPicker({
+  planInterest,
+  setPlanInterest,
+}: {
+  planInterest: LeadPlanInterest | null;
+  setPlanInterest: Dispatch<SetStateAction<LeadPlanInterest | null>>;
+}) {
+  const planPickId = useId();
+  return (
+    <fieldset className="pr-plan-pick">
+      <legend className="pr-plan-pick-lbl">Which plan are you asking about?</legend>
+      {PLAN_PICK_OPTIONS.map((option) => {
+        const checked = planInterest === option.value;
+        const optionId = `${planPickId}-${option.value ?? 'either'}`;
+        return (
+          <label key={optionId} htmlFor={optionId} className={`pr-plan-pick-opt ${checked ? 'is-on' : ''}`}>
+            <input
+              id={optionId}
+              type="radio"
+              name="pricing-plan-interest"
+              value={option.value ?? ''}
+              checked={checked}
+              onChange={() => setPlanInterest(option.value)}
+            />
+            {option.label}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+function PricingCta({
+  selfServeEnabled,
+  autopilotOpen,
+  planInterest,
+  setPlanInterest,
+}: {
+  selfServeEnabled: boolean;
+  autopilotOpen: boolean;
+  planInterest: LeadPlanInterest | null;
+  setPlanInterest: Dispatch<SetStateAction<LeadPlanInterest | null>>;
+}) {
+  const copy = ctaCopy(selfServeEnabled, autopilotOpen);
+  return (
+    <section id="pricing-waitlist" className="rw-dl-cta" aria-labelledby="pr-cta-h">
+      <div className="rw-dl-col">
+        <div>
+          <h2 id="pr-cta-h">{copy.h2}</h2>
+          <p className="rw-dl-cta-sub">{copy.sub}</p>
+          <div className="rw-dl-cta-more">
+            <Link href="/how-it-works">How it works <span aria-hidden="true">→</span></Link>
+            <Link href="/features">All features <span aria-hidden="true">→</span></Link>
+          </div>
+        </div>
+        <div>
+          {selfServeEnabled ? (
+            <div className="rw-dl-cta-panel">
+              <Link href="/signup" className="rw-pill rw-pill-paper pr-cta-pill">Create account</Link>
+            </div>
+          ) : (
+            <div className="rw-dl-cta-panel">
+              <PlanPicker planInterest={planInterest} setPlanInterest={setPlanInterest} />
+              <LeadIntakeForm
+                intent="waitlist"
+                source="pricing"
+                plan={planInterest ?? undefined}
+                tone="onTeal"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PricingContent({
   viewModel,
   selfServeEnabled = false,
@@ -251,196 +575,73 @@ export function PricingContent({
   viewModel: PlanPresentationViewModel;
   selfServeEnabled?: boolean;
 }) {
-  const [openFaq, setOpenFaq] = useState(0);
+  const prefersReducedMotion = usePrefersReducedMotion();
   // Which tier the visitor asked about via a card door; the waitlist form sends it
   // with the lead, and the chooser above the form keeps it visible and changeable.
   const [planInterest, setPlanInterest] = useState<LeadPlanInterest | null>(null);
-  const faqBaseId = useId();
-  const planPickId = useId();
   const autopilotOpen = viewModel.purchasable.autopilot;
-  const faqs = viewModel.trialEnabled
-    ? [
-        {
-          q: 'How does the 30-day trial work?',
-          a: 'Choose a plan explicitly and provide a card up front. Your 30-day trial starts through Stripe, and monthly billing for that plan begins after the trial unless you cancel.',
-        },
-        ...BASE_FAQS,
-      ]
-    : BASE_FAQS;
+  const faqs = viewModel.trialEnabled ? [TRIAL_FAQ, ...BASE_FAQS] : BASE_FAQS;
+
+  // Hero entrance: one class flip staged by CSS transition delays.
+  const [heroIn, setHeroIn] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setHeroIn(true), prefersReducedMotion ? 0 : 80);
+    return () => window.clearTimeout(id);
+  }, [prefersReducedMotion]);
 
   return (
     <SiteShell scope="pr-page" selfServeEnabled={selfServeEnabled} trialEnabled={viewModel.trialEnabled}>
-      <section className="pr-hero">
-        <p className="pr-eyebrow">Pricing</p>
-        <h1>Choose how your agent team works.</h1>
-        <p className="sub">
-          Two monthly plans. One included location. Clear control over every public action.
-        </p>
-        <p className="pr-currency">All prices in USD</p>
-      </section>
+      <PricingHero heroIn={heroIn} />
 
-      <div className="pr-plans">
-        {PLANS.map((plan) => (
-          <PlanCard
-            key={plan.tier}
-            plan={plan}
-            price={viewModel.prices[plan.tier]}
-            priceVariant={viewModel.priceVariant}
-            purchasable={viewModel.purchasable[plan.tier]}
-            autopilotOpen={autopilotOpen}
-            selfServeEnabled={selfServeEnabled}
-            onPlanInterest={setPlanInterest}
-          />
-        ))}
-      </div>
-
-      {viewModel.trialEnabled && (
-        <div className="pr-below-cards">
-          <div className="pr-guarantee">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <path d="M9 12l2 2 4-4" />
-            </svg>
-            <span>30-day trial · Card required up front · Explicit plan selection</span>
-          </div>
-        </div>
-      )}
-
-      <div className="pr-matrix-wrap">
-        <div className="pr-matrix-head">
-          <h2>Compare the control boundary</h2>
-          <p>The agent team is the same. The authority you grant it is different.</p>
-        </div>
-        {/* No horizontal scroll at any width: ≥721px the three columns fit the 880px wrap;
-            ≤720px each row stacks (label, then the two plan values, each self-labelled via
-            data-plan) so the Autopilot column is never off-screen on a phone. */}
-        <section className="pr-matrix" aria-label="Plan comparison">
-          <div className="pr-matrix-grid">
-            <div className="pr-matrix-row hdr-row">
-              <div className="pr-matrix-cell hdr first">Feature</div>
-              <div className="pr-matrix-cell hdr">Copilot</div>
-              {/* The tinted column follows the same rule as the featured card:
-                  emphasis only on a tier you can get today. */}
-              <div className={`pr-matrix-cell hdr ${autopilotOpen ? 'featured' : ''}`}>Autopilot</div>
-            </div>
-            {MATRIX.map((row) => {
-              if ('section' in row) {
-                return (
-                  <div key={row.section} className="pr-matrix-row">
-                    <div className="pr-matrix-cell section first">{row.section}</div>
-                  </div>
-                );
-              }
-              return (
-                <div key={row.label} className="pr-matrix-row">
-                  <div className="pr-matrix-cell first">{row.label}</div>
-                  <MatrixCell value={row.values[0]} plan="Copilot" featured={false} />
-                  <MatrixCell value={row.values[1]} plan="Autopilot" featured={autopilotOpen} />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      </div>
-
-      <div className="pr-faq-wrap">
-        <div className="pr-faq-head">
-          <h2>Frequently asked</h2>
-          <p>What to know before you choose a plan.</p>
-        </div>
-        {faqs.map((item, index) => {
-          const isOpen = openFaq === index;
-          const panelId = `${faqBaseId}-faq-panel-${index}`;
-          const buttonId = `${faqBaseId}-faq-button-${index}`;
-          return (
-            <div key={item.q} className={`pr-faq-item ${isOpen ? 'is-open' : ''}`}>
-              <button
-                type="button"
-                id={buttonId}
-                className="pr-faq-q"
-                onClick={() => setOpenFaq(isOpen ? -1 : index)}
-                aria-expanded={isOpen}
-                aria-controls={panelId}
-              >
-                <span>{item.q}</span>
-                <span className="pr-faq-icon" aria-hidden>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </span>
-              </button>
-              <section className="pr-faq-a" id={panelId} aria-labelledby={buttonId}>
-                <div className="pr-faq-a-inner">{item.a}</div>
-              </section>
-            </div>
-          );
-        })}
-      </div>
-
-      <section id="pricing-waitlist" className="rw-dl-cta" aria-labelledby="pr-cta-h">
+      {/* Plans — two dossier cards under a ledger rule */}
+      <section className="pr-plans-band" aria-labelledby="pr-plans-h">
         <div className="rw-dl-col">
-          <div>
-            <h2 id="pr-cta-h">
-              {!selfServeEnabled
-                ? 'Join the early access waitlist.'
-                : autopilotOpen
-                  ? 'Ready to choose your plan?'
-                  : 'Start with Copilot today.'}
-            </h2>
-            <p className="rw-dl-cta-sub">
-              {!selfServeEnabled
-                ? 'Tell us about your business and we’ll reach out when early access opens for your area.'
-                : autopilotOpen
-                  ? 'Create your account, choose Copilot or Autopilot, and continue to secure checkout.'
-                  : 'Create your account and start on Copilot. Autopilot opens when its safety checks are done, and you can switch then.'}
-            </p>
-            <div className="rw-dl-cta-more">
-              <Link href="/how-it-works">How it works <span aria-hidden="true">→</span></Link>
-              <Link href="/features">All features <span aria-hidden="true">→</span></Link>
+          <h2 className="sr-only" id="pr-plans-h">Plans</h2>
+          <Reveal>
+            <div className="pr-ledger-hd">
+              <span>Two plans · billed monthly</span>
+              <span className="pr-ledger-rule" aria-hidden="true" />
+              <span>All prices in USD</span>
             </div>
-          </div>
-          <div>
-        {selfServeEnabled ? (
-          <div className="rw-dl-cta-panel">
-            <Link href="/signup" className="rw-pill rw-pill-paper pr-cta-pill">Create account</Link>
-          </div>
-        ) : (
-          <div className="rw-dl-cta-panel">
-            <fieldset className="pr-plan-pick">
-              <legend className="pr-plan-pick-lbl">Which plan are you asking about?</legend>
-              {PLAN_PICK_OPTIONS.map((option) => {
-                const checked = planInterest === option.value;
-                const optionId = `${planPickId}-${option.value ?? 'either'}`;
-                return (
-                  <label
-                    key={optionId}
-                    htmlFor={optionId}
-                    className={`pr-plan-pick-opt ${checked ? 'is-on' : ''}`}
-                  >
-                    <input
-                      id={optionId}
-                      type="radio"
-                      name="pricing-plan-interest"
-                      value={option.value ?? ''}
-                      checked={checked}
-                      onChange={() => setPlanInterest(option.value)}
-                    />
-                    {option.label}
-                  </label>
-                );
-              })}
-            </fieldset>
-            <LeadIntakeForm
-              intent="waitlist"
-              source="pricing"
-              plan={planInterest ?? undefined}
-              tone="onTeal"
-            />
-          </div>
-        )}
-          </div>
+          </Reveal>
+          <Reveal delay={120}>
+            <div className="pr-plans">
+              {PLANS.map((plan) => (
+                <PlanCard
+                  key={plan.tier}
+                  plan={plan}
+                  price={viewModel.prices[plan.tier]}
+                  priceVariant={viewModel.priceVariant}
+                  purchasable={viewModel.purchasable[plan.tier]}
+                  autopilotOpen={autopilotOpen}
+                  selfServeEnabled={selfServeEnabled}
+                  onPlanInterest={setPlanInterest}
+                />
+              ))}
+            </div>
+            {viewModel.trialEnabled && (
+              <p className="pr-guarantee">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+                <span>30-day trial · Card required up front · Explicit plan selection</span>
+              </p>
+            )}
+          </Reveal>
         </div>
       </section>
+
+      <ComparisonMatrix prices={viewModel.prices} autopilotOpen={autopilotOpen} />
+
+      <PricingFaq faqs={faqs} />
+
+      <PricingCta
+        selfServeEnabled={selfServeEnabled}
+        autopilotOpen={autopilotOpen}
+        planInterest={planInterest}
+        setPlanInterest={setPlanInterest}
+      />
     </SiteShell>
   );
 }

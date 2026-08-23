@@ -27,7 +27,14 @@ Since the 2026-08 rebrand the Island carries **two registers**:
    Judge bar; forest (`--rw-forest`) is the **only action colour** (button
    fills, arrow discs, live/verdict dots); the five bar accents appear only as
    4–10px bars and small dots, never as text, never as broad fills. Review
-   stars are ink — ratings are content, not action.
+   stars are ink — ratings are content, not action. **Premium pass
+   (2026-08-22):** `/pricing` and `/features` adopt the `/how-it-works`
+   vocabulary — two-column hero with a product artifact and the masked-line
+   h1 entrance, dossier header rows (number · kicker · tail between
+   hairlines), ledger strips, paper/bone band rhythm, scroll reveals. The
+   pricing FAQ renders the shared `.rw-dl-faq*` accordion; the features
+   chapters sit on a `.feat-ch` grid that alternates text-left, artifact-left,
+   and full-width. The scroll-reveal wrapper is `src/components/ui/Reveal.tsx`.
 2. **Classic island** — the functional Island surfaces (auth, approve, legal,
    security, help, demo, onboarding, admin). White `rounded-[3rem]`-style
    islands with the teal family, Plus Jakarta display over DM Sans body, and

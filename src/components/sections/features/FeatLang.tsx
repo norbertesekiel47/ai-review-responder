@@ -3,6 +3,7 @@
 import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { ReviewStars } from './FeatPrimitives';
 import { useReveal } from './useReveal';
 
 const FEATURE_LANGS = [
@@ -14,25 +15,21 @@ const FEATURE_LANGS = [
   { code: '30+', name: 'languages' },
 ];
 
-/* ================== 07 LANGUAGES ================== */
+/* ================== 07 LANGUAGES (split chapter: text + chips left, sample right) ================== */
 export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
-  const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
+  const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
   return (
     <section ref={innerRef} id="f-lang" aria-label="Multilingual support" className="rw-dl-band">
       <div className="rw-dl-col">
-        <FeatIntro
-          n="07"
-          kicker="Reach"
-          bar="var(--rw-sage-bar)"
-          title="Multilingual, automatically."
-        />
-        <div className="feat-split">
-          <div ref={leftRef} className={cn('rw-dl-rv', leftSeen && 'is-in')}>
-            <p className="feat-split-lede">
-              RepWorth detects the language of every review and responds in the same language. No
-              setup, no toggles. Your customers feel heard in their own words.
-            </p>
+        <div className="feat-ch is-split">
+          <FeatIntro
+            n="07"
+            kicker="Reach"
+            bar="var(--rw-sage-bar)"
+            group="Craft and proof"
+            title="Multilingual, automatically."
+            lede="RepWorth detects the language of every review and responds in the same language. No setup, no toggles. Your customers feel heard in their own words."
+          >
             <div className="rw-dl-chips feat-lang-chips">
               {FEATURE_LANGS.map((l) => (
                 <span key={l.code} className="rw-dl-chip">
@@ -41,18 +38,13 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
                 </span>
               ))}
             </div>
-          </div>
+          </FeatIntro>
 
-          <div ref={rightRef} className={cn('rw-dl-rv', rightSeen && 'is-in')}>
+          <div ref={cardRef} className={cn('feat-ch-ar rw-dl-rv', cardSeen && 'is-in')}>
             <div className="rw-dl-card">
               <div className="rw-dl-cap">
                 <span>Sample reviewer</span>
-                <span
-                  className="rw-dl-stars"
-                  aria-label="5 out of 5 stars"
-                >
-                  <span aria-hidden="true">★★★★★</span>
-                </span>
+                <ReviewStars rating={5} />
                 <span className="rw-dl-cap-tail">detected: ES</span>
               </div>
               <div className="rw-dl-quote">
