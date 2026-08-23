@@ -6,9 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913 and #914 counted 2026-08-23. Full artifacts:
-`docs/reviews/PATHFINDER-2026-08-22/`.
+**Merges since last architecture pass: 5** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913, #914 and #908 counted 2026-08-23. Full
+artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -48,6 +48,13 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **perf #908** — Breaker window read model made index-servable (2026-08-23;
+  migration 112, applied staging + prod in lockstep, both verified via `pg_indexes`).
+  Two partial indexes (`bounced_at`, `complained_at` WHERE NOT NULL); measured on PG 16
+  at 1M rows / 35k window: seq scan 28,577 buffers 120.5 ms → BitmapOr 1,139 buffers
+  14.2 ms (8.5×), query unrestructured. Corrects migration 110's wrong bitmap-scan
+  comment (recorded in 112's header + the feat-898 deviations file — 110 is immutable).
+  **Counts: +1 production merge.**
 - **feat #914** — Send handoff withholds a location with no canonical place id
   (2026-08-23). `sendHandoffWithheldReason` gains `google_place_id_missing` (NULL or
   a migration-007 hex CID, validated by `isPlaceId`); precedence postal → place id →

@@ -813,6 +813,13 @@ are recorded HERE for a follow-up ticket instead:
   `bounced_at` / `complained_at` is now a REAL trade rather than a moot one, and belongs to
   the same follow-up that fixes the comment.
 
+**RESOLVED by #908 / migration 112 (2026-08-23).** Measured on PG 16 at 1,000,000 rows with a
+35,000-row window: seq scan 28,577 buffers / 120.5 ms → BitmapOr over `sent_at` + the two new
+partial indexes (`idx_solicitation_outreach_bounced_at`, `idx_solicitation_outreach_complained_at`)
+1,139 buffers / 14.2 ms. The planner decomposes `A OR (B AND (C OR D))` on its own, so the query
+needed no restructure. Migration 112's header carries the full correction of 110's comment — a
+reader landing on 110 is pointed here and to 112.
+
 **Blast radius:** `scripts/ci/tenant-scope-allowlist.ts` — see the surface note below.
 
 **Invalidates a locked decision?** no.
