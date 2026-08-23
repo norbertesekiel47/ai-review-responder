@@ -5252,4 +5252,8 @@ the §7.1 yield-to-transactional obligation.
 **#919** `seedUpload` hand-copied in six test files · no `CONTEXT.md` term for the release lane ·
 the sub-default configured-cap gap · the subscription gate's structural shape · and new: extract
 a shared `lockBatchForHalt` preamble for `haltBatch`/`adminHaltBatch`.
-**#915** the enablement decision itself — this merge removed its blocker, not the decision.
+**#915** CLOSED by this merge (verified: 60-min grace > the watchdog's 15-min re-pend; `unknown`
+counts as possibly-contacted structurally, because `over_contacted` keys on `solicitation_asks.status`
+and the terminalization never writes that table). **Its content was the BLOCKER, not the enablement
+decision** — an earlier draft of this line said otherwise and was wrong. The flip itself is governed
+by design doc §8.4 + the `flag-flip` skill and currently has **no tracking issue**.
