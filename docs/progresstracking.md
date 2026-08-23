@@ -5246,8 +5246,12 @@ measures the diff, not the lane · `it.fails` is not evidence without a sensitiv
 
 ### Follow-ups
 
-**#917** B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening) plus
-the §7.1 yield-to-transactional obligation.
+**#917** B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening).
+**#923** the §7.1 yield-to-transactional obligation — **split out of #917 on 2026-08-22**, because
+implementing #917's send window would have closed it silently. Different trigger, different fix.
+**CLOSED by ADR 0022**: the refusal is recorded rather than the yield built. Two per minute against
+ten per second is not contention (~0.33% of the team limit; ~0.6% at §3.3's 5,000/day ceiling), and
+`dispatch-rate-bound.test.ts` pins the four dials that would invalidate that.
 **#918** no CI audit enforces the `env-vars.md` registry row.
 **#919** `seedUpload` hand-copied in six test files · no `CONTEXT.md` term for the release lane ·
 the sub-default configured-cap gap · the subscription gate's structural shape · and new: extract

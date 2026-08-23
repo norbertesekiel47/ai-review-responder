@@ -487,11 +487,21 @@ Locked details, each with its reason:
 - **No `Precedence: bulk`.** `List-Unsubscribe` is the modern bulk signal; `Precedence`
   buys auto-reply suppression at the cost of a bulk-classification hint.
 - **No `Auto-Submitted`.** That header is for automatic *responses*; wrong semantics here.
-- **Dispatch yields to transactional** on the shared 10 req/s team limit. The drip worker
-  is the low-priority consumer — an approval email must never be rate-limited behind a
-  batch of asks. (If `SOLICITATION_RESEND_API_KEY` is a separate key per §1.6, note the
-  limit is still **per team**, not per key — the yield is a scheduling obligation, not
-  something the key split solves.)
+- **Dispatch is RATE-CAPPED, not yielding — this bullet asked for a yield and the
+  codebase decided against building one. See ADR 0022 (#923).** The original ask stands
+  as the statement of the risk: the drip worker is the low-priority consumer on the shared
+  10 req/s limit, and an approval email must never be rate-limited behind a batch of asks.
+  (If `SOLICITATION_RESEND_API_KEY` is a separate key per §1.6, the limit is still **per
+  team**, not per key — a key split cannot solve a scheduling problem.) What shipped is
+  `RELEASE_PER_TICK_BUDGET = 2` on a 60s poll with `concurrency: 1` on the send worker:
+  ~0.033 req/s, about **0.33%** of the team limit, and at §3.3's 5,000/day platform ceiling
+  about **0.6%** of ~864,000 sends/day. That is a cap, not a yield — it is open-loop and
+  never reads the transactional lane — and ADR 0022 accepts it at every planned ramp stage
+  rather than building a shared limiter view that defends against contention the numbers
+  say cannot occur. **Raising the budget, the poll cadence, send-worker concurrency, or
+  adding a second `MessagingAdapter` tenant on the same Resend team spends that
+  refusal**; `src/lib/solicitation/__tests__/dispatch-rate-bound.test.ts` pins all four and
+  fails with ADR 0022 named.
 
 ### 7.2 Body footer — three required blocks
 
@@ -731,7 +741,7 @@ What #622 binds on tickets it does not own:
 | **#627** (email adapter + sending domain) | Everything in §1, §2, §7.1, §9. Owns the `businesses.solicitation_postal_address` migration (§7.5) and the `getEmailHeaders` signature change (§7.3). |
 | **#626** (suppression + unsubscribe ingress) | Global suppression scope (§6.1); never push to Resend's list (§6.2); the two-URL split and the ≥30-day/no-expiry token contract (§7.3); the honest "this is global" owner copy (§6.3). |
 | **#621** (suppression ledger spec) | The ledger must be keyed on **normalized email address, globally** — not `(account_id, email)` (§6.1). Normalization rule: lowercase + trim only (§6.1). |
-| **#630** (dispatch/drip worker) | Gate order breaker → platform ceiling → account cap → per-child (§4.3); single sends not batch, idempotency key, yield to transactional (§7.1); dispatch-time address byte-match (§7.6). |
+| **#630** (dispatch/drip worker) | Gate order breaker → platform ceiling → account cap → per-child (§4.3); single sends not batch, idempotency key, lane priority against transactional mail (§7.1 — **answered by refusal**, ADR 0022: a rate cap, not a yield); dispatch-time address byte-match (§7.6). |
 | **#628** (ask generation) | Subject lint rules (§7.4); render fails closed without a postal address (§7.6); the `feedback.` domain / private-funnel copy interaction (§1.3). |
 | **#624** (spine primitives) | `solicitation_asks` carries `external_message_id`, `sent_at`, `delivered_at`, and the rendered-message bytes including the baked-in postal address (§5.1, §7.6). |
 | **#633** (staging flip + evidence) | Seed-inbox gate output — SPF/DKIM/DMARC `Authentication-Results`, per-provider placement, one-click POST execution (§3.4, §8.3). |

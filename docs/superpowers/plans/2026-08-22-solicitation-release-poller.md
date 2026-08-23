@@ -22,7 +22,7 @@
 | 4 | A Judge downgrade writes a spine step and a Sentry warning. No owner notification. |
 | 5 | `UNKNOWN_GRACE_MINUTES = 60`, hardcoded, anchored on `solicitation_outreach.sending_at`. |
 | 6 | `solicitation_batches.sending_started_at` is stamped in the first release transaction, CAS on NULL. |
-| 7 | Drip pacing is a per-tick release budget. True yield-to-transactional is not built. |
+| 7 | Drip pacing is a per-tick release budget. True yield-to-transactional is not built. **Accepted, not deferred — ADR 0022 (#923)**: the cap is the answer to §7.1 at every planned ramp stage, and the four dials that would reopen it are pinned. |
 | 8 | The flag gates the RELEASE PHASE ONLY. The three sweeps and the backstop run on every tick. |
 
 **Decision 8 departs from the `JudgeSweepPoller` precedent deliberately.** If the whole poller were flag-gated, flipping `SOLICITATION_SEND_ENABLED` off mid-drip would stop the `send_window_elapsed` sweep, so 091's one-active-send index would block that location forever. State this reason in the poller's header comment.
@@ -636,8 +636,8 @@ row, not two.
 
 **Blocking edges:** Task 9.
 
-- [ ] **Step 1: Open one issue** for amendment B14's gap: a halt-aware send window, or a distinct `platform_halt` cancellation reason so an owner is not told the send window elapsed for a cause that was a platform breaker trip. Cite B14 and note it needs a 091 CHECK widening.
-- [ ] **Step 2: Note the residual yield-to-transactional obligation** in the same issue or a second one: `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §7.1 asks for priority-yielding against the shared 10 req/s Resend team limit. #900 ships a per-tick release budget instead.
+- [x] **Step 1: Open one issue** for amendment B14's gap: a halt-aware send window, or a distinct `platform_halt` cancellation reason so an owner is not told the send window elapsed for a cause that was a platform breaker trip. Cite B14 and note it needs a 091 CHECK widening. → **#917**.
+- [x] **Step 2: Note the residual yield-to-transactional obligation** in the same issue or a second one: `docs/superpowers/specs/2026-07-28-sender-deliverability-design.md` §7.1 asks for priority-yielding against the shared 10 req/s Resend team limit. #900 ships a per-tick release budget instead. → recorded inline in **#917** first, then **split out as #923** on 2026-08-22: one issue holding two obligations with different triggers, fixes and owners would have closed the second silently when the first shipped. #923 closed by ADR 0022 — the refusal is recorded rather than the yield built.
 
 ---
 
