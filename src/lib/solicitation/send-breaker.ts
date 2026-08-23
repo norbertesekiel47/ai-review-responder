@@ -20,7 +20,8 @@ import { createWorkerLogger } from '@/lib/shared/logger';
 // Type-only, therefore erased: the finding SHAPE has one owner (the poller that
 // consumes it) and duplicating it here would let the two drift. No runtime edge
 // from src/lib into worker/ is created.
-import type { HealthFinding } from '../../../worker/background/pollers/health-alert/checks';
+import type { HealthFinding } from '@/lib/shared/health-finding';
+import { formatRate } from '@/lib/shared/format-rate';
 
 const logger = createWorkerLogger('[SendBreaker]');
 
@@ -415,31 +416,12 @@ function classifyBreach(w: BreakerWindow): BreakerTripReason | null {
   return null;
 }
 
-/**
- * How this module renders a breaker rate — and it has a TWIN, deliberately.
- *
- * IF YOU CHANGE THE FORMAT HERE, CHANGE IT IN `SendBreakerClient.tsx` TOO. That
- * file keeps its own byte-identical copy (std-5 / B1.11, an open LOW follow-up),
- * so the two can drift and nothing catches it. The harm is concrete: the Sentry
- * page this module writes links straight to the admin panel, an operator reads
- * the same two rates in both places within seconds, and a one-decimal drift makes
- * the page and the panel look like they disagree about whether the threshold was
- * crossed.
- *
- * NOT exported, and the client MUST NOT import it from here — that is a build
- * constraint, not a preference. This module instantiates a worker logger at
- * module scope (`createWorkerLogger` -> `log-context` -> `node:async_hooks`), so
- * one RUNTIME import from a `'use client'` file drags that chain into the client
- * chunk and Turbopack fails the route build. #898 proved it both ways: exporting
- * this helper broke `pnpm build`, and reverting to the client's local copy fixed
- * it. Type-only imports are erased and stay fine.
- *
- * The honest close is a shared formatter under `src/components/admin/ui/`, which
- * needs a surface amendment this branch has not spent; recorded as a follow-up.
- */
-function formatRate(rate: number): string {
-  return `${(rate * 100).toFixed(2)}%`;
-}
+// The breaker-rate rendering lives in `@/lib/shared/format-rate` (#910 B3.10)
+// — the ONE owner both this module's Sentry titles and `SendBreakerClient.tsx`
+// read, closing the deliberate twin std-5/B1.11 recorded. The client still
+// must never import from THIS module at runtime (the module-scope worker
+// logger drags node:async_hooks into the client chunk); the zero-import leaf
+// is what makes the sharing legal.
 
 /**
  * The page. DETAIL IS AGGREGATE-ONLY — counts, rates, thresholds and the window

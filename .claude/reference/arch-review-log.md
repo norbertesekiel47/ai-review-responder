@@ -6,9 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 5** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913, #914 and #908 counted 2026-08-23. Full
-artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+**Merges since last architecture pass: 6** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913, #914, #908 and the #910 pull-forwards
+counted 2026-08-23 (the #919 seedUpload consolidation, #942, is test-only and
+does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -48,6 +49,16 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **chore #910 pull-forwards** — B3.1 + B3.7 + B3.10 (2026-08-23). B3.1: the
+  `HealthFinding` inversion fixed — the interface moved to the zero-import leaf
+  `src/lib/shared/health-finding.ts`, so `send-breaker.ts` no longer type-imports
+  from the worker tree (the `checkSolicitationSendBreaker` wrapper KEPT deliberately:
+  it carries the poller-side contract docs, and the inversion, not the wrapper, was
+  the defect). B3.10: `formatRate` twin closed — one owner in
+  `src/lib/shared/format-rate.ts` (zero imports, so the client build stays legal),
+  both `send-breaker.ts` Sentry titles and `SendBreakerClient.tsx` read it. B3.7:
+  the reciprocal deliberate-mirror pointer added at `DEFAULT_DAILY_AUTO_POST_CAP`.
+  Full eight-item disposition posted on #910. **Counts: +1 production merge.**
 - **perf #908** — Breaker window read model made index-servable (2026-08-23;
   migration 112, applied staging + prod in lockstep, both verified via `pg_indexes`).
   Two partial indexes (`bounced_at`, `complained_at` WHERE NOT NULL); measured on PG 16

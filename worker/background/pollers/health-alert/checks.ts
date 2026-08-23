@@ -24,13 +24,13 @@ import { toError } from '../../../../src/lib/shared/logger';
 import { stalledThresholdMsForKind } from '../../../../src/lib/agents/read';
 import type { AGENT_RUN_KINDS } from '../../../../src/lib/agents/run-spine';
 import { evaluateSendBreaker } from '../../../../src/lib/solicitation/send-breaker';
+import type { HealthFinding } from '../../../../src/lib/shared/health-finding';
 
-export interface HealthFinding {
-  key: string;
-  level: 'warning' | 'error';
-  title: string;
-  detail: Record<string, unknown>;
-}
+// The finding shape lives in src/lib/shared/health-finding.ts (#910 B3.1) so
+// the import direction stays lib <- worker: the domain breaker evaluator
+// returns one too, and it must not depend on this poller. Re-exported here for
+// the poller-local modules that consume checks.
+export type { HealthFinding } from '../../../../src/lib/shared/health-finding';
 
 export interface HealthAlertConfig {
   wedgedClientReadAgeS: number;

@@ -21,7 +21,11 @@ export function exposureRank(threshold: AutoApprovalThreshold | null): number {
   }
 }
 
-/** Platform default when the effective policy's daily_auto_post_cap is NULL (spec §2.3). */
+/** Platform default when the effective policy's daily_auto_post_cap is NULL (spec §2.3).
+ *  Deliberately the same number as DEFAULT_DAILY_SEND_CAP_ACCOUNT
+ *  (src/lib/solicitation/send-caps.ts) — SEPARATELY OWNED constants that
+ *  coincide by design today; never derive one from the other, and know that
+ *  tuning this one leaves that one where it is (#910 B3.7). */
 export const DEFAULT_DAILY_AUTO_POST_CAP = 10;
 
 /** Column default from migration 074 — the window applied when no policy row exists. */
