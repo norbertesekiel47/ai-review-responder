@@ -727,16 +727,18 @@ async function constructBatch(
       };
     }
 
-    // One SELECT, widened rather than duplicated (#656 T6): the vertical the
-    // restraint policy needs AND the two location-level facts the Send handoff
-    // precondition reads. Both tenant predicates stay — the row is the account's
-    // location or it is nothing.
+    // One SELECT, widened rather than duplicated (#656 T6; #914 adds the place
+    // id): the vertical the restraint policy needs AND the three location-level
+    // facts the Send handoff precondition reads. Both tenant predicates stay —
+    // the row is the account's location or it is nothing.
     const [business] = await tx<{
       category: string | null;
       owner_email_bounced: boolean | null;
       solicitation_postal_address_attested_at: Date | null;
+      google_place_id: string | null;
     }[]>`
-      SELECT category, owner_email_bounced, solicitation_postal_address_attested_at
+      SELECT category, owner_email_bounced, solicitation_postal_address_attested_at,
+             google_place_id
       FROM businesses
       WHERE id = ${businessId}::uuid
         AND account_id = ${accountId}::uuid
