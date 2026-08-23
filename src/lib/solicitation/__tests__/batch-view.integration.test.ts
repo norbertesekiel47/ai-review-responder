@@ -22,7 +22,7 @@ import {
   LIVE_DB_LOCK_HOOK_TIMEOUT_MS,
   type LiveDbLock,
 } from '@/lib/shared/__tests__/helpers/live-db-lock';
-import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { RESTRAINT_POLICY_VERSION } from '../restraint-policy';
 import { EVIDENCE_ROWS_PER_REASON, markBatchReviewed, readLatestBatch } from '../batch-view';
@@ -81,18 +81,15 @@ function assertExactLocalDatabaseUrl(databaseUrl: string | undefined): string {
 
 /** A completed upload — every batch needs its own (source_upload_id is UNIQUE). */
 async function seedUpload(): Promise<string> {
-  const uploadId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads
-      (id, account_id, business_id, filename, byte_size, content_sha256, raw_csv,
-       status, report, attested_by_user_id, attested_at, attestation_version, completed_at)
-    VALUES
-      (${uploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
-       'batch-view.csv', 1, ${'0'.repeat(64)}, NULL, 'completed',
-       ${sql().json({ accepted: 0 })}, ${tenant!.userId}::uuid, NOW(),
-       ${CONSENT_ATTESTATION_VERSION}, NOW())
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: tenant!.accountId,
+    businessId,
+    attestedByUserId: tenant!.userId,
+    filename: 'batch-view.csv',
+    contentSha256: '0'.repeat(64),
+    attestationVersion: CONSENT_ATTESTATION_VERSION,
+    report: { accepted: 0 },
+  });
 }
 
 async function seedBatch(input: {

@@ -21,7 +21,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Live-DB conventions this file obeys (`ci:live-db-suites`):
@@ -209,20 +209,13 @@ function foreignIds(): SeedIds {
 }
 
 async function seedUpload(onBusinessId: string, ids: SeedIds = primaryIds()): Promise<string> {
-  const uploadId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads (
-      id, account_id, business_id, filename, byte_size, content_sha256,
-      raw_csv, status, report, attested_by_user_id, attested_at,
-      attestation_version, completed_at
-    ) VALUES (
-      ${uploadId}::uuid, ${ids.accountId}::uuid, ${onBusinessId}::uuid,
-      ${`release-${uploadId}.csv`}, 1, ${checksum(uploadId)},
-      NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${ids.userId}::uuid, NOW(), 'release-test', NOW()
-    )
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: ids.accountId,
+    businessId: onBusinessId,
+    attestedByUserId: ids.userId,
+    filenamePrefix: 'release',
+    attestationVersion: 'release-test',
+  });
 }
 
 async function seedContact(uploadId: string, onBusinessId: string): Promise<string> {

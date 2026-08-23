@@ -75,6 +75,73 @@ export function checksum(seed: string): string {
 }
 
 /**
+ * One `contact_csv_uploads` row (#919 item 2). SIX suites hand-copied this
+ * 13-column INSERT, so one new NOT NULL column broke six files that had
+ * nothing to do with the change — the exact class `insertOutreach` above was
+ * built for. This owns ONE TABLE's row, not the upload → contact → batch →
+ * ask chain; the module comment's "does not own the chain" rule stands.
+ *
+ * The `status` split mirrors `contact_csv_uploads_terminal_consistency`:
+ * a COMPLETED upload carries `report` + `completed_at` and NO `raw_csv`, a
+ * PENDING one carries `raw_csv` and neither terminal column. Encoding the
+ * CHECK here is what lets a caller state only its lane and never trip the
+ * constraint for a reason no case is about.
+ */
+export interface ContactCsvUploadInput {
+  id?: string;
+  accountId: string;
+  businessId: string;
+  attestedByUserId: string;
+  /** Exact filename; defaults to `${filenamePrefix ?? 'upload'}-${id}.csv`. */
+  filename?: string;
+  filenamePrefix?: string;
+  byteSize?: number;
+  /** Defaults to `checksum(id)`. */
+  contentSha256?: string;
+  attestationVersion?: string;
+  /** A JS `Date`, or a `sql` fragment (`sql\`NOW() - '2 days'::interval\``)
+   *  when the comparison must stay on the database side. Defaults to NOW(). */
+  attestedAt?: Date | PendingQuery<Row[]>;
+  /** The lane: 'completed' (default — the built-batch suites) or 'pending'
+   *  (the ingest lane, which then REQUIRES `rawCsv`). */
+  status?: 'pending' | 'completed';
+  /** Completed lane only. Defaults to `{ accepted: 1 }`. */
+  report?: Record<string, unknown>;
+  /** Pending lane only — the CHECK requires it there. */
+  rawCsv?: string;
+}
+
+export async function seedContactCsvUpload(
+  exec: OutreachSqlExecutor,
+  input: ContactCsvUploadInput,
+): Promise<string> {
+  const id = input.id ?? randomUUID();
+  const status = input.status ?? 'completed';
+  if (status === 'pending' && input.rawCsv === undefined) {
+    throw new Error('seedContactCsvUpload: a pending upload requires rawCsv (terminal-consistency CHECK)');
+  }
+  const filename = input.filename ?? `${input.filenamePrefix ?? 'upload'}-${id}.csv`;
+  const attestedAt = input.attestedAt ?? exec`NOW()`;
+  await exec`
+    INSERT INTO contact_csv_uploads (
+      id, account_id, business_id, filename, byte_size, content_sha256,
+      raw_csv, status, report, attested_by_user_id, attested_at,
+      attestation_version, completed_at
+    ) VALUES (
+      ${id}::uuid, ${input.accountId}::uuid, ${input.businessId}::uuid,
+      ${filename}, ${input.byteSize ?? 1}, ${input.contentSha256 ?? checksum(id)},
+      ${status === 'pending' ? input.rawCsv! : null},
+      ${status},
+      ${status === 'completed' ? exec.json((input.report ?? { accepted: 1 }) as never) : null},
+      ${input.attestedByUserId}::uuid, ${attestedAt},
+      ${input.attestationVersion ?? 'fixture-test'},
+      ${status === 'completed' ? exec`NOW()` : null}
+    )
+  `;
+  return id;
+}
+
+/**
  * Dispatch stamps derived from the status, for suites that write JS `Date`s.
  *
  * 091 requires `queued_at` of every dispatched status and `sending_at` of
