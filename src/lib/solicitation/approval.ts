@@ -82,24 +82,41 @@ const VETO_WINDOW_MINUTES_OWNER = 15;
 /** The two Halt latch reasons an OWNER can cause, and the only two the owner
  *  arm may spell. `admin_halt` is the same latch written by `adminHaltBatch`
  *  below (#865) and lives in the PRIVATE `LatchHaltReason`, so this union stays
- *  two members; `send_window_elapsed` and `batch_expired` are the same latch
- *  written by `latchSystemHalt` below (#900) and are `SystemHaltReason`. */
+ *  two members; `send_window_elapsed`, `batch_expired` and `platform_halt` are
+ *  the same latch written by `latchSystemHalt` below (#900/#917) and are
+ *  `SystemHaltReason`. */
 export type OwnerHaltReason = 'owner_veto' | 'owner_halt';
 
 /**
- * The two Halt latch reasons NO actor can cause — the send window running out
- * and the approval window running out. Both are derived from a clock, and
- * migration 091's `solicitation_batches_halt_consistency` CHECK makes that
- * structural rather than conventional:
+ * The THREE Halt latch reasons NO actor can cause. Two are derived from a clock
+ * — the send window running out and the approval window running out — and the
+ * third from platform state: sending was halted for everyone when this batch's
+ * window ran out. Migration 091's `solicitation_batches_halt_consistency` CHECK,
+ * widened by 111, makes the actor-less part structural rather than conventional:
  *
  *   (halted_by IS NOT NULL)
  *     = ((halt_reason IN ('owner_veto', 'owner_halt', 'admin_halt')) IS TRUE)
  *
- * so these two REQUIRE `halted_by IS NULL`. Exported because `latchSystemHalt`
- * is the public seam #900's release cycle latches through, and its caller has
- * to name the reason; nothing else may widen it.
+ * so all three REQUIRE `halted_by IS NULL`. 111 added `platform_halt` to the
+ * REASON list and deliberately NOT to that actor list, which is what let it join
+ * this union without any new actor semantics.
+ *
+ * **`platform_halt` is not a fourth window (#917).** It is the same
+ * `send_window_elapsed` sweep, on the same 72h clock, reporting a truer cause:
+ * the **Send breaker** and the send window run on different clocks and a real
+ * trip stays open for days, so one trip would otherwise tell every owner with a
+ * batch approved in the preceding 72 hours that THEIR send window elapsed.
+ * Amendment B14 rejected the alternative — suspending the sweep while the
+ * breaker is open blows past the "<=10 days by construction" bound that
+ * `STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` derives from and buries the trip
+ * under a stalled-run alert storm. A cancelled batch is an honest terminal state
+ * an owner can act on; this reason is what makes the word "honest" true.
+ *
+ * Exported because `latchSystemHalt` is the public seam #900's release cycle
+ * latches through, and its caller has to name the reason; nothing else may
+ * widen it.
  */
-export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired';
+export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired' | 'platform_halt';
 
 /**
  * A veto is "halt at zero sends" (D10) — the same write, a different reason.
@@ -469,9 +486,9 @@ interface LatchHaltInput {
   batchId: string;
   accountId: string;
   businessId: string;
-  /** NULL for exactly the two `SystemHaltReason` members: 091's
-   *  halt-consistency CHECK ties actor presence to the reason, so the signature
-   *  expresses a rule the database already enforces. */
+  /** NULL for exactly the three `SystemHaltReason` members: 091's
+   *  halt-consistency CHECK (widened by 111) ties actor presence to the reason,
+   *  so the signature expresses a rule the database already enforces. */
   actorUserId: string | null;
   reason: LatchHaltReason;
   /** Read under the lock by the caller, off the same row every write targets. */
@@ -769,8 +786,10 @@ export interface LatchSystemHaltInput {
   batchId: string;
   accountId: string;
   businessId: string;
-  /** Named by the caller because only the caller knows WHICH window ran out;
-   *  it can never be a human reason — the type is two members for that reason. */
+  /** Named by the caller because only the caller knows WHICH window ran out —
+   *  and, for `platform_halt`, what the platform was doing while it did. It can
+   *  never be a human reason; the type is three actor-less members for that
+   *  reason. */
   reason: SystemHaltReason;
 }
 
@@ -786,10 +805,11 @@ export type LatchSystemHaltResult =
   | { status: 'latched'; cancelledCount: number; close: CloseBatchIfSettledResult };
 
 /**
- * The SYSTEM arm of the same monotone latch (#900) — the writer the two
- * clock-derived **Halt latch** reasons never had (#630). The send window
- * elapsing and the approval window elapsing are the same write as an owner
- * veto, with no one to attribute it to.
+ * The SYSTEM arm of the same monotone latch (#900) — the writer the
+ * actor-less **Halt latch** reasons never had (#630). The send window elapsing,
+ * the approval window elapsing, and a window elapsing under a platform-wide
+ * sending halt (#917) are all the same write as an owner veto, with no one to
+ * attribute it to.
  *
  * **IT TAKES THE BATCH ROW LOCK ITSELF, and there is no caller precondition to
  * forget** (corrected at the round-1 branch review; the docstring previously
@@ -813,9 +833,10 @@ export type LatchSystemHaltResult =
  *
  * The `pending` refusal the human arms carry is not needed here and could not
  * be reached anyway: both sweeps that call this require `built_at IS NOT NULL`
- * (`batch_expired`) or `approved_at IS NOT NULL` (`send_window_elapsed`), and
- * 091's approval-implies-built CHECK makes the second imply the first. Adding
- * the guard back would re-open the `state === 'halted'` hole above it.
+ * (`batch_expired`) or `approved_at IS NOT NULL` (`send_window_elapsed` and
+ * `platform_halt`, which are ONE sweep under two names), and 091's
+ * approval-implies-built CHECK makes the second imply the first. Adding the
+ * guard back would re-open the `state === 'halted'` hole above it.
  *
  * LOCK ORDER is unchanged: `solicitation_batches` row -> `agent_runs`. The
  * spine calls are `latchHalt`'s last two steps, exactly as for the human arms.
@@ -839,8 +860,10 @@ export async function latchSystemHalt(
     batchId,
     accountId: input.accountId,
     businessId: input.businessId,
-    // NULL, and 091's halt-consistency CHECK rejects anything else for these
-    // two reasons. `audit: null` for a stricter reason than the owner arm's:
+    // NULL, and 091's halt-consistency CHECK — widened by 111, which added
+    // `platform_halt` to the reason list and NOT to the actor list — rejects
+    // anything else for these three reasons. `audit: null` for a stricter reason
+    // than the owner arm's:
     // `account_audit_log` records a RepWorth OPERATOR acting on someone else's
     // account, and filing a clock there would make the log lie about who acted.
     actorUserId: null,

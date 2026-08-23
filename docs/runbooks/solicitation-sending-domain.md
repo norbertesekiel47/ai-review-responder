@@ -475,9 +475,17 @@ down and reset.
 So the blast radius of one trip is **every batch approved in the 72 hours before
 it, across every account on the platform**. Those batches stop being released,
 their windows elapse under the halt, and #900's expiry sweep terminalizes them
-`cancelled` with reason `send_window_elapsed`: every remaining ask dead, and every
-owner told their send window elapsed — for a platform-wide cause that had nothing
-to do with their list.
+`cancelled`: every remaining ask dead.
+
+**Since #917 the reason on those cancellations is `platform_halt`, not
+`send_window_elapsed`** — the sweep reads the breaker once per tick and picks the
+reason that is true. The owner is told RepWorth paused sending platform-wide and
+that this was not about their list; the admin batch panel labels it "Send window
+elapsed under a platform halt". **The cost is unchanged** — the same batches, the
+same 72h clock, the same cancellations — so everything below still applies. Only
+the story an owner is told has stopped being false. A cancellation from a tick
+where the breaker probe itself failed reads `send_window_elapsed`, deliberately:
+the fallback never claims a platform halt it could not establish.
 
 **That is a deliberate trade, recorded in amendment B14** of
 `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md`. The
@@ -492,10 +500,12 @@ Practical consequences for the operator:
 
 - **Time is the cost.** Every hour the trip stays open converts more approved
   batches into cancelled ones. Diagnose (§8.3) with that clock running.
-- **Tell the affected owners.** They will see "Send window elapsed" and have no
-  way to know a platform halt caused it. Until #900 ships a distinct
-  `platform_halt` reason, the owner-facing message is technically true and
-  practically misleading — closing that gap is #900's, not #898's.
+- **Tell the affected owners anyway (#917 changed what they read, not whether
+  they need to hear from you).** They now see an honest `platform_halt` message
+  saying RepWorth paused sending for everyone and that it was not about their
+  list, with an invitation to get in touch. That removes the falsehood; it does
+  not remove the loss, and the owner still cannot resume the batch. Reach out to
+  the accounts whose batches this trip cancelled.
 - **Rebuilding is not free.** A cancelled batch leaves its asks `status='send'`,
   so `MIN_GAP_DAYS` withholds those contacts as `over_contacted` on any rebuild
   inside 30 days (ADR 0020 § "Cost, as verified"). Advise owners to wait rather

@@ -399,16 +399,24 @@ describe('the admin arm of the Halt latch', () => {
     // Compile-time half. `assertExactType` is bidirectional, so this fails if
     // OwnerHaltReason ever grows `admin_halt` — the write union the owner arm
     // may spell must stay two members while the READ union (`HaltReason` in
-    // batch-view.ts) stays five.
+    // batch-view.ts) stays six (#917 added `platform_halt` to both the system
+    // write union and the read union; the owner union did NOT move, which is
+    // the property this line pins).
     expect(assertExactType<OwnerHaltReason, 'owner_veto' | 'owner_halt'>(true)).toBe(true);
     expect(Object.keys(approvalModule)).not.toContain('OwnerHaltReason');
 
-    // The system arm's write union (#900), pinned the same way and for the same
-    // reason: these are the only two members migration 091's
-    // `solicitation_batches_halt_consistency` CHECK requires `halted_by IS NULL`
-    // for, so a third member would be a reason the database rejects.
+    // The system arm's write union (#900, widened by #917), pinned the same way
+    // and for the same reason: these are the only members migration 091's
+    // `solicitation_batches_halt_consistency` CHECK — as widened by 111 —
+    // requires `halted_by IS NULL` for, so a fourth member would be a reason the
+    // database rejects. 111 added `platform_halt` to that CHECK's REASON list
+    // and deliberately not to its ACTOR list, which is what makes it a legal
+    // member here.
     expect(
-      assertExactType<SystemHaltReason, 'send_window_elapsed' | 'batch_expired'>(true),
+      assertExactType<
+        SystemHaltReason,
+        'send_window_elapsed' | 'batch_expired' | 'platform_halt'
+      >(true),
     ).toBe(true);
     expect(Object.keys(approvalModule)).not.toContain('SystemHaltReason');
 
@@ -420,9 +428,9 @@ describe('the admin arm of the Halt latch', () => {
 
     expect(source).toContain("export type OwnerHaltReason = 'owner_veto' | 'owner_halt';");
     expect(source).toContain(
-      "export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired';",
+      "export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired' | 'platform_halt';",
     );
-    // The private union is ALL FIVE reasons — one mechanism — assembled from the
+    // The private union is ALL SIX reasons — one mechanism — assembled from the
     // two public ones plus the admin constant. Pinned by source text because it
     // is unexported by design and therefore unobservable any other way.
     expect(source).toMatch(
@@ -436,9 +444,10 @@ describe('the admin arm of the Halt latch', () => {
     // and the CHECK above is why. `LatchHaltReason` is the union that spans
     // actor classes, so accepting it from a caller would let a request field
     // name `admin_halt` or `owner_veto` and forge an actor. `SystemHaltReason`
-    // spans none — both members are exactly the ones 091 forces `halted_by IS
-    // NULL` for — so naming one can only ever produce an actor-less halt. The
-    // caller picks WHICH window ran out; it can never pick WHO acted.
+    // spans none — all three members are exactly the ones 091-as-widened-by-111
+    // forces `halted_by IS NULL` for — so naming one can only ever produce an
+    // actor-less halt. The caller picks WHICH window ran out, and whether the
+    // platform was halted while it did; it can never pick WHO acted.
     expect(source).not.toMatch(/export .*\breason\s*:\s*LatchHaltReason/);
   });
 });

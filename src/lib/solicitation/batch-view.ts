@@ -135,31 +135,40 @@ export type AskAttemptView =
 
 /**
  * The Halt latch's closed reason set (CONTEXT.md **Halt latch**): one mechanism,
- * five reasons. Migration 091's `solicitation_batches_halt_consistency` CHECK —
- * unchanged by 108, which widened `solicitation_outreach` only — is the
- * database-side owner of the same vocabulary, so a value outside this union
- * cannot be stored; the read below asserts rather than re-validates, exactly
- * like `AskAttemptStatus` and `OutreachModerationStatus` on their row types.
+ * six reasons. Migration 091's `solicitation_batches_halt_consistency` CHECK —
+ * unchanged by 108, which widened `solicitation_outreach` only, and widened by
+ * 111 for `platform_halt` (#917) — is the database-side owner of the same
+ * vocabulary, so a value outside this union cannot be stored; the read below
+ * asserts rather than re-validates, exactly like `AskAttemptStatus` and
+ * `OutreachModerationStatus` on their row types.
  *
  * The union exists so a consumer can branch exhaustively on WHO stopped the
  * batch. Only `owner_veto`/`owner_halt` are owner-caused; `admin_halt` and the
- * two system reasons (`send_window_elapsed`, `batch_expired`, both actor-less
- * by the same CHECK) are not, so copy that says "you stopped this batch" is
- * wrong for three of the five. `approval.ts` owns the owner-causable subset as
- * `OwnerHaltReason` — the two a consumer branches on to say "you did this" —
- * but that is no longer the whole of what the module writes: since #865 it also
- * writes `admin_halt`, through the private `LatchHaltReason` its two arms
- * share. The module's WRITE union is therefore wider than its EXPORTED one, on
- * purpose: `OwnerHaltReason` stays exactly two members and `LatchHaltReason`
- * stays unexported, so no caller can widen the owner arm by naming a reason.
- * This is the READ side and must name all five.
+ * three system reasons (`send_window_elapsed`, `batch_expired`,
+ * `platform_halt` — all actor-less by the same CHECK) are not, so copy that says
+ * "you stopped this batch" is wrong for four of the six. `approval.ts` owns the
+ * owner-causable subset as `OwnerHaltReason` — the two a consumer branches on to
+ * say "you did this" — but that is no longer the whole of what the module
+ * writes: since #865 it also writes `admin_halt`, through the private
+ * `LatchHaltReason` its two arms share. The module's WRITE union is therefore
+ * wider than its EXPORTED one, on purpose: `OwnerHaltReason` stays exactly two
+ * members and `LatchHaltReason` stays unexported, so no caller can widen the
+ * owner arm by naming a reason. This is the READ side and must name all six.
+ *
+ * **`platform_halt` and `send_window_elapsed` are the same sweep on the same
+ * clock (#917)**, and a consumer must not present them as two different
+ * deadlines. The difference they carry is CAUSE, not timing: `platform_halt`
+ * says sending was stopped for every account when this batch's window ran out,
+ * so it is the one system reason a consumer may honestly describe as RepWorth's
+ * doing.
  */
 export type HaltReason =
   | 'owner_veto'
   | 'owner_halt'
   | 'admin_halt'
   | 'send_window_elapsed'
-  | 'batch_expired';
+  | 'batch_expired'
+  | 'platform_halt';
 
 /**
  * The send lane as the owner reads it. `null` on the BatchView when

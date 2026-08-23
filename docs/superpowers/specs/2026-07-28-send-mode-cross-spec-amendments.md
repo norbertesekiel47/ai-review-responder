@@ -453,6 +453,22 @@ read before the reset, not discovered after. Closing the gap properly (a halt-aw
 window, or a distinct `platform_halt` cancellation reason so the owner is not told
 something false) is **#900's**, not #898's.
 
+**CLOSED 2026-08-22 by #917 — the second horn, not the first.** #900 shipped without the
+migration this needed and deferred it; **#917** took the `platform_halt` option and NOT the
+halt-aware window, so **everything above still holds unchanged**: the expiry sweep still
+runs while the breaker is open, on the same 72h clock, anchored on the same `approved_at`,
+and the "≤10 days by construction" bound is untouched. What changed is one column value.
+Migration **111** widened `solicitation_batches_halt_consistency` and
+`solicitation_outreach_status_reason_consistency` to admit `platform_halt`, adding it to
+the REASON list and deliberately not to the ACTOR list, so it joins `send_window_elapsed`
+and `batch_expired` as a third actor-less `SystemHaltReason` with no new actor semantics.
+`resolveWindowHaltReason` (`src/lib/solicitation/release.ts`) reads the breaker once per
+tick and picks which of the two reasons the sweep writes. **That read is label-only and is
+the one sanctioned `try/catch` around `readSendBreaker`**: a rethrow would stop the sweep
+and reopen #915's permanent wedge, while the sending gate in the release phase keeps its
+fail-closed throw untouched. The paragraph above is therefore still the right description
+of what a trip costs — an owner is simply no longer told something false about why.
+
 **§4.3's admin escape valve is superseded, and the schema's `1..50` range is inert**
 (round-1 adversarial finding 10 / triage B2.4). #622 §4.3 says the per-account override is
 resolved "so an admin can raise it without a deploy". **B3's `LEAST(configured, 10)`
