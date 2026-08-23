@@ -319,9 +319,11 @@ export async function resetSendBreaker(
  * `FILTER` predicates do not restrict the scan, so the first shape read every
  * row `solicitation_outreach` has ever held — an append-only, retained table —
  * once per poll cycle, forever. Migration 110's comment claiming a bitmap scan
- * is wrong about this statement; 110 is immutable and already at head, so the
- * correction is recorded in the deviations file for a follow-up rather than
- * edited into the migration.
+ * is wrong about this statement; 110 is immutable, so the correction lives in
+ * migration 112's header and the feat-898 deviations file. Since 112 (#908)
+ * the OR below IS index-servable — BitmapOr over the sent_at / bounced_at /
+ * complained_at partial indexes, measured 8.5x at 1M rows — so do not
+ * "simplify" the WHERE into a shape that breaks that decomposition.
  */
 async function readBreakerWindow(sql: Sql | TransactionSql): Promise<BreakerWindow> {
   const [row] = await sql<{ sends: number; hard_bounces: number; complaints: number }[]>`

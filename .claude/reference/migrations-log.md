@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **111** — next migration is **112**
+Current head: **112** — next migration is **113**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2491,6 +2491,22 @@ Revisit triggers:
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
 
+- **112** — `breaker_window_indexes`: two partial indexes so the **Breaker
+  window** read model is index-servable (#908; follow-up B3.8 from #898/PR
+  #904). `idx_solicitation_outreach_bounced_at (bounced_at) WHERE bounced_at IS
+  NOT NULL` and `idx_solicitation_outreach_complained_at (complained_at) WHERE
+  complained_at IS NOT NULL`. **Corrects migration 110's wrong comment** ("a
+  bitmap scan is cheaper than two more indexes") — one `sent_at` index cannot
+  serve `readBreakerWindow`'s OR of three predicates, so the shipped shape
+  seq-scanned the whole append-only retained table once per 5-minute poll tick.
+  **Measured before chosen** (the ticket's instruction), PG 16 at 1,000,000
+  rows / 35,000-row window: Parallel Seq Scan 28,577 buffers 120.5 ms → BitmapOr
+  over the three partial indexes 1,139 buffers 14.2 ms (8.5×); the planner
+  decomposes `A OR (B AND (C OR D))` itself, so the query needed NO
+  restructure. Additive only, no data change; plain CREATE INDEX (not
+  CONCURRENTLY — cannot run in a migration transaction) is safe because the
+  table holds 0 rows in staging and prod until #899/#900 start sending. No
+  retention-policy row change (indexes on an existing table).
 - **111** — `platform_halt_reason`: a third SYSTEM **Halt latch** reason (#917;
   amendment B14's gap, deferred from #900, which shipped the
   `SolicitationReleasePoller` without a migration). **Two additive changes, no
