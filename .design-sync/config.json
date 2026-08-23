@@ -1,0 +1,86 @@
+{
+  "projectId": "073784cf-a182-434c-b81f-3dea88f55b64",
+  "shape": "package",
+  "pkg": "repworth",
+  "globalName": "RepWorth",
+  "entry": ".design-sync/entry.tsx",
+  "tsconfig": "./tsconfig.sync.json",
+  "srcDir": "../src/components",
+  "cssEntry": "./.cache/compiled.css",
+  "extraFonts": [
+    "./fonts.css"
+  ],
+  "provider": {
+    "component": "PreviewProviders"
+  },
+  "guidelinesGlob": [
+    "design-docs/*.md"
+  ],
+  "componentSrcMap": {
+    "FeatAutopilot": "../src/components/sections/features/FeatAutopilot.tsx",
+    "FeatGate": "../src/components/sections/features/FeatGate.tsx",
+    "FeatGuardian": "../src/components/sections/features/FeatGuardian.tsx",
+    "FeatInsights": "../src/components/sections/features/FeatInsights.tsx",
+    "FeatIntro": "../src/components/sections/features/FeatIntro.tsx",
+    "FeatLang": "../src/components/sections/features/FeatLang.tsx",
+    "FeatReply": "../src/components/sections/features/FeatReply.tsx",
+    "FeatRoi": "../src/components/sections/features/FeatRoi.tsx",
+    "FeatVoice": "../src/components/sections/features/FeatVoice.tsx",
+    "FeatWatchdogs": "../src/components/sections/features/FeatWatchdogs.tsx",
+    "FeaturesContent": "../src/components/sections/features/FeaturesContent.tsx",
+    "RoadmapBand": "../src/components/sections/features/RoadmapBand.tsx",
+    "DraftArtifact": "../src/components/sections/how-it-works/DraftArtifact.tsx",
+    "GateArtifact": "../src/components/sections/how-it-works/GateArtifact.tsx",
+    "HeroWash": "../src/components/sections/how-it-works/HeroWash.tsx",
+    "HowItWorksContent": "../src/components/sections/how-it-works/HowItWorksContent.tsx",
+    "JudgeArtifact": "../src/components/sections/how-it-works/JudgeArtifact.tsx",
+    "PostArtifact": "../src/components/sections/how-it-works/PostArtifact.tsx",
+    "StatCards": "../src/components/sections/how-it-works/StatCards.tsx",
+    "TriageArtifact": "../src/components/sections/how-it-works/TriageArtifact.tsx",
+    "WatchArtifact": "../src/components/sections/how-it-works/WatchArtifact.tsx",
+    "LandingExperience": "../src/components/sections/landing/LandingExperience.tsx",
+    "AgentFlipCard": "../src/components/sections/landing/agent-flip-card.tsx",
+    "AmbientMotionProvider": "../src/components/sections/landing/ambient-motion.tsx",
+    "AmbientMotionToggle": "../src/components/sections/landing/ambient-motion.tsx",
+    "AmbientVideo": "../src/components/sections/landing/ambient-motion.tsx",
+    "CtaSection": "../src/components/sections/landing/cta/CtaSection.tsx",
+    "FleetSection": "../src/components/sections/landing/fleet/FleetSection.tsx",
+    "VideoLightbox": "../src/components/sections/landing/fleet/VideoLightbox.tsx",
+    "LandingFooter": "../src/components/sections/landing/footer/LandingFooter.tsx",
+    "FutureSection": "../src/components/sections/landing/future/FutureSection.tsx",
+    "HeroSection": "../src/components/sections/landing/hero/HeroSection.tsx",
+    "PersonasSection": "../src/components/sections/landing/personas/PersonasSection.tsx",
+    "WatchdogsSection": "../src/components/sections/landing/watchdogs/WatchdogsSection.tsx",
+    "LeadIntakeForm": "../src/components/sections/lead-intake/LeadIntakeForm.tsx",
+    "BrandLogo": "../src/components/ui/BrandLogo.tsx",
+    "LiveRegion": "../src/components/ui/LiveRegion.tsx",
+    "MarqueeBackground": "../src/components/ui/MarqueeBackground.tsx",
+    "PageShell": "../src/components/ui/PageShell.tsx",
+    "SiteFooter": "../src/components/ui/SiteFooter.tsx",
+    "SiteNav": "../src/components/ui/SiteNav.tsx",
+    "SiteShell": "../src/components/ui/SiteShell.tsx",
+    "TiltCard": "../src/components/ui/be-ui-tilt-card.tsx",
+    "PreviewProviders": null
+  },
+  "overrides": {
+    "VideoLightbox": {
+      "cardMode": "single",
+      "viewport": "1000x640"
+    },
+    "PageShell": {
+      "cardMode": "single",
+      "primaryStory": "WithContent",
+      "viewport": "1100x560"
+    },
+    "MarqueeBackground": {
+      "cardMode": "single"
+    },
+    "HeroWash": {
+      "cardMode": "single"
+    },
+    "AmbientVideo": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
