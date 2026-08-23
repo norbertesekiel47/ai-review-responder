@@ -5246,7 +5246,16 @@ measures the diff, not the lane · `it.fails` is not evidence without a sensitiv
 
 ### Follow-ups
 
-**#917** B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening).
+**#917** B14's gap — a halt-aware send window OR a distinct `platform_halt` reason.
+**CLOSED by #926 (2026-08-22), and it took the SECOND option**: migration 111 widened 091's
+halt-reason CHECK and 110's outreach disposition CHECK to admit `platform_halt`, adding it to
+the REASON list and deliberately not to the ACTOR list, so it is a third actor-less
+`SystemHaltReason` needing no new actor semantics. The halt-aware window was NOT built and must
+not be revisited casually: B14's argument against it stands — holding batches past their window
+blows past the "≤10 days by construction" bound `STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` derives
+from. The sweep still runs on the same 72h clock; `resolveWindowHaltReason` reads the breaker once
+per tick and picks which reason it writes, through the ONE sanctioned `try/catch` around
+`readSendBreaker` — label-only, because a rethrow would stop the sweep and reopen #915's wedge.
 **#923** the §7.1 yield-to-transactional obligation — **split out of #917 on 2026-08-22**, because
 implementing #917's send window would have closed it silently. Different trigger, different fix.
 **CLOSED by ADR 0022**: the refusal is recorded rather than the yield built. Two per minute against
