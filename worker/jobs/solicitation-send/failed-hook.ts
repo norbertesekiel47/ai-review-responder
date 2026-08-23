@@ -37,6 +37,7 @@ import type { Job } from 'bullmq';
 import type { Sql, TransactionSql } from 'postgres';
 import { completeRun } from '@/lib/agents/run-spine';
 import { acquireSolicitationBatchLock } from '@/lib/solicitation/batch-builder';
+import { DISPATCHED_ARRIVAL_STATUSES } from '@/lib/solicitation/delivery-status';
 import { closeBatchIfSettled } from '@/lib/solicitation/outreach';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { extractOutboxHandle, markOutboxFailed } from '@/lib/shared/outbox';
@@ -77,17 +78,21 @@ const TERMINAL_BY_ARRIVAL = {
     childStatus: 'failed',
     failureClass: 'send_indeterminate',
   },
-} as const;
+  // `satisfies` + the guard's own `satisfies` tie this record's keys and
+  // `DISPATCHED_ARRIVAL_STATUSES` together in BOTH directions (#890).
+} as const satisfies Record<(typeof DISPATCHED_ARRIVAL_STATUSES)[number], unknown>;
 
 type TerminalArrivalStatus = keyof typeof TERMINAL_BY_ARRIVAL;
 
-/** The two live statuses a dispatched job can leave behind. `rendered` is
- *  deliberately absent (that row was never dispatched, and 091's
- *  status/timestamp CHECK would then record a dispatch that never happened),
- *  and so is every terminal status, which belongs to whichever writer got
- *  there first. */
+/** The arrivals a dispatched job can leave behind, derived from the named
+ *  owner (`DISPATCHED_ARRIVAL_STATUSES`, #890). `rendered` is deliberately
+ *  absent (that row was never dispatched, and 091's status/timestamp CHECK
+ *  would then record a dispatch that never happened), and so is every terminal
+ *  status, which belongs to whichever writer got there first. The `satisfies`
+ *  pins the constant to the record's keys, so the two cannot drift apart. */
 function isTerminalizableArrival(status: string): status is TerminalArrivalStatus {
-  return status === 'queued' || status === 'sending';
+  const arrivals = DISPATCHED_ARRIVAL_STATUSES satisfies readonly TerminalArrivalStatus[];
+  return (arrivals as readonly string[]).includes(status);
 }
 
 function isSendAttemptExhausted(job: Job<SolicitationSendPayload>): boolean {

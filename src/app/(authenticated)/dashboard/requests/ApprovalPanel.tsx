@@ -13,6 +13,10 @@ import type {
   HaltReason,
   SendLaneView,
 } from '@/lib/solicitation/batch-view';
+import {
+  isCancellableDeliveryStatus,
+  type WITHDRAWABLE_BATCH_STATES,
+} from '@/lib/solicitation/delivery-status';
 import { ApprovalActions, type ApprovalVerb } from './ApprovalActions';
 import {
   AskList,
@@ -140,10 +144,12 @@ function ModerationWithheldNote({ count }: { count: number }) {
  * haltable arm can be exhaustive over exactly them. A fourth state routed here
  * is then a compile error in BOTH places, instead of inheriting the `approved`
  * sentence and telling the owner nothing has left while it is sending.
+ * Derived from the named owner (`WITHDRAWABLE_BATCH_STATES`, #890) so this
+ * mirror can no longer drift from `isWithdrawableState`'s server-side list.
  */
 type HaltableState = Extract<
   SendLaneView['batchState'],
-  'veto_window' | 'approved' | 'sending'
+  (typeof WITHDRAWABLE_BATCH_STATES)[number]
 >;
 
 type PanelMode =
@@ -972,13 +978,13 @@ interface ArmedWithdrawal {
  * re-render it triggers sees `null` and does not write again.
  *
  * `rows` is EVERY row of the current render, because that is the list the
- * withdrawable screen shows; the live subset — `rendered`/`queued`, the two
- * statuses that get a control — is derived here because arming is only ever
- * offered from it, so it is the list a stale arming is judged against.
+ * withdrawable screen shows; the live subset — `CANCELLABLE_DELIVERY_STATUSES`,
+ * the statuses that get a control — is derived here because arming is only
+ * ever offered from it, so it is the list a stale arming is judged against.
  */
 function useArmedWithdrawal(rows: readonly AskRowView[]): ArmedWithdrawal {
   const live = useMemo(
-    () => rows.filter((row) => row.deliveryStatus === 'rendered' || row.deliveryStatus === 'queued'),
+    () => rows.filter((row) => isCancellableDeliveryStatus(row.deliveryStatus)),
     [rows],
   );
   const [armedAskId, setArmedAskId] = useState<string | null>(null);
