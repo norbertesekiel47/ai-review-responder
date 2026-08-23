@@ -127,7 +127,7 @@ Self-verifying by design; no hardcoded SHAs, because the commit writing this fil
 
 ## Deferred, filed, do not fix here
 
-- **#917** — B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening).
+- **#917** — B14's halt-aware send window / `platform_halt` reason (needs a 091 CHECK widening). **CLOSED by #926 (2026-08-22)** — the `platform_halt` reason, not the halt-aware window. Migration 111 widened both CHECKs; the sweep keeps its 72h clock.
 - **#923** — the §7.1 yield-to-transactional obligation. **Split out of #917 on 2026-08-22** and no longer part of it: #917's subject is the send window, so implementing that would have taken this obligation with it silently. Closed by ADR 0022 (rate cap accepted, yield not built, four dials pinned).
 - **#918** — no CI audit enforces the `env-vars.md` registry row; the house rule is convention only.
 - **#919** — ~~release-phase counter object + `stopPhase`~~ **DISCHARGED at step 8** (the fallow gate forced it; `ReleaseCounters` + `capacityStop` + the two extracted arms). Still open: `seedUpload` hand-copied in SIX test files; no `CONTEXT.md` term for the release lane; the sub-default configured-cap gap; the subscription gate's structural shape; **and new — extract a shared `lockBatchForHalt` preamble** for `haltBatch`/`adminHaltBatch` (clone `dup:ddc3f485`, pre-existing on `main`, out of #900's scope).
