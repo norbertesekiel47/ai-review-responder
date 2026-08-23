@@ -6,10 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 7** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards and
-#893 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is test-only
-and does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+**Merges since last architecture pass: 8** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893
+and #909 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is
+test-only and does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -49,6 +49,25 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **refactor #909** — the admin gate→parse→400 preamble extracted, AND
+  `ci:admin-aal2` widened by one gate shape, in one PR (2026-08-23; follow-up
+  B3.11 from #898). `requireAdminJson(request, schema)` composes
+  `requireAdminWithAal2` inside `src/lib/auth/admin-mfa-gate.ts` — no new file —
+  and `admin/autonomy/unsuspend`, `admin/solicitation/batch/halt` and
+  `admin/solicitation/breaker/reset` now call it. **The audit change is the half
+  that makes this legitimate**: `GATE_JSON_FN` is a THIRD recognized gate shape,
+  credited only when bound by an import from the canonical module, with the
+  fail-closed posture unchanged — a different wrapper from the same module is
+  still a finding. The identical extraction was built and reverted during #898
+  step 8 for want of exactly this half; **the revert was correct**, and the
+  lesson recorded in lab-notes [2026-08-21] stands for the next preamble. The
+  `.fallowrc.jsonc` acknowledgement is removed and `ci:fallow` is green without
+  it (8 changed files, 0 duplication findings). 9 new audit cases pin both
+  directions of the widening; 7 new helper cases pin that both 400 shapes and
+  the gate's own 401/403/500 arms are byte-identical to what the three routes
+  spelled by hand. No route test needed editing — they mock the auth PRIMITIVES,
+  which is the shape lab-notes [2026-08-21] prescribed after the first attempt.
+  **Counts: +1 production merge.**
 - **fix #893** — the admin read fan-out bounded, and the enumerated pins replaced
   by a rule (2026-08-23). **Part 1 grew from two subjects to four**: the ticket
   named `lookupSuppressions` (`suppressions-service.ts:72`) and

@@ -917,3 +917,128 @@ describe('auditRoutes / auditPages — the composed passes', () => {
     expect(pass.findings.some((f) => f.includes('login/page.tsx'))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The THIRD recognized gate shape: requireAdminJson (#909, follow-up B3.11)
+// ---------------------------------------------------------------------------
+//
+// Widening a fail-closed security allowlist earns its own block. These cases
+// pin BOTH directions: the new shape is credited where it should be, and every
+// property that made the allowlist worth having still holds — provenance, a
+// CALL rather than an import, and silence on anything unrecognized.
+//
+// The helper was built and reverted once during #898 step 8, when all three
+// routes went red the moment their preamble moved behind it. That was the audit
+// working. This block is what makes the second attempt legitimate rather than a
+// repeat with the guard turned down.
+
+describe('scanRouteFile — requireAdminJson, the third recognized gate shape (#909)', () => {
+  const adminPath = 'src/app/api/admin/solicitation/breaker/reset/route.ts';
+
+  const route = (importLine: string, callLine = '  const gate = await requireAdminJson(request, ResetSchema);') =>
+    [
+      importLine,
+      "import { withSameOrigin } from '@/lib/auth/route-helpers';",
+      '',
+      'async function reset(request: Request) {',
+      callLine,
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ reset: true });',
+      '}',
+      '',
+      'export const POST = withSameOrigin()(reset);',
+    ].join('\n');
+
+  it('credits a CALL to requireAdminJson imported from the canonical module', () => {
+    const text = route("import { requireAdminJson } from '@/lib/auth/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('credits it through a relative specifier for the same module', () => {
+    const text = route("import { requireAdminJson } from '../../../../../lib/auth/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('PROVENANCE: the same name imported from another module earns nothing → FINDING', () => {
+    // The whole difference between widening an allowlist and opening a hole.
+    const text = route("import { requireAdminJson } from './evil';");
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('requireAdminJson');
+  });
+
+  it('PROVENANCE: an alias that renames something else INTO the gate name earns nothing', () => {
+    const text = route("import { somethingElse as requireAdminJson } from '@/lib/auth/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(1);
+  });
+
+  it('an UNUSED import of requireAdminJson does not clear an ungated POST', () => {
+    // Same rule requireAdminWithAal2 carries: a gate must be CALLED. An import
+    // left behind after the call site was deleted is not a gate.
+    const text = [
+      "import { requireAdminJson } from '@/lib/auth/admin-mfa-gate';",
+      '',
+      'export const POST = async (request: Request) => {',
+      '  return Response.json({ ok: true });',
+      '};',
+    ].join('\n');
+    expect(scanRouteFile(adminPath, text)).toHaveLength(1);
+  });
+
+  it('FAIL-CLOSED IS UNCHANGED: a DIFFERENT wrapper from the canonical module is still a FINDING', () => {
+    // The allowlist grew by exactly one name. A helper that merely lives beside
+    // the recognized ones — however plausibly named — is still invisible to this
+    // audit, and still reported.
+    const text = route(
+      "import { requireAdminEverything } from '@/lib/auth/admin-mfa-gate';",
+      '  const gate = await requireAdminEverything(request, ResetSchema);',
+    );
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('UNRECOGNIZED imported wrapper');
+  });
+
+  it('the deny rule still outranks it: requireAdminJson plus resolveOwnerActor is a FINDING', () => {
+    const text = [
+      "import { requireAdminJson } from '@/lib/auth/admin-mfa-gate';",
+      "import { resolveOwnerActor } from '@/app/api/_shared/channels/resolve-actor';",
+      '',
+      'export const POST = async (request: Request) => {',
+      '  const gate = await requireAdminJson(request, S);',
+      '  if (!gate.ok) return gate.response;',
+      '  return runner(request, { resolveActor: resolveOwnerActor });',
+      '};',
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('resolveOwnerActor');
+  });
+
+  it('verb scoping survives: a POST gated with requireAdminJson does NOT clear a sibling DELETE', () => {
+    const text = [
+      "import { requireAdminJson } from '@/lib/auth/admin-mfa-gate';",
+      '',
+      'export const POST = async (request: Request) => {',
+      '  const gate = await requireAdminJson(request, S);',
+      '  if (!gate.ok) return gate.response;',
+      '  return Response.json({ ok: true });',
+      '};',
+      '',
+      'export async function DELETE(request: Request) {',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('DELETE');
+  });
+
+  it('the finding message names BOTH recognized gate calls, so the fix is readable', () => {
+    const text = [
+      'export const POST = async (request: Request) => Response.json({ ok: true });',
+    ].join('\n');
+    const findings = scanRouteFile(adminPath, text);
+    expect(findings[0]).toContain('requireAdminWithAal2');
+    expect(findings[0]).toContain('requireAdminJson');
+  });
+});

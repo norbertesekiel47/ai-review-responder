@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { AutonomyAccountNotFoundError } from '@/lib/auto-approval/account-lock';
 import { unsuspendAccountAutonomy } from '@/lib/auto-approval/suspension';
-import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -15,31 +15,14 @@ const UnsuspendSchema = z.strictObject({
 });
 
 async function unsuspend(request: NextRequest): Promise<NextResponse> {
-  const gate = await requireAdminWithAal2(request);
+  const gate = await requireAdminJson(request, UnsuspendSchema);
   if (!gate.ok) return gate.response;
-
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = UnsuspendSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
 
   try {
     const result = await sql.begin((tx) => unsuspendAccountAutonomy(tx, {
-      accountId: parsed.data.accountId,
+      accountId: gate.data.accountId,
       actorUserId: gate.admin.id,
-      note: parsed.data.note,
+      note: gate.data.note,
     }));
     if (!result.unsuspended) {
       return NextResponse.json(

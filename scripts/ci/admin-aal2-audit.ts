@@ -11,9 +11,10 @@
 // It enforces two contracts:
 //
 //   ROUTES (src/app/api/admin/**/route.ts) — every EXPORTED state-mutating
-//   handler (POST | PUT | PATCH | DELETE) must reach an admin MFA gate:
-//   a CALL to `requireAdminWithAal2`, or a binding of `resolveAdminActor`
-//   (whose own first act is that call). Per HANDLER, not per file.
+//   handler (POST | PUT | PATCH | DELETE) must reach an admin MFA gate: a CALL
+//   to `requireAdminWithAal2`, a CALL to `requireAdminJson` (which composes it —
+//   see GATE_JSON_FN, added by #909), or a binding of `resolveAdminActor` (whose
+//   own first act is that call). Per HANDLER, not per file.
 //
 //   PAGES (src/app/admin/**/page.tsx) — read-gate parity with the sibling API
 //   route. See "The page contract" below.
@@ -53,14 +54,19 @@
 // GATE SHAPES, and an unrecognized shape is a FINDING, not a pass — the same
 // posture ci:outbox-seam takes for an INSERT whose topic it cannot read
 // ("silence on an unrecognized shape is how a guard becomes decorative").
-// A handler that delegates to an opaque imported function has no gate this
-// audit can see, so it is reported. That is why the renaming-re-export never
-// needed cross-file resolution: the alias is not a recognized gate, so binding
-// it fails for the same reason binding anything unknown fails.
+// A handler that delegates to an UNRECOGNIZED imported function has no gate
+// this audit can see, so it is reported. That is why the renaming-re-export
+// never needed cross-file resolution: the alias is not a recognized gate, so
+// binding it fails for the same reason binding anything unknown fails.
 //
-// PROVENANCE closes the last gap in the allowlist. `resolveAdminActor` and
-// `requireAdminWithAal2` are credited only when the local name is bound by an
-// import from the canonical module, so
+// The allowlist has THREE entries, and growing it is a deliberate act with its
+// own review — never a side effect of a refactor that wanted the wrapper. #909
+// is the worked example: the identical helper was built and reverted once
+// because it arrived without this half.
+//
+// PROVENANCE closes the last gap in the allowlist. `resolveAdminActor`,
+// `requireAdminWithAal2` and `requireAdminJson` are credited only when the local
+// name is bound by an import from the canonical module, so
 // `import { somethingElse as resolveAdminActor } from './evil'` earns nothing.
 // (The same-file alias `import { resolveOwnerActor as resolveAdminActor }` is
 // caught by the deny rule instead — the literal `resolveOwnerActor` survives on
@@ -140,6 +146,33 @@ import ts from 'typescript';
 const MUTATION_VERBS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
 
 const GATE_FN = 'requireAdminWithAal2';
+
+/**
+ * The second recognized gate CALL (#909, follow-up B3.11). `requireAdminJson`
+ * lives beside `requireAdminWithAal2` in the canonical module and COMPOSES it:
+ * gate → `request.json()` → `schema.safeParse` → the two 400 shapes. Three admin
+ * mutation routes shared that preamble verbatim.
+ *
+ * ADDING IT IS A DELIBERATE WIDENING OF THIS ALLOWLIST, not a bypass, and the
+ * distinction is provenance. It is credited only when the local name is bound by
+ * an import from `admin-mfa-gate` — the same check `requireAdminWithAal2` and
+ * `resolveAdminActor` carry — so `import { requireAdminJson } from './evil'`
+ * still earns nothing, and every OTHER imported wrapper is still a finding.
+ * The property this audit protects is unchanged: you can read an admin handler
+ * and see a gate whose implementation this audit has vetted.
+ *
+ * The history matters, because it is what says this is not a rubber stamp: the
+ * identical extraction was built and REVERTED during #898 step 8, when all three
+ * routes failed this audit the moment their preamble moved. The revert was
+ * correct — clearing them THEN would have meant widening a security control to
+ * satisfy a duplication linter, mid-branch. #909 carries both halves under one
+ * review instead.
+ */
+const GATE_JSON_FN = 'requireAdminJson';
+
+/** Every gate CALL this audit recognizes. Both provenance-checked to `admin-mfa-gate`. */
+const GATE_FNS = [GATE_FN, GATE_JSON_FN] as const;
+
 const ADMIN_RESOLVER = 'resolveAdminActor';
 const OWNER_RESOLVER = 'resolveOwnerActor';
 const PAGE_GATE_FN = 'requireAdminPage';
@@ -343,12 +376,11 @@ function collectGateEvidence(index: ModuleIndex, start: ts.Node): GateEvidence {
   while (queue.length > 0) {
     const root = queue.pop()!;
     const visit = (node: ts.Node): void => {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        importedAs(index, node.expression, GATE_FN, isGateModule)
-      ) {
-        evidence.callsGate = true;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const callee = node.expression;
+        if (GATE_FNS.some((fn) => importedAs(index, callee, fn, isGateModule))) {
+          evidence.callsGate = true;
+        }
       }
 
       if (isValueIdentifier(node)) {
@@ -431,9 +463,10 @@ export function scanRouteFile(path: string, text: string): string[] {
     const evidence = collectGateEvidence(index, node);
     if (evidence.callsGate || evidence.bindsAdminResolver) continue;
     findings.push(
-      `${path} [admin-aal2] mutation handler ${verb} must use ${GATE_FN} — no call to it, and no ` +
-        `${ADMIN_RESOLVER} binding, is reachable from this handler. A gate hidden behind an ` +
-        `imported wrapper is not visible to this audit and does not count.`,
+      `${path} [admin-aal2] mutation handler ${verb} must use ${GATE_FN} or ${GATE_JSON_FN} — no ` +
+        `call to either, and no ${ADMIN_RESOLVER} binding, is reachable from this handler. A gate ` +
+        'hidden behind an UNRECOGNIZED imported wrapper is not visible to this audit and does not ' +
+        'count; the three recognized shapes must be imported from their canonical modules.',
     );
   }
   return findings;
