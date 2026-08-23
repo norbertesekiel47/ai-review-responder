@@ -84,6 +84,7 @@ import {
 import { SolicitationAskOutputSchema } from './ask-schema';
 import { resolveVertical } from './restraint-policy';
 import {
+  canonicalBatchId,
   closeBatchIfSettled,
   deriveBatchState,
   insertOutreachRender,
@@ -1303,6 +1304,12 @@ export async function regenerateAsk(
   const logger = createWorkerLogger('[AskRegeneration]', input.correlationId);
   const { outboxId } = input.outboxHandle;
   const attempt = requireAttempt(input.outboxHandle, 'regenerate_solicitation_ask');
+  // X18: canonicalise ONCE, at the entry point, and never at a SQL site.
+  // `loadBatchContext` round-trips the id through Postgres, so `ctx.batchId`
+  // below is already canonical — by ACCIDENT, in two hops. This makes it
+  // structural, and it is the same one-line guard `approval.ts`'s five verbs
+  // have carried since a mixed-case id threw a 500 there.
+  const batchId = canonicalBatchId(input.batchId);
 
   const refuse = async (
     reason: string,
@@ -1310,7 +1317,7 @@ export async function regenerateAsk(
   ): Promise<void> => {
     await completeOutboxNoop(sql, outboxId, attempt);
     logger.log('ask regeneration refused', {
-      batch_id: input.batchId,
+      batch_id: batchId,
       ask_id: input.askId,
       reason,
       ...detail,
@@ -1336,7 +1343,7 @@ export async function regenerateAsk(
     throw err; // Redis transport failure → BullMQ retry
   }
 
-  const ctx = await loadBatchContext(sql, input.batchId, input.businessId);
+  const ctx = await loadBatchContext(sql, batchId, input.businessId);
   if (!ctx) {
     await refuse('batch_missing');
     return;
@@ -1575,6 +1582,14 @@ export async function settleGenerationExhaustion(
     input.outboxHandle,
     'generate_solicitation_asks dead-letter',
   );
+  // X18, and the reason this fix exists. Before it, ONE transaction bound the
+  // SAME id two ways: `WHERE id = $1::uuid` (cast, case-insensitive → the
+  // batch is found and locked) and `AND subject_id = $1` (raw TEXT → the send
+  // parent is MISSED). Every filled hole then took `agentRunId: null`, the
+  // generation steps were skipped, and `closeBatchIfSettled` forty lines later
+  // DID find the parent — two readers of one key, in one transaction,
+  // disagreeing. Silently.
+  const batchId = canonicalBatchId(input.batchId);
   return sql.begin(async (tx) => {
     // CAS FIRST — only the owner of the exact dispatched attempt may settle;
     // a stale hook (the watchdog already re-dispatched) writes nothing.
@@ -1590,7 +1605,7 @@ export async function settleGenerationExhaustion(
     const [batch] = await tx<{ account_id: string }[]>`
       SELECT account_id
       FROM solicitation_batches
-      WHERE id = ${input.batchId}::uuid
+      WHERE id = ${batchId}::uuid
         AND business_id = ${input.businessId}::uuid
       FOR UPDATE
     `;
@@ -1615,7 +1630,7 @@ export async function settleGenerationExhaustion(
         ON o.ask_id = ask.id
        AND o.account_id = ${accountId}::uuid
        AND o.business_id = ${input.businessId}::uuid
-      WHERE ask.batch_id = ${input.batchId}::uuid
+      WHERE ask.batch_id = ${batchId}::uuid
         AND ask.account_id = ${accountId}::uuid
         AND ask.business_id = ${input.businessId}::uuid
         AND ask.status = 'send'
@@ -1629,7 +1644,7 @@ export async function settleGenerationExhaustion(
       SELECT id FROM agent_runs
       WHERE kind = 'solicitation_send_batch'
         AND subject_type = 'solicitation_batch'
-        AND subject_id = ${input.batchId}
+        AND subject_id = ${batchId}
         AND account_id = ${accountId}::uuid
         AND business_id = ${input.businessId}::uuid
       ORDER BY started_at DESC
@@ -1642,7 +1657,7 @@ export async function settleGenerationExhaustion(
       await insertOutreachRender(tx, {
         accountId,
         businessId: input.businessId,
-        batchId: input.batchId,
+        batchId,
         askId: hole.ask_id,
         contactId: hole.contact_id,
         attemptNo: hole.next_attempt,
@@ -1670,17 +1685,17 @@ export async function settleGenerationExhaustion(
         parentRunId: parent.id,
         accountId,
         businessId: input.businessId,
-        batchId: input.batchId,
+        batchId,
       });
     }
 
     const tally = await readRenderTally(tx, {
-      batchId: input.batchId,
+      batchId,
       accountId,
       businessId: input.businessId,
     });
     const close = await closeBatchIfSettled(tx, {
-      batchId: input.batchId,
+      batchId,
       accountId,
       businessId: input.businessId,
       ...(tally.alive === 0

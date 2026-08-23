@@ -63,6 +63,38 @@ export const BATCH_SEND_WINDOW_HOURS = 72;
  */
 export const UNKNOWN_GRACE_MINUTES = 60;
 
+/**
+ * The batch id in the ONE form Postgres renders a uuid in — lower case.
+ *
+ * `agent_runs.subject_id` is TEXT (migration 071), so every compare against it
+ * is case-SENSITIVE, while every `::uuid` cast normalises. `isValidUuid` — the
+ * validator the routes use — accepts upper case, so a mixed-case request id
+ * matched the batch row (`b.id = $1::uuid`) and MISSED that batch's send
+ * parent: `approveBatch` threw a 500 and `haltBatch` silently dropped its
+ * `batch_halted` step. Canonicalise ONCE at the entry point and use the result
+ * for every id below — including the `closeBatchIfSettled` argument, whose own
+ * parent lookup is the same text compare on the same column.
+ *
+ * Cheaper and narrower than a SQL-side `$1::uuid::text`, which would fix only
+ * the statement it is spelled on and leave the next text compare to rediscover
+ * this. A malformed id still fails at the first `::uuid` cast exactly as before.
+ *
+ * IT OWNS THE CANONICALISATION AND NOTHING ELSE. The send-parent QUERY is
+ * legitimately two functions and must stay that way:
+ * `findActiveSolicitationSendBatchRun` asks *"is there an ACTIVE parent"*
+ * (`status = 'running'`, no ordering); every other site asks *"the LATEST
+ * parent"* (`ORDER BY started_at DESC LIMIT 1`). Different questions — see the
+ * DO-NOT-UNIFY register in `docs/reviews/PATHFINDER-2026-08-22/`.
+ *
+ * HERE rather than in `approval.ts`, where it was born module-private: this
+ * file already lowercased the same key inside `closeBatchIfSettled`, and both
+ * of the other callers already import from it. One owner, three callers, no
+ * new file.
+ */
+export function canonicalBatchId(batchId: string): string {
+  return batchId.toLowerCase();
+}
+
 /** Fixed precedence, highest first. */
 export const BATCH_STATES = [
   'halted',
@@ -331,7 +363,7 @@ export async function closeBatchIfSettled(
   tx: TransactionSql,
   input: CloseBatchIfSettledInput,
 ): Promise<CloseBatchIfSettledResult> {
-  const batchId = input.batchId.toLowerCase();
+  const batchId = canonicalBatchId(input.batchId);
   const [batch] = await tx<BatchClosureRow[]>`
     SELECT
       halted_at IS NOT NULL AS halted,

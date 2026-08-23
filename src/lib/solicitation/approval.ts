@@ -67,6 +67,7 @@ import { writeAccountAuditLog } from '@/lib/audit/log';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import {
+  canonicalBatchId,
   closeBatchIfSettled,
   deriveBatchState,
   type BatchLifecycleRow,
@@ -130,26 +131,6 @@ export function ownerHaltReason(state: BatchState): OwnerHaltReason {
 
 interface BatchActionRow extends BatchLifecycleRow {
   send_parent_run_id: string | null;
-}
-
-/**
- * The batch id in the ONE form Postgres renders a uuid in — lower case.
- *
- * `agent_runs.subject_id` is TEXT (migration 071), so every compare against it
- * is case-SENSITIVE, while every `::uuid` cast normalises. `isValidUuid` — the
- * validator the routes use — accepts upper case, so a mixed-case request id
- * matched the batch row (`b.id = $1::uuid`) and MISSED that batch's send
- * parent: `approveBatch` threw a 500 and `haltBatch` silently dropped its
- * `batch_halted` step. Canonicalise ONCE at the entry point and use the result
- * for every id below — including the `closeBatchIfSettled` argument, whose own
- * parent lookup is the same text compare on the same column.
- *
- * Cheaper and narrower than a SQL-side `$1::uuid::text`, which would fix only
- * the statement it is spelled on and leave the next text compare to rediscover
- * this. A malformed id still fails at the first `::uuid` cast exactly as before.
- */
-function canonicalBatchId(batchId: string): string {
-  return batchId.toLowerCase();
 }
 
 /**
