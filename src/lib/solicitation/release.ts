@@ -170,12 +170,27 @@ export interface ReleaseCycleOptions {
 /**
  * The drip's pacing lever, and the only one this lane owns.
  *
- * The deliverability spec §7.1 asks dispatch to yield to transactional mail on
+ * The deliverability spec §7.1 asks dispatch to YIELD to transactional mail on
  * the shared 10 req/s Resend TEAM limit. The releaser is the only producer of
  * `solicitation_send` jobs, so bounding its output per tick is the scheduling
  * act available to it. At a 60s cadence a full 10-row account daily cap drips
  * over five minutes. True priority-yielding against a shared limiter is NOT
  * built here.
+ *
+ * **THAT IS A REFUSAL, AND IT IS RECORDED RATHER THAN IMPLIED — ADR 0022
+ * (#923).** This is a rate CAP, not a yield: it is open-loop and never reads
+ * what the transactional lane is doing, so under a transactional spike it does
+ * not defer, because it cannot see one. The ADR accepts that, and the
+ * arithmetic is why: 10 req/s is ~864,000 sends/day, §3.3's ramp tops out at a
+ * 5,000/day platform ceiling (~0.6% of the limit), and two per minute is
+ * 0.033 req/s (~0.33%). Two per minute against ten per second is not
+ * contention.
+ *
+ * **RAISING THIS NUMBER SPENDS THAT REFUSAL**, and it is one of four dials that
+ * do — the others are the poll interval, send-worker concurrency, and any
+ * second producer on the same Resend team.
+ * `__tests__/dispatch-rate-bound.test.ts` pins all of them and fails with the
+ * ADR named, so the change lands on a human rather than in a diff.
  */
 export const RELEASE_PER_TICK_BUDGET = 2;
 
