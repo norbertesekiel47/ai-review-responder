@@ -372,6 +372,27 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     await expect(unknown.json()).resolves.toEqual({ error: 'Not found' });
   });
 
+  it('reports closed: false when the close wrote nothing (no_send_parent) — #891', async () => {
+    // The reachable defect: an all-withheld `built` batch has no send parent
+    // and is haltable. `closeBatchIfSettled` answers `no_send_parent` — nothing
+    // was written, `send_closed_at` stays NULL — and the old negation proxy
+    // (`!== 'not_settled'`) reported that as `closed: true`.
+    mockHaltBatch.mockResolvedValue({
+      status: 'halted',
+      reason: 'owner_veto',
+      cancelledCount: 1,
+      close: { status: 'no_send_parent' },
+    });
+
+    const response = await HALT(post('halt'));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'halted',
+      closed: false,
+    });
+  });
+
   // Round-2 standards finding F10: both routes serialised the domain union, so
   // `close.parentRunId` — an internal agent_runs UUID — reached the browser
   // against ADR 0012's no-internal-id posture on this surface. The routes now
@@ -614,6 +635,22 @@ describe('POST /api/dashboard/solicitation/batch/withdraw', () => {
     const unknown = await WITHDRAW(post('withdraw'));
     expect(unknown.status).toBe(404);
     await expect(unknown.json()).resolves.toEqual({ error: 'Not found' });
+  });
+
+  it('withdraw reports closed: false when the close wrote nothing (no_send_parent) — #891', async () => {
+    mockWithdrawAsk.mockResolvedValue({
+      status: 'withdrawn',
+      remainingLive: 0,
+      close: { status: 'no_send_parent' },
+    });
+
+    const response = await WITHDRAW(post('withdraw'));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'withdrawn',
+      closed: false,
+    });
   });
 
   it('withdraw route answers 404 to a body without a valid batchId and askId', async () => {

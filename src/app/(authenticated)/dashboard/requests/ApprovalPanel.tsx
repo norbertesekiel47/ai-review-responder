@@ -565,8 +565,9 @@ function toRefusedState(value: unknown): RefusedState | null {
 type LaneOutcome =
   /** The server settled the request: 2xx, carrying its result discriminant
    *  and, for the verbs that report one, its counts. `remainingLive`/`closed`
-   *  are read from the body when present and `null` otherwise — approve, halt
-   *  and regenerate do not send them. */
+   *  are read from the body when present and `null` otherwise. Only
+   *  `remainingLive` is withdraw-exclusive; `closed` is sent by approve, halt
+   *  AND withdraw (each route's `toWire`), and regenerate sends neither. */
   | { kind: 'done'; status: LaneStatus | null; remainingLive: number | null; closed: boolean | null }
   /**
    * The server refused with a reason worth repeating (400 / 409 / 429).

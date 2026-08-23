@@ -462,6 +462,9 @@ async function runBackstopJoin(sql: Sql, scanLimit: number): Promise<PhaseTally>
           }),
         ),
     );
+    // NOT `batchDidClose` (outreach.ts), deliberately: that predicate answers
+    // "is the batch closed?" for a RECEIPT, so it counts `already_closed` — a
+    // race loser, not an event — and would double-count it into this tally.
     if (result?.status === 'closed') tally.handled += 1;
   }
   return tally;
