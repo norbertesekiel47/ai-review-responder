@@ -742,12 +742,15 @@ const GOOGLE_WRITE_REVIEW_URL_PREFIX = 'https://search.google.com/local/writerev
 /**
  * The business's review link, or a THROW — there is no third answer.
  *
- * No new withheld reason (that needs a migration this ticket does not own) and
- * no eighth gate item (B6/B14 lock the gate at seven). An ask whose entire call
- * to action cannot be built is not a message worth sending, and a business that
- * reached the send lane without a usable place id is an UPSTREAM bug: a loud
- * failure names it as one, where a per-contact `withheld` row would file it
- * away as a routine outcome nobody investigates.
+ * Since #914 the **Send handoff** withholds a location with no canonical place
+ * id BEFORE any child is released (`sendHandoffWithheldReason`,
+ * postal-address.ts), so this throw is a genuine ASSERTION of an impossible
+ * state, not a branch anyone reaches in the normal lane. It stays a throw and
+ * not a per-contact `withheld` row (no such reason exists in 091/110, and the
+ * gate is locked at seven items by B6/B14): a business that reached dispatch
+ * without a usable place id means the handoff gate was bypassed — an UPSTREAM
+ * bug a loud failure names as one, where a routine outcome nobody investigates
+ * would file it away.
  *
  * BOTH arms throw, and the second is the one a reader will assume is fine:
  * migration 007's legacy rows carry hex CIDs (`0x…:0x…`) rather than canonical

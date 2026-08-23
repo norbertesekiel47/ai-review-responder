@@ -325,6 +325,9 @@ function builtBatch(
  *  a ZIP on the last one — the shape `lintPostalAddress` accepts. */
 const FIXTURE_POSTAL_ADDRESS = '123 Main St\nAustin, TX 78701';
 
+/** A canonical Google Place ID (base64url, 20+ chars) — passes `isPlaceId`. */
+const FIXTURE_GOOGLE_PLACE_ID = 'ChIJN1t_tDeuEmsRUsoyG83frY4';
+
 /**
  * Writes the whole migration-099 attestation tuple straight onto the shared
  * fixture business. Deliberately raw SQL rather than `attestPostalAddress`:
@@ -356,6 +359,14 @@ async function setFixtureOwnerEmailBounced(bounced: boolean): Promise<void> {
   `;
 }
 
+async function setFixtureGooglePlaceId(placeId: string | null): Promise<void> {
+  await sql()`
+    UPDATE businesses
+    SET google_place_id = ${placeId}
+    WHERE id = ${businessId}::uuid
+  `;
+}
+
 /**
  * Back to the `beforeAll` shape — unattested address, deliverable owner email.
  * Runs in `afterEach` because the fixture business is SHARED across every case
@@ -370,7 +381,8 @@ async function resetFixturePostalAddress(): Promise<void> {
         solicitation_postal_address_attested_by_user_id = NULL,
         solicitation_postal_address_attestation_version = NULL,
         solicitation_postal_address_attested_digest = NULL,
-        owner_email_bounced = FALSE
+        owner_email_bounced = FALSE,
+        google_place_id = ${FIXTURE_GOOGLE_PLACE_ID}
     WHERE id = ${businessId}::uuid
   `;
 }
@@ -477,14 +489,17 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       accountDisplayName: 'Batch Builder Integration Account',
       subscriptionStatus: 'active',
     });
+    // A canonical google_place_id from the start: since #914 the Send handoff
+    // withholds a location without one, and most cases here are about the
+    // OTHER two facts.
     await db`
       INSERT INTO businesses (
         id, name, owner_name, owner_email, account_id,
-        subscription_status, category
+        subscription_status, category, google_place_id
       ) VALUES (
         ${businessId}::uuid, 'Batch Builder Integration Business',
         'Batch Owner', ${tenant.ownerEmail}, ${tenant.accountId}::uuid,
-        'active', 'automotive'
+        'active', 'automotive', ${FIXTURE_GOOGLE_PLACE_ID}
       )
     `;
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
@@ -1714,6 +1729,50 @@ describeWithDb('solicitation batch builder against live local Postgres', {
       reason: 'owner_email_bounced',
     });
     expect(await readGenerationOutboxRows(batch.batchId)).toHaveLength(0);
+  });
+
+  it('batch build withholds the send handoff when the location has no canonical place id (#914)', async () => {
+    enableWatchAndSend();
+    // The ONLY thing wrong with this location is its place id. Both shapes of
+    // the fault: NULL, and migration 007's legacy hex CID (present but
+    // `writereview?placeid=<hex cid>` resolves to nothing).
+    await attestFixturePostalAddress();
+    await setFixtureGooglePlaceId(null);
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    const nullBatch = await seedBatch();
+
+    const nullResult = builtBatch(await build(nullBatch));
+    expect(nullResult.sendCount).toBe(1);
+    expect(nullResult.sendHandoff).toEqual({
+      status: 'withheld',
+      reason: 'google_place_id_missing',
+    });
+    // Withheld BEFORE any child exists: no generation row at any status, so no
+    // contact is spent on the config fault and no BullMQ retry budget burns.
+    expect(await readGenerationOutboxRows(nullBatch.batchId)).toEqual([]);
+    expect(await readBuiltAt(nullBatch.batchId)).not.toBeNull();
+
+    // Erase run 1's traces before run 2, exactly like the attested/unattested
+    // comparison case below: leaving the asks in place would hand run 2 a
+    // prior-contact history (`over_contacted`) and zero its sendCount, and a
+    // zero-send batch never reaches the handoff at all.
+    await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
+    await sql()`
+      DELETE FROM agent_runs
+      WHERE account_id = ${tenant!.accountId}::uuid
+        AND kind IN ('solicitation_batch', 'solicitation_ask')
+    `;
+    await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
+
+    await setFixtureGooglePlaceId('0x89c258f1234567:0xabcdef12345678');
+    const cidBatch = await seedBatch();
+    const cidResult = builtBatch(await build(cidBatch));
+    expect(cidResult.sendHandoff).toEqual({
+      status: 'withheld',
+      reason: 'google_place_id_missing',
+    });
+    expect(await readGenerationOutboxRows(cidBatch.batchId)).toEqual([]);
   });
 
   it('postal_address_missing wins when the postal address is missing and owner email has bounced', async () => {

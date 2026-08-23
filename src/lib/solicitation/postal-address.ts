@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
+import { isPlaceId } from '@/lib/reviews/url-parser';
 
 /**
  * The Attested postal address (#656; locked spec
@@ -232,13 +233,27 @@ export async function readPostalAddressState(
   };
 }
 
-export type SendHandoffWithheldReason = 'postal_address_missing' | 'owner_email_bounced';
+export type SendHandoffWithheldReason =
+  | 'postal_address_missing'
+  | 'google_place_id_missing'
+  | 'owner_email_bounced';
 
 /**
  * First-match precedence, mirroring `closedGateReason` (batch-builder.ts:130).
  * Postal address first: it is the CAN-SPAM one, and an owner who fixes it also
- * has to fix a bounced email before anything sends, so ordering costs nothing
- * and the more legally load-bearing reason is the one surfaced.
+ * has to fix everything below before anything sends, so ordering costs nothing
+ * and the more legally load-bearing reason is the one surfaced. The place id
+ * comes second — without it no ask body can build its one `{{review_link}}` —
+ * and the bounced owner email last.
+ *
+ * `google_place_id_missing` (#914) covers BOTH a NULL id and a non-canonical
+ * one: migration 007's legacy rows carry hex CIDs (`0x…:0x…`), and
+ * `writereview?placeid=<hex cid>` resolves to nothing, so "present but not a
+ * Place ID" is the same per-location configuration fault as absent. Validated
+ * by `isPlaceId`, the owner of that question. Withholding HERE — before any
+ * child is released — is what makes `dispatchOutreach`'s place-id throw a
+ * genuine assertion: no contact is spent and no BullMQ retry budget burns on a
+ * config fault that reads as a send failure.
  *
  * Pure — the caller supplies the business row it already loaded. This is a
  * LOCATION-level fact, deliberately NOT a Withhold reason: that enum is closed,
@@ -246,15 +261,20 @@ export type SendHandoffWithheldReason = 'postal_address_missing' | 'owner_email_
  * `RESTRAINT_POLICY_VERSION`.
  *
  * `undefined` is accepted alongside `null` on purpose: a test fixture or a
- * projection that omits either column must read as "missing" and withhold, not
+ * projection that omits any column must read as "missing" and withhold, not
  * silently pass the gate.
  */
 export function sendHandoffWithheldReason(row: {
   solicitation_postal_address_attested_at: Date | string | null | undefined;
+  google_place_id: string | null | undefined;
   owner_email_bounced: boolean | null | undefined;
 }): SendHandoffWithheldReason | null {
   const attestedAt = row.solicitation_postal_address_attested_at;
   if (attestedAt === null || attestedAt === undefined) return 'postal_address_missing';
+  const placeId = row.google_place_id;
+  if (typeof placeId !== 'string' || !isPlaceId(placeId.trim())) {
+    return 'google_place_id_missing';
+  }
   if (row.owner_email_bounced === true) return 'owner_email_bounced';
   return null;
 }

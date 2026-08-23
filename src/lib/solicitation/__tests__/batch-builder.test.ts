@@ -92,12 +92,14 @@ function businessRow(
   overrides: {
     owner_email_bounced?: boolean;
     solicitation_postal_address_attested_at?: Date | null;
+    google_place_id?: string | null;
   } = {},
 ) {
   return {
     category: 'automotive',
     owner_email_bounced: false,
     solicitation_postal_address_attested_at: new Date('2026-08-01T00:00:00.000Z'),
+    google_place_id: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
     ...overrides,
   };
 }
@@ -783,6 +785,7 @@ describe('send-mode generation enqueue (EXEC D21)', () => {
     const businessRead = businessReads[0]!;
     expect(businessRead.text).toContain('owner_email_bounced');
     expect(businessRead.text).toContain('solicitation_postal_address_attested_at');
+    expect(businessRead.text).toContain('google_place_id');
     // Both tenant predicates survive the widening — the row is the account's
     // own location or it is nothing.
     expect(businessRead.text).toContain('id = ?::uuid');

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { lintPostalAddress } from '../postal-address';
+import { lintPostalAddress, sendHandoffWithheldReason } from '../postal-address';
 
 // #656 — the Attested postal address module's PURE surface, plus this branch's
 // own gate-integrity guard.
@@ -104,5 +104,52 @@ describe('lintPostalAddress', () => {
   it('lintPostalAddress accepts a two-line US address with a ZIP code', () => {
     const result = lintPostalAddress('  123 Main St  \r\n  Austin, TX 78701  ');
     expect(result).toEqual({ ok: true, normalized: '123 Main St\nAustin, TX 78701' });
+  });
+});
+
+describe('sendHandoffWithheldReason (#914 adds the place-id fact)', () => {
+  const deliverable = {
+    solicitation_postal_address_attested_at: new Date('2026-08-01T00:00:00.000Z'),
+    google_place_id: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    owner_email_bounced: false,
+  };
+
+  it('passes a fully configured location', () => {
+    expect(sendHandoffWithheldReason(deliverable)).toBeNull();
+  });
+
+  it('withholds a NULL, undefined, or empty place id as google_place_id_missing', () => {
+    expect(sendHandoffWithheldReason({ ...deliverable, google_place_id: null }))
+      .toBe('google_place_id_missing');
+    expect(sendHandoffWithheldReason({ ...deliverable, google_place_id: undefined }))
+      .toBe('google_place_id_missing');
+    expect(sendHandoffWithheldReason({ ...deliverable, google_place_id: '  ' }))
+      .toBe('google_place_id_missing');
+  });
+
+  it('withholds a legacy hex CID — present but non-canonical resolves to nothing', () => {
+    // Migration 007's legacy shape: `writereview?placeid=<hex cid>` is a dead
+    // link, so "present but not a Place ID" is the same configuration fault.
+    expect(sendHandoffWithheldReason({ ...deliverable, google_place_id: '0x89c25a31:0xb0e7' }))
+      .toBe('google_place_id_missing');
+  });
+
+  it('keeps first-match precedence: postal address, then place id, then bounce', () => {
+    expect(
+      sendHandoffWithheldReason({
+        solicitation_postal_address_attested_at: null,
+        google_place_id: null,
+        owner_email_bounced: true,
+      }),
+    ).toBe('postal_address_missing');
+    expect(
+      sendHandoffWithheldReason({
+        ...deliverable,
+        google_place_id: null,
+        owner_email_bounced: true,
+      }),
+    ).toBe('google_place_id_missing');
+    expect(sendHandoffWithheldReason({ ...deliverable, owner_email_bounced: true }))
+      .toBe('owner_email_bounced');
   });
 });

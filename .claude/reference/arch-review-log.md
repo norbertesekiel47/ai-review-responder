@@ -6,8 +6,8 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890 and #913 counted 2026-08-23. Full artifacts:
+**Merges since last architecture pass: 4** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913 and #914 counted 2026-08-23. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -48,6 +48,12 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **feat #914** — Send handoff withholds a location with no canonical place id
+  (2026-08-23). `sendHandoffWithheldReason` gains `google_place_id_missing` (NULL or
+  a migration-007 hex CID, validated by `isPlaceId`); precedence postal → place id →
+  bounce; the batch-builder SELECT widens by one column; `dispatchOutreach`'s throw
+  stays as the assertion of an impossible state. No migration — the reason reaches
+  only the worker log, like its two siblings. **Counts: +1 production merge.**
 - **refactor #913** — provider-agnostic error vocabulary relocated (2026-08-23).
   `RETRYABLE_NETWORK_ERROR_CODES` + `errorStringProperty`/`errorNumberProperty` moved
   from `payments/stripe-error-inspect.ts` to a new zero-import leaf
