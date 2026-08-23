@@ -71,19 +71,27 @@ email shares the Resend provider with the product.
   fire exactly once, ever, and then stay silent through the very repetition that
   is the actionable signal. Suggested: _The issue is seen more than 3 times in
   one hour_.
-- [ ] **Solicitation send breaker (#898)** — finding key
+- [ ] **Send breaker re-page rule (#898, corrected by #907)** — finding key
   `solicitation_send_breaker_tripped`, `level: 'error'`, emitted by
-  `checkSolicitationSendBreaker`. It needs no rule of its own: it carries
-  `subsystem:health_alert` like every other `HealthAlertPoller` finding, so the
-  first bullet's rule already routes it. It is inventoried here because it is the
-  one finding whose **response is a written procedure** rather than a code fix —
-  solicitation sending is halted platform-wide and never self-clears until an
-  admin resets it. **Response procedure:**
-  `docs/runbooks/solicitation-sending-domain.md` **§8** (read the window figures
-  → roll the platform ceiling down a stage → then reset at `/admin/solicitation`).
-  Detail is aggregate-only — counts, rates and thresholds, never a recipient
-  address or message body. It pages **once per trip**, not once per tick, and
-  trip latency is bounded by one `HEALTH_ALERT_POLL_INTERVAL_MS` (§5).
+  `checkSolicitationSendBreaker`. **It needs a rule of its own — rule 5 in
+  §1a-do — and the first bullet's `subsystem:health_alert` rule does not
+  discharge it alone.** That rule fires on *first seen*, and this finding is
+  level-triggered: `evaluateSendBreaker` probes for an open trip before it
+  measures anything and returns a finding on **every** poller tick while one
+  stands. The trip and the re-page each carry a **constant title** so Sentry
+  collapses repeats into one issue, which is correct grouping and wrong routing —
+  two constant titles under a first-seen rule give two notifications, then
+  silence, however many days sending stays halted. An open breaker is a **state,
+  not an event**; one dropped page must never equal a silent platform-wide halt.
+  This is inventoried here because it is also the one finding whose **response is
+  a written procedure** rather than a code fix — solicitation sending is halted
+  platform-wide and never self-clears until an admin resets it. **Response
+  procedure:** `docs/runbooks/solicitation-sending-domain.md` **§8** (read the
+  window figures → roll the platform ceiling down a stage → then reset at
+  `/admin/solicitation`). Detail is aggregate-only — counts, rates and
+  thresholds, never a recipient address or message body. Trip latency is bounded
+  by one `HEALTH_ALERT_POLL_INTERVAL_MS` (§5), and the re-page cadence by rule
+  5's frequency window.
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
@@ -140,20 +148,39 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 2 | `cost-cap → discord` | `cost_event` equals `limit_exceeded` | issue is **first seen** | any |
 | 3 | `stripe-reconcile-drift → discord` | `feature` equals `stripe_reconciliation` | issue is **first seen** | `error` + `warning` |
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
+| 5 | `solicitation-send-breaker → discord` | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
 
-_Then_ action for all four: **Send a notification to the Discord integration** →
+_Then_ action for all five: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
 
-**Rule 4 is the odd one, and the difference is not cosmetic.** Rules 1–3 fire on
-a new issue. Rule 4 must not. Its capture title is a **constant string**, so every
-occurrence — both **Import offer** event names, every location, the Vercel lane
-and the Railway lane alike — groups into ONE Sentry issue. A first-seen trigger
-would fire once, ever, and then stay silent through exactly the repetition that
-is the signal. See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
+**Rules 4 and 5 are the odd ones, and the difference is not cosmetic.** Rules
+1–3 fire on a new issue. Rules 4 and 5 must not. Each capture title is a
+**constant string**, so every occurrence groups into ONE Sentry issue — for rule
+4, both **Import offer** event names across every location and both lanes; for
+rule 5, every re-page of one open breaker trip. A first-seen trigger fires once,
+ever, and then stays silent through exactly the repetition that is the signal.
+See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
 
-**Step 5 — the dead-man switch.** The cron monitor is NOT an alert rule; it is
-configured in §4 of this runbook (slug `health-alert-poller`, auto-created on
-first check-in). Do §4 after the four rules above.
+**Rule 5 does not replace rule 1, and the overlap is intended (#907).** The
+breaker finding carries `subsystem:health_alert` like every other
+`HealthAlertPoller` finding, so rule 1 still delivers the **first** page the
+moment a trip opens — that latency matters and a frequency rule cannot give it.
+What rule 1 cannot give is the **repeat**: `evaluateSendBreaker` is
+level-triggered, so it returns a finding on every tick while the trip stands, and
+the trip title and the re-page title are two constant strings — two Sentry
+issues, two first-seen notifications, then nothing, however long sending stays
+halted. Rule 5 keys on `tags.finding` rather than on `subsystem`, so it is narrow
+by construction: it adds the repeat for this one condition and touches the
+routing no other health finding can afford to lose. Expect one Discord message
+when the trip opens and roughly one per hour after that — Sentry's default action
+interval is 60 minutes per issue, so a 5-minute poll interval does not mean a
+5-minute page.
+
+**Step 6 — the dead-man switch.** (Numbered 6, not 5, since #907 added a fifth
+rule — the step number and the rule number must not collide.) The cron monitor is
+NOT an alert rule; it is configured in §4 of this runbook (slug
+`health-alert-poller`, auto-created on first check-in). Do §4 after the five
+rules above.
 
 **Verify, do not assume.** Each rule is unproven until you have seen it deliver.
 §4's acceptance drills are how — do not tick a §1 box on the strength of a saved
@@ -282,6 +309,13 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   `zero_delivery_notifications`.
 - [ ] **Cost-cap hit** — set `GLOBAL_DAILY_COST_LIMIT_CENTS=1`, trigger a draft;
   expect a `cost_event:limit_exceeded` Sentry message.
+- [ ] **Send breaker re-page (#907)** — insert an open `solicitation_send_breaker`
+  row on staging (`reset_at IS NULL`), leave it open across **at least three**
+  `HEALTH_ALERT_POLL_INTERVAL_MS` intervals, and confirm Discord receives **more
+  than the opening two** notifications. Two and then silence is the exact failure
+  rule 5 exists to close, so this drill fails on a count, not on an absence.
+  Clear it through `/admin/solicitation` when done — the breaker never
+  self-clears.
 - [ ] **Killed worker** — stop the worker process; expect the external `/ready`
   check to page.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
