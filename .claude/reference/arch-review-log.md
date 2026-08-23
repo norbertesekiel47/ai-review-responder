@@ -47,6 +47,18 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **PR #935** — #896 part 1, `ci:merge-ledger` (2026-08-23). The audit this very row
+  satisfies: a PR whose diff changes a non-test file under `src/`/`worker/`/`supabase/`,
+  or any path on the governance surface, must add a line here or fail CI on the merging
+  PR. **No migration, no flag, no env var, no new dependency.** One script
+  (`scripts/ci/merge-ledger-audit.ts`) + 44 unit cases, wired into `package.json`,
+  `ci.yml`'s `lint` job and `lefthook.yml`; Dependabot is exempted at the workflow level
+  because `package.json` is on the surface and no bot can author a row.
+  **Does NOT increment the counter** — it changes no production file, and the audit
+  deliberately never touches that number: which merges "count" is the pass's judgement,
+  and an audit asserting it on every PR would assert it on the docs-only merges the rule
+  excludes. What it enforces is the TRACE.
+
 - **2026-08-22 architecture pass** — windowed on the 17 merges after `54e4d374`
   (7 counting, **77 production files**). 8 features charted, **12 mutations
   executed**, counter reset 7 → 0. Artifacts:
@@ -83,8 +95,8 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
   *This entry was re-derived from the pass's artifacts on 2026-08-23 after the
   original local edit was lost before it was committed. The artifacts under
-  `docs/reviews/PATHFINDER-2026-08-22/` are authoritative where this summary and
-  they disagree.*
+  `docs/reviews/PATHFINDER-2026-08-22/` are authoritative wherever they and this
+  summary disagree.*
 
 - **PR #926** — #917 `platform_halt`, the third system **Halt latch** reason (2026-08-22, squash
   `2c7bb615`). **Migration 111** — two CHECK widenings, no data change, applied to staging and
