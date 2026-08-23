@@ -6,9 +6,68 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** (last reset by the 2026-08-18 pass)
-(table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-18/`.
+**Merges since last architecture pass: 7 — ABOVE the threshold, pass owed**
+(last reset by the 2026-08-18 pass, table row below). Full artifacts:
+`docs/reviews/PATHFINDER-2026-08-18/`.
 
+> **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
+> Two were never counted at the time (#901, #905); two are the #917/#923 pair
+> that landed on 2026-08-22 with no increment. The derivation below is written
+> out so the next reader can check it instead of trusting it — **this is the
+> THIRD consecutive pass to find this counter wrong by its own rule**, after
+> 2026-08-10 (3 missed increments) and 2026-08-18 (read 8, measured 11). Issue
+> **#896** is the mechanical fix; until it lands, this number is hand-kept and
+> should be re-derived, not believed.
+>
+> **Rule applied:** a first-parent merge counts when it changes production code
+> under `src/`, `worker/` or `supabase/`. Docs-only merges and post-merge sweeps
+> do not count. A test-only merge does not count.
+>
+> | # | Squash | PR | Production files | Counted before? |
+> |---|---|---|---|---|
+> | 1 | `f6a83bc3` | #901 gate the **Attested postal address** surface on watch-mode | 4 | **no** |
+> | 2 | `b873a9a5` | #904 / #898 send governors | 23 | yes |
+> | 3 | `9e60617c` | #905 Daylight Gallery II marketing rebrand | 51 | **no** |
+> | 4 | `2204e6a6` | #912 / #899 send worker | 18 | yes |
+> | 5 | `a321634a` | #920 / #900 release poller | 15 | yes |
+> | 6 | `1a8443ce` | #925 / #923 §7.1 refusal, ADR 0022 | 1 + 1 test | **no** |
+> | 7 | `2c7bb615` | #926 / #917 `platform_halt`, migration 111 | 8 | **no** |
+>
+> Excluded and why: `d0cb96dc` (#911) changes test fixtures only; `2ee153b9`
+> (#924), `c08fd695` (#928), `f439c9df` (#922), `7d24a7ee` (#921), `53bb0fcf`
+> (#916), `8c90da00` (#906), `d3c9d113` (#903) and `9ca15202` (#902) change no
+> production file. Sixteen first-parent commits in the window; seven count.
+>
+> **#905 is the entry that should worry a reader most.** It is 51 production
+> files — the largest single merge in the window — and it left no row in this log
+> at all. The counter's blind spot is not the small merges it rounds past; it is
+> that nothing outside the `/feature` workflow's step 8 ever increments it, so
+> any merge that does not run that workflow is invisible by construction.
+
+- **PR #926** — #917 `platform_halt`, the third system **Halt latch** reason (2026-08-22, squash
+  `2c7bb615`). **Migration 111** — two CHECK widenings, no data change, applied to staging and
+  production and confirmed by introspection 2026-08-23 (three-database hash
+  `00cb1b60044b44c408553999433ee2d2`). **No new dependency, no new flag, no new env var.**
+  Closes amendment B14's gap by taking its SECOND option: the expiry sweep still runs on the same
+  72h clock and the "≤10 days by construction" bound is untouched — only the reason column
+  changes. **New single owner:** `resolveWindowHaltReason` decides once per tick which of two
+  reasons the sweep writes. **The one architectural fact worth carrying forward:** it introduces
+  the FIRST sanctioned `try/catch` around `readSendBreaker`, whose own docstring forbids exactly
+  that. The carve-out holds because the operative half of that contract is "and proceeds to send",
+  and this read only picks a label — the sending gate in the release phase keeps its throw. That
+  is a narrow exception resting on a distinction a future reader can easily miss, so
+  `CONTEXT.md`'s **Halt latch** entry and the amendments doc both name it. **What the next pass
+  should look at:** whether "label-only read" becomes a pattern with a second instance, at which
+  point the distinction needs a mechanical guard rather than three prose statements.
+- **PR #925** — #923 the §7.1 refusal, recorded not implemented (2026-08-22, squash `1a8443ce`).
+  **No migration, no dependency, no flag.** One production file changed, and only its docstring:
+  the substance is **ADR 0022** plus `dispatch-rate-bound.test.ts`, which pins four dials and
+  re-derives the solicitation lane's share of Resend's 10 req/s TEAM limit rather than storing it.
+  **This is the log's first entry for a merge whose product is a decision**, which is why it
+  counts: it spends a spec obligation deliberately and leaves a tripwire so the spending is
+  visible. **Known bound, recorded honestly:** the exact-value pin (`toBe(2)`) is the real guard;
+  the 1% share ceiling only bites at a per-tick budget of 7 or more, so budgets 3–6 pass the
+  arithmetic and are caught by the pin alone.
 - **PR #920** — #900 Solicitation release poller (2026-08-23, squash `a321634a`). **No migration**
   (091 and 110 carried every column, CHECK member and index), **no new dependency**, **no flag
   added**. **New env var:** `SOLICITATION_RELEASE_POLL_INTERVAL_MS` (optional, 60s default, one
