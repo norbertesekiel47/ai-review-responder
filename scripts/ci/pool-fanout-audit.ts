@@ -217,21 +217,35 @@ export function collectSqlBindings(source: ts.SourceFile): Set<string> {
   // Second pass: a callback parameter of `<known>.begin(cb)` is itself a client,
   // and its type is inferred rather than annotated.
   const expand = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const root = rootIdentifier(node.expression.expression);
-      if (root !== null && names.has(root) && SCOPE_METHODS.has(node.expression.name.text)) {
-        for (const arg of node.arguments) {
-          if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) continue;
-          const first = arg.parameters[0];
-          if (first && ts.isIdentifier(first.name)) names.add(first.name.text);
-        }
-      }
-    }
+    for (const name of scopeCallbackBindings(node, names)) names.add(name);
     ts.forEachChild(node, expand);
   };
   expand(source);
 
   return names;
+}
+
+/**
+ * The callback-parameter names a `<known sql>.begin(cb)` (or `savepoint`,
+ * `reserve`) introduces — each of which is itself a Postgres client whose type
+ * is inferred rather than written, so `collectSqlBindings`'s annotation pass
+ * cannot see it.
+ *
+ * Split out of that pass rather than nested inside it: four guards deep, the
+ * intent stops being readable, and a name this returns wrongly is a name the
+ * whole audit then trusts.
+ */
+function scopeCallbackBindings(node: ts.Node, names: ReadonlySet<string>): string[] {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return [];
+  if (!SCOPE_METHODS.has(node.expression.name.text)) return [];
+  const root = rootIdentifier(node.expression.expression);
+  if (root === null || !names.has(root)) return [];
+
+  return node.arguments.flatMap((arg) => {
+    if (!ts.isArrowFunction(arg) && !ts.isFunctionExpression(arg)) return [];
+    const first = arg.parameters[0];
+    return first && ts.isIdentifier(first.name) ? [first.name.text] : [];
+  });
 }
 
 /**
@@ -352,6 +366,57 @@ export interface Evaluation {
   allowed: string[];
 }
 
+/** The message for a site whose element list this audit could not read. */
+function unreadableMessage(at: string, combinator: string): string {
+  return (
+    `${at} — Promise.${combinator}'s argument is not a readable array literal, so its elements ` +
+    `cannot be counted. Sequence it, or add \`// ${PRAGMA}: <reason>\` above it.`
+  );
+}
+
+/** The message for a counted fan-out. */
+function fanoutMessage(at: string, combinator: string, dbElements: number): string {
+  return (
+    `${at} — Promise.${combinator} fans out ${dbElements} DB-issuing elements on a pool of ` +
+    'DB_POOL_MAX=3. Two is already enough to wedge a backend (#773). Sequence them, or add ' +
+    `\`// ${PRAGMA}: <reason>\` above it.`
+  );
+}
+
+/** One site's verdict: a finding, an allowance, or neither. */
+export interface SiteVerdict {
+  finding?: string;
+  allowed?: string;
+}
+
+/**
+ * The judgement for ONE site, pure and separately testable — the shape
+ * `ci:outbox-seam`'s own `judgeSite` uses, for the same reason: the loop that
+ * walks files should not also carry the policy.
+ */
+export function judgeSite(file: string, lines: readonly string[], site: FanoutSite): SiteVerdict {
+  if (site.dbElements !== -1 && site.dbElements < 2) return {};
+
+  const at = `${file}:${site.line}`;
+  const reason = pragmaReason(lines, site.line - 1);
+
+  if (reason === '') {
+    return {
+      finding:
+        `${at} — \`${PRAGMA}\` with no reason. An unexplained exemption is the enumeration ` +
+        'problem in a new shape; write why this fan-out is safe.',
+    };
+  }
+  if (reason !== null) return { allowed: `${at} — ${reason}` };
+
+  return {
+    finding:
+      site.dbElements === -1
+        ? unreadableMessage(at, site.combinator)
+        : fanoutMessage(at, site.combinator, site.dbElements),
+  };
+}
+
 /**
  * One finding per offending site. STRICT — no baseline, the posture
  * `ci:db-imports` settled on. Pure, so the unit tests drive it directly.
@@ -363,32 +428,9 @@ export function evaluateFindings(files: readonly FileSites[]): Evaluation {
   for (const { file, text, sites } of files) {
     const lines = text.split('\n');
     for (const site of sites) {
-      const offending = site.dbElements === -1 || site.dbElements >= 2;
-      if (!offending) continue;
-
-      const at = `${file}:${site.line}`;
-      const reason = pragmaReason(lines, site.line - 1);
-      if (reason !== null) {
-        if (reason === '') {
-          findings.push(
-            `${at} — \`${PRAGMA}\` with no reason. An unexplained exemption is the ` +
-              'enumeration problem in a new shape; write why this fan-out is safe.',
-          );
-        } else {
-          allowed.push(`${at} — ${reason}`);
-        }
-        continue;
-      }
-
-      findings.push(
-        site.dbElements === -1
-          ? `${at} — Promise.${site.combinator}'s argument is not a readable array literal, so ` +
-            'its elements cannot be counted. Sequence it, or add ' +
-            `\`// ${PRAGMA}: <reason>\` above it.`
-          : `${at} — Promise.${site.combinator} fans out ${site.dbElements} DB-issuing elements on ` +
-            'a pool of DB_POOL_MAX=3. Two is already enough to wedge a backend (#773). ' +
-            `Sequence them, or add \`// ${PRAGMA}: <reason>\` above it.`,
-      );
+      const verdict = judgeSite(file, lines, site);
+      if (verdict.finding !== undefined) findings.push(verdict.finding);
+      if (verdict.allowed !== undefined) allowed.push(verdict.allowed);
     }
   }
 
@@ -423,45 +465,83 @@ export async function probe(sql: Sql, id: string) {
 }
 `;
 
-function selfCheckPasses(): boolean {
+export function selfCheckPasses(): boolean {
   const sites = findFanoutSites(SELF_CHECK, 'self-check.ts');
   return sites.length === 2 && sites.every((site) => site.dbElements === 2);
 }
 
+/**
+ * The reason this run must ABORT before judging anything, or null.
+ *
+ * Both arms are blind-detector guards, and both refuse rather than pass: a
+ * classifier that stopped classifying and a walk that found no files each
+ * produce a clean, green, meaningless run.
+ */
+export function preflightBlocker(scannedCount: number): string | null {
+  if (!selfCheckPasses()) {
+    return (
+      'pool-fanout-audit: fatal — the built-in self-check fixture no longer produces two ' +
+      'two-element findings. The classifier is broken; a green run would mean nothing.'
+    );
+  }
+  if (scannedCount === 0) {
+    return `pool-fanout-audit: fatal — scanned 0 files under ${SCAN_DIRS.join(', ')}`;
+  }
+  return null;
+}
+
+/** One terminal report: what to print, and what to exit with. */
+export interface AuditReport {
+  text: string;
+  exitCode: number;
+}
+
+/**
+ * The run's terminal report. Separated from `main` so both arms are covered by
+ * tests rather than by the one integration run CI happens to take — the same
+ * split `ci:merge-ledger` uses.
+ */
+export function buildReport(input: {
+  findings: readonly string[];
+  allowed: readonly string[];
+  scannedCount: number;
+}): AuditReport {
+  if (input.findings.length > 0) {
+    return {
+      text: ['pool-fanout-audit: failed', ...input.findings.map((f) => `  ${f}`)].join('\n'),
+      exitCode: 1,
+    };
+  }
+  const allowedNote =
+    input.allowed.length === 0
+      ? 'no exemptions'
+      : `${input.allowed.length} exempted: ${input.allowed.join('; ')}`;
+  return {
+    text:
+      `pool-fanout-audit: passed (${input.scannedCount} files under ` +
+      `${SCAN_DIRS.join(', ')}; ${allowedNote})`,
+    exitCode: 0,
+  };
+}
+
 async function main(): Promise<void> {
   const root = process.cwd();
-
-  if (!selfCheckPasses()) {
-    console.error(
-      'pool-fanout-audit: fatal — the built-in self-check fixture no longer produces two ' +
-        'two-element findings. The classifier is broken; a green run would mean nothing.',
-    );
-    process.exit(1);
-  }
-
   const scanned = await walk(root, { scanDirs: [...SCAN_DIRS] });
-  if (scanned.length === 0) {
-    // Scanning nothing reports success. That is the blind-detector failure this
-    // repo has shipped before (#592) — refuse instead.
-    console.error(`pool-fanout-audit: fatal — scanned 0 files under ${SCAN_DIRS.join(', ')}`);
+
+  const blocker = preflightBlocker(scanned.length);
+  if (blocker !== null) {
+    console.error(blocker);
     process.exit(1);
   }
 
   const { findings, allowed } = evaluateFindings(await collectFanoutSites(root));
+  const report = buildReport({ findings, allowed, scannedCount: scanned.length });
 
-  if (findings.length > 0) {
-    console.error('pool-fanout-audit: failed');
-    for (const finding of findings) console.error(`  ${finding}`);
-    process.exit(1);
+  if (report.exitCode !== 0) {
+    console.error(report.text);
+    process.exit(report.exitCode);
   }
-
-  const allowedNote =
-    allowed.length === 0
-      ? 'no exemptions'
-      : `${allowed.length} exempted: ${allowed.join('; ')}`;
-  console.log(
-    `pool-fanout-audit: passed (${scanned.length} files under ${SCAN_DIRS.join(', ')}; ${allowedNote})`,
-  );
+  console.log(report.text);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

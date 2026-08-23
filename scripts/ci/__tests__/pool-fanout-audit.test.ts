@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   PRAGMA,
+  buildReport,
   collectSqlBindings,
   evaluateFindings,
   findFanoutSites,
+  judgeSite,
   pragmaReason,
+  preflightBlocker,
+  selfCheckPasses,
+  type FanoutSite,
   type FileSites,
 } from '../pool-fanout-audit';
 import ts from 'typescript';
@@ -289,5 +294,74 @@ export async function probe(sql: Sql) {
 `;
     const sites = findFanoutSites(text, 'src/lib/admin/probe.tsx');
     expect(sites[0]?.dbElements).toBe(2);
+  });
+});
+
+describe('pool-fanout-audit / judgeSite', () => {
+  const site = (over: Partial<FanoutSite> = {}): FanoutSite => ({
+    line: 1,
+    combinator: 'all',
+    dbElements: 2,
+    ...over,
+  });
+
+  it('returns neither a finding nor an allowance for a single-element site', () => {
+    expect(judgeSite('f.ts', ['x'], site({ dbElements: 1 }))).toEqual({});
+  });
+
+  it('returns a finding for a counted fan-out', () => {
+    const verdict = judgeSite('f.ts', ['await Promise.all([a, b]);'], site());
+    expect(verdict.allowed).toBeUndefined();
+    expect(verdict.finding).toContain('fans out 2');
+  });
+
+  it('returns an allowance for a reasoned pragma', () => {
+    const lines = [`// ${PRAGMA}: worker pool, not the Vercel singleton`, 'await Promise.all([a, b]);'];
+    const verdict = judgeSite('f.ts', lines, site({ line: 2 }));
+    expect(verdict.finding).toBeUndefined();
+    expect(verdict.allowed).toContain('worker pool');
+  });
+});
+
+describe('pool-fanout-audit / preflightBlocker and buildReport', () => {
+  it('the self-check fixture still classifies — the blind-detector guard is live', () => {
+    expect(selfCheckPasses()).toBe(true);
+  });
+
+  it('refuses a run that scanned nothing, rather than reporting a green tree', () => {
+    // A walk that finds no files produces a clean, green, meaningless run. This
+    // repo has shipped that failure (#592) — the audit refuses instead.
+    expect(preflightBlocker(0)).toContain('scanned 0 files');
+  });
+
+  it('does not block a run that scanned files', () => {
+    expect(preflightBlocker(47)).toBeNull();
+  });
+
+  it('reports exit 1 and lists every finding when the tree is dirty', () => {
+    const report = buildReport({ findings: ['a.ts:1 — bad', 'b.ts:2 — worse'], allowed: [], scannedCount: 47 });
+    expect(report.exitCode).toBe(1);
+    expect(report.text).toContain('pool-fanout-audit: failed');
+    expect(report.text).toContain('a.ts:1 — bad');
+    expect(report.text).toContain('b.ts:2 — worse');
+  });
+
+  it('reports exit 0 and says "no exemptions" on a clean tree', () => {
+    const report = buildReport({ findings: [], allowed: [], scannedCount: 47 });
+    expect(report.exitCode).toBe(0);
+    expect(report.text).toContain('pool-fanout-audit: passed (47 files');
+    expect(report.text).toContain('no exemptions');
+  });
+
+  it('NAMES every exemption on the pass line, so a live escape never goes quiet', () => {
+    const report = buildReport({ findings: [], allowed: ['x.ts:9 — one DB call, one Redis call'], scannedCount: 47 });
+    expect(report.exitCode).toBe(0);
+    expect(report.text).toContain('1 exempted: x.ts:9 — one DB call, one Redis call');
+  });
+
+  it('findings outrank allowances — a dirty tree never reports passed', () => {
+    const report = buildReport({ findings: ['a.ts:1 — bad'], allowed: ['x.ts:9 — fine'], scannedCount: 47 });
+    expect(report.exitCode).toBe(1);
+    expect(report.text).not.toContain('passed');
   });
 });
