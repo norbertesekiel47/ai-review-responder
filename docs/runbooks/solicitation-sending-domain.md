@@ -381,6 +381,14 @@ tags.finding=solicitation_send_breaker_tripped
   level-triggered: one dropped page must never equal a silent platform-wide halt,
   so the condition is re-asserted until an operator resets it. A stream of repeats
   reads "still halted", never "paging is broken".
+- **The re-page needs its own routing rule, and the code half alone does not
+  deliver it (#907).** `beta-launch-alerting.md` §1a-do **rule 5** keys on
+  `tags.finding = solicitation_send_breaker_tripped` with an event-FREQUENCY
+  trigger. The §1 blanket `subsystem:health_alert` rule (rule 1) fires on *first
+  seen*, so it delivers the opening page and nothing after it — two constant
+  titles, two notifications, then silence for as long as the halt lasts. Rule 1
+  gives the latency, rule 5 gives the repeat. If rule 5 is not configured in
+  Sentry, treat every re-page above as written but undelivered.
 
 **Trip latency is bounded by one `HEALTH_ALERT_POLL_INTERVAL_MS`** (default
 300000 ms = 5 min; row in `beta-launch-alerting.md` §5). That bound is the price
