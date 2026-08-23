@@ -83,7 +83,34 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   raw-TEXT inside ONE transaction, so it locks the batch and misses its send
   parent; the canonicaliser exists precisely because this already shipped once
   in `approval.ts`. (3) **P1 — the counter was wrong for the FOURTH consecutive
-  pass**, and this log's own recurrence line said THIRD.
+  pass**, and this log's own recurrence line said THIRD. (4) **`!== 'not_settled'`
+  is a wrong proxy**: halting an all-withheld `built` batch makes both halt routes
+  report `closed: true` against `send_closed_at IS NULL`, because
+  `'no_send_parent' !== 'not_settled'` is true and that arm is reachable through
+  `haltBatch` → `latchHalt`, which passes no failure. (5) **`ci:admin-aal2`'s P2
+  parity misses `/admin/solicitation`** — it anchors on a sibling route that does
+  not exist for that page, so flipping the page's `aal2` off would pass CI while
+  the API route stays gated, and that page reads `solicitation_send_breaker`
+  directly via `sql`. (6) **`ci:rls-audit` guards no platform-scoped table** —
+  `REQUIRED_RLS_TABLES = TENANT_TABLES`, so neither `solicitation_send_breaker`
+  nor four older tables are covered.
+
+  **Two claims in this log were measured wrong.** The **#920 entry below still
+  says *"+4 platform-wide predicates under a standing sign-off"*, and that is
+  false**: the move is **381 → 383 (#904) → 390 (#920)**, split across two
+  merges, seven of them from #920, and all seven are `background-global-scan` —
+  only #904's two are `platform-cross-account`. The allowlist's own header
+  narrative records all nine correctly; **this log is the artefact at fault.**
+  Second: **`#895(b)` was delivered by #920** and `approval.ts:518-524` cites the
+  issue by number, while the issue stayed open — the tracker and the source
+  disagree about whether it is done.
+
+  **X10 graduated from pattern to rule** — an enumeration that defines a guard's
+  SUBJECT SET must be derived from the artefact that produces subjects; an
+  enumeration listing only EXEMPTIONS inside a derived scan is legitimate. Seven
+  silent instances against ten-plus loud ones, plus one (`SQL_TAG_NAMES`) that
+  made the transition in-repo. Phase 2 amended it: apply the classifier to a
+  guard's **discriminator and its transitive inputs**, which found two more.
 
   **The backlog is ONE ranked list of 15 items** (the seven re-verified
   2026-08-18 handoffs merged with this pass's findings, ranked on expected cost
@@ -93,8 +120,21 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   accumulates — and **H9** `canonicalBatchId` at `ask-generation.ts`'s two
   entry points.
 
+  **What the next pass should look at.** (a) Whether the three send-path
+  integrity tests still go RED under their own mutations — #932 pinned them, and
+  a later refactor can silently unpin them again. (b) **`ci:fallow:coverage` has
+  no unit-size axis**: `line_count` never appears in any finding's `exceeded`
+  field, so a 202-line flat orchestrator with high coverage is invisible to the
+  PR gate in any file, forever. (c) Whether `#896`'s ledger actually changed the
+  counter's accuracy — three hand-corrections of a hand-kept number is not a
+  process that has converged, and this entry is the first one written under it.
+  (d) The four false `docs/directory.md` rows, and whether H11's split of
+  `readSendBreaker` retired two of them structurally rather than by prose.
+
   *This entry was re-derived from the pass's artifacts on 2026-08-23 after the
-  original local edit was lost before it was committed. The artifacts under
+  original local edit was lost before it was committed. The four blocks above
+  marked with the #920 correction, X10's rule, findings (4)-(6) and the
+  next-pass list were restored from the original text on the same day. The artifacts under
   `docs/reviews/PATHFINDER-2026-08-22/` are authoritative wherever they and this
   summary disagree.*
 
