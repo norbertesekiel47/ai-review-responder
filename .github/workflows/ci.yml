@@ -205,6 +205,10 @@ jobs:
         run: pnpm ci:dropped-columns
       - name: Run directory-map completeness audit (docs/directory.md vs worker/ + src/lib/)
         run: pnpm ci:directory-map
+      # #893. Replaces four hand-written pins whose enumerated import lists
+      # missed three fan-out subjects in the directory they were meant to cover.
+      - name: Run pool fan-out audit (Promise.all over >=2 DB calls in the Vercel read paths)
+        run: pnpm ci:pool-fanout
       # Dependabot cannot write an arch-log line, and `package.json` is on
       # the governance surface, so every dependency bump would be blocked on
       # a row no bot can author. Dependabot owns dependency updates here

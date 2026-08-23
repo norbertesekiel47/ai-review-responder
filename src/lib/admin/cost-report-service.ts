@@ -318,22 +318,23 @@ export async function getCostReport(sql: Sql, q: CostQuery): Promise<CostData> {
   let rollupDay: DayRow[] = [];
 
   if (needsRollup) {
-    const [provRes, dayRes] = await Promise.all([
-      sql<ProviderRow[]>`
+    // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773/#893).
+    // The same rule the detail queries above already follow, and this file is
+    // named in the 2026-08-10 staging evidence: cost-report's byDay query was
+    // one of the wedged backends. A fan-out of two is enough — `/api/admin/
+    // flagged` wedged with exactly two against the 3-connection pool.
+    rollupProvider = await sql<ProviderRow[]>`
             SELECT provider, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
             FROM api_costs_daily_rollups
             WHERE ${optionalRollupAcctPrefix(sql, days, accountId)}
             GROUP BY provider
-          `,
-      sql<DayRow[]>`
+          `;
+    rollupDay = await sql<DayRow[]>`
             SELECT rollup_date::text AS day, SUM(total_cost_usd)::float AS total_usd, SUM(call_count)::float AS call_count
             FROM api_costs_daily_rollups
             WHERE ${optionalRollupAcctPrefix(sql, days, accountId)}
             GROUP BY rollup_date
-          `,
-    ]);
-    rollupProvider = provRes;
-    rollupDay = dayRes;
+          `;
   }
 
   // Merge byProvider: sum detail + rollup by provider key.

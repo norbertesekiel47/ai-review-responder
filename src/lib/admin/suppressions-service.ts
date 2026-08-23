@@ -69,19 +69,25 @@ export async function lookupSuppressions(
   // an unnormalizable input must never reach the database at all.
   if (handle === null) return { ok: false, error: 'invalid_handle' };
 
-  const [rows, corrections] = await Promise.all([
-    sql<{
-      id: string;
-      channel: string;
-      normalized_handle: string;
-      scope: SuppressionScope;
-      source: SuppressionSource;
-      account_id: string | null;
-      account_name: string | null;
-      created_by_user_id: string | null;
-      note: string | null;
-      suppressed_at: string;
-    }[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773/#893).
+  // This runs on Vercel through `/api/admin/suppressions/lookup`, on the shared
+  // singleton whose pool is `DB_POOL_MAX` = 3. A fan-out of two pipelines the
+  // second read onto an already-open connection over the Supavisor transaction
+  // pooler, which is exactly how `/api/admin/flagged` wedged a backend into
+  // `state=active, wait_event=ClientRead`. The two reads share no data, so
+  // sequencing costs one round trip and nothing else.
+  const rows = await sql<{
+    id: string;
+    channel: string;
+    normalized_handle: string;
+    scope: SuppressionScope;
+    source: SuppressionSource;
+    account_id: string | null;
+    account_name: string | null;
+    created_by_user_id: string | null;
+    note: string | null;
+    suppressed_at: string;
+  }[]>`
       SELECT s.id, s.channel, s.normalized_handle, s.scope, s.source,
              s.account_id, a.display_name AS account_name,
              s.created_by_user_id, s.note, s.suppressed_at::text
@@ -89,18 +95,19 @@ export async function lookupSuppressions(
       LEFT JOIN accounts a ON a.id = s.account_id
       WHERE s.channel = 'email' AND s.normalized_handle = ${handle}
       ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC
-    `,
-    sql<{
-      id: string;
-      suppression_id: string;
-      scope: SuppressionScope;
-      source: SuppressionSource;
-      removed_by_user_id: string;
-      removed_by_user_name: string | null;
-      removed_by_user_email: string | null;
-      reason: string;
-      created_at: string;
-    }[]>`
+    `;
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the rule is right that this await ignores the previous result, and its advice ("run them together with Promise.all") is exactly the change #893 reverted. The two reads are independent BY DESIGN and stay sequential: on `DB_POOL_MAX` = 3, a fan-out of two pipelines onto a busy connection and wedges a backend in ClientRead. Guarded by `ci:pool-fanout`.
+  const corrections = await sql<{
+    id: string;
+    suppression_id: string;
+    scope: SuppressionScope;
+    source: SuppressionSource;
+    removed_by_user_id: string;
+    removed_by_user_name: string | null;
+    removed_by_user_email: string | null;
+    reason: string;
+    created_at: string;
+  }[]>`
       SELECT c.id, c.suppression_id, c.scope, c.source, c.removed_by_user_id,
              u.name AS removed_by_user_name,
              u.email AS removed_by_user_email,
@@ -110,8 +117,7 @@ export async function lookupSuppressions(
       WHERE c.channel = 'email' AND c.normalized_handle = ${handle}
       ORDER BY c.created_at DESC
       LIMIT 20
-    `,
-  ]);
+    `;
 
   return {
     ok: true,

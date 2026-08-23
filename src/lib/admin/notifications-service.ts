@@ -134,25 +134,35 @@ export async function getAdminNotifications(
     ${whereClause}
   `;
 
-  const [notificationRows, countRows, businessRows] = await Promise.all([
-    sql.unsafe<NotificationRow[]>(dataQuery, queryParams as never[]),
-    sql.unsafe<CountRow[]>(countQuery, countParams as never[]),
-    // Businesses list: When account_id is provided, only show businesses
-    // under that account; otherwise show all with notification activity.
-    accountId
-      ? sql<BusinessRow[]>`
+  // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773/#893).
+  // Three queries against `DB_POOL_MAX` = 3 is the widest fan-out the admin
+  // console had: the pool is per Fluid Compute ISOLATE and an isolate serves
+  // overlapping requests, so this bundle multiplied across concurrent admins.
+  // A pipelined response parks server-side in `state=active,
+  // wait_event=ClientRead` and no `statement_timeout` heals it. Reached from
+  // BOTH composition roots — `admin/notifications/page.tsx` and
+  // `api/admin/notifications/route.ts`.
+  const notificationRows = await sql.unsafe<NotificationRow[]>(
+    dataQuery,
+    queryParams as never[],
+  );
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- same #893 reason as the sibling admin services: the awaits ARE independent, and running them together is the fan-out that made this bundle three wide against a pool of three. Guarded by `ci:pool-fanout`.
+  const countRows = await sql.unsafe<CountRow[]>(countQuery, countParams as never[]);
+  // Businesses list: When account_id is provided, only show businesses
+  // under that account; otherwise show all with notification activity.
+  const businessRows = accountId
+    ? await sql<BusinessRow[]>`
           SELECT DISTINCT b.id, b.name
           FROM businesses b
           WHERE b.account_id = ${accountId}::uuid
           ORDER BY b.name
         `
-      : sql<BusinessRow[]>`
+    : await sql<BusinessRow[]>`
           SELECT DISTINCT b.id, b.name
           FROM businesses b
           JOIN notification_deliveries nd ON nd.business_id = b.id
           ORDER BY b.name
-        `,
-  ]);
+        `;
 
   const total = parseInt(countRows[0]?.total ?? '0', 10);
 
