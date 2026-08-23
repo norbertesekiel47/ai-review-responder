@@ -68,7 +68,12 @@ import { SOLICITATION_ASK_PROMPT_VERSION, solicitationAskPromptHash } from '../a
 import { ASK_LINT_VERSION } from '../ask-compliance-lint';
 import { insertOutreachRender } from '../outreach';
 import { approveBatch, type ApproveBatchResult } from '../approval';
-import { generateAsksForBatch, regenerateAsk } from '../ask-generation';
+import { startOrGetSolicitationSendBatchRun } from '@/lib/agents/run-spine';
+import {
+  generateAsksForBatch,
+  regenerateAsk,
+  settleGenerationExhaustion,
+} from '../ask-generation';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -708,6 +713,70 @@ describeWithDb(
             AND account_id = ${accountId()}::uuid
         `;
       }
+    });
+
+    // X18 (2026-08-22 pass). `agent_runs.subject_id` is TEXT (migration 071),
+    // so a compare against it is case-SENSITIVE, while every `::uuid` cast
+    // normalises. Before the fix `settleGenerationExhaustion` bound the SAME
+    // `input.batchId` both ways inside ONE transaction — `WHERE id = $1::uuid`
+    // found and locked the batch, `AND subject_id = $1` MISSED its send parent
+    // — so every filled hole took `agentRunId: null` and the generation steps
+    // were skipped. Silently, while `closeBatchIfSettled` forty lines later
+    // lowercased internally and DID find the same parent.
+    //
+    // The id arrives UPPERCASED here because that is the shape the defect
+    // needs and the shape `isValidUuid` accepts. A lowercase id passes with the
+    // canonicaliser deleted, which is why this case would not be a test.
+    it('lands the exhaustion fills and the generation steps on the send parent for an UPPERCASED batch id', async () => {
+      const askId = await seedSendAsk(1);
+      const handle = await seedDispatchedOutboxRow();
+
+      // The parent the generation lane mints before it dies. Written through
+      // the real spine writer, so its `subject_id` is whatever production
+      // stores rather than whatever this test would have spelled.
+      const parent = await sql().begin(async (tx) =>
+        startOrGetSolicitationSendBatchRun(tx, {
+          batchId,
+          accountId: accountId(),
+          businessId,
+          correlationId: 'settle-exhaustion-uppercase',
+        }));
+      const parentRunId = parent.runId;
+
+      const settled = await settleGenerationExhaustion(sql(), {
+        batchId: batchId.toUpperCase(),
+        businessId,
+        outboxHandle: handle,
+        errorClass: 'LLMStructuredOutputError',
+      });
+
+      // The batch WAS found and locked — the `::uuid` cast never had the bug,
+      // and that asymmetry is the whole defect.
+      expect(settled).toMatchObject({ status: 'settled', filled: 1 });
+
+      // THE claim. `agentRunId: parent?.id ?? null` is written on every fill,
+      // so a missed parent is a `render_failed` row with no run behind it and
+      // nothing downstream that can attribute it.
+      const [fill] = await sql()<{ agent_run_id: string | null; delivery_status: string }[]>`
+        SELECT agent_run_id::text AS agent_run_id, delivery_status
+        FROM solicitation_outreach
+        WHERE ask_id = ${askId}::uuid
+          AND account_id = ${accountId()}::uuid
+          AND business_id = ${businessId}::uuid
+      `;
+      expect(fill).toBeDefined();
+      expect(fill!.delivery_status).toBe('withheld');
+      expect(fill!.agent_run_id).toBe(parentRunId);
+
+      // The second half the missed parent cost: `recordGenerationSteps` runs
+      // only `if (parent)`, so the receipt for everything the lane did was
+      // skipped outright.
+      const steps = await sql()<{ step_key: string }[]>`
+        SELECT step_key FROM agent_run_steps
+        WHERE agent_run_id = ${parentRunId}::uuid
+        ORDER BY step_index
+      `;
+      expect(steps.map((step) => step.step_key)).toContain('ask_generated');
     });
   },
 );
