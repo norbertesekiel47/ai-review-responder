@@ -159,24 +159,80 @@ export function parseAddedLines(numstat: string): number {
   return Number.isFinite(added) ? added : 0;
 }
 
-function main(): void {
-  const baseRef = baseRefFor(process.env.GITHUB_BASE_REF);
-  let mergeBase: string;
+/** One terminal report: what to print, and what to exit with. */
+export interface AuditReport {
+  text: string;
+  exitCode: number;
+}
+
+/**
+ * The report for a base ref this checkout cannot see.
+ *
+ * In CI this is a REAL FAILURE. A gate that cannot see the diff must say so
+ * rather than pass, which is the exact "it did not run" shape this audit exists
+ * to end. Locally a missing `origin/main` is a fresh clone, not a violation.
+ */
+export function unresolvedBaseReport(baseRef: string, inCi: boolean): AuditReport {
+  const message = `merge-ledger-audit: cannot resolve ${baseRef} — no merge-base with HEAD`;
+  return inCi
+    ? { text: `${message}. Check out with full history (fetch-depth: 0).`, exitCode: 1 }
+    : { text: `${message}; skipped (run \`git fetch origin\` to enable it locally).`, exitCode: 0 };
+}
+
+/** The report for a triggering diff that left no trace in the log. */
+export function violationReport(finding: string): AuditReport {
+  return {
+    text: [
+      'merge-ledger-audit: failed',
+      `  ${finding}`,
+      '',
+      `  Add one line to ${LEDGER_PATH} describing what this merge changed.`,
+      "  The counter number is NOT this audit's business — leave it to the pass.",
+      '  Why: nothing outside /feature step 8 increments that log, so a merge that',
+      '  skips the workflow is invisible by construction (#896, #849, #905).',
+    ].join('\n'),
+    exitCode: 1,
+  };
+}
+
+/** The report for a clean diff, naming which of the two arms it took. */
+export function passReport(input: {
+  changedCount: number;
+  classification: DiffClassification;
+  ledgerLinesAdded: number;
+}): AuditReport {
+  const { production, governance } = input.classification;
+  const untriggered = production.length === 0 && governance.length === 0;
+  return {
+    text: untriggered
+      ? `merge-ledger-audit: passed (${input.changedCount} changed file(s); `
+        + 'no production or governance trigger)'
+      : `merge-ledger-audit: passed (${production.length} production + ${governance.length} `
+        + `governance file(s); ${input.ledgerLinesAdded} line(s) added to ${LEDGER_PATH})`,
+    exitCode: 0,
+  };
+}
+
+/** Prints one report and ends the process. Never returns. */
+function emit(report: AuditReport): never {
+  if (report.exitCode === 0) console.log(report.text);
+  else console.error(report.text);
+  process.exit(report.exitCode);
+}
+
+/** The merge-base with `baseRef`, or null when this checkout cannot see it. */
+function mergeBaseWith(baseRef: string): string | null {
   try {
-    mergeBase = git('merge-base', 'HEAD', baseRef);
+    return git('merge-base', 'HEAD', baseRef);
   } catch {
-    // In CI this is a real failure: a gate that cannot see the diff must say so
-    // rather than pass, which is the exact "it did not run" shape this audit
-    // exists to end. Locally a missing `origin/main` is a fresh clone, not a
-    // violation.
-    const message = `merge-ledger-audit: cannot resolve ${baseRef} — no merge-base with HEAD`;
-    if (process.env.CI) {
-      console.error(`${message}. Check out with full history (fetch-depth: 0).`);
-      process.exit(1);
-    }
-    console.log(`${message}; skipped (run \`git fetch origin\` to enable it locally).`);
-    return;
+    return null;
   }
+}
+
+function main(): never {
+  const baseRef = baseRefFor(process.env.GITHUB_BASE_REF);
+  const mergeBase = mergeBaseWith(baseRef);
+  if (mergeBase === null) emit(unresolvedBaseReport(baseRef, Boolean(process.env.CI)));
 
   const changed = git('diff', '--name-only', '--no-renames', mergeBase, 'HEAD')
     .split('\n')
@@ -186,28 +242,13 @@ function main(): void {
   );
 
   const finding = evaluateFinding({ changed, ledgerLinesAdded });
-  if (finding) {
-    console.error('merge-ledger-audit: failed');
-    console.error(`  ${finding}`);
-    console.error('');
-    console.error(`  Add one line to ${LEDGER_PATH} describing what this merge changed.`);
-    console.error('  The counter number is NOT this audit\'s business — leave it to the pass.');
-    console.error('  Why: nothing outside /feature step 8 increments that log, so a merge that');
-    console.error('  skips the workflow is invisible by construction (#896, #849, #905).');
-    process.exit(1);
-  }
+  if (finding !== null) emit(violationReport(finding));
 
-  const { production, governance } = classifyDiff(changed);
-  if (production.length === 0 && governance.length === 0) {
-    console.log(
-      `merge-ledger-audit: passed (${changed.length} changed file(s); no production or governance trigger)`,
-    );
-    return;
-  }
-  console.log(
-    `merge-ledger-audit: passed (${production.length} production + ${governance.length} governance file(s); `
-      + `${ledgerLinesAdded} line(s) added to ${LEDGER_PATH})`,
-  );
+  emit(passReport({
+    changedCount: changed.length,
+    classification: classifyDiff(changed),
+    ledgerLinesAdded,
+  }));
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

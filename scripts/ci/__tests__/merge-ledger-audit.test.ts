@@ -9,6 +9,9 @@ import {
   isTestFile,
   LEDGER_PATH,
   parseAddedLines,
+  passReport,
+  unresolvedBaseReport,
+  violationReport,
 } from '../merge-ledger-audit';
 
 // #896 part 1. The audit itself is `git diff` plus these pure functions, so
@@ -203,5 +206,59 @@ describe('classifyDiff', () => {
     ]);
     expect(production).toEqual(['src/lib/a.ts']);
     expect(governance).toEqual(['scripts/ci/b.ts']);
+  });
+});
+
+// `main()` is a straight line through these four: resolve, read, judge, report.
+// Every branch that decides an exit code lives here, so the git shell carries
+// none of them.
+describe('the reports', () => {
+  // A gate that cannot see the diff must never pass QUIETLY in CI — that is the
+  // "it did not run" shape this whole audit exists to end.
+  it('fails an unresolvable base ref in CI and names the checkout fix', () => {
+    const report = unresolvedBaseReport('origin/main', true);
+    expect(report.exitCode).toBe(1);
+    expect(report.text).toContain('cannot resolve origin/main');
+    expect(report.text).toContain('fetch-depth: 0');
+  });
+
+  // Locally the same state is a fresh clone, not a violation.
+  it('skips an unresolvable base ref outside CI', () => {
+    const report = unresolvedBaseReport('origin/main', false);
+    expect(report.exitCode).toBe(0);
+    expect(report.text).toContain('skipped');
+    expect(report.text).toContain('git fetch origin');
+  });
+
+  it('reports a violation with the finding, the remedy and the reason', () => {
+    const report = violationReport('this PR changes 1 production file(s): src/a.ts, and adds no line');
+    expect(report.exitCode).toBe(1);
+    expect(report.text).toContain('merge-ledger-audit: failed');
+    expect(report.text).toContain('src/a.ts');
+    expect(report.text).toContain(`Add one line to ${LEDGER_PATH}`);
+    // The counter is the pass's judgement, never this audit's.
+    expect(report.text).toContain("counter number is NOT this audit's business");
+  });
+
+  it('names the untriggered arm when neither trigger fired', () => {
+    const report = passReport({
+      changedCount: 2,
+      classification: { production: [], governance: [] },
+      ledgerLinesAdded: 0,
+    });
+    expect(report.exitCode).toBe(0);
+    expect(report.text).toContain('2 changed file(s)');
+    expect(report.text).toContain('no production or governance trigger');
+  });
+
+  it('names both counts and the ledger lines when a trigger fired', () => {
+    const report = passReport({
+      changedCount: 3,
+      classification: { production: ['src/a.ts'], governance: ['lefthook.yml'] },
+      ledgerLinesAdded: 4,
+    });
+    expect(report.exitCode).toBe(0);
+    expect(report.text).toContain('1 production + 1 governance file(s)');
+    expect(report.text).toContain('4 line(s) added');
   });
 });
