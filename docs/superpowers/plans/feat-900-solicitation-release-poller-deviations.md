@@ -1064,3 +1064,57 @@ fit the refactor, which is the whole point of doing it behind a green suite. The
 real gate was then reproduced end to end: `pnpm test:coverage` (0 skips, live-DB
 lane included) followed by `pnpm ci:fallow:coverage` → **exit 0**, `complexity 0`,
 `✓ No issues in 33 changed files`.
+
+---
+
+## Step 8 — the second CI run went red on a UTC-midnight fixture, not on the refactor
+
+**What.** With the fallow fixes pushed, PR #920's `test` job failed three
+assertions in `release.integration.test.ts` — `:1014`, `:1138`, `:1425` — while
+the same suite passed locally and in `verify-gate`. All three are the same fact:
+`report.released` 1 instead of 0, `withheldByReason.account_cap` undefined,
+`report.downgraded` 1 instead of 0. **The account daily cap stopped binding.**
+
+**Why, and it is NOT the refactor.** That CI run started 23:59:14 UTC and ended
+00:01:34 UTC — **it crossed midnight.** The cap counts on a UTC-day predicate,
+`queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')` in `send-caps.ts`
+(#898, untouched here). Three fixtures seed "an attempt already made today" as
+`NOW() - '5 minutes'`. At 00:01 UTC that row lands at 23:56 **yesterday**, the
+count comes back 0, the cap of 1 does not bind, the batch releases — and the
+third assertion follows for free, because a batch the cap would have stopped now
+reaches the Judge split and downgrades. Commit `ddfe670a` touched
+`release.ts` and two docs only; it touched neither the tests nor `send-caps.ts`.
+This is a **five-minute-wide window every day** that has been in the branch's
+fixtures since they were written, and the first CI run missed it by 20 minutes.
+
+**Proven, not inferred.** Two probes, because "it must be the midnight boundary"
+is exactly the kind of load-bearing claim this branch has been wrong about eight
+times:
+
+1. **Arithmetic.** At a simulated `2026-08-23 00:01:00+00`, the unclamped fixture
+   satisfies the cap predicate: **false**. The clamped one: **true**.
+2. **Mechanically, on the real suite.** Backdating the fixture far enough to
+   certainly land in yesterday (`'5 hours'`, run at 00:05 UTC) reproduced the CI
+   failure exactly — `AssertionError: expected 1 to be +0`. Adding the clamp on
+   top of that same backdate turned it green. Before and after, same clock.
+
+**What changed.** `OutreachInput` gains `queuedWithinUtcDay`, which clamps
+`queued_at` with `GREATEST(NOW() - interval, date_trunc('day', NOW() AT TIME ZONE
+'UTC') AT TIME ZONE 'UTC')`, and the three "already attempted today" sites set
+it. It pins the row to the same UTC day as the seed's own `NOW()`, so the daily
+failure window shrinks from five minutes to the milliseconds between the seed
+statement and the cycle's count query.
+
+Deliberately NOT applied to the `65 minutes` / `69 hours` fixtures: those are
+wedge and send-window rows that need to be genuinely OLD, and clamping would make
+them young enough to break the 60-minute wedge grace between 00:00 and 01:00 UTC.
+The option is opt-in for that reason.
+
+**A near-miss worth recording: `prettier --write` on this repo is a trap.** There
+is no `.prettierrc` and no `prettier` key in `package.json`, so `npx prettier
+--write` falls back to prettier's own defaults — double quotes, different print
+width — and reformatted the whole 2,000-line test file: **800 insertions / 575
+deletions for a 25-line change.** Caught by reading `git diff --stat` before
+committing. The file was reverted and the change re-applied by hand: 42
+insertions. Format edits in this repo go through `pnpm lint`, never bare
+prettier.

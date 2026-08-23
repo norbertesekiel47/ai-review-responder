@@ -430,6 +430,22 @@ interface OutreachInput {
   sendingAgo?: string;
   /** Interval off NOW() for `queued_at` — the daily-cap counting basis. */
   queuedAgo?: string;
+  /**
+   * Clamp `queued_at` to the START of the current UTC day instead of letting
+   * `queuedAgo` backdate it out of that day.
+   *
+   * Set it on any fixture whose MEANING is "a dispatch attempt already made
+   * TODAY", because the cap counts on a UTC-day predicate — `queued_at >=
+   * date_trunc('day', NOW() AT TIME ZONE 'UTC')` in `send-caps.ts`. Without the
+   * clamp a fixture backdated five minutes lands in YESTERDAY for the five
+   * minutes after 00:00 UTC, the cap silently stops binding, and the test fails
+   * for a reason unrelated to the code under test. That is not hypothetical: it
+   * is what reddened PR #920's second CI run, which ran 23:59:14 → 00:01:34 UTC.
+   *
+   * Leave it OFF for wedge and send-window fixtures (`65 minutes`, `69 hours`):
+   * those need a genuinely OLD row, and clamping would make them young.
+   */
+  queuedWithinUtcDay?: boolean;
 }
 
 interface SeededOutreach {
@@ -456,7 +472,14 @@ async function seedOutreach(input: OutreachInput): Promise<SeededOutreach> {
     // dispatched status and `sending_at` of `sending`, and a JS-derived stamp
     // loses its microseconds against the NOW()-defaulted siblings it is
     // ordered against.
-    queuedAt: dispatched ? sql()`NOW() - ${input.queuedAgo ?? '2 seconds'}::interval` : null,
+    queuedAt: dispatched
+      ? input.queuedWithinUtcDay === true
+        ? sql()`GREATEST(
+            NOW() - ${input.queuedAgo ?? '2 seconds'}::interval,
+            date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+          )`
+        : sql()`NOW() - ${input.queuedAgo ?? '2 seconds'}::interval`
+      : null,
     sendingAt: status === 'sending'
       ? sql()`NOW() - ${input.sendingAgo ?? '1 second'}::interval`
       : null,
@@ -1006,7 +1029,12 @@ describeWithDb(
         // The cap counts DISPATCH ATTEMPTS by `queued_at` in the UTC day
         // (amendment B3), never `sent_at` — a bounce still spent reputation.
         // One attempt already made today exhausts a cap of one.
-        await seedOutreach({ batch, deliveryStatus: 'queued', queuedAgo: '5 minutes' });
+        await seedOutreach({
+            batch,
+            deliveryStatus: 'queued',
+            queuedAgo: '5 minutes',
+            queuedWithinUtcDay: true,
+          });
         const { outreachId } = await seedOutreach({ batch });
 
         const report = await cycle();
@@ -1111,7 +1139,12 @@ describeWithDb(
           const batch = await seedBatch(approvedBatchInput());
           await seedSendParent({ batch });
           await seedSolicitationPolicy(1);
-          await seedOutreach({ batch, deliveryStatus: 'queued', queuedAgo: '5 minutes' });
+          await seedOutreach({
+            batch,
+            deliveryStatus: 'queued',
+            queuedAgo: '5 minutes',
+            queuedWithinUtcDay: true,
+          });
           const { outreachId } = await seedOutreach({ batch });
           await setSubscriptionStatus('past_due');
           await setPlatformHeadroom(0);
@@ -1417,7 +1450,12 @@ describeWithDb(
         const batch = await seedBatch(approvedBatchInput());
         const parentRunId = await seedSendParent({ batch });
         await seedSolicitationPolicy(1);
-        await seedOutreach({ batch, deliveryStatus: 'queued', queuedAgo: '5 minutes' });
+        await seedOutreach({
+            batch,
+            deliveryStatus: 'queued',
+            queuedAgo: '5 minutes',
+            queuedWithinUtcDay: true,
+          });
         const { outreachId } = await seedOutreach({ batch });
 
         const report = await cycle();
