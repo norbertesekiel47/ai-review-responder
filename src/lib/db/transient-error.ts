@@ -2,10 +2,10 @@
 //
 // Single responsibility: "is this a transient Postgres / db-infra error?"
 //
-// The db-infra-transient vocabulary, separate from the Stripe network vocabulary
-// in src/lib/payments/stripe-error-inspect.ts (whose OS-socket set does NOT cover
-// postgres.js connection-lifecycle codes or PG SQLSTATEs). The two concerns stay
-// orthogonal so neither leaks into the other.
+// The db-infra-transient vocabulary, separate from the provider-agnostic
+// network vocabulary in src/lib/shared/error-inspect.ts (whose OS-socket set
+// does NOT cover postgres.js connection-lifecycle codes or PG SQLSTATEs). The
+// two concerns stay orthogonal so neither leaks into the other.
 //
 // Consumers:
 //   - UpdateStripeOverageWorker: a transient postgres.js error raised while
@@ -23,7 +23,7 @@
 // deliberately NOT matched here — those are the Stripe network-code path's job;
 // this predicate is the additive, non-overlapping db layer.
 
-import { errorStringProperty } from '../payments/stripe-error-inspect';
+import { errorStringProperty } from '../shared/error-inspect';
 
 // postgres.js connection-lifecycle codes + transient server SQLSTATEs.
 //   57014           query_canceled (statement / lock-wait timeout)

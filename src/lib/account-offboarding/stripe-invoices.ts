@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import {
   RETRYABLE_STRIPE_ERROR_TYPES,
   PERMANENT_STRIPE_ERROR_TYPES,
+} from '../payments/stripe-error-inspect';
+import {
   RETRYABLE_NETWORK_ERROR_CODES,
   errorStringProperty as stringProperty,
   errorNumberProperty as numberProperty,
-} from '../payments/stripe-error-inspect';
+} from '../shared/error-inspect';
 
 type StripeInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
 type StripeInvoiceCleanupOperation = 'list' | 'inspect' | 'finalize' | 'void';

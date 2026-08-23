@@ -6,8 +6,8 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — reset by the **2026-08-22 pass**
-(entry below), then #891 and #890 counted 2026-08-23. Full artifacts:
+**Merges since last architecture pass: 3** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890 and #913 counted 2026-08-23. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -48,6 +48,13 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **refactor #913** — provider-agnostic error vocabulary relocated (2026-08-23).
+  `RETRYABLE_NETWORK_ERROR_CODES` + `errorStringProperty`/`errorNumberProperty` moved
+  from `payments/stripe-error-inspect.ts` to a new zero-import leaf
+  `src/lib/shared/error-inspect.ts` — seven importers, four of them non-Stripe
+  (solicitation `send-retry`, `import-consent`, `db/transient-error`, `worker/index`).
+  Stripe TYPE sets and the coupon classifier stay in payments. Byte-identical move,
+  no behaviour change. **Counts: +1 production merge.**
 - **feat #890** — the three named delivery-status owners (2026-08-23). The 2026-08-18
   pass's H1, corrected 2026-08-23 from one constant to THREE: `CONTEXT.md:75`'s own
   third-caller trigger had fired (six live spellings of the cancellable set, plus the

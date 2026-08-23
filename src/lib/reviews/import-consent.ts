@@ -98,7 +98,7 @@ import { enqueueAnalyticsEvent, type EnqueueAnalyticsEventInput } from '@/lib/an
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { isSubscriptionTier } from '@/lib/accounts/tier-config';
 import { createWorkerLogger } from '@/lib/shared/logger';
-import { errorStringProperty } from '@/lib/payments/stripe-error-inspect';
+import { errorStringProperty } from '@/lib/shared/error-inspect';
 import type { ZernioInitialBackfillPayload } from '@/lib/shared/worker-types';
 
 type SqlExecutor = Sql | TransactionSql;

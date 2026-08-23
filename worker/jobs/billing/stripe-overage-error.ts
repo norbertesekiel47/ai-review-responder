@@ -18,10 +18,12 @@
 import {
   RETRYABLE_STRIPE_ERROR_TYPES,
   PERMANENT_STRIPE_ERROR_TYPES,
+} from '../../../src/lib/payments/stripe-error-inspect';
+import {
   RETRYABLE_NETWORK_ERROR_CODES,
   errorStringProperty,
   errorNumberProperty,
-} from '../../../src/lib/payments/stripe-error-inspect';
+} from '../../../src/lib/shared/error-inspect';
 
 type StripeOverageErrorClass = 'transient' | 'terminal';
 

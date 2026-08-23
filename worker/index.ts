@@ -137,7 +137,7 @@ import {
 } from '../src/lib/shared/pool-wait';
 import { getCacheRedis } from '../src/lib/db/redis-cache';
 import { isCrashNetRecoverableDbError } from '../src/lib/db/transient-error';
-import { errorStringProperty } from '../src/lib/payments/stripe-error-inspect';
+import { errorStringProperty } from '../src/lib/shared/error-inspect';
 import { createTransientRejectionGovernor } from './transient-rejection-governor';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);

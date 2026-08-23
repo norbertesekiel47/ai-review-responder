@@ -57,7 +57,7 @@ import {
   RETRYABLE_NETWORK_ERROR_CODES,
   errorNumberProperty,
   errorStringProperty,
-} from '@/lib/payments/stripe-error-inspect';
+} from '@/lib/shared/error-inspect';
 
 /** D12c's classes. `terminal_bounce` is the only one that stamps `bounced_at`. */
 export type SendFailureClass = 'terminal_bounce' | 'retryable' | 'terminal_other';
