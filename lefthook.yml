@@ -65,5 +65,10 @@ pre-push:
       run: pnpm ci:dropped-columns
     directory-map:
       run: pnpm ci:directory-map
+    # Skipped rather than failed when `origin/main` is unfetched (a fresh
+    # clone); in CI the same state is a hard failure, because a gate that
+    # cannot see the diff must never pass quietly.
+    merge-ledger:
+      run: pnpm ci:merge-ledger
     db-imports:
       run: pnpm ci:db-imports

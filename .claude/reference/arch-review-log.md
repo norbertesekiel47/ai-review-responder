@@ -6,18 +6,21 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 7 — ABOVE the threshold, pass owed**
-(last reset by the 2026-08-18 pass, table row below). Full artifacts:
-`docs/reviews/PATHFINDER-2026-08-18/`.
+**Merges since last architecture pass: 0** — reset by the **2026-08-22 pass**
+(entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
 > Two were never counted at the time (#901, #905); two are the #917/#923 pair
 > that landed on 2026-08-22 with no increment. The derivation below is written
 > out so the next reader can check it instead of trusting it — **this is the
-> THIRD consecutive pass to find this counter wrong by its own rule**, after
-> 2026-08-10 (3 missed increments) and 2026-08-18 (read 8, measured 11). Issue
-> **#896** is the mechanical fix; until it lands, this number is hand-kept and
-> should be re-derived, not believed.
+> FOURTH consecutive pass to find this counter wrong by its own rule**, after
+> 2026-08-10 (3 missed increments), 2026-08-15 (PR #803 invisible) and
+> 2026-08-18 (read 8, measured 11). *Corrected from "THIRD" by the 2026-08-22
+> pass (P1): the log's own recurrence counter had the same defect as the thing
+> it counts.* Issue **#896** is the mechanical fix; **its Part 1 has now
+> landed** as `ci:merge-ledger`, so a merge that changes production or
+> governance files and leaves no line here fails CI on the merging PR.
 >
 > **Rule applied:** a first-parent merge counts when it changes production code
 > under `src/`, `worker/` or `supabase/`. Docs-only merges and post-merge sweeps
@@ -43,6 +46,97 @@ resets the counter to 0 and adds a row below.
 > at all. The counter's blind spot is not the small merges it rounds past; it is
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
+
+- **PR #935** — #896 part 1, `ci:merge-ledger` (2026-08-23). The audit this very row
+  satisfies: a PR whose diff changes a non-test file under `src/`/`worker/`/`supabase/`,
+  or any path on the governance surface, must add a line here or fail CI on the merging
+  PR. **No migration, no flag, no env var, no new dependency.** One script
+  (`scripts/ci/merge-ledger-audit.ts`) + 44 unit cases, wired into `package.json`,
+  `ci.yml`'s `lint` job and `lefthook.yml`; Dependabot is exempted at the workflow level
+  because `package.json` is on the surface and no bot can author a row.
+  **Does NOT increment the counter** — it changes no production file, and the audit
+  deliberately never touches that number: which merges "count" is the pass's judgement,
+  and an audit asserting it on every PR would assert it on the docs-only merges the rule
+  excludes. What it enforces is the TRACE.
+
+- **2026-08-22 architecture pass** — windowed on the 17 merges after `54e4d374`
+  (7 counting, **77 production files**). 8 features charted, **12 mutations
+  executed**, counter reset 7 → 0. Artifacts:
+  `docs/reviews/PATHFINDER-2026-08-22/`.
+
+  **Health held for a fifth pass**: 77 B, duplication 1.1%, high-complexity
+  functions 122 → 119, churn hotspots 0, LOC +4.3% without added tangle. The one
+  metric moving the wrong way is large functions (449 → 463) against
+  maintainability 92.2 → 92.1.
+
+  **What it found that the code did not already know.** (1) The send lane's
+  *decision* logic is well pinned and its **concurrency and integrity spine is
+  not**: the A4 bytes-identity check and BOTH send-path CAS predicates survived
+  deletion with the whole lane green, and a whole-repo grep of `src` + `worker`
+  returned zero test-file references for `bytes_changed_under_gate`, `cas_lost`
+  and `in_flight_elsewhere`. All three failure modes are silent — moderating one
+  artifact and sending another, a value-ledger row with no join key behind it,
+  and a double send. The pass's own priority hypothesis (guard 5,
+  `readSendBreaker`'s fail-closed throw) was **refuted**: it is pinned three
+  ways. (2) **X18 — `canonicalBatchId`'s bug is reproduced.**
+  `settleGenerationExhaustion` binds one batch id cast-and-case-insensitive and
+  raw-TEXT inside ONE transaction, so it locks the batch and misses its send
+  parent; the canonicaliser exists precisely because this already shipped once
+  in `approval.ts`. (3) **P1 — the counter was wrong for the FOURTH consecutive
+  pass**, and this log's own recurrence line said THIRD. (4) **`!== 'not_settled'`
+  is a wrong proxy**: halting an all-withheld `built` batch makes both halt routes
+  report `closed: true` against `send_closed_at IS NULL`, because
+  `'no_send_parent' !== 'not_settled'` is true and that arm is reachable through
+  `haltBatch` → `latchHalt`, which passes no failure. (5) **`ci:admin-aal2`'s P2
+  parity misses `/admin/solicitation`** — it anchors on a sibling route that does
+  not exist for that page, so flipping the page's `aal2` off would pass CI while
+  the API route stays gated, and that page reads `solicitation_send_breaker`
+  directly via `sql`. (6) **`ci:rls-audit` guards no platform-scoped table** —
+  `REQUIRED_RLS_TABLES = TENANT_TABLES`, so neither `solicitation_send_breaker`
+  nor four older tables are covered.
+
+  **Two claims in this log were measured wrong.** The **#920 entry below still
+  says *"+4 platform-wide predicates under a standing sign-off"*, and that is
+  false**: the move is **381 → 383 (#904) → 390 (#920)**, split across two
+  merges, seven of them from #920, and all seven are `background-global-scan` —
+  only #904's two are `platform-cross-account`. The allowlist's own header
+  narrative records all nine correctly; **this log is the artefact at fault.**
+  Second: **`#895(b)` was delivered by #920** and `approval.ts:518-524` cites the
+  issue by number, while the issue stayed open — the tracker and the source
+  disagree about whether it is done.
+
+  **X10 graduated from pattern to rule** — an enumeration that defines a guard's
+  SUBJECT SET must be derived from the artefact that produces subjects; an
+  enumeration listing only EXEMPTIONS inside a derived scan is legitimate. Seven
+  silent instances against ten-plus loud ones, plus one (`SQL_TAG_NAMES`) that
+  made the transition in-repo. Phase 2 amended it: apply the classifier to a
+  guard's **discriminator and its transitive inputs**, which found two more.
+
+  **The backlog is ONE ranked list of 15 items** (the seven re-verified
+  2026-08-18 handoffs merged with this pass's findings, ranked on expected cost
+  of not doing it before the next window). Top three: **H8** the three
+  send-path integrity tests, **#896** `ci:merge-ledger` + the Stop-hook
+  sentinel — the only item that changes the *rate* at which everything else
+  accumulates — and **H9** `canonicalBatchId` at `ask-generation.ts`'s two
+  entry points.
+
+  **What the next pass should look at.** (a) Whether the three send-path
+  integrity tests still go RED under their own mutations — #932 pinned them, and
+  a later refactor can silently unpin them again. (b) **`ci:fallow:coverage` has
+  no unit-size axis**: `line_count` never appears in any finding's `exceeded`
+  field, so a 202-line flat orchestrator with high coverage is invisible to the
+  PR gate in any file, forever. (c) Whether `#896`'s ledger actually changed the
+  counter's accuracy — three hand-corrections of a hand-kept number is not a
+  process that has converged, and this entry is the first one written under it.
+  (d) The four false `docs/directory.md` rows, and whether H11's split of
+  `readSendBreaker` retired two of them structurally rather than by prose.
+
+  *This entry was re-derived from the pass's artifacts on 2026-08-23 after the
+  original local edit was lost before it was committed. The four blocks above
+  marked with the #920 correction, X10's rule, findings (4)-(6) and the
+  next-pass list were restored from the original text on the same day. The artifacts under
+  `docs/reviews/PATHFINDER-2026-08-22/` are authoritative wherever they and this
+  summary disagree.*
 
 - **PR #926** — #917 `platform_halt`, the third system **Halt latch** reason (2026-08-22, squash
   `2c7bb615`). **Migration 111** — two CHECK widenings, no data change, applied to staging and
@@ -788,3 +882,4 @@ in the workflow as a required precondition. Two further findings:
 | 2026-08-10 | 24 merges ≥ 5 threshold (4.8× — reconciled from the quoted 22 by counting #712 and #716; the Consented Review Import epic #667 + maps #710, suppression #643–#645, KPI anchor #688) | Pathfinder pass over the entropy window: 7 features charted (F1 Review import, F2 Import consent, F3 On-demand generation, F4 Reviews list, F5 held-draft seam, F6 persist boundary, F7 suppression/unsubscribe — 301 flowchart nodes, every node file:line-cited), 20 within-feature + 10 cross-feature duplication findings, 11 process items adjudicated. Artifacts: `docs/reviews/PATHFINDER-2026-08-10/00-05` | **Headline: the code held its shape; the entropy was in the workflow layer.** Health 77 B → 77 B, maintainability 92.2 → 92.2, duplication 1.7% → **1.3%**, churn hotspots 0 → 0 across 24 merges — while the process layer accumulated 3 missed counter increments, 6 staging-reconcile incidents (doc-fixed pre-pass), 3 fallow-surprise PRs, 2 phase rewinds, and 1 wrong-CHECK migration from the intake-amendment gap. **KPI verdict (P1):** ONE stack — Stack B composes extracted ADR-0019 anchor fragments (`kpi/fragments.ts`) at 14 verified plug lines; `getLocation/AccountKpiSummary` + `GET /api/dashboard/kpis` DELETED (zero consumers, verified ×3); `kpi/types.ts` kept (9 importers); #757 rendered fully mechanical. **1 behavioral bug found (H2):** imported rows hash differently than live rows (`zernio-ingest-shared.ts:425-453` vs `computeContentHash`) → spurious content-changed lane on later updates. **Invariant-#3 hardening (H3):** structural auto-approval candidacy spelled ×3 with nothing forcing agreement → STRUCTURAL_GATES table. One-owner sweep (H4): `zernio://` template ×7/5 files, `review_exceptions` ON CONFLICT ×2, one JS in-flight hand-spell. Mechanical bundle (H5) + doc-truth (H6). DO-NOT-UNIFY register (P4) records 8 verified-deliberate specializations incl. the row-lock preambles and the PgBouncer-guard non-finding. Process verdicts (05): sweep-miss → mandatory log row in `document-feature`; gate stops writing `phase` (records `lastGreenGateSha`); step 8 RUNS `pnpm ci:fallow` (0.6s measured); audit self-tests for the 4 text-scan audits; `ci:live-db-suites` evidence-completeness; intake amendments become PRs against intake copies, never comments. |
 | 2026-08-15 | 6 merges ≥ 5 threshold (#793, #805, #821, #827, #831, #833 — the portal-audit spec #827→#831→#833 weighed together as its #827 entry asked) | Pathfinder pass, **windowed not repo-wide** (owner's call): 6 features + 1 seam charted — F1 admin business console, F2 owner dashboard portal, F3 owner settings, F4 Channel actor seam, F5 onboarding funnel, F6 Checkout attempt, S1 auth gate seam. **671 nodes / 3,908 lines**, every node `file:line`-cited. 8 within-feature + 6 cross-feature duplication findings, 4 enforcement-surface findings, 1 invariant violation, 15 guard-integrity instances, 10 process items adjudicated. Artifacts: `docs/reviews/PATHFINDER-2026-08-15/00-06` | **Headline: the prior pass's prescriptions were ALL executed — H1–H6, a first for this log — and the code held its shape again** (health 77 B → 77 B, maintainability 92.2 → 92.2, duplication **1.3% → 1.1%**, 0 churn hotspots across 6 merges, 3 of them structural refactors). **The pass's largest finding is test-integrity, not architecture: 15 guards pass for the wrong reason** (`06-guard-integrity.md`), each confirmed by mutation against the full 862-file/11,340-test suite; **5 sit on invariant #3's auto-policy gate chain** sharing ONE root cause (the suite pins every gate collaborator to ALLOW and never overrides), incl. the judge verdict — which CLAUDE.md calls a posting precondition. Orchestrator independently reproduced A1. Two (`ResponsePublisherWorker.test.ts:239`,`:250`) are worse than untested: their titles claim the coverage. One (E3, `business-summary.ts:235`) is a live correctness bug on regression — it feeds `approval_rate`, hence every churn score. **40 of ~55 mutations correctly killed**; the auto-approval matrix pins all 11 block reasons (product of prior handoff H3). **Mirror class claimed, then REFUTED on same-day execution:** the pass asserted live-DB-only pins were inert in CI; H6's census found CI's `test` job has run the live-DB lane since #244 (91 suites measured) — the observations held, the conclusion misread the local `test:integration` list as CI's coverage. H6's real yield: that CI gate was **unpinned** (four YAML lines un-gate 92 suites, CI stays green) — now pinned in `ci-audit-wiring.test.ts`. **Enforcement:** #831's structural→configuration MFA conversion re-opened as asked — `ci:admin-aal2`'s floor is FILE-scoped not verb-scoped, **an unused import satisfies its allow rule**, and it does not cover admin pages at all (`requireAdminPage`'s `aal2` defaults false, 8/16 opt in); `MFA_ENFORCEMENT_ENABLED` is Off so per-route binding is the only live AAL2 layer. Residual risk bounded honestly as **availability, not escalation** (proxy prefix + `requireRole` backstop); the dangerous variant is admin mutations moving off `/api/admin`. CLAUDE.md's "an aliased import would still clear it" **corrected** — a same-file alias TRIPS the deny rule; the real evasion needs a renaming re-export (→ H3). **Duplication:** #833 and #831 each built a correct owner and stopped one file short — `HealthBadge` exists twice with **different type safety** (shared = compile error on a new level, private copy at `BusinessDetailClient.tsx:33` = silently green), churn math doubled, trial eligibility spelled twice **and disagreeing**, `onboarded_by`'s primary-scoped subquery spelled 3× (one **unscoped** — latent not live, guarded by a precondition two modules away). **Doc-truth:** `onboarded_by` has **6 read sites / 5 meanings** vs CLAUDE.md's "three"; "Health presentation has ONE owner" is false as written. **Invariant #9b collapse** found at `useLocationVoiceForm.ts:196` (flag dropped from the mode check). **Process:** sweep-miss mechanization CLOSED (last 3 increments written by the skill); **new class — PR #803, uncounted, deleted the `/feature` skill's entire step 8** (667→207 lines), the surface the fallow preflight, the staging-reconcile fix and the arch-log increment all targeted; the increment survived only because #823 had relocated it days earlier. Phase rewind still live at 7 occurrences — and `transition-state.mjs` LOOKS like the fix but is bypassed AND its matrix permits the rewind anyway. `reclassify`/specs still open (WARN, not FAIL). "Prescribed fix outside legal surface" split into TWO classes with different answers (7a validate spec locations vs import bans; 7b out-of-surface fixes ship as ISSUES, not log notes — the evidence being that notes failed 4× before #823). Audit census: 10 AST / 7 text. 6 handoffs H1–H6. |
 | 2026-08-18 | 8 counted merges ≥ 5 threshold — **measured as 11 by the counter's own rule**, across a 32-commit window (the solicitation send lane #657/#651/#652/#629/#858/#859/#860/#865/#872 + #665/#662; the uncounted three-tier design system #843–#846; the uncounted CI/tooling surface #847–#850/#854/#867) | Pathfinder pass, **windowed** (owner's call): 9 features charted — F1 approval lane, F2 Requests surface, F3 admin console, F4 email lane, F5 unsubscribe, F6 design system, F7 marketing, F8 CI enforcement, F9 purge verifier. Two extra axes: guard-integrity (42 mutations) and process. Artifacts `docs/reviews/PATHFINDER-2026-08-18/00-06` | **Headline: the code held its shape a FOURTH time — health 77 B → 77 B, maintainability 92.2 → 92.2, duplication 1.1% → 1.1%, 0 churn hotspots, high-complexity functions 153 → 122 — and three of this pass's own findings would have been WRONG if reasoned instead of measured.** (1) **F8 refuted the fix the pass was about to prescribe**: adding the four missing tables to `TENANT_TABLES` produces **63 red lines and 0 security fixes** (measured by copying the audit and running `--no-allowlist`); the real gap is the **bridge vocabulary** — `localScopedBindings:942` knows 3 shapes, `users` needs a 4th (`accounts.owner_user_id = users.id`, inbound FK on the parent) and a 5th. H5 is therefore three ORDERED steps. (2) **F3's boundary was wrong**: the import closure of its two halves intersects in **zero domain modules**, and the trust models diverge at the read layer (the Send panel page runs at plain admin, `aal2` defaults false; suppressions passes `aal2:true`) — SPLIT. (3) **W4 refuted "five verbs share a body"**: the repetition is silhouette, three already-extracted lines. **Guard integrity: H1's fixes HELD** — 14 of 15 prior findings genuinely pinned, 0 regressed, the five on invariant #3's gate chain closed; of 26 new-guard mutations **25 killed, 1 survived** — `latchHalt`'s `halted_at IS NULL` CAS (`approval.ts:479`), credited by three tests that never reach it because both arms refuse at the caller's state guard first. **Duplication:** the cancellable set has **SIX** spellings (the log said two) and `CONTEXT.md:75`'s own "a THIRD caller is the signal to extract" trigger has fired; `batchDidClose` is spelled 4× in 2 forms and that split already falsified `ApprovalPanel.tsx:562-563`; the purge writer and verifier share **seven** hand-typed sentinel literals. **New bug found (X9):** `suppressions-service.ts:72` runs a 2-wide `Promise.all` on the singleton `sql` against `DB_POOL_MAX=3`, contradicting `admission.ts:26-31` by name, missed because four fan-out pins enumerate their subjects. **Meta-class (X10):** four independent guards whose scope is an ENUMERATION — `ci:tenant-scope`, `ci:admin-aal2`, `design-scope-purity` (hence `auth-island.css:5-15`, Island palette redeclared outside every watched directory **with the fonts already diverged**), and the fan-out pins. **F9:** the OR-chain is **28** predicates, not 27; `tracked_keywords:144` uses `<>` where the identical column class at `:120` uses `IS DISTINCT FROM`. **P6, found by this pass ON this pass:** the Stop hook demanded the orphaned import left by a live mutation be fixed — and the obvious fix permanently deletes an invariant-#3 posting precondition. **Follow-up rate for the window: ZERO** — no product merge shipped a defect a later PR had to repair; residual risk has moved entirely to composition (staging-only) and to the apparatus itself, which has no layer that reviews it. 7 handoffs H1–H7. |
+| 2026-08-22 | 7 counted merges ≥ 5 threshold across a 17-merge window after `54e4d374` (the solicitation send lane #901/#904/#912/#920/#925/#926 + the Daylight Gallery II rebrand #905); the counter itself read **3** and was hand-corrected to 7 in #929 the same evening | Pathfinder pass, **windowed** (owner's call): 8 features charted — F1 release cycle, F2 dispatch, F3 send breaker, F4 halt latch, F5 marketing chrome, F6 Gallery II section pages, F7 watch-mode postal gate, F8 tenant-scope allowlist. Plus a guard-integrity axis (**12 mutations, none skipped**) and a process axis. Artifacts `docs/reviews/PATHFINDER-2026-08-22/00-08` | **Headline: the code held its shape a FIFTH time — 77 B, duplication 1.1%, high-complexity functions 122 → 119, 0 churn hotspots across +7,177 LOC — and the pass's own priority hypothesis was REFUTED by measurement.** Guard 5 (`readSendBreaker`'s fail-closed throw), flagged in the brief as the likely highest-severity finding, is pinned **three** ways. **The real finding inverts the shape of the lane:** the send lane's DECISION logic is well pinned (gate order survives two independent swaps, governor order caught by a four-round differential, the outbox status contract caught by a CI audit) while its **concurrency and integrity spine is not** — the A4 bytes-identity check and BOTH send-path CAS predicates survived deletion with the whole lane green, and a whole-repo grep of `src` + `worker` returns **zero** test-file references for `bytes_changed_under_gate`, `cas_lost` and `in_flight_elsewhere`. Severity order 6 > 2b > 2a. **X18: `canonicalBatchId`'s bug is reproduced** — `settleGenerationExhaustion` binds one id `::uuid` and raw-TEXT in ONE transaction, locking the batch and missing its send parent, while `closeBatchIfSettled` forty lines later lowercases internally and finds it; the canonicaliser exists because this already shipped once. **DO-NOT-UNIFY:** the send-parent QUERY is legitimately two functions (*ACTIVE parent* vs *LATEST parent*) — unify the canonicalisation only. **Process (P1): the counter was wrong for the FOURTH consecutive pass and this log's own recurrence line said THIRD**; four merges were missed in one window (#901, #905, #925, #926), #905 being 51 production files with no row at all. **P2:** #895(b) was delivered by #920 and the source cites the issue by number while the tracker still shows it open. **P6 from the prior pass recurred:** the Stop hook demanded the orphaned import a live mutation left behind be fixed — and it exists in TWO hook copies, not one. Backlog delivered as ONE ranked list of 15 items. |

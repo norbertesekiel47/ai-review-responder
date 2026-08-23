@@ -205,6 +205,14 @@ jobs:
         run: pnpm ci:dropped-columns
       - name: Run directory-map completeness audit (docs/directory.md vs worker/ + src/lib/)
         run: pnpm ci:directory-map
+      # Dependabot cannot write an arch-log line, and `package.json` is on
+      # the governance surface, so every dependency bump would be blocked on
+      # a row no bot can author. Dependabot owns dependency updates here
+      # (see the non-blocking `pnpm audit` step below); nothing else is
+      # exempt.
+      - name: Run merge-ledger audit (arch log vs production + governance diff)
+        if: github.actor != 'dependabot[bot]'
+        run: pnpm ci:merge-ledger
       # Informational only: Dependabot owns dependency updates; this surfaces
       # vulnerable transitive deps between Dependabot runs without gating PRs.
       - name: Dependency vulnerability audit (non-blocking)
