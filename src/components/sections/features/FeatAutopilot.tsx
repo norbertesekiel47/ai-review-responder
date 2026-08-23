@@ -5,7 +5,7 @@ import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { useReveal } from './useReveal';
 
-/* ================== 05 AUTOPILOT ================== */
+/* ================== 05 AUTOPILOT (split chapter: text left, queued post right) ================== */
 export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
 
@@ -17,24 +17,17 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
       className="rw-dl-band"
     >
       <div className="rw-dl-col">
-        <FeatIntro
-          n="05"
-          kicker="Autopilot · within your rules"
-          bar="var(--rw-gold-bar)"
-          title="Hands-off, inside your rules."
-        />
-        <div className="feat-split">
-          <div className="feat-split-lede-col">
-            <p className="feat-split-lede">
-              On Autopilot, replies to 4–5★ reviews that pass our safety checks can post
-              themselves, but only inside rules you set. You choose 5★ only or 4–5★, a daily limit
-              (1–50, default 10), and a 15- or 30-minute veto window, for your account or per
-              location. Until the window closes, the reply is yours to stop with one tap. Negative
-              reviews are never auto-posted.
-            </p>
-          </div>
+        <div className="feat-ch is-split">
+          <FeatIntro
+            n="05"
+            kicker="Autopilot · within your rules"
+            bar="var(--rw-gold-bar)"
+            group="Care and control"
+            title="Hands-off, inside your rules."
+            lede="On Autopilot, replies to 4–5★ reviews that pass our safety checks can post themselves, but only inside rules you set. You choose 5★ only or 4–5★, a daily limit (1–50, default 10), and a 15- or 30-minute veto window, for your account or per location. Until the window closes, the reply is yours to stop with one tap. Negative reviews are never auto-posted."
+          />
 
-          <div ref={cardRef} className={cn('rw-dl-rv', cardSeen && 'is-in')}>
+          <div ref={cardRef} className={cn('feat-ch-ar rw-dl-rv', cardSeen && 'is-in')}>
             <div className="rw-dl-card">
               <div className="rw-dl-cap">
                 <span className="rw-dl-cap-dot" />

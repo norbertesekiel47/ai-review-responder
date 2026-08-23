@@ -12,10 +12,9 @@ const APPROVAL_STEPS = [
   { n: '04', title: 'You tap approve · we post it', sub: 'One tap on your phone · No login required', t: '+0:58', final: true },
 ];
 
-/* ================== 04 THE GATE ================== */
+/* ================== 04 THE GATE (wide chapter: timeline and approval page side by side) ================== */
 export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [tlRef, tlSeen] = useReveal<HTMLDivElement>();
-  const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
+  const [arRef, arSeen] = useReveal<HTMLDivElement>();
 
   return (
     <section
@@ -25,16 +24,17 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       className="rw-dl-band is-paper"
     >
       <div className="rw-dl-col">
-        <FeatIntro
-          n="04"
-          kicker="Copilot · your control"
-          bar="var(--rw-sage-bar)"
-          title="Every reply needs your sign-off."
-          lede="On Copilot, every draft comes to you by email, with the review and the reply side-by-side. Tap approve, edit inline, or ask for a fresh draft. Nothing is posted without your go-ahead."
-        />
+        <div className="feat-ch is-wide">
+          <FeatIntro
+            n="04"
+            kicker="Copilot · your control"
+            bar="var(--rw-sage-bar)"
+            group="Care and control"
+            title="Every reply needs your sign-off."
+            lede="On Copilot, every draft comes to you by email, with the review and the reply side-by-side. Tap approve, edit inline, or ask for a fresh draft. Nothing is posted without your go-ahead."
+          />
 
-        <div className="feat-split">
-          <div ref={tlRef} className={cn('rw-dl-rv feat-steps-wrap', tlSeen && 'is-in')}>
+          <div ref={arRef} className={cn('feat-ch-ar feat-two rw-dl-rv', arSeen && 'is-in')}>
             <ol className="feat-steps">
               {APPROVAL_STEPS.map((s) => (
                 <li key={s.n} className="feat-step-row">
@@ -47,9 +47,7 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
                 </li>
               ))}
             </ol>
-          </div>
 
-          <div ref={cardRef} className={cn('rw-dl-rv', cardSeen && 'is-in')}>
             <div className="rw-dl-card">
               <div className="rw-dl-cap">
                 <span className="rw-dl-cap-dot" />

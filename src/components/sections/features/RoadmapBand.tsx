@@ -2,6 +2,7 @@
 
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
+import { FeatIntro } from './FeatIntro';
 import { useReveal } from './useReveal';
 
 // Illustrative scorecard for an unreleased feature ("Coming soon" / preview).
@@ -13,10 +14,9 @@ const COMPETITOR_ROWS = [
   { rank: '#4', name: 'Competitor C', stars: '4.0', resp: 'Sample data' },
 ];
 
-/* ================== ROADMAP ================== */
+/* ================== ROADMAP (split chapter: text left, scorecard right) ================== */
 export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
-  const [leftRef, leftSeen] = useReveal<HTMLDivElement>();
-  const [rightRef, rightSeen] = useReveal<HTMLDivElement>();
+  const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
   return (
     <section
       ref={innerRef}
@@ -25,23 +25,20 @@ export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | nu
       className="rw-dl-band is-paper"
     >
       <div className="rw-dl-col">
-        <div className="feat-split">
-          <div ref={leftRef} className={cn('rw-dl-rv', leftSeen && 'is-in')}>
-            <p className="feat-intro-k feat-intro-k-left">
-              <span className="feat-intro-tick" style={{ ['--bar' as string]: 'var(--rw-sage-bar)' }} aria-hidden="true" />
-              What&apos;s next · Coming soon
-            </p>
-            <h2 className="rw-dl-h2">The same agent, reaching further.</h2>
+        <div className="feat-ch is-split">
+          <FeatIntro
+            kicker="What's next · Coming soon"
+            bar="var(--rw-sage-bar)"
+            group="Roadmap"
+            title="The same agent, reaching further."
+            lede="Today RepWorth minds your Google reviews. The roster below is what the agent takes on next, previewed here as the neighborhood scorecard, drawn with sample data."
+          >
             <p className="feat-roadmap-roster">
               Get reviews · Flag fakes · Watch everywhere · Compare with competitors
             </p>
-            <p className="feat-split-lede">
-              Today RepWorth minds your Google reviews. The roster above is what the agent takes on
-              next, previewed here as the neighborhood scorecard, drawn with sample data.
-            </p>
-          </div>
+          </FeatIntro>
 
-          <div ref={rightRef} className={cn('rw-dl-rv', rightSeen && 'is-in')}>
+          <div ref={cardRef} className={cn('feat-ch-ar rw-dl-rv', cardSeen && 'is-in')}>
             <div className="rw-dl-card">
               <div className="rw-dl-cap">
                 <span>Neighborhood scorecard · sample data</span>

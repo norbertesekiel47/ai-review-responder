@@ -5,7 +5,7 @@ import { useEffect, useId, useState } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
-import { Reveal } from './Reveal';
+import { Reveal } from '@/components/ui/Reveal';
 import { HeroWash } from './HeroWash';
 import { StatCards } from './StatCards';
 import { WatchArtifact } from './WatchArtifact';

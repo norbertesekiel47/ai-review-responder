@@ -1168,8 +1168,14 @@
   .rw-nav-links, .rw-nav-login { display: none; }
   .rw-nav-toggle { display: inline-flex; }
   .rw-nav-col { padding-left: 18px; padding-right: 18px; }
+  /* Phone budget at 390px: 322px inside the pill. Brand (~111px) + CTA
+     (~128px) + hamburger (44px) + gaps must fit, and the brand must never
+     shrink — a shrunk brand overflows its wordmark under the CTA. */
+  .rw-nav { gap: 12px; padding: 0 6px 0 16px; }
+  .rw-nav-brand { flex: none; }
+  .rw-nav-right { gap: 6px; }
   /* The pill CTA stays visible beside the hamburger but drops the arrow disc. */
-  .rw-nav-right .rw-pill { padding: 10px 16px; }
+  .rw-nav-right .rw-pill { padding: 10px 14px; font-size: 14px; }
   .rw-nav-right .rw-pill .rw-pill-circ { display: none; }
 }
 

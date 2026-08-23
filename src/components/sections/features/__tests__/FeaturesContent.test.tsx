@@ -16,10 +16,14 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('Book a Demo');
   });
 
-  it('renders hero words in gap-managed rows', () => {
+  it('renders the hero headline as masked rows (the Daylight line-rise entrance)', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html.match(/class="rw-hero-line"/g)).toHaveLength(2);
+    // Five pre-broken lines, each inside its own overflow mask — the same
+    // entrance /how-it-works uses, so the two heroes move alike.
+    expect(html.match(/class="rw-hero-line"/g)).toHaveLength(5);
+    expect(html).toContain('A tireless agent');
+    expect(html).toContain('without the gate.');
   });
 
   it('uses illustrative, unnamed sample content rather than invented people or businesses', () => {

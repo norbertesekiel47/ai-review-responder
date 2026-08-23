@@ -16,6 +16,10 @@ const PRICING_CSS = readFileSync(
   resolve(process.cwd(), 'src/app/(public)/_styles/pricing.css'),
   'utf-8',
 );
+const ISLAND_CSS = readFileSync(
+  resolve(process.cwd(), 'src/app/(public)/_styles/island.css'),
+  'utf-8',
+);
 const LANDING_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/landing-experience.css'),
   'utf-8',
@@ -62,7 +66,9 @@ const FOCUS_RULES = [
   // Daylight Gallery II (2026-08 rebrand): Island marketing surfaces ring in
   // forest — the system's single action colour, high-contrast on bone/paper.
   { css: PRICING_CSS, selector: '.pr-plan-cta:focus-visible', token: '--rw-forest', offset: '3px' },
-  { css: PRICING_CSS, selector: '.pr-faq-q:focus-visible', token: '--rw-forest', offset: '3px' },
+  // The pricing FAQ now renders the shared `.rw-dl-faq*` accordion (island.css),
+  // the same one /how-it-works uses — its ring lives with the primitive.
+  { css: ISLAND_CSS, selector: '.rw-dl-faq-q:focus-visible', token: '--rw-forest', offset: '3px' },
 ] as const;
 
 function ruleBody(css: string, selector: string): string {
