@@ -42,6 +42,33 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
+# MUTATION SENTINEL (#896 part 2). A guard-integrity pass DELETES a guard on
+# purpose and runs the suite to see whether anything catches it. ESLint then
+# reports the now-orphaned import, and the mechanically obvious remedy —
+# delete the unused import — PERMANENTLY REMOVES a posting precondition
+# (invariant #3). It happened: the 2026-08-18 pass held invariant #3's
+# auto-policy conjunct deleted at worker/jobs/publisher/auto-policy-publish.ts
+# and this hook demanded the import be cleaned up before the turn could end.
+#
+# A lint-on-stop hook cannot tell a measurement from a mistake, so the agent
+# running one declares itself:
+#
+#     touch .feature/mutation-in-progress     # already git-ignored
+#     ... mutate, run the suite, RESTORE the file ...
+#     rm .feature/mutation-in-progress
+#
+# TYPECHECK STILL RUNS. tsconfig sets no `noUnusedLocals`, so tsc cannot
+# produce the dangerous finding, and a real type break during a mutation is
+# still worth hearing about (deleting a union member is caught that way).
+# Only the eslint block is skipped, and NO green stamp is written on that
+# path — the state is unverified, not verified.
+MUTATION_SENTINEL="$ROOT/.feature/mutation-in-progress"
+if [ -f "$MUTATION_SENTINEL" ]; then
+  echo "typecheck-on-stop: eslint SKIPPED — $MUTATION_SENTINEL is present." >&2
+  echo "  A mutation is in progress. Remove the sentinel once the file is restored." >&2
+  exit 0
+fi
+
 # Deleted (and rename-mangled "old -> new") paths can't be linted — ESLint
 # errors "No files matching the pattern" and exits non-zero. Pass ESLint only
 # paths that still exist on disk; the typecheck above already covers deletions.
