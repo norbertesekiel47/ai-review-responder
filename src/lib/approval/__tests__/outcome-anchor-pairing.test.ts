@@ -33,6 +33,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/dispatch.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
+  'src/lib/solicitation/release.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'worker/jobs/escalation-notice/EscalationNoticeWorker.ts', // in-file reviews FOR UPDATE before the spine writes
   'worker/jobs/publisher/failed-hook.ts', // anchorReviewLockOrder before terminal exhaustion checkpoints
   'worker/jobs/solicitation-send/failed-hook.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
@@ -176,11 +177,36 @@ const LOCK_HELD_BY_CALLER = new Set([
 // holding the Outreach row while waiting for the batch row is an ABBA deadlock
 // against the offboarding purge, which takes them in the documented order
 // (worker/jobs/account-offboarding/purge-stages.ts:270-284).
+//
+// src/lib/solicitation/release.ts (#900) — subject `solicitation_send_batch`,
+// the Send batch parent. It makes three spine writes, all from this one file:
+// the `approval_downgraded` step on the Judge-downgrade path, `completeRun` on
+// the **Lazy child** in the `unknown` sweep, and `closeBatchIfSettled` from four
+// call sites (the sweep, both **Halt latch** sweeps through `latchSystemHalt`,
+// and the backstop join).
+//
+// Every one of its transactions takes the solicitation_batches row FOR UPDATE as
+// its FIRST row lock, before any agent_runs touch — batch → run, the sole order
+// in this lane, and the one CloseBatchIfSettledInput.failure's docstring exists
+// to protect. The Judge downgrade is the case worth stating: it locks the batch,
+// CASes the approval columns, and only THEN records the step.
+//
+// It takes NO reviews lock and NO businesses row lock, and reads no businesses
+// row at all. The releaser's candidate SCAN is cross-account (see the
+// background-global-scan entry in scripts/ci/tenant-scope-allowlist.ts) but
+// takes no locks — every locked write is scoped by account_id AND business_id.
+//
+// Same forward-looking warning as the entries above: it must not grow a
+// reviews/businesses FOR UPDATE, and no path may lock an agent_runs row before
+// the batch row. Note in particular that `readSendBreaker`, `isJudgeHealthy` and
+// both cap counters run ABOVE every transaction with no lock held — moving any
+// of them inside would hold the batch row across a platform-wide scan.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
   'src/lib/solicitation/approval.ts',
   'src/lib/solicitation/ask-generation.ts',
   'src/lib/solicitation/dispatch.ts',
   'src/lib/solicitation/outreach.ts',
+  'src/lib/solicitation/release.ts',
   'worker/jobs/WeeklySummaryWorker.ts',
   'worker/jobs/solicitation-send/failed-hook.ts',
 ]);
@@ -235,6 +261,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
       'src/lib/solicitation/ask-generation.ts',
       'src/lib/solicitation/dispatch.ts',
       'src/lib/solicitation/outreach.ts',
+      'src/lib/solicitation/release.ts',
       'worker/jobs/WeeklySummaryWorker.ts',
       'worker/jobs/solicitation-send/failed-hook.ts',
     ]);

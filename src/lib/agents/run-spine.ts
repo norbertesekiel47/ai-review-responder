@@ -78,6 +78,12 @@ export const STEP_PERSONA = {
   // caught here rather than by Postgres.
   dispatch_gate_evaluated: 'solicitation',
   ask_sent: 'solicitation',
+  // (#900) The release cycle's Judge-availability downgrade, recorded on the
+  // **Send batch parent**. Its own key rather than `policy_gate` or
+  // `batch_approved`: the first belongs to the Reply lane's auto-approval gate
+  // and the second states the OPPOSITE fact, so filing an un-approval under
+  // either would collapse two distinct facts into one vocabulary entry.
+  approval_downgraded: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;

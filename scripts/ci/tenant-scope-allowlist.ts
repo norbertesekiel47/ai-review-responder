@@ -162,7 +162,45 @@ export interface TenantScopeAllowlistEntry {
 //     The breaker's other statements need no entry —
 //     `solicitation_send_breaker` is platform-scoped and therefore not a
 //     TENANT_TABLES member.
-export const ALLOWLIST_BASELINE = 383;
+//   - 2026-08-22 (383 → 385): #900's release-candidate scan
+//     (`runReleaseCycle`, `src/lib/solicitation/release.ts`). ONE statement,
+//     counted twice because the audit attributes it to two tables
+//     (`solicitation_batches` at the top level, `solicitation_outreach` inside
+//     the `EXISTS`). The releaser is a PLATFORM-WIDE loop and amendment B3 puts
+//     every send governor in it alone, so it must see all accounts' approved
+//     batches before it can decide which may release — a per-account form would
+//     still need a cross-account read of the account list first. Same class as
+//     the three `background-global-scan` peers (`judge-store.ts`,
+//     `judge-health.ts`, `auto-approval/governor.ts`), which also scan every
+//     account for work. The scan is global; every WRITE that follows it carries
+//     `account_id` AND `business_id` in a top-level predicate and needs no
+//     entry.
+//   - 2026-08-22 (385 → 386): #900's `send_window_elapsed` sweep scan
+//     (predicate P2, `runReleaseCycle`, `src/lib/solicitation/release.ts`). ONE
+//     table — no `EXISTS` arm, because a batch past its 72h send window must be
+//     latched whether or not it still has a live `rendered` row. Cross-account
+//     for P4's structural reason and one of its own: this is the sweep that
+//     RECLAIMS an overdue batch's rows, and until it runs migration 091's
+//     one-active-send index wedges that location (#915). A reclaimer handed a
+//     tenant id cannot find the locations it exists to unwedge.
+//   - 2026-08-22 (386 → 388): #900's `batch_expired` sweep scan (predicate P3,
+//     amendment B7, same file). ONE statement, counted twice because the audit
+//     attributes it to two tables (`solicitation_batches` at the top level,
+//     `agent_runs` inside the `EXISTS` that proves the batch has a **Send batch
+//     parent**). That `EXISTS` is correlated on BOTH tenant columns and is a
+//     finding only because the audit proves scope from a value-bound predicate
+//     and the outer row is itself part of the global scan.
+//   - 2026-08-22 (388 → 389): #900's `unknown` sweep scan (predicate P1, D12d,
+//     same file). ONE table — `job_outbox` is not a TENANT_TABLES member, so the
+//     in-flight `NOT EXISTS` raises no finding of its own. This is the sweep
+//     #915 names as the blocker on ever flipping `SOLICITATION_SEND_ENABLED` on,
+//     and a wedged row that must be discovered platform-wide cannot be scoped.
+//   - 2026-08-22 (389 → 390): #900's backstop-join scan (predicate P5, D11, same
+//     file). ONE table. Its three arms are migration 091's
+//     `solicitation_batches_one_active_send_per_business` predicate byte for
+//     byte, so the set it scans is exactly the set of batches OCCUPYING a
+//     location's single active-send slot.
+export const ALLOWLIST_BASELINE = 390;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -218,6 +256,12 @@ export const CATEGORY_PATH_RULES: Partial<
       'src/lib/responses/judge-store.ts',
       'src/lib/responses/judge-health.ts',
       'src/lib/auto-approval/governor.ts',
+      // The Solicitation release cycle (#900). Same class as the three above:
+      // a background loop that scans every account for work before enqueueing
+      // scoped work. Its ONE cross-account statement is the candidate scan;
+      // every write it performs afterwards is bound to that batch's account_id
+      // AND business_id.
+      'src/lib/solicitation/release.ts',
     ],
   },
   'provider-ingress': {
@@ -347,6 +391,79 @@ const ADMIN_SUPPRESSION_CORRECTIONS_LOOKUP_SQL =
 // between this read and the UPDATE that follows it.
 const SOLICITATION_LANE_ATTRIBUTION_SQL =
   "SELECT o.id, o.account_id, o.business_id, c.email FROM solicitation_outreach o JOIN solicitation_contacts c ON c.id = o.contact_id WHERE o.provider_message_id = ${emailId} LIMIT 2 FOR UPDATE OF o";
+
+// #900's release-candidate scan (predicate P4). One statement the audit
+// attributes to two tables (solicitation_batches at the top level +
+// solicitation_outreach, now in TWO places — the capped_accounts CTE and the
+// EXISTS that proves the batch still has a live `rendered` attempt), so it is
+// hoisted here once rather than copy-pasted into both entries. Matching is by
+// (file, table, normalized SQL), so the two solicitation_outreach occurrences
+// share ONE entry and the baseline does not move.
+const RELEASE_CANDIDATE_SCAN_SQL =
+  "WITH capped_accounts AS ( SELECT account_id FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' GROUP BY account_id HAVING COUNT(*) >= ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} ), eligible AS ( SELECT b.id, b.account_id, b.business_id, b.approved_at, b.sending_started_at, b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AS approval_window_open, EXISTS ( SELECT 1 FROM capped_accounts c WHERE c.account_id = b.account_id ) AS account_capped FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ), candidates AS ( SELECT * FROM eligible WHERE NOT account_capped ORDER BY approved_at ASC LIMIT ${scanLimit} ), withheld AS ( SELECT COUNT(DISTINCT account_id)::int AS capped_accounts_withheld FROM eligible WHERE account_capped ) SELECT w.capped_accounts_withheld, c.id, c.account_id, c.business_id, c.sending_started_at, c.approval_window_open FROM withheld w LEFT JOIN candidates c ON TRUE ORDER BY c.approved_at ASC";
+
+const RELEASE_CANDIDATE_SCAN_REASON =
+  "runReleaseCycle's release-candidate scan (#900, predicate P4) — the SolicitationReleasePoller's per-tick discovery of approved batches with a live `rendered` attempt whose veto window has closed. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience: the releaser is a PLATFORM-WIDE loop, and amendment B3 enforces every send governor — the platform daily ceiling, the per-account daily send cap, the per-tick drip budget — IN THE RELEASER ONLY, as a single choke point serialized by the single-replica worker, which is what replaces atomic-reservation machinery. A loop that must decide which of ALL accounts may send next cannot be handed a tenant id; a per-account formulation would still have to read the list of candidate accounts cross-account first, so it moves the exemption rather than removing it. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS THREE PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before enqueueing scoped work; this is the send lane's member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT, and that distinction is what makes this entry safe rather than a widening. This statement is read-only and projects ids plus one lifecycle stamp — no review text, no contact data, no provenance. Everything the cycle does afterwards is bound to the account_id AND business_id those ids carry: the locked batch re-read, the rendered→queued CAS on solicitation_outreach, the sending_started_at stamp, the Judge downgrade CAS, and each closeBatchIfSettled call all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. "
+  + "The module's other cross-account reads are already exempt in their own homes (countPlatformDispatchAttemptsToday in send-caps.ts, readSendBreaker/readBreakerWindow in send-breaker.ts, isJudgeHealthy in judge-health.ts); this is the release lane's ONE additional global statement. "
+  + "THE capped_accounts CTE (round-1 review) IS THE SECOND solicitation_outreach OCCURRENCE and is cross-account for the same reason the ceiling is: it is a platform-wide fairness arm that removes accounts already at the per-account daily cap from the candidate window, so that a capped account cannot hold ORDER BY approved_at ASC LIMIT slots for its whole 72h send window and starve every other account — the locked edge case 'no row is skipped permanently'. It aggregates today's queued_at counts by account_id and projects account ids only. It is a BOUNDING arm, not the enforced cap: resolveAccountDailySendCap stays the single owner of the enforced number, and this arm can only ever under-exclude, because the dial moves toward restraint only so a resolved cap never exceeds DEFAULT_DAILY_SEND_CAP_ACCOUNT. "
+  + "THE eligible/candidates/withheld CTE SHAPE (round-2 review) ADDS NO NEW TABLE AND NO NEW SCOPE. The candidate predicate moved into the eligible CTE so it is spelled ONCE and the fairness arm can report what it excluded: an excluded account never reaches the per-account gate, so a fully cap-bound tick used to report withheldByReason {} and read exactly like an idle tick. withheld aggregates the CAPPED half of the same eligible set and projects a single COUNT(DISTINCT account_id) — no ids, no row data — and the LEFT JOIN is what keeps that one row alive when there are no candidates at all. Splitting it into a second statement would be a second spelling of the candidate predicate, i.e. a second owner that can drift.";
+
+// #900's send-window sweep scan (predicate P2). ONE table, not two: unlike P4
+// this statement carries no EXISTS arm, because a batch whose send window has
+// elapsed must be latched whether or not it still has a live `rendered` row.
+const SEND_WINDOW_SWEEP_SCAN_SQL =
+  "SELECT id, account_id, business_id FROM solicitation_batches WHERE approved_at IS NOT NULL AND approved_at <= NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND halted_at IS NULL AND send_closed_at IS NULL ORDER BY approved_at ASC LIMIT ${scanLimit}";
+
+const SEND_WINDOW_SWEEP_SCAN_REASON =
+  "runReleaseCycle's send_window_elapsed sweep scan (#900, predicate P2) — phase 2 of the SolicitationReleasePoller's tick, which finds approved batches past the 72h send window and latches them through latchSystemHalt. "
+  + "CROSS-ACCOUNT FOR THE SAME REASON AS P4 ABOVE, and for one of its own: this sweep is the lane that RECLAIMS an overdue batch's rendered/queued rows, and until it runs migration 091's solicitation_batches_one_active_send_per_business index blocks that location from ever sending again (issue #915). A reclaimer that had to be handed a tenant id could not find the wedged locations it exists to unwedge. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately, so a mid-drip flag flip cannot strand a location forever. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
+
+// #900's batch_expired sweep scan (predicate P3). Two tables again, like P4 but
+// for a different reason: solicitation_batches at the top level plus agent_runs
+// inside the EXISTS that proves the batch HAS a Send batch parent. That EXISTS
+// is the predicate's point rather than a refinement — a watch-mode batch has no
+// send parent and must never be latched with a send-lane reason — so it is
+// hoisted here once and shared by both entries rather than copy-pasted.
+const BATCH_EXPIRED_SWEEP_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approved_at IS NULL AND b.built_at IS NOT NULL AND b.built_at <= NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND EXISTS ( SELECT 1 FROM agent_runs r WHERE r.kind = 'solicitation_send_batch' AND r.subject_type = 'solicitation_batch' AND r.subject_id = b.id::text AND r.account_id = b.account_id AND r.business_id = b.business_id ) ORDER BY b.built_at ASC LIMIT ${scanLimit}";
+
+const BATCH_EXPIRED_SWEEP_SCAN_REASON =
+  "runReleaseCycle's batch_expired sweep scan (#900, predicate P3, amendment B7) — phase 3 of the SolicitationReleasePoller's tick, which finds batches NEITHER lane approved before the 7-day approval window ran out and latches them through latchSystemHalt. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience, for the same structural reason as P4 and P2 above and one of its own: B7 exists to make #619 D2's \"≤10 days by construction\" true for the NEVER-APPROVED case, and deriveRunDisplayState calls a send parent stalled at STALLED_THRESHOLD_SEND_BATCH_DAYS (11). A sweep that had to be handed a tenant id could only make that threshold unreachable for the accounts someone remembered to name, which is exactly the fleet-wide false-stalled alert the amendment forbids. The audit proves scope only from a value-bound predicate, and a platform releaser must discover expired batches before any tenant id is known; every possible entry point (solicitation_batches, businesses, accounts) is a TENANT_TABLES member, so no SQL formulation avoids it. "
+  + "THE agent_runs ARM IS THE SECOND FINDING and is correlated, not unscoped: r.account_id = b.account_id AND r.business_id = b.business_id bind the subquery to the outer row's tenant on both columns, so the EXISTS can never see another account's send parent. It is a finding only because the audit requires a binding to a VALUE, and the outer row this correlates to is itself part of the global scan. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE IS NOT. This statement is read-only and projects three ids and nothing else — no review text, no contact data, no provenance. The only write that follows is latchSystemHalt, which re-reads the batch under FOR UPDATE OF b with account_id AND business_id spelled in a TOP-LEVEL WHERE, and whose outreach cancellations, batch_halted spine step and closeBatchIfSettled call are all likewise scoped and deliberately NOT allowlisted.";
+
+// #900's `unknown` sweep scan (predicate P1). ONE table, not two: job_outbox is
+// not a TENANT_TABLES member, so the in-flight NOT EXISTS raises no finding of
+// its own. The only entry is solicitation_outreach at the top level.
+const UNKNOWN_SWEEP_SCAN_SQL =
+  "SELECT o.id, o.account_id, o.business_id, o.batch_id FROM solicitation_outreach o WHERE o.delivery_status = 'sending' AND o.sending_at <= NOW() - make_interval(mins => ${UNKNOWN_GRACE_MINUTES}) AND NOT EXISTS ( SELECT 1 FROM job_outbox jo WHERE jo.topic = ${QUEUE_NAMES.SOLICITATION_SEND} AND jo.aggregate_id = o.id AND jo.status IN ('pending', 'dispatching', 'dispatched') ) ORDER BY o.sending_at ASC LIMIT ${scanLimit}";
+
+const UNKNOWN_SWEEP_SCAN_REASON =
+  "runReleaseCycle's unknown sweep scan (#900, predicate P1, D12d) — phase 1 of the SolicitationReleasePoller's tick, which finds dispatch attempts wedged in `sending` past UNKNOWN_GRACE_MINUTES with no in-flight solicitation_send outbox row and terminalizes them unknown/send_indeterminate. THIS IS THE SWEEP ISSUE #915 NAMES AS THE BLOCKER ON FLIPPING SOLICITATION_SEND_ENABLED ON, and the reason it may not be scoped: D10 deliberately excludes `sending` from the halt sweep, so without this phase a wedged row blocks closeBatchIfSettled forever and permanently consumes that location's one active-send slot under migration 091's solicitation_batches_one_active_send_per_business index. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience: a platform-wide unwedger must DISCOVER the wedged rows before any tenant id is known — nobody reports a wedge, which is the whole nature of the failure — and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have wedged rows, so it moves the exemption rather than removing it. Unlike P2, P3 and P4 the entry point here is the Outreach row itself rather than the batch, because the wedge is a fact about ONE dispatch attempt and carries no batch predicate at all — a wedged row on a halted or overdue batch is exactly the case D12d singles out. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's recovery member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects four ids and nothing else — no rendered subject, no rendered body, no recipient handle, no interpolation inputs. Everything the sweep then does is bound to the account_id AND business_id those ids carry: the FOR UPDATE OF b batch re-read, the sending→unknown CAS on solicitation_outreach, the Lazy child lookup on agent_runs, and closeBatchIfSettled all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted.";
+
+// #900's backstop join scan (predicate P5, D11). ONE table: the statement binds
+// only solicitation_batches, because the settled predicate itself is NOT spelled
+// here — closeBatchIfSettled owns it, and a second spelling of it in this scan
+// would be the second implementation of the join D11 exists to forbid.
+const BACKSTOP_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL ORDER BY b.approved_at ASC LIMIT ${scanLimit}";
+
+const BACKSTOP_SCAN_REASON =
+  "runReleaseCycle's backstop join scan (#900, predicate P5, D11) — phase 5 of the SolicitationReleasePoller's tick, which hands every still-open send batch to closeBatchIfSettled so a batch whose INLINE join was lost (a crash between the send worker's terminal CAS and its join) is still closed and its Send batch parent still terminalized. "
+  + "THE THREE ARMS ARE MIGRATION 091's solicitation_batches_one_active_send_per_business PREDICATE, BYTE FOR BYTE (approved_at IS NOT NULL AND send_closed_at IS NULL AND halted_at IS NULL), which is what makes the scanned set exactly the set of batches OCCUPYING a location's single active-send slot. An unclosed batch inside that set is a WEDGED LOCATION — the failure issue #915 exists to close — while an unclosed batch outside it wedges nothing. The unique partial index also serves the scan. "
+  + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience, for the same structural reason as P1, P2, P3 and P4 above: a lost join is by definition a fact nobody reports, so a platform-wide backstop must DISCOVER the affected batches before any tenant id is known, and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have open batches, so it moves the exemption rather than removing it. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately (locked decision 8), so a mid-drip flag flip cannot strand a settled batch open. No SQL formulation avoids it. "
+  + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's join-recovery member of that set. "
+  + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects three ids and nothing else — no rendered subject, no rendered body, no recipient handle, no provenance. The only thing that follows is closeBatchIfSettled, called once per scanned batch in its own transaction with the account_id AND business_id those ids carry: its FOR UPDATE batch re-read, its grouped outreach tally, its send-parent lookup, its send_closed_at CAS, its send_batch_closed step and its terminal transition all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. The backstop declares NO failure, so it can neither close a parentless batch nor file a parent as failed.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3088,6 +3205,55 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH bounds AS ( SELECT NOW() - make_interval(days => ${BREAKER_WINDOW_DAYS}::int) AS signal_floor, COALESCE( (SELECT MAX(reset_at) FROM solicitation_send_breaker), '-infinity'::timestamptz ) AS reset_floor ) SELECT COUNT(*) FILTER ( WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor) )::int AS sends, COUNT(*) FILTER ( WHERE o.bounced_at >= b.signal_floor AND o.sent_at >= b.reset_floor AND (o.bounce_kind = 'hard' OR o.bounce_kind IS NULL) )::int AS hard_bounces, COUNT(*) FILTER ( WHERE o.complained_at >= b.signal_floor AND o.sent_at >= b.reset_floor )::int AS complaints FROM solicitation_outreach o CROSS JOIN bounds b WHERE o.sent_at >= GREATEST(b.signal_floor, b.reset_floor) OR (o.sent_at >= b.reset_floor AND (o.bounced_at >= b.signal_floor OR o.complained_at >= b.signal_floor))",
     category: 'platform-cross-account',
     reason: "readBreakerWindow (#898, #622 §3.2B) — the reputation circuit breaker's rolling 7-day read model. Cross-account BY DESIGN, and for a stronger reason than the daily ceiling above: the asset the breaker protects is the ONE shared Sending identity (one mailbox, one sending domain), so a per-tenant hard-bounce or complaint rate is not a smaller version of this measurement but a different and useless one — a single account's bad list burns the deliverability every other account sends on. Read-only; three FILTERed counters in ONE statement so the numerators and the denominator describe the same instant. Projects three integers and no tenant rows, ids or provenance. Round-1 review re-shaped the statement without changing what it reads: the window's lower edge is now GREATEST(NOW() - 7 days, MAX(reset_at)) so an admin reset is a real recovery, and a real WHERE bounds the scan the aggregate FILTERs never restricted. Still cross-account, still projecting three integers. Round-2 review split the single bound into TWO floors: signal_floor (the rolling 7-day edge, which dates the numerators and preserves the locked asymmetry) and reset_floor (the last admin reset, which bounds rows by sent_at on BOTH sides). The first shape bounded the denominator only, so a pre-reset send whose complaint landed post-reset re-tripped a legitimate recovery. The hard-bounce FILTER also counts an UNCLASSIFIED bounce (bounced_at set, bounce_kind NULL): classifyBounce defaults an unrecognised provider type to 'soft', which is fail-OPEN on a governor specified fail-closed, so the lane now stores NULL rather than asserting a kind it cannot know and this half counts it with the hard ones.",
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: RELEASE_CANDIDATE_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: RELEASE_CANDIDATE_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: SEND_WINDOW_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: SEND_WINDOW_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: BATCH_EXPIRED_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BATCH_EXPIRED_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "agent_runs",
+    sqlSnippet: BATCH_EXPIRED_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BATCH_EXPIRED_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_outreach",
+    sqlSnippet: UNKNOWN_SWEEP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: UNKNOWN_SWEEP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/release.ts",
+    table: "solicitation_batches",
+    sqlSnippet: BACKSTOP_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: BACKSTOP_SCAN_REASON,
   },
   {
     file: "src/lib/admin/suppressions-service.ts",

@@ -18,6 +18,7 @@ import {
   type PendingPostNoticePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
+  type SolicitationSendPayload,
 } from './worker-types';
 
 type TxClient = postgres.TransactionSql;
@@ -29,6 +30,7 @@ const AGGREGATE_TYPE_ESCALATION = 'escalation';
 const AGGREGATE_TYPE_SUSPENSION_EVENT = 'suspension_event';
 const AGGREGATE_TYPE_CONTACT_CSV_UPLOAD = 'contact_csv_upload';
 const AGGREGATE_TYPE_SOLICITATION_BATCH = 'solicitation_batch';
+const AGGREGATE_TYPE_SOLICITATION_OUTREACH = 'solicitation_outreach';
 const KNOWN_ORIGIN_LANES = new Set<string>(GENERATE_RESPONSE_ORIGIN_LANES);
 
 export interface NormalizedGenerateResponsePayload {
@@ -145,6 +147,16 @@ export interface EnqueueGenerateSolicitationAsksInput {
   /** Present only for a single-ask regeneration (#629); omitted for the
    *  whole-batch generation the build transaction enqueues. */
   askId?: string;
+  correlationId?: string;
+}
+
+export interface EnqueueSolicitationSendInput {
+  outboxId?: string;
+  /** The Outreach row this dispatch attempt sends. Also the `aggregate_id`. */
+  outreachId: string;
+  batchId: string;
+  /** Tenant proof for the send worker's queries (invariant #8). */
+  businessId: string;
   correlationId?: string;
 }
 
@@ -670,6 +682,68 @@ export async function enqueueGenerateSolicitationAsks(
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'generate_solicitation_asks' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+    RETURNING id
+  `;
+  return rows.length > 0 ? outboxId : null;
+}
+
+/**
+ * Enqueues ONE dispatch attempt for ONE Outreach row (#899's send worker is the
+ * consumer, #900's release poller the producer). `aggregate_id` is the OUTREACH
+ * id, not the batch id — migration 091 states the contract explicitly
+ * ("generate_solicitation_asks stores the batch id in aggregate_id …
+ * solicitation_send stores the outreach id"), because the Dispatch gate is
+ * per-child and therefore per-contact. The ON CONFLICT predicate below is
+ * spelled byte-for-byte against 091's partial unique index
+ * `job_outbox_solicitation_send_inflight`; the in-flight status set is
+ * re-spelled by hand — members AND order, per `job-outbox-status.ts` — because
+ * a bind parameter inside an `ON CONFLICT … WHERE` defeats partial-index
+ * inference.
+ *
+ * Returns the outbox id when a row was inserted, or `null` when an in-flight
+ * send row already exists for this Outreach row. `null` rather than a throw is
+ * amendment B10's shape and the `enqueueValidatePlaceId` /
+ * `enqueueGenerateSolicitationAsks` precedent: the suppressed insert IS the
+ * answer to "is an attempt already in flight", decided atomically by the index
+ * inside the caller's transaction, with no exception to unwind a transaction
+ * that has not done anything wrong. The caller decides what the answer means.
+ *
+ * This topic is the one place in the system where a duplicate outbox row means
+ * a **duplicate email to a real customer**, not a wasted retry — which is why it
+ * carries TWO guards, not one: this helper's `ON CONFLICT` against a concurrent
+ * enqueue, and the caller's CAS on the Outreach row (`rendered` → `queued`)
+ * against a re-release of a row that already moved. The release transaction
+ * asserts rather than branches: a row whose CAS just succeeded cannot already
+ * own an in-flight send job, so a `null` there is a bug and throws.
+ */
+export async function enqueueSolicitationSend(
+  tx: TxClient,
+  input: EnqueueSolicitationSendInput,
+): Promise<string | null> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: SolicitationSendPayload = {
+    batch_id: input.batchId,
+    business_id: input.businessId,
+    outreach_id: input.outreachId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  const rows = await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.SOLICITATION_SEND},
+      ${AGGREGATE_TYPE_SOLICITATION_OUTREACH},
+      ${input.outreachId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'solicitation_send' -- topic-audit-ignore: partial-index inference needs a literal
       AND status IN ('pending', 'dispatching', 'dispatched')
     DO NOTHING
     RETURNING id

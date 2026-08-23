@@ -37,6 +37,7 @@ import {
   withdrawAsk,
   type CurrentAttempt,
   type OwnerHaltReason,
+  type SystemHaltReason,
 } from '../approval';
 // NAMESPACE import for the admin arm (#865). A named `import { adminHaltBatch }`
 // of an export that does not exist yet fails the whole FILE at collection —
@@ -394,13 +395,22 @@ describe('the admin arm of the Halt latch', () => {
     expect(adminCalls.filter((call) => /account_audit_log/.test(call.text))).toHaveLength(1);
   });
 
-  it('type contract: OwnerHaltReason is exactly owner_veto | owner_halt and LatchHaltReason is not exported', async () => {
+  it('type contract: the two public halt-reason unions are exact and LatchHaltReason is not exported', async () => {
     // Compile-time half. `assertExactType` is bidirectional, so this fails if
     // OwnerHaltReason ever grows `admin_halt` — the write union the owner arm
     // may spell must stay two members while the READ union (`HaltReason` in
     // batch-view.ts) stays five.
     expect(assertExactType<OwnerHaltReason, 'owner_veto' | 'owner_halt'>(true)).toBe(true);
     expect(Object.keys(approvalModule)).not.toContain('OwnerHaltReason');
+
+    // The system arm's write union (#900), pinned the same way and for the same
+    // reason: these are the only two members migration 091's
+    // `solicitation_batches_halt_consistency` CHECK requires `halted_by IS NULL`
+    // for, so a third member would be a reason the database rejects.
+    expect(
+      assertExactType<SystemHaltReason, 'send_window_elapsed' | 'batch_expired'>(true),
+    ).toBe(true);
+    expect(Object.keys(approvalModule)).not.toContain('SystemHaltReason');
 
     // Source half, and it has to be: a type erases at run time, so "not
     // exported" is only observable in the source and in `pnpm typecheck`.
@@ -409,10 +419,26 @@ describe('the admin arm of the Halt latch', () => {
     const source = await readFile('src/lib/solicitation/approval.ts', 'utf8');
 
     expect(source).toContain("export type OwnerHaltReason = 'owner_veto' | 'owner_halt';");
-    expect(source).toMatch(/(^|\n)type LatchHaltReason = OwnerHaltReason \| 'admin_halt';/);
+    expect(source).toContain(
+      "export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired';",
+    );
+    // The private union is ALL FIVE reasons — one mechanism — assembled from the
+    // two public ones plus the admin constant. Pinned by source text because it
+    // is unexported by design and therefore unobservable any other way.
+    expect(source).toMatch(
+      /(^|\n)type LatchHaltReason = OwnerHaltReason \| 'admin_halt' \| SystemHaltReason;/,
+    );
     expect(source).not.toContain('export type LatchHaltReason');
     // The admin arm's reason is a CONSTANT, never a parameter: no exported
     // signature may accept a halt reason from its caller.
+    //
+    // `latchSystemHalt` taking `reason: SystemHaltReason` does NOT weaken this,
+    // and the CHECK above is why. `LatchHaltReason` is the union that spans
+    // actor classes, so accepting it from a caller would let a request field
+    // name `admin_halt` or `owner_veto` and forge an actor. `SystemHaltReason`
+    // spans none — both members are exactly the ones 091 forces `halted_by IS
+    // NULL` for — so naming one can only ever produce an actor-less halt. The
+    // caller picks WHICH window ran out; it can never pick WHO acted.
     expect(source).not.toMatch(/export .*\breason\s*:\s*LatchHaltReason/);
   });
 });

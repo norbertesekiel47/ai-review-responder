@@ -121,6 +121,15 @@ const workerSchema = z.object({
   OUTBOX_WATCHDOG_STALE_MS: rawOpt,
   GOVERNOR_INTERVAL_MS: rawOpt,
   JUDGE_POLL_INTERVAL_MS: rawOpt,
+  SOLICITATION_RELEASE_POLL_INTERVAL_MS: rawOpt,
+  // (#900) The Solicitation release lane's platform-wide daily ceiling. Also
+  // declared on the SERVER schema (src/lib/config/server.ts), which #898
+  // registered and boot-asserted while enforcement was still unbuilt; a var may
+  // live in BOTH schemas (the RESEND_FROM_EMAIL precedent) because both lanes
+  // read the same env. rawOpt, not the collapsing opt: `resolvePlatformDailyCap`
+  // owns the parse and FAILS CLOSED to 0 on unset, blank or unparseable, so the
+  // raw value must reach it byte-for-byte (#7).
+  SOLICITATION_PLATFORM_DAILY_CAP: rawOpt,
   ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS: rawOpt,
   ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE: rawOpt,
   ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES: rawOpt,

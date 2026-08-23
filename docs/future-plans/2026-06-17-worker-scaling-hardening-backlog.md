@@ -74,6 +74,13 @@ The fix pattern for most of the poller items already exists in-repo: **`ZernioRe
 - **Impact:** Two replicas select the same oldest candidates and serialize on the advisory locks → redundant Supabase admin round-trips and held locks. **Not corruption** — wasted work.
 - **Fix:** Add `FOR UPDATE SKIP LOCKED` to the candidate `SELECT` so replicas claim disjoint sets.
 
+### 17. SolicitationReleasePoller: the daily send cap has NO reservation, because release is the one choke point
+*(Numbered 17 — the next free label — rather than 7, so every existing `#5`–`#16` cross-reference in this file keeps pointing at the same item. It belongs to P2 despite the number.)*
+- **Where:** `worker/background/pollers/SolicitationReleasePoller.ts` (process-local single-flight via `createGuardedPoll`) + `src/lib/solicitation/release.ts:165` (`runReleaseCycle`, the whole cap/budget decision) and `:971-979` (the `daily_send_cap` read).
+- **Problem:** The releaser is the **only** place the per-account daily send cap (`LEAST(auto_approval_policies.daily_send_cap, 10)`, counted on dispatch attempts in the UTC day) and the platform per-tick budget (`RELEASE_PER_TICK_BUDGET`) are decided. Send workers never make cap decisions, and there is **no atomic reservation** — count-then-release is a read followed by a write with no lease between them. That is deliberate: send-mode amendment B3 (`docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` §B3) argues the reservation machinery is unnecessary *because* release is a single loop on the single-replica worker, serialized by construction. The loop's own serialization is `createGuardedPoll`'s in-process `inFlight` flag — **process-local**, not a DB row lease.
+- **Impact:** Two replicas run two releasers over the same candidate rows. Each reads the same day's attempt count before either writes, so both release under a cap that only one of them should have satisfied — the daily cap and the per-tick budget both degrade from enforced to advisory, and reputation spend (the thing the cap exists to bound) can double. Duplicate **Outreach rows** for one Ask are still blocked by migration 091's one-live-attempt partial unique index, so this is over-sending against the cap, not double-sending one Ask.
+- **Fix:** Give the release cycle a DB-backed lease (a `pg_advisory_lock` around the cycle, or `FOR UPDATE SKIP LOCKED` on the candidate scan plus an atomic per-account counter reservation). Per amendment B3, verbatim: **if the releaser is ever parallelized, the single-choke-point cap resolution must be revisited.**
+
 ---
 
 ## P3 — Resilience / throughput hardening (lower urgency)

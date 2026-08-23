@@ -1,16 +1,23 @@
 /**
- * The human-triggered writers of send-mode's approval lane (#629 approve/halt,
- * executor design 2026-07-28 D9/D10/D22/D23; #860 ask regeneration; #865 the
- * admin arm of the Halt latch; #872 ask withdrawal).
+ * The writers of send-mode's approval lane (#629 approve/halt, executor design
+ * 2026-07-28 D9/D10/D22/D23; #860 ask regeneration; #865 the admin arm of the
+ * Halt latch; #872 ask withdrawal; #900 the system arm of the Halt latch).
  *
  * What lives here and nothing else: `approveBatch`, `haltBatch`,
- * `adminHaltBatch`, `requestAskRegeneration` and `withdrawAsk`. All five are
- * transactional writers with an actor; all five return a discriminated result
- * so their routes stay thin (invariant #12) and none throws for an outcome its
- * actor can cause. A RepWorth operator is a human actor too, which is why the
- * admin arm belongs beside the owner ones rather than in a module of its own.
+ * `adminHaltBatch`, `requestAskRegeneration`, `withdrawAsk` and
+ * `latchSystemHalt`. The first five are transactional writers with an actor;
+ * all five return a discriminated result so their routes stay thin (invariant
+ * #12) and none throws for an outcome its actor can cause. A RepWorth operator
+ * is a human actor too, which is why the admin arm belongs beside the owner
+ * ones rather than in a module of its own.
  *
- * The two halt verbs share ONE private latch, `latchHalt`, and its five steps
+ * `latchSystemHalt` (#900) is the ONE writer here with no actor at all — a
+ * clock, not a person, and 091's halt-consistency CHECK says so by requiring
+ * `halted_by IS NULL` for exactly its two reasons. It lives here for the same
+ * reason the admin arm does: it is the SAME latch, and a second copy of that
+ * body is how a batch acquires a second receipt.
+ *
+ * The three halt verbs share ONE private latch, `latchHalt`, and its five steps
  * are ordered on purpose (see its own comment). Two hand-maintained copies of
  * that body is precisely how a batch acquires a second receipt, or a spine step
  * for a halt that never landed.
@@ -76,8 +83,23 @@ const VETO_WINDOW_MINUTES_OWNER = 15;
  *  arm may spell. `admin_halt` is the same latch written by `adminHaltBatch`
  *  below (#865) and lives in the PRIVATE `LatchHaltReason`, so this union stays
  *  two members; `send_window_elapsed` and `batch_expired` are the same latch
- *  with writers this module still does not have (#630). */
+ *  written by `latchSystemHalt` below (#900) and are `SystemHaltReason`. */
 export type OwnerHaltReason = 'owner_veto' | 'owner_halt';
+
+/**
+ * The two Halt latch reasons NO actor can cause — the send window running out
+ * and the approval window running out. Both are derived from a clock, and
+ * migration 091's `solicitation_batches_halt_consistency` CHECK makes that
+ * structural rather than conventional:
+ *
+ *   (halted_by IS NOT NULL)
+ *     = ((halt_reason IN ('owner_veto', 'owner_halt', 'admin_halt')) IS TRUE)
+ *
+ * so these two REQUIRE `halted_by IS NULL`. Exported because `latchSystemHalt`
+ * is the public seam #900's release cycle latches through, and its caller has
+ * to name the reason; nothing else may widen it.
+ */
+export type SystemHaltReason = 'send_window_elapsed' | 'batch_expired';
 
 /**
  * A veto is "halt at zero sends" (D10) — the same write, a different reason.
@@ -147,7 +169,30 @@ async function lockBatchForAction(
   tenant: { accountId: string; businessId: string },
 ): Promise<{ batch: BatchActionRow; state: BatchState } | null> {
   await acquireSolicitationBatchLock(tx, tenant.businessId);
+  return readBatchForAction(tx, batchId, tenant);
+}
 
+/**
+ * The row read + state derivation, WITHOUT the advisory lock — the half
+ * `latchSystemHalt` needs and the half `lockBatchForAction` wraps.
+ *
+ * Extracted rather than copied because a second hand-maintained spelling of
+ * this SELECT is a second owner of the send-parent correlation, and that
+ * correlation is the `subject_id` text compare `canonicalBatchId` exists to
+ * keep honest. `FOR UPDATE OF b` stays here and is deliberate for BOTH callers:
+ * for `lockBatchForAction` it follows the advisory lock, and for
+ * `latchSystemHalt` it is the **only** row lock on that path — its sweep callers
+ * hold nothing when they call in. Never delete it as a redundant re-take.
+ *
+ * The system arm skips only the ADVISORY lock, which its callers (the release
+ * cycle's sweeps) do not take at all — so no cycle exists against the
+ * advisory-then-row order the file header describes.
+ */
+async function readBatchForAction(
+  tx: TransactionSql,
+  batchId: string,
+  tenant: { accountId: string; businessId: string },
+): Promise<{ batch: BatchActionRow; state: BatchState } | null> {
   // Keep the parent lookup correlated to the locked batch row. The query-block
   // tenant-scope audit proves both tenant predicates inside this scalar
   // subquery independently, so the old scanner-only two-statement workaround
@@ -406,9 +451,10 @@ export async function approveBatch(
   });
 }
 
-/** The writable Halt latch reasons. NOT exported: `OwnerHaltReason` stays the
- *  2-member public write union, and the admin arm's reason is a constant. */
-type LatchHaltReason = OwnerHaltReason | 'admin_halt';
+/** The writable Halt latch reasons — all five, one mechanism. NOT exported:
+ *  `OwnerHaltReason` stays the 2-member public write union, the admin arm's
+ *  reason is a constant, and `SystemHaltReason` is the system arm's own. */
+type LatchHaltReason = OwnerHaltReason | 'admin_halt' | SystemHaltReason;
 
 /** The admin arm's reason, fixed by the caller's identity (D1 / ticket
  *  constraint 2). No request field can name it, in either arm. */
@@ -423,7 +469,10 @@ interface LatchHaltInput {
   batchId: string;
   accountId: string;
   businessId: string;
-  actorUserId: string;
+  /** NULL for exactly the two `SystemHaltReason` members: 091's
+   *  halt-consistency CHECK ties actor presence to the reason, so the signature
+   *  expresses a rule the database already enforces. */
+  actorUserId: string | null;
   reason: LatchHaltReason;
   /** Read under the lock by the caller, off the same row every write targets. */
   state: BatchState;
@@ -437,9 +486,10 @@ type LatchHaltOutcome =
   | { latched: true; cancelledCount: number; close: CloseBatchIfSettledResult };
 
 /**
- * The Halt latch itself — ONE body, two arms (owner and admin). Private: the
- * only way to reach it is through a verb that has already locked the batch,
- * derived its state and applied its own guard list.
+ * The Halt latch itself — ONE body, THREE arms (owner, admin, system). Private:
+ * the only way to reach it is through a verb that has already locked the batch
+ * and derived its state. The two human arms additionally apply their own guard
+ * list; the system arm has no actor to refuse, so it applies none.
  *
  * The five steps below are ORDERED, and the order is the contract rather than
  * an implementation detail:
@@ -447,6 +497,14 @@ type LatchHaltOutcome =
  *  1. CAS on `halted_at IS NULL` — monotone. No row back means someone else
  *     latched first, and NOTHING below runs; that is what makes a second halt
  *     add no audit row and no `batch_halted` step.
+ *
+ *     **This arm is the system arm's ONLY defense, and deleting it is silent.**
+ *     Issue #895(b) recorded that both human arms refuse at `state === 'halted'`
+ *     first, against a row they already read `FOR UPDATE` — so through them the
+ *     CAS is unreachable and every test that credits it is really testing the
+ *     guard. `latchSystemHalt` skips that guard, which is what finally makes
+ *     this line load-bearing; the monotonicity property in
+ *     `approval-system-halt.integration.test.ts` goes RED when it is removed.
  *  2. Cancel `rendered`/`queued` and NEVER `sending`: that row is past the
  *     point of no return and resolves itself. Halt means "no further sends",
  *     not "undo".
@@ -705,6 +763,99 @@ export async function adminHaltBatch(
       close: outcome.close,
     };
   });
+}
+
+export interface LatchSystemHaltInput {
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  /** Named by the caller because only the caller knows WHICH window ran out;
+   *  it can never be a human reason — the type is two members for that reason. */
+  reason: SystemHaltReason;
+}
+
+/**
+ * No `state` and no `already_halted`: a clock cannot be told it was too late,
+ * so there is nothing for a refusal vocabulary to describe. `not_latched` is
+ * the whole non-latching half — the batch was already halted, or it is not this
+ * tenant's, or it no longer exists — and every one of those is the same
+ * instruction to the caller: this batch is not yours to terminalize this tick.
+ */
+export type LatchSystemHaltResult =
+  | { status: 'not_latched' }
+  | { status: 'latched'; cancelledCount: number; close: CloseBatchIfSettledResult };
+
+/**
+ * The SYSTEM arm of the same monotone latch (#900) — the writer the two
+ * clock-derived **Halt latch** reasons never had (#630). The send window
+ * elapsing and the approval window elapsing are the same write as an owner
+ * veto, with no one to attribute it to.
+ *
+ * **IT TAKES THE BATCH ROW LOCK ITSELF, and there is no caller precondition to
+ * forget** (corrected at the round-1 branch review; the docstring previously
+ * claimed the opposite). Both callers — the release cycle's two sweeps — select
+ * candidates OUTSIDE any lock and then open a bare `sql.begin` whose entire body
+ * is this call, so `readBatchForAction`'s `FOR UPDATE OF b` below is the ONLY
+ * row lock on this path. Read it as a redundant re-take and delete it, and the
+ * halt CAS, the outreach cancellations, the spine step and `closeBatchIfSettled`
+ * all run unserialised against `haltBatch`, `adminHaltBatch` and `withdrawAsk`.
+ *
+ * It does NOT call `lockBatchForAction`, and the missing half is the ADVISORY
+ * lock, not the row lock. That lock exists to serialise the HUMAN verbs against
+ * the batch builder; there is no owner request here to authorize and no request
+ * ordering to preserve, and a caller that takes the advisory lock is free to.
+ *
+ * **It applies NO guard list, deliberately.** `haltBatch` and `adminHaltBatch`
+ * refuse `halted`, `closed` and `pending` because an actor is owed an answer;
+ * a sweep is owed nothing, so `latchHalt`'s `halted_at IS NULL` CAS is the only
+ * thing standing between two ticks and a second receipt — see step 1 of
+ * `latchHalt`'s own comment, which is where that argument lives.
+ *
+ * The `pending` refusal the human arms carry is not needed here and could not
+ * be reached anyway: both sweeps that call this require `built_at IS NOT NULL`
+ * (`batch_expired`) or `approved_at IS NOT NULL` (`send_window_elapsed`), and
+ * 091's approval-implies-built CHECK makes the second imply the first. Adding
+ * the guard back would re-open the `state === 'halted'` hole above it.
+ *
+ * LOCK ORDER is unchanged: `solicitation_batches` row -> `agent_runs`. The
+ * spine calls are `latchHalt`'s last two steps, exactly as for the human arms.
+ */
+export async function latchSystemHalt(
+  tx: TransactionSql,
+  input: LatchSystemHaltInput,
+): Promise<LatchSystemHaltResult> {
+  const batchId = canonicalBatchId(input.batchId);
+  const locked = await readBatchForAction(tx, batchId, input);
+  // No row for this tenant. Not an error to a sweep — the batch was purged or
+  // the candidate list is stale — and the CAS below would have said the same.
+  if (locked === null) return { status: 'not_latched' };
+  const { batch, state } = locked;
+
+  // `state` is read here for the SAME reason the human arms read it: it is the
+  // `state_at_halt` the `batch_halted` receipt carries, derived once under the
+  // lock off the same row the CAS targets. It is NOT a guard — nothing below
+  // branches on it, which is the point.
+  const outcome = await latchHalt(tx, {
+    batchId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    // NULL, and 091's halt-consistency CHECK rejects anything else for these
+    // two reasons. `audit: null` for a stricter reason than the owner arm's:
+    // `account_audit_log` records a RepWorth OPERATOR acting on someone else's
+    // account, and filing a clock there would make the log lie about who acted.
+    actorUserId: null,
+    reason: input.reason,
+    state,
+    sendParentRunId: batch.send_parent_run_id,
+    audit: null,
+  });
+  if (!outcome.latched) return { status: 'not_latched' };
+
+  return {
+    status: 'latched',
+    cancelledCount: outcome.cancelledCount,
+    close: outcome.close,
+  };
 }
 
 export interface RequestAskRegenerationInput {
