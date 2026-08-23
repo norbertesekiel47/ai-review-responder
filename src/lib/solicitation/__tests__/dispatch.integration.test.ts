@@ -1,8 +1,9 @@
 // Live-DB suite for the Solicitation send worker's dispatch lane (#899 Task 0 —
-// the eval task). Twenty-three promised titles, every one of them a claim about
-// rows that only real Postgres can settle: the seven-item Dispatch gate's
-// withheld reasons, the unsubscribe token mint, the `queued → sending → sent`
-// CAS, and the single transaction that commits every terminal fact at once.
+// the eval task). Twenty-six cases, every one of them a claim about rows that
+// only real Postgres can settle: the seven-item Dispatch gate's withheld
+// reasons, the unsubscribe token mint, the `queued → sending → sent` CAS, the
+// single transaction that commits every terminal fact at once, and — since the
+// 2026-08-22 guard-integrity pass — the lane's integrity spine.
 //
 // CONVENTIONS THIS FILE IS BOUND BY
 //
@@ -25,7 +26,7 @@
 //     JS-derived stamp can land before the `NOW()`-defaulted column it must not
 //     precede and trip a constraint unrelated to the case under test (#520).
 //
-// All twenty-three cases are live — no `it.todo` remains. `seedQueuedOutreach`
+// All twenty-six cases are live — no `it.todo` remains. `seedQueuedOutreach`
 // is the ONE fixture chain (upload → contact → batch → send Ask → queued
 // Outreach row → dispatched outbox row); extend it rather than building a
 // second. Note `solicitation_batches_one_active_send_per_business` (D8) admits
@@ -83,7 +84,7 @@ import {
   mintUnsubscribeRawToken,
 } from '../unsubscribe';
 
-// ── Two seams stubbed, and only two ──────────────────────────────────────────
+// ── Three seams stubbed, and only three ──────────────────────────────────────
 //
 // The **Messaging adapter**, reached through `getMessagingAdapter()` so the stub
 // sits at the seam and never at `EmailAdapter` or a Resend client. It is both
@@ -111,6 +112,53 @@ vi.mock('@/lib/moderation/moderate', async (importOriginal) => {
   moderationMocks.real.current = actual.moderateResponse;
   return { moderateResponse: moderationMocks.moderateResponse };
 });
+
+// The **run spine**'s step writer, WRAPPED rather than replaced — the one seam
+// this file adds beyond the two above, and it exists for exactly one case.
+//
+// The `queued → sending` CAS cannot be raced from a second connection:
+// `runDispatchTx` holds the Outreach row `FOR UPDATE` from the triage read all
+// the way to the CAS, so a competing UPDATE blocks until the transaction
+// commits and the predicate is unreachable from outside. Staging that race
+// therefore means writing on the SAME transaction, and `recordStep` is the ONE
+// importable collaborator `dispatch.ts` hands `tx` to between the triage and
+// the claim.
+//
+// The default is a pass-through, so every other case in this file is untouched.
+const runSpineMocks = vi.hoisted(() => ({
+  onRecordStep: {
+    current: null as
+      | null
+      | ((tx: postgresType.TransactionSql, input: { stepKey: string }) => Promise<void>),
+  },
+}));
+vi.mock('@/lib/agents/run-spine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agents/run-spine')>();
+  return {
+    ...actual,
+    recordStep: async (
+      tx: postgresType.TransactionSql,
+      input: Parameters<typeof actual.recordStep>[1],
+    ): Promise<void> => {
+      await runSpineMocks.onRecordStep.current?.(tx, input);
+      return actual.recordStep(tx, input);
+    },
+  };
+});
+
+/** The clean provider verdict. A CONSTANT rather than an inline literal because
+ *  two of the integrity cases install their own `mockImplementation` — they
+ *  write to Postgres from inside the provider call — and so cannot go through
+ *  `withCleanModeration`, which sets a resolved VALUE. */
+const CLEAN_MODERATION: ModerationDecision = {
+  flagged: false,
+  severity: 'low',
+  reason: null,
+  categories: { openai_moderation: 'clean' },
+  score: 0,
+  source: null,
+  providerStatus: 'clean',
+};
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -642,15 +690,7 @@ async function withSendFlagOn(run: () => Promise<void>): Promise<void> {
  * reach it.
  */
 async function withCleanModeration(run: () => Promise<void>): Promise<void> {
-  moderationMocks.moderateResponse.mockResolvedValue({
-    flagged: false,
-    severity: 'low',
-    reason: null,
-    categories: { openai_moderation: 'clean' },
-    score: 0,
-    source: null,
-    providerStatus: 'clean',
-  });
+  moderationMocks.moderateResponse.mockResolvedValue(CLEAN_MODERATION);
   try {
     await run();
   } finally {
@@ -853,6 +893,44 @@ function assertCarriesNoRawToken(rows: readonly Record<string, unknown>[], table
         .not.toContain(`${APP_URL}/u/`);
     }
   }
+}
+
+/** One parsed structured log line. */
+interface CapturedLogLine {
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Every structured WARN line one dispatch emitted, parsed.
+ *
+ * `dispatchOutreach` returns `void`, so the single place a `DispatchTxOutcome`
+ * discriminant is observable outside the module is the line
+ * `reportNonSendOutcome` writes. The integrity cases assert it, so each one
+ * NAMES the outcome it is about instead of inferring it from a row shape
+ * several outcomes share.
+ *
+ * `createWorkerLogger` emits one JSON object per line to `console.warn`, so
+ * this parses rather than string-matches: a claim about `detector` is a claim
+ * about a field, never about the text around it.
+ */
+async function captureWarnLines(run: () => Promise<void>): Promise<CapturedLogLine[]> {
+  const lines: CapturedLogLine[] = [];
+  const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+    const [first] = args;
+    if (typeof first !== 'string') return;
+    try {
+      lines.push(JSON.parse(first) as CapturedLogLine);
+    } catch {
+      // Not one of ours — a bare console.warn from somewhere else.
+    }
+  });
+  try {
+    await run();
+  } finally {
+    spy.mockRestore();
+  }
+  return lines;
 }
 
 describeWithDb(
@@ -1868,6 +1946,299 @@ describeWithDb(
         // the halt's join found this row still live and correctly declined.
         expect((await readOutbox(inFlight.outboxId)).status).toBe('completed');
         expect(await readBatchClosedAt(inFlight.batchId)).not.toBeNull();
+      });
+    });
+
+    // ---- The integrity spine (2026-08-22 guard-integrity pass) -------------
+    //
+    // Three guards were measured UNPINNED by mutation: each one was deleted,
+    // the whole solicitation lane ran, and everything stayed green. A
+    // whole-repo grep of `src` + `worker` returned ZERO test-file references
+    // for their outcome discriminants. Evidence:
+    // docs/reviews/PATHFINDER-2026-08-22/06-guard-integrity.md.
+    //
+    // The lane's DECISION logic is well pinned by the cases above. What was
+    // not pinned is its CONCURRENCY and INTEGRITY spine, and all three of
+    // those failure modes are SILENT in production: moderating one artifact
+    // and sending another, a value-ledger row with no join key behind it, and
+    // a double send.
+    //
+    // Every case here asserts the OBSERVABLE OUTCOME — rows, adapter calls,
+    // and the one structured line that carries the discriminant. Never the SQL
+    // text: a query-shape pin passes with the predicate deleted, which is the
+    // exact failure being fixed.
+    describe('integrity spine', () => {
+      // A4, and the SOLE mechanical proof that the bytes moderated are the
+      // bytes sent. ADR 0020's immutability is enforced in a domain module and
+      // NOT in the schema, so nothing in Postgres stops a repair script, a new
+      // lane or a future writer from editing `rendered_body` after the slow
+      // items were computed over it.
+      //
+      // The race is staged inside `moderateResponse` because that is the one
+      // remote call the slow gather makes and it runs with NO lock held —
+      // exactly the window a competing writer has. The digest is taken from the
+      // IN-MEMORY row, so the update lands after the verdict was computed and
+      // before the locked re-read, which is the whole hazard.
+      it('defers with bytes_changed_under_gate when the stored body changes between the slow gate and the lock', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+        resetProviderSend();
+
+        moderationMocks.moderateResponse.mockImplementation(async () => {
+          // The competing writer. Only the BODY moves: `rendered_subject` stays
+          // put so the row remains legal under 091's
+          // `solicitation_outreach_body_presence` CHECK, and the body is the
+          // half A4's length-prefixed digest exists to catch.
+          await sql()`
+            UPDATE solicitation_outreach
+            SET rendered_body = ${'A different artifact entirely.'},
+                updated_at = NOW()
+            WHERE id = ${fixture.outreachId}::uuid
+              AND account_id = ${accountId()}::uuid
+              AND business_id = ${businessId}::uuid
+          `;
+          return CLEAN_MODERATION;
+        });
+
+        let warnings: CapturedLogLine[] = [];
+        try {
+          warnings = await captureWarnLines(async () => {
+            await withSendFlagOn(async () => {
+              await dispatchOutreach(sql(), {
+                batchId: fixture.batchId,
+                businessId,
+                outreachId: fixture.outreachId,
+                outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+                correlationId: 'dispatch-bytes-changed-under-gate',
+              });
+            });
+          });
+        } finally {
+          moderationMocks.moderateResponse.mockImplementation(
+            (text) => moderationMocks.real.current!(text),
+          );
+        }
+
+        // THE discriminant. Without it every assertion below is also true of a
+        // `not_dispatchable` row, and the case would pass with the comparison
+        // deleted.
+        expect(warnings.map((line) => line.message)).toContain(
+          'solicitation send no-op: stored bytes changed between the gate and the lock',
+        );
+
+        // A DEFER, not a withhold. Nothing is wrong with the ask — a writer was
+        // raced — so the row is left exactly as it was found, for a later
+        // attempt to re-gather against the new bytes and decide honestly.
+        const row = await readOutreach(fixture.outreachId);
+        expect(row.delivery_status).toBe('queued');
+        expect(row.disposition_reason).toBeNull();
+        expect(row.sending_at).toBeNull();
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+
+        // The triage returns ABOVE `stampConsentSnapshot`, the mint and the
+        // Lazy child, so none of the three ran. This is what separates a defer
+        // from every terminal path in the file.
+        expect(row.consent_row_id).toBeNull();
+        expect(row.agent_run_id).toBeNull();
+        expect(await readTokenRows(fixture.outreachId)).toHaveLength(0);
+
+        // The adapter is NEVER reached: the whole point is that unverified
+        // bytes do not go on the wire.
+        expect(messagingMocks.send).not.toHaveBeenCalled();
+
+        // Only the outbox attempt is spent. Leaving it in flight would have the
+        // watchdog re-pend a row that was correctly deferred.
+        const outbox = await readOutbox(fixture.outboxId);
+        expect(outbox.status).toBe('completed');
+        expect(outbox.completed_at).not.toBeNull();
+      });
+
+      // The terminal CAS. Its docstring states FOUR consequences of finding no
+      // `sending` row, and none of them was asserted anywhere: the other
+      // writer's terminal stands, `provider_message_id` does not persist, no
+      // `solicitation_sent` value-ledger row is written, and the child is not
+      // `completed`.
+      //
+      // The competing writer lands in the provider window — tx1 has committed,
+      // the message is at the adapter, tx2 has not run — which is the only
+      // window this hazard has, and the same window the halt case above uses.
+      //
+      // `unknown` / `send_indeterminate` rather than `failed`: BOTH real
+      // candidates for a row already in `sending` write exactly that pair
+      // (#900's D12d sweep, and the exhaustion hook's `sending` arm — its
+      // `failed` / `send_exhausted` belongs to a `queued` arrival). Seeding
+      // `failed` here would stage a state no writer in this lane produces.
+      it('commits nothing when the terminal CAS finds the row already terminalized by another writer', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+        resetProviderSend('msg_live_terminal_cas_lost');
+
+        messagingMocks.send.mockImplementation(async () => {
+          await sql()`
+            UPDATE solicitation_outreach
+            SET delivery_status = 'unknown',
+                disposition_reason = 'send_indeterminate',
+                updated_at = NOW()
+            WHERE id = ${fixture.outreachId}::uuid
+              AND account_id = ${accountId()}::uuid
+              AND business_id = ${businessId}::uuid
+              AND delivery_status = 'sending'
+          `;
+          return { providerMessageId: 'msg_live_terminal_cas_lost' };
+        });
+
+        const warnings = await captureWarnLines(async () => {
+          await withCleanModeration(async () => {
+            await withSendFlagOn(async () => {
+              await dispatchOutreach(sql(), {
+                batchId: fixture.batchId,
+                businessId,
+                outreachId: fixture.outreachId,
+                outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+                correlationId: 'dispatch-terminal-cas-lost',
+              });
+            });
+          });
+        });
+        resetProviderSend();
+
+        // The provider DID see the message. That is what makes the four claims
+        // below a statement about the CAS rather than about a dispatch that
+        // never happened.
+        expect(warnings.map((line) => line.message)).toContain(
+          'solicitation send: terminal CAS found no sending row — another writer owns it',
+        );
+
+        const row = await readOutreach(fixture.outreachId);
+        // 1. the other writer's verdict STANDS — the CAS is what makes that true.
+        expect(row.delivery_status).toBe('unknown');
+        expect(row.disposition_reason).toBe('send_indeterminate');
+        expect(row.sent_at).toBeNull();
+        // 2. the provider id did not persist...
+        expect(row.provider_message_id).toBeNull();
+
+        expect(row.agent_run_id).not.toBeNull();
+        // 3. ...which is precisely why no `solicitation_sent` outcome may be
+        // written: it would be a value-ledger row with no join key behind it.
+        expect(await readOutcomes(row.agent_run_id!)).toEqual([]);
+
+        // 4. and no `completed` child, which would claim a delivery this
+        // transaction failed to record.
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('running');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+
+        // The outbox attempt is the ONE thing still owed on that branch — this
+        // invocation reached the provider and can make no further progress.
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+        // `closeBatchIfSettled` rides with the terminal facts, so a CAS that
+        // found nothing must not join the batch either: the writer that DID
+        // terminalize the row joins it in its own transaction.
+        expect(await readBatchClosedAt(fixture.batchId)).toBeNull();
+      });
+
+      // The `queued → sending` CAS — the claim itself. After tx1 commits, a
+      // token row ALWAYS implies a `sending` row, and decision 9's resume path
+      // depends on that; without the predicate a second dispatcher re-claims a
+      // row the first already owns and both reach the provider.
+      //
+      // Deliberately NOT merged with the terminal-CAS case above. They guard
+      // opposite transitions — INTO `sending` versus OUT of it — and report
+      // different discriminants.
+      //
+      // The competing dispatcher writes on the SAME transaction, because the
+      // row is held `FOR UPDATE` from the triage read to the CAS and a second
+      // connection would block rather than win. `recordStep` is the last spine
+      // write before the claim and the only importable collaborator this
+      // module hands `tx` to in that span.
+      it('claims nothing and does not send when the queued CAS loses the row to another dispatcher', async () => {
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const fixture = await seedQueuedOutreach();
+        resetProviderSend();
+
+        // Distinctly EARLIER than the transaction's own `NOW()`, and still
+        // `>= queued_at` (the fixture queues at `NOW() - 30 seconds`), so
+        // 091's status/timestamp CHECK holds and a re-stamp by the CAS is
+        // visible as a different value rather than hidden by
+        // `NOW()` being constant inside one transaction.
+        let claimedSendingAt: string | null = null;
+        runSpineMocks.onRecordStep.current = async (tx, input) => {
+          if (input.stepKey !== 'dispatch_gate_evaluated') return;
+          if (claimedSendingAt !== null) return;
+          const [claimed] = await tx<{ sending_at: string }[]>`
+            UPDATE solicitation_outreach
+            SET delivery_status = 'sending',
+                sending_at = NOW() - INTERVAL '10 seconds',
+                updated_at = NOW()
+            WHERE id = ${fixture.outreachId}::uuid
+              AND account_id = ${accountId()}::uuid
+              AND business_id = ${businessId}::uuid
+              AND delivery_status = 'queued'
+            RETURNING sending_at::text AS sending_at
+          `;
+          claimedSendingAt = claimed?.sending_at ?? null;
+        };
+
+        let warnings: CapturedLogLine[] = [];
+        try {
+          warnings = await captureWarnLines(async () => {
+            await withCleanModeration(async () => {
+              await withSendFlagOn(async () => {
+                await dispatchOutreach(sql(), {
+                  batchId: fixture.batchId,
+                  businessId,
+                  outreachId: fixture.outreachId,
+                  outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+                  correlationId: 'dispatch-queued-cas-lost',
+                });
+              });
+            });
+          });
+        } finally {
+          runSpineMocks.onRecordStep.current = null;
+        }
+
+        // The race really was staged — otherwise every assertion below is a
+        // claim about a dispatch that simply never got that far.
+        expect(claimedSendingAt).not.toBeNull();
+
+        // THE discriminant, and its OWN detector: all the CAS observed is
+        // "the row was no longer `queued`". `sending_row` would claim a fact
+        // nothing here established, and it is reached by a different branch.
+        const inFlight = warnings.find(
+          (line) =>
+            line.message
+              === 'solicitation send: dispatch already in flight elsewhere — not re-sending',
+        );
+        expect(inFlight?.data?.detector).toBe('cas_lost');
+
+        // No double send. This is the production damage the predicate prevents.
+        expect(messagingMocks.send).not.toHaveBeenCalled();
+
+        const row = await readOutreach(fixture.outreachId);
+        // The other dispatcher's claim stands, untouched: the CAS wrote no
+        // status, no `sending_at` and no `updated_at` re-stamp.
+        expect(row.delivery_status).toBe('sending');
+        expect(row.sending_at).toBe(claimedSendingAt);
+        expect(row.sent_at).toBeNull();
+        expect(row.provider_message_id).toBeNull();
+        expect(row.disposition_reason).toBeNull();
+
+        // Proof this case reached the CAS rather than short-circuiting at the
+        // triage: the mint and the Lazy child are BOTH past, and they sit
+        // between the triage and the claim.
+        expect(await readTokenRows(fixture.outreachId)).toHaveLength(1);
+        expect(row.agent_run_id).not.toBeNull();
+        const child = await readChildRun(row.agent_run_id!);
+        expect(child.status).toBe('running');
+        expect(child.step_keys).toEqual(['dispatch_gate_evaluated']);
+
+        // The attempt is spent: this invocation can make no further progress on
+        // the row, so leaving it in flight would only have the watchdog
+        // re-dispatch a job whose sole remaining act is to observe the same
+        // thing.
+        expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
       });
     });
   },
