@@ -107,13 +107,11 @@
 .feat-stat::before {
   content: '';
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+  inset: 0 auto 0 0;
   width: 10px;
   background: var(--bar);
-  transform: scaleY(0);
   transform-origin: top;
+  transform: scaleY(0);
   transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) calc(var(--m-delay, 0ms) + 200ms);
 }
 .feat-hero.is-in .feat-stat::before { transform: none; }

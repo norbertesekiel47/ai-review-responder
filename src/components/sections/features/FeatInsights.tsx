@@ -3,7 +3,15 @@
 import { type CSSProperties, type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { FeatReceipt } from './FeatPrimitives';
 import { useReveal } from './useReveal';
+
+// The brief's headline counts (sample week).
+const BRIEF_COUNTS = [
+  ['Reviews', '14'],
+  ['Responded', '13'],
+  ['Rate', '93%'],
+] as const;
 
 // Mirrors the digest's real sections: this-week volume vs the trailing 4-week
 // average, and the "needs your eye" lane (lowest-rated reviews of the week).
@@ -56,20 +64,7 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
                 <span className="rw-dl-cap-tail">Issue 18 · Apr 14–20</span>
               </div>
 
-              <div className="rw-dl-rec feat-brief-rec">
-                <div>
-                  <div className="rw-dl-rec-k">Reviews</div>
-                  <div className="rw-dl-rec-v">14</div>
-                </div>
-                <div>
-                  <div className="rw-dl-rec-k">Responded</div>
-                  <div className="rw-dl-rec-v">13</div>
-                </div>
-                <div>
-                  <div className="rw-dl-rec-k">Rate</div>
-                  <div className="rw-dl-rec-v">93%</div>
-                </div>
-              </div>
+              <FeatReceipt cells={BRIEF_COUNTS} className="feat-brief-rec" />
 
               <p className="feat-brief-lbl">This week at a glance</p>
               <div className="feat-brief-rows">

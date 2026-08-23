@@ -3,6 +3,7 @@
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { ReviewStars } from './FeatPrimitives';
 import { useReveal } from './useReveal';
 
 // Illustrative scorecard for an unreleased feature ("Coming soon" / preview).
@@ -15,7 +16,7 @@ const COMPETITOR_ROWS = [
 ];
 
 /* ================== ROADMAP (split chapter: text left, scorecard right) ================== */
-export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
+export function RoadmapBand({ innerRef }: { innerRef?: RefObject<HTMLElement | null> }) {
   const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
   return (
     <section
@@ -53,10 +54,7 @@ export function RoadmapBand({ innerRef }: { innerRef: RefObject<HTMLElement | nu
                     <div className="feat-comp-body">
                       <p className="feat-comp-name">{r.name}</p>
                       <p className="feat-comp-meta">
-                        <span className="rw-dl-stars" aria-label={`${r.stars} out of 5 stars`}>
-                          <span aria-hidden="true">★</span>
-                        </span>{' '}
-                        {r.stars} · {r.resp}
+                        <ReviewStars rating={Number(r.stars)} glyphs="★" /> {r.stars} · {r.resp}
                       </p>
                     </div>
                     {r.highlighted && (

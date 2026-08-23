@@ -3,7 +3,15 @@
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { FeatReceipt } from './FeatPrimitives';
 import { useReveal } from './useReveal';
+
+// The owner's Autopilot settings as the queued post's receipt strip.
+const AUTOPILOT_SETTINGS = [
+  ['Ratings allowed', '4–5★ only'],
+  ['Daily limit', '10 / day'],
+  ['Veto window', '15 min'],
+] as const;
 
 /* ================== 05 AUTOPILOT (split chapter: text left, queued post right) ================== */
 export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
@@ -34,20 +42,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
                 <span>Queued auto-post · sample · settings matched</span>
                 <span className="rw-dl-cap-tail">posting in 14:32</span>
               </div>
-              <div className="rw-dl-rec feat-rec-flush">
-                <div>
-                  <div className="rw-dl-rec-k">Ratings allowed</div>
-                  <div className="rw-dl-rec-v">4–5★ only</div>
-                </div>
-                <div>
-                  <div className="rw-dl-rec-k">Daily limit</div>
-                  <div className="rw-dl-rec-v">10 / day</div>
-                </div>
-                <div>
-                  <div className="rw-dl-rec-k">Veto window</div>
-                  <div className="rw-dl-rec-v">15 min</div>
-                </div>
-              </div>
+              <FeatReceipt cells={AUTOPILOT_SETTINGS} className="feat-rec-flush" />
               <div className="rw-dl-reply feat-reply-gap">
                 <div className="rw-dl-reply-lbl">Reply · cleared to post · one tap stops it</div>
                 <p>

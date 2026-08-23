@@ -3,6 +3,7 @@
 import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { ReviewStars } from './FeatPrimitives';
 import { useReveal } from './useReveal';
 
 const FEATURE_LANGS = [
@@ -43,12 +44,7 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
             <div className="rw-dl-card">
               <div className="rw-dl-cap">
                 <span>Sample reviewer</span>
-                <span
-                  className="rw-dl-stars"
-                  aria-label="5 out of 5 stars"
-                >
-                  <span aria-hidden="true">★★★★★</span>
-                </span>
+                <ReviewStars rating={5} />
                 <span className="rw-dl-cap-tail">detected: ES</span>
               </div>
               <div className="rw-dl-quote">

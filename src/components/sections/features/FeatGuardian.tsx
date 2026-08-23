@@ -3,9 +3,10 @@
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
+import { FeatSteps, type FeatStep } from './FeatPrimitives';
 import { useReveal } from './useReveal';
 
-const GUARDIAN_STEPS = [
+const GUARDIAN_STEPS: readonly FeatStep[] = [
   { n: '01', title: '1★ review lands', sub: 'Guardian reads it before anything is drafted', t: '0:00', final: false },
   { n: '02', title: 'Severity read', sub: 'Low · medium · high: a quick AI check', t: '+0:01', final: false },
   { n: '03', title: 'Serious → escalation', sub: "You're notified with the full context", t: '+0:02', final: false },
@@ -43,18 +44,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
           />
 
           <div ref={tlRef} className={cn('feat-ch-ar rw-dl-rv', tlSeen && 'is-in')}>
-            <ol className="feat-steps">
-              {GUARDIAN_STEPS.map((s) => (
-                <li key={s.n} className="feat-step-row">
-                  <span className={cn('feat-step-num', s.final && 'is-final')}>{s.n}</span>
-                  <div className={cn('feat-step-card', s.final && 'is-final')}>
-                    <p className="feat-step-t">{s.title}</p>
-                    <p className="feat-step-s">{s.sub}</p>
-                  </div>
-                  <span className="feat-step-time">{s.t}</span>
-                </li>
-              ))}
-            </ol>
+            <FeatSteps steps={GUARDIAN_STEPS} />
           </div>
         </div>
       </div>
