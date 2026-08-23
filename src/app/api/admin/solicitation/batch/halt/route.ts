@@ -40,7 +40,7 @@ import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 import { createWorkerLogger } from '@/lib/shared/logger';
 import { adminHaltBatch, type AdminHaltBatchResult } from '@/lib/solicitation/approval';
-import type { BatchState } from '@/lib/solicitation/outreach';
+import { batchDidClose, type BatchState } from '@/lib/solicitation/outreach';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +88,10 @@ function toWire(result: AdminHaltBatchResult): AdminHaltWire {
       return {
         status: result.status,
         cancelledCount: result.cancelledCount,
-        closed: result.close.status !== 'not_settled',
+        // The POSITIVE predicate, not `!== 'not_settled'`: `no_send_parent`
+        // (an all-withheld built batch, haltable but with nothing to close)
+        // writes nothing and must report `closed: false` (#891).
+        closed: batchDidClose(result.close),
       };
     case 'not_haltable':
       return { status: result.status, state: result.state };

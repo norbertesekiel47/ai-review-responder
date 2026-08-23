@@ -6,8 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0** — reset by the **2026-08-22 pass**
-(entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+**Merges since last architecture pass: 1** — reset by the **2026-08-22 pass**
+(entry below), then #891 counted 2026-08-23. Full artifacts:
+`docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -47,6 +48,13 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **fix #891** — `batchDidClose` positive close predicate (2026-08-23). The 2026-08-18
+  pass's H2, corrected 2026-08-23: `!== 'not_settled'` was a wrong proxy carrying a live
+  wire defect (`no_send_parent` reported `closed: true` with nothing written). One
+  positive enumeration in `outreach.ts`; three routes rewired; the release backstop
+  tally deliberately keeps `=== 'closed'` (events, not receipts) with a pointer comment;
+  `ApprovalPanel.tsx`'s false verbs-comment corrected. Exhaustiveness-pinned unit suite +
+  three route-level `no_send_parent → closed:false` pins. **Counts: +1 production merge.**
 - **PR #935** — #896 part 1, `ci:merge-ledger` (2026-08-23). The audit this very row
   satisfies: a PR whose diff changes a non-test file under `src/`/`worker/`/`supabase/`,
   or any path on the governance surface, must add a line here or fail CI on the merging

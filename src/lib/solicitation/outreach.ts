@@ -253,6 +253,27 @@ export type CloseBatchIfSettledResult =
       counts: OutreachStatusCounts;
     };
 
+/**
+ * "Did the close settle the batch?" — a POSITIVE enumeration, never a negation
+ * of one arm. `!== 'not_settled'` is a wrong proxy: `no_send_parent` means
+ * *nothing was written* (an ordinary built batch left alone), yet it passes the
+ * negation, so halting an all-withheld built batch would report `closed: true`
+ * while `send_closed_at` stays NULL. Enumerating what closing IS also makes a
+ * sixth result arm fail closed here instead of silently reporting success.
+ *
+ * `already_closed` counts as closed for a RECEIPT — the batch is closed, only
+ * some other writer got there first. That is exactly why the release backstop's
+ * tally must NOT use this predicate: it counts close EVENTS, and a race loser
+ * is not an event (see `runBackstopJoin` in release.ts).
+ */
+export function batchDidClose(close: CloseBatchIfSettledResult): boolean {
+  return (
+    close.status === 'closed' ||
+    close.status === 'closed_without_parent' ||
+    close.status === 'already_closed'
+  );
+}
+
 interface BatchClosureRow {
   halted: boolean;
   approval_window_elapsed: boolean;

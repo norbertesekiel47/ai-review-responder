@@ -245,6 +245,28 @@ describe('admin solicitation batch halt route', () => {
     expect((await notHaltable.json()) as unknown).toMatchObject({ state: 'closed' });
   });
 
+  it('the admin halt reports closed: false when the close wrote nothing (no_send_parent) — #891', async () => {
+    // An all-withheld `built` batch has no send parent and is haltable;
+    // `closeBatchIfSettled` writes nothing and answers `no_send_parent`. The
+    // old negation proxy (`!== 'not_settled'`) reported that as `closed: true`
+    // while `send_closed_at` stayed NULL.
+    const { POST } = await loadRoute();
+
+    mockAdminHaltBatch.mockResolvedValueOnce({
+      status: 'halted',
+      cancelledCount: 1,
+      close: { status: 'no_send_parent' },
+    });
+
+    const response = await POST(postRequest(body()));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'halted',
+      closed: false,
+    });
+  });
+
   it('the admin halt route has no SOLICITATION_SEND_ENABLED gate — it halts with the send lane flag off', async () => {
     // D5: support must be able to stop a stranded batch AFTER the lane flag is
     // turned off. The flag is a lane switch, not an authorization — asserting

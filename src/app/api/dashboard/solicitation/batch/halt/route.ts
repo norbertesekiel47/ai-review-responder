@@ -13,6 +13,7 @@
 import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { haltBatch, type HaltBatchResult } from '@/lib/solicitation/approval';
+import { batchDidClose } from '@/lib/solicitation/outreach';
 import { requireSolicitationSendWriteAccess } from '@/app/api/dashboard/contacts/location-scope';
 import { readBatchId, withScopedBatch } from '../_shared/scoped-batch-route';
 
@@ -42,7 +43,10 @@ function toWire(result: HaltBatchResult): HaltWire {
         status: result.status,
         reason: result.reason,
         cancelledCount: result.cancelledCount,
-        closed: result.close.status !== 'not_settled',
+        // The POSITIVE predicate, not `!== 'not_settled'`: `no_send_parent`
+        // (an all-withheld built batch, haltable but with nothing to close)
+        // writes nothing and must report `closed: false` (#891).
+        closed: batchDidClose(result.close),
       };
     case 'not_haltable':
       return { status: result.status, state: result.state };

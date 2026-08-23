@@ -13,6 +13,7 @@
 import { sql } from '@/lib/db/server';
 import { errorResponse, jsonResponse, withSameOrigin } from '@/lib/auth/route-helpers';
 import { withdrawAsk, type WithdrawAskResult } from '@/lib/solicitation/approval';
+import { batchDidClose } from '@/lib/solicitation/outreach';
 import { requireSolicitationSendWriteAccess } from '@/app/api/dashboard/contacts/location-scope';
 import { readBatchAsk, withScopedBatch } from '../_shared/scoped-batch-route';
 
@@ -40,7 +41,9 @@ function toWire(result: WithdrawAskResult): WithdrawWire {
       return {
         status: result.status,
         remainingLive: result.remainingLive,
-        closed: result.close.status !== 'not_settled',
+        // The POSITIVE predicate, not `!== 'not_settled'` — see #891: only an
+        // enumerated closing arm may report `closed: true`.
+        closed: batchDidClose(result.close),
       };
     case 'not_withdrawable':
       return { status: result.status, state: result.state };
