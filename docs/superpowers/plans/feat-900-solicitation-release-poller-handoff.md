@@ -5,7 +5,7 @@ A resumed session bootstraps from this file. **It never needs the prior transcri
 **Worktree:** `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-900-solicitation-release-poller`
 **Branch:** `feat-900-solicitation-release-poller` · **Issue:** #900
 **Lane:** RISK = high · SURFACE = backend · `db_touching: true` · **no migration**
-**Phase:** `reviewed` — steps 0–7 COMPLETE, **step 8.1 (ride), 8.2 (verify) and the 8.3 CI cycle DONE**. **Next action: confirm PR #920 green, then the owner's merge approval.**
+**Phase:** `reviewed` — steps 0–7 COMPLETE, **step 8.1 (ride), 8.2 (verify) and 8.3 (PR + CI) DONE**. PR #920 is **GREEN on every check, `MERGEABLE` / `CLEAN`, head `9ff48d66`**. **Next action: the owner's explicit merge approval. Nothing else is outstanding.**
 
 ## Reconciliation — run the checks, they should agree
 
@@ -73,6 +73,19 @@ Self-verifying by design; no hardcoded SHAs, because the commit writing this fil
 
    Green as of this handoff: `exit 0`, `complexity 0`,
    `✓ No issues in 33 changed files`.
+
+   **CI run 2 then went red on `test`, and it was the CLOCK, not the refactor.**
+   That run spanned 23:59:14 → 00:01:34 UTC. Three fixtures seed "an attempt
+   already made today" as `NOW() - '5 minutes'`, the account cap counts on a
+   UTC-day predicate, and after midnight that row lands in YESTERDAY — so the cap
+   stops binding and three assertions fall together. A five-minute window every
+   day, present since those fixtures were written. Fixed with an opt-in
+   `queuedWithinUtcDay` clamp; proved by reproducing the exact failure at
+   `'5 hours'` backdate and turning it green with the clamp on the same clock.
+   Full account in the deviations file. **Do not re-diagnose this as a refactor
+   defect if you see it again — check the run's start and end times first.**
+
+   **CI run 3: GREEN on every check**, `fallow` included.
 
 ## After merge — obligations already identified, do not rediscover them
 
