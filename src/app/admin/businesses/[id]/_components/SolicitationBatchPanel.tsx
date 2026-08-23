@@ -1,8 +1,10 @@
 'use client';
 
 // The admin arm of the Halt latch, on /admin/businesses/[id] (#865, plan §3.4).
-// Modelled on PastDueExtensionPanel: useReducer, one form submit, an onChanged
-// callback so the page re-reads rather than this panel guessing the new state.
+// Modelled on PastDueExtensionPanel: one form submit, an onChanged callback so
+// the page re-reads rather than this panel guessing the new state. Since #880
+// both share `useAdminActionForm` instead of each keeping a private copy of the
+// same reducer — the modelling became a seam.
 //
 // COPY DISCIPLINE (CONTEXT.md **Halt latch**). "stop" is the ONE carved-out
 // owner-facing synonym for `halt`; `pause`, `resume` and `cancel batch` are
@@ -24,11 +26,12 @@
 // presented the in-flight row as part of the stop's reach, which is the one
 // thing the latch deliberately cannot do.
 
-import { FormEvent, ReactNode, useReducer } from 'react';
+import { FormEvent, ReactNode } from 'react';
 import { formatAdminDateTime } from '@/components/admin/ui/format';
 import type { AdminHaltBatchResult } from '@/lib/solicitation/approval';
 import type { AdminBatchSummary, HaltReason } from '@/lib/solicitation/batch-view';
 import type { BatchState } from '@/lib/solicitation/outreach';
+import { useAdminActionForm } from '@/hooks/useAdminActionForm';
 
 interface SolicitationBatchPanelProps {
   accountId: string;
@@ -201,46 +204,8 @@ function successCopy(status: AdminHaltStatus | null, cancelledCount: number): st
 const UNREADABLE_SUCCESS =
   'The server answered in a way this page does not understand. Reload to see whether the batch was stopped.';
 
-interface HaltState {
+interface HaltFields {
   note: string;
-  message: string | null;
-  error: string | null;
-  submitting: boolean;
-}
-
-type HaltAction =
-  | { type: 'setNote'; value: string }
-  | { type: 'submitReset' }
-  | { type: 'validationError'; error: string }
-  | { type: 'submitStart' }
-  | { type: 'submitError'; error: string }
-  | { type: 'submitSuccess'; message: string }
-  | { type: 'submitDone' };
-
-const initialState: HaltState = {
-  note: '',
-  message: null,
-  error: null,
-  submitting: false,
-};
-
-function reducer(state: HaltState, action: HaltAction): HaltState {
-  switch (action.type) {
-    case 'setNote':
-      return { ...state, note: action.value };
-    case 'submitReset':
-      return { ...state, message: null, error: null };
-    case 'validationError':
-      return { ...state, error: action.error };
-    case 'submitStart':
-      return { ...state, submitting: true };
-    case 'submitError':
-      return { ...state, error: action.error };
-    case 'submitSuccess':
-      return { ...state, message: action.message, note: '' };
-    case 'submitDone':
-      return { ...state, submitting: false };
-  }
 }
 
 /** Exactly the route's `strictObject`. A fifth field is a 400, and no field of
@@ -273,8 +238,12 @@ export function SolicitationBatchPanel({
   summary,
   onHalted,
 }: SolicitationBatchPanelProps) {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const { note, message, error, submitting } = state;
+  // The success carries the announced outcome sentence, so `TOutcome` is
+  // `string`. An unreadable 2xx is a `fail`, not a `succeed` with empty copy —
+  // the panel must not claim a stop it cannot read.
+  const form = useAdminActionForm<HaltFields, string>({ note: '' });
+  const { note } = form.fields;
+  const { error, outcome: message, busy: submitting } = form;
 
   if (!summary) {
     return (
@@ -294,11 +263,13 @@ export function SolicitationBatchPanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    dispatch({ type: 'submitReset' });
+    // Cleared BEFORE validating, exactly as `submitReset` was: an empty-note
+    // refusal must show while the button still reads "Stop this batch".
+    form.clearOutcome();
 
     const trimmed = note.trim();
     if (trimmed.length === 0) {
-      dispatch({ type: 'validationError', error: 'Say why you are stopping this batch.' });
+      form.fail('Say why you are stopping this batch.');
       return;
     }
     // Unreachable — the form only renders for a haltable batch — but the body
@@ -312,42 +283,39 @@ export function SolicitationBatchPanel({
       note: trimmed,
     };
 
-    dispatch({ type: 'submitStart' });
-    try {
-      const res = await fetch('/api/admin/solicitation/batch/halt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json().catch(() => ({}))) as AdminHaltResponse;
-      const status = toHaltStatus(json.status);
-
-      if (!res.ok) {
-        if (status === null) {
-          // The gate, an internal error, or a contract newer than this bundle.
-          // Worth a devtools line; never the operator's paragraph.
-          console.error(`[SolicitationBatchPanel] halt refused with HTTP ${res.status}`);
-        }
-        dispatch({
-          type: 'submitError',
-          error: refusalCopy(status, toBatchState(json.state), res.status),
+    await form.run(async () => {
+      try {
+        const res = await fetch('/api/admin/solicitation/batch/halt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
         });
-        return;
-      }
+        const json = (await res.json().catch(() => ({}))) as AdminHaltResponse;
+        const status = toHaltStatus(json.status);
 
-      const announced = successCopy(status, json.cancelledCount ?? 0);
-      dispatch(
-        announced === null
-          ? { type: 'submitError', error: UNREADABLE_SUCCESS }
-          : { type: 'submitSuccess', message: announced },
-      );
-      onHalted();
-    } catch (err) {
-      console.error('[SolicitationBatchPanel] halt failed:', err);
-      dispatch({ type: 'submitError', error: 'Failed to stop the batch.' });
-    } finally {
-      dispatch({ type: 'submitDone' });
-    }
+        if (!res.ok) {
+          if (status === null) {
+            // The gate, an internal error, or a contract newer than this bundle.
+            // Worth a devtools line; never the operator's paragraph.
+            console.error(`[SolicitationBatchPanel] halt refused with HTTP ${res.status}`);
+          }
+          form.fail(refusalCopy(status, toBatchState(json.state), res.status));
+          return;
+        }
+
+        const announced = successCopy(status, json.cancelledCount ?? 0);
+        if (announced === null) {
+          form.fail(UNREADABLE_SUCCESS);
+        } else {
+          form.succeed(announced);
+          form.patch({ note: '' });
+        }
+        onHalted();
+      } catch (err) {
+        console.error('[SolicitationBatchPanel] halt failed:', err);
+        form.fail('Failed to stop the batch.');
+      }
+    });
   }
 
   return (
@@ -419,7 +387,7 @@ export function SolicitationBatchPanel({
               <input
                 type="text"
                 value={note}
-                onChange={(event) => dispatch({ type: 'setNote', value: event.target.value })}
+                onChange={(event) => form.set('note', event.target.value)}
                 className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
                 required
               />

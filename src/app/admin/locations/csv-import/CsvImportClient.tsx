@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useReducer, useRef } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useAdminActionForm } from '@/hooks/useAdminActionForm';
 import {
   validateLocationsCsvClient,
   type ClientCsvValidationError,
@@ -25,110 +26,82 @@ const MAX_CLIENT_FILE_SIZE = 5 * 1024 * 1024;
 // The sibling template download lives on the server page's AdminPage actions.
 const CSV_README_HREF = '/csv-templates/README.md';
 
-interface CsvImportState {
+interface CsvImportFields {
   accountId: string;
-  submitting: boolean;
-  formError: string | null;
-  validationErrors: ClientCsvValidationError[];
-  report: CsvImportReport | null;
-}
-
-type CsvImportAction =
-  | { type: 'setAccountId'; value: string }
-  | { type: 'submitStart' }
-  | { type: 'setFormError'; error: string }
-  | { type: 'setValidationErrors'; errors: ClientCsvValidationError[] }
-  | { type: 'setReport'; report: CsvImportReport }
-  | { type: 'submitDone' };
-
-const initialState: CsvImportState = {
-  accountId: '',
-  submitting: false,
-  formError: null,
-  validationErrors: [],
-  report: null,
-};
-
-function reducer(state: CsvImportState, action: CsvImportAction): CsvImportState {
-  switch (action.type) {
-    case 'setAccountId':
-      return { ...state, accountId: action.value };
-    case 'submitStart':
-      return { ...state, submitting: true, formError: null, validationErrors: [], report: null };
-    case 'setFormError':
-      return { ...state, formError: action.error };
-    case 'setValidationErrors':
-      return { ...state, validationErrors: action.errors };
-    case 'setReport':
-      return { ...state, report: action.report };
-    case 'submitDone':
-      return { ...state, submitting: false };
-  }
 }
 
 export function CsvImportClient() {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const { accountId, submitting, formError, validationErrors, report } = state;
+  // The success carries the whole server report, so `TOutcome` is
+  // `CsvImportReport` rather than a sentence — flattening it to a string is the
+  // cheap unification #880's hook deliberately refuses.
+  const form = useAdminActionForm<CsvImportFields, CsvImportReport>({ accountId: '' });
+  const { accountId } = form.fields;
+  const { error: formError, outcome: report, busy: submitting } = form;
+  // THE SECOND error channel stays local. Per-row validation failures are this
+  // one surface's affordance; four other admin forms would carry an array they
+  // never set. Cleared at the top of a submit alongside the shared outcome,
+  // which is what this surface's own reducer cleared for all three at once.
+  const [validationErrors, setValidationErrors] = useState<ClientCsvValidationError[]>([]);
   const fileRef = useRef<File | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
 
-    dispatch({ type: 'submitStart' });
+    setValidationErrors([]);
 
-    try {
-      if (!accountId.trim()) {
-        dispatch({ type: 'setFormError', error: 'Enter an account ID.' });
-        return;
-      }
-      const file = fileRef.current;
-      if (!file) {
-        dispatch({ type: 'setFormError', error: 'Choose a CSV file.' });
-        return;
-      }
-      if (file.size > MAX_CLIENT_FILE_SIZE) {
-        dispatch({ type: 'setValidationErrors', errors: [{ row: 0, reason: 'CSV file is larger than 5 MB.' }] });
-        return;
-      }
+    await form.run(async () => {
+      try {
+        if (!accountId.trim()) {
+          form.fail('Enter an account ID.');
+          return;
+        }
+        const file = fileRef.current;
+        if (!file) {
+          form.fail('Choose a CSV file.');
+          return;
+        }
+        if (file.size > MAX_CLIENT_FILE_SIZE) {
+          setValidationErrors([{ row: 0, reason: 'CSV file is larger than 5 MB.' }]);
+          return;
+        }
 
-      const parsed = parseCsvRows(await file.text());
-      if ('error' in parsed) {
-        dispatch({ type: 'setFormError', error: parsed.error });
-        return;
-      }
+        const parsed = parseCsvRows(await file.text());
+        if ('error' in parsed) {
+          form.fail(parsed.error);
+          return;
+        }
 
-      const failures = validateLocationsCsvClient(parsed.rows);
-      dispatch({ type: 'setValidationErrors', errors: failures });
-      if (failures.some((failure) => failure.row === 0)) {
-        return;
-      }
+        const failures = validateLocationsCsvClient(parsed.rows);
+        setValidationErrors(failures);
+        if (failures.some((failure) => failure.row === 0)) {
+          return;
+        }
 
-      const formData = new FormData();
-      formData.append('accountId', accountId.trim());
-      formData.append('file', file);
+        const formData = new FormData();
+        formData.append('accountId', accountId.trim());
+        formData.append('file', file);
 
-      const res = await fetch('/api/admin/locations/csv-import', {
-        method: 'POST',
-        body: formData,
-      });
-      const body = await res.json().catch(() => ({}));
+        const res = await fetch('/api/admin/locations/csv-import', {
+          method: 'POST',
+          body: formData,
+        });
+        const body = await res.json().catch(() => ({}));
 
-      if (isCsvImportReport(body)) {
-        dispatch({ type: 'setReport', report: body });
+        if (isCsvImportReport(body)) {
+          form.succeed(body);
+        }
+        if (!res.ok) {
+          form.fail(body.error ?? `Import failed (${res.status}).`);
+          return;
+        }
+        if (!isCsvImportReport(body)) {
+          form.fail('Import completed, but the response was not readable.');
+        }
+      } catch {
+        form.fail('Import failed. Check your connection and try again.');
       }
-      if (!res.ok) {
-        dispatch({ type: 'setFormError', error: body.error ?? `Import failed (${res.status}).` });
-        return;
-      }
-      if (!isCsvImportReport(body)) {
-        dispatch({ type: 'setFormError', error: 'Import completed, but the response was not readable.' });
-      }
-    } catch {
-      dispatch({ type: 'setFormError', error: 'Import failed. Check your connection and try again.' });
-    } finally {
-      dispatch({ type: 'submitDone' });
-    }
+    });
   }
 
   return (
@@ -155,7 +128,7 @@ export function CsvImportClient() {
               id="csv-import-account-id"
               type="text"
               value={accountId}
-              onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
+              onChange={(event) => form.set('accountId', event.target.value)}
               placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             />

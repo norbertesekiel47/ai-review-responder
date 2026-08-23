@@ -6,10 +6,11 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 9** — reset by the **2026-08-22 pass**
+**Merges since last architecture pass: 10** — reset by the **2026-08-22 pass**
 (entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893,
-#909 and #886 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is
-test-only and does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+#909, #886 and #880 counted 2026-08-23 (the #919 seedUpload consolidation, #942,
+is test-only and does not count). Full artifacts:
+`docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -49,6 +50,31 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **refactor #880** — `useAdminActionForm`, and all five admin surfaces migrated
+  in one change (2026-08-23; surfaced by #865's branch review, standards axis).
+  The `useReducer` + 7-to-9-member action union + switch + `initialState` was
+  copied across `ImpersonationStartClient`, `CsvImportClient`,
+  `ManualRankingSection`, `PastDueExtensionPanel` and `SolicitationBatchPanel` —
+  the five `rg 'submitStart' src/app/admin` returns, matching Pathfinder X7's
+  count rather than a guess. **X7's "blocking design decision" was understated
+  and is now resolved rather than dodged.** X7 records it as `success: boolean`
+  vs `message: string | null`; measured across all five the success channel is
+  FOUR things — a boolean flag, a message string (×2), *nothing at all*
+  (impersonation navigates away), and a whole `CsvImportReport`. So it is a TYPE
+  PARAMETER, not a unified field: `TOutcome` defaults to `never`, which makes
+  `succeed` uncallable on the form that has no success, checked by the compiler
+  instead of by a comment. Flattening all four to `string | null` would have
+  cost the CSV report its structure and given the impersonation form a channel
+  it must never populate. **Two things deliberately stay in the surfaces**: the
+  fetch (five bodies, five response shapes, five failure sentences — a hook that
+  owned them needs a config object per surface, the knobbed-helper shape this
+  repo rejects), and `CsvImportClient`'s SECOND error channel
+  (`validationErrors`), which is one surface's affordance and would otherwise be
+  an array four surfaces never set. Ordering is preserved exactly: `clearOutcome`
+  before validating so a refusal shows while the button still reads its idle
+  label, and `stop` clearing only `busy` so a `fail` raised inside the body
+  survives the `finally`. 16 hook cases; 348 admin tests green and UNTOUCHED.
+  **Counts: +1 production merge.**
 - **refactor #886** — `ApprovalPanel.tsx`'s lane-write seam extracted to a
   sibling `lane-writes.ts` (2026-08-23; deferred from the #872 branch review,
   standards finding #1 — the only *major* finding on that branch, rejected as a
