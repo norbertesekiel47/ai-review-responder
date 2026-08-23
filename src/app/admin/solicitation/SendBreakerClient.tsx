@@ -6,6 +6,7 @@ import { EmptyState, ErrorState, TableSkeleton } from '@/components/admin/ui/sta
 import { formatAdminCount, formatAdminDateTime } from '@/components/admin/ui/format';
 import { StatTile } from '@/components/admin/ui/StatTile';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { formatRate } from '@/lib/shared/format-rate';
 // TYPE-ONLY, and that is load-bearing rather than incidental. `send-breaker.ts`
 // instantiates a worker logger at module scope — `createWorkerLogger` ->
 // `log-context` -> `node:async_hooks` — so a single RUNTIME import from it
@@ -16,18 +17,9 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 // that module freely.
 import type { BreakerTripReason, BreakerWindow } from '@/lib/solicitation/send-breaker';
 
-/**
- * Deliberately NOT imported from `send-breaker.ts`, though that module owns the
- * server-side twin (std-5 / B1.11) — for exactly the reason above: importing a
- * FUNCTION from there is the runtime edge that breaks the build. Proven on
- * #898: exporting the shared helper from there broke `pnpm build`, and
- * reverting to this local copy fixed it.
- *
- * The honest fix is a shared admin formatter in `src/components/admin/ui/`,
- * which needs a surface amendment this branch has not spent; recorded as a
- * follow-up.
- */
-const formatRate = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
+// `formatRate` comes from the zero-import leaf `@/lib/shared/format-rate`
+// (#910 B3.10) — the same owner `send-breaker.ts`'s Sentry titles read, which
+// closes the std-5/B1.11 twin without the runtime edge that broke the build.
 
 /**
  * The breaker's enforcement thresholds, handed down from the server component.
