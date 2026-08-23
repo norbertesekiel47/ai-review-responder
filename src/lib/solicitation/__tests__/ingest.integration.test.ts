@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   cleanupTenantAccount,
   seedTenantAccount,
@@ -53,24 +54,23 @@ interface SeedUploadOptions {
 }
 
 async function seedUpload(csvText: string, options: SeedUploadOptions = {}): Promise<string> {
-  const uploadId = randomUUID();
-  const attestationVersion = options.attestationVersion ?? CONSENT_ATTESTATION_VERSION;
   const attestedAtExpr = options.attestedAt !== undefined
     ? sql()`${options.attestedAt}::timestamptz`
     : options.attestedAgo === undefined
-      ? sql()`NOW()`
+      ? undefined
       : sql()`NOW() - ${options.attestedAgo}::interval`;
-  await sql()`
-    INSERT INTO contact_csv_uploads
-      (id, account_id, business_id, filename, byte_size, content_sha256,
-       raw_csv, status, attested_by_user_id, attested_at, attestation_version)
-    VALUES
-      (${uploadId}::uuid, ${tenant!.accountId}::uuid, ${businessId}::uuid,
-       'customers.csv', ${Buffer.byteLength(csvText, 'utf8')},
-       ${'0'.repeat(64)}, ${csvText}, 'pending',
-       ${tenant!.userId}::uuid, ${attestedAtExpr}, ${attestationVersion})
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: tenant!.accountId,
+    businessId,
+    attestedByUserId: tenant!.userId,
+    filename: 'customers.csv',
+    byteSize: Buffer.byteLength(csvText, 'utf8'),
+    contentSha256: '0'.repeat(64),
+    attestationVersion: options.attestationVersion ?? CONSENT_ATTESTATION_VERSION,
+    attestedAt: attestedAtExpr,
+    status: 'pending',
+    rawCsv: csvText,
+  });
 }
 
 interface ConsentRow {

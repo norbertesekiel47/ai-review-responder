@@ -22,7 +22,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { checksum, insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 
 // DELEGATING spies over the three collaborators the admin arm's ORDER claim is
@@ -137,20 +137,13 @@ function foreignTenantSeed(): TenantSeed {
 }
 
 async function seedUpload(): Promise<string> {
-  const uploadId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads (
-      id, account_id, business_id, filename, byte_size, content_sha256,
-      raw_csv, status, report, attested_by_user_id, attested_at,
-      attestation_version, completed_at
-    ) VALUES (
-      ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${`approval-${uploadId}.csv`}, 1, ${checksum(uploadId)},
-      NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${userId()}::uuid, NOW(), 'approval-test', NOW()
-    )
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: accountId(),
+    businessId,
+    attestedByUserId: userId(),
+    filenamePrefix: 'approval',
+    attestationVersion: 'approval-test',
+  });
 }
 
 async function seedContact(uploadId: string): Promise<string> {

@@ -20,7 +20,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import type { SolicitationBatchRunFailure } from '@/lib/agents/run-spine';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
@@ -60,21 +60,13 @@ function accountId(): string {
 }
 
 async function seedUpload(): Promise<string> {
-  const uploadId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads (
-      id, account_id, business_id, filename, byte_size, content_sha256,
-      raw_csv, status, report, attested_by_user_id, attested_at,
-      attestation_version, completed_at
-    ) VALUES (
-      ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${`outreach-close-${uploadId}.csv`}, 1,
-      ${uploadId.replaceAll('-', '').padEnd(64, '0').slice(0, 64)},
-      NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${tenant!.userId}::uuid, NOW(), 'outreach-close-test', NOW()
-    )
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: accountId(),
+    businessId,
+    attestedByUserId: tenant!.userId,
+    filenamePrefix: 'outreach-close',
+    attestationVersion: 'outreach-close-test',
+  });
 }
 
 async function seedContact(uploadId: string): Promise<string> {

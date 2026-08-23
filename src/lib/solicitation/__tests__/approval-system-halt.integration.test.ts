@@ -21,7 +21,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { checksum, insertOutreach } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
 import {
   adminHaltBatch,
   haltBatch,
@@ -74,20 +74,13 @@ function userId(): string {
 // ── fixtures ────────────────────────────────────────────────────────────────
 
 async function seedUpload(): Promise<string> {
-  const uploadId = randomUUID();
-  await sql()`
-    INSERT INTO contact_csv_uploads (
-      id, account_id, business_id, filename, byte_size, content_sha256,
-      raw_csv, status, report, attested_by_user_id, attested_at,
-      attestation_version, completed_at
-    ) VALUES (
-      ${uploadId}::uuid, ${accountId()}::uuid, ${businessId}::uuid,
-      ${`system-halt-${uploadId}.csv`}, 1, ${checksum(uploadId)},
-      NULL, 'completed', ${sql().json({ accepted: 1 })},
-      ${userId()}::uuid, NOW(), 'system-halt-test', NOW()
-    )
-  `;
-  return uploadId;
+  return seedContactCsvUpload(sql(), {
+    accountId: accountId(),
+    businessId,
+    attestedByUserId: userId(),
+    filenamePrefix: 'system-halt',
+    attestationVersion: 'system-halt-test',
+  });
 }
 
 interface SeededBatch {
