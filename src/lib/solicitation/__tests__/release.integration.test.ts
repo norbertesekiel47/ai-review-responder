@@ -260,7 +260,8 @@ interface BatchInput {
     | 'owner_halt'
     | 'admin_halt'
     | 'send_window_elapsed'
-    | 'batch_expired';
+    | 'batch_expired'
+    | 'platform_halt';
 }
 
 /** Carries its tenant, so every downstream helper reads the ids off the batch
@@ -1503,11 +1504,17 @@ describeWithDb(
           const report = await cycle();
 
           expect(report.sendWindowElapsed).toBe(1);
+          // The breaker is CLOSED in this case (afterEach empties the table), so
+          // the sweep takes its blander arm and the platform counter stays at
+          // zero. The two counters are fed by ONE sweep (#917), so asserting
+          // both is what proves the arms are exclusive rather than additive.
+          expect(report.platformHalted).toBe(0);
           const after = await readBatch(batch.batchId);
           expect(after.halted_at).not.toBeNull();
           expect(after.halt_reason).toBe('send_window_elapsed');
-          // 091's halt-consistency CHECK requires halted_by IS NULL for exactly
-          // the two SYSTEM reasons — the type says what the database enforces.
+          // 091's halt-consistency CHECK, widened by 111, requires halted_by IS
+          // NULL for exactly the three SYSTEM reasons — the type says what the
+          // database enforces.
           expect(after.halted_by).toBeNull();
 
           expect(await readOutreach(rendered.outreachId)).toMatchObject({
@@ -1545,6 +1552,139 @@ describeWithDb(
           });
         },
       );
+
+      it(
+        'latches platform_halt instead of send_window_elapsed while the Send breaker is open',
+        async () => {
+          // #917. THE SAME FIXTURE as the case above, with ONE difference: the
+          // breaker is open. Same 72h clock, same predicate, same sweep — only
+          // the reason changes. If this test ever needs a different `approvedAgo`
+          // to fire, the fix has grown a second window and the ticket's decision
+          // (a truer reason, not a halt-aware window) has been quietly reversed.
+          await tripSendBreaker();
+
+          const batch = await seedBatch({
+            builtAgo: '80 hours',
+            approvedAgo: '72 hours 419 microseconds',
+            approvalMethod: 'owner',
+            vetoDeadlineAgo: '71 hours',
+            sendingStartedAgo: '70 hours',
+          });
+          const parentRunId = await seedSendParent({ batch, startedAgo: '73 hours' });
+          const rendered = await seedOutreach({ batch });
+          const queued = await seedOutreach({
+            batch,
+            deliveryStatus: 'queued',
+            queuedAgo: '69 hours',
+          });
+
+          const report = await cycle();
+
+          // The sweep RAN — B14's rejected alternative was to suppress it while
+          // the breaker is open, which blows past the <=10-day bound
+          // STALLED_THRESHOLD_SEND_BATCH_DAYS = 11 derives from. A zero here
+          // would mean that alternative had been taken by accident.
+          expect(report.platformHalted).toBe(1);
+          expect(report.sendWindowElapsed).toBe(0);
+
+          const after = await readBatch(batch.batchId);
+          expect(after.halted_at).not.toBeNull();
+          expect(after.halt_reason).toBe('platform_halt');
+          // 111 added `platform_halt` to the CHECK's reason list and NOT to its
+          // actor list, so this is a database-enforced fact, not a convention.
+          expect(after.halted_by).toBeNull();
+
+          // The write-through: `latchHalt` stamps the batch's halt reason on
+          // every cancelled Outreach row, so 111 had to widen the outreach
+          // CHECK's cancelled arm too or this latch would raise a 23514
+          // mid-transaction and the batch would never terminalize at all.
+          expect(await readOutreach(rendered.outreachId)).toMatchObject({
+            delivery_status: 'cancelled',
+            disposition_reason: 'platform_halt',
+          });
+          expect(await readOutreach(queued.outreachId)).toMatchObject({
+            delivery_status: 'cancelled',
+            disposition_reason: 'platform_halt',
+          });
+
+          const steps = await readSteps(parentRunId, 'batch_halted');
+          expect(steps).toHaveLength(1);
+          expect(jsonObject(steps[0]!.detail)).toMatchObject({
+            halt_reason: 'platform_halt',
+            halted_by: null,
+          });
+        },
+      );
+
+      it(
+        'falls back to send_window_elapsed when the breaker probe throws, and still sweeps',
+        async () => {
+          // The label-only carve-out (#917). A rethrow here would stop the sweep
+          // and leave the batch's `rendered`/`queued` rows alive, which is the
+          // permanent wedge #915 closed: 091's one-active-send index then blocks
+          // that location forever. So the probe failure costs a LABEL, never the
+          // sweep — and the fallback is the reason that CLAIMS LESS, because an
+          // unproven accusation against the platform is worse than a bland one.
+          //
+          // Phase 4's own `readSendBreaker` still has no try/catch, so the tick
+          // as a whole still fails closed on SENDING. That is asserted by the
+          // sibling case 'propagates a Send breaker read failure…' below; here
+          // the assertion is only that phase 2 completed first.
+          spies.readSendBreaker.mockRejectedValue(new Error('breaker probe: connection reset'));
+
+          const batch = await seedBatch({
+            builtAgo: '80 hours',
+            approvedAgo: '72 hours 419 microseconds',
+            approvalMethod: 'owner',
+            vetoDeadlineAgo: '71 hours',
+            sendingStartedAgo: '70 hours',
+          });
+          await seedSendParent({ batch, startedAgo: '73 hours' });
+          const rendered = await seedOutreach({ batch });
+
+          // The cycle still aborts — phase 4's gate is untouched — so the sweep's
+          // effect has to be read off the database rather than off the report.
+          await expect(cycle()).rejects.toThrow('breaker probe: connection reset');
+
+          const after = await readBatch(batch.batchId);
+          expect(after.halt_reason).toBe('send_window_elapsed');
+          expect(after.halted_by).toBeNull();
+          expect(await readOutreach(rendered.outreachId)).toMatchObject({
+            delivery_status: 'cancelled',
+            disposition_reason: 'send_window_elapsed',
+          });
+        },
+      );
+
+      it('migration 111 admits platform_halt in BOTH CHECKs, and in neither actor list', async () => {
+        // The honest proof that 111 is applied. A `SchemaRequirement` cannot
+        // carry it: both constraint NAMES have existed since 091, so presence is
+        // satisfied by a database three migrations behind head — the trap
+        // `MIGRATION_110_SEND_GOVERNORS`'s docstring describes. The DEFINITION is
+        // the only distinguishing fact.
+        const [batchCheck] = await sql()<{ definition: string }[]>`
+          SELECT pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint
+           WHERE conname = 'solicitation_batches_halt_consistency'
+        `;
+        const [outreachCheck] = await sql()<{ definition: string }[]>`
+          SELECT pg_get_constraintdef(oid) AS definition
+            FROM pg_constraint
+           WHERE conname = 'solicitation_outreach_status_reason_consistency'
+        `;
+
+        expect(batchCheck?.definition).toContain('platform_halt');
+        expect(outreachCheck?.definition).toContain('platform_halt');
+
+        // The ACTOR arm must NOT have grown it. This is the assertion that
+        // distinguishes 111 from a careless widening: adding `platform_halt` to
+        // the actor list would let a clock be filed as a person, and every other
+        // test here would still pass.
+        const actorArm = /halted_by IS NOT NULL[\s\S]*?\)\s*IS TRUE/.exec(
+          batchCheck?.definition ?? '',
+        );
+        expect(actorArm?.[0] ?? '').not.toContain('platform_halt');
+      });
 
       it(
         'latches batch_expired on a never-approved batch past the approval window and closes its parent',

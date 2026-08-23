@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **110** — next migration is **111**
+Current head: **111** — next migration is **112**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2476,6 +2476,70 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **111** — `platform_halt_reason`: a third SYSTEM **Halt latch** reason (#917;
+  amendment B14's gap, deferred from #900, which shipped the
+  `SolicitationReleasePoller` without a migration). **Two additive changes, no
+  data change**, both strict supersets of the text they replace.
+  **(a) `solicitation_batches_halt_consistency`** — 091's text with
+  `'platform_halt'` appended to the REASON list. **The ACTOR arm is deliberately
+  untouched**, and that is the whole reason this needed no new actor semantics:
+  `(halted_by IS NOT NULL) = ((halt_reason IN ('owner_veto','owner_halt',
+  'admin_halt')) IS TRUE)` still names exactly three human reasons, so
+  `platform_halt` joins `send_window_elapsed` and `batch_expired` on the
+  `halted_by IS NULL` side and `latchSystemHalt` keeps passing
+  `actorUserId: null` unchanged. Adding it to the actor list instead would let a
+  clock be filed as a person, and every behavioural test would still pass —
+  which is why `release.integration.test.ts` asserts the actor arm does NOT
+  contain it.
+  **(b) `solicitation_outreach_status_reason_consistency`** — 110's text with
+  `'platform_halt'` appended to the **cancelled arm only**; every other arm, the
+  member order within it, and the outer `IS TRUE` wrapper (091's NULL-safety
+  idiom) are byte-for-byte 110's. **The two CHECKs had to widen together**:
+  `latchHalt` writes the batch's halt reason through to every cancelled Outreach
+  row as its `disposition_reason`, so widening only (a) would raise a `23514`
+  mid-transaction and the batch would never terminalize at all.
+  **WHY.** The **Send breaker** and the send window run on different clocks and
+  nothing reconciled them — `BATCH_SEND_WINDOW_HOURS = 72` is anchored on
+  `approved_at` and keeps running while a trip is open, and a real trip stays
+  open for days. One trip therefore took every batch approved in the preceding
+  72 hours, across every account, to `cancelled / send_window_elapsed`, telling
+  each owner their send window elapsed for a platform-wide cause. Amendment B14
+  accepted that because SUPPRESSING the sweep is worse: those batches blow past
+  the "≤10 days by construction" bound `STALLED_THRESHOLD_SEND_BATCH_DAYS = 11`
+  derives from and `solicitation_send_batch_stalled` fires for every one. 111
+  takes the other horn — the sweep still runs, on the same clock, and a batch it
+  terminalizes while sending is halted platform-wide gets a reason that is true.
+  **NO BACKFILL, and that is a proof rather than an observation**: `platform_halt`
+  has no writer until this branch's `release.ts` change ships, so every existing
+  row satisfies the wider CHECK. Historical `send_window_elapsed` rows are
+  **not** re-attributed — a terminal receipt is not rewritten after the fact, and
+  no environment has sent a solicitation yet.
+  **NO `SchemaRequirement` IS ADDED, deliberately.** Both constraint NAMES have
+  existed since 091 and were replaced by 108, 109 and 110, so naming either one
+  in `schema-ready.ts` would be satisfied by a database three migrations behind
+  head — the same false-proof hazard 105's, 108's, 109's and 110's entries
+  describe. The honest proof is the DEFINITION, asserted behaviourally by
+  `release.integration.test.ts` ("migration 111 admits platform_halt in BOTH
+  CHECKs, and in neither actor list").
+  **One transaction with `SET LOCAL lock_timeout = '10s'`** (110's reasoning
+  verbatim: psql autocommits each statement, so an unwrapped DROP that succeeded
+  before a failing ADD would leave a table with no status/reason constraint at
+  all). Re-runnable — every statement is `DROP … IF EXISTS` then `ADD`, and the
+  DROP-then-ADD REPAIRS a stale constraint definition.
+  **Rollback — two statements, and both are re-applications rather than drops**:
+  re-apply 091's `solicitation_batches_halt_consistency` text verbatim and 110's
+  `solicitation_outreach_status_reason_consistency` text verbatim. Legal only
+  while no row carries `platform_halt`; check first with
+  `SELECT count(*) FROM solicitation_batches WHERE halt_reason = 'platform_halt'`
+  and the matching `disposition_reason` count on `solicitation_outreach`. Dropping
+  either constraint without re-adding it would leave the table unconstrained,
+  which is worse than the reason being too wide.
+  **Verification query:** `SELECT pg_get_constraintdef(oid) FROM pg_constraint
+  WHERE conname IN ('solicitation_batches_halt_consistency',
+  'solicitation_outreach_status_reason_consistency');` — both definitions must
+  contain `'platform_halt'` once, and the batch one must NOT contain it inside
+  its `halted_by IS NOT NULL` arm.
 
 ## Key Tables Reference
 

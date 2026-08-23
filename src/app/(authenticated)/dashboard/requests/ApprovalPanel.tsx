@@ -284,6 +284,13 @@ const HALT_BODY: Readonly<Record<HaltReason, string>> = {
     'This batch ran out of time before everything went out, so the rest was cancelled. It cannot be resumed.',
   batch_expired:
     'This batch expired before it was approved, so it was stopped. Nothing was sent.',
+  // #917. The SAME window ran out as `send_window_elapsed` above — the
+  // difference is the cause, and the cause was us. Saying "this batch ran out of
+  // time" here is technically true and practically misleading: nothing about
+  // this owner's list or timing caused it, and an owner who reads the blander
+  // line has no way to learn that. Say what happened, and do not make them ask.
+  platform_halt:
+    'RepWorth paused review requests across the whole platform while this batch was waiting to send, and its send window ran out during that pause. The rest was cancelled. This was our doing, not anything about your list — get in touch and we will help you send these again.',
 };
 
 /** The read model ASSERTS `halt_reason` against its CHECK rather than

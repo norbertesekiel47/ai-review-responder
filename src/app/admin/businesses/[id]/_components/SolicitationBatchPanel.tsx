@@ -40,9 +40,14 @@ interface SolicitationBatchPanelProps {
 }
 
 /**
- * Exhaustive over the read side's five reasons, so a reason added to
- * `HaltReason` is a compile error here rather than a blank cell. Three of the
- * five are not owner-caused, which is why none of these say "you".
+ * Exhaustive over the read side's six reasons, so a reason added to
+ * `HaltReason` is a compile error here rather than a blank cell. Four of the six
+ * are not owner-caused, which is why none of these say "you".
+ *
+ * `platform_halt` and `send_window_elapsed` are the SAME 72h window (#917) and
+ * the label has to keep them distinguishable at a glance: an admin scanning a
+ * location's history needs to know instantly whether this cancellation was one
+ * account's timing or the whole platform being stopped.
  */
 const HALT_REASON_LABELS: Record<HaltReason, string> = {
   owner_veto: 'Owner stopped it inside the veto window',
@@ -50,6 +55,7 @@ const HALT_REASON_LABELS: Record<HaltReason, string> = {
   admin_halt: 'RepWorth support stopped it',
   send_window_elapsed: 'Send window elapsed',
   batch_expired: 'Approval window expired',
+  platform_halt: 'Send window elapsed under a platform halt',
 };
 
 /**

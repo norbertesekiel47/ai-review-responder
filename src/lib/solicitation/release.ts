@@ -5,8 +5,10 @@
 //
 //   1. `unknown` sweep (D12d)   — first, so a wedged row can settle its batch
 //                                 in this same tick.
-//   2. `send_window_elapsed`    — before release, so an overdue batch never
-//                                 releases.
+//   2. `send_window_elapsed` /  — before release, so an overdue batch never
+//      `platform_halt` (#917)     releases. ONE sweep on ONE clock; which of the
+//                                 two reasons it writes depends on whether the
+//                                 **Send breaker** is open this tick.
 //   3. `batch_expired` (B7)
 //   4. RELEASE phase            — the only phase gated on
 //                                 `SOLICITATION_SEND_ENABLED`.
@@ -115,6 +117,14 @@ const SEND_INDETERMINATE_REASON = 'send_indeterminate';
 const UNKNOWN_ALERT_MESSAGE =
   'Solicitation dispatch terminalized unknown: send outcome indeterminate';
 
+/** Stable title for the ONE degraded path in phase 2's labelling read (#917):
+ *  the **Send breaker** probe threw, so this tick cannot tell a platform halt
+ *  from an ordinary expiry and falls back to the blander reason. A constant for
+ *  the same grouping reason as the two titles above. NOT an alert: nothing is
+ *  wrong with the sweep, only with the precision of one column. */
+const WINDOW_REASON_UNKNOWN_MESSAGE =
+  'Solicitation send-window halt reason degraded: breaker state unreadable';
+
 /**
  * Which release-level gate withheld a release. A closed union — a new member
  * means a new gate, and every gate is named in the module header's order.
@@ -136,7 +146,15 @@ export interface ReleaseCycleReport {
   withheldByReason: Partial<Record<ReleaseWithheldReason, number>>;
   downgraded: number;
   heldForJudge: number;
+  /** Batches the P2 sweep terminalized with `send_window_elapsed` — the window
+   *  ran out and sending was NOT halted platform-wide. */
   sendWindowElapsed: number;
+  /** Batches the SAME P2 sweep terminalized with `platform_halt` (#917) — the
+   *  window ran out while the **Send breaker** was open. One sweep, two
+   *  counters: an operator reading the tick line must be able to tell "72 hours
+   *  passed" from "we stopped everyone", because only the second is RepWorth's
+   *  fault and only the second makes the trip's blast radius visible. */
+  platformHalted: number;
   batchExpired: number;
   unknownTerminalized: number;
   backstopClosed: number;
@@ -342,6 +360,7 @@ export async function runReleaseCycle(
     downgraded: 0,
     heldForJudge: 0,
     sendWindowElapsed: 0,
+    platformHalted: 0,
     batchExpired: 0,
     unknownTerminalized: 0,
     backstopClosed: 0,
@@ -356,10 +375,25 @@ export async function runReleaseCycle(
     report,
     await alertPhaseFailure('unknown_sweep', () => sweepUnknownOutreach(sql, scanLimit)),
   );
-  report.sendWindowElapsed = tallyPhase(
+  // ONE read of the **Send breaker** for the whole of phase 2, taken before the
+  // scan (#917). Every batch this tick terminalizes is terminalized under one
+  // platform state, so a per-batch re-read would spend N probes describing an
+  // instant that cannot meaningfully differ inside a tick — and would move a
+  // label-only decision inside the latch transaction, where a probe failure
+  // would poison the halt rather than the label.
+  //
+  // The PHASE TAG stays `send_window_elapsed` in both arms on purpose: it names
+  // the phase, not the reason the phase wrote, and splitting it would fork one
+  // phase's alert history into two tags the day a breaker first trips.
+  const windowHaltReason = await resolveWindowHaltReason(sql);
+  const windowHalted = tallyPhase(
     report,
-    await alertPhaseFailure('send_window_elapsed', () => sweepSendWindowElapsed(sql, scanLimit)),
+    await alertPhaseFailure('send_window_elapsed', () =>
+      sweepSendWindowElapsed(sql, scanLimit, windowHaltReason),
+    ),
   );
+  if (windowHaltReason === 'platform_halt') report.platformHalted = windowHalted;
+  else report.sendWindowElapsed = windowHalted;
   report.batchExpired = tallyPhase(
     report,
     await alertPhaseFailure('batch_expired', () => sweepBatchExpired(sql, scanLimit)),
@@ -835,17 +869,114 @@ async function sweepSystemHalt(
 }
 
 /**
- * The `send_window_elapsed` sweep — an approved batch whose 72h send window ran
- * out, latched with no actor.
+ * The two reasons phase 2's latch can write. A compile-time `Extract` rather
+ * than a hand-spelled union so it cannot drift from `SystemHaltReason`, and
+ * narrower than it so `batch_expired` — phase 3's reason — is a type error here.
+ */
+type WindowHaltReason = Extract<SystemHaltReason, 'send_window_elapsed' | 'platform_halt'>;
+
+/**
+ * Which reason phase 2 writes this tick (#917).
+ *
+ * The send window and the **Send breaker** run on different clocks and nothing
+ * reconciled them: `BATCH_SEND_WINDOW_HOURS` is anchored on `approved_at` and
+ * keeps running while a trip is open, and a real trip stays open for days. So
+ * one trip took every batch approved in the preceding 72 hours, across every
+ * account, to `cancelled / send_window_elapsed` — telling each owner their send
+ * window elapsed, for a platform-wide cause that had nothing to do with their
+ * list. This function is the whole fix: same sweep, same clock, truer reason.
+ *
+ * **THE SWEEP IS NOT SUPPRESSED WHILE THE BREAKER IS OPEN, and that is amendment
+ * B14's decision rather than an omission here.** Holding those batches past
+ * their window blows through the "<=10 days by construction" bound that
+ * `STALLED_THRESHOLD_SEND_BATCH_DAYS = 11` derives from, and
+ * `solicitation_send_batch_stalled` then fires for every one of them, burying
+ * the trip an operator is actually working under an alert storm. A cancelled
+ * batch is an honest terminal state an owner can act on; a stalled run is not.
+ *
+ * ── THIS IS A LABELLING READ, AND ITS try/catch IS NOT THE INVARIANT VIOLATION
+ *    `readSendBreaker` WARNS ABOUT ────────────────────────────────────────────
+ *
+ * That function's contract says a caller which wraps it in try/catch **and
+ * proceeds to send** has broken the fail-closed invariant. The operative half is
+ * "and proceeds to send". Nothing downstream of this call sends: phase 2 only
+ * CANCELS, and the gate that decides whether anything may be dispatched is
+ * `runReleasePhase`'s own `readSendBreaker` call, which still has no try/catch
+ * and still aborts the tick on a throw. Fail-closed on sending is untouched.
+ *
+ * What a rethrow here would cost is the sweep itself, and that cost is the
+ * permanent wedge issue #915 exists to close: an unswept batch keeps its
+ * `rendered`/`queued` rows, so migration 091's
+ * `solicitation_batches_one_active_send_per_business` index blocks that location
+ * forever. The module header already refuses to flag-gate this phase for exactly
+ * that reason; letting a probe failure stop it would reintroduce the wedge
+ * through a different door.
+ *
+ * So the failure mode is bounded to a LABEL: during a database blip that also
+ * hides an open trip, an expiring batch reads `send_window_elapsed` when
+ * `platform_halt` was truer. That is the direction to fail in — the fallback
+ * never CLAIMS a platform halt it could not establish, and an unproven
+ * accusation against the platform is worse than a bland one.
+ *
+ * ── THE READ-TO-LATCH WINDOW IS NOT A HOLE, AND THE LEVEL READ IS NOT MERELY
+ *    THE CHEAP CHOICE ───────────────────────────────────────────────────────
+ *
+ * This runs once, before the scan; the latches commit after it. Both drift
+ * directions were checked and both land on the truer label:
+ *
+ *   - **Trips AFTER this read.** A batch latched `send_window_elapsed` was
+ *     already past its window when the tick began, so the trip is YOUNGER than
+ *     the expiry and did not cause it. `send_window_elapsed` is correct.
+ *   - **Reset AFTER this read.** A batch latched `platform_halt` had its window
+ *     run out while sending was halted. A reset seconds later does not undo
+ *     that. `platform_halt` is correct.
+ *
+ * The one case that reads blander than the full history is a trip that opened
+ * and CLOSED inside the batch's own window — the breaker is shut by sweep time,
+ * so this returns `send_window_elapsed`. That is right too: after the reset the
+ * release phase was free to drip the batch at the per-tick budget, so a batch
+ * that still expired was not, in the end, bound by the halt. Reading the whole
+ * overlap history instead would attribute to a platform halt a batch that had
+ * clear runway and did not use it — over-claiming, which is the failure this
+ * reason exists to end rather than to invert.
+ */
+async function resolveWindowHaltReason(sql: Sql): Promise<WindowHaltReason> {
+  try {
+    const breaker = await readSendBreaker(sql);
+    return breaker.open ? 'platform_halt' : 'send_window_elapsed';
+  } catch (error) {
+    // Never silent: the label is degraded and an operator reading a
+    // `send_window_elapsed` cancellation from this tick must be able to learn
+    // that the reason was a fallback rather than a measurement.
+    logger.warn(WINDOW_REASON_UNKNOWN_MESSAGE, {
+      error: toError(error).message,
+      fallback_reason: 'send_window_elapsed',
+    });
+    return 'send_window_elapsed';
+  }
+}
+
+/**
+ * The send-window sweep — an approved batch whose 72h send window ran out,
+ * latched with no actor, under one of two reasons (see `resolveWindowHaltReason`).
  *
  * Runs BEFORE the release phase (see the module header): an overdue batch must
  * never release, and reclaiming its `rendered`/`queued` rows is what frees 091's
  * `solicitation_batches_one_active_send_per_business` index for that location.
+ *
+ * The reason is a PARAMETER, resolved once per tick by the caller, so this
+ * function stays one sweep with one predicate. Two sweeps would be two
+ * predicates to keep disjoint, over the same rows, for a difference that is a
+ * single column value.
  */
-async function sweepSendWindowElapsed(sql: Sql, scanLimit: number): Promise<PhaseTally> {
+async function sweepSendWindowElapsed(
+  sql: Sql,
+  scanLimit: number,
+  reason: WindowHaltReason,
+): Promise<PhaseTally> {
   return sweepSystemHalt(sql, scanLimit, {
     label: 'send_window_sweep',
-    reason: 'send_window_elapsed',
+    reason,
     select: selectSendWindowElapsedBatches,
   });
 }
