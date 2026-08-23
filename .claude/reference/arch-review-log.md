@@ -6,8 +6,34 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** (last reset by the 2026-08-18 pass)
+**Merges since last architecture pass: 3** (last reset by the 2026-08-18 pass)
 (table row below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-18/`.
+
+- **PR #920** — #900 Solicitation release poller (2026-08-23, squash `a321634a`). **No migration**
+  (091 and 110 carried every column, CHECK member and index), **no new dependency**, **no flag
+  added**. **New env var:** `SOLICITATION_RELEASE_POLL_INTERVAL_MS` (optional, 60s default, one
+  extra rejection over its `JUDGE_POLL_INTERVAL_MS` precedent — a value at or below the 45s cycle
+  timeout is invalid). **This merge discharges #915's blocker**, not #915 itself: the `unknown`
+  sweep now frees a location's one-active-send slot, and `SOLICITATION_SEND_ENABLED` still must
+  not be flipped without a separate decision.
+  **New single owners:** `runReleaseCycle` for the five-phase order; `latchSystemHalt` as the
+  Halt latch's third and actor-less arm (091's halt-consistency CHECK makes that structural);
+  `sweepSystemHalt` for both clock-driven sweeps; `capacityStop` for the three capacity gates.
+  `closeBatchIfSettled` gained a SECOND caller and deliberately no second implementation.
+  **Allowlist baselines moved:** `STEP_PERSONA` (+`approval_downgraded`), `tenant-scope-allowlist`
+  (+4 platform-wide predicates under a standing sign-off), `outcome-anchor-pairing.test.ts`
+  (a fifth spine caller). **The `reclassify` gate fired at 2.1x its line estimate** and the owner
+  chose to proceed as one PR; the branch shipped at 2,302 production lines against an 820 estimate.
+  **What the next pass should look at:** (a) the four-registry pattern this feature hit — the
+  2026-08-18 pass's X10 "scope is an ENUMERATION" meta-class now has its fifth and sixth
+  instances, and #900 needed THREE intake amendments to discover them, which is a planning
+  defect the counter cannot see; (b) **the `fallow` PR gate has no local counterpart in the
+  feature workflow** — `verify-gate.sh` runs 28 checks and not that one, so #900's decomposition
+  (`runReleasePhase` 205 → 135 lines, two clone groups removed) happened AFTER three review
+  rounds, against code the reviewers had signed off; (c) `release.ts` shipped at 1,739 lines with
+  a single export, a shape the standards reviewer examined and explicitly declined to flag —
+  worth re-testing now that it has a second reader; (d) the false-rationale class, promoted to
+  lab-notes this merge with EIGHT instances, all of them claims about a module's own internals.
 
 - **PR #912** — #899 Solicitation send worker (2026-08-22, squash `2204e6a6`). **No migration**
   (110 carried it), **no new env var**, **no new dependency**, **no flag added** — but
