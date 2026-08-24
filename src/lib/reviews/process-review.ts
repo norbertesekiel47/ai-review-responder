@@ -9,7 +9,10 @@ import type {
   NotifyAdminExceptionPayload,
 } from '@/lib/shared/worker-types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
-import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import {
+  enqueueGenerateResponse,
+  enqueueSolicitationAttribution,
+} from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
@@ -88,6 +91,22 @@ export async function processReview(
           businessId,
           reviewId,
         });
+
+        // #632: the attribution lookback. Enqueued in THIS transaction
+        // (invariant #2), handled on the worker — a matcher fault must never
+        // roll back a review write. The helper's guard means no row is written
+        // for a business that has never sent an ask, which is every business
+        // while SOLICITATION_SEND_ENABLED is off.
+        //
+        // NEW-review path only, and the LIVE lane only. An imported historical
+        // review (importReview, the Zernio backfill lane) and a review that
+        // already existed were both never caused by an ask sent after them.
+        //
+        // No accountId and no window (deviation D3): the account is not in
+        // scope here — startReviewRun resolves it internally — and the guard
+        // carries no time bound. attributeReview resolves the account from the
+        // business FK.
+        await enqueueSolicitationAttribution(tx, { reviewId, businessId, correlationId });
 
         return 'new' as const;
       }

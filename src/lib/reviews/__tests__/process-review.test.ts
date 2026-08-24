@@ -114,24 +114,36 @@ describe('processReview', () => {
     //   1. SELECT FOR UPDATE existing → none
     //   2. INSERT reviews ON CONFLICT DO NOTHING RETURNING id → count=1 (won)
     //   3. SELECT account_id FROM businesses (startReviewRun lookup)
-    //   4. INSERT job_outbox → done
+    //   4. INSERT job_outbox (generate_response)
     //   5. first_review_ingested account lookup
+    //   6. INSERT job_outbox (solicitation_attribution, #632) — guard
+    //      suppressed here: no business in this suite has ever sent an ask
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
     expect(result).toBe('new');
-    expect(tx).toHaveBeenCalledTimes(5);
+    // SIX, not five (#632). The exact number is the assertion that matters:
+    // it is what proves the attribution enqueue joined THIS transaction
+    // rather than opening a second one, which is invariant #2's whole subject.
+    // Never relax it to expect.any.
+    expect(tx).toHaveBeenCalledTimes(6);
 
     // 4th tx call is the job_outbox INSERT — queue name is bound via helper.
     const outboxSql = (tx.mock.calls[3]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
     expect(outboxSql).toContain('INSERT INTO job_outbox');
     expect(tx.mock.calls[3]).toContain('generate_response');
+
+    // 6th tx call is the #632 attribution lookback, in the SAME sql.begin.
+    const attributionSql = (tx.mock.calls[5]?.[0] as TemplateStringsArray | undefined)?.join('?') ?? '';
+    expect(attributionSql).toContain('INSERT INTO job_outbox');
+    expect(tx.mock.calls[5]).toContain('solicitation_attribution');
   });
 
   it('enqueues first_review_ingested for the first account-level review', async () => {
@@ -142,7 +154,8 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 
@@ -218,17 +231,27 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1', { suppressNotification: true });
 
     expect(result).toBe('new');
 
-    // capturedJsonbPayloads[0] is the GenerateResponsePayload passed to jsonb()
-    expect(capturedJsonbPayloads).toHaveLength(1);
+    // TWO payloads since #632: [0] is the GenerateResponsePayload, [1] the
+    // SolicitationAttributionPayload the attribution enqueue binds later in the
+    // same transaction. The count is asserted rather than loosened so a third
+    // producer cannot appear on this path unnoticed.
+    expect(capturedJsonbPayloads).toHaveLength(2);
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
     expect(payload['origin_lane']).toBe('live_ingest_new');
     expect(payload['suppress_notification']).toBe(true);
+    // ids only, and no suppress_notification leak into the shadow lane.
+    expect(capturedJsonbPayloads[1]).toEqual({
+      review_id: payload['review_id'],
+      business_id: 'biz-1',
+      correlation_id: 'corr-1',
+    });
   });
 
   it('live-ingest new review payload defaults to live_ingest_new and omits false suppress_notification', async () => {
@@ -239,16 +262,24 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     // No options argument — default is false
     const result = await processReview(sql, monitored, 'biz-1');
 
+    // [0] generate_response, [1] solicitation_attribution (#632).
     expect(result).toBe('new');
-    expect(capturedJsonbPayloads).toHaveLength(1);
+    expect(capturedJsonbPayloads).toHaveLength(2);
     const payload = capturedJsonbPayloads[0] as Record<string, unknown>;
     expect(payload['origin_lane']).toBe('live_ingest_new');
     expect(payload).not.toHaveProperty('suppress_notification');
+    // No correlationId was passed, so the optional field is absent — never
+    // present-and-undefined.
+    expect(capturedJsonbPayloads[1]).toEqual({
+      review_id: payload['review_id'],
+      business_id: 'biz-1',
+    });
   });
 
   it('backfill callers can force the backfill origin lane', async () => {
@@ -259,7 +290,8 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1', {
       suppressNotification: true,
@@ -527,7 +559,8 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('new');
@@ -582,7 +615,8 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))  // startReviewRun account lookup
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: false }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('new');
@@ -655,12 +689,14 @@ describe('processReview', () => {
     //   3. SELECT account_id FROM businesses (startReviewRun lookup)
     //   4. INSERT job_outbox (generate_response)
     //   5. first_review_ingested account lookup
+    //   6. INSERT job_outbox (solicitation_attribution, #632)
     tx
       .mockResolvedValueOnce(withCount([], 0))
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([{ account_id: 'acct-1' }], 1))
       .mockResolvedValueOnce(withCount([], 0))
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
     expect(result).toBe('new');
@@ -743,7 +779,8 @@ describe('processReview', () => {
       .mockResolvedValueOnce(withCount([{ id: 'new-id' }], 1))
       .mockResolvedValueOnce(withCount([], 0))  // startReviewRun account lookup → no businesses row
       .mockResolvedValueOnce(withCount([], 0))  // INSERT job_outbox
-      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1));
+      .mockResolvedValueOnce(withCount([{ account_id: 'acct-1', earlier_exists: true }], 1))
+      .mockResolvedValueOnce(withCount([], 0));  // enqueueSolicitationAttribution (#632)
 
     const result = await processReview(sql, monitored, 'biz-1', 'corr-1');
 

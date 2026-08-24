@@ -381,3 +381,22 @@ export interface SolicitationSendPayload extends BasePayload {
   business_id: string;
   outreach_id: string;
 }
+
+/**
+ * SolicitationAttributionPayload — emitted ONLY by
+ * enqueueSolicitationAttribution, in the SAME tx as the review INSERT
+ * (invariant #2). Drives the D16 attribution lookback.
+ *
+ * ids only. The Attribution window, the match rule and the anchor all live in
+ * src/lib/solicitation/attribution.ts and are re-read at handle time, never
+ * frozen onto a payload that may sit in the outbox across a deploy.
+ *
+ * `business_id` is the tenant proof every query is scoped by (invariant #8) —
+ * a bare review UUID proves nothing. There is deliberately NO `account_id`
+ * (deviation D3): it is not in scope at the enqueue site, and `attributeReview`
+ * resolves it from the business FK, so no wrong account id can ride a job.
+ */
+export interface SolicitationAttributionPayload extends BasePayload {
+  review_id: string;
+  business_id: string;
+}
