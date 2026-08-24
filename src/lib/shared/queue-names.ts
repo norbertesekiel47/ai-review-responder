@@ -22,6 +22,13 @@ export const QUEUE_NAMES = {
   // (#900); this consumer ships first so no row can ever be enqueued to a
   // topic with no registered worker (amendment B10).
   SOLICITATION_SEND: 'solicitation_send',
+  // Must byte-match migration 113's in-flight partial-index predicate topic
+  // (idx_jo_solicitation_veto_notice_inflight). Producer is the ask-generation
+  // finale transaction (autoApproveBatch → enqueueSolicitationVetoNotice,
+  // #631); the worker family registers in the same PR (#631 Task 5). The
+  // producer is dark until then anyway: SOLICITATION_AUTO_APPROVAL_ENABLED is
+  // off in every environment until #633 flips it.
+  SOLICITATION_VETO_NOTICE: 'solicitation_veto_notice',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

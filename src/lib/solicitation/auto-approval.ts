@@ -30,6 +30,9 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
+import { recordStep } from '@/lib/agents/run-spine';
+import { enqueueSolicitationVetoNotice } from '@/lib/shared/job-outbox-helpers';
+import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { solicitationAutoApprovalEnabled, solicitationSendEnabled } from './flags';
 
 export type AutoApprovalDeclineReason =
@@ -180,5 +183,180 @@ export async function evaluateAutoApproval(
     sendFlag: solicitationSendEnabled(),
     autoFlag: solicitationAutoApprovalEnabled(),
     ...conditions,
+  });
+}
+
+// ── The auto-approve verb (#631 Task 4) ─────────────────────────────────────
+
+const PG_UNIQUE_VIOLATION = '23505';
+
+/** The one 23505 the verb is allowed to absorb: migration 091's partial
+ *  unique index that keeps ONE active approved send batch per business. */
+const ONE_ACTIVE_SEND_CONSTRAINT = 'solicitation_batches_one_active_send_per_business';
+
+/**
+ * Postgres unique-violation detector scoped to ONE named constraint — the
+ * house shape (`src/lib/channels/unique-violation.ts` narrows the same
+ * `code` + `constraint_name` pair to a name set; this one narrows to a single
+ * name). Anything else — another constraint, another SQLSTATE, a non-Postgres
+ * error — returns false and the caller rethrows (decision 13).
+ */
+function isUniqueViolationOn(error: unknown, constraintName: string): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const pg = error as { code?: unknown; constraint_name?: unknown };
+  return pg.code === PG_UNIQUE_VIOLATION && pg.constraint_name === constraintName;
+}
+
+export interface AutoApproveBatchInput {
+  /** ALREADY canonical — the finale's `ctx.batchId` round-tripped through
+   *  Postgres (`loadBatchContext`), the approval.ts X18 discipline. */
+  batchId: string;
+  accountId: string;
+  businessId: string;
+  /** The Send batch parent run the `batch_approved` step lands on. */
+  sendParentRunId: string;
+  /** Granted window read from the policy row by the caller's evaluate — the
+   *  step records it so the Veto anchor can read it back (decision 5). */
+  vetoWindowMinutes: number;
+  correlationId?: string;
+}
+
+export type AutoApproveOutcome =
+  | { status: 'approved'; approvedCount: number; vetoWindowMinutes: number }
+  | { status: 'owner_won' }
+  | { status: 'slot_held' };
+
+/**
+ * Stamps `approval_method='auto_policy'` on a built, unapproved, unhalted,
+ * unclosed batch, records the `batch_approved` spine step, and enqueues the
+ * Veto notice — all in the CALLER's transaction (invariant #2).
+ *
+ * CALLER CONTRACT: the enclosing finale transaction already holds the
+ * per-business advisory lock, the batch row lock, and the account-wide
+ * autonomy lock (`lockAutonomyAccount`, batch-then-account order) — see
+ * {@link evaluateAutoApproval}. NEVER sets `approved_by_user_id` (091's
+ * approval-consistency CHECK requires it NULL for `auto_policy`) and NEVER
+ * sets `veto_deadline_at` — the deadline is anchored later from the first
+ * provider-accepted notice send (decision 4), fail-closed.
+ *
+ * The CAS runs through a savepoint so a 23505 from the one-active-send index
+ * cannot poison the finale transaction (decision 13): the error ESCAPES the
+ * savepoint callback and is classified OUTSIDE it. Only
+ * {@link ONE_ACTIVE_SEND_CONSTRAINT} maps to `slot_held` (the business's one
+ * active-send slot is already held — fall back to owner review); any other
+ * constraint rethrows. A CAS miss with `approved_at` already set is the
+ * owner-won race (plan decision 2) — a quiet outcome, never a throw.
+ */
+export async function autoApproveBatch(
+  tx: TransactionSql,
+  input: AutoApproveBatchInput,
+): Promise<AutoApproveOutcome> {
+  const { batchId, accountId, businessId, vetoWindowMinutes } = input;
+
+  let casRow: { id: string } | undefined;
+  try {
+    await tx.savepoint(async (sp) => {
+      const rows = await sp<{ id: string }[]>`
+        UPDATE solicitation_batches
+        SET approved_at = NOW(), approval_method = 'auto_policy'
+        WHERE id = ${batchId}::uuid AND account_id = ${accountId}::uuid
+          AND business_id = ${businessId}::uuid
+          AND approved_at IS NULL AND halted_at IS NULL
+          AND send_closed_at IS NULL AND built_at IS NOT NULL
+        RETURNING id
+      `;
+      casRow = rows[0];
+    });
+  } catch (error) {
+    if (isUniqueViolationOn(error, ONE_ACTIVE_SEND_CONSTRAINT)) {
+      return { status: 'slot_held' };
+    }
+    throw error;
+  }
+  if (casRow === undefined) {
+    // The row lock is held, so the ONLY way the CAS misses is a pre-existing
+    // approval (owner raced ahead between the last render and the finale) —
+    // R1 finding 1. Anything else is corruption: assert it.
+    const [b] = await tx<{ approved_at: string | null; halted_at: string | null }[]>`
+      SELECT approved_at::text AS approved_at, halted_at::text AS halted_at
+      FROM solicitation_batches WHERE id = ${batchId}::uuid
+        AND account_id = ${accountId}::uuid AND business_id = ${businessId}::uuid
+    `;
+    if (b?.approved_at !== null) return { status: 'owner_won' };
+    throw new Error(`autoApproveBatch: CAS missed for ${batchId} with no prior approval`);
+  }
+
+  // Rendered Outreach count — the approveBatch:411 shape: what the owner
+  // WOULD have reviewed is what auto_policy just approved.
+  const [live] = await tx<{ approved: number }[]>`
+    SELECT COUNT(*)::int AS approved
+    FROM solicitation_outreach
+    WHERE batch_id = ${batchId}::uuid
+      AND account_id = ${accountId}::uuid
+      AND business_id = ${businessId}::uuid
+      AND delivery_status = 'rendered'
+  `;
+  const approvedCount = live?.approved ?? 0;
+
+  // NO approved_by_user_id key — 091's CHECK requires the column NULL for
+  // auto_policy, and the step detail mirrors the row's truth.
+  await recordStep(tx, {
+    runId: input.sendParentRunId,
+    stepKey: 'batch_approved',
+    detail: {
+      approval_method: 'auto_policy',
+      approved_count: approvedCount,
+      veto_window_minutes: vetoWindowMinutes,
+    },
+  });
+
+  // SAME transaction as the approval (invariant #2). The notice never gates
+  // the approval; its failure fails CLOSED at release instead (no anchor, no
+  // release — D9).
+  await enqueueSolicitationVetoNotice(tx, {
+    batchId,
+    businessId,
+    ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
+  });
+
+  return { status: 'approved', approvedCount, vetoWindowMinutes };
+}
+
+/** What the ask-generation finale learns from this lane: the verb's outcome,
+ *  or a decline — which is a LOG LINE, never a spine step (plan decision 9). */
+export type FinaleAutoApprovalOutcome =
+  | AutoApproveOutcome
+  | { status: 'declined'; reason: AutoApprovalDeclineReason };
+
+/**
+ * The finale hook body (#631 Task 4 Step 3), extracted so the finale itself
+ * stays orchestration: take the account lock (decision 3 — AFTER the batch
+ * row lock the finale already holds, the documented batch-then-account
+ * order), evaluate the gate under that serialization, then either run the
+ * verb or report the decline. Called ONLY from `generateAsksForBatch`'s
+ * finale transaction, only when the batch stayed open with live rows — never
+ * from `regenerateAsk` (locked decision 1: regen exists only in `built`,
+ * i.e. only for batches this lane already declined).
+ */
+export async function runFinaleAutoApproval(
+  tx: TransactionSql,
+  input: {
+    batchId: string;
+    accountId: string;
+    businessId: string;
+    sendParentRunId: string;
+    correlationId?: string;
+  },
+): Promise<FinaleAutoApprovalOutcome> {
+  await lockAutonomyAccount(tx, input.accountId);
+  const decision = await evaluateAutoApproval(tx, { accountId: input.accountId });
+  if (!decision.eligible) return { status: 'declined', reason: decision.reason };
+  return autoApproveBatch(tx, {
+    batchId: input.batchId,
+    accountId: input.accountId,
+    businessId: input.businessId,
+    sendParentRunId: input.sendParentRunId,
+    vetoWindowMinutes: decision.vetoWindowMinutes,
+    ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
   });
 }

@@ -355,6 +355,19 @@ export interface GenerateSolicitationAsksPayload extends BasePayload {
 }
 
 /**
+ * SolicitationVetoNoticePayload — emitted ONLY by enqueueSolicitationVetoNotice
+ * in the SAME tx as the `auto_policy` batch approval (#631, invariant #2).
+ * Drives the D9 "your review requests will send automatically" Veto notice.
+ * ids only — the granted window lives on the `batch_approved` spine step and
+ * the deadline is anchored later from the first provider-accepted send
+ * (`MIN(sent_at)`), never duplicated here.
+ */
+export interface SolicitationVetoNoticePayload extends BasePayload {
+  batch_id: string;
+  business_id: string;
+}
+
+/**
  * SolicitationSendPayload — the dispatch lane (#899). One job per **Outreach
  * row**, i.e. one dispatch attempt for one **Ask**: the Dispatch gate is
  * per-CHILD and therefore per-CONTACT, so a batch-shaped payload could not

@@ -91,3 +91,23 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   titles moved to auto-approval.integration.test.ts; Task 4 authors their
   bodies there (they drive generateAsksForBatch by import, so placement is
   equivalent). Plan Task 1 item 3 superseded.
+
+## Task 4 execution (2026-08-23)
+
+- [2026-08-23] **Interim red the plan's task split implies, made explicit.**
+  `worker/__tests__/queue-routing.test.ts` (the WS3 completeness guard) fails
+  between Task 4 and Task 5: Task 4 adds `SOLICITATION_VETO_NOTICE` to
+  QUEUE_NAMES (its file list), but the matching `worker/queues.ts` Queue +
+  `topicToQueue` entry is Task 5's surface. Same-branch, same-PR; Task 5 (its
+  registration step) clears it before any CI run. Not a production hazard:
+  the producer is gated behind SOLICITATION_AUTO_APPROVAL_ENABLED (off
+  everywhere) and OutboxPoller routing only consults topicToQueue, which
+  Task 5 completes. VERDICT: pending (planned sequencing, not an improvised
+  change — no file outside the Task 4 surface was touched).
+- [2026-08-23] **Migration 113 schema assertion is suite-local for now.**
+  `schema-ready.ts` (the shared SchemaRequirement registry) is outside Task
+  4's edit surface, so auto-approval.integration.test.ts declares a local
+  `MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE: SchemaRequirement` (plain
+  data — identical failure behavior). The Task 5/6 suites that also need 113
+  should hoist it into schema-ready.ts and point this suite at the shared
+  export. VERDICT: pending.

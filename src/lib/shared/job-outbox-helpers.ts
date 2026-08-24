@@ -19,6 +19,7 @@ import {
   type PublishResponsePayload,
   type SendNotificationPayload,
   type SolicitationSendPayload,
+  type SolicitationVetoNoticePayload,
 } from './worker-types';
 
 type TxClient = postgres.TransactionSql;
@@ -156,6 +157,15 @@ export interface EnqueueSolicitationSendInput {
   outreachId: string;
   batchId: string;
   /** Tenant proof for the send worker's queries (invariant #8). */
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueSolicitationVetoNoticeInput {
+  outboxId?: string;
+  /** The Send batch parent that just auto-approved. Also the `aggregate_id`. */
+  batchId: string;
+  /** Tenant proof for the notice worker's queries (invariant #8). */
   businessId: string;
   correlationId?: string;
 }
@@ -749,6 +759,48 @@ export async function enqueueSolicitationSend(
     RETURNING id
   `;
   return rows.length > 0 ? outboxId : null;
+}
+
+/**
+ * Enqueues the D9 Veto notice for an `auto_policy`-approved Solicitation
+ * batch (#631). In-flight guard mirrors enqueuePendingPostNotice: the partial
+ * unique index idx_jo_solicitation_veto_notice_inflight (migration 113) backs
+ * the byte-for-byte ON CONFLICT below. Caller contract: enqueued in the SAME
+ * tx as the auto approval (`autoApproveBatch`, outbox invariant #2); the
+ * notice is the veto window's transparency half and must NEVER gate the
+ * approval — a total notice failure fails CLOSED at release instead (no
+ * anchored `veto_deadline_at` means the batch never releases, D9). Payload is
+ * ids-only; the granted window lives on the `batch_approved` spine step.
+ */
+export async function enqueueSolicitationVetoNotice(
+  tx: TxClient,
+  input: EnqueueSolicitationVetoNoticeInput,
+): Promise<string> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: SolicitationVetoNoticePayload = {
+    batch_id: input.batchId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    VALUES (
+      ${outboxId},
+      ${QUEUE_NAMES.SOLICITATION_VETO_NOTICE},
+      ${AGGREGATE_TYPE_SOLICITATION_BATCH},
+      ${input.batchId},
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'solicitation_veto_notice' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+  `;
+  return outboxId;
 }
 
 /**

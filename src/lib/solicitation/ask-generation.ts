@@ -65,6 +65,7 @@ import {
   startOrGetSolicitationSendBatchRun,
 } from '@/lib/agents/run-spine';
 import { solicitationSendEnabled } from './flags';
+import { runFinaleAutoApproval, type FinaleAutoApprovalOutcome } from './auto-approval';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import {
   ASK_LINT_VERSION,
@@ -1183,7 +1184,26 @@ export async function generateAsksForBatch(
           }
         : {}),
     });
-    return { stale: false as const, close };
+
+    // The Auto-approval lane hook (#631, locked decision 1): initial
+    // generation only — regenerateAsk never reaches here — and only for a
+    // batch that stayed open with live rows. Lock order + gate + verb live in
+    // runFinaleAutoApproval (decision 3: account lock AFTER the batch row
+    // lock held above). A decline is reported on the finished log line below,
+    // never as a spine step (decision 9).
+    let autoApproval: FinaleAutoApprovalOutcome | undefined;
+    if (tally.alive > 0 && close.status === 'not_settled') {
+      autoApproval = await runFinaleAutoApproval(tx, {
+        batchId: ctx.batchId,
+        accountId: ctx.accountId,
+        businessId: ctx.businessId,
+        sendParentRunId: parentRunId,
+        ...(input.correlationId !== undefined
+          ? { correlationId: input.correlationId }
+          : {}),
+      });
+    }
+    return { stale: false as const, close, autoApproval };
   });
 
   if (finale.stale) {
@@ -1202,6 +1222,11 @@ export async function generateAsksForBatch(
     failed: result.failed,
     skipped_existing: result.skippedExisting,
     close_status: finale.close.status,
+    // 'not_evaluated' = the hook never ran (batch settled, or nothing alive).
+    auto_approval: finale.autoApproval?.status ?? 'not_evaluated',
+    ...(finale.autoApproval?.status === 'declined'
+      ? { auto_approval_reason: finale.autoApproval.reason }
+      : {}),
   });
   return result;
 }
