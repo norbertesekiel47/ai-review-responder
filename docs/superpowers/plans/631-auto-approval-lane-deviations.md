@@ -150,3 +150,36 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   VERDICT: pending (broadened within the pre-approved intake surface, zero
   collision risk with either parallel sibling; not an improvised surface
   grant).
+
+## Task 8 execution (2026-08-23)
+
+- [2026-08-23] **Enable-gate composition: the plan's tier-only refusal wins
+  over a literal "exactly like the Reply lane" port.** The Reply lane's
+  expansion readiness gates on `tierGrantsAutopilot(tier) &&
+  autopilotPurchasable()` (a paused sale blocks even an existing Autopilot
+  subscriber's expansion — pinned by the settings tests). Task 8's text
+  instead says "refuse when `!tierGrantsAutopilot(tier)`" and defines GET
+  `available` without purchasability. Resolved in favor of the plan's explicit
+  formula: `assertSolicitationExpansionAllowed` feeds
+  `buildAutoApprovalReadiness` with `autopilotAvailable =
+  tierGrantsAutopilot(tier)` ONLY, so an existing Autopilot subscriber can
+  opt in during a sales pause and PATCH/GET availability cannot disagree.
+  The rest of the machinery is the straight port: `standard` confirmation via
+  the shared `assertConfirmationProvided`, and blockReasons from the shared
+  readiness builder (`auto_approval_disabled` = either lane flag off,
+  invariant #13; `policy_suspended` = the D19 account-WIDE suspension read
+  matching `decideAutoApproval`, not just the Reply default's flag;
+  `subscription_not_writable`; `preview_environment`). No new
+  `AutoApprovalReadinessBlockReason` member, no route change (the thin shim
+  already maps `AutoApprovalExpansionBlockedError`).
+- [2026-08-23] **"Enabling routes through the expansion machinery" is
+  implemented as exposure CLASSIFICATION, not an enable-only special case.**
+  On an existing row, shortening the veto window or raising the ENFORCED cap
+  (compared through `resolveAccountDailySendCap`'s <=10 clamp, so storing 50
+  over 30 is `no_change` — both enforce 10) also classifies `expansion` and
+  demands confirmation; pure contractions (cap lowering, window lengthening,
+  disable) submit unconfirmed and unblocked, mirroring the Reply lane's
+  contraction rules. Disable is a plain DELETE per the plan — laundering-safe
+  because the Governor's suspension writer (`suspendAccountAutonomy`) targets
+  the REPLY account-default row, which this lane never touches.
+  VERDICT: no surface change; judgment calls recorded for review.

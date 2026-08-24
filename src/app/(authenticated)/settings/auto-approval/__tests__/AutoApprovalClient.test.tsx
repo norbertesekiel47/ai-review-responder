@@ -49,6 +49,14 @@ const baseState: AutoApprovalSettingsResponse = {
     canExpand: true,
     blockReasons: [],
   },
+  // #631 D20: unavailable by default so the existing Reply-lane tests render
+  // no Solicitation card; the solicitation describe block opts in explicitly.
+  solicitation: {
+    available: false,
+    enabled: false,
+    dailySendCap: null,
+    vetoWindowMinutes: null,
+  },
 };
 
 /** A location that already has its own override row (threshold 5). */
@@ -857,6 +865,101 @@ describe('AutoApprovalClient', () => {
       operation: 'set_location_daily_cap',
       locationId: LOCATION_ID,
       cap: 25,
+    });
+  });
+
+  // #631 D20: the Solicitation persona's opt-in card.
+  describe('solicitation card', () => {
+    const availableOff: AutoApprovalSettingsResponse = {
+      ...baseState,
+      solicitation: { available: true, enabled: false, dailySendCap: null, vetoWindowMinutes: null },
+    };
+    const availableOn: AutoApprovalSettingsResponse = {
+      ...baseState,
+      solicitation: { available: true, enabled: true, dailySendCap: 5, vetoWindowMinutes: 60 },
+    };
+
+    it('renders only when the server marks the lane available', () => {
+      // Two mounts, not a rerender: initialState seeds the reducer once.
+      const first = render(<AutoApprovalClient initialState={baseState} />);
+      expect(screen.queryByLabelText('Auto-approve request batches')).not.toBeInTheDocument();
+      first.unmount();
+
+      render(<AutoApprovalClient initialState={availableOff} />);
+      expect(screen.getByLabelText('Auto-approve request batches')).toBeInTheDocument();
+    });
+
+    it('enabling confirms first, then PATCHes the set operation with standard confirmation', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(availableOn));
+      const user = userEvent.setup();
+      render(<AutoApprovalClient initialState={availableOff} />);
+
+      await user.click(screen.getByLabelText('Auto-approve request batches'));
+      await screen.findByRole('dialog', { name: 'Confirm review request auto-approval' });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Confirm auto-approval' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(patchBody(fetchMock)).toEqual({
+        operation: 'set_solicitation_account_default',
+        dailySendCap: null,
+        vetoWindowMinutes: 60,
+        confirmationLevel: 'standard',
+      });
+    });
+
+    it('disabling sends the clear operation directly without confirmation', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(availableOff));
+      const user = userEvent.setup();
+      render(<AutoApprovalClient initialState={availableOn} />);
+
+      await user.click(screen.getByLabelText('Auto-approve request batches'));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(patchBody(fetchMock)).toEqual({ operation: 'clear_solicitation_account_default' });
+    });
+
+    it('lengthening the veto window submits directly; shortening asks for confirmation', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(jsonResponse(availableOn));
+      const user = userEvent.setup();
+      const { unmount } = render(<AutoApprovalClient initialState={{
+        ...baseState,
+        solicitation: { available: true, enabled: true, dailySendCap: 5, vetoWindowMinutes: 30 },
+      }} />);
+
+      await user.selectOptions(screen.getByLabelText('Review request veto window'), '60');
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(patchBody(fetchMock)).toEqual({
+        operation: 'set_solicitation_account_default',
+        dailySendCap: 5,
+        vetoWindowMinutes: 60,
+      });
+      unmount();
+
+      render(<AutoApprovalClient initialState={availableOn} />);
+      await user.selectOptions(screen.getByLabelText('Review request veto window'), '30');
+      await screen.findByRole('dialog', { name: 'Confirm review request auto-approval' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('lowering the send cap submits directly with the current window preserved', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse(availableOn));
+      const user = userEvent.setup();
+      render(<AutoApprovalClient initialState={availableOn} />);
+
+      const capInput = screen.getByLabelText('Daily review request send cap');
+      await user.clear(capInput);
+      await user.type(capInput, '3');
+      await user.tab();
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(patchBody(fetchMock)).toEqual({
+        operation: 'set_solicitation_account_default',
+        dailySendCap: 3,
+        vetoWindowMinutes: 60,
+      });
     });
   });
 });

@@ -10,6 +10,11 @@ import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
 import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
+import {
+  solicitationAutoApprovalEnabled,
+  solicitationSendEnabled,
+} from '@/lib/solicitation/flags';
+import { resolveAccountDailySendCap } from '@/lib/solicitation/send-caps';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import {
@@ -36,11 +41,16 @@ import type {
   EffectiveAutoApprovalPolicy,
   PolicyRowState,
   PolicyExposureClassification,
+  SolicitationAutoApprovalApiState,
+  SolicitationVetoWindowMinutes,
   VetoWindowMinutes,
 } from './types';
 import {
   POLICY_ACTION_POSTING,
+  POLICY_ACTION_SENDING,
   POLICY_PERSONA_REPLY,
+  POLICY_PERSONA_SOLICITATION,
+  SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES,
   isAutoApprovalThreshold,
   isVetoWindowMinutes,
 } from './types';
@@ -60,6 +70,23 @@ export type PatchAutoApprovalSettingsInput = AutoApprovalPatchRequest & {
   userAgent?: string | null;
   requestId?: string | null;
 };
+
+type SolicitationPatchOperation =
+  | 'set_solicitation_account_default'
+  | 'clear_solicitation_account_default';
+
+// The Reply-lane machinery below (before/after snapshots, exposure ranks, the
+// archived-location gates) switches EXHAUSTIVELY over the Reply operations, so
+// it takes the narrowed input type; the Solicitation lane branches off first in
+// updatePolicyInTransaction and never enters it.
+type SolicitationPatchInput = Extract<
+  PatchAutoApprovalSettingsInput,
+  { operation: SolicitationPatchOperation }
+>;
+type ReplyLanePatchInput = Exclude<
+  PatchAutoApprovalSettingsInput,
+  { operation: SolicitationPatchOperation }
+>;
 
 interface PolicyDbRow {
   id: string;
@@ -178,7 +205,9 @@ async function loadAutoApprovalSettings(
   // mutation lock, so it loads the same projection once for its point-in-time
   // readiness response.
   const account = lockedAccount ?? await loadSettingsAccount(db, input.accountId);
-  // FP: all three reads share one db SqlExecutor (single pooled connection) and the prior read consumes accountDefault; sequential by design, not safely parallelizable.
+  // FP: all these reads share one db SqlExecutor (single pooled connection), the second consumes accountDefault and the last two consume account; sequential by design, not safely parallelizable.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const solicitation = await loadSolicitationApiState(db, input.accountId, account);
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const readiness = await buildReadiness(db, input.accountId, {
     impersonated: input.impersonated,
@@ -189,6 +218,7 @@ async function loadAutoApprovalSettings(
     accountDefault: toApiState(accountDefault),
     locations,
     readiness,
+    solicitation,
   };
 }
 
@@ -217,6 +247,17 @@ async function updatePolicyInTransaction(
   const offboardingState = await getOffboardingState(input.accountId, tx);
   if (isOperationalUIBlocked(offboardingState)) {
     throw new AutoApprovalSettingsError('account_offboarding_blocked', 403);
+  }
+
+  // The Solicitation lane (#631 D20) shares the account lock + offboarding
+  // gate above but none of the Reply lane's snapshot machinery — its only row
+  // is the account default and its dials live in different columns.
+  if (
+    input.operation === 'set_solicitation_account_default'
+    || input.operation === 'clear_solicitation_account_default'
+  ) {
+    await applySolicitationMutation(tx, input, lockedAccount, offboardingState);
+    return lockedAccount;
   }
 
   // Gate BEFORE write: read the current state, derive the after-state purely,
@@ -249,7 +290,7 @@ interface PolicyChangeAuditContext {
 // buildAuditContext (the expansion case); housed together here, before any write.
 function assertArchivedPolicyAllowed(
   before: PolicyMutationBeforeState,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   expansion: boolean,
 ): void {
   if (before.scope !== 'location_override' || !before.locationArchived) return;
@@ -282,7 +323,7 @@ function assertConfirmationProvided(
 // expansion while contractions and dial changes stay allowed.
 async function assertExpansionReady(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   expansion: boolean,
   lockedAccount: SettingsAccountEntitlementRow,
@@ -302,7 +343,7 @@ async function assertExpansionReady(
 // written. Gate order is preserved: archived -> confirmation -> readiness.
 async function assertMutationAllowed(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
   lockedAccount: SettingsAccountEntitlementRow,
@@ -330,7 +371,7 @@ async function assertMutationAllowed(
 
 async function writeAudit(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
   context: PolicyChangeAuditContext,
@@ -396,7 +437,7 @@ async function lockAccount(
 
 async function readBeforeState(
   db: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
 ): Promise<PolicyMutationBeforeState> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
 
@@ -453,7 +494,7 @@ type PolicyRowPatch =
 // the persisted row id equals this derived id — afterRow stays truthful).
 function computeAfterState(
   before: PolicyMutationBeforeState,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   newPolicyId: string,
 ): PolicyMutationAfterState {
   const upsertPolicyId = before.snapshot.row.exists
@@ -506,7 +547,7 @@ const COMPLETE_DISABLE_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['oper
 ]);
 
 function createsManualLocationOverride(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
 ): boolean {
   return before.scope === 'location_override'
@@ -515,7 +556,7 @@ function createsManualLocationOverride(
 }
 
 function transitionsEnabledPolicyToManual(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: EffectiveAutoApprovalPolicy,
 ): boolean {
@@ -525,7 +566,7 @@ function transitionsEnabledPolicyToManual(
 }
 
 function isCompleteDisable(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: EffectiveAutoApprovalPolicy,
 ): boolean {
@@ -554,7 +595,7 @@ function clearsSuspendedRow(before: PolicyMutationBeforeState): boolean {
 // Which shape a clear/delete op runs, recorded on the audit row. Null for
 // operations that are not clears.
 function clearShapeFor(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
 ): 'delete' | 'threshold_null_suspended' | null {
   if (input.operation !== 'clear_account_default' && input.operation !== 'delete_location_override') {
@@ -650,7 +691,7 @@ function noneEffective(): EffectiveAutoApprovalPolicy {
 
 async function applyMutation(
   db: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   newPolicyId: string,
   before: PolicyMutationBeforeState,
 ): Promise<void> {
@@ -947,6 +988,303 @@ async function upsertLocationDailyCap(
       daily_auto_post_cap = EXCLUDED.daily_auto_post_cap,
       updated_at = NOW()
   `;
+}
+
+// ── Solicitation lane (#631 D20) ─────────────────────────────────────────────
+//
+// The Solicitation persona's opt-in is ONE row: the account default
+// (`persona='solicitation'`, `action_class='sending'`, `location_id IS NULL`,
+// migration 091). Enabling it is the D20 trust-dial opt-in the auto-approval
+// gate (`src/lib/solicitation/auto-approval.ts`) reads; disabling DELETEs only
+// that row — safe against suspension laundering because the Governor's
+// account-wide kill switch is written on the REPLY account-default row
+// (`suspendAccountAutonomy`), which this lane never touches, and the gate's
+// suspension read is account-wide over any policy row (D19).
+
+interface SolicitationPolicyRowState {
+  id: string;
+  vetoWindowMinutes: number;
+  dailySendCap: number | null;
+  suspendedAt: Date | null;
+}
+
+interface SolicitationLaneConfig {
+  vetoWindowMinutes: SolicitationVetoWindowMinutes;
+  dailySendCap: number | null;
+}
+
+async function applySolicitationMutation(
+  tx: TransactionSql,
+  input: SolicitationPatchInput,
+  lockedAccount: SettingsAccountEntitlementRow,
+  offboardingState: Awaited<ReturnType<typeof getOffboardingState>>,
+): Promise<void> {
+  const before = await loadSolicitationAccountDefault(tx, input.accountId);
+
+  if (input.operation === 'clear_solicitation_account_default') {
+    // A contraction is always allowed — no confirmation, no availability or
+    // tier gate (a downgraded Copilot account must still be able to remove
+    // its opt-in), mirroring the Reply lane's contraction rules.
+    if (before !== null) {
+      await tx`
+        DELETE FROM auto_approval_policies
+        WHERE account_id = ${input.accountId}::uuid
+          AND location_id IS NULL
+          AND persona = ${POLICY_PERSONA_SOLICITATION}
+          AND action_class = ${POLICY_ACTION_SENDING}
+      `;
+    }
+    await writeSolicitationAudit(tx, input, before, null, {
+      exposureClassification: before !== null ? 'contraction' : 'no_change',
+      expansion: false,
+      requiredConfirmationLevel: null,
+    });
+    return;
+  }
+
+  // Declarative lane config: an omitted veto window means the 60-minute
+  // default, never "keep stored" (types.ts schema comment).
+  const after: SolicitationLaneConfig = {
+    vetoWindowMinutes: input.vetoWindowMinutes ?? SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES,
+    dailySendCap: input.dailySendCap,
+  };
+
+  // Gate BEFORE write, same order as the Reply lane's assertMutationAllowed:
+  // classify -> confirmation -> expansion readiness. Throws => nothing written.
+  const exposureClassification = classifySolicitationExposure(before, after);
+  const expansion = exposureClassification === 'expansion';
+  const requiredConfirmationLevel = assertConfirmationProvided(input, expansion);
+  if (expansion) {
+    await assertSolicitationExpansionAllowed(tx, input, lockedAccount, offboardingState);
+  }
+
+  const newPolicyId = uuidv7();
+  await upsertSolicitationAccountDefault(tx, newPolicyId, input.accountId, after);
+  await writeSolicitationAudit(
+    tx,
+    input,
+    before,
+    {
+      id: before?.id ?? newPolicyId,
+      vetoWindowMinutes: after.vetoWindowMinutes,
+      dailySendCap: after.dailySendCap,
+      suspendedAt: before?.suspendedAt ?? null,
+    },
+    { exposureClassification, expansion, requiredConfirmationLevel },
+  );
+}
+
+/**
+ * Exposure classification for the Solicitation lane (the
+ * classifyPolicyExposure analogue — policy.ts owns the Reply lane's 15/30
+ * dial types, so this lane keeps its two dimensions here). Enabling the lane
+ * — no row before — is ALWAYS an expansion: the opt-in itself is the exposure
+ * (D20). On an existing row, a shorter veto window widens exposure, and the
+ * cap is compared through resolveAccountDailySendCap so the platform clamp
+ * ("the dial moves toward restraint only", <= 10) is what classifies: storing
+ * 50 over a stored 30 changes nothing either enforces.
+ */
+function classifySolicitationExposure(
+  before: SolicitationPolicyRowState | null,
+  after: SolicitationLaneConfig,
+): PolicyExposureClassification {
+  if (before === null) return 'expansion';
+
+  const windowDimension: PolicyExposureClassification =
+    after.vetoWindowMinutes < before.vetoWindowMinutes
+      ? 'expansion'
+      : after.vetoWindowMinutes > before.vetoWindowMinutes
+        ? 'contraction'
+        : 'no_change';
+  const effectiveCapBefore = resolveAccountDailySendCap({ dailySendCap: before.dailySendCap });
+  const effectiveCapAfter = resolveAccountDailySendCap({ dailySendCap: after.dailySendCap });
+  const capDimension: PolicyExposureClassification =
+    effectiveCapAfter > effectiveCapBefore
+      ? 'expansion'
+      : effectiveCapAfter < effectiveCapBefore
+        ? 'contraction'
+        : 'no_change';
+
+  const dimensions = [windowDimension, capDimension];
+  if (dimensions.includes('expansion')) return 'expansion';
+  if (dimensions.includes('contraction')) return 'contraction';
+  return 'no_change';
+}
+
+/**
+ * The Reply lane's expansion gate (assertExpansionReady) ported to the
+ * Solicitation lane's availability facts: runtime = BOTH lane flags
+ * (invariant #13 — a dark surface refuses writes, not just hides its card);
+ * autopilot = tier entitlement ONLY (`tierGrantsAutopilot` — matching the GET
+ * `available` contract; deliberately NOT `autopilotPurchasable`, because an
+ * existing Autopilot subscriber keeps entitlement during a sales pause);
+ * suspension = the account-wide Governor read (D19, matching
+ * decideAutoApproval), not just the Reply default's flag. The provider
+ * moderation inputs pass true — moderation readiness is a Reply-lane POSTING
+ * precondition with no Solicitation analogue.
+ */
+async function assertSolicitationExpansionAllowed(
+  tx: TransactionSql,
+  input: SolicitationPatchInput,
+  lockedAccount: SettingsAccountEntitlementRow,
+  offboardingState: Awaited<ReturnType<typeof getOffboardingState>>,
+): Promise<void> {
+  const [suspension] = await tx<{ any_suspended: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM auto_approval_policies
+      WHERE account_id = ${input.accountId}::uuid
+        AND suspended_at IS NOT NULL
+    ) AS any_suspended
+  `;
+  const readiness = buildAutoApprovalReadiness({
+    runtimeEnabled: solicitationSendEnabled() && solicitationAutoApprovalEnabled(),
+    autopilotAvailable: tierGrantsAutopilot(lockedAccount.subscription_tier),
+    providerModerationEnabled: true,
+    providerModerationValidated: true,
+    accountWritable:
+      accountSubscriptionWritable(lockedAccount)
+      && !isBillingMutationBlocked(offboardingState),
+    policySuspended: suspension?.any_suspended ?? false,
+    previewEnvironment: isPreviewEnvironment(),
+    impersonated: input.impersonated,
+  });
+  if (!readiness.canExpand) {
+    throw new AutoApprovalExpansionBlockedError(readiness.blockReasons);
+  }
+}
+
+async function writeSolicitationAudit(
+  tx: TransactionSql,
+  input: SolicitationPatchInput,
+  before: SolicitationPolicyRowState | null,
+  after: SolicitationPolicyRowState | null,
+  context: {
+    exposureClassification: PolicyExposureClassification;
+    expansion: boolean;
+    requiredConfirmationLevel: AutoApprovalConfirmationLevel | null;
+  },
+): Promise<void> {
+  await writeAccountAuditLog(tx, {
+    accountId: input.accountId,
+    locationId: null,
+    actorUserId: input.actorUserId,
+    eventType: 'auto_approval_policy_changed',
+    entityType: 'auto_approval_policy',
+    entityId: after?.id ?? before?.id ?? null,
+    ip: input.ip ?? null,
+    userAgent: input.userAgent ?? null,
+    requestId: input.requestId ?? null,
+    payload: {
+      operation: input.operation,
+      persona: POLICY_PERSONA_SOLICITATION,
+      scope: 'account_default',
+      locationId: null,
+      beforeRow: solicitationAuditRow(before),
+      afterRow: solicitationAuditRow(after),
+      beforeEnabled: before !== null,
+      afterEnabled: after !== null,
+      exposureClassification: context.exposureClassification,
+      expansion: context.expansion,
+      requiredConfirmationLevel: context.requiredConfirmationLevel,
+      submittedConfirmationLevel: input.confirmationLevel ?? null,
+    },
+  });
+}
+
+function solicitationAuditRow(row: SolicitationPolicyRowState | null) {
+  if (row === null) return null;
+  return {
+    policyId: row.id,
+    vetoWindowMinutes: row.vetoWindowMinutes,
+    dailySendCap: row.dailySendCap,
+    effectiveDailySendCap: resolveAccountDailySendCap({ dailySendCap: row.dailySendCap }),
+    suspended: row.suspendedAt !== null,
+  };
+}
+
+async function loadSolicitationAccountDefault(
+  db: SqlExecutor,
+  accountId: string,
+): Promise<SolicitationPolicyRowState | null> {
+  const [row] = await db<{
+    id: string;
+    veto_window_minutes: number;
+    daily_send_cap: number | null;
+    suspended_at: Date | null;
+  }[]>`
+    SELECT id, veto_window_minutes, daily_send_cap, suspended_at
+    FROM auto_approval_policies
+    WHERE account_id = ${accountId}::uuid
+      AND location_id IS NULL
+      AND persona = ${POLICY_PERSONA_SOLICITATION}
+      AND action_class = ${POLICY_ACTION_SENDING}
+    LIMIT 1
+  `;
+  if (!row) return null;
+  return {
+    id: row.id,
+    vetoWindowMinutes: row.veto_window_minutes,
+    dailySendCap: row.daily_send_cap,
+    suspendedAt: row.suspended_at,
+  };
+}
+
+// ON CONFLICT target matches migration 074's account-default partial unique
+// index BYTE-FOR-BYTE (the documented Postgres gotcha — see the block comment
+// above upsertAccountDefault). Unlike the Reply lane's one-column DO UPDATE
+// arms, this arm rewrites BOTH lane dials: the operation is declarative lane
+// config, not a single-dial edit. auto_approve_min_star and
+// daily_auto_post_cap stay NULL (091's persona-consistency CHECK), and the
+// governor-owned suspension columns carry over untouched.
+async function upsertSolicitationAccountDefault(
+  db: TransactionSql,
+  policyId: string,
+  accountId: string,
+  config: SolicitationLaneConfig,
+): Promise<void> {
+  await db`
+    INSERT INTO auto_approval_policies (
+      id,
+      account_id,
+      location_id,
+      persona,
+      action_class,
+      veto_window_minutes,
+      daily_send_cap,
+      updated_at
+    ) VALUES (
+      ${policyId}::uuid,
+      ${accountId}::uuid,
+      NULL,
+      ${POLICY_PERSONA_SOLICITATION},
+      ${POLICY_ACTION_SENDING},
+      ${config.vetoWindowMinutes},
+      ${config.dailySendCap},
+      NOW()
+    )
+    ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL
+    DO UPDATE SET
+      veto_window_minutes = EXCLUDED.veto_window_minutes,
+      daily_send_cap = EXCLUDED.daily_send_cap,
+      updated_at = NOW()
+  `;
+}
+
+async function loadSolicitationApiState(
+  db: SqlExecutor,
+  accountId: string,
+  account: SettingsAccountEntitlementRow | undefined,
+): Promise<SolicitationAutoApprovalApiState> {
+  const row = await loadSolicitationAccountDefault(db, accountId);
+  return {
+    available:
+      solicitationSendEnabled()
+      && solicitationAutoApprovalEnabled()
+      && tierGrantsAutopilot(account?.subscription_tier),
+    enabled: row !== null,
+    dailySendCap: row?.dailySendCap ?? null,
+    vetoWindowMinutes: row?.vetoWindowMinutes ?? null,
+  };
 }
 
 async function loadAccountDefault(
