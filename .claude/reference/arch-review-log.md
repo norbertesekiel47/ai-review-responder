@@ -6,10 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 10** — reset by the **2026-08-22 pass**
+**Merges since last architecture pass: 11** — reset by the **2026-08-22 pass**
 (entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893,
-#909, #886 and #880 counted 2026-08-23 (the #919 seedUpload consolidation, #942,
-is test-only and does not count). Full artifacts:
+#909, #886 and #880 counted 2026-08-23, and **#631 (PR #950)** counted 2026-08-24
+(the #919 seedUpload consolidation, #942, is test-only and does not count). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -238,7 +238,13 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   `ApprovalPanel.tsx`'s false verbs-comment corrected. Exhaustiveness-pinned unit suite +
   three route-level `no_send_parent → closed:false` pins. **Counts: +1 production merge.**
 - **feat #631** — Auto-approval lane: Autopilot batches behind flag, Judge-gated,
-  veto-windowed (2026-08-23, branch `631-auto-approval-lane`, PR #950). One new deep module `src/lib/solicitation/auto-approval.ts` (four-condition
+  veto-windowed (2026-08-23, branch `631-auto-approval-lane`, PR #950; **merged
+  2026-08-24, squash `0278366c`** — migration 113 applied staging+prod in lockstep
+  the same day). Post-PR fallow fix wave added `src/lib/auto-approval/settings-guards.ts`
+  (breaks the settings ↔ solicitation-settings cycle — one new single owner of the
+  settings write-guards) and two `.fallowrc.jsonc` `ignoreExports` acknowledgments;
+  next pass: the notice-family clone shape (4 instances now — escalation/pending-post/
+  auto-post/veto) is at the extract-or-bless threshold. One new deep module `src/lib/solicitation/auto-approval.ts` (four-condition
   gate D20 + account-wide Governor read D19, `auto_policy` approval verb at the
   ask-generation finale, **Veto anchor** on first-sent notice, release-time re-check
   with reason-parameterized downgrade split); new `worker/jobs/solicitation-veto-notice/`

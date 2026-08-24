@@ -7,7 +7,36 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-23 (#900 **Solicitation release poller** — Quick summary immediately below. Prior entry: #899 Solicitation send worker.)
+Last updated: 2026-08-24 (#631 **Auto-approval lane** — Quick summary immediately below. Prior entry: #900 Solicitation release poller.)
+
+## Quick summary — #631 **Auto-approval lane** (2026-08-24, PR #950)
+
+**Autopilot accounts can now let solicitation send batches approve themselves — with an
+owner veto window before anything sends. Every gate is OFF in every environment.**
+
+The ask-generation finale approves a batch as `approval_method='auto_policy'` only when
+four conditions hold (both server flags, full subscription access, the Autopilot tier,
+no account-wide Governor suspension) AND the owner's opt-in policy row exists — decided
+once, never on regeneration; a racing owner approval wins quietly. The owner then gets a
+**Veto notice** (email/Telegram/WhatsApp, batch-scoped, tokenless CTA to
+`/dashboard/requests`); the FIRST provider-accepted send starts the veto window, and the
+**Veto anchor** release phase stamps the deadline once, fail-closed per D9 — no sent
+notice, no anchor, no release, ever. Every release tick re-checks the conditions and
+downgrades a lapsed batch back to owner review with the exact reason (flag off, tier
+lost, policy removed, suspension). Judge stays release-owned (#900); the pre-existing
+dead-sweep liveness blind spot is filed as #949.
+
+The new shape:
+- `src/lib/solicitation/auto-approval.ts` — condition gate, `auto_policy` verb, **Veto anchor**
+- `worker/jobs/solicitation-veto-notice/` — the notice worker family (pending-post-notice clone)
+- `src/lib/auto-approval/solicitation-settings.ts` + `settings-guards.ts` — opt-in lane + shared write-guards
+- migration **113** (index-only; applied staging + prod 2026-08-24, lockstep) ·
+  `SOLICITATION_AUTO_APPROVAL_ENABLED` default OFF · glossary: CONTEXT.md → **Auto-approval
+  lane**, **Veto notice**, **Veto anchor** (LOCKED)
+
+Deploy-inert proven on staging 2026-08-24 (clean boot, flags confirmed OFF). #633 owns
+the ordered go-live flips.
+
 
 ## Quick summary — #900 **Solicitation release poller** (2026-08-23, PR #920)
 

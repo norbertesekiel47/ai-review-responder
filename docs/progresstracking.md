@@ -5270,3 +5270,35 @@ counts as possibly-contacted structurally, because `over_contacted` keys on `sol
 and the terminalization never writes that table). **Its content was the BLOCKER, not the enablement
 decision** — an earlier draft of this line said otherwise and was wrong. The flip itself is governed
 by design doc §8.4 + the `flag-flip` skill and currently has **no tracking issue**.
+
+
+## 2026-08-24 — #631 Auto-approval lane (PR #950, squash `0278366c`)
+
+The Solicitation send lane's Autopilot path: `auto_policy` batch approval at the
+ask-generation finale (four-condition gate D20 + account-wide Governor read D19 +
+opt-in policy row; owner-won race is a quiet outcome), the Veto notice family
+(`worker/jobs/solicitation-veto-notice/` — email/Telegram/WhatsApp, batch-scoped,
+`solicitation_veto_notice` template/topic, claim-before-send on migration 113's
+unique partial indexes), the Veto anchor release phase (SQL-side `MIN(sent_at)`
+over non-bounced rows + granted window from the latest `batch_approved` spine step,
+fail-closed per D9), the release-time re-check (`findAutoDowngradeReason` — narrower
+than the approval gate by design: B14 subscription HOLDS, B15 master flag STOPS),
+`ReleaseCycleReport.autoDowngradedByReason`, the `veto_window_granted` spine step,
+and the `/settings/auto-approval` Solicitation opt-in card. Flags:
+`SOLICITATION_AUTO_APPROVAL_ENABLED` (new, default OFF) behind
+`SOLICITATION_SEND_ENABLED`; `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` unset ⇒
+WhatsApp arm skips cleanly.
+
+Process: 3-round Codex plan review (REVISE→REVISE→APPROVED), intake re-locked rev 2
+(anchor = first provider-accepted `sent_at`, Reply-lane port), 44 promised tests,
+branch review spec/quality/adversarial (A2 accepted narrowly → `failed_at IS NULL`
+on the anchor scan; A1/A4 rejected with positions recorded; A3 → issue #949).
+Post-PR fallow fix wave (`22986fb2`): `settings-guards.ts` extracted to break the
+settings ↔ solicitation-settings cycle, 3 de-exports, 7 stale suppressions deleted
+(fallow now traces interface dispatch — lab note 2026-08-24), `releaseBatchRows`
+split from `runBatchArm`, WhatsApp veto byte-pin tests added. Migration 113 applied
+staging-first then prod (introspection-verified both). CI note: migration-092's
+plan-shape test flaked once (planner Sort-vs-index coin flip; lab note) — clean on
+rerun. Staging rode the exact tree pre-merge and was realigned to `main` post-merge
+(`reset --hard` + `--force-with-lease` per the runbook). Deviations ledger:
+`docs/superpowers/plans/631-auto-approval-lane-deviations.md` (fully closed).
