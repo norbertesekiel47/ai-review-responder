@@ -92,6 +92,8 @@
     ".claude/reference/env-vars.md",
     ".claude/reference/migrations-log.md",
     ".claude/reference/arch-review-log.md",
+    "src/lib/agents/run-spine.ts",
+    "scripts/ci/tenant-scope-allowlist.ts",
     "CONTEXT.md"
   ],
   "tests_to_add": [

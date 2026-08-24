@@ -84,6 +84,20 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   added (PR number to be filled at step 8). Both intake copies updated.
   VERDICT: ACCEPT.
 
+## Task 6 read-back + amendment (2026-08-23)
+
+- [2026-08-23] **Surface amendment 2 of 2 against intake rev 2 (owner-approved
+  in session). BUDGET EXHAUSTED — any further surface discovery forces
+  teardown + post-mortem per the abort criteria.** Added:
+  `src/lib/agents/run-spine.ts` (one-line STEP_PERSONA key for
+  `veto_window_granted`, so the step rides the single spine writer and Task
+  6's duplicated `recordVetoWindowGrantedStep` helper is DELETED — the
+  run-spine single-writer convention holds) and
+  `scripts/ci/tenant-scope-allowlist.ts` (entries for the tenant-column-less
+  `agent_run_steps` reads, per the copy-paste-ready list Task 6 logged in its
+  own section). Task 7 executes both fixes. Both intake copies updated.
+  VERDICT: ACCEPT.
+
 ## Task 1 execution (2026-08-23)
 
 - [2026-08-23] #656 promised-test integrity meta-test (postal-address.test.ts:70)
