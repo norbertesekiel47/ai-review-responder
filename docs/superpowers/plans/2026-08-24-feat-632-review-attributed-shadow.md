@@ -4,7 +4,7 @@
 
 **Goal:** Record `review_attributed` as a shadow, never-billed outcome on the terminal **Lazy child** run when a newly ingested review matches a sent **Outreach row** inside the 14-day **Attribution window**, and show the owner each **Attributed review** with its evidence on the Requests surface.
 
-**Architecture:** Attribution is a **lookback at review ingest**, not a timer (spec D16b). The live ingest transaction enqueues one `solicitation_attribution` outbox row — guarded so no job is enqueued when the business has no eligible Outreach row. A dedicated worker loads candidates, runs a pure two-rule name matcher, and writes the attribution columns plus the spine outcome in one transaction. The owner reads the result through a dedicated route, independent of which batch is current.
+**Architecture:** Attribution is a **lookback at review ingest**, not a timer (spec D16b). The live ingest transaction enqueues one `solicitation_attribution` outbox row — guarded so no job is enqueued for a business that has never sent an ask. A dedicated worker loads candidates, runs a pure two-rule name matcher, and writes the attribution columns plus the spine outcome in one transaction. The owner reads the result through a dedicated route, independent of which batch is current.
 
 **Tech Stack:** Postgres.js + `job_outbox` + BullMQ (Railway worker) · Next.js 16 App Router route + client component · Vitest + fast-check.
 
@@ -31,7 +31,7 @@ No new abstract seam is introduced. Every new module has exactly one implementat
 
 ### Layering decision: the enqueue guard
 
-`src/lib/shared/job-outbox-helpers.ts` imports only from `src/lib/shared/`. It must not import a domain module. So the guard does **not** re-spell the candidate predicate. It is a deliberately **coarser superset** — `delivery_status = 'sent' AND attributed_review_id IS NULL`, and nothing else. Every real candidate satisfies both arms, so it can never drop a match; it only skips businesses that have never sent an ask.
+`src/lib/shared/job-outbox-helpers.ts` imports only from `src/lib/shared/`. It must not import a domain module. So the guard does **not** re-spell the candidate predicate. It is a deliberately **coarser superset** — `delivery_status = 'sent' AND attributed_at IS NULL`, and nothing else. Every real candidate satisfies both arms, so it can never drop a match; it only skips businesses that have never sent an ask.
 
 **It carries no time bound, and must never grow one (deviation D3).** An earlier draft bounded it on `sent_at > NOW() - 14 days` and claimed superset status. That claim was false: the candidate window is **anchor-relative** (`LEAST(review_date, detected_at)`), so a review posted 13 days ago but detected today anchors 13 days back, making an ask sent 20 days ago a legitimate candidate — while the `NOW()`-relative guard is false and no job is ever enqueued. Silent data loss.
 
@@ -92,7 +92,7 @@ Worked against every example the grilling locked:
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/114_solicitation_attribution.sql` | 4 columns, 1 CHECK, 2 indexes |
+| `supabase/migrations/114_solicitation_attribution.sql` | 4 columns, 1 CHECK, 3 indexes (incl. the `job_outbox` in-flight index) |
 | `src/lib/solicitation/attribution.ts` | matcher, candidate query, write tx, read model |
 | `src/lib/shared/queue-names.ts` | `SOLICITATION_ATTRIBUTION` topic |
 | `src/lib/shared/worker-types.ts` | `SolicitationAttributionPayload` |
@@ -164,25 +164,37 @@ it('eval contract: every promised test executes with zero todo or skip cases', (
     .map((f) => { try { return readFileSync(join(process.cwd(), f), 'utf8'); } catch { return ''; } })
     .join('\n');
 
-  // Every promised title must appear.
+  // Every promised title must appear VERBATIM. See the title-discipline rule
+  // below: the whole title lives in the `it(...)` string, never split across a
+  // `describe` prefix, because this check and the gate's `promised-tests` row
+  // both grep the literal string.
   const missing = promised.filter((title) => !corpus.includes(title));
   expect(missing).toEqual([]);
 
-  // …and none of them may be parked. `promised-tests` greps titles only, so
-  // without this assertion 54 `.todo` lines satisfy the gate while asserting
-  // nothing. This test is MEANT to be red for most of the branch's life.
-  const parked = promised.filter((title) => {
-    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(it|test|describe)\\s*\\.\\s*(todo|skip|fails)\\s*\\(\\s*['"\`]${escaped}`)
-      .test(corpus);
-  });
+  // NO parked test may exist in these files AT ALL — not "no parked promised
+  // title". Scanning only promised titles was false-green twice (round-2
+  // finding): an obsolete unpromised `.todo` survived, and
+  // `describe.skip('group', () => it('promised title', …))` slipped through
+  // because the skipped wrapper's argument is not a promised title.
+  //
+  // This test is MEANT to be red for most of the branch's life.
+  const parked = [...corpus.matchAll(/\b(it|test|describe)\s*\.\s*(todo|skip|fails)\s*\(/g)]
+    .map((m) => `${m[1]}.${m[2]}`);
   expect(parked).toEqual([]);
 });
 ```
 
+> **Title discipline (round-2 finding).** The full promised title goes in the
+> `it(...)` string. A `describe('matchAttribution', …)` wrapper around
+> `it('exact normalized full-name equality attributes', …)` does NOT contain the
+> promised title `matchAttribution: exact normalized full-name equality
+> attributes`, so both this check and the gate's `promised-tests` row would go
+> red once the `.todo`s were filled. Use `describe` for grouping only, and
+> repeat the full title in every `it`.
+
 > The `SUITE_FILES` list must stay in step with `allowed_edit_surface`. A
-> promised title living in a file this list omits reads as "missing" — which is
-> the safe direction, but fix the list rather than the assertion.
+> promised title living in a file this list omits reads as "missing" — the safe
+> direction, but fix the list rather than the assertion.
 
 **Files:**
 - Create: `src/lib/solicitation/__tests__/attribution.test.ts`
@@ -216,7 +228,7 @@ function candidate(name: string, id = 'o1'): AttributionCandidate {
 }
 
 describe('matchAttribution', () => {
-  it('exact normalized full-name equality attributes', () => {
+  it('matchAttribution: exact normalized full-name equality attributes', () => {
     const result = matchAttribution('Dana Rodriguez', [candidate('dana rodriguez')]);
     expect(result).toEqual({
       resolution: 'attributed',
@@ -225,23 +237,23 @@ describe('matchAttribution', () => {
     });
   });
 
-  it('first name plus matching last initial attributes', () => {
+  it('matchAttribution: first name plus matching last initial attributes', () => {
     const result = matchAttribution('Dana R.', [candidate('Dana Rodriguez')]);
     expect(result.resolution).toBe('attributed');
     expect(result).toMatchObject({ rule: 'first_last_initial' });
   });
 
-  it('a bare first name with no surname token never attributes', () => {
+  it('matchAttribution: a bare first name with no surname token never attributes', () => {
     const result = matchAttribution('Dana', [candidate('Dana Rodriguez')]);
     expect(result).toEqual({ resolution: 'no_match', candidateCount: 1 });
   });
 
-  it('accents and letter case normalize before comparison', () => {
+  it('matchAttribution: accents and letter case normalize before comparison', () => {
     const result = matchAttribution('JOSÉ MARTÍNEZ', [candidate('jose martinez')]);
     expect(result).toMatchObject({ resolution: 'attributed', rule: 'full_name' });
   });
 
-  it('two candidates matching the same review abstain with resolution ambiguous', () => {
+  it('matchAttribution: two candidates matching the same review abstain with resolution ambiguous', () => {
     const result = matchAttribution('Dana R.', [
       candidate('Dana Rodriguez', 'o1'),
       candidate('Dana Ramirez', 'o2'),
@@ -249,7 +261,7 @@ describe('matchAttribution', () => {
     expect(result).toEqual({ resolution: 'ambiguous', candidateCount: 2 });
   });
 
-  it('a null or empty reviewer name never attributes', () => {
+  it('matchAttribution: a null or empty reviewer name never attributes', () => {
     expect(matchAttribution(null, [candidate('Dana Rodriguez')]))
       .toEqual({ resolution: 'no_match', candidateCount: 1 });
     expect(matchAttribution('   ', [candidate('Dana Rodriguez')]))
@@ -277,7 +289,7 @@ describe('matchAttribution', () => {
       return ok(fa, fb) && ok(la, lb) && (fa === fb || la === lb);
     }
 
-    it('matchAttribution agrees with an independent test-side oracle on match cardinality', () => {
+    it('invariants: matchAttribution agrees with an independent test-side oracle on match cardinality', () => {
       fc.assert(
         fc.property(nameArb, fc.array(nameArb, { maxLength: 6 }), (reviewer, names) => {
           const result = matchAttribution(reviewer, names.map((n, i) => candidate(n, `o${i}`)));
@@ -290,7 +302,7 @@ describe('matchAttribution', () => {
       );
     });
 
-    it('matchAttribution never returns more than one attributed candidate', () => {
+    it('invariants: matchAttribution never returns more than one attributed candidate', () => {
       fc.assert(
         fc.property(nameArb, fc.array(nameArb, { maxLength: 6 }), (reviewer, names) => {
           const result = matchAttribution(reviewer, names.map((n, i) => candidate(n, `o${i}`)));
@@ -300,7 +312,7 @@ describe('matchAttribution', () => {
       );
     });
 
-    it('matchAttribution never attributes when no candidate shares a full name token', () => {
+    it('invariants: matchAttribution never attributes when no candidate shares a full name token', () => {
       fc.assert(
         fc.property(nameArb, nameArb, (reviewer, contact) => {
           const result = matchAttribution(reviewer, [candidate(contact)]);
@@ -315,74 +327,48 @@ describe('matchAttribution', () => {
 });
 ```
 
-- [ ] **Step 2: Write the integration suite with every title verbatim, bodies as `.todo`**
+- [ ] **Step 2: Create every suite file and give all 54 titles a home**
 
-`src/lib/solicitation/__tests__/attribution.integration.test.ts` — the file name ends `.integration.test.ts` so vitest's serialized `integration` project selects it. **No run-time DDL** (`ci:live-db-suites`).
+Each title goes in exactly one file, as a full-title `it(...)`. Titles not yet
+buildable are `.todo` **at Task 0 only**; the "unparked by" column names the task
+that must replace each group with a runnable body, and no group may be left
+without one (round-2 finding).
 
-Import `assertSchemaReady` from `@/lib/shared/__tests__/helpers/schema-ready` and follow **`src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts`** for suite shape, the cross-process live-DB lock and the outreach fixtures. (The first draft cited `batch-view.integration.test.ts`, which uses neither the helper nor shared fixtures — round-1 finding A10.)
+| File | Promised titles it owns | Unparked by |
+|---|---|---|
+| `src/lib/solicitation/__tests__/attribution.test.ts` | `eval contract:`, the 7 `matchAttribution:`, the 3 `invariants:`, `architecture:` | Task 2 (matcher + invariants), Task 5 (`architecture:`) |
+| `src/lib/solicitation/__tests__/attribution.integration.test.ts` | the 14 `attribution:`, `attributeReview:`, `tenant isolation:`, the 4 `listAttributedReviews:` | Task 3 (`attribution:`, `attributeReview:`, `tenant isolation:`), Task 6 (`listAttributedReviews:`) |
+| `src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts` | the 4 `migration 114:` | Task 1 |
+| `src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts` | the 4 `enqueueSolicitationAttribution:` | Task 4 |
+| `src/lib/reviews/__tests__/process-review-attribution.integration.test.ts` | the 2 `processReview:`, `importReview:` | Task 4 |
+| `worker/__tests__/solicitation-attribution.test.ts` | `worker registration:`, `SolicitationAttributionWorker: logs …` | Task 5 |
+| `worker/__tests__/solicitation-attribution.integration.test.ts` | `handleSolicitationAttribution:`, `SolicitationAttributionWorker: completes …` | Task 5 |
+| `src/app/api/dashboard/solicitation/attributed/__tests__/route.test.ts` | `GET attributed:` | Task 6 |
+| `src/app/(authenticated)/dashboard/requests/__tests__/attributed-reviews.test.tsx` | the 5 `AttributedReviews:`, `RequestsClient:` | Task 7 |
 
-```typescript
-describe('attribution', () => {
-  it.todo('the candidate query excludes bounced, complained and unknown outreach rows');
-  it.todo('the candidate query excludes rows outside the 14-day attribution window');
-  it.todo('an unsubscribed outreach row is still a candidate');
-  it.todo('an already-attributed outreach row is never a candidate for a second review');
-  it.todo('the handler writes the attribution columns and the review_attributed outcome in one transaction');
-  it.todo('re-running the handler for the same review is idempotent and emits exactly one outcome');
-  it.todo('attribution is sentiment-blind — a one-star review attributes like a five-star review');
-  it.todo('a matched outreach row with a null agent_run_id writes columns and skips the outcome');
-});
+`src/lib/shared/__tests__/job-outbox-helpers.test.ts` is a **mocked unit suite**
+and owns none of these titles — the live guard behaviour cannot be proved there
+(round-1 finding A8). It stays in `allowed_edit_surface` only because the helper
+it covers gains an export.
 
-describe('listAttributedReviews', () => {
-  it.todo('returns matches across batches within the last 30 days');
-  it.todo('scopes every read by account_id and business_id');
-  it.todo('returns an empty list when SOLICITATION_SEND_ENABLED is off');
-});
-```
+Every `*.integration.test.ts` above: the name selects vitest's serialized
+`integration` project, and **no run-time DDL** is permitted (`ci:live-db-suites`).
+Import `assertSchemaReady` from `@/lib/shared/__tests__/helpers/schema-ready`
+and follow **`src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts`**
+for suite shape, the cross-process live-DB lock and the outreach fixtures.
 
-- [ ] **Step 3: Write the migration shape suite as `.todo`**
-
-`src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts`, following `migration-091-send-mode-spine.integration.test.ts`:
-
-```typescript
-describe('migration 114', () => {
-  it.todo('attribution columns, the consistency CHECK and the partial unique index exist');
-  it.todo('deleting an attributed review nulls attributed_review_id and leaves the outreach row');
-});
-```
-
-- [ ] **Step 4: Add the two enqueue titles as `.todo`**
-
-Append to `src/lib/shared/__tests__/job-outbox-helpers.test.ts`:
-
-```typescript
-describe('enqueueSolicitationAttribution', () => {
-  it.todo('enqueues nothing when the business has no eligible outreach row in the window');
-  it.todo('enqueues exactly one row per new review with an eligible candidate');
-});
-```
-
-- [ ] **Step 5: Add the three UI titles as `.todo`**
-
-`src/app/(authenticated)/dashboard/requests/__tests__/attributed-reviews.test.tsx`:
-
-```typescript
-describe('AttributedReviews', () => {
-  it.todo('renders reviewer name, stars, review date and ask date for each match');
-  it.todo('renders the shadow-metric never-billed disclosure');
-  it.todo('renders an empty state when no review is attributed');
-});
-```
-
-- [ ] **Step 6: Run the matcher suite and verify it fails**
+- [ ] **Step 3: Run the matcher suite and verify it fails**
 
 Run: `pnpm vitest run src/lib/solicitation/__tests__/attribution.test.ts`
-Expected: FAIL — `Failed to resolve import "../attribution"`.
+Expected: FAIL — `Failed to resolve import "../attribution"`, and the
+eval-contract test red on the parked titles. Both are correct at Task 0.
 
-- [ ] **Step 7: Verify the promised-tests row passes**
+- [ ] **Step 4: Verify the promised-tests row passes**
 
 Run: `bash scripts/verify-gate.sh` and read `.feature/gate-status.json`.
-Expected: the `promised-tests` row is PASS — all 26 titles exist verbatim. Other rows may fail; that is expected at Task 0.
+Expected: the `promised-tests` row is PASS — all **54** titles exist verbatim.
+Other rows fail; that is expected at Task 0. `feature-surface` stays RED until
+the production files exist, which is Task 1 onward.
 
 - [ ] **Step 8: Commit**
 
@@ -871,7 +857,13 @@ export async function attributeReview(
      WHERE id         = ${match.candidate.outreachId}::uuid
        AND account_id = ${accountId}::uuid
        AND business_id = ${input.businessId}::uuid
-       AND attributed_review_id IS NULL
+       -- `attributed_at`, NOT `attributed_review_id` (round-2 finding). The
+       -- candidate query and the index both moved to the timestamp marker; this
+       -- CAS did not, which left a race: a handler that loaded a candidate
+       -- before another attribution AND a subsequent review deletion would see
+       -- a NULL review id and overwrite permanent provenance. All FOUR sites —
+       -- candidate query, enqueue guard, index predicate, this CAS — must agree.
+       AND attributed_at IS NULL
     RETURNING id
   `;
   // Zero rows means a concurrent run already attributed it — a replay, not a
@@ -892,14 +884,14 @@ export async function attributeReview(
 }
 ```
 
-- [ ] **Step 3: Fill in the 8 `attribution:` integration test bodies**
+- [ ] **Step 3: Unpark the 14 `attribution:` titles plus `attributeReview:` and `tenant isolation:`**
 
-Seed via the existing helpers in `src/lib/solicitation/__tests__/` (follow `batch-view.integration.test.ts` for account/business/batch/contact/outreach fixtures). Assert on `attributed_review_id`, `attribution_rule` and a single `agent_outcomes` row of kind `review_attributed`. The idempotency test calls `attributeReview` twice and asserts `COUNT(*) = 1`.
+Seed via `src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts`'s fixtures and `assertSchemaReady` (round-1 finding A10 — `batch-view.integration.test.ts` has neither). Assert on `attributed_review_id`, `attribution_rule` and a single `agent_outcomes` row of kind `review_attributed`. The idempotency test calls `attributeReview` twice and asserts `COUNT(*) = 1`.
 
 - [ ] **Step 4: Run the integration suite**
 
-Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration src/lib/solicitation/__tests__/attribution.integration.test.ts -t "attribution"`
-Expected: 8 passed.
+Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration src/lib/solicitation/__tests__/attribution.integration.test.ts`
+Expected: 16 passed (the 14 `attribution:` titles, `attributeReview:` and `tenant isolation:`). The 4 `listAttributedReviews:` titles stay parked until Task 6.
 
 - [ ] **Step 5: Commit**
 
@@ -1066,10 +1058,19 @@ after it.
 (verified). `biz.account_id` is **not**, which is why the payload carries no
 account.
 
-- [ ] **Step 5: Fill in the two enqueue test bodies and run**
+- [ ] **Step 5: Unpark all FOUR `enqueueSolicitationAttribution:` titles and the three `processReview:`/`importReview:` titles**
 
-Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration -t "enqueueSolicitationAttribution"`
-Expected: 2 passed.
+Two commands — `job-outbox-helpers.test.ts` is a MOCKED unit suite and cannot prove live guard behaviour (round-1 finding A8):
+
+```bash
+TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration \
+  src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts \
+  src/lib/reviews/__tests__/process-review-attribution.integration.test.ts
+```
+
+Expected: 7 passed — the 4 `enqueueSolicitationAttribution:` titles, the 2 `processReview:` titles and `importReview:`.
+
+**`enqueueSolicitationAttribution: a business whose only sent outreach is out of window still enqueues and resolves no_candidates` asserts that the row IS written** (round-1 finding A22). The guard is a lossless superset by design; the window is the matcher's job, not the guard's.
 
 - [ ] **Step 6: Run the outbox audits**
 
@@ -1204,16 +1205,27 @@ and in the worker map:
   [QUEUE_NAMES.SOLICITATION_ATTRIBUTION]: solicitationAttributionWorker,
 ```
 
-- [ ] **Step 4: Typecheck and run the worker-facing audits**
+- [ ] **Step 4: Unpark the worker titles**
+
+`worker/__tests__/solicitation-attribution.test.ts` — `worker registration:` and `SolicitationAttributionWorker: logs …`.
+`worker/__tests__/solicitation-attribution.integration.test.ts` — `handleSolicitationAttribution:` and `SolicitationAttributionWorker: completes …`.
+`src/lib/solicitation/__tests__/attribution.test.ts` — `architecture:`.
+
+Run: `pnpm vitest run worker/__tests__/solicitation-attribution.test.ts src/lib/solicitation/__tests__/attribution.test.ts` and the integration one under `--project integration`.
+Expected: all pass, and the eval-contract test now has zero parked titles left outside Tasks 6-7.
+
+- [ ] **Step 5: Typecheck and run the worker-facing audits**
 
 Run: `pnpm typecheck && pnpm ci:db-imports && pnpm ci:static-policy`
 Expected: all exit 0. `ci:db-imports` must stay green — `attribution.ts` takes `tx` explicitly and imports no singleton; `worker/index.ts` is a composition root and may.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add worker/jobs/solicitation-attribution/ worker/queues.ts worker/index.ts
-git commit -m "feat(632): SolicitationAttributionWorker and registration"
+git add worker/jobs/solicitation-attribution/ worker/__tests__/ \
+        worker/queues.ts worker/index.ts \
+        src/lib/solicitation/__tests__/attribution.test.ts
+git commit -m "feat(632): SolicitationAttributionWorker, registration and outbox completion"
 ```
 
 ---
@@ -1317,10 +1329,10 @@ Mirror `src/app/api/dashboard/solicitation/batch/route.ts` exactly — watch fla
 
 Return `jsonResponse({ enabled: solicitationSendEnabled(), attributed })`.
 
-- [ ] **Step 3: Fill in the three read tests and the route test, then run**
+- [ ] **Step 3: Unpark the four `listAttributedReviews:` titles and `GET attributed:`**
 
-Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration -t "listAttributedReviews"` then `pnpm vitest run src/app/api/dashboard/solicitation/attributed`
-Expected: all pass.
+Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration src/lib/solicitation/__tests__/attribution.integration.test.ts` then `pnpm vitest run src/app/api/dashboard/solicitation/attributed`
+Expected: attribution.integration now 20 passed; the route suite 1 passed.
 
 - [ ] **Step 4: Run the scope audits**
 
@@ -1368,10 +1380,10 @@ A one-star match renders identically to a five-star one — no filtering, no sep
 
 Add a `const ATTRIBUTED_PATH = '/api/dashboard/solicitation/attributed';` beside `BATCH_PATH`, fetch it with the existing `withSolicitationScope(...)` + `signal` shape, and render `<AttributedReviews … />` below the batch report. Do NOT add it to the 2-second build poll.
 
-- [ ] **Step 3: Fill in the three UI tests and run**
+- [ ] **Step 3: Unpark the five `AttributedReviews:` titles and `RequestsClient:`**
 
 Run: `pnpm vitest run src/app/\(authenticated\)/dashboard/requests/__tests__/attributed-reviews.test.tsx`
-Expected: 3 passed.
+Expected: 6 passed — the 5 `AttributedReviews:` titles and `RequestsClient:`.
 
 - [ ] **Step 4: Build and run the React check**
 
