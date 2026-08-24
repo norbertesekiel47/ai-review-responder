@@ -96,7 +96,9 @@
     "docs/directory.md",
     ".claude/reference/migrations-log.md",
     "docs/superpowers/plans/**",
-    "docs/reviews/**"
+    "docs/reviews/**",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "eval contract: every promised test executes with zero todo or skip cases",

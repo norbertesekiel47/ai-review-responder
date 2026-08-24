@@ -10,6 +10,28 @@ resets the counter to 0 and adds a row below.
 (entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
+### Merges since the 2026-08-24 pass
+
+One line per merge, written by the merging PR. The **count above** is bumped at
+merge by `/feature` step 8, not here — `ci:merge-ledger` audits the line, never
+the number.
+
+- **#632** — `review_attributed` shadow attribution. Migration 114 adds four
+  evidence columns to `solicitation_outreach`; a pure two-rule name matcher
+  attributes a newly ingested review to at most one Outreach row and **abstains
+  on ambiguity**; a new `solicitation_attribution` outbox topic and worker run
+  the lookback off the ingest transaction; the Requests surface gains a 30-day
+  section. The metric is **shadow and never billed**. Three notes for the next
+  pass: (a) `attribution.ts` is a new **review-subject** spine writer, now in
+  `outcome-anchor-pairing`'s `CALLER_ALLOWLIST` with an in-file `reviews FOR
+  UPDATE` — the plan imported `recordOutcome` by name and neither it nor four
+  review rounds caught the attached lock contract; only the full-suite gate did,
+  which is an argument for running it before the last task rather than after;
+  (b) the "already attributed" marker is `attributed_at`, never
+  `attributed_review_id`, across four sites, because the FK is `ON DELETE SET
+  NULL`; (c) migration 114 is **LOCAL-ONLY** — not applied to staging or
+  production, so `migration-immutability-guard.sh` does not yet protect it.
+
 > **The counter was CORRECT this time — the first pass in five for which that is
 > true.** The 2026-08-24 pass measured its window independently
 > (`42a247b1..0278366c`: 13 first-parent merges, 11 counting, 75 production

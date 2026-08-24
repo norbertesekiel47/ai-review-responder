@@ -31,6 +31,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
   'src/lib/solicitation/approval.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
+  'src/lib/solicitation/attribution.ts', // (#632) REVIEW subject, not a batch one — in-file reviews FOR UPDATE as attributeReview's first domain statement
   'src/lib/solicitation/auto-approval.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/dispatch.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS

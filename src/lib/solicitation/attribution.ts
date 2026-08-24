@@ -241,16 +241,26 @@ export async function attributeReview(
   }
   const accountId = biz.account_id;
 
-  const candidates = await loadCandidates(tx, { ...input, accountId });
+  // ANCHOR THE LOCK ORDER FIRST. This function ends in recordOutcome, which
+  // takes an agent_runs FK KEY SHARE that cycles with recordStep holders, so
+  // outcomes.ts's caller contract requires the reviews row FOR UPDATE before any
+  // later lock. process-review.ts owns the canonical order and veto.ts's header
+  // owns the deadlock analysis; this file is registered in that contract's
+  // CALLER_ALLOWLIST. The read was already here — it moved AHEAD of
+  // loadCandidates and gained FOR UPDATE, so the anchor is the first domain
+  // statement rather than an incidental read in the middle.
   const [review] = await tx<{ reviewer_name: string | null; star_rating: number | null }[]>`
     SELECT reviewer_name, star_rating FROM reviews
      WHERE id = ${input.reviewId}::uuid AND business_id = ${input.businessId}::uuid
+     FOR UPDATE
   `;
   // A missing review is a caller bug, not a replay: the enqueue happens in the
   // same transaction as the INSERT. Assert rather than branch.
   if (review === undefined) {
     throw new Error(`attributeReview: review ${input.reviewId} not found for business`);
   }
+
+  const candidates = await loadCandidates(tx, { ...input, accountId });
 
   const match = matchAttribution(review.reviewer_name, candidates);
   if (match.resolution !== 'attributed') return match;
