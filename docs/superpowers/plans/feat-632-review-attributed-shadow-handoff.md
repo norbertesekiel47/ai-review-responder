@@ -5,21 +5,21 @@
 
 ## Current step
 
-**Step 3 complete — the plan-review loop hit its three-round cap.**
-`planReviewRounds=3`. Awaiting the OWNER'S CALL, which substitutes for
-`APPROVED`. On that call: `bash scripts/feature-state.sh set-phase plan_approved`,
-then step 4.
+**Step 3 — round 4 is in flight under an explicit OWNER OVERRIDE of the cap.**
+`planReviewRounds=4`. The branch is UN-PARKED and `arm-check.sh` reports ARMED.
 
 | Round | Verdict | Record |
 |---|---|---|
 | 1 | `REVISE` | `docs/reviews/.../plan-round1-triage.md` — 22 accepted, 2 rejected |
 | 2 | `REVISE` | `plan-round2-triage.md` — 6 accepted, all verification failures |
 | 3 | `REVISE` | `plan-round3-triage.md` — 4 accepted, all mechanical |
+| 4 | in flight | verification-only, scoped to commit `b2cf606b` |
 
-Every finding is fixed and committed. **Round 3's fixes carry no reviewer
-verification** — they landed after the last round, which is the cap working as
-designed. Task 0's eval-contract test is the practical check on them: it fails
-loudly on the first run if the parked scan or the title budget is wrong.
+Rounds 1–3 are fixed and committed. Round 4 exists because **round 3's fixes
+carried no reviewer verification** — they landed after the last review. Round 4
+does not re-review the plan. It verifies exactly four things: that C1–C4 landed,
+that each fix closes the defect it names, and that no fix broke an adjacent
+part of the same document.
 
 The plan grew `tests_to_add` 26 → **54** and `allowed_edit_surface` 24 → **28**
 across the three rounds.
@@ -29,8 +29,9 @@ across the three rounds.
 > **without** a second increment. Correct form:
 > `codex exec --sandbox read-only --json --cd <dir> resume <thread-id> "<prompt>"`.
 
-> **Do not open a round 4.** The workflow forbids it. If something is still
-> wrong, it is an owner decision, or it surfaces in step 5's gate.
+> **The cap is 3. Round 4 is an owner override, not a precedent.** There is no
+> round 5. If round 4 returns `REVISE`, the findings are fixed and the remaining
+> position goes to the owner, or it surfaces in step 5's gate.
 
 ## Surface amendments spent: 1 of 2
 
@@ -75,14 +76,28 @@ Two schema calls made at plan time, recorded as deviations:
 - `attribution_rule TEXT` replaces the intake preview's `attribution_score NUMERIC(4,3)` — the locked rule is boolean, so a score column would ship with no writer.
 - `attribution_detail` carries **no PII** — no reviewer name, no contact name. Both survive the review's deletion otherwise, which the **Body redaction** discipline exists to prevent.
 
-## Owner-flagged item, still open
+## Owner-flagged item — CLOSED 2026-08-24
 
-The plan reads rule B as "one position is a full-token match, the other is
-initial-compatible", which makes `m. okafor` ~ `michael okafor` a match. The
-locked preview's literal wording was "first tokens equal", but its stated
-rejection rationale was "no shared full token". The plan takes the rationale as
-the contract and flags it. If the owner prefers the narrower literal reading,
-drop the `isInitial` arm from `compatible(firstA, firstB)` — one line, one test.
+**The owner chose the BROAD reading. Rule B stands as the plan already writes it.**
+
+`compatible(firstA, firstB)` **keeps** its `isInitial` arm, so `m. okafor`
+~ `michael okafor` matches with rule `first_last_initial`. The locked preview's
+literal wording was "first tokens equal", but its stated rejection rationale was
+"no shared full token", and the owner ruled the rationale is the contract.
+
+**No plan edit follows from this call.** The narrowing — dropping the `isInitial`
+arm from `compatible(firstA, firstB)` — is now a rejected alternative, not a
+pending follow-up. Delete it from the follow-ups list below if it is still there.
+
+Locked behaviour, for the record:
+
+| Contact | Reviewer | Result |
+|---|---|---|
+| `M. Okafor` | `Michael Okafor` | MATCH `first_last_initial` |
+| `Michael O.` | `Michael Okafor` | MATCH `first_last_initial` |
+| `Mike Okafor` | `Michael Okafor` | no match — `mike` ≠ `michael`, neither is an initial |
+| `D. Rodriguez` | `Dana R.` | no match — no full-token match on either position |
+| `Okafor` | `Michael Okafor` | no match — fewer than 2 tokens |
 
 ## Out-of-band at ship time (orchestrator, not a subagent)
 
@@ -93,17 +108,15 @@ that discovers it updates it.
 ## Follow-ups to file, deliberately not in this PR
 
 1. `already_reviewed` wiring in the batch builder.
-2. The mirror-rule narrowing, if the owner chooses it.
+
+> The mirror-rule narrowing was the second item here. The owner rejected it on
+> 2026-08-24. It is not a follow-up. Do not re-file it.
 
 ## THE BRANCH IS PARKED — un-park before doing anything else
 
-`.feature/intake.json` was renamed to `.feature/intake.parked.json` to end the
-session at the step 3-to-4 boundary. This was a conscious act, per the
-workflow's rule for parking red work: the gate CANNOT go green here, because
-`feature-surface` requires production files that Task 1 has not created yet.
-21 of 22 gate rows pass; `feature-surface` is the only red.
+`.feature/intake.json` is renamed to `.feature/intake.parked.json`.
 
-**To resume:**
+**Un-park:**
 
 ```bash
 cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-632-review-attributed-shadow
@@ -111,20 +124,39 @@ mv .feature/intake.parked.json .feature/intake.json
 bash scripts/arm-check.sh     # any DISARMED output means STOP and report
 ```
 
+**Why the park keeps happening at this boundary.** The verify gate CANNOT go
+green before Task 1, because `feature-surface` requires production files that do
+not exist yet. 21 of 22 rows pass; `feature-surface` is the only red, by design.
+The Stop hook skips any worktree with no `.feature/intake.json`, so the rename is
+the sanctioned way to end a turn while the gate is legitimately red. Every turn
+end before Task 1 needs it.
+
+**Discipline while parked: make no edits.** The rename also disarms the
+edit-surface guard. Un-park FIRST, confirm ARMED, then edit.
+
 Do not re-run `feature-setup.sh` — it would re-install the intake from the
 parent checkout, where no draft exists any more, and reset the round counter.
 
+**`state.json` repair, done on resume.** `headSha` read `d852482c` while HEAD was
+`f6d6c8b1`, and `intakeSha256` predated surface amendment #1. `incr-round` does
+not refresh either field; `set-phase` does. Both are now correct. Re-run
+`set-phase` after any commit run that does not change phase.
+
 ## Next actions
 
-1. Get the owner's call on the capped review loop. It substitutes for `APPROVED`.
-2. Then: `bash scripts/feature-state.sh set-phase plan_approved`.
-3. Then step 4 — `subagent-driven-development`. **Task 0 runs ALONE first.** After
+1. **Round 4 is in flight.** Wait for it. Write the report to
+   `docs/reviews/feat-632-review-attributed-shadow/plan-round4-codex.md` and the
+   triage to `plan-round4-triage.md`, matching the rounds 1–3 format.
+2. `APPROVED` → go to action 4. `REVISE` → fix every accepted finding, commit,
+   then the remaining position goes to the OWNER. **There is no round 5.**
+3. On the owner's go: `bash scripts/feature-state.sh set-phase plan_approved`.
+4. Then step 4 — `subagent-driven-development`. **Task 0 runs ALONE first.** After
    it completes, diff `git status --porcelain` against `allowed_edit_surface`; an
    out-of-surface path means enforcement did not bind for subagent tool calls —
    STOP and report, do not dispatch further tasks.
-4. After Task 0 passes, Task 1 → Task 2 → then **Task 3 and Task 4 may run as
+5. After Task 0 passes, Task 1 → Task 2 → then **Task 3 and Task 4 may run as
    concurrent subagents** (no blocking edge, disjoint files) → Task 5 → Task 6 →
    Task 7 → Task 8.
-5. `feature-surface` stays RED until Task 1 creates the first production file.
+6. `feature-surface` stays RED until Task 1 creates the first production file.
    That is expected, not a defect. A WIP push before then needs
    `git push --no-verify` (#867).
