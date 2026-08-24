@@ -725,3 +725,61 @@ count is words.
 The plan's Task 7 Step 4 calls for `react-doctor`. My task brief omitted it from
 the Verify list, and the agent flagged the omission rather than letting it pass as
 done. **Run it during the step 5 gate, not later.**
+
+---
+
+## D29 — migration 114 is logged **LOCAL-ONLY**, so the immutability hook still does not protect it
+
+**Stage:** execution (step 4), Task 8. **Read this before assuming the debt is closed.**
+
+The bookkeeping miss IS closed: `.claude/reference/migrations-log.md` now reads
+`Current head: **114** — next migration is **115**`, and the 114 entry exists.
+
+**But the hook is still not armed against 114.** The log's convention marks an
+unpromoted migration `LOCAL-ONLY`, and
+`.claude/hooks/migration-immutability-guard.sh` deliberately **exempts LOCAL-ONLY
+entries** from the head check. So 114 remains editable — exactly the state 113 is
+in on `main` today.
+
+**This is correct, not a miss.** Arming the hook now would mean dropping the
+LOCAL-ONLY marker, which would make the log claim a promotion that has not
+happened. A log that lies about what is deployed is worse than a hook that is not
+yet armed.
+
+**Owed at promotion, not before:** replace `LOCAL-ONLY` with the
+"Applied to STAGING … / PRODUCTION …" sentence in the promotion change. The hook
+arms itself at that moment.
+
+Migration 114 has been applied to the **local test container only**. Confirmed by
+reading `information_schema.columns` on `test_ws4`. No remote database was
+touched by any task in this run.
+
+---
+
+## D30 — three smaller Task 8 choices
+
+1. **House separator and house depth, not the plan's sketch.** The plan wrote
+   `- **Term** — definition` as one-liners. All 24 existing
+   `## Solicitation (send-mode)` entries use `- **Term**: definition` as single
+   long paragraphs carrying the *why* and the traps. Written to the house, not to
+   the sketch. Every clause the plan specified survives in substance.
+2. **`ATTRIBUTION_DISPLAY_WINDOW_DAYS` named in the glossary too.** The plan put
+   the 14-versus-30 distinction only in the directory row. **Attribution window**
+   is the term a reader reaches for when they meet a `30` in the read model, so
+   both constants are named there, each pointing at one owner.
+3. **No `#### worker/jobs/solicitation-attribution/` subsection.** The folder holds
+   one file. `solicitation-veto-notice/` has a subsection because it has four. One
+   row in the queue table satisfies the audit and matches how `csv-ingest` and
+   `solicitation-send` are handled at that size.
+
+**Two shape risks checked rather than assumed.** `claude-md-shape.test.ts` reads
+only `.claude/CLAUDE.md`, so a `CONTEXT.md` edit cannot trip it — nothing
+unrelated was trimmed to make room. And D17.3's single-owner audit filters to
+`/\.tsx?$/`, so markdown is out of scope; the anchor SQL was still not spelled
+literally, and **Review-time anchor** is named as the term instead.
+
+**The owner's match-rule decision reached the glossary intact.** The
+**Attribution match** entry states that compatible means equal OR one side is an
+initial the other starts with, **on either position**, gives `m. okafor` →
+`michael okafor` by name with its rule, and records the rejected narrow reading
+with its date so it cannot be re-litigated as a finding.
