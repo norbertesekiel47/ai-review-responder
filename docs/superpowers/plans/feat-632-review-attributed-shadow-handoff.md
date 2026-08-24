@@ -5,54 +5,32 @@
 
 ## Current step
 
-**Step 3 — plan review, round 2 in flight.** Not yet approved. Do not start
-Task 0 until the verdict lands.
+**Step 3 complete — the plan-review loop hit its three-round cap.**
+`planReviewRounds=3`. Awaiting the OWNER'S CALL, which substitutes for
+`APPROVED`. On that call: `bash scripts/feature-state.sh set-phase plan_approved`,
+then step 4.
 
-- **Round 1: `REVISE`.** A strong review. Triage and every accept/reject verdict:
-  `docs/reviews/feat-632-review-attributed-shadow/plan-round1-triage.md`.
-  Full report: `plan-round1-codex.md`. 22 findings accepted, 2 rejected.
-- **The revision is applied and committed** (`a0cc4946` + the follow-up).
-  `tests_to_add` grew 26 → **54**. `allowed_edit_surface` grew 24 → **28**.
-- **Round 2 is verification-only.** Brief: `<scratchpad>/632-plan-review-round2.md`.
-  Output: `<scratchpad>/632-plan-round2.jsonl`. Same codex thread.
+| Round | Verdict | Record |
+|---|---|---|
+| 1 | `REVISE` | `docs/reviews/.../plan-round1-triage.md` — 22 accepted, 2 rejected |
+| 2 | `REVISE` | `plan-round2-triage.md` — 6 accepted, all verification failures |
+| 3 | `REVISE` | `plan-round3-triage.md` — 4 accepted, all mechanical |
 
-> **Counter note.** `planReviewRounds=2`. Round 2's first dispatch died on a
-> codex CLI syntax error (`--sandbox` must precede `resume`, not follow it) and
-> produced no review, so it was retried **without** a second increment. Flags
-> before the subcommand: `codex exec --sandbox read-only --json --cd <dir>
-> resume <thread-id> "<prompt>"`.
+Every finding is fixed and committed. **Round 3's fixes carry no reviewer
+verification** — they landed after the last round, which is the cap working as
+designed. Task 0's eval-contract test is the practical check on them: it fails
+loudly on the first run if the parked scan or the title budget is wrong.
 
-> **After round 3 the loop STOPS.** Surface the remaining disagreement to the
-> owner with both positions; their call substitutes for APPROVED.
+The plan grew `tests_to_add` 26 → **54** and `allowed_edit_surface` 24 → **28**
+across the three rounds.
 
-## Read these, in this order — never the prior transcript
+> **Counter note.** Round 2's first dispatch died on a codex CLI syntax error
+> (`--sandbox` must precede `resume`) and produced no review, so it was retried
+> **without** a second increment. Correct form:
+> `codex exec --sandbox read-only --json --cd <dir> resume <thread-id> "<prompt>"`.
 
-| What | Path |
-|---|---|
-| Locked intake contract | `.feature/intake.json` (audit copy in `docs/superpowers/plans/feat-632-review-attributed-shadow-intake.json`) |
-| The plan | `docs/superpowers/plans/2026-08-24-feat-632-review-attributed-shadow.md` |
-| Governing spec (D14/D16) | `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md` |
-| Reference design | `docs/future-plans/2026-05-22-saas-2-0-vertical-agent-platform-design.md` §6.3–6.4 |
-| Binding amendments | `docs/superpowers/specs/2026-07-28-send-mode-cross-spec-amendments.md` |
-| Glossary | `CONTEXT.md` → **Solicitation (send-mode)** |
-| Machine state | `.feature/state.json` |
-| Deviations | `docs/superpowers/plans/feat-632-review-attributed-shadow-deviations.md` |
-
-## Gate status at the start of this run
-
-- #900 (the blocker) CLOSED 2026-08-23. Map #617's execution gate OPEN since 2026-07-28.
-- Migration head 113; **114 is free and this ticket claims it**.
-- Enforcement ARMED. No cross-worktree surface overlap.
-
-## Plan review — round 1
-
-- Counter: `planReviewRounds=1` (`.feature/state.json`).
-- Dispatched via direct `codex exec --sandbox read-only --json`.
-- **Codex thread id: `01a0353b-3877-78d3-858a-c36c8fc5b35a`**
-- Brief: `<scratchpad>/632-plan-review-brief.md`
-- Raw output: `<scratchpad>/632-plan-round1.jsonl`
-- A first foreground attempt was killed by the 10-minute cap. The background
-  re-run is the authoritative one.
+> **Do not open a round 4.** The workflow forbids it. If something is still
+> wrong, it is an owner decision, or it surfaces in step 5's gate.
 
 ## Surface amendments spent: 1 of 2
 
