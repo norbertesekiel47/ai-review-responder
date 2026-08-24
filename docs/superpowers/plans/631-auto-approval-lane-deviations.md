@@ -379,3 +379,44 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   auto-approval.integration + tenant-scope/lint/typecheck) is fully green.
   VERDICT: pending — needs a follow-up assignment before the branch's
   `pnpm test` gate can pass.
+
+## Step 6 deviations read-back (2026-08-24) — orchestrator verdicts
+
+Every `pending` entry above is closed here. No entry invalidates a locked
+intake decision; nothing triggers RE-PLAN.
+
+- Task 4 / interim queue-routing red — ACCEPT (resolved by Task 5's
+  registration; queue-routing green since `f401bb2f`).
+- Task 4 / suite-local schema requirement — ACCEPT (resolved by Task 6's
+  hoist into schema-ready.ts).
+- Task 5 / template-file + runbook broadening — ACCEPT (inside the
+  pre-approved amendment-1 surface; matches the 6 sibling notice families).
+- Task 6 / duplicated spine writer — ACCEPT as a historical record (deleted
+  by Task 7 fix A; the single-writer convention holds at HEAD).
+- Task 6 / anchor returns {handled, failed} — ACCEPT (the tallyPhase
+  contract wins over the plan's prose). The locally duplicated
+  isolateAnchorItem (circular-import avoidance) is flagged to the step 7
+  standards review as a possible extraction.
+- Task 6 / tenant-scope prep — ACCEPT (superseded by Task 7 fix B).
+- Task 8 / tier-only refusal over autopilotPurchasable — ACCEPT (the plan's
+  explicit formula; PATCH and GET availability cannot disagree; an existing
+  Autopilot subscriber can opt in during a sales pause).
+- Task 8 / exposure classification for dial widening — ACCEPT (the
+  restraint-only D20 principle applied at the write seam; disable-DELETE is
+  laundering-safe because suspension lives on the Reply account-default row
+  and the gate reads suspension account-WIDE).
+- Task 7 / fix A attribution ('solicitation' + detail actor:'system') —
+  ACCEPT (equivalence proven: committed tests re-ran green unchanged).
+- Task 7 / fix B three entries, baseline 393 — ACCEPT (the audit fails on
+  unused entries; measured, not guessed).
+- Task 7 / confirmReason resolver on downgradeApproval — ACCEPT (the only
+  shape satisfying decisions 6 and 7 together; the auto lane's own Sentry
+  title is an improvement; Judge arm byte-identical, its tests untouched).
+- Task 7 / releaseOutreachRow 3-member union + per-batch auto_conditions
+  counting — ACCEPT (matches the withholdByReason per-act convention).
+- Task 7 / pre-existing ask-generation.test.ts red — ACCEPT (resolved by the
+  follow-up fixes `6e0267ea` + `4a310289`; whole suite 40/40, and the
+  flag-first reorder removed the unconditional account lock from every
+  flag-off finale).
+- Step 5 finale / two owner overrides — ACCEPT (recorded above with the
+  owner's calls).
