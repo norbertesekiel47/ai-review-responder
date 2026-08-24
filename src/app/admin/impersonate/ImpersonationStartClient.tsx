@@ -1,91 +1,61 @@
 'use client';
 
-import { FormEvent, useReducer } from 'react';
+import { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAdminActionForm } from '@/hooks/useAdminActionForm';
 
-interface ImpersonationState {
+interface ImpersonationFields {
   accountId: string;
   impersonatedUserId: string;
   ticketId: string;
   reason: string;
-  error: string | null;
-  submitting: boolean;
-}
-
-type ImpersonationAction =
-  | { type: 'setAccountId'; value: string }
-  | { type: 'setImpersonatedUserId'; value: string }
-  | { type: 'setTicketId'; value: string }
-  | { type: 'setReason'; value: string }
-  | { type: 'submitStart' }
-  | { type: 'submitError'; error: string }
-  | { type: 'submitDone' };
-
-const initialState: ImpersonationState = {
-  accountId: '',
-  impersonatedUserId: '',
-  ticketId: '',
-  reason: '',
-  error: null,
-  submitting: false,
-};
-
-function reducer(state: ImpersonationState, action: ImpersonationAction): ImpersonationState {
-  switch (action.type) {
-    case 'setAccountId':
-      return { ...state, accountId: action.value };
-    case 'setImpersonatedUserId':
-      return { ...state, impersonatedUserId: action.value };
-    case 'setTicketId':
-      return { ...state, ticketId: action.value };
-    case 'setReason':
-      return { ...state, reason: action.value };
-    case 'submitStart':
-      return { ...state, error: null, submitting: true };
-    case 'submitError':
-      return { ...state, error: action.error };
-    case 'submitDone':
-      return { ...state, submitting: false };
-  }
 }
 
 export function ImpersonationStartClient() {
   const router = useRouter();
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const { accountId, impersonatedUserId, ticketId, reason, error, submitting } = state;
+  // No success channel, and the default `TOutcome = never` says so in the type
+  // rather than in a comment: this form navigates away on success, so there is
+  // nothing for it to announce and `succeed` is uncallable.
+  const form = useAdminActionForm<ImpersonationFields>({
+    accountId: '',
+    impersonatedUserId: '',
+    ticketId: '',
+    reason: '',
+  });
+  const { accountId, impersonatedUserId, ticketId, reason } = form.fields;
+  const { error, busy: submitting } = form;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    dispatch({ type: 'submitStart' });
 
-    try {
-      const res = await fetch('/api/admin/impersonation/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: accountId.trim(),
-          impersonatedUserId: impersonatedUserId.trim(),
-          ticketId: ticketId.trim(),
-          reason: reason.trim(),
-        }),
-      });
-      const json = await res.json().catch(() => ({})) as {
-        viewUrl?: string;
-        error?: string;
-      };
+    await form.run(async () => {
+      try {
+        const res = await fetch('/api/admin/impersonation/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: accountId.trim(),
+            impersonatedUserId: impersonatedUserId.trim(),
+            ticketId: ticketId.trim(),
+            reason: reason.trim(),
+          }),
+        });
+        const json = await res.json().catch(() => ({})) as {
+          viewUrl?: string;
+          error?: string;
+        };
 
-      if (!res.ok || !json.viewUrl) {
-        dispatch({ type: 'submitError', error: json.error ?? `HTTP ${res.status}` });
-        return;
+        if (!res.ok || !json.viewUrl) {
+          form.fail(json.error ?? `HTTP ${res.status}`);
+          return;
+        }
+
+        router.push(json.viewUrl);
+      } catch (err) {
+        console.error('[ImpersonationStartClient] start failed:', err);
+        form.fail('Failed to start impersonation session.');
       }
-
-      router.push(json.viewUrl);
-    } catch (err) {
-      console.error('[ImpersonationStartClient] start failed:', err);
-      dispatch({ type: 'submitError', error: 'Failed to start impersonation session.' });
-    } finally {
-      dispatch({ type: 'submitDone' });
-    }
+    });
   }
 
   return (
@@ -105,7 +75,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={accountId}
-            onChange={(event) => dispatch({ type: 'setAccountId', value: event.target.value })}
+            onChange={(event) => form.set('accountId', event.target.value)}
             className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
@@ -115,7 +85,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={impersonatedUserId}
-            onChange={(event) => dispatch({ type: 'setImpersonatedUserId', value: event.target.value })}
+            onChange={(event) => form.set('impersonatedUserId', event.target.value)}
             className="rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
@@ -125,7 +95,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={ticketId}
-            onChange={(event) => dispatch({ type: 'setTicketId', value: event.target.value })}
+            onChange={(event) => form.set('ticketId', event.target.value)}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
@@ -135,7 +105,7 @@ export function ImpersonationStartClient() {
           <input
             type="text"
             value={reason}
-            onChange={(event) => dispatch({ type: 'setReason', value: event.target.value })}
+            onChange={(event) => form.set('reason', event.target.value)}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
             required
           />
