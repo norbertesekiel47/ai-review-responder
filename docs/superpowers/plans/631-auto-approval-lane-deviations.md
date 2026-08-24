@@ -72,6 +72,18 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   match (intake-field correction, not an amendment).
 - Appendix nit (Task 5 title count 6 → 7) — ACCEPT, fixed.
 
+## Task 2 execution (2026-08-23)
+
+- [2026-08-23] **Surface amendment 1 of 2 against intake rev 2 (auto-approved
+  class).** The `ci:merge-ledger` audit (#896, landed 2026-08-23 — AFTER this
+  intake was drafted) fails any production-diff PR that adds no line to
+  `.claude/reference/arch-review-log.md`. That file was missing from the
+  surface. Added it: a ≤2-file addition inside the `.claude/reference/`
+  registry directory the intake already edits (env-vars.md, migrations-log.md),
+  and the edit is mandated by the workflow's own audit. Ledger row for #631
+  added (PR number to be filled at step 8). Both intake copies updated.
+  VERDICT: ACCEPT.
+
 ## Task 1 execution (2026-08-23)
 
 - [2026-08-23] #656 promised-test integrity meta-test (postal-address.test.ts:70)

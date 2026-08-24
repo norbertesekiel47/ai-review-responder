@@ -237,6 +237,18 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   tally deliberately keeps `=== 'closed'` (events, not receipts) with a pointer comment;
   `ApprovalPanel.tsx`'s false verbs-comment corrected. Exhaustiveness-pinned unit suite +
   three route-level `no_send_parent → closed:false` pins. **Counts: +1 production merge.**
+- **feat #631** — Auto-approval lane: Autopilot batches behind flag, Judge-gated,
+  veto-windowed (2026-08-23, branch `631-auto-approval-lane`; PR number lands at
+  step 8). One new deep module `src/lib/solicitation/auto-approval.ts` (four-condition
+  gate D20 + account-wide Governor read D19, `auto_policy` approval verb at the
+  ask-generation finale, **Veto anchor** on first-sent notice, release-time re-check
+  with reason-parameterized downgrade split); new `worker/jobs/solicitation-veto-notice/`
+  family (pending-post-notice clone); migration **113** (index-only: veto-notice outbox
+  in-flight + delivery-claim); `SOLICITATION_AUTO_APPROVAL_ENABLED` (default OFF
+  everywhere — lands inert); settings opt-in operations + Solicitation card on
+  /settings/auto-approval. Three-round codex plan review (REVISE→REVISE→APPROVED);
+  intake re-locked rev 2 mid-plan (anchor semantic, B14/B15 reasons, resend
+  OWNER_DIRECTED_TEMPLATES). **Counts: +1 production merge.**
 - **PR #935** — #896 part 1, `ci:merge-ledger` (2026-08-23). The audit this very row
   satisfies: a PR whose diff changes a non-test file under `src/`/`worker/`/`supabase/`,
   or any path on the governance surface, must add a line here or fail CI on the merging

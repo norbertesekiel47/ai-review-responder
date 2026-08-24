@@ -91,6 +91,7 @@
     "docs/adr/**",
     ".claude/reference/env-vars.md",
     ".claude/reference/migrations-log.md",
+    ".claude/reference/arch-review-log.md",
     "CONTEXT.md"
   ],
   "tests_to_add": [
