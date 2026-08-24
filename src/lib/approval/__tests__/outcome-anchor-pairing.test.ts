@@ -31,6 +31,7 @@ const CALLER_ALLOWLIST = new Set([
   'src/lib/reviews/triage.ts', // in-file reviews FOR UPDATE as tx statement #1 (persistTriage)
   'src/lib/solicitation/approval.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/ask-generation.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
+  'src/lib/solicitation/auto-approval.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/dispatch.ts', // solicitation_ask subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/outreach.ts', // solicitation_batch subject — see NON_REVIEW_SUBJECT_CALLERS
   'src/lib/solicitation/release.ts', // solicitation_send_batch subject — see NON_REVIEW_SUBJECT_CALLERS
@@ -201,9 +202,59 @@ const LOCK_HELD_BY_CALLER = new Set([
 // the batch row. Note in particular that `readSendBreaker`, `isJudgeHealthy` and
 // both cap counters run ABOVE every transaction with no lock held — moving any
 // of them inside would hold the batch row across a platform-wide scan.
+// (#631 added one lock to its auto-lane paths: `lockAutonomyAccount`'s
+// accounts row FOR UPDATE, taken inside `applyAutoDowngrade`'s confirm hook
+// and `releaseOutreachRow`, strictly AFTER the batch lock and BEFORE any
+// agent_runs touch — batch → account → run, so the entry's batch → run claim
+// is unchanged. See the auto-approval.ts entry below for why that exclusive
+// accounts lock cannot close a cycle onto the reviews lane.)
+//
+// src/lib/solicitation/auto-approval.ts (#631) — subject
+// `solicitation_send_batch`, the same Send batch parent as its lane siblings.
+// Its two recordStep call sites, with each transaction's actual lock order:
+//
+//   1. `batch_approved` (autoApproveBatch), reached ONLY from the
+//      ask-generation finale transaction via runFinaleAutoApproval (locked
+//      decision 1; the caller contract is in the file). That tx holds, in
+//      order: the outbox CAS, the per-business advisory lock, the
+//      solicitation_batches row FOR UPDATE (all three the ask-generation.ts
+//      entry above documents), then the accounts row FOR UPDATE
+//      (`lockAutonomyAccount`, the documented batch-then-account order), and
+//      only THEN recordStep's agent_runs FOR UPDATE — batch → run holds, and
+//      the run lock is the transaction's last.
+//   2. `veto_window_granted` (anchorOneBatch, the Veto anchor). Its own
+//      per-candidate transaction takes the solicitation_batches row
+//      FOR UPDATE as its FIRST statement, then recordStep's agent_runs lock —
+//      batch → run again. NO account lock on this path: the anchor writes no
+//      policy-gated state, and the deadline CAS re-asserts approval_method
+//      and the halt/close columns under the batch lock instead.
+//
+// The divergence from every lane sibling, stated rather than papered over
+// (the approval.ts entry above is the precedent for recording one): the
+// finale path DOES take an exclusive accounts row lock — the same
+// `lockAutonomyAccount` serialization the Settings and Governor writers take,
+// which is the point (plan decision 3: no opt-out or suspension can commit
+// between the condition read and the approval CAS). It is cycle-free against
+// the reviews lane for the directional reason the weekly entry's key-share
+// note establishes: a reviews-lane spine INSERT's implicit FK FOR KEY SHARE
+// on accounts can WAIT behind this exclusive lock, but this transaction
+// afterwards waits only on its own send parent's agent_runs row and on
+// solicitation tables — rows no reviews-lane tx ever holds — so the wait is
+// one-directional and no cycle can close back onto it. NEITHER path touches
+// reviews or responses rows, and no businesses row lock is taken, so the
+// reviews-before-response deadlock analysis is vacuous for this file exactly
+// as it is for release.ts's entry above.
+//
+// Same forward-looking warning as the entries above, plus one of its own: it
+// must not grow a reviews/businesses FOR UPDATE, no path may lock an
+// agent_runs row before the batch row, and the account lock must STAY after
+// the batch lock — an account-before-batch path would be an ABBA pair against
+// release.ts's #631 arms and the finale itself, which are single-ordered
+// batch → account.
 const NON_REVIEW_SUBJECT_CALLERS = new Set([
   'src/lib/solicitation/approval.ts',
   'src/lib/solicitation/ask-generation.ts',
+  'src/lib/solicitation/auto-approval.ts',
   'src/lib/solicitation/dispatch.ts',
   'src/lib/solicitation/outreach.ts',
   'src/lib/solicitation/release.ts',
@@ -259,6 +310,7 @@ describe('spine anchor-pairing contract: recordOutcome/recordStep/completeRun ca
     expect([...NON_REVIEW_SUBJECT_CALLERS]).toEqual([
       'src/lib/solicitation/approval.ts',
       'src/lib/solicitation/ask-generation.ts',
+      'src/lib/solicitation/auto-approval.ts',
       'src/lib/solicitation/dispatch.ts',
       'src/lib/solicitation/outreach.ts',
       'src/lib/solicitation/release.ts',
