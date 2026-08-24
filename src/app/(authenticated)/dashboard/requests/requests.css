@@ -529,6 +529,100 @@
   flex: 1 1 260px;
 }
 
+/* ---------- Reviews from your requests (#632) ---------- */
+
+/* Sits BELOW the batch screen and outside .rq-stack, so — like .rq-approval —
+   it carries the stack's own 20px rhythm itself instead of inheriting a gap. */
+.rq-attributed { margin-top: 20px; }
+
+/* Shares .rq-hero-head with the funnel, so the window label rides the right
+   edge of the heading line exactly as the watch-mode pill does. Quiet type
+   rather than a pill: the window is context, not a status. */
+.rq-attributed-window {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+  white-space: nowrap;
+}
+
+/* The shadow-metric disclosure. Recessed rather than washed with a semantic
+   colour: it is a caveat about how the number is made, not a warning. */
+.rq-attributed-note {
+  margin: 10px 0 16px 0;
+  padding: 11px 13px;
+  border-radius: var(--rw-radius-md);
+  background: var(--rw-recess);
+  border: 1px solid var(--rw-hair);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--rw-app-text-muted);
+}
+
+.rq-attributed-count {
+  margin: 0 0 4px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rq-attributed-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* One row per match, and EVERY row is this row: the rating changes the star
+   run and nothing else, so a one-star match cannot be styled apart from a
+   five-star one (the sentiment-blind decision, in CSS). */
+.rq-attributed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--rw-hair);
+}
+.rq-attributed-row:last-child { border-bottom: none; }
+
+.rq-attributed-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  overflow-wrap: anywhere;
+}
+
+/* --rw-star is the review-rating glyph and nothing else. The unfilled run is
+   the same glyph in the muted register, so the shape carries the rating even
+   with colour removed — and the aria-label carries it for a screen reader. */
+.rq-attributed-stars {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  color: var(--rw-star);
+  white-space: nowrap;
+}
+.rq-attributed-stars-rest { color: var(--rw-hair-2); }
+
+.rq-attributed-stars-none {
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+}
+
+.rq-attributed-dates {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--rw-app-text-muted);
+  white-space: nowrap;
+}
+
+/* Empty and unreadable share one quiet treatment: neither is a failure the
+   owner has to act on, and an alarm here would outrank the batch screen. */
+.rq-attributed-state {
+  margin: 0;
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+
 /* ---------- Loading / error / gone ---------- */
 
 .rq-state-body {
@@ -587,6 +681,8 @@
   .rq-watch-pill { margin-left: 0; }
   .rq-group-count { margin-left: 0; }
   .rq-ask-status { margin-left: 0; }
+  .rq-attributed-window { margin-left: 0; }
+  .rq-attributed-dates { margin-left: 0; flex: 1 0 100%; }
   .rq-ask-regen,
   .rq-ask-withdraw { flex: 1 0 100%; }
 }

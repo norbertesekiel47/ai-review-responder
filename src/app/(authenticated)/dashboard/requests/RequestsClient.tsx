@@ -6,8 +6,10 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { BatchView } from '@/lib/solicitation/batch-view';
+import type { AttributedReviewView } from '@/lib/solicitation/attribution';
 import { ApprovalPanel } from './ApprovalPanel';
 import type { LaneRefresh, LaneWriteOutcome } from './lane-writes';
+import { AttributedReviews, type AttributedReviewsView } from './AttributedReviews';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
 import './requests.css';
@@ -23,6 +25,9 @@ import './requests.css';
 
 const BATCH_PATH = '/api/dashboard/solicitation/batch';
 const REVIEWED_PATH = '/api/dashboard/solicitation/batch/reviewed';
+/** Its OWN route, deliberately not folded into BATCH_PATH: that GET is polled
+ *  every 2s while a batch builds, and attribution spans batches. */
+const ATTRIBUTED_PATH = '/api/dashboard/solicitation/attributed';
 
 /** UploadCard's cadence and ceiling — one owner would be better, but the two
  *  surfaces poll different routes for different reasons, so they are pinned
@@ -84,6 +89,7 @@ function noLaneSentence(scope: string): LaneSentence {
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
   const { phase, announcement, refetch } = useLatestBatch(currentScope);
+  const attributed = useAttributedReviews(currentScope);
   const [lane, setLane] = useState<LaneSentence>(() => noLaneSentence(currentScope));
 
   const builtBatchId =
@@ -164,12 +170,20 @@ export function RequestsClient() {
         {currentScope === 'all' ? (
           <ChooseLocation />
         ) : (
-          <Screen
-            phase={phase}
-            scope={currentScope}
-            onReload={reload}
-            onLaneChanged={onLaneChanged}
-          />
+          <>
+            <Screen
+              phase={phase}
+              scope={currentScope}
+              onReload={reload}
+              onLaneChanged={onLaneChanged}
+            />
+            {/* BELOW the batch screen and OUTSIDE it: attribution spans
+                batches, so the section is a function of the location alone and
+                renders in every batch-build state — including the states that
+                have no batch at all. Putting it inside `Screen` would tie an
+                across-batches list to whichever batch happens to be latest. */}
+            <AttributedReviews view={attributed} />
+          </>
         )}
       </div>
     </>
@@ -561,6 +575,84 @@ async function fetchLatestBatch(
   } catch (error) {
     if (signal.aborted) return null;
     console.error('[requests] batch fetch could not reach the server', error);
+    return { kind: 'error' };
+  }
+}
+
+// ── Attributed reviews ──────────────────────────────────────────────────────
+
+const ATTRIBUTED_LOADING: AttributedReviewsView = { kind: 'loading' };
+
+/**
+ * One read per location scope, and NOT part of the 2-second build poll: the
+ * batch loop exists to watch a build finish, attribution lands days later, and
+ * putting a cross-batch read on that cadence would re-run it up to 150 times
+ * while a batch builds.
+ *
+ * Keyed by scope and aborted on switch for the same reason the batch loop is —
+ * a superseded location's late answer must never be rendered against the
+ * location the owner switched to.
+ */
+function useAttributedReviews(currentScope: string): AttributedReviewsView {
+  const [state, setState] = useState<{ scope: string; view: AttributedReviewsView }>({
+    scope: currentScope,
+    view: ATTRIBUTED_LOADING,
+  });
+
+  useEffect(() => {
+    // The API rejects aggregate scope with a 400, so it is never asked — and
+    // the aggregate screen renders no location-scoped section at all.
+    if (currentScope === 'all') return;
+
+    const controller = new AbortController();
+    let stopped = false;
+
+    void (async () => {
+      const view = await fetchAttributed(currentScope, controller.signal);
+      if (stopped || view === null) return;
+      setState({ scope: currentScope, view });
+    })();
+
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [currentScope]);
+
+  // A view belonging to a superseded scope reads as loading, exactly as the
+  // batch phase does, so no reset effect is needed on switch.
+  return state.scope === currentScope ? state.view : ATTRIBUTED_LOADING;
+}
+
+/** Returns null only when the request was aborted — the caller then commits
+ *  nothing, because the scope it belonged to is no longer on screen. */
+async function fetchAttributed(
+  scope: string,
+  signal: AbortSignal,
+): Promise<AttributedReviewsView | null> {
+  try {
+    const response = await fetch(withSolicitationScope(ATTRIBUTED_PATH, scope), {
+      signal,
+    });
+    // 404 (watch-mode off, or the location no longer resolves) and 401 (the
+    // dashboard's own auth redirect owns it) both mean the section does not
+    // exist for this owner right now — the SAME outcome as the send flag being
+    // off, and deliberately indistinguishable from it (invariant #13).
+    if (response.status === 404 || response.status === 401) {
+      return { kind: 'ready', enabled: false, reviews: [] };
+    }
+    if (!response.ok) {
+      console.error(`[requests] attributed fetch failed with ${response.status}`);
+      return { kind: 'error' };
+    }
+    const body = (await response.json()) as {
+      enabled: boolean;
+      attributed: AttributedReviewView[];
+    };
+    return { kind: 'ready', enabled: body.enabled, reviews: body.attributed };
+  } catch (error) {
+    if (signal.aborted) return null;
+    console.error('[requests] attributed fetch could not reach the server', error);
     return { kind: 'error' };
   }
 }

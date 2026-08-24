@@ -44,6 +44,34 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const NO_CONTENT = { status: 204, ok: true, json: async () => null } as Response;
 
+/**
+ * Every fetch stub in this suite is installed through here.
+ *
+ * The Requests screen also reads the attributed-reviews endpoint (#632) — once
+ * per location, off the build poll, and independently of batch-build state. A
+ * suite whose stubs answer by call INDEX (`mockResolvedValueOnce` chains,
+ * `routedFetch`) would hand that read the next scripted BATCH view and shift
+ * every later answer by one; a suite that counts calls would count it. Neither
+ * is a fact about the batch screen these cases are written about.
+ *
+ * So the wrapper answers the attributed read itself with the send-flag-off
+ * body — the section then renders nothing, exactly as it does in prod today
+ * (SOLICITATION_SEND_ENABLED is off) — and forwards everything else to the
+ * caller's own mock, which is what each test keeps asserting on. The one case
+ * that IS about this endpoint lives in attributed-reviews.test.tsx and stubs
+ * fetch directly.
+ */
+function stubFetch<T extends (...args: never[]) => unknown>(inner: T): T {
+  const forward = inner as unknown as (u: string, i?: RequestInit) => unknown;
+  const outer = vi.fn().mockImplementation((url: string, init?: RequestInit) =>
+    String(url).includes('/solicitation/attributed')
+      ? Promise.resolve(jsonResponse(200, { enabled: false, attributed: [] }))
+      : forward(url, init),
+  );
+  vi.stubGlobal('fetch', outer);
+  return inner;
+}
+
 function noBatchView(contactsOnFile = 1240): BatchView {
   return { state: 'no_batch', contactsOnFile };
 }
@@ -168,7 +196,7 @@ afterEach(() => {
 
 describe('RequestsClient — batch absent and building', () => {
   it('renders the ghost pipeline empty state with the contacts-on-file count when no batch exists', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, noBatchView(1240))));
+    stubFetch(vi.fn().mockResolvedValue(jsonResponse(200, noBatchView(1240))));
     render(<RequestsClient />);
     await flush();
 
@@ -195,7 +223,7 @@ describe('RequestsClient — batch absent and building', () => {
   });
 
   it('omits the contacts-on-file line when the location has no contacts', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, noBatchView(0))));
+    stubFetch(vi.fn().mockResolvedValue(jsonResponse(200, noBatchView(0))));
     render(<RequestsClient />);
     await flush();
 
@@ -205,7 +233,7 @@ describe('RequestsClient — batch absent and building', () => {
 
   it('renders the building state while built_at is null and stops polling at the ceiling', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, buildingView()));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -226,8 +254,7 @@ describe('RequestsClient — batch absent and building', () => {
   });
 
   it('renders a zero-queued funnel rather than the empty state when a built batch has no asks', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       vi
         .fn()
         .mockResolvedValueOnce(jsonResponse(200, builtView()))
@@ -248,7 +275,7 @@ describe('RequestsClient — batch absent and building', () => {
 
 describe('RequestsClient — loading, scope, failure', () => {
   it('renders a busy loading state while the first fetch is in flight', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
+    stubFetch(vi.fn().mockImplementation(() => new Promise(() => {})));
     render(<RequestsClient />);
 
     const loading = screen.getByText(/loading the latest batch/i);
@@ -258,7 +285,7 @@ describe('RequestsClient — loading, scope, failure', () => {
   it('issues zero fetches in aggregate location scope', async () => {
     scope.current = 'all';
     const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -272,7 +299,7 @@ describe('RequestsClient — loading, scope, failure', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(500, {}))
       .mockResolvedValueOnce(jsonResponse(200, noBatchView(3)));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -297,7 +324,7 @@ describe('RequestsClient — loading, scope, failure', () => {
       configurable: true,
       value: { ...window.location, reload },
     });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, {})));
+    stubFetch(vi.fn().mockResolvedValue(jsonResponse(404, {})));
     render(<RequestsClient />);
     await flush();
 
@@ -313,7 +340,7 @@ describe('RequestsClient — loading, scope, failure', () => {
 
   it('leaves a 401 to the dashboard auth redirect instead of showing an error', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(401, {}));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -334,7 +361,7 @@ describe('RequestsClient — loading, scope, failure', () => {
           }),
       )
       .mockResolvedValue(jsonResponse(200, noBatchView(7)));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
 
     const { rerender } = render(<RequestsClient />);
     await flush();
@@ -359,7 +386,7 @@ describe('RequestsClient — loading, scope, failure', () => {
     // The precedent's inFlight-first guard would wedge here forever: inFlight
     // stays true, so no later tick ever reaches the deadline check.
     const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -391,16 +418,16 @@ describe('RequestsClient — contacts reachable from the header', () => {
   // screens — including the one an owner sits on right after uploading — have
   // no path to it at all.
   const states: Array<[string, () => void]> = [
-    ['no batch', () => vi.stubGlobal('fetch', routedFetch([noBatchView(0)]))],
-    ['building', () => vi.stubGlobal('fetch', routedFetch([buildingView()]))],
-    ['built', () => vi.stubGlobal('fetch', routedFetch([builtView()]))],
-    ['error', () => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(500, {})))],
-    ['unavailable', () => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, {})))],
+    ['no batch', () => stubFetch(routedFetch([noBatchView(0)]))],
+    ['building', () => stubFetch(routedFetch([buildingView()]))],
+    ['built', () => stubFetch(routedFetch([builtView()]))],
+    ['error', () => stubFetch(vi.fn().mockResolvedValue(jsonResponse(500, {})))],
+    ['unavailable', () => stubFetch(vi.fn().mockResolvedValue(jsonResponse(404, {})))],
     [
       'aggregate scope',
       () => {
         scope.current = 'all';
-        vi.stubGlobal('fetch', vi.fn());
+        stubFetch(vi.fn());
       },
     ],
   ];
@@ -424,8 +451,7 @@ describe('RequestsClient — completion announcement', () => {
     // A live region only announces a CHANGE. Setting the identical string a
     // second time is a React bail-out and screen-reader users hear nothing, so
     // the message has to be cleared between transitions.
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       routedFetch([buildingView(), builtView({ batchId: 'batch-1' }), buildingView(), builtView({ batchId: 'batch-2' })]),
     );
 
@@ -450,7 +476,7 @@ describe('RequestsClient — completion announcement', () => {
   });
 
   it('stays silent for a batch that was already built when the screen opened', async () => {
-    vi.stubGlobal('fetch', routedFetch([builtView()]));
+    stubFetch(routedFetch([builtView()]));
     render(<RequestsClient />);
     await flush();
 
@@ -491,8 +517,7 @@ describe('RequestsClient — the approval lane and the live region', () => {
     // The counter-example the old inline comment called impossible: the loop's
     // building → built announcement CAN follow an approval — on another
     // location.
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       laneFetch(
         [
           buildingView(),
@@ -530,8 +555,7 @@ describe('RequestsClient — the approval lane and the live region', () => {
     // edge_cases[13]. The write was made about loc-1; it may not speak for
     // loc-2 just because it landed late.
     let settle: ((value: Response) => void) | undefined;
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       laneFetch(
         [approvableView('batch-1'), builtView({ batchId: 'batch-2' })],
         () =>
@@ -564,7 +588,7 @@ describe('RequestsClient — the approval lane and the live region', () => {
       [approvableView('batch-1'), approvableView('batch-1')],
       () => Promise.reject(new Error('network down')),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
 
     render(<RequestsClient />);
     await flush();
@@ -635,8 +659,7 @@ describe('RequestsClient — the regenerate lane', () => {
   it('keeps every deselection when a regeneration refetches the batch', async () => {
     const ana = renderedAttempt('1', 'Ana');
     const bo = renderedAttempt('2', 'Bo');
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       regenerateFetch([
         approvableView('batch-1', { attempts: [ana, bo] }),
         approvableView('batch-1', {
@@ -675,8 +698,7 @@ describe('RequestsClient — the regenerate lane', () => {
 
   it('reports that nothing changed when a regeneration settles without a new attempt', async () => {
     const ana = renderedAttempt('1', 'Ana');
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       regenerateFetch([
         approvableView('batch-1', { attempts: [ana] }),
         approvableView('batch-1', {
@@ -721,8 +743,7 @@ describe('RequestsClient — the regenerate lane', () => {
       body: 'A completely different way of asking.',
     });
 
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       regenerateFetch([
         approvableView('batch-1', { attempts: [ana] }),
         approvableView('batch-1', { attempts: [landed] }),
@@ -742,8 +763,7 @@ describe('RequestsClient — the regenerate lane', () => {
     unmount();
 
     // The same shape, refused: settled just as fast, attempt still 1.
-    vi.stubGlobal(
-      'fetch',
+    stubFetch(
       regenerateFetch([
         approvableView('batch-2', { attempts: [ana] }),
         approvableView('batch-2', { attempts: [ana] }),
@@ -769,7 +789,7 @@ describe('RequestsClient — the regenerate lane', () => {
         sendLane: sendLaneView({ regeneratingAskId: 'ask-1' }),
       }),
     ]);
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
 
     render(<RequestsClient />);
     await flush();
@@ -806,7 +826,7 @@ describe('RequestsClient — reviewed_at ping', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, builtView()))
       .mockResolvedValue(NO_CONTENT);
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
 
     const { rerender } = render(<RequestsClient />);
     await flush();
@@ -834,7 +854,7 @@ describe('RequestsClient — reviewed_at ping', () => {
       .mockResolvedValueOnce(NO_CONTENT)
       .mockResolvedValueOnce(jsonResponse(200, builtView({ batchId: 'batch-2' })))
       .mockResolvedValue(NO_CONTENT);
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
 
     const { rerender } = render(<RequestsClient />);
     await flush();
@@ -859,7 +879,7 @@ describe('RequestsClient — reviewed_at ping', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, builtView()))
       .mockResolvedValue(NO_CONTENT);
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
@@ -878,7 +898,7 @@ describe('RequestsClient — reviewed_at ping', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, builtView()))
       .mockResolvedValue(jsonResponse(500, {}));
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetch(fetchMock);
     render(<RequestsClient />);
     await flush();
 
