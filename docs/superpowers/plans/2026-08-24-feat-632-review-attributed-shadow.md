@@ -31,10 +31,11 @@ No new abstract seam is introduced. Every new module has exactly one implementat
 
 ### Layering decision: the enqueue guard
 
-`src/lib/shared/job-outbox-helpers.ts` imports only from `src/lib/shared/`. It must not import a domain module. So the guard does **not** re-spell the candidate predicate. Two rules keep one owner per fact:
+`src/lib/shared/job-outbox-helpers.ts` imports only from `src/lib/shared/`. It must not import a domain module. So the guard does **not** re-spell the candidate predicate. It is a deliberately **coarser superset** — `delivery_status = 'sent' AND attributed_review_id IS NULL`, and nothing else. Every real candidate satisfies both arms, so it can never drop a match; it only skips businesses that have never sent an ask.
 
-1. The helper's guard is a deliberately **coarser superset**: any real candidate satisfies it, so it can never drop a match. Documented as such in the helper.
-2. The window number has exactly one owner — `ATTRIBUTION_WINDOW_DAYS` in `attribution.ts`. `process-review.ts` imports it and passes it to the helper as `eligibilityWindowDays`. The helper spells no `14`.
+**It carries no time bound, and must never grow one (deviation D3).** An earlier draft bounded it on `sent_at > NOW() - 14 days` and claimed superset status. That claim was false: the candidate window is **anchor-relative** (`LEAST(review_date, detected_at)`), so a review posted 13 days ago but detected today anchors 13 days back, making an ask sent 20 days ago a legitimate candidate — while the `NOW()`-relative guard is false and no job is ever enqueued. Silent data loss.
+
+Dropping the bound is what makes the superset claim provable. It also dissolves the layering problem outright: with no window in the guard, the helper needs no `ATTRIBUTION_WINDOW_DAYS` and therefore no domain import and no extra parameter. `ATTRIBUTION_WINDOW_DAYS` keeps exactly one owner in `attribution.ts`, where the only predicate that uses it lives.
 
 ---
 
@@ -378,9 +379,27 @@ CREATE INDEX IF NOT EXISTS solicitation_outreach_attribution_candidates
     AND bounced_at IS NULL
     AND complained_at IS NULL;
 
+-- The in-flight outbox dedup for the NEW topic. These indexes are PER TOPIC,
+-- not generic — see job_outbox_solicitation_send_inflight (091:541),
+-- job_outbox_generate_solicitation_asks_inflight (091:546) and
+-- job_outbox_solicitation_veto_notice_inflight (113:24). Without this index the
+-- helper's ON CONFLICT has no constraint to infer and the INSERT throws inside
+-- the review-ingest transaction — the one place this feature promised never to
+-- break. The status literal is a byte-for-byte contract owned by
+-- src/lib/shared/job-outbox-status.ts, re-spelled by hand at every site
+-- (ci:outbox-status checks members AND order); never parameterize it, a bind
+-- parameter inside ON CONFLICT … WHERE defeats partial-index inference.
+CREATE UNIQUE INDEX IF NOT EXISTS job_outbox_solicitation_attribution_inflight
+  ON job_outbox (topic, aggregate_id)
+  WHERE topic = 'solicitation_attribution'
+    AND status IN ('pending', 'dispatching', 'dispatched');
+
 COMMENT ON COLUMN solicitation_outreach.attributed_review_id IS
   'The Attributed review (#632). Shadow metric, never billed — May 6.4 M3 owns the billable bar.';
 ```
+
+> **Deviation D5.** The plan originally left the in-flight index as an open item
+> in Task 4. It is resolved here: the indexes are per topic, so 114 must add one.
 
 - [ ] **Step 2: Apply to the local test DB**
 
@@ -648,11 +667,11 @@ async function loadCandidates(
 ): Promise<AttributionCandidate[]> {
   const rows = await tx<CandidateRow[]>`
     WITH anchor AS (
-      SELECT ${reviewTimeAnchor(tx as unknown as Sql, 'bare')} AS at
-        FROM reviews r_outer
-        JOIN businesses b ON b.id = r_outer.business_id
-       WHERE r_outer.id = ${input.reviewId}::uuid
-         AND r_outer.business_id = ${input.businessId}::uuid
+      SELECT ${reviewTimeAnchor(tx as unknown as Sql, 'r.')} AS at
+        FROM reviews r
+        JOIN businesses b ON b.id = r.business_id
+       WHERE r.id = ${input.reviewId}::uuid
+         AND r.business_id = ${input.businessId}::uuid
          AND b.account_id = ${input.accountId}::uuid
     )
     SELECT o.id AS outreach_id, c.name AS contact_name,
@@ -681,9 +700,11 @@ async function loadCandidates(
 }
 ```
 
-> The `reviewTimeAnchor` call takes the `'bare'` prefix form. Confirm the exact
-> parameter against `src/lib/kpi/fragments.ts` before writing — that module is
-> the single owner and its signature wins over this plan.
+> **Deviation D4, already applied above.** `reviewTimeAnchor(sql, prefix)` takes
+> `'' | 'r.'` — `src/lib/kpi/fragments.ts:44`. An earlier draft of this plan
+> cited a `'bare'` form that does not exist. The CTE therefore aliases the row
+> as `r` and passes `'r.'`. That module is the single owner; its signature wins
+> over this plan, so re-read it before writing.
 
 - [ ] **Step 2: Add the write transaction**
 
@@ -700,9 +721,23 @@ async function loadCandidates(
  */
 export async function attributeReview(
   tx: TransactionSql,
-  input: { reviewId: string; businessId: string; accountId: string },
+  input: { reviewId: string; businessId: string },
 ): Promise<AttributionMatch> {
-  const candidates = await loadCandidates(tx, input);
+  // The account is RESOLVED here, never carried on the payload (deviation D3):
+  // `accountId` is not in scope at the enqueue site in process-review.ts, and
+  // resolving it from the FK removes any way a wrong account id could ride a
+  // job. Same shape startReviewRun and maybeEnqueueFirstReviewIngested use.
+  const [biz] = await tx<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${input.businessId}::uuid
+  `;
+  // Unreachable: reviews.business_id's FK guarantees the row. Assert rather
+  // than branch around a state the invariants exclude.
+  if (biz === undefined) {
+    throw new Error(`attributeReview: business ${input.businessId} not found`);
+  }
+  const accountId = biz.account_id;
+
+  const candidates = await loadCandidates(tx, { ...input, accountId });
   const [review] = await tx<{ reviewer_name: string | null; star_rating: number | null }[]>`
     SELECT reviewer_name, star_rating FROM reviews
      WHERE id = ${input.reviewId}::uuid AND business_id = ${input.businessId}::uuid
@@ -732,7 +767,7 @@ export async function attributeReview(
            attribution_detail   = ${tx.json(detail as never)},
            updated_at           = NOW()
      WHERE id         = ${match.candidate.outreachId}::uuid
-       AND account_id = ${input.accountId}::uuid
+       AND account_id = ${accountId}::uuid
        AND business_id = ${input.businessId}::uuid
        AND attributed_review_id IS NULL
     RETURNING id
@@ -744,7 +779,7 @@ export async function attributeReview(
   if (match.candidate.agentRunId !== null) {
     await recordOutcome(tx, {
       runId: match.candidate.agentRunId,
-      accountId: input.accountId,
+      accountId,
       businessId: input.businessId,
       attributedAgent: 'solicitation',
       outcomeKind: 'review_attributed',
@@ -810,12 +845,13 @@ In `src/lib/shared/worker-types.ts`:
  * frozen onto a payload that may sit in the outbox across a deploy.
  *
  * `business_id` is the tenant proof every query is scoped by (invariant #8) —
- * a bare review UUID proves nothing.
+ * a bare review UUID proves nothing. There is deliberately NO `account_id`
+ * (deviation D3): it is not in scope at the enqueue site, and `attributeReview`
+ * resolves it from the business FK, so no wrong account id can ride a job.
  */
 export interface SolicitationAttributionPayload extends BasePayload {
   review_id: string;
   business_id: string;
-  account_id: string;
 }
 ```
 
@@ -827,13 +863,6 @@ In `src/lib/shared/job-outbox-helpers.ts`, following `enqueueSolicitationVetoNot
 export interface EnqueueSolicitationAttributionInput {
   reviewId: string;
   businessId: string;
-  accountId: string;
-  /**
-   * The Attribution window in days. Supplied by the caller, NOT spelled here:
-   * `ATTRIBUTION_WINDOW_DAYS` in src/lib/solicitation/attribution.ts is its one
-   * owner, and this file may not import a domain module.
-   */
-  eligibilityWindowDays: number;
   correlationId?: string;
   outboxId?: string;
 }
@@ -842,12 +871,20 @@ export interface EnqueueSolicitationAttributionInput {
  * Enqueue the #632 attribution lookback for ONE newly ingested review.
  *
  * The `WHERE EXISTS` guard is a deliberately COARSER SUPERSET of the matcher's
- * candidate predicate — it drops the anchor comparison and the bounce and
- * complaint arms. Any real candidate satisfies it, so it can never drop a
- * match; it only skips businesses that have never sent an ask, which is every
- * business while SOLICITATION_SEND_ENABLED is off. Over-enqueueing is harmless:
- * the handler resolves `no_candidates` and exits. Do NOT tighten it into a
- * second copy of the candidate query — that would give one fact two owners.
+ * candidate predicate: it drops the anchor comparison and the bounce and
+ * complaint arms, so every real candidate satisfies it. It skips only
+ * businesses that have never sent an ask — which is every business while
+ * SOLICITATION_SEND_ENABLED is off. Over-enqueueing is harmless: the handler
+ * resolves `no_candidates` and exits. Do NOT tighten it into a second copy of
+ * the candidate query — that would give one fact two owners.
+ *
+ * **It carries NO time bound, and must never grow one** (deviation D3). The
+ * candidate window is ANCHOR-relative, not NOW()-relative: a review posted 13
+ * days ago but detected today anchors 13 days back, which makes an ask sent 20
+ * days ago a legitimate candidate. A `sent_at > NOW() - 14 days` guard is FALSE
+ * for that row, so no job is ever enqueued and the match is lost silently.
+ * Dropping the bound is what makes the superset claim provable — and it is also
+ * why this file needs no window constant and therefore no domain import.
  */
 export async function enqueueSolicitationAttribution(
   tx: TxClient,
@@ -857,7 +894,6 @@ export async function enqueueSolicitationAttribution(
   const payload: SolicitationAttributionPayload = {
     review_id: input.reviewId,
     business_id: input.businessId,
-    account_id: input.accountId,
   };
   if (input.correlationId !== undefined) {
     payload.correlation_id = input.correlationId;
@@ -877,7 +913,6 @@ export async function enqueueSolicitationAttribution(
        WHERE o.business_id = ${input.businessId}
          AND o.delivery_status = 'sent'
          AND o.attributed_review_id IS NULL
-         AND o.sent_at > NOW() - make_interval(days => ${input.eligibilityWindowDays})
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'solicitation_attribution' -- topic-audit-ignore: partial-index inference needs a literal
@@ -889,33 +924,38 @@ export async function enqueueSolicitationAttribution(
 }
 ```
 
-> The `ON CONFLICT` partial-index target must exist. Check
-> `.claude/reference/migrations-log.md` for the `job_outbox` in-flight index
-> convention. If no per-topic partial unique index covers
-> `solicitation_attribution`, add it to migration 114 in this task and re-run
-> `pnpm test:db:setup`. Re-spell the status set BY HAND — it is a byte-for-byte
-> contract owned by `src/lib/shared/job-outbox-status.ts` and `ci:outbox-status`
-> checks members AND order.
+> **Resolved (deviation D5): migration 114 adds the index in Task 1.** The
+> `ON CONFLICT` partial-index target must exist, and these indexes are per topic.
+> Re-spell the status set BY HAND — it is a byte-for-byte contract owned by
+> `src/lib/shared/job-outbox-status.ts` and `ci:outbox-status` checks members
+> AND order.
 
-- [ ] **Step 4: Call it from the live ingest transaction**
+- [ ] **Step 4: Call it from BOTH live-ingest transactions**
 
-In `src/lib/reviews/process-review.ts`, inside the existing `sql.begin`, immediately after the new-review spine step:
+`src/lib/reviews/process-review.ts` has **TWO** new-review entry points. Both
+call `maybeEnqueueFirstReviewIngested(tx, { businessId, reviewId })` — near line
+87 and near line 540. **The enqueue goes beside it in BOTH**, or one ingest lane
+silently never attributes. Add the identical block to each:
 
 ```typescript
       // #632: the attribution lookback. Enqueued in THIS transaction
       // (invariant #2), handled on the worker — a matcher fault must never
       // roll back a review write. The helper's guard means no row is written
-      // for a business that has never sent an ask.
-      await enqueueSolicitationAttribution(tx, {
-        reviewId,
-        businessId,
-        accountId: biz.account_id,
-        eligibilityWindowDays: ATTRIBUTION_WINDOW_DAYS,
-        correlationId,
-      });
+      // for a business that has never sent an ask, which is every business
+      // while SOLICITATION_SEND_ENABLED is off.
+      await enqueueSolicitationAttribution(tx, { reviewId, businessId, correlationId });
 ```
 
-Placed on the NEW-review path only. The update, unchanged and status-only paths get no enqueue — a review that already existed was never caused by an ask sent after it.
+No `accountId` and no window (deviation D3): the account is not in scope here —
+`startReviewRun` resolves it internally at line 203 — and the guard carries no
+time bound. `attributeReview` resolves the account from the business FK.
+
+Placed on the NEW-review path only. The update, unchanged and status-only paths
+get no enqueue — a review that already existed was never caused by an ask sent
+after it.
+
+> Verify the second entry point actually has `correlationId` in scope before
+> writing. If it does not, omit the field there; it is optional on the input.
 
 - [ ] **Step 5: Fill in the two enqueue test bodies and run**
 
@@ -974,11 +1014,11 @@ export async function handleSolicitationAttribution(
   sql: Sql,
   job: Job<SolicitationAttributionPayload>,
 ): Promise<void> {
-  const { review_id: reviewId, business_id: businessId, account_id: accountId } = job.data;
+  const { review_id: reviewId, business_id: businessId } = job.data;
 
-  const match = await sql.begin((tx) =>
-    attributeReview(tx, { reviewId, businessId, accountId }),
-  );
+  // The account is resolved inside attributeReview from the business FK
+  // (deviation D3) — it never rides the payload.
+  const match = await sql.begin((tx) => attributeReview(tx, { reviewId, businessId }));
 
   // The ONE observability signal for this feature. `resolution` is a closed
   // set; a rising `ambiguous` rate is the evidence that the name rule is too
