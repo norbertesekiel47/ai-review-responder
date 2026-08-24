@@ -95,6 +95,25 @@ that discovers it updates it.
 1. `already_reviewed` wiring in the batch builder.
 2. The mirror-rule narrowing, if the owner chooses it.
 
+## THE BRANCH IS PARKED — un-park before doing anything else
+
+`.feature/intake.json` was renamed to `.feature/intake.parked.json` to end the
+session at the step 3-to-4 boundary. This was a conscious act, per the
+workflow's rule for parking red work: the gate CANNOT go green here, because
+`feature-surface` requires production files that Task 1 has not created yet.
+21 of 22 gate rows pass; `feature-surface` is the only red.
+
+**To resume:**
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-632-review-attributed-shadow
+mv .feature/intake.parked.json .feature/intake.json
+bash scripts/arm-check.sh     # any DISARMED output means STOP and report
+```
+
+Do not re-run `feature-setup.sh` — it would re-install the intake from the
+parent checkout, where no draft exists any more, and reset the round counter.
+
 ## Next actions
 
 1. Get the owner's call on the capped review loop. It substitutes for `APPROVED`.
