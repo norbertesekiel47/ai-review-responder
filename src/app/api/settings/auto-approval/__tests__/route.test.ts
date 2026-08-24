@@ -65,7 +65,7 @@ vi.mock('@/lib/account-offboarding/gate', async (importOriginal) => {
   };
 });
 
-import { AutoApprovalConfirmationRequiredError, AutoApprovalExpansionBlockedError } from '@/lib/auto-approval/settings';
+import { AutoApprovalConfirmationRequiredError, AutoApprovalExpansionBlockedError } from '@/lib/auto-approval/settings-guards';
 import { GET, PATCH } from '../route';
 
 const APP_URL = 'http://localhost:3000';

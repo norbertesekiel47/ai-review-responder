@@ -81,12 +81,12 @@ export async function isolateItem<T>(
 }
 
 /**
- * The sink `isolateItem` wraps, exposed separately because the RELEASE phase
- * cannot use the wrapper: its per-account body carries `continue` and `break`
- * that target the enclosing loops, and neither may cross a function boundary.
- * A bare `try`/`catch` around that body plus this call is the same act.
+ * The sink `isolateItem` wraps. Once exposed for release-phase bodies whose
+ * `continue`/`break` could not cross a function boundary; every unit now uses
+ * `isolateItem` itself (release.ts "Both units are `isolateItem`"), so the
+ * sink is internal again.
  */
-export function recordItemFailure(
+function recordItemFailure(
   phase: string,
   context: Record<string, string>,
   tally: { failed: number },

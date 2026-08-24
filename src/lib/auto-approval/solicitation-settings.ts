@@ -3,9 +3,9 @@
 // Extracted from `settings.ts` in #631's round-1 review (standards finding 7):
 // the lane is a self-contained unit — its own row-state type, exposure
 // classifier, expansion gate, audit writer, loader and upsert — and shares
-// only `assertConfirmationProvided`, `accountSubscriptionWritable`, the
-// entitlement row type and `buildAutoApprovalReadiness` with the Reply
-// machinery. `settings.ts` keeps the public interface: its
+// only the `./settings-guards` write-guards (`assertConfirmationProvided`,
+// `accountSubscriptionWritable`, the entitlement row type) and
+// `buildAutoApprovalReadiness` with the Reply machinery. `settings.ts` keeps the public interface: its
 // `updatePolicyInTransaction` branches here for the two solicitation
 // operations (the one PATCH join point), and its settings loader calls
 // {@link loadSolicitationApiState} (the one GET join point).
@@ -40,11 +40,9 @@ import {
   AutoApprovalExpansionBlockedError,
   accountSubscriptionWritable,
   assertConfirmationProvided,
-} from './settings';
-import type {
-  SettingsAccountEntitlementRow,
-  SolicitationPatchInput,
-} from './settings';
+} from './settings-guards';
+import type { SettingsAccountEntitlementRow } from './settings-guards';
+import type { SolicitationPatchInput } from './settings';
 import type {
   AutoApprovalConfirmationLevel,
   PolicyExposureClassification,

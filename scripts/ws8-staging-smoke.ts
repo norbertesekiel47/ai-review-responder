@@ -21,10 +21,8 @@ import { SubscriptionTier } from '../src/lib/accounts/tier-config';
 import { applyTierChange, validateTierChange } from '../src/lib/accounts/tier-change';
 import { computeOverageQuantity } from '../src/lib/accounts/quota';
 import { syncStripeOverageItem } from '../worker/jobs/billing/overage-sync';
-import {
-  AutoApprovalExpansionBlockedError,
-  patchAutoApprovalSettings,
-} from '../src/lib/auto-approval/settings';
+import { AutoApprovalExpansionBlockedError } from '../src/lib/auto-approval/settings-guards';
+import { patchAutoApprovalSettings } from '../src/lib/auto-approval/settings';
 import {
   evaluateAutoApprovalCandidate,
   loadAutoApprovalRuntimeState,

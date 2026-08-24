@@ -34,7 +34,7 @@ export interface SolicitationVetoNoticeEmailParams {
   idempotencyKey?: string;
 }
 
-export function solicitationVetoNoticeSubject(
+function solicitationVetoNoticeSubject(
   params: Pick<SolicitationVetoNoticeEmailParams, 'locationLabel' | 'requestCount'>,
 ): string {
   const safeLabel = sanitizeLocationLabelForPrefix(params.locationLabel);
@@ -42,7 +42,7 @@ export function solicitationVetoNoticeSubject(
   return `[${safeLabel}] ${params.requestCount} review request${plural} will send automatically`;
 }
 
-export function buildSolicitationVetoNoticeEmailHtml(
+function buildSolicitationVetoNoticeEmailHtml(
   params: Omit<SolicitationVetoNoticeEmailParams, 'to' | 'from' | 'idempotencyKey'>,
 ): string {
   const safeLabel = escapeHtml(sanitizeLocationLabelForPrefix(params.locationLabel));

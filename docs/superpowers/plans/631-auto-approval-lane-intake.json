@@ -1,6 +1,6 @@
 {
   "intake_revision": 2,
-  "revision_note": "Rev 2 re-locked 2026-08-23 with owner sign-off after plan-review round 1 (codex, VERDICT: REVISE). Supersedes rev 1 and its amendment counter. Changes: anchor semantic = first provider-accepted (sent_at) notice per the Reply-lane port (veto-window-gate.ts:84); downgrade-reason vocabulary made B14/B15-consistent; surface gains worker/ingress/resend.ts (+tests); tests_to_add expanded 19 -> 44 titles from the review's missing-failing-test list.",
+  "revision_note": "Rev 2 re-locked 2026-08-23 with owner sign-off after plan-review round 1 (codex, VERDICT: REVISE). Supersedes rev 1 and its amendment counter. Changes: anchor semantic = first provider-accepted (sent_at) notice per the Reply-lane port (veto-window-gate.ts:84); downgrade-reason vocabulary made B14/B15-consistent; surface gains worker/ingress/resend.ts (+tests); tests_to_add expanded 19 -> 44 titles from the review's missing-failing-test list. Surface amendment (rev 2, 2026-08-24, owner-approved): + scripts/ws8-staging-smoke.ts and .fallowrc.jsonc — mechanical consequences of the fallow CI gate fix wave (settings-guards extraction + acknowledged-seam entries), not new scope.",
   "classification": "high",
   "surface": "mixed",
   "db_touching": true,
@@ -95,7 +95,9 @@
     "src/lib/agents/run-spine.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
     "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
-    "CONTEXT.md"
+    "CONTEXT.md",
+    "scripts/ws8-staging-smoke.ts",
+    ".fallowrc.jsonc"
   ],
   "tests_to_add": [
     "leaves the batch in owner review when SOLICITATION_AUTO_APPROVAL_ENABLED is off",

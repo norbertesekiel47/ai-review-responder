@@ -78,9 +78,6 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
-  // escalation-notice worker; fallow's member graph misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
@@ -104,10 +101,6 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
-  // pending-post-notice worker (Task 7); fallow's member graph misses
-  // interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
     const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
@@ -147,10 +140,6 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendSolicitationVetoNotice in the
-  // solicitation-veto-notice worker (#631 Task 5); fallow's member graph
-  // misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendSolicitationVetoNotice(
     p: SendSolicitationVetoNoticeParams,
   ): Promise<SendSolicitationVetoNoticeResult> {

@@ -9,9 +9,6 @@ import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
-import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
-import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -26,6 +23,12 @@ import {
 } from './policy';
 import { buildAutoApprovalReadiness } from './readiness';
 import {
+  AutoApprovalExpansionBlockedError,
+  accountSubscriptionWritable,
+  assertConfirmationProvided,
+} from './settings-guards';
+import type { SettingsAccountEntitlementRow } from './settings-guards';
+import {
   applySolicitationMutation,
   loadSolicitationApiState,
 } from './solicitation-settings';
@@ -34,7 +37,6 @@ import type {
   AutoApprovalPatchRequest,
   AutoApprovalPolicyApiState,
   AutoApprovalReadiness,
-  AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
   EffectiveAutoApprovalPolicy,
@@ -119,16 +121,6 @@ interface TargetLocationRow {
   archived_at: Date | null;
 }
 
-// Exported for `./solicitation-settings`, which receives the SAME locked
-// account row the opening FOR UPDATE captured — never a re-read.
-export interface SettingsAccountEntitlementRow {
-  id: string;
-  subscription_tier: string;
-  subscription_status: string;
-  past_due_at: Date | string | null;
-  flags: AccountFlagsInput;
-}
-
 // One point-in-time view of the targeted policy: its API row plus the effective
 // policy that results for the targeted scope.
 interface PolicySnapshot {
@@ -157,20 +149,6 @@ interface PolicyMutationBeforeState {
 // see computeAfterState; never re-read from the DB.
 interface PolicyMutationAfterState {
   snapshot: PolicySnapshot;
-}
-
-export class AutoApprovalConfirmationRequiredError extends Error {
-  constructor(readonly confirmationLevel: AutoApprovalConfirmationLevel) {
-    super('auto_approval_confirmation_required');
-    this.name = 'AutoApprovalConfirmationRequiredError';
-  }
-}
-
-export class AutoApprovalExpansionBlockedError extends Error {
-  constructor(readonly blockReasons: AutoApprovalReadinessBlockReason[]) {
-    super('auto_approval_expansion_blocked');
-    this.name = 'AutoApprovalExpansionBlockedError';
-  }
 }
 
 export class AutoApprovalSettingsError extends Error {
@@ -293,25 +271,6 @@ function assertArchivedPolicyAllowed(
   if (input.operation === 'set_location_override' || expansion) {
     throw new AutoApprovalSettingsError('location_inactive', 409);
   }
-}
-
-// Every expansion requires the 'standard' confirmation ('all_ratings' died
-// with the 1-star threshold in WS4). Any submitted level satisfies it — a
-// stale cached client may still send 'all_ratings', and the pre-WS4
-// confirmationSatisfies already accepted it as covering 'standard'; that
-// tolerance is kept for one release (see the schema comment in types.ts).
-// Returns the required level (or null) for the audit row. Exported for
-// `./solicitation-settings` — both lanes' expansions demand the same level,
-// so the rule has one owner.
-export function assertConfirmationProvided(
-  input: PatchAutoApprovalSettingsInput,
-  expansion: boolean,
-): AutoApprovalConfirmationLevel | null {
-  if (!expansion) return null;
-  if (input.confirmationLevel === undefined) {
-    throw new AutoApprovalConfirmationRequiredError('standard');
-  }
-  return 'standard';
 }
 
 // Reads readiness once (for the expansion gate) and returns it so the audit row
@@ -1168,17 +1127,6 @@ async function buildReadiness(
     previewEnvironment: preview,
     impersonated: context.impersonated,
   });
-}
-
-// Exported for `./solicitation-settings`' expansion gate — one owner of
-// "which subscription states may write settings".
-export function accountSubscriptionWritable(account: SettingsAccountEntitlementRow): boolean {
-  if (subscriptionGrantsFullAccess(account.subscription_status)) return true;
-  return assertWritableSubscriptionStatus({
-    subscriptionStatus: account.subscription_status,
-    pastDueAt: account.past_due_at,
-    accountFlags: account.flags,
-  }).ok;
 }
 
 function toPolicyRow(row: PolicyDbRow): SettingsPolicyRow {

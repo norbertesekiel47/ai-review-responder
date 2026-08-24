@@ -83,9 +83,6 @@ export class TelegramChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
   }
 
-  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
-  // escalation-notice worker; fallow's member graph misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     const { text, inline_keyboard } = formatEscalationNoticeTelegram({
       locationLabel: p.locationLabel,
@@ -108,10 +105,6 @@ export class TelegramChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
   }
 
-  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
-  // pending-post-notice worker (Task 7); fallow's member graph misses
-  // interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
     const { text, inline_keyboard } = formatPendingPostNoticeTelegram({
       locationLabel: p.locationLabel,
@@ -148,10 +141,6 @@ export class TelegramChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
   }
 
-  // Interface-dispatched via getChannel(id).sendSolicitationVetoNotice in the
-  // solicitation-veto-notice worker (#631 Task 5); fallow's member graph
-  // misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendSolicitationVetoNotice(
     p: SendSolicitationVetoNoticeParams,
   ): Promise<SendSolicitationVetoNoticeResult> {

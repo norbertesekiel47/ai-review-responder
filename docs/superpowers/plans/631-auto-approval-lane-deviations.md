@@ -479,3 +479,45 @@ intake decision; nothing triggers RE-PLAN.
   PASS in the green gate at 82b00f50. Mandatory consequence, not new scope).
 
 No RE-PLAN triggers. Deviations ledger fully closed for the branch.
+
+## Post-PR fallow-gate fix wave (2026-08-24, PR #950 CI round 1)
+
+The `fallow` job (`ci:fallow:coverage`) failed on PR #950's first run: 13
+dead-code issues (5 unused exports, 1 circular dependency, 7 stale
+suppressions), 1 gating complexity finding (`runBatchArm` cognitive 19 > 15).
+Duplication clone groups proved report-only (verdict evidence: severity null,
+bare-gate exit 0 with groups present) — the deliberate notice-family clone
+shape needs no action. Fixes, each verified against the reproduced gate:
+
+- **De-exported 3 same-module-only functions**: `solicitationVetoNoticeSubject`
+  + `buildSolicitationVetoNoticeEmailHtml` (used only by
+  `sendSolicitationVetoNoticeEmail` in the same template file) and
+  `recordItemFailure` (used only by `isolateItem`; its "exposed for the
+  release phase" comment described an earlier revision — both release units
+  now use `isolateItem`, comment rewritten).
+- **Deleted the 7 stale `unused-class-member` suppressions** (+ their
+  justification comments) in the three channel classes. The comments claimed
+  "fallow's member graph misses interface dispatch"; the bare re-run proves
+  the graph DOES trace `getChannel(id).sendX` — no member finding resurfaced.
+- **Broke the `settings.ts ↔ solicitation-settings.ts` cycle**: new
+  `src/lib/auto-approval/settings-guards.ts` owns the shared write-guards
+  (entitlement row type, `accountSubscriptionWritable`,
+  `assertConfirmationProvided` — parameter narrowed to the confirmation
+  field, removing the type edge — and the two gate errors). Import sites
+  updated (route, 3 test files, ws8 smoke script); `SolicitationPatchInput`
+  stays a type-only edge. directory.md row added in the same change.
+- **Extracted `releaseBatchRows` from `runBatchArm`** (release.ts): the arm
+  now reads as its gate ladder; cognitive drops below threshold; the row
+  loop's Rev 2.1 comment moved with the code.
+- **Two `ignoreExports` acknowledgments** (`.fallowrc.jsonc`):
+  `readAutoApprovalConditions` (test-consumed seam) and
+  `renderSolicitationVetoNoticeWhatsAppBody` (the runbook's named byte-pin
+  seam). The veto render had NO consuming test — the autonomy-notice parity
+  gap; `whatsapp-body.test.ts` gains the mirrored variables + byte-pin tests.
+- **Surface amendment (owner-approved 2026-08-24)**: + `scripts/ws8-staging-smoke.ts`
+  (one import split — mechanical consequence of the guards extraction) and
+  `.fallowrc.jsonc` (the two entries above). Both intake copies updated;
+  hash re-recorded. F-A2 precedent: CI-forced consequence, not new scope.
+- Residual: `ws8-staging-smoke.ts` reads as an inherited unused-FILE finding
+  (`introduced: false`, non-gating) once the import split pulled it into the
+  changed set. Pre-existing on main; left alone.

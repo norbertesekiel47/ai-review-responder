@@ -455,8 +455,8 @@ describe('auto-approval settings service', () => {
 
   it('requires standard confirmation for account-default expansion even with zero active inheriting locations', async () => {
     dbState.locations = [];
-    const { AutoApprovalConfirmationRequiredError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalConfirmationRequiredError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -532,8 +532,8 @@ describe('auto-approval settings service', () => {
   it('allows past-due grace but blocks expansion after the grace window', async () => {
     dbState.subscriptionStatus = SubscriptionStatus.PAST_DUE;
     dbState.pastDueAt = new Date(Date.now() - 86_400_000);
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     await expect(patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -1029,8 +1029,8 @@ describe('auto-approval settings service', () => {
       purge_cancelled_at: null,
     };
 
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -1297,8 +1297,8 @@ describe('auto-approval settings service', () => {
     // guarantee under test: the upsert/delete never runs and no audit row is
     // written — proven directly via the sql call log, NOT via transaction rollback.
     process.env.AUTO_APPROVAL_ENABLED = 'false';
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -1487,11 +1487,9 @@ describe('auto-approval settings service', () => {
       suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
       suspendedReason: 'governor_negative_feedback',
     };
-    const {
-      AutoApprovalExpansionBlockedError,
-      getAutoApprovalSettings,
-      patchAutoApprovalSettings,
-    } = await import('../settings');
+    const { getAutoApprovalSettings, patchAutoApprovalSettings } =
+      await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     const state = await getAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -1560,8 +1558,8 @@ describe('auto-approval settings service', () => {
       suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
       suspendedReason: 'governor_negative_feedback',
     };
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     const cleared = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,

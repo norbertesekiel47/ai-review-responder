@@ -1214,19 +1214,33 @@ async function runBatchArm(
     return 'next';
   }
 
+  await releaseBatchRows(ctx, batch);
+  return 'next';
+}
+
+/**
+ * Release the rendered rows of ONE batch, inside the caps. Split from
+ * `runBatchArm` so the arm reads as its gate ladder (capacity → auto
+ * re-check → Judge split → rows) and each piece stays under the cognitive
+ * threshold.
+ */
+async function releaseBatchRows(
+  ctx: ReleaseArmContext,
+  batch: ReleaseCandidateBatch,
+): Promise<void> {
   const candidates = await selectRenderedOutreach(ctx.sql, batch, ctx.scanLimit);
   for (const outreachId of candidates) {
-    if (ctx.capacityExhausted()) break;
+    if (ctx.capacityExhausted()) return;
 
     const rowOutcome = await releaseOutreachRow(ctx.sql, batch, outreachId);
     if (rowOutcome === 'withheld_auto_conditions') {
       // Rev 2.1 (decision 6): an auto condition failed INSIDE the row's
-      // release transaction, after the arm-level check above passed. The
-      // condition is ACCOUNT-level, so every sibling row of this batch would
-      // withhold identically — count the batch once and stop its loop; the
-      // next tick's arm-level check performs the durable downgrade.
+      // release transaction, after `runBatchArm`'s arm-level check passed.
+      // The condition is ACCOUNT-level, so every sibling row of this batch
+      // would withhold identically — count the batch once and stop its loop;
+      // the next tick's arm-level check performs the durable downgrade.
       withhold(ctx.report, 'auto_conditions');
-      break;
+      return;
     }
     if (rowOutcome !== 'released') continue;
 
@@ -1236,7 +1250,6 @@ async function runBatchArm(
     ctx.counters.platform -= 1;
     ctx.counters.account -= 1;
   }
-  return 'next';
 }
 
 /**
