@@ -154,6 +154,7 @@ const SUITE_FILES = [
   'src/lib/reviews/__tests__/process-review.test.ts',
   'src/lib/reviews/__tests__/process-review-attribution.integration.test.ts',
   'worker/__tests__/solicitation-attribution.test.ts',
+  'worker/__tests__/solicitation-attribution.integration.test.ts',
   'src/app/api/dashboard/solicitation/attributed/__tests__/route.test.ts',
   'src/app/(authenticated)/dashboard/requests/__tests__/attributed-reviews.test.tsx',
 ];
@@ -173,13 +174,25 @@ it('eval contract: every promised test executes with zero todo or skip cases', (
 
   // NO parked test may exist in these files AT ALL — not "no parked promised
   // title". Scanning only promised titles was false-green twice (round-2
-  // finding): an obsolete unpromised `.todo` survived, and
-  // `describe.skip('group', () => it('promised title', …))` slipped through
-  // because the skipped wrapper's argument is not a promised title.
+  // finding): an obsolete unpromised parked test survived, and a skipped
+  // DESCRIBE wrapper slipped through because the wrapper's argument is not a
+  // promised title.
+  //
+  // Comments are stripped FIRST (round-3 finding). Without that, a comment in
+  // this very file that names a parked form matches the scan and the test can
+  // never go green. Do not describe parked forms in these suites' comments.
+  //
+  // The pattern covers chained and x-prefixed forms too: `it.concurrent.skip`,
+  // `it.skip.each`, `it.skipIf(...)`, `xit`, `xtest`, `xdescribe`.
   //
   // This test is MEANT to be red for most of the branch's life.
-  const parked = [...corpus.matchAll(/\b(it|test|describe)\s*\.\s*(todo|skip|fails)\s*\(/g)]
-    .map((m) => `${m[1]}.${m[2]}`);
+  const code = corpus
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const parked = [
+    ...code.matchAll(/\b(?:it|test|describe)(?:\s*\.\s*\w+)*\s*\.\s*(?:todo|skip|skipIf|fails)\b/g),
+    ...code.matchAll(/\bx(?:it|test|describe)\s*\(/g),
+  ].map((m) => m[0].trim());
   expect(parked).toEqual([]);
 });
 ```
@@ -357,6 +370,20 @@ Import `assertSchemaReady` from `@/lib/shared/__tests__/helpers/schema-ready`
 and follow **`src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts`**
 for suite shape, the cross-process live-DB lock and the outreach fixtures.
 
+**Title budget — these must total 54 (round-3 finding).**
+
+| Task | Titles it unparks | Count |
+|---|---|---|
+| 1 | the 4 `migration 114:` | 4 |
+| 2 | 7 `matchAttribution:` + 3 `invariants:` | 10 |
+| 3 | 14 `attribution:` + `attributeReview:` + `tenant isolation:` | 16 |
+| 4 | 4 `enqueueSolicitationAttribution:` + 2 `processReview:` + `importReview:` | 7 |
+| 5 | `worker registration:` + 2 `SolicitationAttributionWorker:` + `handleSolicitationAttribution:` + `architecture:` | 5 |
+| 6 | 4 `listAttributedReviews:` + `GET attributed:` | 5 |
+| 7 | 5 `AttributedReviews:` + `RequestsClient:` | 6 |
+| — | `eval contract:` — owned by no task; it goes green when the last title above does | 1 |
+| | **total** | **54** |
+
 - [ ] **Step 3: Run the matcher suite and verify it fails**
 
 Run: `pnpm vitest run src/lib/solicitation/__tests__/attribution.test.ts`
@@ -376,10 +403,12 @@ the production files exist, which is Task 1 onward.
 git add src/lib/solicitation/__tests__/attribution.test.ts \
         src/lib/solicitation/__tests__/attribution.integration.test.ts \
         src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts \
-        src/lib/shared/__tests__/job-outbox-helpers.test.ts \
+        src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts \
+        src/lib/reviews/__tests__/process-review-attribution.integration.test.ts \
+        worker/__tests__/solicitation-attribution.test.ts \
+        worker/__tests__/solicitation-attribution.integration.test.ts \
         src/app/api/dashboard/solicitation/attributed/__tests__/route.test.ts \
-        src/app/\(authenticated\)/dashboard/requests/__tests__/attributed-reviews.test.tsx \
-        src/lib/reviews/__tests__/process-review.test.ts
+        src/app/\(authenticated\)/dashboard/requests/__tests__/attributed-reviews.test.tsx
 git commit -m "test(632): failing eval suite for review_attributed shadow attribution"
 ```
 
@@ -487,7 +516,9 @@ COMMENT ON COLUMN solicitation_outreach.attributed_review_id IS
 Run: `pnpm test:db:setup`
 Expected: exits 0, schema at migrations head.
 
-- [ ] **Step 3: Replace the two `.todo` shape assertions with real bodies**
+- [ ] **Step 3: Unpark all FOUR `migration 114:` titles**
+
+All four, not two (round-3 finding): the columns/CHECK/index existence test, the definitions-and-predicates test, the two-businesses uniqueness test, and the review-delete test.
 
 ```typescript
 it('attribution columns, the consistency CHECK and the partial unique index exist', async () => {
@@ -530,7 +561,7 @@ The second test seeds an outreach row with an attribution, deletes the review, t
 - [ ] **Step 4: Run the shape suite**
 
 Run: `TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts`
-Expected: 2 passed.
+Expected: 4 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -544,7 +575,7 @@ git commit -m "feat(632): migration 114 — attribution columns on solicitation_
 
 ## Task 2: The pure matcher
 
-**Blocked by:** Task 1. **Turns green:** the 6 `matchAttribution` tests and the 2 `invariants` property tests.
+**Blocked by:** Task 1. **Turns green:** all 7 `matchAttribution:` titles — including `one matching candidate among unrelated non-matches attributes that candidate`, which pins that the matcher does not abstain merely because several candidates were supplied — and all 3 `invariants:` titles.
 
 **Files:**
 - Create: `src/lib/solicitation/attribution.ts`
@@ -691,7 +722,7 @@ export function matchAttribution(
 - [ ] **Step 3: Run the matcher suite**
 
 Run: `pnpm vitest run src/lib/solicitation/__tests__/attribution.test.ts`
-Expected: 8 passed.
+Expected: **10** passed — the 7 `matchAttribution:` titles and the 3 `invariants:` titles. `eval contract:` stays RED (titles are still parked in later suites) and `architecture:` stays parked until Task 5. Those two are the only permitted reds here.
 
 - [ ] **Step 4: Commit**
 
@@ -1082,8 +1113,8 @@ Expected: all exit 0.
 ```bash
 git add src/lib/shared/queue-names.ts src/lib/shared/worker-types.ts \
         src/lib/shared/job-outbox-helpers.ts src/lib/reviews/process-review.ts \
-        src/lib/shared/__tests__/job-outbox-helpers.test.ts \
-        src/lib/reviews/__tests__/process-review.test.ts
+        src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts \
+        src/lib/reviews/__tests__/process-review-attribution.integration.test.ts
 git commit -m "feat(632): solicitation_attribution topic, guarded helper, ingest enqueue"
 ```
 
