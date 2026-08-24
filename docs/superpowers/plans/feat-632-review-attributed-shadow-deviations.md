@@ -169,3 +169,105 @@ Task 1 must resolve this **with evidence, not by pattern-matching the precedent*
   rather than apply it.
 
 Decide from what the suite actually does once Task 1 writes its body.
+
+---
+
+## D9 — the consistency CHECK is wrapped in `IS TRUE`
+
+**Stage:** execution (step 4), Task 1.
+**What changed:** the plan's bare disjunction became
+`CHECK ((attributed_review_id IS NULL OR (…)) IS TRUE)`.
+**Why — the plan's SQL had a real NULL hole.** Set `attributed_review_id`,
+`attributed_at` and `attribution_detail`, and leave `attribution_rule` NULL.
+Then `attribution_rule IN (…)` is NULL, the conjunction collapses to NULL, and
+`FALSE OR NULL` is NULL. **A CHECK accepts NULL.** The row is admitted with a
+provenance record that names no rule. This is the exact incident the
+`new-migration` skill lists, and every neighbouring constraint on this table
+(091, 110) wraps for the same reason. Test 2 pins the wrapper, so a future edit
+that drops it goes red.
+**Scope impact:** none.
+**Verdict:** _pending step 6._
+
+---
+
+## D10 — the migration runs inside `BEGIN … COMMIT` with `SET LOCAL lock_timeout = '10s'`
+
+**Stage:** execution (step 4), Task 1.
+**Why:** psql autocommits per statement. On a re-run the
+`DROP CONSTRAINT IF EXISTS` could succeed and the `ADD CONSTRAINT` fail, leaving
+`solicitation_outreach` with **no** attribution constraint at all — 110 documents
+this hazard for the identical DROP/ADD pair. `lock_timeout` bounds the ACCESS
+EXCLUSIVE acquisition on a hot send table. Note the consequence: the in-flight
+index is a plain `CREATE INDEX`, not `CONCURRENTLY`, which cannot run inside a
+transaction. That is recorded in the file.
+**Scope impact:** none.
+**Verdict:** _pending step 6._
+
+---
+
+## D11 — `SchemaRequirement` is declared locally in the migration-114 suite
+
+**Stage:** execution (step 4), Task 1.
+**What changed:** the type lives in the suite instead of being exported from
+`src/lib/shared/__tests__/helpers/schema-ready.ts`.
+**Why:** Task 1's file scope is two files, and moving it would have been an
+out-of-surface edit.
+**The debt, and who pays it:** `schema-ready.ts` is the single owner of this
+vocabulary. **The moment Task 4's
+`job-outbox-helpers-attribution.integration.test.ts` needs the same requirement,
+the type MUST move into `schema-ready.ts` rather than be copied.** A second local
+copy is the drift this project's single-owner rule exists to prevent. The
+suite's own docstring says so.
+**Scope impact:** one type declaration, temporarily in the wrong file.
+**Verdict:** _pending step 6._
+
+---
+
+## D12 — three extra `COMMENT ON COLUMN` statements, and `isPrimary: false` on the second seeded location
+
+**Stage:** execution (step 4), Task 1. Both trivial.
+The comments record the `attributed_at` marker rule, D1 and D2 at the schema, so
+a reader of the database learns them without the plan.
+`businesses_account_primary_uniq` allows one primary per account, and the plan's
+fixture sketch did not cover the two-business case the uniqueness test needs.
+**Verdict:** _pending step 6._
+
+---
+
+## RESOLVED — the `MIGRATION_SHAPE_FILES` question pinned to Task 1
+
+**Decision: 114's shape suite is NOT added to the allowlist.** Evidence, checked
+independently:
+
+- The suite executes **no DDL**. It reads `information_schema.columns`,
+  `pg_constraint` and `pg_indexes`, and writes rows under its own seeded tenant.
+  No `.unsafe()`, no `readFileSync` of the migration, no `CREATE`/`ALTER`/`DROP`.
+- The allowlist is scoped to suites where applying the migration IS the subject
+  (`live-db-suites-audit.ts:104-110`). Its five members all execute DDL.
+- **The counter-precedent is the stronger one.** 51 migration-shape suites exist
+  under `src/lib/shared/__tests__/`. Only 074, 076, 077, 078 and 088 are
+  allowlisted. Every read-only migration suite that landed after them — 079, 082,
+  090 through 106 — is absent. 114 follows the dominant and more recent rule.
+- Adding it would widen a sanctioned-DDL escape hatch over a file needing no
+  escape, and enforce lock enrolment as a side effect rather than on its merits.
+- `pnpm ci:live-db-suites` passes with the file absent.
+
+The suite still takes `acquireLiveDbLock` — the lock helper would permit skipping
+it, and 105 declines on this shape, but the uniqueness case proves a GLOBAL index
+and the file's header names the lock. Reversible if the lane's serialization
+budget ever matters.
+
+---
+
+## Bookkeeping debt carried to Task 8 — do not skip it
+
+`.claude/reference/migrations-log.md` still reads `Current head: **113**` and has
+no 114 entry. **Task 8 Step 3 owns this** and must move the head to 114 and set
+next to 115.
+
+Why it matters beyond tidiness: `.claude/hooks/migration-immutability-guard.sh`
+reads that head, so **114 is currently unprotected from edits**. That is
+convenient while the branch is in flight and unacceptable at merge. **No CI check
+ties the log to the migration set** — only the hook reads it — so nothing goes red
+if Task 8 is skipped. This paragraph is the only thing standing between that and
+a silent miss.
