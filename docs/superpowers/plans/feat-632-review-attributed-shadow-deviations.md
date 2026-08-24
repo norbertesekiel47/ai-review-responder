@@ -334,3 +334,83 @@ is also real.
 **How to actually parallelize, if wall-clock ever matters:** give each task its
 own worktree (`isolation: 'worktree'`), which is what makes concurrent commits
 safe. That is a heavier setup than this branch needs.
+
+---
+
+## D16 — the plan's SQL comments contained BACKTICKS, which close a tagged template literal
+
+**Stage:** execution (step 4), Task 3. **This is a plan defect four review rounds
+did not catch.**
+
+The plan wrote SQL comments like ``-- `attributed_at`, NOT `attributed_review_id` ``
+**inside** a postgres.js tagged template. A backtick ends the JS literal.
+
+- In the `UPDATE` it was a hard `TS1005` — loud, caught immediately.
+- **In the candidate query it would have silently truncated the SQL and still
+  typechecked.** A truncated `WHERE` returns wrong candidates, not an error.
+
+Backticks removed at both sites, with a warning comment left in place. Every
+remaining task that copies SQL out of the plan must strip backticks from comments
+inside a tagged template.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D17 — four smaller Task 3 corrections
+
+**Stage:** execution (step 4), Task 3.
+
+1. **`o.sent_at` → `o.sent_at::text`.** `CandidateRow.sent_at` is declared
+   `string`, but postgres.js decodes bare `timestamptz` to a JS `Date` and
+   truncates MICROSECONDS. That value is stamped into `attribution_detail`, so
+   `::text` makes the declared type true and honours the µs rule.
+2. **Added `AND c.business_id = …`** on the `solicitation_contacts` join.
+   Semantically redundant against the join key, but `ci:tenant-scope` reads raw
+   template text per table and does not accept a join key as scope evidence.
+3. **Rephrased a docstring.** The plan's prose spelled `LEAST(review_date,
+   detected_at)` literally, and `src/lib/kpi/__tests__/fragments.test.ts` runs a
+   single-owner audit that scans whole source files INCLUDING comments — so the
+   plan's own comment turned that suite red. The comment now names the fragment.
+   Test files are exempt from that audit, so the phrase is fine inside a suite.
+4. **A third fixture, `sibling`.** The plan's isolation shape used two separate
+   accounts, which cannot distinguish an account-only scope from a correct one —
+   invariant #8's `business_id` half would have been unproven. `sibling` is a
+   second, non-primary location under the SAME account holding a perfectly
+   matching decoy.
+
+**Worth keeping: the agent ran negative controls.** Swapping both marker sites to
+`attributed_review_id` fails title 8; changing the window floor from `>=` to `>`
+fails title 3; dropping the `business_id` predicates fails title 16. Each was
+reverted. That is evidence the tests bite, not just that they pass.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D18 — the D11 schema-requirement duplication is ACCEPTED, not fixed. D11's instruction is superseded.
+
+**Stage:** execution (step 4), orchestrator decision after Task 3.
+
+D11 said the `SchemaRequirement` work must MOVE into
+`src/lib/shared/__tests__/helpers/schema-ready.ts` rather than be copied. Two
+facts checked since make that impossible inside this branch:
+
+1. The `SchemaRequirement` **type** is already exported from `schema-ready.ts`,
+   so only the **requirement constant** is duplicated. There are now two copies of
+   `MIGRATION_114_SOLICITATION_ATTRIBUTION`, in the migration-114 suite and in
+   `attribution.integration.test.ts`.
+2. **`schema-ready.ts` is NOT in `allowed_edit_surface`.** Reaching it costs the
+   SECOND surface amendment — and a second amendment triggers re-classification
+   at step 5.
+
+**Decision: do not spend the amendment.** Two test-local constants are minor
+duplication. Re-classifying a feature to relocate one constant is a bad trade.
+
+**File as a follow-up:** move `MIGRATION_114_SOLICITATION_ATTRIBUTION` into
+`schema-ready.ts` in a small separate PR that can touch that file freely.
+
+**Binding on Task 4:** do NOT create a third copy. If Task 4's suite needs a
+schema guard, declare only what that suite actually needs — the `job_outbox`
+in-flight index — which is a DIFFERENT requirement, not another copy of the
+columns one.
