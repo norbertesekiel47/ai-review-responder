@@ -58,3 +58,16 @@ worker gates on batch state only, no flag reads.
 Intake rev 2 also expands `tests_to_add` 19 → 44 (adopting the review's
 missing-failing-test list where it pins production wiring, races, and B14/B15
 behavior). Owner-approved in session, 2026-08-23.
+
+## Plan-review round 2 triage (2026-08-23, codex VERDICT: REVISE)
+
+Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
++ both appendix items RESOLVED. Open items and disposition:
+
+- F3/F14 (release-side TOCTOU on the PASSING arm-level check) — ACCEPT, fixed
+  in plan rev 2.1: the four-condition guard moves INTO `releaseOutreachRow`'s
+  transaction for auto_policy batches (account lock, in-tx re-read, new
+  `auto_conditions` withhold reason). Affordable because
+  RELEASE_PER_TICK_BUDGET=2/60s (ADR 0022). Intake edge_cases updated to
+  match (intake-field correction, not an amendment).
+- Appendix nit (Task 5 title count 6 → 7) — ACCEPT, fixed.

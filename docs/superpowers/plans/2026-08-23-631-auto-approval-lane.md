@@ -68,11 +68,18 @@ split is refactored to take a typed reason. Migration 113 is index-only.
    `subscription` withhold in `runAccountArm` already holds the batch and it
    resumes on recovery. **Master send flag off is NOT a downgrade** — B15:
    `runReleasePhase` already stops with `flag_off` before any batch arm runs.
-   (R1 finding 4.) The re-check re-reads conditions INSIDE the downgrade
-   transaction under the batch + account locks before the downgrade CAS
-   (R1 finding 3); the residual per-row window after a passing re-check is the
-   same one-tick class the existing subscription gate accepts — documented,
-   not hidden.
+   (R1 finding 4.) TOCTOU closure (R1 finding 3, completed in round 2): the
+   race is closed at BOTH ends. On the failure path, the downgrade transaction
+   re-reads the conditions under the batch + account locks before the
+   downgrade CAS. On the PASSING path, the row-release transaction itself
+   (`releaseOutreachRow`, for `auto_policy` batches only) takes the account
+   lock and re-reads the four conditions INSIDE the same transaction that CASes
+   `rendered → queued` and enqueues the send — a condition failure there
+   withholds that row (`auto_conditions` withhold reason) and writes nothing;
+   the next tick's arm-level check performs the durable downgrade. Cost bound:
+   `RELEASE_PER_TICK_BUDGET = 2` per 60s tick (ADR 0022), so at most two extra
+   condition reads per minute. Lock order stays the documented
+   batch-then-account order wherever both are taken.
 7. **`downgradeApproval` grows a typed reason** (R1 finding 5). Today it
    hard-writes `judge_unavailable`. Refactor: one shared
    `applyDowngradeSplit(sql, batch, reason)` used by the Judge arm
@@ -412,7 +419,8 @@ Deltas from the pending-post-notice clone (decisions 10-12):
   bounced-owner-email pre-filter kept (and now fed by decision 16).
 
 Steps: read family → clone with deltas → registration (+ health-alert queue
-list) → resend template registration + test → tests green (6 titles) → commit
+list) → resend template registration + test → tests green (7 titles: 4
+dispatch + 2 Worker + 1 resend) → commit
 `feat(631): solicitation veto-notice worker family`.
 
 ---
@@ -506,6 +514,18 @@ titles in `release.integration.test.ts`.
     downgrade transaction under the batch + account locks (R1 finding 3); if
     they now pass, skip (raced back to healthy); else
     `applyDowngradeSplit(sql, batch, reason)`.
+  - On PASS: the guard moves INTO the row-release transaction (decision 6).
+    For an `auto_policy` batch, `releaseOutreachRow`'s transaction takes the
+    account lock (documented batch-then-account order — READ the function's
+    existing lock structure first) and re-reads the four conditions; a failure
+    there returns a `withheld_auto_conditions` outcome for that row, counted
+    under a new `auto_conditions` member of `ReleaseWithheldReason`, and the
+    row stays `rendered`. Owner-lane batches skip the guard entirely.
+  - New promised-test coverage: the existing title "downgrades an unreleased
+    auto_policy batch when the solicitation policy row is removed" gets a
+    sibling assertion in its body — a policy deletion committed after the
+    arm-level check but before the row transaction releases NOTHING (drive
+    `releaseOutreachRow` directly with the policy deleted).
   - Report: `autoDowngradedByReason: Partial<Record<AutoDowngradeReason, number>>`,
     incremented only on `'downgraded'`. Judge `downgraded` counter untouched.
 - [ ] **Step 4:** Tests green (7 titles — including "a subscription lapse

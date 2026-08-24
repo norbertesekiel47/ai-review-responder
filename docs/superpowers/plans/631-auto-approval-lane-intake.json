@@ -43,7 +43,7 @@
     "Owner halts during the veto window, a notice send lands later ⇒ the anchor CAS must not resurrect a halted batch",
     "Duplicate sends/retries ⇒ claim rows dedup per channel; the anchor CAS is idempotent; the first sent_at wins",
     "Flag flips ON with built batches already waiting ⇒ no retroactive sweep",
-    "Policy row deleted between approval and release ⇒ release-time re-check downgrades (policy_removed); the re-check re-reads conditions inside the downgrade transaction under the batch+account locks",
+    "Policy row deleted between approval and release ⇒ release-time re-check downgrades (policy_removed); the re-check re-reads conditions inside the downgrade transaction under the batch+account locks, AND the row-release transaction re-reads them again for auto_policy batches (account lock, in-tx) so a deletion or suspension committed after a passing arm-level check still releases nothing",
     "Subscription lapses after auto approval ⇒ the batch HOLDS via the existing release-phase subscription withhold and resumes on recovery (B14) — no downgrade, no reason written",
     "Master send flag off ⇒ release phase stops (flag_off, B15); queued Veto notices still dispatch (batch-state gating only)",
     "Telegram-only owner ⇒ anchors normally via sent_at (Telegram has no delivery receipt; the Reply lane shipped the same answer)",
