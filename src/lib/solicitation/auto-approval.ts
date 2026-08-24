@@ -27,7 +27,6 @@
 // Invariant #15: this module takes its DB client as an explicit parameter
 // (`sql: Sql | TransactionSql`) and never imports `@/lib/db/server`.
 
-import { v7 as uuidv7 } from 'uuid';
 import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
@@ -189,6 +188,58 @@ export async function evaluateAutoApproval(
     autoFlag: solicitationAutoApprovalEnabled(),
     ...conditions,
   });
+}
+
+// ── The release-time re-check (#631 Task 7, decision 6) ─────────────────────
+
+/**
+ * The four reasons the release lane may DOWNGRADE an `auto_policy` batch back
+ * to owner review. Deliberately NARROWER than {@link AutoApprovalDeclineReason}
+ * — B14/B15 exclude the other two conditions from the re-check by design:
+ * a subscription lapse is the existing recoverable `subscription` withhold in
+ * `runAccountArm` (the batch resumes on recovery, so un-approving it would
+ * destroy evidence a payment would have revived), and the master send flag
+ * already stops the whole release phase (`flag_off`) before any batch arm
+ * runs, so consulting it here could never fire.
+ */
+export type AutoDowngradeReason =
+  | 'auto_approval_disabled'
+  | 'autopilot_entitlement_lost'
+  | 'policy_removed'
+  | 'policy_suspended';
+
+/**
+ * Re-check the FOUR release-time conditions for an `auto_policy` batch's
+ * account: the auto flag, the Autopilot tier, account-wide Governor
+ * suspension, and the policy row's presence. Returns the first failing
+ * condition's downgrade reason — the same precedence order
+ * {@link decideAutoApproval} uses, minus the two conditions B14/B15 exclude —
+ * or `null` when all four hold.
+ *
+ * ONE reader: the DB-backed half routes through
+ * {@link readAutoApprovalConditions}, so this re-check cannot drift from the
+ * approval-time gate (see the module header). The flag short-circuits before
+ * the DB read — `auto_approval_disabled` is a process.env fact.
+ *
+ * Two call sites, both in `release.ts` (#631 decision 6): the arm-level quick
+ * read in `runBatchArm` (no locks — cheap, advisory), and the serialized
+ * re-reads inside the downgrade transaction and inside `releaseOutreachRow`'s
+ * release transaction, where the caller holds the batch row lock and
+ * `lockAutonomyAccount` (batch-then-account) so no opt-out, suspension or
+ * tier change can commit between the read and the write it guards.
+ */
+export async function findAutoDowngradeReason(
+  sql: Sql | TransactionSql,
+  accountId: string,
+): Promise<AutoDowngradeReason | null> {
+  if (!solicitationAutoApprovalEnabled()) return 'auto_approval_disabled';
+  const conditions = await readAutoApprovalConditions(sql, accountId);
+  if (!tierGrantsAutopilot(conditions.subscriptionTier)) {
+    return 'autopilot_entitlement_lost';
+  }
+  if (conditions.anySuspended) return 'policy_suspended';
+  if (conditions.policy === null) return 'policy_removed';
+  return null;
 }
 
 // ── The auto-approve verb (#631 Task 4) ─────────────────────────────────────
@@ -459,57 +510,6 @@ async function isolateAnchorItem<T>(
 }
 
 /**
- * TASK-6 DEVIATION (see docs/superpowers/plans/631-auto-approval-lane-deviations.md,
- * "Task 6 notes"): this should be a plain `recordStep(tx, { stepKey:
- * 'veto_window_granted', ... })` through run-spine.ts's single writer seam.
- * `veto_window_granted` is not yet a member of that file's `STEP_PERSONA` map
- * and `run-spine.ts` is outside this feature's recorded edit surface, so the
- * key cannot be added from here. This function reproduces `appendRunStep`'s
- * exact write shape (run-row lock, `step_index` computed the same way, jsonb
- * detail) for ONLY this one step key, with `attributed_agent` hardcoded to
- * the literal the DB's `agent_run_steps_attributed_agent_check` (migration
- * 088) already admits. DELETE this once `veto_window_granted` lands in
- * `STEP_PERSONA` and replace its call site with a plain `recordStep` call.
- *
- * `accountId`/`businessId` scope the run-row lock to a bound VALUE (not a
- * correlated column) — `ci:tenant-scope` accepts that as real tenant
- * scoping; `run-spine.ts`'s own equivalent lock omits them and is
- * allowlisted instead (its callers already hold a scoped transaction this
- * duplicate cannot assume).
- */
-async function recordVetoWindowGrantedStep(
-  tx: TransactionSql,
-  runId: string,
-  accountId: string,
-  businessId: string,
-  detail: Record<string, unknown>,
-): Promise<void> {
-  const lock = await tx<{ ok: number }[]>`
-    SELECT 1 AS ok FROM agent_runs
-    WHERE id = ${runId}::uuid AND account_id = ${accountId}::uuid AND business_id = ${businessId}::uuid
-    FOR UPDATE
-  `;
-  if (lock.count === 0) {
-    throw new Error(
-      `anchorVetoDeadlines: send parent run ${runId} not found for veto_window_granted`,
-    );
-  }
-  const [row] = await tx<{ next_index: number }[]>`
-    SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index
-    FROM agent_run_steps WHERE agent_run_id = ${runId}::uuid
-  `;
-  const nextIndex = row?.next_index ?? 1;
-  await tx`
-    INSERT INTO agent_run_steps (
-      id, agent_run_id, step_index, step_key, attributed_agent, status, detail, latency_ms
-    ) VALUES (
-      ${uuidv7()}, ${runId}::uuid, ${nextIndex}, 'veto_window_granted',
-      'solicitation', 'completed', ${tx.json(detail as never)}, NULL
-    )
-  `;
-}
-
-/**
  * Anchor ONE candidate: lock the batch, read the granted window back from the
  * send parent's LATEST `batch_approved` step, then CAS the deadline computed
  * IN SQL from `MIN(sent_at)` — never a JS `Date` round-trip (#520's µs-
@@ -602,11 +602,19 @@ async function anchorOneBatch(
   `;
   if (cas === undefined) return false;
 
-  await recordVetoWindowGrantedStep(tx, sendParentRunId, batch.account_id, batch.business_id, {
-    granted_window_minutes: grantedMinutes,
-    first_sent_at: cas.first_sent,
-    veto_deadline_at: cas.veto_deadline_at,
-    actor: 'system',
+  // Through run-spine's single writer (decision 5; the surface-amendment-2
+  // fix that deleted this file's Task-6 duplicate writer): `recordStep`
+  // re-takes the run-row lock and computes `step_index` under it, exactly as
+  // the duplicate did.
+  await recordStep(tx, {
+    runId: sendParentRunId,
+    stepKey: 'veto_window_granted',
+    detail: {
+      granted_window_minutes: grantedMinutes,
+      first_sent_at: cas.first_sent,
+      veto_deadline_at: cas.veto_deadline_at,
+      actor: 'system',
+    },
   });
   return true;
 }

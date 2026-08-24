@@ -84,6 +84,9 @@ export const STEP_PERSONA = {
   // and the second states the OPPOSITE fact, so filing an un-approval under
   // either would collapse two distinct facts into one vocabulary entry.
   approval_downgraded: 'solicitation',
+  // (#631) The Veto anchor's deadline receipt on the **Send batch parent**;
+  // the detail carries `actor: 'system'` — attribution follows the lane.
+  veto_window_granted: 'solicitation',
 } as const satisfies Record<string, AttributedAgentPersona>;
 
 export type AgentStepKey = keyof typeof STEP_PERSONA;

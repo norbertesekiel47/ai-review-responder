@@ -282,3 +282,77 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   },
   ```
   Then add 4 to `ALLOWLIST_BASELINE` (390 → 394) in the same file.
+
+## Task 7 execution (2026-08-24)
+
+- [2026-08-24] **Folded-in fix A applied; attribution resolved to
+  `'solicitation'`.** `STEP_PERSONA` gained `veto_window_granted:
+  'solicitation'` — the exact follow-up the Task 6 notes above prescribe
+  ("same shape as the existing `approval_downgraded` entry") and the value the
+  deleted duplicate writer already stamped on committed rows. The delegation
+  prompt's parenthetical "system actor" is satisfied by the step DETAIL's
+  `actor: 'system'` field, which the `recordStep` call preserves — reading it
+  as the `attributed_agent` value would have changed the durable row shape and
+  broken equivalence with Task 6's committed tests. `recordVetoWindowGrantedStep`
+  deleted; `anchorOneBatch` now calls run-spine's `recordStep`; the 16
+  auto-approval integration tests (5 anchor titles included) re-ran green
+  UNCHANGED before any Task 7 build step. VERDICT: pending owner review.
+- [2026-08-24] **Folded-in fix B applied with a delta the Task 6 note could
+  not have known: THREE allowlist entries, not four, baseline 390 → 393.**
+  The prepared `agent_run_steps` step_index entry described the duplicated
+  writer fix A deleted — its statement no longer exists in
+  `auto-approval.ts` (the write now rides run-spine.ts's already-allowlisted
+  statements), and the audit fails on unused entries, so it could not land.
+  Two additional same-file edits the note also could not anticipate:
+  (a) `RELEASE_CANDIDATE_SCAN_SQL` refreshed — Task 7 step 1 adds
+  `b.approval_method`/`c.approval_method` to the P4 scan and the allowlist
+  keys on exact normalized SQL, so the stale constant read as two unused
+  entries; (b) `src/lib/solicitation/auto-approval.ts` added to
+  `CATEGORY_PATH_RULES['background-global-scan'].allowedFiles` (release.ts's
+  sibling comment), or the two scan entries would fail the category's path
+  invariant. `pnpm ci:tenant-scope` passes repo-wide; no query loosened.
+  VERDICT: pending owner review.
+- [2026-08-24] **`downgradeApproval` takes the reason parameter PLUS an
+  optional in-tx `confirmReason` resolver.** Plan decision 7 says the reason
+  is a parameter; rev 2.1's decision 6 says the auto arm re-reads the four
+  conditions INSIDE the downgrade transaction under the batch + account
+  locks. Both cannot hold with a plain value parameter alone — the re-read
+  must run between the batch lock and the CAS, which are both inside
+  `downgradeApproval`. Resolution: `applyDowngradeSplit(sql, batch, reason,
+  confirmReason?)` is the one shared implementation (held/skipped arms +
+  Sentry-then-log); the Judge arm passes the bare
+  `'judge_unavailable'` constant and no resolver; `applyAutoDowngrade` passes
+  the arm-level reason plus a resolver that takes `lockAutonomyAccount`
+  (batch-then-account) and re-runs `findAutoDowngradeReason` — `null` skips,
+  and the CONFIRMED reason (which may differ from the arm-level one) is what
+  the spine detail, Sentry tag and report counter carry. The auto lane gets
+  its own stable Sentry title (`… auto-approval conditions failed`) so a
+  Governor trip never files into the Judge-outage issue; the Judge arm's
+  title, tag and behavior are byte-identical to before (its five existing
+  tests pass untouched). VERDICT: pending owner review.
+- [2026-08-24] **`releaseOutreachRow` returns a 3-member outcome union, and
+  `auto_conditions` is counted once per batch.** The boolean return could not
+  express the rev-2.1 withhold, so it widened to
+  `'released' | 'skipped' | 'withheld_auto_conditions'`. On a withhold the
+  row loop BREAKS after counting `auto_conditions` once: the failed condition
+  is account-level, so every sibling row of the batch would withhold
+  identically, and `withheldByReason` counts per-batch/per-account acts, not
+  rows (the `judge_unhealthy`/`account_cap` convention). The next tick's
+  arm-level check owns the durable downgrade. VERDICT: pending owner review.
+- [2026-08-24] **PRE-EXISTING red found, NOT fixed (outside this task's
+  surface): `src/lib/solicitation/__tests__/ask-generation.test.ts` fails 9
+  of 40 at HEAD `0c015253`** — verified by stash-run-unstash BEFORE this
+  task's changes, and unchanged by them. Every failure is
+  `AutonomyAccountNotFoundError` from `lockAutonomyAccount` inside
+  `runFinaleAutoApproval` (`ask-generation.ts:1196`): Task 4's finale hook
+  added the `SELECT id FROM accounts … FOR UPDATE` account-lock statement to
+  the finale transaction, and the unit suite's `mock-sql` fake answers `[]`
+  for it (no `accounts` route), so every case whose flow reaches an OWNED
+  finale throws. The integration suites (which Task 4 ran) use live Postgres
+  and never see it. Fix belongs to whoever owns
+  `worker/__tests__/helpers/mock-sql.ts` / `ask-generation.test.ts` — neither
+  is in Task 7's allowed file list, and the surface amendment budget is
+  exhausted. Task 7's own Verify set (release.integration, release.test,
+  auto-approval.integration + tenant-scope/lint/typecheck) is fully green.
+  VERDICT: pending — needs a follow-up assignment before the branch's
+  `pnpm test` gate can pass.

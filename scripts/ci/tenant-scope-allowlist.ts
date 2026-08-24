@@ -200,7 +200,19 @@ export interface TenantScopeAllowlistEntry {
 //     `solicitation_batches_one_active_send_per_business` predicate byte for
 //     byte, so the set it scans is exactly the set of batches OCCUPYING a
 //     location's single active-send slot.
-export const ALLOWLIST_BASELINE = 390;
+//   - 2026-08-24 (390 → 393): #631's Veto anchor (`anchorVetoDeadlines`,
+//     `src/lib/solicitation/auto-approval.ts`). THREE entries, not the four
+//     Task 6's deviations log drafted: its `agent_run_steps` step_index entry
+//     described the duplicated spine writer Task 7 DELETED (the
+//     `veto_window_granted` key landed in run-spine.ts's STEP_PERSONA, so the
+//     anchor now writes through `recordStep`, whose statements are already
+//     allowlisted under run-spine.ts). What remains: the anchor's platform-wide
+//     candidate scan — ONE statement counted twice (`solicitation_batches` at
+//     the top level + the `notification_deliveries` EXISTS correlated on the
+//     outer row, the BATCH_EXPIRED_SWEEP_SCAN shape) — and the granted-window
+//     read-back from the send parent's latest `batch_approved` step
+//     (`agent_run_steps` has no tenant columns at all).
+export const ALLOWLIST_BASELINE = 393;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -262,6 +274,12 @@ export const CATEGORY_PATH_RULES: Partial<
       // every write it performs afterwards is bound to that batch's account_id
       // AND business_id.
       'src/lib/solicitation/release.ts',
+      // The Veto anchor (#631), the release cycle's phase 3.5 — it lives in
+      // auto-approval.ts rather than release.ts so release.ts (which imports
+      // it) never becomes its own dependency. Its ONE cross-account statement
+      // is the anchor's candidate scan; the per-candidate transaction that
+      // follows binds account_id AND business_id on every statement.
+      'src/lib/solicitation/auto-approval.ts',
     ],
   },
   'provider-ingress': {
@@ -400,7 +418,7 @@ const SOLICITATION_LANE_ATTRIBUTION_SQL =
 // (file, table, normalized SQL), so the two solicitation_outreach occurrences
 // share ONE entry and the baseline does not move.
 const RELEASE_CANDIDATE_SCAN_SQL =
-  "WITH capped_accounts AS ( SELECT account_id FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' GROUP BY account_id HAVING COUNT(*) >= ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} ), eligible AS ( SELECT b.id, b.account_id, b.business_id, b.approved_at, b.sending_started_at, b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AS approval_window_open, EXISTS ( SELECT 1 FROM capped_accounts c WHERE c.account_id = b.account_id ) AS account_capped FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ), candidates AS ( SELECT * FROM eligible WHERE NOT account_capped ORDER BY approved_at ASC LIMIT ${scanLimit} ), withheld AS ( SELECT COUNT(DISTINCT account_id)::int AS capped_accounts_withheld FROM eligible WHERE account_capped ) SELECT w.capped_accounts_withheld, c.id, c.account_id, c.business_id, c.sending_started_at, c.approval_window_open FROM withheld w LEFT JOIN candidates c ON TRUE ORDER BY c.approved_at ASC";
+  "WITH capped_accounts AS ( SELECT account_id FROM solicitation_outreach WHERE queued_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' GROUP BY account_id HAVING COUNT(*) >= ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} ), eligible AS ( SELECT b.id, b.account_id, b.business_id, b.approval_method, b.approved_at, b.sending_started_at, b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS}) AS approval_window_open, EXISTS ( SELECT 1 FROM capped_accounts c WHERE c.account_id = b.account_id ) AS account_capped FROM solicitation_batches b WHERE b.approved_at IS NOT NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND b.veto_deadline_at IS NOT NULL AND NOW() >= b.veto_deadline_at AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS}) AND EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.batch_id = b.id AND o.account_id = b.account_id AND o.business_id = b.business_id AND o.delivery_status = 'rendered' ) ), candidates AS ( SELECT * FROM eligible WHERE NOT account_capped ORDER BY approved_at ASC LIMIT ${scanLimit} ), withheld AS ( SELECT COUNT(DISTINCT account_id)::int AS capped_accounts_withheld FROM eligible WHERE account_capped ) SELECT w.capped_accounts_withheld, c.id, c.account_id, c.business_id, c.approval_method, c.sending_started_at, c.approval_window_open FROM withheld w LEFT JOIN candidates c ON TRUE ORDER BY c.approved_at ASC";
 
 const RELEASE_CANDIDATE_SCAN_REASON =
   "runReleaseCycle's release-candidate scan (#900, predicate P4) — the SolicitationReleasePoller's per-tick discovery of approved batches with a live `rendered` attempt whose veto window has closed. "
@@ -464,6 +482,17 @@ const BACKSTOP_SCAN_REASON =
   + "CROSS-ACCOUNT BY CONSTRUCTION, not by convenience, for the same structural reason as P1, P2, P3 and P4 above: a lost join is by definition a fact nobody reports, so a platform-wide backstop must DISCOVER the affected batches before any tenant id is known, and the audit proves scope only from a predicate bound to a VALUE. A per-account formulation would still need a cross-account read of which accounts have open batches, so it moves the exemption rather than removing it. It also runs when SOLICITATION_SEND_ENABLED is off, deliberately (locked decision 8), so a mid-drip flag flip cannot strand a settled batch open. No SQL formulation avoids it. "
   + "SAME CLASS AS ITS PEERS in this category — judge-store.ts, judge-health.ts and auto-approval/governor.ts are all background loops that scan every account for work before doing scoped work; this is the send lane's join-recovery member of that set. "
   + "THE SCAN IS GLOBAL; EVERY WRITE THAT FOLLOWS IS SCOPED. This statement is read-only and projects three ids and nothing else — no rendered subject, no rendered body, no recipient handle, no provenance. The only thing that follows is closeBatchIfSettled, called once per scanned batch in its own transaction with the account_id AND business_id those ids carry: its FOR UPDATE batch re-read, its grouped outreach tally, its send-parent lookup, its send_closed_at CAS, its send_batch_closed step and its terminal transition all spell both tenant predicates in a TOP-LEVEL WHERE and are deliberately NOT allowlisted. The backstop declares NO failure, so it can neither close a parentless batch nor file a parent as failed.";
+
+// #631's Veto anchor scan (release-cycle phase 3.5, decision 4). One statement
+// the audit attributes to two tables (solicitation_batches at the top level +
+// notification_deliveries inside the EXISTS correlated on the outer row — the
+// BATCH_EXPIRED_SWEEP_SCAN shape), so it is hoisted here once rather than
+// copy-pasted into both entries.
+const VETO_ANCHOR_SCAN_SQL =
+  "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approval_method = 'auto_policy' AND b.veto_deadline_at IS NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.entity_id = b.id AND nd.template = 'solicitation_veto_notice' AND nd.sent_at IS NOT NULL ) LIMIT ${scanLimit}";
+
+const VETO_ANCHOR_SCAN_REASON =
+  "selectAnchorCandidates (#631 Task 6, decision 4) — the Veto anchor's platform-wide scan for auto_policy batches whose Veto notice has been provider-accepted at least once. Cross-account BY DESIGN, same shape as release.ts's sibling scans (BATCH_EXPIRED_SWEEP_SCAN etc.): a background release-cycle phase must find every account's unanchored batches, not one. Read-only, projects three ids and nothing else. The notification_deliveries EXISTS arm is correlated to the outer row's id, not to a fixed account/business value, so the audit reports it as a second table finding on the one global-scan statement (the release.ts BATCH_EXPIRED_SWEEP_SCAN precedent does the same for its agent_runs EXISTS arm). Everything that follows per candidate — the batch lock, the granted-window read-back, the deadline CAS, the veto_window_granted step — binds account_id AND business_id to real values and is deliberately NOT allowlisted.";
 
 export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
@@ -3254,6 +3283,27 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: BACKSTOP_SCAN_SQL,
     category: 'background-global-scan',
     reason: BACKSTOP_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "solicitation_batches",
+    sqlSnippet: VETO_ANCHOR_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: VETO_ANCHOR_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "notification_deliveries",
+    sqlSnippet: VETO_ANCHOR_SCAN_SQL,
+    category: 'background-global-scan',
+    reason: VETO_ANCHOR_SCAN_REASON,
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "agent_run_steps",
+    sqlSnippet: "SELECT (detail->>'veto_window_minutes')::int AS granted_window_minutes FROM agent_run_steps WHERE agent_run_id = ${sendParentRunId}::uuid AND step_key = 'batch_approved' ORDER BY step_index DESC LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "anchorOneBatch reads the granted veto window back from the LATEST batch_approved step on the send parent run it resolved under the batch lock one statement above (an account_id/business_id-scoped subquery, per #631 decision 5). agent_run_steps has no account_id/business_id column of its own; the run_id this filters by came off that scoped lock. The veto_window_granted step it precedes is written through run-spine.ts's recordStep, whose statements are already allowlisted under that file.",
   },
   {
     file: "src/lib/admin/suppressions-service.ts",
