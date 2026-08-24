@@ -563,3 +563,80 @@ Idempotence keys on `job.data.outbox_id`; the integration suite randomises
 `job.id` per call so the key under test can only be the outbox id. Both error
 hooks are attached by the shared registration loop, and the registration test
 asserts the map entry **and** that both calls remain inside that loop body.
+
+---
+
+## D25 — postgres.js truncates microseconds on the **WRITE** side too. This is a NEW finding.
+
+**Stage:** execution (step 4), Task 6. **Not in CLAUDE.md, not in lab-notes, not
+in the plan. It corrects a documented rule that is only half true.**
+
+The #520 rule as written says `timestamptz` **decodes** to a JS `Date` and loses
+microseconds, and offers "keep it `::text` end to end" as the escape. **The escape
+does not cover the write direction.** Measured on the test database:
+
+```
+base                                    "2026-08-24 22:53:30.167454+00"
+SELECT (${base})::text               →  "2026-08-24 22:53:30.167454+00"   intact
+SELECT (${base}::timestamptz)::text   →  "2026-08-24 22:53:30.167+00"      TRUNCATED
+SELECT ('<literal>'::timestamptz)::text → "…167454+00"                     intact
+```
+
+**Root cause:** postgres.js reads the `::timestamptz` cast that FOLLOWS a
+parameter, declares the parameter to *be* a timestamptz, and serializes it through
+a JS `Date`. So writing a full-precision text stamp back through
+`${text}::timestamptz` silently drops the microseconds. A literal in the SQL body
+is unaffected — only a bound parameter takes the lossy path.
+
+**Why nothing caught it before.** The existing candidate-window cases compare two
+values that both took the same lossy path, so the loss cancels. Task 6's read-model
+cases predict a stored stamp from a seed, so it did not cancel.
+
+**Fix applied:** a `dbStampMs` fixture helper truncates the seed to milliseconds on
+the database side, documented in place with the measurement above. **No production
+code changed** — this is a test-fixture hazard, not a runtime defect.
+
+**Follow-up owed:** this belongs in `.claude/reference/lab-notes.md` beside the
+existing #520 entry, which currently tells a reader that `::text` end to end is
+sufficient. That file is **outside `allowed_edit_surface`**, so it cannot land in
+this branch without spending the second amendment. **File it as a follow-up PR.**
+
+---
+
+## D26 — three smaller Task 6 notes
+
+1. **A plan row type was wrong, in the way the plan itself predicted.** Task 6
+   Step 1 declared `ask_sent_at` / `attributed_at` / `review_date` as `string`
+   while selecting bare `timestamptz`. Resolved by selecting `::text`, the same
+   branch of that correction Task 3 took.
+2. **My task brief was off by one.** I predicted "21 passed"; the suite is 16
+   pre-existing + 4 new = **20 passed, 0 todo**, which is what the plan's own
+   Step 3 says. No test is missing. The agent checked rather than padding to hit
+   my number, which is the right instinct.
+3. **One negative control could not be run.** Removing `AND r.business_id =
+   o.business_id` to prove the A6 assertion bites was refused by the harness's
+   auto-mode classifier, which reads it as weakening a tenant-scope predicate.
+   The agent did not work around the refusal. The argument stands on construction:
+   the test repoints the primary tenant's outreach row at a FOREIGN tenant's
+   review id and asserts the list goes empty. Without the business predicate the
+   inner join would match on id alone and return that row, so the assertion cannot
+   pass without it.
+
+**Verified by inspection:** both tenant keys are on the join
+(`attribution.ts:373`) and repeated in the `WHERE` (374/375/379). The display
+window binds `ATTRIBUTION_DISPLAY_WINDOW_DAYS` (30) and never
+`ATTRIBUTION_WINDOW_DAYS` (14).
+
+---
+
+## Owner decision — the D23 subscription-guard gap
+
+**2026-08-24: add the test, leave the intake at 54.**
+
+The eval-contract test asserts that every PROMISED title exists and that nothing
+is parked. It does **not** forbid extra tests. So the guard case lands in
+`worker/__tests__/solicitation-attribution.test.ts` — already in
+`allowed_edit_surface` — as a runnable test that is not a promised title.
+
+Cost: no intake change, no surface amendment, no churn in the budget table, and
+`eval contract:` still passes. D23 is closed by this.
