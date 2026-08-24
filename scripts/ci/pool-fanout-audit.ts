@@ -71,6 +71,17 @@
 // counted, so it is REPORTED rather than passed. Silence on an unrecognized
 // shape is how a guard becomes decorative.
 //
+// THAT COST IS ACCEPTED EXPLICITLY, not incidentally. `Promise.all(tasks)` with
+// NO database work in it is reported too, because this audit cannot tell that
+// from `Promise.all(ids.map(id => getThing(sql, id)))` — an UNBOUNDED fan-out,
+// which is strictly worse than the two-element case the rule exists for. In
+// these three directories there are zero such sites today, and a legitimate one
+// costs a single `// pool-fanout-allow: <reason>` line with its reason. Scanning
+// the argument's subtree instead would pass a bare `Promise.all(tasks)` whose
+// array was built two lines up, which is the blind spot the posture exists to
+// refuse. If this ever becomes noisy in practice, change it deliberately and
+// record what the new rule cannot see.
+//
 // ---------------------------------------------------------------------------
 // The escape, and its boundary
 // ---------------------------------------------------------------------------
@@ -91,6 +102,13 @@
 //    see it; the mitigation there is the admission chokepoint plus review.
 //    Widening the root is a one-line change to SCAN_DIRS and a separate review —
 //    do it deliberately, not as a side effect.
+//
+//    ONE CONSEQUENCE IS A FORMAL DEVIATION FROM #893, and it is recorded on the
+//    ticket rather than buried here: #893 asks for a named, reasoned allowlist
+//    entry for `src/app/api/admin/jobs/route.ts:27`. That file is outside this
+//    root, and its combinator is ONE database call plus one Redis call, so the
+//    >= 2 rule could not report it even if the root were widened. The allowlist
+//    MECHANISM ships; it has zero entries because there is nothing to exempt.
 //
 // 2. THE DEFERRED-AWAIT FORM IS NOT COVERED, and it is a genuine hole:
 //
@@ -249,42 +267,74 @@ function scopeCallbackBindings(node: ts.Node, names: ReadonlySet<string>): strin
 }
 
 /**
- * True when this array element issues at least one query on a sql binding.
+ * True when this array element issues at least one query on a sql binding
+ * ANYWHERE in its subtree.
  *
- * Recurses through a conditional — `accountId ? sql\`…\` : sql\`…\`` is ONE
- * element that issues a query either way, and `getAdminNotifications`'s third
- * element was exactly that shape. Deliberately does NOT recurse into function
- * bodies: a thunk inside a combinator is not dispatched by the combinator, and
- * `settledInOrder` (the sanctioned sequential analog) takes thunks by design.
+ * A SUBTREE SCAN, not a hand-listed set of shapes, and that is the second thing
+ * branch review corrected. The first version matched three top-level forms —
+ * a tagged template, a query method, a call passing the binding — plus a
+ * conditional. Every other wrapper slipped through as ZERO:
+ *
+ *   Promise.all([enabled && sql`…`, sql`…`])        // logical operand
+ *   Promise.all([withTimeout(sql`…`), sql`…`])      // query wrapped in a call
+ *   Promise.all([memoize(() => sql`…`), sql`…`])    // query inside a thunk
+ *
+ * Each counted ONE and passed, against a ticket that asks for "any Promise.all
+ * with >= 2 query calls". Enumerating shapes is the same mistake as enumerating
+ * subjects, one level down, so the shapes are gone: find the query wherever it
+ * is.
+ *
+ * FUNCTION BODIES ARE INCLUDED, which reverses the first version. The carve-out
+ * existed for `settledInOrder`, the sanctioned sequential analog, which takes
+ * thunks — but `settledInOrder` is not a `Promise` combinator and never reaches
+ * this scan at all (pinned below). So skipping thunks bought nothing and cost
+ * the memoize form above. A literal `Promise.all([() => sql`a`, () => sql`b`])`
+ * is now reported; it is also broken code, since a combinator never invokes a
+ * thunk.
+ *
+ * `sql.json(x)` still counts for nothing at any depth: it builds a VALUE, and
+ * the fragment builders pass it around freely.
  */
 export function isDbIssuing(element: ts.Expression, sqlNames: ReadonlySet<string>): boolean {
-  const node = unwrap(element);
+  let found = false;
 
-  if (ts.isConditionalExpression(node)) {
-    return isDbIssuing(node.whenTrue, sqlNames) || isDbIssuing(node.whenFalse, sqlNames);
-  }
+  const visit = (node: ts.Node): void => {
+    if (found) return;
 
-  if (ts.isTaggedTemplateExpression(node)) {
-    const root = rootIdentifier(node.tag);
-    return root !== null && sqlNames.has(root);
-  }
-
-  if (ts.isCallExpression(node)) {
-    // (b) a query method on a sql binding.
-    if (ts.isPropertyAccessExpression(node.expression)) {
-      const root = rootIdentifier(node.expression.expression);
-      if (root !== null && sqlNames.has(root) && !NON_QUERY_METHODS.has(node.expression.name.text)) {
-        return true;
+    if (ts.isTaggedTemplateExpression(node)) {
+      const root = rootIdentifier(node.tag);
+      if (root !== null && sqlNames.has(root)) {
+        found = true;
+        return;
       }
     }
-    // (c) a call that hands a sql binding to someone else.
-    return node.arguments.some((arg) => {
-      const inner = unwrap(arg);
-      return ts.isIdentifier(inner) && sqlNames.has(inner.text);
-    });
-  }
 
-  return false;
+    if (ts.isCallExpression(node)) {
+      // (b) a query method on a sql binding.
+      if (ts.isPropertyAccessExpression(node.expression)) {
+        const root = rootIdentifier(node.expression.expression);
+        if (root !== null && sqlNames.has(root) && !NON_QUERY_METHODS.has(node.expression.name.text)) {
+          found = true;
+          return;
+        }
+      }
+      // (c) a call that hands a sql binding to someone else.
+      if (
+        node.arguments.some((arg) => {
+          const inner = unwrap(arg);
+          return ts.isIdentifier(inner) && sqlNames.has(inner.text);
+        })
+      ) {
+        found = true;
+        return;
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(element);
+  return found;
 }
 
 /**

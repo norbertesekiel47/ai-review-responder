@@ -113,13 +113,60 @@ describe('pool-fanout-audit / findFanoutSites — what it must NOT count', () =>
     expect(site?.dbElements).toBe(1);
   });
 
-  it('does not recurse into thunks — settledInOrder takes thunks by design', () => {
-    const [site] = sitesOf(`  return Promise.all([() => ${tag('sql')}, () => ${tag('sql', 'B')}]);`);
-    expect(site?.dbElements).toBe(0);
-  });
-
   it('sees no site at all in the sanctioned sequential analog', () => {
     expect(sitesOf(`  return settledInOrder([() => ${tag('sql')}, () => ${tag('sql', 'B')}]);`)).toEqual([]);
+  });
+});
+
+describe('pool-fanout-audit / findFanoutSites — the query is found WHEREVER it is', () => {
+  // Branch review, spec finding: the first classifier matched a hand-listed set
+  // of top-level shapes, so every wrapper counted ZERO and passed. Enumerating
+  // shapes is the same mistake as enumerating subjects, one level down.
+
+  it('counts a query behind a LOGICAL operand', () => {
+    const [site] = sitesOf(`  return Promise.all([enabled && ${tag('sql')}, ${tag('sql', 'B')}]);`);
+    expect(site?.dbElements).toBe(2);
+  });
+
+  it('counts a query behind ?? and ||', () => {
+    const [site] = sitesOf(
+      `  return Promise.all([cached ?? ${tag('sql')}, fallback || ${tag('sql', 'B')}]);`,
+    );
+    expect(site?.dbElements).toBe(2);
+  });
+
+  it('counts a query WRAPPED in a call', () => {
+    const [site] = sitesOf(`  return Promise.all([withTimeout(${tag('sql')}), ${tag('sql', 'B')}]);`);
+    expect(site?.dbElements).toBe(2);
+  });
+
+  it('counts a query nested two wrappers deep', () => {
+    const [site] = sitesOf(
+      `  return Promise.all([outer(inner(${tag('sql')})), ${tag('sql', 'B')}]);`,
+    );
+    expect(site?.dbElements).toBe(2);
+  });
+
+  it('counts a query inside a THUNK — the carve-out cost more than it bought', () => {
+    // The first version skipped function bodies for `settledInOrder`'s sake. But
+    // settledInOrder is not a Promise combinator and never reaches this scan
+    // (pinned below), so the carve-out only hid `memoize(() => sql`…`)`.
+    const [site] = sitesOf(
+      `  return Promise.all([memo(() => ${tag('sql')}), memo(() => ${tag('sql', 'B')})]);`,
+    );
+    expect(site?.dbElements).toBe(2);
+  });
+
+  it('still counts NOTHING for sql.json at any depth — it builds a value', () => {
+    const [site] = sitesOf(
+      `  return Promise.all([${tag('sql')}, insertThing(payload, sql.json({ a: 1 }))]);`,
+    );
+    expect(site?.dbElements).toBe(1);
+  });
+
+  it('does not count a bare mention of the binding inside an object literal', () => {
+    const [site] = sitesOf(`  return Promise.all([${tag('sql')}, logger.info({ sql })]);`);
+    expect(site?.dbElements).toBe(1);
   });
 });
 

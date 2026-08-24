@@ -66,11 +66,22 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   the escape is a reasoned per-site pragma with zero uses today. **The four
   existing pins were deliberately NOT widened, and no per-service pin was added** —
   four fixes plus four new pins would rebuild the enumeration one directory
-  further apart. Two boundaries are stated in the audit header rather than
-  implied: the root excludes `src/app/**`, and the deferred-await form
-  (`const a = getA(sql); const b = getB(sql);`) is not covered, because the
-  syntactic proxy for it collides with the legitimate fragment builders.
-  **Counts: +1 production merge.**
+  further apart. **Branch review then found the classifier was ITSELF an
+  enumeration, one level down**: it matched a hand-listed set of top-level
+  shapes, so a logical operand, a query wrapped in a call, and a query inside a
+  thunk each counted ONE and passed. It is now a SUBTREE scan — find the query
+  wherever it is — and the thunk carve-out is gone, because `settledInOrder` is
+  not a `Promise` combinator and never reached the scan anyway. Three boundaries
+  are stated in the audit header rather than implied: the root excludes
+  `src/app/**`; the deferred-await form (`const a = getA(sql); const b =
+  getB(sql);`) is not covered, because the syntactic proxy for it collides with
+  the legitimate fragment builders; and the fail-closed cost is ACCEPTED
+  explicitly — a `Promise.all(tasks)` with no DB work in it is reported too,
+  because the audit cannot tell it from an unbounded `.map` fan-out. The
+  ticket's named `src/app/api/admin/jobs/route.ts:27` exception is a recorded
+  DEVIATION, not an omission: that file is outside the root and is one DB call
+  plus one Redis call, so the ≥2 rule cannot reach it. **Counts: +1 production
+  merge.**
 - **chore #910 pull-forwards** — B3.1 + B3.7 + B3.10 (2026-08-23). B3.1: the
   `HealthFinding` inversion fixed — the interface moved to the zero-import leaf
   `src/lib/shared/health-finding.ts`, so `send-breaker.ts` no longer type-imports
