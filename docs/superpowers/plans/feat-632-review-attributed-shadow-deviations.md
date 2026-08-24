@@ -92,3 +92,80 @@ plan had this as an open item; it is now resolved and closed.
 **Scope impact:** +6 lines of migration. No change to the migration count or the
 in-flight slot.
 **Verdict:** _pending step 6._
+
+---
+
+## D6 — the eight parked integration suites carry NO `assertSchemaReady` import
+
+**Stage:** execution (step 4), Task 0.
+**What changed:** the plan's Step 2 tells every `*.integration.test.ts` to import
+`assertSchemaReady` from `@/lib/shared/__tests__/helpers/schema-ready`. Task 0
+did not add that import to the eight suites whose every case is parked.
+**Why:** a suite with no runnable body has nothing to guard, and the import would
+be unused. `@typescript-eslint/no-unused-vars` is configured as an **error**
+(`eslint.config.mjs:122`), so the import would fail `pnpm lint` and take the
+gate's `lint` row red — a self-inflicted red that says nothing true about the
+code. The plan's instruction is right for a suite that RUNS; it is premature for
+one that is entirely parked.
+**How the instruction survives:** each of the eight files carries a header
+comment naming the exact scaffolding its unparking task must add —
+`resolveTestDatabaseUrl` + `describeWithDb`, the cross-process live-DB lock,
+`assertSchemaReady`, the shared outreach fixtures — and states that migration 114
+is **asserted, never applied**.
+**Residual risk:** an unparking task that ignores its own file header ships a
+live-DB suite with no schema guard. It then fails loudly against a behind-head
+database rather than silently self-healing, which is the documented intent.
+`ci:live-db-suites` does not catch it today, because it only scans files that
+actually reach the live DB and these do not yet.
+**Scope impact:** none. No file added or removed.
+**Verdict:** _pending step 6._
+
+---
+
+## D7 — the eval-contract test's COMMENT prose was paraphrased
+
+**Stage:** execution (step 4), Task 0.
+**What changed:** the plan's Step 0 code block contains comment lines that
+literally spell parked-form names. Those sentences were rewritten to refer to the
+forms abstractly. Every line of **executable** code is byte-identical to the plan.
+**Why:** the round-4 whole-line comment filter would have dropped those lines
+safely, so this is belt-and-braces rather than a correction. It removes the last
+way a future edit — moving a comment onto a code line, say — could resurrect the
+round-3 false-green. Simulating the check over the real corpus finds 43 parked
+forms, all `it.todo`, and zero comment false positives.
+**Scope impact:** documentation wording only.
+**Verdict:** _pending step 6._
+
+---
+
+## D8 — a `describe('architecture', …)` wrapper around the single `architecture:` title
+
+**Stage:** execution (step 4), Task 0.
+**What changed:** the one `architecture:` title sits inside a `describe` group,
+for symmetry with its neighbours.
+**Why / why it is safe:** title discipline forbids SPLITTING a title across a
+`describe` prefix, not grouping. The full promised title stays inside the
+`it.todo(...)` string
+(`attribution.test.ts:217`), and the verbatim check finds all 54 titles present
+exactly once.
+**Scope impact:** none.
+**Verdict:** _pending step 6._
+
+---
+
+## Open item pinned to Task 1 — `MIGRATION_SHAPE_FILES` enrolment
+
+`src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts`
+is **not** in `MIGRATION_SHAPE_FILES` (`scripts/ci/live-db-suites-audit.ts:110`).
+Every prior migration-shape suite — 074, 076, 077, 078, 088 — **is**.
+
+Task 1 must resolve this **with evidence, not by pattern-matching the precedent**:
+
+- If the suite executes DDL, it needs the allowlist entry, and the audit then
+  enforces its cross-process lock enrolment.
+- If it only reads — `assertSchemaReady` plus catalogue queries — it must NOT be
+  added. The allowlist exists for suites where applying the migration IS the
+  subject, and CLAUDE.md's convention is that live-DB suites assert their schema
+  rather than apply it.
+
+Decide from what the suite actually does once Task 1 writes its body.
