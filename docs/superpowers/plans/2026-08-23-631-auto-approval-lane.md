@@ -1,98 +1,127 @@
-# #631 Auto-Approval Lane Implementation Plan
+# #631 Auto-Approval Lane Implementation Plan (rev 2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development
 > (recommended) or executing-plans to implement this plan task-by-task. Steps
 > use checkbox (`- [ ]`) syntax for tracking.
 
+> Rev 2, 2026-08-23: incorporates all 14 confirmed findings of plan-review
+> round 1 (`docs/reviews/631-auto-approval-lane/plan-round-1.md`) and the
+> owner's three re-lock decisions (anchor = sent_at; intake rev 2; notice
+> gates on batch state only).
+
 **Goal:** An Autopilot-tier batch auto-approves as `approval_method='auto_policy'`
 at the ask-generation finale behind `SOLICITATION_AUTO_APPROVAL_ENABLED`, with
-the D9 60-minute veto window anchored on the first confirmed-delivered **Veto
-notice**, fail-closed.
+the D9 veto window anchored on the first provider-accepted **Veto notice**
+(`sent_at`), fail-closed.
 
 **Architecture:** One new deep module `src/lib/solicitation/auto-approval.ts`
-owns the whole auto lane: condition gate, auto-approve verb, veto-deadline
-anchor, release-time re-check. One new worker family
+owns the auto lane: condition gate, auto-approve verb, veto-deadline anchor,
+release-time re-check. One new worker family
 `worker/jobs/solicitation-veto-notice/` mirrors `pending-post-notice`. The
-releaser (`release.ts`) gains one anchor phase and one re-check call; it reuses
-its own `downgradeApproval`. Migration 113 is index-only.
+releaser gains one anchor phase and one re-check call; its `downgradeApproval`
+split is refactored to take a typed reason. Migration 113 is index-only.
 
-**Tech Stack:** Postgres.js (`sql`/`tx`), BullMQ via `job_outbox`, run spine
-(`recordStep`), vitest (+ `fast-check` for the gate property test), zod for the
-settings PATCH.
+**Tech Stack:** Postgres.js (`tx.savepoint` for the CAS), BullMQ via
+`job_outbox`, run spine (`recordStep`), vitest + `fast-check`, zod.
 
-**Intake:** `docs/superpowers/plans/631-auto-approval-lane-intake.json` — the
-drift detector. Every task stays inside `allowed_edit_surface`.
+**Intake (rev 2):** `docs/superpowers/plans/631-auto-approval-lane-intake.json`
+— the drift detector; 44 promised test titles.
 
-**Deviations file:** `docs/superpowers/plans/631-auto-approval-lane-deviations.md`
-— subagents append there; never dump context on the orchestrator.
+**Deviations file:** `docs/superpowers/plans/631-auto-approval-lane-deviations.md`.
 
 ---
 
 ## Locked design decisions (read before any task)
 
 1. **Hook point** — the auto-approval decision runs inside the ask-generation
-   FINALE transaction (`src/lib/solicitation/ask-generation.ts`, the
-   `sql.begin` at ~line 1131), AFTER `closeBatchIfSettled`, only when
-   `tally.alive > 0` and `close.status === 'not_settled'`. Initial generation
-   only — never on the `regenerateAsk` path (regen exists only in `built`,
-   which after this feature means "the auto lane declined"). The batch row is
-   already locked `FOR UPDATE` there; the advisory lock is already held; the
-   lock order batch → run is preserved.
-2. **Two spine steps.** At approval: `batch_approved` with
-   `approval_method: 'auto_policy'` and `veto_window_minutes` (the granted
-   window, read from the policy row AT approval). At anchor:
-   `veto_window_granted` with the first delivery time and the computed
-   deadline. The `batch_approved` step detail is the immutable granted-window
-   record the anchor reads back — later policy edits never move an in-flight
-   window (D9: "the step is the immutable record; the column is the index").
-3. **Anchor mechanism** (owner fork, locked): a new release-cycle phase
-   (`anchorVetoDeadlines`) scans auto batches with `veto_deadline_at IS NULL`,
-   joins the first `notification_deliveries.delivered_at` for
-   `template='solicitation_veto_notice'`, and CASes the deadline. No hooks in
-   webhook ingress. The deadline is computed IN SQL from `delivered_at`
-   (repo gotcha: a JS `Date` round-trip truncates microseconds).
-4. **Release-time re-check** (owner fork, locked): before the Judge split in
-   `runBatchArm`, an `auto_policy` batch re-checks flag + tier + policy row +
-   suspension. Any failure ⇒ `downgradeApproval` (existing verb) with reason
-   vocabulary `auto_approval_disabled | autopilot_entitlement_lost |
-   policy_removed | policy_suspended`, Sentry warning in the `applyJudgeSplit`
-   pattern.
-5. **No approval-time Judge check.** Judge stays a dispatch precondition owned
-   by the releaser (#900 `applyJudgeSplit`). A batch auto-approved while Judge
-   is down gets downgraded at the first tick — accepted churn.
-6. **Notice exhaustion = fail-closed, per D9 verbatim.** No failed-hook for the
-   veto-notice topic. If no notice ever delivers, the batch sits and the
-   existing `send_window_elapsed` sweep terminalizes it `cancelled`. The
-   `job-failure-sink` raises the Sentry issue on the terminal attempt.
-7. **No one-click halt token.** The notice deep-links to the dashboard Requests
-   page (login required). `approval_links` is response-scoped; minting a
-   batch-scoped token lane is out of scope.
-8. **No Requests-panel copy work.** An auto-approved unanchored batch derives
-   state `approved` (`deriveBatchState`: `approved_at` set, `veto_deadline_at`
-   NULL). The existing panel renders it; copy polish rides a follow-up if
-   review demands it.
-9. **Decline is a log line, not a spine step.** A declined auto-approval means
-   the batch proceeds in the owner lane — a non-action. The finale log line
-   gains `auto_approval: declined` + reason.
-10. **Settings opt-in mirrors the Reply lane's expansion-confirmation flow.**
-    Enabling the solicitation lane is an EXPANSION; the existing
-    `AutoApprovalConfirmationRequiredError` machinery applies. Absence of the
-    persona row = lane off (D20).
+   FINALE transaction (`ask-generation.ts` `sql.begin` at ~1131), AFTER
+   `closeBatchIfSettled`, only when `tally.alive > 0` and
+   `close.status === 'not_settled'`. Initial generation only — never on
+   `regenerateAsk`.
+2. **Owner-won race is a quiet outcome, not a throw** (R1 finding 1). The last
+   child render commits BEFORE the finale opens, so an owner approval can land
+   in between. The auto CAS carries `approved_at IS NULL`; zero rows with
+   `approved_at` already set ⇒ return `{ status: 'owner_won' }` and write
+   nothing. The throw stays only for the impossible arm (zero rows while the
+   row lock shows the batch unapproved and unhalted).
+3. **Approval-time condition reads are serialized** (R1 finding 2): inside the
+   finale, after the batch row lock, take the account lock via
+   `src/lib/auto-approval/account-lock.ts` (the documented batch-then-account
+   order), THEN read conditions, THEN CAS. Settings and Governor writers take
+   the same account lock, so no opt-out or suspension can commit between read
+   and stamp.
+4. **Anchor = `MIN(sent_at)`** (owner re-lock decision). The Reply lane's
+   shipped anchor (`veto-window-gate.ts:84`) uses provider-accepted `sent_at`;
+   Telegram has no delivery receipt. The anchor phase scans auto batches with
+   `veto_deadline_at IS NULL`, joins `notification_deliveries.sent_at` for
+   `template='solicitation_veto_notice'`, and CASes the deadline computed IN
+   SQL (µs gotcha). Fail-closed: no sent notice ⇒ no release, ever.
+5. **Two spine steps.** `batch_approved` (approval_method `auto_policy`,
+   granted `veto_window_minutes` read from the policy row at approval) and
+   `veto_window_granted` (first send time, deadline, actor `system`). The
+   anchor reads the granted window back from the LATEST `batch_approved` step.
+6. **Release-time re-check** — before the Judge split in `runBatchArm`, an
+   `auto_policy` batch re-checks ONLY: auto flag (`auto_approval_disabled`),
+   Autopilot tier (`autopilot_entitlement_lost`), policy row presence
+   (`policy_removed`), account-wide suspension (`policy_suspended`).
+   **Subscription lapse is NOT a downgrade** — B14: the existing
+   `subscription` withhold in `runAccountArm` already holds the batch and it
+   resumes on recovery. **Master send flag off is NOT a downgrade** — B15:
+   `runReleasePhase` already stops with `flag_off` before any batch arm runs.
+   (R1 finding 4.) The re-check re-reads conditions INSIDE the downgrade
+   transaction under the batch + account locks before the downgrade CAS
+   (R1 finding 3); the residual per-row window after a passing re-check is the
+   same one-tick class the existing subscription gate accepts — documented,
+   not hidden.
+7. **`downgradeApproval` grows a typed reason** (R1 finding 5). Today it
+   hard-writes `judge_unavailable`. Refactor: one shared
+   `applyDowngradeSplit(sql, batch, reason)` used by the Judge arm
+   (`judge_unavailable`) and the auto arm (the four reasons above). One
+   implementation, truthful durable reasons.
+8. **No approval-time Judge check.** Judge stays release-owned (#900).
+9. **Notice exhaustion = fail-closed per D9.** No failed-hook; the
+   `send_window_elapsed` sweep terminalizes an unanchored batch; the
+   `job-failure-sink` raises the Sentry issue.
+10. **Veto-notice CTA**: `${appUrl}/dashboard/requests`, tokenless (R1
+    finding 10 — the real route; `createApprovalLink` is NOT the precedent).
+11. **Notice worker gates on batch state only** (owner re-lock decision):
+    skip when the batch is no longer `auto_policy`, or is halted/closed.
+    Anchored is NOT a skip (retries must cover unclaimed channels). No flag
+    reads in the worker.
+12. **Systemic-failure covers BOTH zero paths** (R1 finding 11): the dispatch
+    zero-sent path AND the Worker's zero-enrolled early return.
+13. **Savepoint control flow** (R1 finding 13): the auto CAS runs through the
+    `tx.savepoint(...)` handle; the `23505` ESCAPES the savepoint callback and
+    is caught OUTSIDE it (precedent `src/lib/reviews/import-consent.ts:563`).
+    Only `solicitation_batches_one_active_send_per_business` maps to
+    `slot_held`; any other constraint rethrows.
+14. **Settings extend the discriminated-union operation contract** (R1
+    finding 7) — not an optional slice. Upserts use the literal
+    `ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL`
+    (R1 finding 8, `settings.ts:727` precedent) and `uuidv7()` ids (R1
+    finding 9, migration 055 convention).
+15. **Real tier ids are `copilot` / `autopilot`** (`tier-config.ts:12`) —
+    never invent tier strings (R1 finding 6).
+16. **Hard-bounce classification**: add `'solicitation_veto_notice'` to
+    `OWNER_DIRECTED_TEMPLATES` in `worker/ingress/resend.ts:90` (+ test), so a
+    hard-bounced veto email marks `owner_email_bounced` (R1 finding 12;
+    surface granted by intake rev 2).
 
-**Glossary (CONTEXT.md, use verbatim):** Outreach row, Send batch parent,
-Owner approval, Halt latch, Ask exclusion. New terms this feature coins (Task
-9): **Auto-approval lane**, **Veto notice**, **Veto anchor**.
+**Glossary (CONTEXT.md, verbatim):** Outreach row, Send batch parent, Owner
+approval, Halt latch, Ask exclusion. New terms Task 9 coins: **Auto-approval
+lane**, **Veto notice**, **Veto anchor**.
 
-**Precedents (@-read before implementing, per task):**
+**Precedents (@-read per task):**
 - `worker/jobs/pending-post-notice/` (all 4 files) — notice family shape
-- `src/lib/notifications/delivery.ts` — `claimPendingPostNoticeDelivery`
+- `worker/jobs/publisher/veto-window-gate.ts` — anchor semantic + granted-window read-back
+- `src/lib/notifications/delivery.ts` — claim + finalize helpers
 - `src/lib/shared/job-outbox-helpers.ts:346-388` — `enqueuePendingPostNotice`
-- `src/lib/solicitation/approval.ts:269-451` — `approveBatch` (CAS + step shape)
-- `src/lib/solicitation/release.ts` — `applyJudgeSplit`, `downgradeApproval`,
-  `runReleaseCycle` phase list, `ReleaseCycleReport`
-- `worker/jobs/publisher/auto-policy-publish.ts` — downgrade reason vocabulary
-- `supabase/migrations/074_trust_dial_veto_window.sql` §4 — index pair shape
-- `src/lib/auto-approval/settings.ts` + `types.ts` + route — settings seam
+- `src/lib/solicitation/approval.ts:269-451` — `approveBatch`
+- `src/lib/solicitation/release.ts` — phases, `applyJudgeSplit`, `downgradeApproval`
+- `src/lib/auto-approval/account-lock.ts` — lock order
+- `src/lib/reviews/import-consent.ts:563` — savepoint flow
+- `supabase/migrations/074_trust_dial_veto_window.sql` §4 — index pair
+- `src/lib/auto-approval/settings.ts` + `types.ts` + route + `AutoApprovalClient.tsx` — settings seam
 
 ---
 
@@ -102,107 +131,98 @@ Owner approval, Halt latch, Ask exclusion. New terms this feature coins (Task
 - Create: `src/lib/solicitation/__tests__/auto-approval.test.ts`
 - Create: `src/lib/solicitation/__tests__/auto-approval.integration.test.ts`
 - Create: `worker/jobs/solicitation-veto-notice/__tests__/dispatch.test.ts`
-- Modify: `src/lib/solicitation/__tests__/release.integration.test.ts` (append a describe block)
-- Modify: `src/lib/auto-approval/__tests__/settings.test.ts` (append a describe block; if the file does not exist, find the module's existing test file via `ls src/lib/auto-approval/__tests__/` and append there)
+- Create: `worker/jobs/solicitation-veto-notice/__tests__/SolicitationVetoNoticeWorker.test.ts`
+- Modify: `src/lib/solicitation/__tests__/release.integration.test.ts` (append)
+- Modify: `src/lib/solicitation/__tests__/ask-generation.integration.test.ts` (append)
+- Modify: `src/lib/auto-approval/__tests__/settings.test.ts` (append)
+- Modify: `worker/ingress/__tests__/` — the existing resend ingress test file (append; find it via `ls worker/ingress/__tests__/`)
 
-- [ ] **Step 1: Scaffold every promised test title as `it.todo`**
+- [ ] **Step 1: Scaffold all 44 promised titles as `it.todo`**, VERBATIM from
+  intake rev 2 `tests_to_add`, distributed:
 
-The 19 titles from the intake's `tests_to_add`, VERBATIM, distributed:
+`auto-approval.test.ts` (unit — gate): titles 1-7
+("leaves the batch in owner review when SOLICITATION_AUTO_APPROVAL_ENABLED is off",
+"…when the tier does not grant Autopilot", "…when no solicitation policy row
+exists", "…when any policy row for the account is suspended", "a Reply policy
+row or location override alone never enables Solicitation auto approval", "a
+suspended policy on another account never blocks this account", "invariants:
+the auto-approval gate never approves when any single condition fails").
 
-`src/lib/solicitation/__tests__/auto-approval.test.ts` (unit — gate):
-```ts
-import { describe, it } from 'vitest';
+`auto-approval.integration.test.ts` (live-DB): verb titles
+("auto-approves a built batch as auto_policy when all four conditions hold and
+records the spine step", "enqueues the veto notice through job_outbox in the
+same transaction as the auto approval", "falls back to owner review when the
+one-active-send-batch index rejects the auto approval", "preserves an owner
+approval committed after the final render but before the generation finale",
+"autoApproveBatch rethrows a 23505 from every constraint except
+solicitation_batches_one_active_send_per_business", "the database-backed gate
+approves a trialing autopilot account", "turning the auto flag on does not
+retroactively approve a previously built batch") + anchor titles
+("anchors veto_deadline_at from the first sent notice exactly once via CAS",
+"never anchors a halted batch even when a notice send lands later", "records
+the granted window from the policy row at approval and ignores later policy
+edits", "one corrupt anchor candidate does not prevent a healthy sibling batch
+from anchoring", "a wrong-template or different-batch delivery row never
+anchors").
 
-describe('evaluateAutoApproval', () => {
-  it.todo('leaves the batch in owner review when SOLICITATION_AUTO_APPROVAL_ENABLED is off');
-  it.todo('leaves the batch in owner review when the tier does not grant Autopilot');
-  it.todo('leaves the batch in owner review when no solicitation policy row exists');
-  it.todo('leaves the batch in owner review when any policy row for the account is suspended');
-});
+`ask-generation.integration.test.ts` — append a describe block:
+("the initial ask-generation finale auto-approves and enqueues the Veto notice
+when every gate holds", "regenerateAsk never invokes the auto-approval lane",
+"the real generation finale leaves the batch built when
+SOLICITATION_SEND_ENABLED is off", "Judge unavailability at approval time does
+not block auto approval").
 
-describe('invariants', () => {
-  it.todo('invariants: the auto-approval gate never approves when any single condition fails');
-});
-```
-
-`src/lib/solicitation/__tests__/auto-approval.integration.test.ts` (live-DB —
-verb + anchor; suite name selects the serialized `integration` project, no
-run-time DDL):
-```ts
-import { describe, it } from 'vitest';
-
-describe('autoApproveBatch', () => {
-  it.todo('auto-approves a built batch as auto_policy when all four conditions hold and records the spine step');
-  it.todo('enqueues the veto notice through job_outbox in the same transaction as the auto approval');
-  it.todo('falls back to owner review when the one-active-send-batch index rejects the auto approval');
-});
-
-describe('anchorVetoDeadlines', () => {
-  it.todo('anchors veto_deadline_at from the first delivered notice exactly once via CAS');
-  it.todo('never anchors a halted batch even when a delivery confirmation arrives later');
-  it.todo('records the granted window from the policy row at approval and ignores later policy edits');
-});
-```
-
-`src/lib/solicitation/__tests__/release.integration.test.ts` — append:
-```ts
-describe('auto_policy release re-check', () => {
-  it.todo('downgrades an unreleased auto_policy batch to owner review when the auto flag is off at release');
-  it.todo('downgrades an unreleased auto_policy batch when the account loses the Autopilot tier');
-  it.todo('downgrades an unreleased auto_policy batch when the solicitation policy row is removed');
-});
-```
+`release.integration.test.ts` — append:
+("downgrades an unreleased auto_policy batch to owner review when the auto
+flag is off at release", "…when the account loses the Autopilot tier", "…when
+the solicitation policy row is removed", "…when a Governor suspension latches
+after approval", "a subscription lapse holds an auto_policy batch unchanged
+and never downgrades it", "the auto downgrade records its exact reason and
+never judge_unavailable", "a mid-drip auto_policy batch is held when an auto
+condition fails, never unapproved", "runReleaseCycle runs the Veto anchor
+phase before release and reports the anchored count").
 
 `worker/jobs/solicitation-veto-notice/__tests__/dispatch.test.ts`:
-```ts
-import { describe, it } from 'vitest';
+("dispatches the veto notice to enrolled channels and records
+notification_deliveries rows", "logs a systemic failure when zero veto-notice
+channels deliver", "an unset WhatsApp veto template skips only WhatsApp while
+other channels continue", "the veto-notice CTA links to /dashboard/requests
+and contains no approval token").
 
-describe('solicitation veto notice dispatch', () => {
-  it.todo('dispatches the veto notice to enrolled channels and records notification_deliveries rows');
-  it.todo('logs a systemic failure when zero veto-notice channels deliver');
-});
-```
+`worker/jobs/solicitation-veto-notice/__tests__/SolicitationVetoNoticeWorker.test.ts`:
+("the Worker logs systemic failure when no veto-notice channels are enrolled",
+"a queued veto notice is quietly skipped after downgrade, halt, or send
+closure").
+
+resend ingress test file — append:
+("a hard bounce for solicitation_veto_notice marks owner_email_bounced").
 
 `src/lib/auto-approval/__tests__/settings.test.ts` — append:
-```ts
-describe('solicitation persona opt-in', () => {
-  it.todo('PATCH creates the solicitation policy row only for an Autopilot account');
-  it.todo('PATCH rejects daily_send_cap outside 1..50 and veto windows other than 30 or 60');
-  it.todo('removing the opt-in deletes the solicitation policy row and the lane stays off');
-});
-```
+("PATCH creates the solicitation policy row only for an Autopilot account",
+"PATCH rejects daily_send_cap outside 1..50 and veto windows other than 30 or
+60", "PATCH round-trips valid dials and defaults an omitted veto window to
+60", "enabling Solicitation twice upserts exactly one account-default row",
+"removing the opt-in deletes only the solicitation account-default row and the
+lane stays off", "GET marks solicitation available only when both server flags
+and tierGrantsAutopilot hold").
 
-- [ ] **Step 2: Run the suites — todos report, nothing fails**
+- [ ] **Step 2:** `pnpm vitest run` the touched unit files — PASS, 0 failures,
+  N todo.
+- [ ] **Step 3:** Commit:
+  `test(631): eval scaffolds — 44 promised titles for the Auto-approval lane`.
 
-Run: `cd <worktree> && pnpm vitest run src/lib/solicitation/__tests__/auto-approval.test.ts worker/jobs/solicitation-veto-notice/__tests__/dispatch.test.ts`
-Expected: PASS (0 failures, N todo).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add -A && git commit -m "test(631): eval scaffolds — the 19 promised titles for the Auto-approval lane"
-```
-
-*(Orchestrator: run the first-task enforcement spot check after this task.)*
+*(Orchestrator: first-task enforcement spot check after this task.)*
 
 ---
 
 ### Task 2: Migration 113 (blocked by: Task 1)
 
-**Files:**
-- Create: `supabase/migrations/113_solicitation_auto_approval_lane.sql`
-- Modify: `.claude/reference/migrations-log.md` (head → 113 + entry)
-
-- [ ] **Step 0: Invoke the `new-migration` skill** (mandatory before any
-  `supabase/migrations/` file) and follow it.
-
-- [ ] **Step 1: Write the migration** — index-only, no columns, no CHECKs
-  (091 already did D19):
+Unchanged from rev 1 — index-only; both indexes as below. Invoke the
+`new-migration` skill FIRST.
 
 ```sql
 -- 113_solicitation_auto_approval_lane.sql
 -- #631 Auto-approval lane: two dedup indexes. 074 §4 shape.
---
 -- In-flight status set: byte-for-byte contract owned by
 -- src/lib/shared/job-outbox-status.ts; re-spelled by hand (ci:outbox-status).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jo_solicitation_veto_notice_inflight
@@ -217,29 +237,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS notification_deliveries_solicitation_veto_noti
   WHERE entity_id IS NOT NULL AND template = 'solicitation_veto_notice';
 ```
 
-- [ ] **Step 2: Provision + verify**
-
-Run: `pnpm test:db:setup` → then
-`psql "$TEST_DATABASE_POOL_URL" -c "\di idx_jo_solicitation_veto_notice_inflight"`
-Expected: the index exists.
-
-- [ ] **Step 3: Log + commit**
-
-Update `.claude/reference/migrations-log.md` (head 113, entry per its format).
-```bash
-git add -A && git commit -m "feat(631): migration 113 — veto-notice outbox + delivery-claim indexes"
-```
+Steps: write → `pnpm test:db:setup` → `psql … "\di …"` proves both indexes →
+update `.claude/reference/migrations-log.md` (head 113) → commit
+`feat(631): migration 113 — veto-notice outbox + delivery-claim indexes`.
 
 ---
 
 ### Task 3: Flag + condition gate (blocked by: Task 2)
 
-**Files:**
-- Modify: `src/lib/solicitation/flags.ts`
-- Create: `src/lib/solicitation/auto-approval.ts`
-- Test: `src/lib/solicitation/__tests__/auto-approval.test.ts` (turn todos green)
+**Files:** Modify `src/lib/solicitation/flags.ts`; Create
+`src/lib/solicitation/auto-approval.ts`; Test `auto-approval.test.ts`.
 
-- [ ] **Step 1: Flag accessor** (`flags.ts`):
+- [ ] **Step 1: Flag accessor** (unchanged from rev 1):
 
 ```ts
 /** Auto-approval lane switch (#631, map #617 decision 7). Default off; #633
@@ -251,255 +260,172 @@ export function solicitationAutoApprovalEnabled(): boolean {
 }
 ```
 
-- [ ] **Step 2: The gate.** New module `auto-approval.ts`. Interface (module
-  header documents the lane; style: `release.ts`):
+- [ ] **Step 2: The gate.** Interface:
 
 ```ts
 export type AutoApprovalDeclineReason =
-  | 'send_flag_off'
-  | 'auto_flag_off'
-  | 'subscription'
-  | 'tier'
-  | 'policy_suspended'
-  | 'no_policy_row';
+  | 'send_flag_off' | 'auto_flag_off' | 'subscription' | 'tier'
+  | 'policy_suspended' | 'no_policy_row';
 
 export type AutoApprovalDecision =
   | { eligible: true; vetoWindowMinutes: number }
   | { eligible: false; reason: AutoApprovalDeclineReason };
 
-/** The shared condition read both the finale gate and the release re-check
- *  consume. ONE reader so the two sites cannot drift (D20's four conditions
- *  + the account-wide Governor read, D19). */
-interface AutoApprovalConditions {
-  subscriptionStatus: string | undefined;
-  subscriptionTier: string | null;
-  anySuspended: boolean;
-  policy: { vetoWindowMinutes: number } | null;
-}
-async function readAutoApprovalConditions(sql: Sql | TransactionSql, accountId: string): Promise<AutoApprovalConditions>;
+/** Pure decision core, exported for the property test. */
+export function decideAutoApproval(c: AutoApprovalConditionSnapshot): AutoApprovalDecision;
 
+/** DB-backed evaluator. CALLER CONTRACT: the batch row lock AND the account
+ *  lock (account-lock.ts, batch-then-account order) are already held — the
+ *  same serialization settings/Governor writers use (R1 finding 2). */
 export async function evaluateAutoApproval(
   tx: TransactionSql,
   input: { accountId: string },
 ): Promise<AutoApprovalDecision>;
 ```
 
-Reads (tenant-scoped by `account_id`):
-```sql
-SELECT subscription_status, subscription_tier FROM accounts WHERE id = ${accountId}::uuid
-```
-```sql
-SELECT EXISTS(
-  SELECT 1 FROM auto_approval_policies
-  WHERE account_id = ${accountId}::uuid AND suspended_at IS NOT NULL
-) AS any_suspended
-```
-```sql
-SELECT veto_window_minutes FROM auto_approval_policies
-WHERE account_id = ${accountId}::uuid AND persona = 'solicitation'
-  AND action_class = 'sending' AND location_id IS NULL
-LIMIT 1
-```
+Reads (tenant-scoped): the accounts row (`subscription_status`,
+`subscription_tier`); `EXISTS` over suspended policy rows for the account; the
+`persona='solicitation' AND action_class='sending' AND location_id IS NULL`
+row's `veto_window_minutes`. Decision order = reason precedence:
+`send_flag_off`, `auto_flag_off`, `subscription`
+(`subscriptionGrantsFullAccess`), `tier` (`tierGrantsAutopilot`),
+`policy_suspended`, `no_policy_row`.
 
-Decision order (first failure wins; the order is the reason-precedence
-contract, test it): `send_flag_off` (`solicitationSendEnabled()`),
-`auto_flag_off`, `subscription` (`subscriptionGrantsFullAccess`), `tier`
-(`tierGrantsAutopilot`), `policy_suspended` (account-wide, ANY row),
-`no_policy_row`. Eligible ⇒ `vetoWindowMinutes` from the policy row.
-
-- [ ] **Step 3: Unit tests green** — the 4 gate todos become real tests (mock
-  `sql` per the house unit style in `src/lib/solicitation/__tests__/release.test.ts`),
-  plus the property test (house style:
-  `src/lib/reviews/__tests__/sentiment.test.ts` "invariants" block):
-
-```ts
-it('invariants: the auto-approval gate never approves when any single condition fails', () => {
-  fc.assert(fc.property(
-    fc.record({
-      sendFlag: fc.boolean(), autoFlag: fc.boolean(),
-      status: fc.constantFrom('active', 'trialing', 'cancelled', 'past_due', 'pending_payment'),
-      tier: fc.constantFrom('autopilot_monthly', 'copilot_monthly', null),
-      anySuspended: fc.boolean(), hasPolicy: fc.boolean(),
-    }),
-    (c) => {
-      const decision = decide(c); // the pure decision core, exported for tests
-      const allHold = c.sendFlag && c.autoFlag
-        && subscriptionGrantsFullAccess(c.status)
-        && tierGrantsAutopilot(c.tier) && !c.anySuspended && c.hasPolicy;
-      return decision.eligible === allHold;
-    },
-  ));
-});
-```
-(Use the REAL tier ids from `src/lib/accounts/tier-config.ts` — read it first;
-never invent tier strings.)
-
-Run: `pnpm vitest run src/lib/solicitation/__tests__/auto-approval.test.ts`
-Expected: PASS, 0 todo remaining in this file.
-
-- [ ] **Step 4: Commit** — `feat(631): auto-approval condition gate + property test`
+- [ ] **Step 3: Unit tests green** — titles 1-6 + the property test over the
+  pure core with REAL tier ids from `tier-config.ts` (`'autopilot'`,
+  `'copilot'`, null — R1 finding 6). The positive arm must be reachable:
+  assert at least one generated case approves.
+- [ ] **Step 4:** Commit `feat(631): auto-approval condition gate + property test`.
 
 ---
 
 ### Task 4: Auto-approve verb + outbox topic + finale hook (blocked by: Task 3)
 
-**Files:**
-- Modify: `src/lib/solicitation/auto-approval.ts` (add the verb)
-- Modify: `src/lib/shared/queue-names.ts` (+ `SOLICITATION_VETO_NOTICE: 'solicitation_veto_notice'`)
-- Modify: `src/lib/shared/worker-types.ts` (+ `SolicitationVetoNoticePayload { batch_id; business_id; correlation_id? }`)
-- Modify: `src/lib/shared/job-outbox-helpers.ts` (+ `enqueueSolicitationVetoNotice`)
-- Modify: `src/lib/solicitation/ask-generation.ts` (finale hook)
-- Test: `src/lib/solicitation/__tests__/auto-approval.integration.test.ts` (verb todos green)
+**Files:** Modify `auto-approval.ts`, `src/lib/shared/queue-names.ts`
+(+ `SOLICITATION_VETO_NOTICE: 'solicitation_veto_notice'`),
+`src/lib/shared/worker-types.ts` (+ `SolicitationVetoNoticePayload`),
+`src/lib/shared/job-outbox-helpers.ts` (+ `enqueueSolicitationVetoNotice`,
+mirror of `enqueuePendingPostNotice` with `AGGREGATE_TYPE_SOLICITATION_BATCH`
+and the `'solicitation_veto_notice'` ON CONFLICT literal),
+`src/lib/solicitation/ask-generation.ts` (finale hook). Tests:
+`auto-approval.integration.test.ts` verb titles +
+`ask-generation.integration.test.ts` finale titles.
 
-- [ ] **Step 1: Outbox helper** — mirror `enqueuePendingPostNotice`
-  byte-for-byte in shape: `AGGREGATE_TYPE_SOLICITATION_BATCH`, aggregate_id =
-  batch id, `ON CONFLICT (topic, aggregate_id) WHERE topic =
-  'solicitation_veto_notice' -- topic-audit-ignore: partial-index inference
-  needs a literal` + the in-flight trio, `DO NOTHING`. Backed by 113's index.
-
-- [ ] **Step 2: The verb** (same module as the gate):
+- [ ] **Step 1: Outbox helper** (as rev 1).
+- [ ] **Step 2: The verb**:
 
 ```ts
 export type AutoApproveOutcome =
   | { status: 'approved'; approvedCount: number; vetoWindowMinutes: number }
+  | { status: 'owner_won' }
   | { status: 'slot_held' };
-
-export async function autoApproveBatch(
-  tx: TransactionSql,
-  input: {
-    batchId: string; accountId: string; businessId: string;
-    sendParentRunId: string; vetoWindowMinutes: number; correlationId?: string;
-  },
-): Promise<AutoApproveOutcome>;
 ```
 
-Body, in order (the enclosing finale tx already holds the advisory lock and
-the batch row lock):
-1. The CAS, inside a SAVEPOINT (`tx.savepoint(...)`) so a unique-violation
-   cannot poison the finale transaction:
-```sql
-UPDATE solicitation_batches
-SET approved_at = NOW(), approval_method = 'auto_policy'
-WHERE id = ${batchId}::uuid AND account_id = ${accountId}::uuid
-  AND business_id = ${businessId}::uuid
-  AND approved_at IS NULL AND halted_at IS NULL AND send_closed_at IS NULL
-  AND built_at IS NOT NULL
-RETURNING id
-```
-   `veto_deadline_at` stays NULL — the **Veto anchor** owns it (D9).
-   `approved_by_user_id` stays NULL — 091's consistency CHECK requires that
-   for `auto_policy`. Catch ONLY the `23505` on
-   `solicitation_batches_one_active_send_per_business` → `{ status: 'slot_held' }`
-   (the batch stays `built` for **Owner approval**); rethrow anything else.
-   A CAS that matches nothing under the held row lock is impossible — throw
-   with context (`approveBatch`'s own claim, approval.ts:396-409).
-2. `approvedCount`: `COUNT(*)` of this batch's `rendered` Outreach rows
-   (approval.ts:411-418 shape).
-3. Spine step (same `stepKey` as the owner lane — the lane is the detail):
-```ts
-await recordStep(tx, {
-  runId: input.sendParentRunId,
-  stepKey: 'batch_approved',
-  detail: {
-    approval_method: 'auto_policy',
-    approved_count: approvedCount,
-    veto_window_minutes: input.vetoWindowMinutes,
-  },
-});
-```
-4. `await enqueueSolicitationVetoNotice(tx, { batchId, businessId, correlationId })`
-   — SAME transaction (invariant #2).
-
-- [ ] **Step 3: Finale hook** (`ask-generation.ts`, after `closeBatchIfSettled`
-  inside the finale tx; `generateAsksForBatch` path ONLY):
+Body — the enclosing finale tx already holds the advisory lock, the batch row
+lock, and (new) the account lock:
+1. The CAS through a savepoint, 23505 caught OUTSIDE the callback
+   (decision 13):
 
 ```ts
-let autoApproval:
-  | { status: 'not_attempted' | 'slot_held' }
-  | { status: 'approved'; vetoWindowMinutes: number }
-  | { status: 'declined'; reason: AutoApprovalDeclineReason } = { status: 'not_attempted' };
+let casRow: { id: string } | undefined;
+try {
+  await tx.savepoint(async (sp) => {
+    const rows = await sp<{ id: string }[]>`
+      UPDATE solicitation_batches
+      SET approved_at = NOW(), approval_method = 'auto_policy'
+      WHERE id = ${batchId}::uuid AND account_id = ${accountId}::uuid
+        AND business_id = ${businessId}::uuid
+        AND approved_at IS NULL AND halted_at IS NULL
+        AND send_closed_at IS NULL AND built_at IS NOT NULL
+      RETURNING id
+    `;
+    casRow = rows[0];
+  });
+} catch (error) {
+  if (isUniqueViolationOn(error, 'solicitation_batches_one_active_send_per_business')) {
+    return { status: 'slot_held' };
+  }
+  throw error;
+}
+if (casRow === undefined) {
+  // The row lock is held, so the ONLY way the CAS misses is a pre-existing
+  // approval (owner raced ahead between the last render and the finale) —
+  // R1 finding 1. Anything else is corruption: assert it.
+  const [b] = await tx<{ approved_at: string | null; halted_at: string | null }[]>`
+    SELECT approved_at::text AS approved_at, halted_at::text AS halted_at
+    FROM solicitation_batches WHERE id = ${batchId}::uuid
+      AND account_id = ${accountId}::uuid AND business_id = ${businessId}::uuid
+  `;
+  if (b?.approved_at !== null) return { status: 'owner_won' };
+  throw new Error(`autoApproveBatch: CAS missed for ${batchId} with no prior approval`);
+}
+```
+2. `approvedCount` (rendered Outreach count, approval.ts:411 shape).
+3. `recordStep` `batch_approved` with `approval_method: 'auto_policy'`,
+   `approved_count`, `veto_window_minutes`.
+4. `enqueueSolicitationVetoNotice(tx, …)` — SAME tx (invariant #2).
+
+- [ ] **Step 3: Finale hook** — as rev 1, plus the account lock BEFORE the
+  condition read (decision 3):
+
+```ts
 if (tally.alive > 0 && close.status === 'not_settled') {
+  await acquireAutoApprovalAccountLock(tx, ctx.accountId); // account-lock.ts helper
   const decision = await evaluateAutoApproval(tx, { accountId: ctx.accountId });
   autoApproval = decision.eligible
-    ? await autoApproveBatch(tx, {
-        batchId: ctx.batchId, accountId: ctx.accountId, businessId: ctx.businessId,
-        sendParentRunId: parentRunId, vetoWindowMinutes: decision.vetoWindowMinutes,
-        correlationId: ctx.correlationId,
-      })
+    ? await autoApproveBatch(tx, { …, vetoWindowMinutes: decision.vetoWindowMinutes })
     : { status: 'declined', reason: decision.reason };
 }
 ```
-Return `autoApproval` from the finale; extend the "ask generation finished"
-log line with `auto_approval` + reason. (Decision 9: a decline is a log line,
-never a spine step.)
+(Use `account-lock.ts`'s exported helper by its real name — READ the file
+first.) Extend the finished log line with `auto_approval` status/reason.
+`generateAsksForBatch` only; `regenerateAsk` untouched.
 
-- [ ] **Step 4: Integration tests green** — titles 1, 6, 7 (seed via the house
-  helpers used by `approval.integration.test.ts`; the one-active conflict test
-  seeds a second approved batch for the same business first). Flag toggling:
-  set/unset `process.env.SOLICITATION_AUTO_APPROVAL_ENABLED` per test
-  (readFlag is unmemoized by design).
-
-Run: `pnpm vitest run src/lib/solicitation/__tests__/auto-approval.integration.test.ts`
-Expected: PASS (anchor todos still todo).
-
-- [ ] **Step 5: Commit** — `feat(631): auto_policy approval at the generation finale, veto notice enqueued in-tx`
+- [ ] **Step 4: Integration tests green** — the 7 verb titles + the 4 finale
+  titles. The owner-race title seeds an owner approval after renders exist,
+  then drives the finale and asserts `owner_won` + intact owner approval.
+- [ ] **Step 5:** Commit
+  `feat(631): auto_policy approval at the generation finale, veto notice enqueued in-tx`.
 
 ---
 
-### Task 5: Veto-notice worker family (blocked by: Task 4; parallel with Task 6 and Task 8)
+### Task 5: Veto-notice worker family (blocked by: Task 4; parallel with 6 and 8)
 
-**Files:**
-- Create: `worker/jobs/solicitation-veto-notice/SolicitationVetoNoticeWorker.ts`
-- Create: `worker/jobs/solicitation-veto-notice/context.ts`
-- Create: `worker/jobs/solicitation-veto-notice/dispatch.ts`
-- Create: `worker/jobs/solicitation-veto-notice/errors.ts`
-- Modify: `src/lib/notifications/delivery.ts` (+ `claimSolicitationVetoNoticeDelivery`, keyed `(entity_id, channel, recipient)`, `template='solicitation_veto_notice'` — backs 113's claim index byte-for-byte)
-- Modify: `src/lib/notifications/channels/types.ts` (+ `SendSolicitationVetoNoticeParams`)
-- Modify: `src/lib/notifications/channels/*.ts` (each adapter gains `sendSolicitationVetoNotice`)
-- Modify: `src/lib/config/worker.ts` (+ `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID: rawOpt`)
-- Modify: `worker/queues.ts`, `worker/index.ts`, `worker/background/pollers/health-alert/checks.ts` (registration; the emitter-error + job-failure-sink loops attach via the existing registration pattern)
-- Test: `worker/jobs/solicitation-veto-notice/__tests__/dispatch.test.ts`
+**Files:** as rev 1 (family of 4 + `delivery.ts` claim +
+`channels/types.ts` + channel adapters + `config/worker.ts` SID key +
+`queues.ts`/`index.ts`/health-alert registration) PLUS:
+- Modify: `worker/ingress/resend.ts` — add `'solicitation_veto_notice'` to
+  `OWNER_DIRECTED_TEMPLATES` (line ~90) (decision 16)
+- Test: the resend ingress test file (bounce title) + the two new worker test
+  files.
 
-- [ ] **Step 1: READ the whole `worker/jobs/pending-post-notice/` family and
-  clone its shape** (604 lines total). Deltas only:
-  - Payload `SolicitationVetoNoticePayload`; the notice is about a **batch**
-    (`entity_id` on `notification_deliveries`, no `response_id`).
-  - Handler skip conditions (quiet completes, logged): batch not found;
-    `approval_method !== 'auto_policy'` (downgraded since); `halted_at` or
-    `send_closed_at` set. Anchored (`veto_deadline_at` set) is NOT a skip —
-    a retry after a partial dispatch must still cover unclaimed channels.
-  - Content (STE, one job per sentence): "RepWorth auto-approved a batch of
-    N review requests for {business}. They send after your veto window. Stop
-    them from the Requests page: {link}." Link = dashboard `/requests` URL
-    built the way `pending-post-notice/context.ts` builds its dashboard link
-    (READ it; no `createApprovalLink` — decision 7).
-  - WhatsApp pre-filter on `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` unset →
-    clean skip (precedent lines 109-118). Bounced-owner-email pre-filter kept.
-  - Systemic failure: 0 of N channels sent ⇒ the precedent's systemic-failure
-    log line with the batch id (title 15 pins it).
-- [ ] **Step 2: Registration** — `queues.ts` Queue + map entry; `index.ts`
-  Worker + `withJobLogContext` + workers map (the sink/emitter loops pick it
-  up from there); health-alert `checks.ts` queue list (+
-  `QUEUE_NAMES.SOLICITATION_VETO_NOTICE`).
-- [ ] **Step 3: Tests green** — titles 14, 15 (unit, mocked channels — clone
-  the pending-post-notice dispatch test style).
+Deltas from the pending-post-notice clone (decisions 10-12):
+- CTA: `${appUrl}/dashboard/requests`, tokenless. NOT `createApprovalLink` —
+  R1 finding 10 corrected the precedent claim; the notice builds the URL from
+  the same app-base-url config `pending-post-notice`'s CONTENT uses for its
+  fallback links (READ context.ts + dispatch.ts to locate it).
+- Handler skip conditions: batch not found, `approval_method !== 'auto_policy'`,
+  `halted_at`/`send_closed_at` set. Anchored is NOT a skip. NO flag reads.
+- Systemic-failure log on the Worker's zero-enrolled early return AND the
+  dispatch zero-sent path (both titles pin it).
+- WhatsApp pre-filter on `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` unset;
+  bounced-owner-email pre-filter kept (and now fed by decision 16).
 
-Run: `pnpm vitest run worker/jobs/solicitation-veto-notice/`
-Expected: PASS.
-
-- [ ] **Step 4: Commit** — `feat(631): solicitation veto-notice worker family`
+Steps: read family → clone with deltas → registration (+ health-alert queue
+list) → resend template registration + test → tests green (6 titles) → commit
+`feat(631): solicitation veto-notice worker family`.
 
 ---
 
-### Task 6: The Veto anchor (blocked by: Task 4; parallel with Task 5 and Task 8)
+### Task 6: The Veto anchor (blocked by: Task 4; parallel with 5 and 8)
 
-**Files:**
-- Modify: `src/lib/solicitation/auto-approval.ts` (+ `anchorVetoDeadlines`)
-- Modify: `src/lib/solicitation/release.ts` (phase wiring + report field)
-- Test: `src/lib/solicitation/__tests__/auto-approval.integration.test.ts` (anchor todos green)
+**Files:** Modify `auto-approval.ts` (+ `anchorVetoDeadlines`),
+`release.ts` (phase wiring + `anchored` report field). Tests: the 5 anchor
+titles in `auto-approval.integration.test.ts` + the phase-wiring title in
+`release.integration.test.ts`.
 
-- [ ] **Step 1: `anchorVetoDeadlines(sql, scanLimit): Promise<number>`**
-  Scan (read-only, tenant keys carried through):
+- [ ] **Step 1: `anchorVetoDeadlines(sql, scanLimit): Promise<number>`** —
+  scan predicate on **`sent_at`** (decision 4):
 
 ```sql
 SELECT b.id, b.account_id, b.business_id
@@ -511,27 +437,26 @@ WHERE b.approval_method = 'auto_policy'
     SELECT 1 FROM notification_deliveries nd
     WHERE nd.entity_id = b.id
       AND nd.template = 'solicitation_veto_notice'
-      AND nd.delivered_at IS NOT NULL
+      AND nd.sent_at IS NOT NULL
   )
 LIMIT ${scanLimit}
 ```
 
-Per candidate, ONE transaction (per-item isolation via `isolateItem`, the
-release phase's own pattern): lock the batch row `FOR UPDATE`; find the send
-parent run and its LATEST `batch_approved` step; read
-`detail->>'veto_window_minutes'` (missing step = corrupted lane state — THROW
-with batch id: assert impossible states, the item isolation reports it);
-then the CAS, deadline computed IN SQL (decision 3):
+Per candidate, ONE transaction with `isolateItem` per-item isolation: lock the
+batch `FOR UPDATE`; read the LATEST `batch_approved` step's
+`detail->>'veto_window_minutes'` from the send parent run (missing ⇒ THROW
+with batch id — corrupted lane state, item-isolated); CAS with the deadline
+computed IN SQL:
 
 ```sql
 UPDATE solicitation_batches b
-SET veto_deadline_at = sub.first_delivered + make_interval(mins => ${grantedMinutes})
+SET veto_deadline_at = sub.first_sent + make_interval(mins => ${grantedMinutes})
 FROM (
-  SELECT MIN(nd.delivered_at) AS first_delivered
+  SELECT MIN(nd.sent_at) AS first_sent
   FROM notification_deliveries nd
   WHERE nd.entity_id = ${batchId}::uuid
     AND nd.template = 'solicitation_veto_notice'
-    AND nd.delivered_at IS NOT NULL
+    AND nd.sent_at IS NOT NULL
 ) sub
 WHERE b.id = ${batchId}::uuid AND b.account_id = ${accountId}::uuid
   AND b.business_id = ${businessId}::uuid
@@ -540,171 +465,113 @@ WHERE b.id = ${batchId}::uuid AND b.account_id = ${accountId}::uuid
 RETURNING b.veto_deadline_at::text AS veto_deadline_at
 ```
 
-Zero rows = a **Halt latch** or downgrade won the race — skip, no step. One
-row ⇒ `recordStep(tx, { runId, stepKey: 'veto_window_granted', detail:
-{ granted_window_minutes, veto_deadline_at, actor: 'system' } })`.
+Zero rows ⇒ a **Halt latch**/downgrade won — skip, no step. One row ⇒
+`recordStep` `veto_window_granted`
+(`granted_window_minutes`, `first_sent_at`, `veto_deadline_at`,
+`actor: 'system'`).
 
-- [ ] **Step 2: Phase wiring** — in `runReleaseCycle`, immediately before the
-  `release` phase:
-
-```ts
-report.anchored = tallyPhase(
-  report,
-  await alertPhaseFailure('veto_anchor', () => anchorVetoDeadlines(sql, scanLimit)),
-);
-```
-`ReleaseCycleReport` gains `anchored: number` (init 0).
-
-- [ ] **Step 3: Integration tests green** — titles 8, 9, 10. Seed
-  `notification_deliveries` rows directly (the worker is not under test here).
-  Title 10 seeds the policy at 60, approves (step records 60), edits the
-  policy to 30, delivers, anchors — expects a 60-minute deadline.
-
-Run: `pnpm vitest run src/lib/solicitation/__tests__/auto-approval.integration.test.ts`
-Expected: PASS, file fully green.
-
-- [ ] **Step 4: Commit** — `feat(631): Veto anchor — deadline CAS from first delivered notice`
+- [ ] **Step 2: Phase wiring** in `runReleaseCycle`, immediately before the
+  release phase: `report.anchored = tallyPhase(report,
+  await alertPhaseFailure('veto_anchor', () => anchorVetoDeadlines(sql, scanLimit)))`;
+  `ReleaseCycleReport` gains `anchored: number`.
+- [ ] **Step 3:** Tests green (6 titles; seed `notification_deliveries` rows
+  directly with `sent_at`).
+- [ ] **Step 4:** Commit
+  `feat(631): Veto anchor — deadline CAS from first sent notice`.
 
 ---
 
-### Task 7: Release-time re-check (blocked by: Task 6 — same file `release.ts`)
+### Task 7: Release-time re-check (blocked by: Task 6 — same file)
 
-**Files:**
-- Modify: `src/lib/solicitation/release.ts`
-- Modify: `src/lib/solicitation/auto-approval.ts` (+ `autoReleaseBlockReason`)
-- Test: `src/lib/solicitation/__tests__/release.integration.test.ts` (todos green)
+**Files:** Modify `release.ts`, `auto-approval.ts`. Tests: the 7 re-check
+titles in `release.integration.test.ts`.
 
-- [ ] **Step 1:** `ReleaseCandidateBatch` gains `approval_method: string | null`;
-  add it to `selectReleaseCandidates`' projection.
-- [ ] **Step 2:** `autoReleaseBlockReason(sql, { accountId }):
-  Promise<'auto_approval_disabled' | 'autopilot_entitlement_lost' |
-  'policy_removed' | 'policy_suspended' | null>` — thin mapper over
-  `readAutoApprovalConditions` (ONE reader, decision: the finale gate and this
-  re-check cannot drift). Both flags off-or-either ⇒ `auto_approval_disabled`;
-  subscription/tier ⇒ `autopilot_entitlement_lost`; suspension ⇒
-  `policy_suspended`; missing row ⇒ `policy_removed`.
-- [ ] **Step 3:** In `runBatchArm`, BEFORE the Judge split:
-
-```ts
-if (batch.approval_method === 'auto_policy') {
-  const reason = await autoReleaseBlockReason(ctx.sql, { accountId: batch.account_id });
-  if (reason !== null) {
-    const outcome = await applyAutoDowngrade(ctx.sql, batch, reason);
-    if (outcome === 'downgraded') {
-      ctx.report.autoDowngradedByReason[reason] =
-        (ctx.report.autoDowngradedByReason[reason] ?? 0) + 1;
-    }
-    return 'next';
-  }
-}
-```
-
-`applyAutoDowngrade` clones `applyJudgeSplit`'s body (same
-`downgradeApproval` call, same held/skipped arms, same Sentry-then-log
-pattern) with message constant
-`'Solicitation batch approval downgraded: auto lane conditions failed'` and
-the reason as tag. `ReleaseCycleReport` gains
-`autoDowngradedByReason: Partial<Record<AutoDowngradeReason, number>>`.
-The Judge `downgraded` counter stays untouched.
-
-- [ ] **Step 4: Integration tests green** — titles 11, 12, 13 (seed an
-  auto-approved anchored batch with an elapsed deadline; flip the condition;
-  run `runReleaseCycle`; assert the four approval columns are NULL and the
-  spine carries the downgrade step `downgradeApproval` already writes).
-
-Run: `pnpm vitest run src/lib/solicitation/__tests__/release.integration.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit** — `feat(631): release-time auto-lane re-check downgrades, before the Judge split`
+- [ ] **Step 1:** `ReleaseCandidateBatch` gains `approval_method: string | null`
+  (+ scan projection).
+- [ ] **Step 2: Refactor the split** (decision 7): extract
+  `applyDowngradeSplit(sql, batch, reason: DowngradeReason)` from
+  `applyJudgeSplit`'s body — same held/skipped arms, same
+  Sentry-then-log pattern, reason in the spine detail and Sentry tag.
+  `applyJudgeSplit` becomes `applyDowngradeSplit(sql, batch, 'judge_unavailable')`.
+  `downgradeApproval`'s spine write takes the reason as a parameter instead of
+  the hard-coded constant (R1 finding 5; check `release.ts:1800` for the
+  current write site).
+- [ ] **Step 3: The re-check** in `runBatchArm`, BEFORE the Judge split, ONLY
+  for `approval_method === 'auto_policy'` (decision 6):
+  - Quick read of the four conditions (auto flag, tier, policy row,
+    suspension) — `readAutoApprovalConditions` reused. Subscription and master
+    flag are NOT consulted here (B14/B15 — already owned by the existing
+    phase/account gates).
+  - On failure: `applyAutoDowngrade` = re-read the SAME conditions INSIDE the
+    downgrade transaction under the batch + account locks (R1 finding 3); if
+    they now pass, skip (raced back to healthy); else
+    `applyDowngradeSplit(sql, batch, reason)`.
+  - Report: `autoDowngradedByReason: Partial<Record<AutoDowngradeReason, number>>`,
+    incremented only on `'downgraded'`. Judge `downgraded` counter untouched.
+- [ ] **Step 4:** Tests green (7 titles — including "a subscription lapse
+  holds …" which asserts the batch remains approved with rows unreleased, and
+  "the auto downgrade records its exact reason and never judge_unavailable").
+- [ ] **Step 5:** Commit
+  `feat(631): release-time auto-lane re-check, reason-parameterized downgrade split`.
 
 ---
 
-### Task 8: D20 opt-in surface (blocked by: Task 2 only; parallel with Tasks 5-7)
+### Task 8: D20 opt-in surface (blocked by: Task 2; parallel with 5-7)
 
-**Files:**
-- Modify: `src/lib/auto-approval/types.ts` (PATCH schema + GET state gain a `solicitation` slice)
-- Modify: `src/lib/auto-approval/settings.ts` (read + upsert/delete of the persona row)
-- Modify: `src/app/api/settings/auto-approval/route.ts` (only if a new error shape needs mapping — the route stays a thin shim)
-- Modify: `src/app/(authenticated)/settings/auto-approval/AutoApprovalClient.tsx` (Solicitation card)
-- Test: `src/lib/auto-approval/__tests__/settings.test.ts`
+**Files:** Modify `src/lib/auto-approval/types.ts`, `settings.ts`, the route
+(only if a new error shape needs mapping), `AutoApprovalClient.tsx`. Tests:
+the 6 settings titles.
 
-- [ ] **Step 1: READ `src/lib/auto-approval/settings.ts` + `types.ts` + the
-  route end-to-end first.** Mirror the Reply lane's shapes exactly.
-- [ ] **Step 2: Types.** PATCH gains optional
-  `solicitation?: { enabled: boolean; dailySendCap?: number | null; vetoWindowMinutes?: 30 | 60 }`
-  (zod: `z.number().int().min(1).max(50).nullable()` for the cap — title 17
-  pins the bounds). GET state gains
-  `solicitation: { available: boolean; enabled: boolean; dailySendCap: number | null; vetoWindowMinutes: number | null }`
-  where `available = solicitationSendEnabled() && solicitationAutoApprovalEnabled()
-  && tierGrantsAutopilot(tier)` — the browser learns flag state via the API
-  response (invariant #13), never a `NEXT_PUBLIC_*`.
-- [ ] **Step 3: Settings module.** `enabled: true` ⇒ upsert the account-default
-  row `(account_id, persona='solicitation', action_class='sending',
-  location_id NULL, veto_window_minutes default 60, daily_send_cap)` — id via
-  `randomUUID()` from `node:crypto` if the table has no default (READ how the
-  Reply lane inserts; invariant #10). Refuse when `!tierGrantsAutopilot(tier)`
-  (title 16). `enabled: false` ⇒ DELETE the row (absence = off, D20).
-  Enabling routes through the existing expansion-confirmation machinery
-  (decision 10). Writes go through this server module only (invariant #14 —
-  `ci:static-policy` enforces it).
-- [ ] **Step 4: UI.** `AutoApprovalClient.tsx` gains a Solicitation card
-  rendered only when `solicitation.available`; toggle + cap input + 30/60
-  select. Invoke the `repworth-brand-design` skill before writing UI. Match
-  the page's existing form/save patterns exactly.
-- [ ] **Step 5: Tests green** — titles 16, 17, 18.
-
-Run: `pnpm vitest run src/lib/auto-approval/`
-Expected: PASS.
-
-- [ ] **Step 6: Commit** — `feat(631): solicitation auto-approval opt-in on the settings surface`
+- [ ] **Step 1: READ `types.ts:159-214`, `settings.ts`, and the route
+  end-to-end.** The PATCH contract is a strict discriminated **operation
+  union** (R1 finding 7) — extend it with solicitation operations in the same
+  style (e.g. an operation that enables/updates the solicitation lane with
+  `dailySendCap` + `vetoWindowMinutes`, and one that disables it). Follow the
+  union's existing naming pattern EXACTLY; do not invent a parallel shape.
+- [ ] **Step 2: Settings module.** Enable ⇒ upsert the account-default row
+  with the LITERAL predicate
+  `ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL`
+  (`settings.ts:727` precedent), id via `uuidv7()` (migration 055 convention),
+  `veto_window_minutes` defaulting 60, cap zod-bounded 1..50. Refuse when
+  `!tierGrantsAutopilot(tier)`. Disable ⇒ DELETE only the
+  solicitation/sending/account-default row. Enabling routes through the
+  existing expansion-confirmation machinery (decision 10 of rev 1, upheld).
+  All writes under the account lock the module already takes
+  (`settings.ts:381`).
+- [ ] **Step 3: GET state** gains the solicitation slice with
+  `available = solicitationSendEnabled() && solicitationAutoApprovalEnabled()
+  && tierGrantsAutopilot(tier)` (server-authoritative, invariant #13).
+- [ ] **Step 4: UI.** Solicitation card in `AutoApprovalClient.tsx`, rendered
+  only when `available`; toggle + cap input + 30/60 select. Invoke
+  `repworth-brand-design` before writing UI.
+- [ ] **Step 5:** Tests green (6 titles). Commit
+  `feat(631): solicitation auto-approval opt-in on the settings surface`.
 
 ---
 
 ### Task 9: Registries, docs, glossary (blocked by: Tasks 5, 7, 8)
 
-**Files:**
-- Modify: `.claude/reference/env-vars.md` (+2 rows)
-- Modify: `docs/runbooks/whatsapp-templates.md` (+ veto-notice template row)
-- Modify: `docs/directory.md` (+ rows: `auto-approval.ts`, the 4 worker-family files; `ci:directory-map` fails without them)
-- Modify: `CONTEXT.md` (send-mode section)
-
-- [ ] **Step 1: env-vars.md rows**, matching the section formats:
-  - `SOLICITATION_AUTO_APPROVAL_ENABLED` — Railway, unset (OFF). The
-    Auto-approval lane switch (#631, map decision 7). Both this AND
-    `SOLICITATION_SEND_ENABLED` must be true. Approval-time gate AND
-    release-time re-check (off ⇒ unreleased `auto_policy` batches downgrade to
-    owner review). Server-only, no `NEXT_PUBLIC_*` companion. Flip via
-    `flag-flip` (#633 owns the staging flip).
-  - `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` — Railway, unset (WhatsApp
-    channel skips cleanly; Telegram/email still deliver).
-- [ ] **Step 2: CONTEXT.md** — add to "Solicitation (send-mode)" (LOCKED,
-  coined in #631): **Auto-approval lane** (the `approval_method='auto_policy'`
-  path: four-condition opt-in D20, Governor account-wide read, Judge-gated at
-  dispatch, veto-windowed); **Veto notice** (the owner notification whose
-  first confirmed delivery starts the window; template
-  `solicitation_veto_notice`, `entity_id` = batch id); **Veto anchor** (the
-  release-cycle phase that CASes `veto_deadline_at` once from the first
-  `delivered_at`; no delivered notice ⇒ no release, ever). Each with an
-  _Avoid_ line, matching the section's entry format.
-- [ ] **Step 3:** whatsapp-templates.md row (template body + variables +
-  the SID env var), directory.md rows.
-- [ ] **Step 4: Commit** — `docs(631): registries, runbook row, glossary terms`
+As rev 1 (env-vars rows for `SOLICITATION_AUTO_APPROVAL_ENABLED` +
+`WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID`; whatsapp-templates.md row;
+directory.md rows for every new production file; CONTEXT.md terms
+**Auto-approval lane**, **Veto notice**, **Veto anchor** — the Veto notice
+entry states the `sent_at` anchor semantic and cites veto-window-gate.ts as
+the port source). Commit `docs(631): registries, runbook row, glossary terms`.
 
 ---
 
 ## Verification (step 5 of /feature)
 
-After Task 9: `bash scripts/verify-gate.sh` (full), fix, re-run; the LAST
-pre-review run is `bash scripts/verify-gate.sh --review` (diff-coverage ≥80%).
-`TEST_DATABASE_POOL_URL` must be set — a SKIP row on the integration suites is
-NOT review-ready for this feature (db_touching).
+After Task 9: `bash scripts/verify-gate.sh` (full), fix, re-run; final
+pre-review run `bash scripts/verify-gate.sh --review` (diff-coverage ≥80%).
+`TEST_DATABASE_POOL_URL` must be set — SKIP rows on integration suites are not
+review-ready here (db_touching).
 
 ## Task graph
 
 ```
-1 (eval, alone) → 2 (migration) → 3 (gate) → 4 (verb+hook) → 5 (notice family) ─┐
+1 (eval, alone) → 2 (migration) → 3 (gate) → 4 (verb+hook) → 5 (notice family + resend) ─┐
                                         │                └──→ 6 (anchor) → 7 (re-check) ─┼→ 9 (docs)
-                                        └────────────────────→ 8 (settings) ────────────┘
+                                        └────────────────────→ 8 (settings) ─────────────┘
 ```
-Parallel-safe sets after 4: {5, 6, 8} (disjoint files, no edges). 7 after 6
-(both edit `release.ts`). 9 last.
+Parallel-safe after 4: {5, 6, 8}. 7 after 6 (both edit `release.ts`). 9 last.
