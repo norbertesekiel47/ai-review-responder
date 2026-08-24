@@ -271,3 +271,66 @@ convenient while the branch is in flight and unacceptable at merge. **No CI chec
 ties the log to the migration set** — only the hook reads it — so nothing goes red
 if Task 8 is skipped. This paragraph is the only thing standing between that and
 a silent miss.
+
+---
+
+## D13 — Task 2 dropped the plan's four module-level imports
+
+**Stage:** execution (step 4), Task 2.
+**What changed:** the plan's Step 1 opens `attribution.ts` with
+`import type { Sql, TransactionSql } from 'postgres'`, `recordOutcome` from
+`@/lib/agents/run-spine` and `reviewTimeAnchor` from `@/lib/kpi/fragments`. Task 2
+wrote the module without them.
+**Why:** none is referenced by the Task 2 half of the module. They belong to
+`attributeReview` and the candidate query, which are **Task 3**. Left in, all
+four are unused bindings and `@typescript-eslint/no-unused-vars` — error-level —
+fails `npx eslint` on the file. `tsconfig.json` does not set `noUnusedLocals`, so
+typecheck would have stayed green and the failure would have been lint-only.
+**Task 3 adds them back with their call sites.** Everything else is the plan's
+code verbatim, including the combining-mark range in the normalizer's regex,
+which is byte-identical to the test file's own oracle.
+**Scope impact:** none.
+**Verdict:** _pending step 6._
+
+---
+
+## D14 — `ci:directory-map` is RED from Task 2 until Task 8, by plan design
+
+**Stage:** execution (step 4), noticed at Task 2.
+
+`src/lib/solicitation/attribution.ts` is a production file under `src/lib/` with
+no row in `docs/directory.md`, so `pnpm ci:directory-map` fails. The plan assigns
+both new rows to **Task 8 Step 2**. CLAUDE.md requires the row in the same **PR**,
+not the same commit, so the deferral is compliant.
+
+**The cost is signal, not compliance.** A gate row that stays red for six tasks
+stops being read. A genuinely different directory-map failure arriving at Task 5
+would hide inside the same red row.
+
+**Mitigation, and it is mandatory for every remaining task:** run
+`pnpm ci:directory-map` and confirm the failure list contains **only** the known
+deferred files. Report immediately if a new path appears or the count changes.
+Known deferred, and nothing else may join them without being reported:
+
+- `src/lib/solicitation/attribution.ts` (created by Task 2)
+- `worker/jobs/solicitation-attribution/SolicitationAttributionWorker.ts` (Task 5)
+
+---
+
+## D15 — Tasks 3 and 4 run SEQUENTIALLY, not concurrently
+
+**Stage:** execution (step 4), orchestrator decision.
+**What the plan says:** Task 3 and Task 4 have no blocking edge and touch
+disjoint files, so they "may run as concurrent subagents".
+**What is actually happening:** they run one after the other.
+**Why:** the two agents share ONE worktree, and therefore one `.git/index`.
+Concurrent `git add`/`git commit` contend on `index.lock`. The failure is not
+silent — the loser sees `Unable to create index.lock` — but it lands inside an
+autonomous agent that must then decide what to do, and "retry a git command that
+just failed" is not a decision worth delegating. The file-level disjointness the
+plan reasoned about is real; the git-level shared resource it did not account for
+is also real.
+**Cost:** wall-clock only. No correctness or scope change.
+**How to actually parallelize, if wall-clock ever matters:** give each task its
+own worktree (`isolation: 'worktree'`), which is what makes concurrent commits
+safe. That is a heavier setup than this branch needs.
