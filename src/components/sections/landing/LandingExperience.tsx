@@ -12,6 +12,8 @@ import { FleetSection } from './fleet/FleetSection';
 import { FutureSection } from './future/FutureSection';
 import { HeroSection } from './hero/HeroSection';
 import { PersonasSection } from './personas/PersonasSection';
+import { ProblemSection } from './problem/ProblemSection';
+import { TiersSection } from './tiers/TiersSection';
 import { WatchdogsSection } from './watchdogs/WatchdogsSection';
 import './agent-flip-card.css';
 import './cta/cta.css';
@@ -21,6 +23,8 @@ import './fleet/video-lightbox.css';
 import './future/future.css';
 import './hero/hero.css';
 import './personas/personas.css';
+import './problem/problem.css';
+import './tiers/tiers.css';
 import './watchdogs/watchdogs.css';
 import './landing-experience.css';
 
@@ -256,6 +260,8 @@ function LandingChrome({
             of its `background-attachment: fixed` card glow. */}
         <HeroSection primaryCtaHref={primaryCtaHref} primaryCtaLabel={primaryCtaLabel} />
 
+        <ProblemSection />
+
         <FleetSection
           videoSrc="/video/repworth-explainer.mp4"
           videoPoster="/video/repworth-explainer-poster.jpg"
@@ -265,6 +271,8 @@ function LandingChrome({
         <PersonasSection />
 
         <WatchdogsSection />
+
+        <TiersSection />
 
         <FutureSection />
 

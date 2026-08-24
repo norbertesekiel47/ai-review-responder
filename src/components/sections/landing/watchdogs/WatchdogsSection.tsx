@@ -1,8 +1,11 @@
 'use client';
 
+import Link from 'next/link';
+import { MARKETING_LINKS } from '@/components/ui/marketing-links';
 import { AgentFlipCard } from '../agent-flip-card';
 import { Reveal } from '../reveal';
 import {
+  PIPELINE_LINK_LABEL,
   EYEBROW,
   HEADING_ACCENT,
   HEADING_LEAD,
@@ -69,6 +72,20 @@ export function WatchdogsSection() {
             </Reveal>
           ))}
         </div>
+
+        {/* The whole pipeline lives on /how-it-works — the landing page links
+            to it rather than retelling it (see watchdogs-copy.ts). Gold, not
+            teal: the link is an ACTION, and gold is the action temperature. */}
+        <Reveal index={4}>
+          <p className="rw-lp-watch-pipeline">
+            <Link href={MARKETING_LINKS.howItWorks.href} className="rw-lp-watch-pipeline-link">
+              {PIPELINE_LINK_LABEL}
+              <span aria-hidden="true" className="rw-lp-watch-pipeline-arrow">
+                {'\u2192'}
+              </span>
+            </Link>
+          </p>
+        </Reveal>
       </div>
     </section>
   );

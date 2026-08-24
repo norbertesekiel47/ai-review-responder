@@ -1,0 +1,91 @@
+/* ==========================================================================
+   The problem — section 6.
+
+   The page's one purely typographic section: no glass, no cards, no media.
+   It sits between two heavy visual beats (hero film above, fleet diagram
+   below), so its job is contrast — an essay opening at the page's lightest
+   display weight. Nothing here is interactive.
+   ========================================================================== */
+
+.rw-lp-problem {
+  --rw-lp-problem-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
+
+  display: flex;
+  flex-direction: column;
+  /* Content-height plus the shared section rhythm — never viewport-bound
+     (2026-08-16; docs/design/landing/measurements.md §2). */
+  padding: var(--rw-lp-section-gap, 6rem) 0;
+  background: var(--rw-lp-ink, #14201c);
+}
+
+.rw-lp-problem-inner {
+  /* `width: 100%` is load-bearing — the section is a column flex container,
+     so this is a flex item; `margin: 0 auto` would otherwise collapse it to
+     fit-content (measurements.md §2). */
+  width: 100%;
+  max-width: var(--rw-lp-inner-max, 75rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+}
+
+/* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
+.rw-lp-problem-eyebrow {
+  margin: 0 0 0.875rem;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-problem-heading {
+  margin: 0;
+  max-width: 46rem;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  /* Height-aware like the other section headings: the `vh` term keeps display
+     type proportionate on short laptops (measurements.md §2). Larger than the
+     sibling headings on purpose — prose is all this section has. */
+  font-size: clamp(2rem, min(4.4vw, 5.6vh), 3.5rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  color: var(--rw-lp-text, #f4f2ec);
+}
+
+.rw-lp-problem-heading-accent {
+  /* Its own line, like the hero's hand-broken pair — inline, the accent
+     phrase wraps mid-thought ("Every silence / is, too.") at 1440. */
+  display: block;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-problem-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+  margin-top: 1.75rem;
+  max-width: 38rem;
+}
+
+.rw-lp-problem-body p {
+  margin: 0;
+  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
+  line-height: 1.65;
+  color: var(--rw-lp-problem-muted);
+  text-wrap: pretty;
+}
+
+/* The exit line — hands the reader to the fleet section directly below. */
+.rw-lp-problem-pivot {
+  margin: 2.25rem 0 0;
+  font-family: var(--rw-font-display);
+  font-weight: 300;
+  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
+  line-height: 1.3;
+  color: var(--rw-lp-text, #f4f2ec);
+}
+
+.rw-lp-problem-pivot-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}

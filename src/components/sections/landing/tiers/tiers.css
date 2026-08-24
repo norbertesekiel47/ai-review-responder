@@ -1,0 +1,263 @@
+/* ==========================================================================
+   Copilot vs Autopilot — section 8 (v2 — the dial-track).
+
+   The dial IS the layout: one horizontal travel line spans the section, the
+   two modes are positions at its ends, and the gold thumb rests on the
+   Copilot side. Detents between the end stops make the argument the heading
+   states — a range, not a toggle. The track is decorative and static (see
+   TiersSection.tsx). No glass, no cards.
+   ========================================================================== */
+
+.rw-lp-tiers {
+  --rw-lp-tiers-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
+  --rw-lp-tiers-rule: rgb(var(--rw-lp-text-rgb) / 0.22);
+  /* The thumb's resting position along the travel. Left of the first inner
+     detent: clearly ON the Copilot side, clearly not at the end stop —
+     the dial has already been set, gently. */
+  --rw-lp-tiers-thumb-x: 12%;
+
+  display: flex;
+  flex-direction: column;
+  /* Content-height plus the shared rhythm — never viewport-bound
+     (2026-08-16; docs/design/landing/measurements.md §2). */
+  padding: var(--rw-lp-section-gap, 6rem) 0;
+  background:
+    radial-gradient(ellipse 55% 40% at 50% 0%, rgb(var(--rw-lp-accent-rgb) / 0.05), transparent 70%),
+    var(--rw-lp-ink, #14201c);
+}
+
+.rw-lp-tiers-inner {
+  /* `width: 100%` is load-bearing (measurements.md §2 — flex-item collapse). */
+  width: 100%;
+  max-width: var(--rw-lp-inner-max, 75rem);
+  margin: 0 auto;
+  padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rw-lp-tiers-intro {
+  max-width: 40rem;
+  text-align: center;
+}
+
+.rw-lp-tiers-eyebrow {
+  margin: 0 0 0.625rem;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
+  text-transform: uppercase;
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-tiers-heading {
+  margin: 0;
+  font-family: var(--rw-font-display);
+  font-weight: 200;
+  font-size: clamp(1.625rem, min(3.2vw, 4.9vh), 2.75rem);
+  line-height: 1.06;
+  letter-spacing: -0.025em;
+  color: var(--rw-lp-text, #f4f2ec);
+}
+
+.rw-lp-tiers-heading-accent {
+  color: var(--rw-lp-accent, #dcc489);
+}
+
+.rw-lp-tiers-lead {
+  margin: 1.125rem 0 0;
+  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
+  line-height: 1.65;
+  color: var(--rw-lp-tiers-muted);
+  text-wrap: pretty;
+}
+
+/* ---------- the dial-track ---------- */
+
+.rw-lp-tiers-dialplate-reveal {
+  width: 100%;
+}
+
+.rw-lp-tiers-dialplate {
+  width: 100%;
+  max-width: 60rem;
+  margin: clamp(2.25rem, 5vw, 3.5rem) auto 0;
+}
+
+.rw-lp-tiers-track {
+  position: relative;
+  height: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* The travel line. Slightly gold-warmed toward the left — the set end. */
+.rw-lp-tiers-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--rw-lp-accent-rgb) / 0.55) 0%,
+    var(--rw-lp-tiers-rule) 45%,
+    var(--rw-lp-tiers-rule) 100%
+  );
+}
+
+.rw-lp-tiers-detent {
+  position: relative;
+  z-index: 1;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 50%;
+  background: rgb(var(--rw-lp-text-rgb) / 0.4);
+}
+
+/* End stops are ticks, not dots: the travel ends here. */
+.rw-lp-tiers-detent[data-end='true'] {
+  width: 1px;
+  height: 0.75rem;
+  border-radius: 0;
+  background: rgb(var(--rw-lp-text-rgb) / 0.5);
+}
+
+.rw-lp-tiers-thumb {
+  position: absolute;
+  z-index: 2;
+  left: var(--rw-lp-tiers-thumb-x);
+  top: 50%;
+  width: 0.875rem;
+  height: 0.875rem;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--rw-lp-accent, #dcc489);
+  /* A soft halo seats the thumb on the line without a shadow stack. */
+  box-shadow: 0 0 0 6px rgb(var(--rw-lp-accent-rgb) / 0.14);
+}
+
+/* ---------- the two modes, anchored at the ends ---------- */
+
+.rw-lp-tiers-modes {
+  display: flex;
+  justify-content: space-between;
+  gap: clamp(2rem, 6vw, 5rem);
+  margin-top: 1.75rem;
+}
+
+.rw-lp-tiers-mode {
+  max-width: 24rem;
+}
+
+/* The right-end mode reads toward its end stop. */
+.rw-lp-tiers-mode[data-tier='autopilot'] {
+  text-align: right;
+}
+
+.rw-lp-tiers-mode-name {
+  margin: 0;
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: var(--rw-lp-label-size);
+  letter-spacing: var(--rw-lp-label-tracking);
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-accent-rgb) / 0.85);
+}
+
+.rw-lp-tiers-mode-claim {
+  margin: 0.75rem 0 0;
+  font-family: var(--rw-font-display);
+  font-weight: 300;
+  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
+  line-height: 1.25;
+  color: var(--rw-lp-text, #f4f2ec);
+}
+
+.rw-lp-tiers-mode-body {
+  margin: 0.625rem 0 0;
+  font-size: clamp(0.875rem, 1vw, 0.9375rem);
+  line-height: 1.6;
+  color: var(--rw-lp-tiers-muted);
+  text-wrap: pretty;
+}
+
+/* ---------- the movement note ---------- */
+
+.rw-lp-tiers-note {
+  margin: clamp(2rem, 4vw, 2.75rem) 0 0;
+  max-width: 40rem;
+  text-align: center;
+  font-size: clamp(0.875rem, 1vw, 0.9375rem);
+  line-height: 1.6;
+  color: var(--rw-lp-text, #f4f2ec);
+  text-wrap: pretty;
+}
+
+.rw-lp-tiers-note-governor {
+  color: var(--rw-lp-tiers-muted);
+}
+
+/* ---------- stacked below 720px ----------
+   The travel rotates: a short vertical line beside the stacked modes keeps
+   the range argument without asking a phone to render a 60rem diagram. */
+
+@media (max-width: 720px) {
+  .rw-lp-tiers-track {
+    display: none;
+  }
+
+  .rw-lp-tiers-modes {
+    flex-direction: column;
+    gap: 1.75rem;
+    margin-top: 0.5rem;
+    position: relative;
+    /* The vertical travel line the stacked modes hang from. */
+    padding-left: 1.375rem;
+  }
+
+  .rw-lp-tiers-modes::before {
+    content: '';
+    position: absolute;
+    left: 0.4375rem;
+    top: 0.25rem;
+    bottom: 0.25rem;
+    width: 1px;
+    background: linear-gradient(
+      180deg,
+      rgb(var(--rw-lp-accent-rgb) / 0.55) 0%,
+      var(--rw-lp-tiers-rule) 55%,
+      var(--rw-lp-tiers-rule) 100%
+    );
+  }
+
+  .rw-lp-tiers-mode[data-tier='autopilot'] {
+    text-align: left;
+  }
+
+  /* Node per mode on the vertical travel; the Copilot node is the thumb. */
+  .rw-lp-tiers-mode {
+    position: relative;
+  }
+
+  .rw-lp-tiers-mode::before {
+    content: '';
+    position: absolute;
+    left: -1.375rem;
+    top: 0.125rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    transform: translateX(0.1875rem);
+    border-radius: 50%;
+    background: rgb(var(--rw-lp-text-rgb) / 0.4);
+  }
+
+  .rw-lp-tiers-mode[data-tier='copilot']::before {
+    background: var(--rw-lp-accent, #dcc489);
+    box-shadow: 0 0 0 4px rgb(var(--rw-lp-accent-rgb) / 0.14);
+  }
+}
