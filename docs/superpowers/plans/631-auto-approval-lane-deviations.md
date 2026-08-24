@@ -92,8 +92,6 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   bodies there (they drive generateAsksForBatch by import, so placement is
   equivalent). Plan Task 1 item 3 superseded.
 
-## Task 6 execution note placeholder (2026-08-23)
-
 ## Task 4 execution (2026-08-23)
 
 - [2026-08-23] **Interim red the plan's task split implies, made explicit.**
@@ -183,3 +181,90 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   because the Governor's suspension writer (`suspendAccountAutonomy`) targets
   the REPLY account-default row, which this lane never touches.
   VERDICT: no surface change; judgment calls recorded for review.
+
+## Task 6 notes (2026-08-23)
+
+- [2026-08-23] `src/lib/agents/run-spine.ts` has no entry anywhere in
+  `.feature/intake.json`'s `allowed_edit_surface` (checked directly), so it is
+  outside the whole feature's surface, not just this task's narrower file
+  list. Plan decision 5 needs a new spine step key, `veto_window_granted`,
+  written via `recordStep`. That function's `stepKey` parameter is typed
+  against the `STEP_PERSONA` map in `run-spine.ts`, so landing the key needs
+  one entry added there. Chosen resolution: `auto-approval.ts` gained a
+  small private helper, `recordVetoWindowGrantedStep`, that inserts one
+  `agent_run_steps` row in the same shape `recordStep` produces (run-row
+  lock first, `step_index` computed the same way, jsonb detail), with
+  `attributed_agent` set to the literal `'solicitation'` — a value the DB's
+  `agent_run_steps_attributed_agent_check` (migration 088) already admits.
+  Follow-up for a future task with access to `run-spine.ts`: add
+  `veto_window_granted: 'solicitation'` to `STEP_PERSONA` there (same shape
+  as the existing `approval_downgraded` entry), then swap
+  `recordVetoWindowGrantedStep`'s call site for a plain `recordStep` call and
+  remove the helper. VERDICT: pending owner review.
+- [2026-08-23] `anchorVetoDeadlines` returns `Promise<{ handled: number;
+  failed: number }>`, not the literal `Promise<number>` the plan's Step 1
+  header names. The plan's Step 2 wiring line routes the return value
+  through `tallyPhase`, whose second parameter is `PhaseTally` (`{ handled,
+  failed }`) — the same shape every other phase in `release.ts` returns.
+  Resolved in favor of the literal wiring code: `anchorVetoDeadlines`
+  isolates each candidate with a local `isolateAnchorItem` helper
+  (`release.ts`'s `isolateItem`, duplicated rather than imported, to avoid a
+  circular import back into `release.ts`), tallies `{ handled, failed }`
+  like its siblings, and the tests assert on `.handled`/`.failed`. VERDICT:
+  pending — flagging the prose/code mismatch for owner awareness.
+- [2026-08-23] `pnpm ci:tenant-scope` fails on 4 findings in
+  `auto-approval.ts` (down from 6 after tightening scoping — see next
+  entry), and `scripts/ci/tenant-scope-allowlist.ts` has no entry anywhere
+  in `.feature/intake.json`'s `allowed_edit_surface` either, so the fix
+  (adding allowlist entries + bumping `ALLOWLIST_BASELINE`) cannot land from
+  this task. VERDICT: pending — needs the same surface widening as the
+  run-spine.ts entry above, or a follow-up task to apply it.
+- [2026-08-23] The two REAL findings that a genuine scoping fix could
+  remove were fixed in code rather than allowlisted: `anchorOneBatch`'s
+  agent_runs lock (`recordVetoWindowGrantedStep`) and the CAS UPDATE's
+  notification_deliveries subquery now both bind `account_id`/`business_id`
+  to `batch.account_id`/`batch.business_id` — real values, not correlated
+  columns, which is what the audit accepts. `recordVetoWindowGrantedStep`
+  gained two required parameters (`accountId`, `businessId`) for this.
+- [2026-08-23] The remaining 4 findings are the ones the schema cannot
+  scope: `selectAnchorCandidates` is a platform-wide background scan (the
+  same shape as `release.ts`'s already-allowlisted `BATCH_EXPIRED_SWEEP_SCAN`
+  etc. — `category: 'background-global-scan'`), and the two
+  `agent_run_steps` reads have no `account_id`/`business_id` column on that
+  table at all (same shape as `run-spine.ts`'s and `read.ts`'s already-
+  allowlisted entries — `category: 'worker-job-scoped'`). Ready-to-paste
+  entries for `scripts/ci/tenant-scope-allowlist.ts` (add all 4, then
+  `ALLOWLIST_BASELINE = 390 + 4 = 394`) follow in the next 4 log entries,
+  one per finding, each with its exact normalized `sqlSnippet` (verified via
+  `extractSqlTemplates`, not hand-transcribed).
+  ```
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "solicitation_batches",
+    sqlSnippet: "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approval_method = 'auto_policy' AND b.veto_deadline_at IS NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.entity_id = b.id AND nd.template = 'solicitation_veto_notice' AND nd.sent_at IS NOT NULL ) LIMIT ${scanLimit}",
+    category: 'background-global-scan',
+    reason: "selectAnchorCandidates (#631 Task 6, decision 4) — the Veto anchor's platform-wide scan for auto_policy batches whose Veto notice has been provider-accepted at least once. Cross-account BY DESIGN, same shape as release.ts's sibling scans (BATCH_EXPIRED_SWEEP_SCAN etc.): a background release-cycle phase must find every account's unanchored batches, not one. Read-only, projects three ids and nothing else.",
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "notification_deliveries",
+    sqlSnippet: "SELECT b.id, b.account_id, b.business_id FROM solicitation_batches b WHERE b.approval_method = 'auto_policy' AND b.veto_deadline_at IS NULL AND b.halted_at IS NULL AND b.send_closed_at IS NULL AND EXISTS ( SELECT 1 FROM notification_deliveries nd WHERE nd.entity_id = b.id AND nd.template = 'solicitation_veto_notice' AND nd.sent_at IS NOT NULL ) LIMIT ${scanLimit}",
+    category: 'background-global-scan',
+    reason: "Same statement as the solicitation_batches entry above — the notification_deliveries EXISTS arm is correlated to the outer row's id, not to a fixed account/business value, so the audit reports it as a second table finding on the one global-scan statement (the release.ts BATCH_EXPIRED_SWEEP_SCAN precedent does the same for its agent_runs EXISTS arm).",
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "agent_run_steps",
+    sqlSnippet: "SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index FROM agent_run_steps WHERE agent_run_id = ${runId}::uuid",
+    category: 'worker-job-scoped',
+    reason: "recordVetoWindowGrantedStep's step_index computation, reproducing run-spine.ts's own nextStepIndex (already allowlisted there under the identical reason) for one step key run-spine.ts's STEP_PERSONA map does not yet carry — see this file's Task 6 notes. agent_run_steps has no account_id/business_id column; the caller already holds the run-scoped lock this statement follows.",
+  },
+  {
+    file: "src/lib/solicitation/auto-approval.ts",
+    table: "agent_run_steps",
+    sqlSnippet: "SELECT (detail->>'veto_window_minutes')::int AS granted_window_minutes FROM agent_run_steps WHERE agent_run_id = ${sendParentRunId}::uuid AND step_key = 'batch_approved' ORDER BY step_index DESC LIMIT 1",
+    category: 'worker-job-scoped',
+    reason: "anchorOneBatch reads the granted veto window back from the LATEST batch_approved step on the send parent run it just locked (account_id/business_id-scoped) two statements above. agent_run_steps has no account_id/business_id column of its own; the run_id it filters by came off that scoped lock.",
+  },
+  ```
+  Then add 4 to `ALLOWLIST_BASELINE` (390 → 394) in the same file.

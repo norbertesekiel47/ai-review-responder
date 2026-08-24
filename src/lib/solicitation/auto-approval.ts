@@ -27,13 +27,18 @@
 // Invariant #15: this module takes its DB client as an explicit parameter
 // (`sql: Sql | TransactionSql`) and never imports `@/lib/db/server`.
 
+import { v7 as uuidv7 } from 'uuid';
+import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { recordStep } from '@/lib/agents/run-spine';
 import { enqueueSolicitationVetoNotice } from '@/lib/shared/job-outbox-helpers';
+import { createWorkerLogger, toError } from '@/lib/shared/logger';
 import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { solicitationAutoApprovalEnabled, solicitationSendEnabled } from './flags';
+
+const logger = createWorkerLogger('[VetoAnchor]');
 
 export type AutoApprovalDeclineReason =
   | 'send_flag_off'
@@ -359,4 +364,277 @@ export async function runFinaleAutoApproval(
     vetoWindowMinutes: decision.vetoWindowMinutes,
     ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
   });
+}
+
+// ── The Veto anchor (#631 Task 6, decision 4) ───────────────────────────────
+//
+// D9 is fail-closed: an `auto_policy` batch may release ONLY after a FULL
+// veto window has elapsed since the FIRST provider-accepted Veto notice send
+// — `MIN(sent_at)`, never `delivered_at` (Telegram has no delivery receipt,
+// the Reply lane's shipped `veto-window-gate.ts:84` semantic). No sent
+// notice, no anchor, no release, ever. This phase is what turns that fact
+// into the `veto_deadline_at` column `release.ts`'s P4 scan reads.
+//
+// Wired by `release.ts`'s `runReleaseCycle` immediately before the release
+// phase, through the SAME `tallyPhase`/`alertPhaseFailure` seam every other
+// phase in that file uses — see its module header for the full phase order.
+
+/** Structurally identical to `release.ts`'s private `PhaseTally` — duplicated
+ *  rather than imported so this module (which `release.ts` imports FROM)
+ *  never depends on its own caller. TypeScript's structural typing makes the
+ *  object this returns assignable to `tallyPhase`'s parameter either way. */
+export interface VetoAnchorTally {
+  handled: number;
+  failed: number;
+}
+
+interface VetoAnchorCandidate {
+  id: string;
+  account_id: string;
+  business_id: string;
+}
+
+/** Stable Sentry title / log prefix — `Sentry.captureException` groups by
+ *  message text, matching every other per-item failure sink in this lane. */
+const ANCHOR_ITEM_FAILURE_MESSAGE = 'Veto anchor candidate failed and was isolated';
+
+/**
+ * P4.5's scan (plan Task 6, decision 4's exact predicate) — `auto_policy`
+ * batches with no anchored deadline yet, whose Veto notice has landed at
+ * least once. `halted_at IS NULL AND send_closed_at IS NULL` keep a Halt
+ * latch or a release-time downgrade winner out of the candidate set; the CAS
+ * in {@link anchorOneBatch} re-asserts both under the batch lock regardless,
+ * but excluding them here keeps the scan itself honest about what it counts.
+ */
+async function selectAnchorCandidates(
+  sql: Sql,
+  scanLimit: number,
+): Promise<VetoAnchorCandidate[]> {
+  return sql<VetoAnchorCandidate[]>`
+    SELECT b.id, b.account_id, b.business_id
+    FROM solicitation_batches b
+    WHERE b.approval_method = 'auto_policy'
+      AND b.veto_deadline_at IS NULL
+      AND b.halted_at IS NULL AND b.send_closed_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM notification_deliveries nd
+        WHERE nd.entity_id = b.id
+          AND nd.template = 'solicitation_veto_notice'
+          AND nd.sent_at IS NOT NULL
+      )
+    LIMIT ${scanLimit}
+  `;
+}
+
+/**
+ * ONE candidate's isolated body — a throw here costs this batch, not the
+ * phase or the tick. `release.ts`'s `isolateItem` docstring states why every
+ * per-item loop in this lane needs this; duplicated here rather than
+ * imported for the reason {@link VetoAnchorTally} gives.
+ */
+async function isolateAnchorItem<T>(
+  context: Record<string, string>,
+  tally: { failed: number },
+  body: () => Promise<T>,
+): Promise<T | undefined> {
+  try {
+    return await body();
+  } catch (error) {
+    tally.failed += 1;
+    const cause = toError(error);
+    try {
+      Sentry.captureException(cause, {
+        level: 'warning',
+        tags: { subsystem: 'solicitation-release', phase: 'veto_anchor' },
+        extra: { ...context },
+      });
+    } catch {
+      // The log line below is the fallback sink for Sentry itself being
+      // unreachable, so it lives OUTSIDE this guard — same shape as every
+      // other per-item catch in this lane.
+    }
+    logger.error(ANCHOR_ITEM_FAILURE_MESSAGE, cause, { phase: 'veto_anchor', ...context });
+    return undefined;
+  }
+}
+
+/**
+ * TASK-6 DEVIATION (see docs/superpowers/plans/631-auto-approval-lane-deviations.md,
+ * "Task 6 notes"): this should be a plain `recordStep(tx, { stepKey:
+ * 'veto_window_granted', ... })` through run-spine.ts's single writer seam.
+ * `veto_window_granted` is not yet a member of that file's `STEP_PERSONA` map
+ * and `run-spine.ts` is outside this feature's recorded edit surface, so the
+ * key cannot be added from here. This function reproduces `appendRunStep`'s
+ * exact write shape (run-row lock, `step_index` computed the same way, jsonb
+ * detail) for ONLY this one step key, with `attributed_agent` hardcoded to
+ * the literal the DB's `agent_run_steps_attributed_agent_check` (migration
+ * 088) already admits. DELETE this once `veto_window_granted` lands in
+ * `STEP_PERSONA` and replace its call site with a plain `recordStep` call.
+ *
+ * `accountId`/`businessId` scope the run-row lock to a bound VALUE (not a
+ * correlated column) — `ci:tenant-scope` accepts that as real tenant
+ * scoping; `run-spine.ts`'s own equivalent lock omits them and is
+ * allowlisted instead (its callers already hold a scoped transaction this
+ * duplicate cannot assume).
+ */
+async function recordVetoWindowGrantedStep(
+  tx: TransactionSql,
+  runId: string,
+  accountId: string,
+  businessId: string,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  const lock = await tx<{ ok: number }[]>`
+    SELECT 1 AS ok FROM agent_runs
+    WHERE id = ${runId}::uuid AND account_id = ${accountId}::uuid AND business_id = ${businessId}::uuid
+    FOR UPDATE
+  `;
+  if (lock.count === 0) {
+    throw new Error(
+      `anchorVetoDeadlines: send parent run ${runId} not found for veto_window_granted`,
+    );
+  }
+  const [row] = await tx<{ next_index: number }[]>`
+    SELECT COALESCE(MAX(step_index), 0) + 1 AS next_index
+    FROM agent_run_steps WHERE agent_run_id = ${runId}::uuid
+  `;
+  const nextIndex = row?.next_index ?? 1;
+  await tx`
+    INSERT INTO agent_run_steps (
+      id, agent_run_id, step_index, step_key, attributed_agent, status, detail, latency_ms
+    ) VALUES (
+      ${uuidv7()}, ${runId}::uuid, ${nextIndex}, 'veto_window_granted',
+      'solicitation', 'completed', ${tx.json(detail as never)}, NULL
+    )
+  `;
+}
+
+/**
+ * Anchor ONE candidate: lock the batch, read the granted window back from the
+ * send parent's LATEST `batch_approved` step, then CAS the deadline computed
+ * IN SQL from `MIN(sent_at)` — never a JS `Date` round-trip (#520's µs-
+ * truncation gotcha: postgres.js decodes `timestamptz` to a JS `Date`,
+ * silently truncating microseconds). Returns whether this call anchored the
+ * batch.
+ *
+ * LOCK ORDER IS BATCH → RUN, `release.ts`'s sole order for this lane — the
+ * batch row locks first (below), and the send-parent lookup is folded into
+ * that same locking statement (the `downgradeApproval` shape), so no second
+ * lock is taken to find it.
+ *
+ * A missing send parent, or a `batch_approved` step with no
+ * `veto_window_minutes`, is an IMPOSSIBLE state for a batch this scan ever
+ * selects: `autoApproveBatch` writes both facts, together, in the SAME
+ * transaction as the `auto_policy` stamp (Task 4). Assert it loudly — a
+ * corrupt candidate is isolated to itself by the caller's
+ * {@link isolateAnchorItem}, never silently skipped.
+ */
+async function anchorOneBatch(
+  tx: TransactionSql,
+  batch: VetoAnchorCandidate,
+): Promise<boolean> {
+  const [locked] = await tx<{ send_parent_run_id: string | null }[]>`
+    SELECT (
+             SELECT r.id
+               FROM agent_runs r
+              WHERE r.kind = 'solicitation_send_batch'
+                AND r.subject_type = 'solicitation_batch'
+                AND r.subject_id = b.id::text
+                AND r.account_id = ${batch.account_id}::uuid
+                AND r.business_id = ${batch.business_id}::uuid
+              ORDER BY r.started_at DESC
+              LIMIT 1
+           ) AS send_parent_run_id
+      FROM solicitation_batches b
+     WHERE b.id = ${batch.id}::uuid
+       AND b.account_id = ${batch.account_id}::uuid
+       AND b.business_id = ${batch.business_id}::uuid
+     FOR UPDATE OF b
+  `;
+  if (locked === undefined) {
+    throw new Error(`anchorVetoDeadlines: batch ${batch.id} vanished before its lock`);
+  }
+  if (locked.send_parent_run_id === null) {
+    throw new Error(
+      `anchorVetoDeadlines: no Send batch parent found for auto_policy batch ${batch.id}`,
+    );
+  }
+  const sendParentRunId = locked.send_parent_run_id;
+
+  const [step] = await tx<{ granted_window_minutes: number | null }[]>`
+    SELECT (detail->>'veto_window_minutes')::int AS granted_window_minutes
+    FROM agent_run_steps
+    WHERE agent_run_id = ${sendParentRunId}::uuid AND step_key = 'batch_approved'
+    ORDER BY step_index DESC
+    LIMIT 1
+  `;
+  if (step === undefined || step.granted_window_minutes === null) {
+    throw new Error(
+      `anchorVetoDeadlines: batch ${batch.id}'s send parent ${sendParentRunId} has no ` +
+        'batch_approved step carrying veto_window_minutes',
+    );
+  }
+  const grantedMinutes = step.granted_window_minutes;
+
+  // The CAS: the deadline is computed IN SQL from MIN(sent_at) — the
+  // DATABASE clock decides it, never a JS Date round-trip. Re-asserting
+  // approval_method/halted_at/send_closed_at/veto_deadline_at here (not just
+  // in the scan) is what makes zero rows the honest answer to "a Halt latch
+  // or a release-time downgrade won the race between the scan and this
+  // lock" — skip quietly, no step.
+  const [cas] = await tx<{ veto_deadline_at: string; first_sent: string }[]>`
+    UPDATE solicitation_batches b
+    SET veto_deadline_at = sub.first_sent + make_interval(mins => ${grantedMinutes})
+    FROM (
+      SELECT MIN(nd.sent_at) AS first_sent
+      FROM notification_deliveries nd
+      WHERE nd.entity_id = ${batch.id}::uuid
+        AND nd.account_id = ${batch.account_id}::uuid
+        AND nd.business_id = ${batch.business_id}::uuid
+        AND nd.template = 'solicitation_veto_notice'
+        AND nd.sent_at IS NOT NULL
+    ) sub
+    WHERE b.id = ${batch.id}::uuid AND b.account_id = ${batch.account_id}::uuid
+      AND b.business_id = ${batch.business_id}::uuid
+      AND b.approval_method = 'auto_policy' AND b.veto_deadline_at IS NULL
+      AND b.halted_at IS NULL AND b.send_closed_at IS NULL
+    RETURNING b.veto_deadline_at::text AS veto_deadline_at, sub.first_sent::text AS first_sent
+  `;
+  if (cas === undefined) return false;
+
+  await recordVetoWindowGrantedStep(tx, sendParentRunId, batch.account_id, batch.business_id, {
+    granted_window_minutes: grantedMinutes,
+    first_sent_at: cas.first_sent,
+    veto_deadline_at: cas.veto_deadline_at,
+    actor: 'system',
+  });
+  return true;
+}
+
+/**
+ * The Veto anchor. CASes `veto_deadline_at` on every `auto_policy` batch
+ * whose Veto notice has been provider-accepted at least once, fail-closed
+ * per D9.
+ *
+ * Returns a `{ handled, failed }` tally — the same shape `release.ts`'s
+ * `tallyPhase` expects from every other phase, so `runReleaseCycle` wires
+ * this one in identically (see the module-header note above and this file's
+ * deviations log entry for why the shape is `{ handled, failed }` rather
+ * than a bare count).
+ */
+export async function anchorVetoDeadlines(
+  sql: Sql,
+  scanLimit: number,
+): Promise<VetoAnchorTally> {
+  const candidates = await selectAnchorCandidates(sql, scanLimit);
+  const tally: VetoAnchorTally = { handled: 0, failed: 0 };
+  for (const batch of candidates) {
+    const anchored = await isolateAnchorItem(
+      { batch_id: batch.id, account_id: batch.account_id, business_id: batch.business_id },
+      tally,
+      () => sql.begin((tx) => anchorOneBatch(tx, batch)),
+    );
+    if (anchored === true) tally.handled += 1;
+  }
+  return tally;
 }

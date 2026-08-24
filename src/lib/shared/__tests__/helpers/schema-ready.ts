@@ -478,6 +478,21 @@ export const MIGRATION_110_SEND_GOVERNORS: SchemaRequirement = {
 };
 
 /**
+ * #631 — the Auto-approval lane. 113 is index-only (074 §4 shape): the
+ * job_outbox in-flight dedup for the new `solicitation_veto_notice` topic,
+ * and the claim-before-send dedup on `notification_deliveries`. Both indexes
+ * are 113's only objects, so both are named — presence of just one would
+ * prove nothing about the other.
+ */
+export const MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE: SchemaRequirement = {
+  migration: '113_solicitation_auto_approval_lane',
+  indexes: [
+    'idx_jo_solicitation_veto_notice_inflight',
+    'notification_deliveries_solicitation_veto_notice_claim',
+  ],
+};
+
+/**
  * The precondition a `SchemaRequirement` structurally cannot carry.
  *
  * `analytics_events_event_name_check` has existed under that NAME since 046,

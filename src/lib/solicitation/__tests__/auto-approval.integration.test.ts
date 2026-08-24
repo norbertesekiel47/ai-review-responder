@@ -15,8 +15,10 @@
 // They drive `generateAsksForBatch` / `regenerateAsk` by import, which is
 // unaffected by which file drives them.
 //
-// The five `anchorVetoDeadlines` titles stay `it.todo` — Task 6 owns their
-// bodies.
+// The five `anchorVetoDeadlines` titles are real tests below (#631 Task 6):
+// they seed `notification_deliveries` rows directly with `sent_at` (the
+// veto-notice WORKER is not under test here) and a `batch_approved` step
+// recording the granted window, then drive `anchorVetoDeadlines` by import.
 //
 // Only the SPEND boundary is faked (the ask-generation.integration.test.ts
 // pattern): a canned `runLlmTask` and a mocked cost tracker, because this
@@ -42,7 +44,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
   MIGRATION_099_SOLICITATION_POSTAL_ADDRESS,
-  type SchemaRequirement,
+  MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   cleanupTenantAccount,
@@ -87,23 +89,12 @@ import { acquireSolicitationBatchLock } from '../batch-builder';
 import { approveBatch, type ApproveBatchResult } from '../approval';
 import { generateAsksForBatch, regenerateAsk } from '../ask-generation';
 import {
+  anchorVetoDeadlines,
   autoApproveBatch,
   runFinaleAutoApproval,
   type AutoApproveOutcome,
   type FinaleAutoApprovalOutcome,
 } from '../auto-approval';
-
-// Local until a later #631 task hoists it into schema-ready.ts (that helper
-// file is outside Task 4's edit surface). `SchemaRequirement` is plain data,
-// so a suite-local requirement asserts 113 with the same actionable
-// `pnpm test:db:setup` failure as a shared one.
-const MIGRATION_113_SOLICITATION_AUTO_APPROVAL_LANE: SchemaRequirement = {
-  migration: '113_solicitation_auto_approval_lane',
-  indexes: [
-    'idx_jo_solicitation_veto_notice_inflight',
-    'notification_deliveries_solicitation_veto_notice_claim',
-  ],
-};
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 
@@ -307,6 +298,93 @@ async function readBatchApprovedSteps(runId: string): Promise<{ detail: unknown 
   `;
 }
 
+async function readVetoWindowGrantedSteps(runId: string): Promise<{ detail: unknown }[]> {
+  return sql()<{ detail: unknown }[]>`
+    SELECT detail FROM agent_run_steps
+    WHERE agent_run_id = ${runId}::uuid AND step_key = 'veto_window_granted'
+  `;
+}
+
+/** The `batch_approved` step `autoApproveBatch` would have written — seeded
+ *  directly here because these anchor tests are about the ANCHOR phase, not
+ *  the approve verb (Task 4's own tests already cover that write). */
+async function seedBatchApprovedStep(runId: string, vetoWindowMinutes: number): Promise<void> {
+  await sql()`
+    INSERT INTO agent_run_steps (
+      id, agent_run_id, step_index, step_key, attributed_agent, status, detail
+    ) VALUES (
+      ${randomUUID()}::uuid, ${runId}::uuid, 1, 'batch_approved', 'solicitation', 'completed',
+      ${sql().json({
+        approval_method: 'auto_policy',
+        approved_count: 1,
+        veto_window_minutes: vetoWindowMinutes,
+      })}
+    )
+  `;
+}
+
+/** Stamps a `seedBatch()` row `auto_policy`-approved with no anchored
+ *  deadline — the state `anchorVetoDeadlines`'s scan selects. */
+async function markAutoApproved(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET approved_at = NOW() - INTERVAL '5 minutes', approval_method = 'auto_policy'
+    WHERE id = ${batchId}::uuid AND account_id = ${accountId()}::uuid AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** 091's halt-consistency CHECK: `owner_halt` requires `halted_by` set. */
+async function haltBatch(batchId: string): Promise<void> {
+  await sql()`
+    UPDATE solicitation_batches
+    SET halted_at = NOW(), halt_reason = 'owner_halt', halted_by = ${userId()}::uuid
+    WHERE id = ${batchId}::uuid AND account_id = ${accountId()}::uuid AND business_id = ${businessId}::uuid
+  `;
+}
+
+/** A `notification_deliveries` row for the Veto notice — the worker is NOT
+ *  under test, so the anchor suite seeds provider-accepted sends directly.
+ *  `recipient` defaults to a UNIQUE address per call — migration 113's
+ *  `notification_deliveries_solicitation_veto_notice_claim` is a partial
+ *  unique index on `(entity_id, channel, recipient)`, so two "second channel
+ *  retried" rows for the SAME batch need distinct recipients to coexist. */
+async function seedVetoNoticeDelivery(
+  entityId: string,
+  opts: { sentAgo?: string; template?: string; recipient?: string } = {},
+): Promise<void> {
+  await sql()`
+    INSERT INTO notification_deliveries (
+      id, business_id, account_id, entity_id, channel, recipient, template, sent_at
+    ) VALUES (
+      ${randomUUID()}::uuid, ${businessId}::uuid, ${accountId()}::uuid,
+      ${entityId}::uuid, 'email', ${opts.recipient ?? `owner-${randomUUID()}@example.test`},
+      ${opts.template ?? 'solicitation_veto_notice'},
+      NOW() - ${opts.sentAgo ?? '10 minutes'}::interval
+    )
+  `;
+}
+
+/** Compares `veto_deadline_at` against `MIN(sent_at) + window` entirely IN
+ *  SQL — never round-tripped through a JS `Date`, which truncates the
+ *  microseconds postgres.js decodes `timestamptz` into (#520). */
+async function vetoDeadlineMatchesFirstSentPlusWindow(
+  batchId: string,
+  vetoWindowMinutes: number,
+): Promise<boolean> {
+  const [row] = await sql()<{ matches: boolean | null }[]>`
+    SELECT b.veto_deadline_at = (
+      (SELECT MIN(nd.sent_at) FROM notification_deliveries nd
+        WHERE nd.entity_id = ${batchId}::uuid
+          AND nd.template = 'solicitation_veto_notice'
+          AND nd.sent_at IS NOT NULL)
+      + make_interval(mins => ${vetoWindowMinutes})
+    ) AS matches
+    FROM solicitation_batches b
+    WHERE b.id = ${batchId}::uuid
+  `;
+  return row?.matches === true;
+}
+
 async function findSendParent(batchId: string): Promise<{ id: string; status: string }> {
   const [parent] = await sql()<{ id: string; status: string }[]>`
     SELECT id, status FROM agent_runs
@@ -432,6 +510,7 @@ describeWithDb(
       await db`DELETE FROM solicitation_visits WHERE business_id = ${businessId}::uuid`;
       await db`DELETE FROM solicitation_contacts WHERE business_id = ${businessId}::uuid`;
       await db`DELETE FROM api_costs WHERE business_id = ${businessId}::uuid`;
+      await db`DELETE FROM notification_deliveries WHERE business_id = ${businessId}::uuid`;
       await db`
         DELETE FROM agent_run_steps
         WHERE agent_run_id IN (
@@ -890,18 +969,191 @@ describeWithDb(
         }
       });
     });
+
+    // #631 Task 6 — the D9 Veto anchor CAS. Nested inside describeWithDb (not
+    // a separate top-level describe) so these share the outer beforeAll's
+    // `db`/`tenant`/`businessId` setup and the shared afterEach cleanup.
+    describe('anchorVetoDeadlines (#631)', () => {
+      it('anchors veto_deadline_at from the first sent notice exactly once via CAS', async () => {
+        const { batchId } = await seedBatch();
+        const parentRunId = await seedSendParent(batchId);
+        await markAutoApproved(batchId);
+        await seedBatchApprovedStep(parentRunId, 60);
+        // Two sent notices — MIN(sent_at) must win, not the latest.
+        await seedVetoNoticeDelivery(batchId, { sentAgo: '20 minutes' });
+        await seedVetoNoticeDelivery(batchId, { sentAgo: '10 minutes' });
+
+        const first = await anchorVetoDeadlines(sql(), 50);
+        expect(first).toEqual({ handled: 1, failed: 0 });
+
+        const row = await readBatchRow(batchId);
+        expect(row.veto_deadline_at).not.toBeNull();
+        // SQL-side comparison — never a JS Date round-trip (#520).
+        expect(await vetoDeadlineMatchesFirstSentPlusWindow(batchId, 60)).toBe(true);
+
+        const steps = await readVetoWindowGrantedSteps(parentRunId);
+        expect(steps).toHaveLength(1);
+        const detail = parseJsonb(steps[0]!.detail);
+        expect(detail).toMatchObject({ granted_window_minutes: 60, actor: 'system' });
+        expect(typeof detail.first_sent_at).toBe('string');
+        expect(typeof detail.veto_deadline_at).toBe('string');
+
+        // Second run: the batch no longer matches the scan
+        // (`veto_deadline_at` is set) — a quiet no-op, no second step.
+        const second = await anchorVetoDeadlines(sql(), 50);
+        expect(second).toEqual({ handled: 0, failed: 0 });
+        expect(await readVetoWindowGrantedSteps(parentRunId)).toHaveLength(1);
+      });
+
+      it('never anchors a halted batch even when a notice send lands later', async () => {
+        const { batchId } = await seedBatch();
+        const parentRunId = await seedSendParent(batchId);
+        await markAutoApproved(batchId);
+        await seedBatchApprovedStep(parentRunId, 60);
+        await haltBatch(batchId);
+        // The notice provider-accepts AFTER the halt.
+        await seedVetoNoticeDelivery(batchId, { sentAgo: '1 minute' });
+
+        const tally = await anchorVetoDeadlines(sql(), 50);
+        expect(tally).toEqual({ handled: 0, failed: 0 });
+
+        expect((await readBatchRow(batchId)).veto_deadline_at).toBeNull();
+        expect(await readVetoWindowGrantedSteps(parentRunId)).toHaveLength(0);
+      });
+
+      it('records the granted window from the policy row at approval and ignores later policy edits', async () => {
+        const { batchId } = await seedBatch();
+        const parentRunId = await seedSendParent(batchId);
+        await markAutoApproved(batchId);
+        // The window captured AT APPROVAL — the suite's default seeded
+        // policy row grants 60.
+        await seedBatchApprovedStep(parentRunId, 60);
+        // A later edit to the live policy row — the anchor must ignore it.
+        await sql()`
+          UPDATE auto_approval_policies
+          SET veto_window_minutes = 30
+          WHERE account_id = ${accountId()}::uuid
+            AND persona = 'solicitation' AND action_class = 'sending'
+        `;
+        await seedVetoNoticeDelivery(batchId, { sentAgo: '5 minutes' });
+
+        const tally = await anchorVetoDeadlines(sql(), 50);
+        expect(tally).toEqual({ handled: 1, failed: 0 });
+        expect(await vetoDeadlineMatchesFirstSentPlusWindow(batchId, 60)).toBe(true);
+
+        const steps = await readVetoWindowGrantedSteps(parentRunId);
+        expect(parseJsonb(steps[0]!.detail)).toMatchObject({ granted_window_minutes: 60 });
+      });
+
+      it('one corrupt anchor candidate does not prevent a healthy sibling batch from anchoring', async () => {
+        // Corrupt: auto_policy, unanchored, notice sent — but its
+        // batch_approved step is stripped (never seeded), so anchorOneBatch's
+        // read of the granted window finds nothing and throws — isolated to
+        // this one candidate.
+        const corrupt = await seedBatch();
+        const corruptParentRunId = await seedSendParent(corrupt.batchId);
+        await markAutoApproved(corrupt.batchId);
+        await seedVetoNoticeDelivery(corrupt.batchId, { sentAgo: '5 minutes' });
+
+        // The healthy sibling MUST live on a DIFFERENT business: migration
+        // 091's `solicitation_batches_one_active_send_per_business` index
+        // admits only ONE approved/unhalted/unclosed batch per business at a
+        // time, so two simultaneously-approved batches cannot coexist on
+        // `businessId` — a second location is the only way to express "an
+        // unrelated healthy batch", not a test-only workaround. Scoped and
+        // torn down entirely inside this one test.
+        const siblingBusinessId = randomUUID();
+        await sql()`
+          INSERT INTO businesses (
+            id, name, owner_name, owner_email, account_id, subscription_status, category
+          ) VALUES (
+            ${siblingBusinessId}::uuid, 'Auto Approval Sibling Business', 'Auto Owner',
+            'sibling-owner@example.test', ${accountId()}::uuid, 'active', 'retail'
+          )
+        `;
+        const siblingUploadId = await seedContactCsvUpload(sql(), {
+          accountId: accountId(),
+          businessId: siblingBusinessId,
+          attestedByUserId: userId(),
+          filenamePrefix: 'auto-approval-sibling',
+          attestationVersion: 'auto-approval-test',
+        });
+        const healthyBatchId = randomUUID();
+        await sql()`
+          INSERT INTO solicitation_batches (
+            id, account_id, business_id, source_upload_id, created_at, built_at,
+            approved_at, approval_method
+          ) VALUES (
+            ${healthyBatchId}::uuid, ${accountId()}::uuid, ${siblingBusinessId}::uuid,
+            ${siblingUploadId}::uuid, NOW() - INTERVAL '40 days', NOW() - INTERVAL '1 hour',
+            NOW() - INTERVAL '5 minutes', 'auto_policy'
+          )
+        `;
+        const healthyParentRunId = randomUUID();
+        await sql()`
+          INSERT INTO agent_runs (
+            id, account_id, business_id, kind, subject_type, subject_id,
+            status, started_at, correlation_id
+          ) VALUES (
+            ${healthyParentRunId}::uuid, ${accountId()}::uuid, ${siblingBusinessId}::uuid,
+            'solicitation_send_batch', 'solicitation_batch', ${healthyBatchId},
+            'running', NOW() - INTERVAL '1 minute', 'auto-approval-integration-sibling'
+          )
+        `;
+        await seedBatchApprovedStep(healthyParentRunId, 60);
+        await sql()`
+          INSERT INTO notification_deliveries (
+            id, business_id, account_id, entity_id, channel, recipient, template, sent_at
+          ) VALUES (
+            ${randomUUID()}::uuid, ${siblingBusinessId}::uuid, ${accountId()}::uuid,
+            ${healthyBatchId}::uuid, 'email', 'sibling-notice@example.test',
+            'solicitation_veto_notice', NOW() - INTERVAL '5 minutes'
+          )
+        `;
+
+        const tally = await anchorVetoDeadlines(sql(), 50);
+        expect(tally).toEqual({ handled: 1, failed: 1 });
+
+        expect((await readBatchRow(corrupt.batchId)).veto_deadline_at).toBeNull();
+        const [healthyRow] = await sql()<{ veto_deadline_at: string | null }[]>`
+          SELECT veto_deadline_at::text AS veto_deadline_at FROM solicitation_batches
+          WHERE id = ${healthyBatchId}::uuid AND account_id = ${accountId()}::uuid
+            AND business_id = ${siblingBusinessId}::uuid
+        `;
+        expect(healthyRow?.veto_deadline_at).not.toBeNull();
+        expect(await readVetoWindowGrantedSteps(corruptParentRunId)).toHaveLength(0);
+        expect(await readVetoWindowGrantedSteps(healthyParentRunId)).toHaveLength(1);
+
+        // Local cleanup — this sibling business/batch/run/delivery are
+        // scoped to THIS test only; the shared afterEach only knows about
+        // `businessId`.
+        await sql()`DELETE FROM notification_deliveries WHERE business_id = ${siblingBusinessId}::uuid`;
+        await sql()`DELETE FROM agent_run_steps WHERE agent_run_id = ${healthyParentRunId}::uuid`;
+        await sql()`DELETE FROM agent_runs WHERE id = ${healthyParentRunId}::uuid`;
+        await sql()`DELETE FROM solicitation_batches WHERE id = ${healthyBatchId}::uuid`;
+        await sql()`DELETE FROM contact_csv_uploads WHERE id = ${siblingUploadId}::uuid`;
+        await sql()`DELETE FROM businesses WHERE id = ${siblingBusinessId}::uuid`;
+      });
+
+      it('a wrong-template or different-batch delivery row never anchors', async () => {
+        const { batchId } = await seedBatch();
+        const parentRunId = await seedSendParent(batchId);
+        await markAutoApproved(batchId);
+        await seedBatchApprovedStep(parentRunId, 60);
+        // Wrong template — never matches the EXISTS predicate.
+        await seedVetoNoticeDelivery(batchId, {
+          template: 'pending_post_notice',
+          sentAgo: '5 minutes',
+        });
+        // A delivery scoped to a DIFFERENT (non-existent) batch id — never
+        // matches THIS batch's scan.
+        await seedVetoNoticeDelivery(randomUUID(), { sentAgo: '5 minutes' });
+
+        const tally = await anchorVetoDeadlines(sql(), 50);
+        expect(tally).toEqual({ handled: 0, failed: 0 });
+        expect((await readBatchRow(batchId)).veto_deadline_at).toBeNull();
+        expect(await readVetoWindowGrantedSteps(parentRunId)).toHaveLength(0);
+      });
+    });
   },
 );
-
-// Task 6 owns these bodies (the D9 Veto anchor CAS) — todos on purpose.
-describe('anchorVetoDeadlines', () => {
-  it.todo('anchors veto_deadline_at from the first sent notice exactly once via CAS');
-
-  it.todo('never anchors a halted batch even when a notice send lands later');
-
-  it.todo('records the granted window from the policy row at approval and ignores later policy edits');
-
-  it.todo('one corrupt anchor candidate does not prevent a healthy sibling batch from anchoring');
-
-  it.todo('a wrong-template or different-batch delivery row never anchors');
-});

@@ -2309,35 +2309,96 @@ describeWithDb(
     it('RELEASE_PER_TICK_BUDGET is the platform-wide default the poller drips at', () => {
       expect(RELEASE_PER_TICK_BUDGET).toBe(2);
     });
+
+    // #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md)
+    // — the eval task. Bodies land in Tasks 3-8; this block only scaffolds the
+    // eight promised release-time re-check titles for the Auto-approval lane,
+    // verbatim from intake rev 2.
+    //
+    // #631 Task 6: relocated INSIDE describeWithDb (its original position was
+    // a separate top-level `describe`, outside this closure — invisible while
+    // every title here was `it.todo` since a todo never runs its body, but a
+    // REAL test needs the outer beforeAll's `db` connection, which the outer
+    // afterAll below tears down once this closure's OWN tests finish; a test
+    // outside it ran against an already-`db.end()`'d connection and failed
+    // with `CONNECTION_ENDED`). The 7 todos below are byte-for-byte
+    // unchanged — only their nesting moved; Task 7 still owns their bodies.
+    describe('auto_policy release re-check (#631)', () => {
+      it.todo(
+        'downgrades an unreleased auto_policy batch to owner review when the auto flag is off at release',
+      );
+
+      it.todo('downgrades an unreleased auto_policy batch when the account loses the Autopilot tier');
+
+      it.todo('downgrades an unreleased auto_policy batch when the solicitation policy row is removed');
+
+      it.todo(
+        'downgrades an unreleased auto_policy batch when a Governor suspension latches after approval',
+      );
+
+      it.todo(
+        'a subscription lapse holds an auto_policy batch unchanged and never downgrades it',
+      );
+
+      it.todo('the auto downgrade records its exact reason and never judge_unavailable');
+
+      it.todo('a mid-drip auto_policy batch is held when an auto condition fails, never unapproved');
+
+      // #631 Task 6 — the phase-wiring title. The other 7 todos above are
+      // Task 7's (the release-time re-check); left untouched.
+      it(
+        'runReleaseCycle runs the Veto anchor phase before release and reports the anchored count',
+        async () => {
+          // An auto_policy batch, no deadline yet — the Veto anchor's candidate.
+          const batch = await seedBatch(
+            approvedBatchInput({ approvalMethod: 'auto_policy', vetoDeadlineAgo: undefined }),
+          );
+          const parentRunId = await seedSendParent({ batch });
+          await seedOutreach({ batch });
+          await sql()`
+            INSERT INTO agent_run_steps (
+              id, agent_run_id, step_index, step_key, attributed_agent, status, detail
+            ) VALUES (
+              ${randomUUID()}::uuid, ${parentRunId}::uuid, 1, 'batch_approved', 'solicitation',
+              'completed',
+              ${sql().json({
+                approval_method: 'auto_policy',
+                approved_count: 1,
+                veto_window_minutes: 60,
+              })}
+            )
+          `;
+          await sql()`
+            INSERT INTO notification_deliveries (
+              id, business_id, account_id, entity_id, channel, recipient, template, sent_at
+            ) VALUES (
+              ${randomUUID()}::uuid, ${businessId}::uuid, ${accountId()}::uuid,
+              ${batch.batchId}::uuid, 'email', 'owner@example.test',
+              'solicitation_veto_notice', NOW()
+            )
+          `;
+
+          const report = await cycle();
+          expect(report.anchored).toBe(1);
+          // The window (60 minutes, granted at "approval") has not elapsed
+          // since the notice just sent — nothing released THIS tick, which
+          // is what proves the anchor ran BEFORE the release phase read
+          // `veto_deadline_at`: a batch anchored to a future deadline is
+          // excluded from P4's `NOW() >= veto_deadline_at` candidate
+          // predicate in the SAME cycle that set it.
+          expect(report.released).toBe(0);
+
+          const after = await readBatch(batch.batchId);
+          expect(after.veto_deadline_at).not.toBeNull();
+          expect(after.approval_method).toBe('auto_policy');
+
+          // This file's shared afterEach does not clean
+          // `notification_deliveries` (no other test in it writes that
+          // table) — self-contained cleanup rather than widening the shared
+          // hook for one test.
+          await sql()`DELETE FROM notification_deliveries WHERE entity_id = ${batch.batchId}::uuid`;
+        },
+      );
+    });
   },
 );
-
-// #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
-// the eval task. Bodies land in Tasks 3-8; this block only scaffolds the
-// eight promised release-time re-check titles for the Auto-approval lane,
-// verbatim from intake rev 2.
-describe('auto_policy release re-check (#631)', () => {
-  it.todo(
-    'downgrades an unreleased auto_policy batch to owner review when the auto flag is off at release',
-  );
-
-  it.todo('downgrades an unreleased auto_policy batch when the account loses the Autopilot tier');
-
-  it.todo('downgrades an unreleased auto_policy batch when the solicitation policy row is removed');
-
-  it.todo(
-    'downgrades an unreleased auto_policy batch when a Governor suspension latches after approval',
-  );
-
-  it.todo(
-    'a subscription lapse holds an auto_policy batch unchanged and never downgrades it',
-  );
-
-  it.todo('the auto downgrade records its exact reason and never judge_unavailable');
-
-  it.todo('a mid-drip auto_policy batch is held when an auto condition fails, never unapproved');
-
-  it.todo(
-    'runReleaseCycle runs the Veto anchor phase before release and reports the anchored count',
-  );
-});

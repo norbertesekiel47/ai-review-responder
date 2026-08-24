@@ -10,6 +10,14 @@
 //                                 two reasons it writes depends on whether the
 //                                 **Send breaker** is open this tick.
 //   3. `batch_expired` (B7)
+//   3.5. Veto anchor (#631 D9)  — CASes `veto_deadline_at` on `auto_policy`
+//                                 batches (`anchorVetoDeadlines`,
+//                                 auto-approval.ts), inserted here rather than
+//                                 renumbered into the P1-P5 labels the rest of
+//                                 this file uses (those stay as-is below): it
+//                                 MUST precede phase 4 — its output is P4's
+//                                 `veto_deadline_at IS NOT NULL` precondition,
+//                                 fail-closed — no anchor, no release, ever.
 //   4. RELEASE phase            — the only phase gated on
 //                                 `SOLICITATION_SEND_ENABLED`.
 //   5. backstop join (D11)      — `closeBatchIfSettled` over every still-open
@@ -77,6 +85,7 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { latchSystemHalt } from './approval';
 import type { SystemHaltReason } from './approval';
+import { anchorVetoDeadlines } from './auto-approval';
 import { solicitationSendEnabled } from './flags';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
@@ -140,6 +149,10 @@ export type ReleaseWithheldReason =
 
 export interface ReleaseCycleReport {
   released: number;
+  /** Batches the Veto anchor CASed a `veto_deadline_at` onto this tick (#631
+   *  Task 6, `anchorVetoDeadlines`) — decision 4's MIN(sent_at) anchor, run
+   *  immediately before the release phase, every tick. */
+  anchored: number;
   /** The FIRST gate that stopped the whole release phase, or null when it ran. */
   releasePhaseStoppedBy: ReleaseWithheldReason | null;
   /** Per-account and per-batch withholds, counted by reason. */
@@ -355,6 +368,7 @@ export async function runReleaseCycle(
 
   const report: ReleaseCycleReport = {
     released: 0,
+    anchored: 0,
     releasePhaseStoppedBy: null,
     withheldByReason: {},
     downgraded: 0,
@@ -397,6 +411,16 @@ export async function runReleaseCycle(
   report.batchExpired = tallyPhase(
     report,
     await alertPhaseFailure('batch_expired', () => sweepBatchExpired(sql, scanLimit)),
+  );
+  // The Veto anchor (#631 Task 6, decision 4) — MUST run before the release
+  // phase: P4's scan requires `veto_deadline_at IS NOT NULL`, so an
+  // `auto_policy` batch can never release in the same tick it is anchored on
+  // (this phase and P4 read a DIFFERENT snapshot of the row either way — the
+  // anchor commits in its own transaction per candidate, before P4's scan
+  // runs), and D9 is fail-closed: no anchor, no release, ever.
+  report.anchored = tallyPhase(
+    report,
+    await alertPhaseFailure('veto_anchor', () => anchorVetoDeadlines(sql, scanLimit)),
   );
   await alertPhaseFailure('release', () =>
     runReleasePhase(sql, { perTickBudget, scanLimit }, report),
