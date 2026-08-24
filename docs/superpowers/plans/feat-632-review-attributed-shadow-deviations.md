@@ -506,3 +506,60 @@ the out-of-window title, so D3 bites. Removing the `ON CONFLICT … DO NOTHING`
 throws `duplicate key value violates unique constraint
 "job_outbox_solicitation_attribution_inflight"` **inside the review-ingest
 transaction** — D5's hazard is real and the index is load-bearing.
+
+---
+
+## D23 — Task 5 added a subscription guard the plan omitted, and NO promised test covers it
+
+**Stage:** execution (step 4), Task 5. **This is an open coverage gap, not a
+closed deviation.**
+
+The plan's Task 5 handler snippet has **no invariant-#11 subscription check**.
+CLAUDE.md invariant #11 requires one in every customer-facing worker, so Task 5
+added it: `checkSubscription({ status, pastDueAt, accountFlags, workerType:
+'summary' })` at `SolicitationAttributionWorker.ts:105`, over a file-local
+`businesses ⋈ accounts` read. `'summary'` is the right workerType — the choice
+only moves `pending_payment`, which is exempt for `generator` alone and must not
+attribute. No raw `=== 'active'` anywhere.
+
+**The gap:** the intake's 54 promised titles contain **no subscription-guard
+case**. Grepping them for `subscri|tier|cancel|past_due|trial|pending_payment`
+returns one unrelated hit, `attribution: an unsubscribed outreach row is still a
+candidate`. The guard is exercised only indirectly, by an `active` fixture
+flowing through the real `checkSubscription`.
+
+**Why this matters.** CLAUDE.md's working rules name subscription guards in the
+must-test list. A future edit that flips `workerType` from `'summary'` to
+`'generator'` would let a `pending_payment` account attribute reviews, and
+nothing in the suite would go red.
+
+**Closing it costs one title and no surface amendment** —
+`worker/__tests__/**` is already in `allowed_edit_surface`. It does change
+`tests_to_add` from 54 to 55, which is an intake change, so it is the owner's
+call. **Raised with the owner; see the decision recorded below when it lands.**
+
+---
+
+## D24 — three smaller Task 5 choices
+
+1. **Per-job logger, not the plan's module-level `const logger`.** The plan
+   hoisted `createWorkerLogger('solicitation-attribution')` to module scope, which
+   drops `correlation_id` from every line. House style — judge, veto-notice, send
+   — builds it per job from `job.data.correlation_id`. Followed the house.
+2. **`describeResolution` switch replaces the plan's `match.candidateCount ?? 1`.**
+   The plan flagged this itself and predicted the compiler would object. It does;
+   the switch is the fix. The `attributed` arm reports `candidateCount: 1`, the
+   value the plan intended.
+3. **No `try/catch` wrapper around the trailing log.** The only post-side-effect
+   work is one `logger.log`, and `createWorkerLogger` is already fail-open twice
+   over — it catches both the sanitizer and `JSON.stringify`
+   (`src/lib/shared/logger.ts:79-95`). A wrapper here could only hide a real
+   regression. The reasoning is documented in the handler.
+
+**Also confirmed by inspection:** outbox completion runs as the FIRST statement
+inside the same `sql.begin` as `attributeReview`, so a matcher fault rolls the
+completion back and the entry stays redispatchable — round-1 finding A1 closed.
+Idempotence keys on `job.data.outbox_id`; the integration suite randomises
+`job.id` per call so the key under test can only be the outbox id. Both error
+hooks are attached by the shared registration loop, and the registration test
+asserts the map entry **and** that both calls remain inside that loop body.
