@@ -300,3 +300,11 @@ describe('handleResendWebhook — bounce handling', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 });
+
+// #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
+// the eval task. Bodies land in Tasks 3-8; this block only scaffolds the one
+// promised title for solicitation_veto_notice bounce classification,
+// verbatim from intake rev 2.
+describe('solicitation veto notice bounce classification (#631)', () => {
+  it.todo('a hard bounce for solicitation_veto_notice marks owner_email_bounced');
+});

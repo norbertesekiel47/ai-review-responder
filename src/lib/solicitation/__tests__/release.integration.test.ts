@@ -2311,3 +2311,33 @@ describeWithDb(
     });
   },
 );
+
+// #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
+// the eval task. Bodies land in Tasks 3-8; this block only scaffolds the
+// eight promised release-time re-check titles for the Auto-approval lane,
+// verbatim from intake rev 2.
+describe('auto_policy release re-check (#631)', () => {
+  it.todo(
+    'downgrades an unreleased auto_policy batch to owner review when the auto flag is off at release',
+  );
+
+  it.todo('downgrades an unreleased auto_policy batch when the account loses the Autopilot tier');
+
+  it.todo('downgrades an unreleased auto_policy batch when the solicitation policy row is removed');
+
+  it.todo(
+    'downgrades an unreleased auto_policy batch when a Governor suspension latches after approval',
+  );
+
+  it.todo(
+    'a subscription lapse holds an auto_policy batch unchanged and never downgrades it',
+  );
+
+  it.todo('the auto downgrade records its exact reason and never judge_unavailable');
+
+  it.todo('a mid-drip auto_policy batch is held when an auto condition fails, never unapproved');
+
+  it.todo(
+    'runReleaseCycle runs the Veto anchor phase before release and reports the anchored count',
+  );
+});

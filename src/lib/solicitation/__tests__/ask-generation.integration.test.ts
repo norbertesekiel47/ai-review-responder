@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
@@ -780,3 +780,21 @@ describeWithDb(
     });
   },
 );
+
+// #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
+// the eval task. Bodies land in Tasks 3-8; this block only scaffolds the four
+// promised titles for the generation-finale integration of the Auto-approval
+// lane, verbatim from intake rev 2.
+describe('auto-approval at the generation finale (#631)', () => {
+  it.todo(
+    'the initial ask-generation finale auto-approves and enqueues the Veto notice when every gate holds',
+  );
+
+  it.todo('regenerateAsk never invokes the auto-approval lane');
+
+  it.todo(
+    'the real generation finale leaves the batch built when SOLICITATION_SEND_ENABLED is off',
+  );
+
+  it.todo('Judge unavailability at approval time does not block auto approval');
+});

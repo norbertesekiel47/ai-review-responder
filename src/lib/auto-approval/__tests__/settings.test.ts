@@ -1748,3 +1748,23 @@ describe('auto-approval settings service', () => {
     });
   });
 });
+
+// #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
+// the eval task. Bodies land in Tasks 3-8; this block only scaffolds the six
+// promised titles for the D20 Solicitation persona opt-in surface, verbatim
+// from intake rev 2.
+describe('solicitation persona opt-in (#631)', () => {
+  it.todo('PATCH creates the solicitation policy row only for an Autopilot account');
+
+  it.todo('PATCH rejects daily_send_cap outside 1..50 and veto windows other than 30 or 60');
+
+  it.todo('PATCH round-trips valid dials and defaults an omitted veto window to 60');
+
+  it.todo('enabling Solicitation twice upserts exactly one account-default row');
+
+  it.todo(
+    'removing the opt-in deletes only the solicitation account-default row and the lane stays off',
+  );
+
+  it.todo('GET marks solicitation available only when both server flags and tierGrantsAutopilot hold');
+});
