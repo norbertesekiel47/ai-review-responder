@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -27,30 +27,13 @@ const ResetSchema = z.strictObject({
 });
 
 async function reset(request: NextRequest): Promise<NextResponse> {
-  const gate = await requireAdminWithAal2(request);
+  const gate = await requireAdminJson(request, ResetSchema);
   if (!gate.ok) return gate.response;
-
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = ResetSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
 
   try {
     const result = await sql.begin((tx) => resetSendBreaker(tx, {
       actorUserId: gate.admin.id,
-      note: parsed.data.note,
+      note: gate.data.note,
     }));
     // The intake's promised admin-reset line. Logged HERE rather than in
     // `resetSendBreaker` for two reasons: the actor is the route's fact (it comes
@@ -68,7 +51,7 @@ async function reset(request: NextRequest): Promise<NextResponse> {
       reset: result.reset,
       tripId: result.tripId,
       actorUserId: gate.admin.id,
-      hasNote: parsed.data.note.length > 0,
+      hasNote: gate.data.note.length > 0,
     });
 
     if (!result.reset) {

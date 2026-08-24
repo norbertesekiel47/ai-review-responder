@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { ZodType } from 'zod';
 import { AuthError, requireRole, cookieBackedServerClient, type AppUser } from '@/lib/db/auth';
 import { requireCurrentAal2FromSupabase, type SupabaseMfaAalClient } from '@/lib/auth/mfa';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
 
 export type AdminMfaGateResult =
   | { ok: true; admin: AppUser }
+  | { ok: false; response: NextResponse };
+
+/** `requireAdminJson`'s result: the gated admin AND the parsed body, or the refusal. */
+export type AdminJsonGateResult<T> =
+  | { ok: true; admin: AppUser; data: T }
   | { ok: false; response: NextResponse };
 
 /**
@@ -81,4 +87,70 @@ export async function requireAdminWithAal2(
   }
 
   return { ok: true, admin };
+}
+
+/**
+ * The admin MUTATION preamble: the gate above, then `request.json()`, then
+ * `schema.safeParse` — with the two 400 shapes those steps produce (#909, B3.11).
+ *
+ * WHY THIS IS ALLOWED TO EXIST, when a helper that hides an admin gate normally
+ * is not. `ci:admin-aal2` is a fail-closed ALLOWLIST of recognized gate shapes,
+ * and its stated property is that you can READ an admin handler and SEE its
+ * gate. A wrapper is invisible to it by construction — which is why this exact
+ * helper was built and REVERTED once during #898 step 8, when all three routes
+ * went red the moment their preamble moved.
+ *
+ * The resolution is not an exemption. `requireAdminJson` is a THIRD RECOGNIZED
+ * GATE SHAPE in `scripts/ci/admin-aal2-audit.ts`, credited only when the local
+ * name is bound by an import from THIS module — the same provenance check
+ * `requireAdminWithAal2` and `resolveAdminActor` carry. `requireAdminJson`
+ * imported from anywhere else earns nothing, and every unrecognized wrapper is
+ * still a finding. Widening a security control's vocabulary is a deliberate act
+ * that ships with the extraction it enables, never as its side effect.
+ *
+ * ONE composition, ZERO new behaviour. Both refusals are byte-identical to what
+ * the three routes spelled by hand:
+ *
+ *   - unreadable body → 400 { error: 'invalid_body' }
+ *   - schema refusal  → 400 { error: <first issue message> | 'invalid_request' }
+ *
+ * Both carry `NO_STORE_HEADERS`, and the gate's own 401/403/500 arms pass
+ * through untouched.
+ *
+ * CSRF is still NOT handled here, for the reason `requireAdminWithAal2` gives:
+ * same-origin protection is applied at the export (`withSameOrigin()(handler)`)
+ * so it stays visible at the route boundary.
+ */
+export async function requireAdminJson<T>(
+  request: NextRequest,
+  schema: ZodType<T>,
+): Promise<AdminJsonGateResult<T>> {
+  const gate = await requireAdminWithAal2(request);
+  if (!gate.ok) return { ok: false, response: gate.response };
+
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'invalid_body' },
+        { status: 400, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  const parsed = schema.safeParse(rawBody);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
+        { status: 400, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+
+  return { ok: true, admin: gate.admin, data: parsed.data };
 }

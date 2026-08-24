@@ -3,9 +3,12 @@
 // required note that lands in the durable `account_audit_log` receipt.
 //
 // Shape is the admin control plane's, not the dashboard's: this follows
-// `src/app/api/admin/autonomy/unsuspend/route.ts` — `requireAdminWithAal2` →
-// `z.strictObject` body → one domain call → `internalError` on throw →
-// `export const POST = withSameOrigin()(handler)`. The owner arm lives at
+// `src/app/api/admin/autonomy/unsuspend/route.ts` — `requireAdminJson(request,
+// schema)` (the gate + `request.json()` + `safeParse` + both 400 shapes, #909)
+// → one domain call → `internalError` on throw →
+// `export const POST = withSameOrigin()(handler)`. The `z.strictObject` below
+// is still this route's own; what moved is the PARSING, not the schema. The
+// owner arm lives at
 // `src/app/api/dashboard/solicitation/batch/halt/route.ts` and shares nothing
 // but the latch underneath it, because its actor, its gates and its tenant
 // resolution are all different.
@@ -34,7 +37,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { internalError, requireAdminWithAal2 } from '@/lib/auth/admin-mfa-gate';
+import { internalError, requireAdminJson } from '@/lib/auth/admin-mfa-gate';
 import { withSameOrigin } from '@/lib/auth/route-helpers';
 import { sql } from '@/lib/db/server';
 import { NO_STORE_HEADERS } from '@/lib/shared/constants';
@@ -101,33 +104,16 @@ function toWire(result: AdminHaltBatchResult): AdminHaltWire {
 }
 
 async function halt(request: NextRequest): Promise<NextResponse> {
-  const gate = await requireAdminWithAal2(request);
+  const gate = await requireAdminJson(request, AdminHaltSchema);
   if (!gate.ok) return gate.response;
-
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_body' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
-  const parsed = AdminHaltSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? 'invalid_request' },
-      { status: 400, headers: NO_STORE_HEADERS },
-    );
-  }
 
   try {
     const result = await adminHaltBatch(sql, {
-      batchId: parsed.data.batchId,
-      accountId: parsed.data.accountId,
-      businessId: parsed.data.businessId,
+      batchId: gate.data.batchId,
+      accountId: gate.data.accountId,
+      businessId: gate.data.businessId,
       actorUserId: gate.admin.id,
-      note: parsed.data.note,
+      note: gate.data.note,
     });
 
     // IDS AND COUNTS ONLY, and the note is the field this deliberately omits:
@@ -138,8 +124,8 @@ async function halt(request: NextRequest): Promise<NextResponse> {
     // derived reason — this arm's reason is fixed by the route's identity.
     logger.log('admin_batch_halted', {
       status: result.status,
-      batchId: parsed.data.batchId,
-      businessId: parsed.data.businessId,
+      batchId: gate.data.batchId,
+      businessId: gate.data.businessId,
       cancelledCount: result.status === 'halted' ? result.cancelledCount : 0,
     });
 
