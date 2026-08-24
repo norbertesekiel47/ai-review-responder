@@ -94,6 +94,7 @@
     ".claude/reference/arch-review-log.md",
     "src/lib/agents/run-spine.ts",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "src/lib/approval/__tests__/outcome-anchor-pairing.test.ts",
     "CONTEXT.md"
   ],
   "tests_to_add": [

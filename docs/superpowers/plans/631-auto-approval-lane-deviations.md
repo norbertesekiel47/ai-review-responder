@@ -98,6 +98,29 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   own section). Task 7 executes both fixes. Both intake copies updated.
   VERDICT: ACCEPT.
 
+## Step 5 finale (2026-08-24) — two owner overrides
+
+- [2026-08-24] **Third out-of-surface file, OWNER OVERRIDE of the abort
+  criterion (recorded in session).** The spine-writer meta-guard
+  `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` requires every
+  new `recordStep` caller to be classified in its CALLER_ALLOWLIST with the
+  reviews-lock-order analysis; `auto-approval.ts` is a new caller.
+  The fix is the guard's own prescribed action; every amendment on this run
+  was registry/guard-class discovery, never feature-scope creep. File added
+  to the surface; the abort criteria stay exhausted for anything further.
+  VERDICT: ACCEPT (owner override).
+- [2026-08-24] **Reclassify trigger fired: production 2,929 vs 1,250 estimate
+  (2.34×); tests 2,558 vs 3,600 (under). OWNER CALL: record and continue
+  (#629 precedent).** Overshoot drivers, measured not guessed: the
+  three-round plan review's mandated hardening (in-tx release guard, the
+  reason-parameterized downgrade split refactor), the notice family's three
+  channel adapters + email template file, and the settings operation-union
+  extension. Carry-forward lesson for map #617: a RISK=high estimate must
+  price the review's hardening pass — #629 (2.2×) and #631 (2.34×) both
+  overshot on review-driven scope, not on feature drift. The reclassify WARN
+  stays visible in the gate output and is disclosed in the PR description.
+  VERDICT: ACCEPT (owner call).
+
 ## Task 1 execution (2026-08-23)
 
 - [2026-08-23] #656 promised-test integrity meta-test (postal-address.test.ts:70)
