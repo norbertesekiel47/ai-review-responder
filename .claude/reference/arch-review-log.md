@@ -6,10 +6,10 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 6** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913, #914, #908 and the #910 pull-forwards
-counted 2026-08-23 (the #919 seedUpload consolidation, #942, is test-only and
-does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
+**Merges since last architecture pass: 7** — reset by the **2026-08-22 pass**
+(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards and
+#893 counted 2026-08-23 (the #919 seedUpload consolidation, #942, is test-only
+and does not count). Full artifacts: `docs/reviews/PATHFINDER-2026-08-22/`.
 Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
@@ -49,6 +49,39 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **fix #893** — the admin read fan-out bounded, and the enumerated pins replaced
+  by a rule (2026-08-23). **Part 1 grew from two subjects to four**: the ticket
+  named `lookupSuppressions` (`suppressions-service.ts:72`) and
+  `getAdminNotifications` (`notifications-service.ts:137`); this change also found
+  the cost-report rollup branch (`cost-report-service.ts:321`, two templates) and
+  `processRow` (`csv-import.ts:301`, THREE reads built from helper calls, so
+  nothing in the expression mentioned `sql` twice). All four now sequence; the four
+  services' own suites are green untouched, so the fix changed no behaviour.
+  **Part 2** is `ci:pool-fanout` (`scripts/ci/pool-fanout-audit.ts`, wired into
+  ci.yml's `lint` job and `lefthook.yml`): an AST rule over
+  `src/lib/{admin,dashboard,locations}` failing any `Promise` combinator with ≥2
+  DB-issuing elements, counting tagged templates, `sql.unsafe(...)` **and calls
+  that pass a `Sql` binding** — the third form is what a tagged-template-only rule
+  would have missed on subjects B and D. Fail-closed on an unreadable argument;
+  the escape is a reasoned per-site pragma with zero uses today. **The four
+  existing pins were deliberately NOT widened, and no per-service pin was added** —
+  four fixes plus four new pins would rebuild the enumeration one directory
+  further apart. **Branch review then found the classifier was ITSELF an
+  enumeration, one level down**: it matched a hand-listed set of top-level
+  shapes, so a logical operand, a query wrapped in a call, and a query inside a
+  thunk each counted ONE and passed. It is now a SUBTREE scan — find the query
+  wherever it is — and the thunk carve-out is gone, because `settledInOrder` is
+  not a `Promise` combinator and never reached the scan anyway. Three boundaries
+  are stated in the audit header rather than implied: the root excludes
+  `src/app/**`; the deferred-await form (`const a = getA(sql); const b =
+  getB(sql);`) is not covered, because the syntactic proxy for it collides with
+  the legitimate fragment builders; and the fail-closed cost is ACCEPTED
+  explicitly — a `Promise.all(tasks)` with no DB work in it is reported too,
+  because the audit cannot tell it from an unbounded `.map` fan-out. The
+  ticket's named `src/app/api/admin/jobs/route.ts:27` exception is a recorded
+  DEVIATION, not an omission: that file is outside the root and is one DB call
+  plus one Redis call, so the ≥2 rule cannot reach it. **Counts: +1 production
+  merge.**
 - **chore #910 pull-forwards** — B3.1 + B3.7 + B3.10 (2026-08-23). B3.1: the
   `HealthFinding` inversion fixed — the interface moved to the zero-import leaf
   `src/lib/shared/health-finding.ts`, so `send-breaker.ts` no longer type-imports

@@ -297,12 +297,18 @@ export async function processRow(
       return { reason: `Quota check failed: ${quotaResult.reason}` };
     }
 
-    // Step 2: Gather pre-transaction data
-    const [activeLocations, account, ownerUser] = await Promise.all([
-      getActiveLocationCount(sql, accountId),
-      getAccountById(sql, accountId),
-      getAccountOwnerUser(sql, accountId),
-    ]);
+    // Step 2: Gather pre-transaction data.
+    //
+    // SEQUENCED, NOT `Promise.all` — at most ONE query in flight (#773/#893).
+    // The fan-out here is built from HELPER CALLS rather than `sql` calls, and
+    // that is the only reason it read as safe: each of the three issues its own
+    // query on the `sql` this function was handed, so the wave was three wide
+    // against `DB_POOL_MAX` = 3 on the Vercel route
+    // `/api/admin/locations/csv-import`. Indirection does not shrink a wave.
+    // react-doctor-disable-next-line react-doctor/async-parallel -- the rule names all three and proposes `Promise.all`, which is the exact shape #893 removed here. They are independent and stay sequential; the wave was three wide against `DB_POOL_MAX` = 3. Guarded by `ci:pool-fanout`.
+    const activeLocations = await getActiveLocationCount(sql, accountId);
+    const account = await getAccountById(sql, accountId);
+    const ownerUser = await getAccountOwnerUser(sql, accountId);
 
     if (!account) {
       return { reason: 'Account not found' };
