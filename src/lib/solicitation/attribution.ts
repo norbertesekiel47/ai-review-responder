@@ -16,6 +16,10 @@
  * (invariant #8).
  */
 
+import type { Sql, TransactionSql } from 'postgres';
+import { recordOutcome } from '@/lib/agents/run-spine';
+import { reviewTimeAnchor } from '@/lib/kpi/fragments';
+
 /** The Attribution window (May §6.4, spec D16b). The ONE owner of this number. */
 export const ATTRIBUTION_WINDOW_DAYS = 14;
 
@@ -123,4 +127,177 @@ export function matchAttribution(
   if (hits.length === 0) return { resolution: 'no_match', candidateCount };
   if (hits.length > 1) return { resolution: 'ambiguous', candidateCount };
   return { resolution: 'attributed', candidate: hits[0]!.candidate, rule: hits[0]!.rule };
+}
+
+interface CandidateRow {
+  outreach_id: string;
+  contact_name: string;
+  sent_at: string;
+  agent_run_id: string | null;
+}
+
+/**
+ * Candidates for one review. Every fixed arm byte-matches migration 114's
+ * `solicitation_outreach_attribution_candidates` partial predicate, so the
+ * index is used; only the sent_at range is parameterized.
+ *
+ * Why each exclusion (grilling decisions):
+ *   - `delivery_status = 'sent'` — `unknown` is "possibly contacted" for
+ *     over-contact purposes and explicitly NOT a confirmed send for
+ *     review_attributed (spec D12d).
+ *   - bounced / complained — the email never reached the person, so a
+ *     same-name review cannot have been caused by it.
+ *   - unsubscribed rows STAY eligible: an unsubscribe is evidence the mail was
+ *     opened, and the two acts happen in either order.
+ *   - already attributed — one Outreach row attributes at most one review,
+ *     PERMANENTLY. The marker is `attributed_at`, never `attributed_review_id`:
+ *     the FK nulls the review id on delete, and keying on it would resurrect
+ *     the row as a candidate and overwrite retained provenance (finding A3).
+ *
+ * The window is INCLUSIVE at both ends (`<= anchor`, `>= anchor - 14d`). The
+ * intake excludes only "MORE than 14 days", so an ask sent exactly 14 days
+ * before the anchor is eligible (finding A5).
+ *
+ * The anchor is composed from `reviewTimeAnchor` (ADR 0019), which is the
+ * single owner of the Review-time anchor spelling — `fragments.test.ts` fails
+ * if any source file outside it spells that expression, PROSE INCLUDED, so this
+ * comment names the fragment rather than the SQL. A review whose anchor
+ * precedes sent_at is not a candidate: it existed before the ask.
+ *
+ * `sent_at` is selected as `::text`. postgres.js decodes timestamptz to a JS
+ * `Date` and TRUNCATES microseconds doing it (#520), and this value is both
+ * compared against an anchor derived from a sibling row and stamped into
+ * `attribution_detail` — keeping it text end to end is the documented escape.
+ */
+async function loadCandidates(
+  tx: TransactionSql,
+  input: { reviewId: string; businessId: string; accountId: string },
+): Promise<AttributionCandidate[]> {
+  const rows = await tx<CandidateRow[]>`
+    WITH anchor AS (
+      SELECT ${reviewTimeAnchor(tx as unknown as Sql, 'r.')} AS at
+        FROM reviews r
+        JOIN businesses b ON b.id = r.business_id
+       WHERE r.id = ${input.reviewId}::uuid
+         AND r.business_id = ${input.businessId}::uuid
+         AND b.account_id = ${input.accountId}::uuid
+    )
+    SELECT o.id AS outreach_id, c.name AS contact_name,
+           o.sent_at::text AS sent_at, o.agent_run_id
+      FROM solicitation_outreach o
+      JOIN solicitation_contacts c
+        ON c.id = o.contact_id AND c.business_id = o.business_id
+     CROSS JOIN anchor
+     WHERE o.business_id = ${input.businessId}::uuid
+       AND o.account_id  = ${input.accountId}::uuid
+       -- The contact's own tenant predicate, spelled out rather than inherited
+       -- through the join key: ci:tenant-scope reads raw template text per
+       -- table binding, and solicitation_contacts is scoped by business_id.
+       -- (No backticks in a SQL comment inside a template literal — one closes
+       -- the literal, and the truncated tail still typechecks.)
+       AND c.business_id = ${input.businessId}::uuid
+       AND o.delivery_status = 'sent'
+       AND o.attributed_at IS NULL
+       AND o.bounced_at    IS NULL
+       AND o.complained_at IS NULL
+       AND o.sent_at IS NOT NULL
+       AND o.sent_at <= anchor.at
+       AND o.sent_at >= anchor.at - make_interval(days => ${ATTRIBUTION_WINDOW_DAYS})
+     ORDER BY o.sent_at DESC
+  `;
+  return rows.map((row) => ({
+    outreachId: row.outreach_id,
+    contactName: row.contact_name,
+    sentAt: row.sent_at,
+    agentRunId: row.agent_run_id,
+  }));
+}
+
+/**
+ * Resolve and record attribution for ONE newly ingested review. Runs inside
+ * the caller's transaction, NEVER inside the review-ingest transaction: a
+ * matcher fault must not roll back a review write (that is why #632 ships an
+ * outbox topic rather than an inline call).
+ *
+ * Idempotent by construction. The UPDATE's `attributed_at IS NULL` guard plus
+ * migration 114's partial unique index make a second run a no-op, and
+ * `recordOutcome`'s ON CONFLICT makes the outcome emit-once.
+ */
+export async function attributeReview(
+  tx: TransactionSql,
+  input: { reviewId: string; businessId: string },
+): Promise<AttributionMatch> {
+  // The account is RESOLVED here, never carried on the payload (deviation D3):
+  // `accountId` is not in scope at the enqueue site in process-review.ts, and
+  // resolving it from the FK removes any way a wrong account id could ride a
+  // job. Same shape startReviewRun and maybeEnqueueFirstReviewIngested use.
+  const [biz] = await tx<{ account_id: string }[]>`
+    SELECT account_id FROM businesses WHERE id = ${input.businessId}::uuid
+  `;
+  // Unreachable: reviews.business_id's FK guarantees the row. Assert rather
+  // than branch around a state the invariants exclude.
+  if (biz === undefined) {
+    throw new Error(`attributeReview: business ${input.businessId} not found`);
+  }
+  const accountId = biz.account_id;
+
+  const candidates = await loadCandidates(tx, { ...input, accountId });
+  const [review] = await tx<{ reviewer_name: string | null; star_rating: number | null }[]>`
+    SELECT reviewer_name, star_rating FROM reviews
+     WHERE id = ${input.reviewId}::uuid AND business_id = ${input.businessId}::uuid
+  `;
+  // A missing review is a caller bug, not a replay: the enqueue happens in the
+  // same transaction as the INSERT. Assert rather than branch.
+  if (review === undefined) {
+    throw new Error(`attributeReview: review ${input.reviewId} not found for business`);
+  }
+
+  const match = matchAttribution(review.reviewer_name, candidates);
+  if (match.resolution !== 'attributed') return match;
+
+  // NO personal data (deviation D2): no reviewer name, no contact name. Both
+  // live in their own tables and the owner surface joins for them; a copy here
+  // would outlive the review's deletion, which the FK is ON DELETE SET NULL for.
+  const detail = {
+    rule: match.rule,
+    matcher_version: ATTRIBUTION_MATCHER_VERSION,
+    sent_at: match.candidate.sentAt,
+    star_rating: review.star_rating,
+    candidate_count: candidates.length,
+  };
+
+  const updated = await tx<{ id: string }[]>`
+    UPDATE solicitation_outreach
+       SET attributed_review_id = ${input.reviewId}::uuid,
+           attributed_at        = NOW(),
+           attribution_rule     = ${match.rule},
+           attribution_detail   = ${tx.json(detail as never)},
+           updated_at           = NOW()
+     WHERE id         = ${match.candidate.outreachId}::uuid
+       AND account_id = ${accountId}::uuid
+       AND business_id = ${input.businessId}::uuid
+       -- attributed_at, NOT attributed_review_id (round-2 finding). The
+       -- candidate query and the index both moved to the timestamp marker; this
+       -- CAS did not, which left a race: a handler that loaded a candidate
+       -- before another attribution AND a subsequent review deletion would see
+       -- a NULL review id and overwrite permanent provenance. All FOUR sites —
+       -- candidate query, enqueue guard, index predicate, this CAS — must agree.
+       AND attributed_at IS NULL
+    RETURNING id
+  `;
+  // Zero rows means a concurrent run already attributed it — a replay, not a
+  // failure. Return the match without a second outcome.
+  if (updated.count === 0) return match;
+
+  if (match.candidate.agentRunId !== null) {
+    await recordOutcome(tx, {
+      runId: match.candidate.agentRunId,
+      accountId,
+      businessId: input.businessId,
+      attributedAgent: 'solicitation',
+      outcomeKind: 'review_attributed',
+      unitCount: 1,
+    });
+  }
+  return match;
 }
