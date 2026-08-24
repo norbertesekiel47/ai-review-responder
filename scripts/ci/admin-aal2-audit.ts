@@ -66,11 +66,21 @@
 //
 // PROVENANCE closes the last gap in the allowlist. `resolveAdminActor`,
 // `requireAdminWithAal2` and `requireAdminJson` are credited only when the local
-// name is bound by an import from the canonical module, so
+// name is bound by an import that RESOLVES to the canonical module, so
 // `import { somethingElse as resolveAdminActor } from './evil'` earns nothing.
 // (The same-file alias `import { resolveOwnerActor as resolveAdminActor }` is
 // caught by the deny rule instead — the literal `resolveOwnerActor` survives on
 // the LEFT of the `as` as a real Identifier node.)
+//
+// "RESOLVES TO" IS LOAD-BEARING AND WAS NOT TRUE UNTIL #909's REVIEW. This
+// check used to match the trailing path segment — `(^|/)admin-mfa-gate$` — so
+// `@/evil/admin-mfa-gate` was credited, and any file in the tree could mint gate
+// credit by choosing a filename. The header promised "the canonical module" and
+// delivered "the canonical BASENAME". `resolveSpecifier` now maps the `@/` alias
+// onto `src/` and resolves a relative specifier against the importing file, then
+// compares against CANONICAL. Two of this audit's own fixtures had been spelling
+// relative depths that do not resolve, and were passing on the basename alone —
+// which is what a loose provenance check costs even before anyone abuses it.
 //
 // Reading IDENTIFIERS rather than text also retires `stripComments` outright.
 // A comment or a string literal is not an Identifier, so the two directions the
@@ -138,7 +148,7 @@
 // alternative — mapping page → service module → route — was rejected as a
 // heuristic that fails silently in the passing direction.
 import { readFile, readdir } from 'node:fs/promises';
-import { join, resolve, relative } from 'node:path';
+import { join, posix, resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
@@ -179,22 +189,45 @@ const PAGE_GATE_FN = 'requireAdminPage';
 const PAGE_AAL2_FN = 'requireCurrentAal2FromSupabase';
 
 /**
- * Canonical module homes. Matched on the trailing path segment so the alias
- * form (`@/lib/auth/admin-mfa-gate`) and every relative form
- * (`../../auth/admin-mfa-gate`) resolve identically, with any explicit
- * `.ts`/`.js` extension stripped first — the shape ci:db-imports uses for
- * `isDbServerSpecifier`. A specifier that merely shares a PREFIX
- * (`./resolve-actor-helpers`) does not match: the segment must terminate.
+ * The four modules whose exports this audit is willing to credit, by their REAL
+ * repo-relative paths (extension-less).
+ *
+ * These are compared against a RESOLVED specifier, not a trailing segment, and
+ * that distinction is the whole provenance guarantee. The predecessor matched
+ * `(^|/)admin-mfa-gate$`, so `@/evil/admin-mfa-gate` was credited — a file
+ * anywhere in the tree could mint gate credit just by choosing a filename. The
+ * audit's own header promised "an import from the canonical module" and
+ * delivered "an import from a module with the canonical BASENAME". Closed here.
  */
-function moduleIs(spec: string, tail: string): boolean {
-  const withoutExtension = spec.replace(/\.(?:js|ts)$/, '');
-  return new RegExp(`(^|/)${tail}$`).test(withoutExtension);
+const CANONICAL = {
+  gate: 'src/lib/auth/admin-mfa-gate',
+  resolver: 'src/app/api/_shared/channels/resolve-actor',
+  pageGate: 'src/lib/auth/page-gate',
+  mfa: 'src/lib/auth/mfa',
+} as const;
+
+/**
+ * An import specifier as a repo-relative, extension-less path, or null when it
+ * cannot be resolved to one.
+ *
+ * Two forms resolve, and they are the two the tree actually uses: the `@/`
+ * alias (mapped to `src/`, which is what tsconfig's paths do) and a relative
+ * specifier resolved against the importing file's directory. Everything else —
+ * a bare package specifier, or a relative specifier with no importing file to
+ * resolve against — is null, which fails CLOSED: an unresolvable specifier
+ * credits nothing.
+ */
+export function resolveSpecifier(spec: string, fromFile: string | null): string | null {
+  const withoutExtension = spec.replace(/\.(?:js|ts|tsx)$/, '');
+  if (withoutExtension.startsWith('@/')) return `src/${withoutExtension.slice(2)}`;
+  if (!withoutExtension.startsWith('./') && !withoutExtension.startsWith('../')) return null;
+  if (fromFile === null) return null;
+  return posix.normalize(posix.join(posix.dirname(fromFile.replace(/\\/g, '/')), withoutExtension));
 }
 
-const isGateModule = (spec: string) => moduleIs(spec, 'admin-mfa-gate');
-const isResolverModule = (spec: string) => moduleIs(spec, 'resolve-actor');
-const isPageGateModule = (spec: string) => moduleIs(spec, 'page-gate');
-const isMfaModule = (spec: string) => moduleIs(spec, 'mfa');
+function moduleIs(spec: string, canonical: string, fromFile: string | null): boolean {
+  return resolveSpecifier(spec, fromFile) === canonical;
+}
 
 interface ImportOrigin {
   /** The name as exported by the target module (left of `as`). */
@@ -208,6 +241,10 @@ interface ImportOrigin {
  */
 interface ModuleIndex {
   source: ts.SourceFile;
+  /** Repo-relative path of the file this index was built from, or null when the
+   *  caller has none (a bare-text scan). Null makes every RELATIVE specifier
+   *  unresolvable, which fails closed. */
+  file: string | null;
   /** Local binding name → where it was imported from. */
   imports: ReadonlyMap<string, ImportOrigin>;
   /** Top-level value declarations, by local name → the node worth traversing. */
@@ -303,7 +340,7 @@ function indexStatement(statement: ts.Statement, index: MutableIndex): void {
   if (hasExportModifier(statement)) setAll(index.exports, declared);
 }
 
-function indexModule(text: string): ModuleIndex {
+function indexModule(text: string, file: string | null = null): ModuleIndex {
   const source = ts.createSourceFile(
     'scan.tsx',
     text,
@@ -313,7 +350,7 @@ function indexModule(text: string): ModuleIndex {
   );
   const index: MutableIndex = { imports: new Map(), locals: new Map(), exports: new Map() };
   for (const statement of source.statements) indexStatement(statement, index);
-  return { source, ...index };
+  return { source, file: file === null ? null : file.replace(/\\/g, '/'), ...index };
 }
 
 /**
@@ -334,15 +371,19 @@ function isValueIdentifier(node: ts.Node): node is ts.Identifier {
   return true;
 }
 
-/** True when local name `id` was imported as `exported` from a module `matches` accepts. */
+/** True when local name `id` was imported as `exported` from `canonical`. */
 function importedAs(
   index: ModuleIndex,
   id: ts.Identifier,
   exported: string,
-  matches: (spec: string) => boolean,
+  canonical: string,
 ): boolean {
   const origin = index.imports.get(id.text);
-  return origin !== undefined && origin.imported === exported && matches(origin.module);
+  return (
+    origin !== undefined &&
+    origin.imported === exported &&
+    moduleIs(origin.module, canonical, index.file)
+  );
 }
 
 interface GateEvidence {
@@ -378,13 +419,13 @@ function collectGateEvidence(index: ModuleIndex, start: ts.Node): GateEvidence {
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const callee = node.expression;
-        if (GATE_FNS.some((fn) => importedAs(index, callee, fn, isGateModule))) {
+        if (GATE_FNS.some((fn) => importedAs(index, callee, fn, CANONICAL.gate))) {
           evidence.callsGate = true;
         }
       }
 
       if (isValueIdentifier(node)) {
-        if (importedAs(index, node, ADMIN_RESOLVER, isResolverModule)) {
+        if (importedAs(index, node, ADMIN_RESOLVER, CANONICAL.resolver)) {
           evidence.bindsAdminResolver = true;
         }
         // Follow local declarations — `withSameOrigin()(createBusiness)`.
@@ -437,7 +478,7 @@ export function scanRouteFile(path: string, text: string): string[] {
   const normalized = path.replace(/\\/g, '/');
   if (!normalized.includes('src/app/api/admin/')) return [];
 
-  const index = indexModule(text);
+  const index = indexModule(text, normalized);
   const handlers = MUTATION_VERBS.filter((verb) => index.exports.has(verb));
   if (handlers.length === 0) return [];
 
@@ -477,8 +518,8 @@ export function scanRouteFile(path: string, text: string): string[] {
  * the sibling page. Same reachability walk as the mutation handlers, so a GET
  * delegating to a local helper is read correctly.
  */
-export function routeGetRequiresAal2(text: string): boolean {
-  const index = indexModule(text);
+export function routeGetRequiresAal2(text: string, fromFile: string | null = null): boolean {
+  const index = indexModule(text, fromFile);
   const node = index.exports.get('GET');
   if (!node) return false;
   return collectGateEvidence(index, node).callsGate;
@@ -497,14 +538,14 @@ export type AdminPageGate = 'none' | 'plain' | 'aal2';
  * session discriminant incl. `notFound()`) and is documented at page-gate.ts:27-37
  * as deliberately not a caller of `requireAdminPage`. It still steps up.
  */
-export function readAdminPageGate(text: string): AdminPageGate {
-  const index = indexModule(text);
+export function readAdminPageGate(text: string, fromFile: string | null = null): AdminPageGate {
+  const index = indexModule(text, fromFile);
   let gate: AdminPageGate = 'none';
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      if (importedAs(index, node.expression, PAGE_AAL2_FN, isMfaModule)) gate = 'aal2';
-      if (importedAs(index, node.expression, PAGE_GATE_FN, isPageGateModule)) {
+      if (importedAs(index, node.expression, PAGE_AAL2_FN, CANONICAL.mfa)) gate = 'aal2';
+      if (importedAs(index, node.expression, PAGE_GATE_FN, CANONICAL.pageGate)) {
         const options = node.arguments[1];
         const optsAal2 =
           options !== undefined &&
@@ -588,7 +629,7 @@ export function scanAdminPageFile(path: string, text: string, context: PageScanC
   const routePath = pageRoutePath(normalized);
   if (context.preAuthPaths.has(routePath)) return [];
 
-  const gate = readAdminPageGate(text);
+  const gate = readAdminPageGate(text, normalized);
   if (gate === 'none') {
     return [
       `${path} [admin-aal2] admin page must call ${PAGE_GATE_FN} (src/lib/auth/page-gate.ts) — ` +
@@ -692,7 +733,10 @@ export async function auditPages(root: string, preAuthPaths: ReadonlySet<string>
     findings.push(
       ...scanAdminPageFile(normalized, await readFile(resolve(root, file), 'utf8'), {
         preAuthPaths,
-        siblingGetRequiresAal2: siblingText === null ? null : routeGetRequiresAal2(siblingText),
+        siblingGetRequiresAal2:
+          siblingText === null
+            ? null
+            : routeGetRequiresAal2(siblingText, siblingRouteFile(normalized)),
       }),
     );
   }

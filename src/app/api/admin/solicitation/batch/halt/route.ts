@@ -3,9 +3,12 @@
 // required note that lands in the durable `account_audit_log` receipt.
 //
 // Shape is the admin control plane's, not the dashboard's: this follows
-// `src/app/api/admin/autonomy/unsuspend/route.ts` — `requireAdminWithAal2` →
-// `z.strictObject` body → one domain call → `internalError` on throw →
-// `export const POST = withSameOrigin()(handler)`. The owner arm lives at
+// `src/app/api/admin/autonomy/unsuspend/route.ts` — `requireAdminJson(request,
+// schema)` (the gate + `request.json()` + `safeParse` + both 400 shapes, #909)
+// → one domain call → `internalError` on throw →
+// `export const POST = withSameOrigin()(handler)`. The `z.strictObject` below
+// is still this route's own; what moved is the PARSING, not the schema. The
+// owner arm lives at
 // `src/app/api/dashboard/solicitation/batch/halt/route.ts` and shares nothing
 // but the latch underneath it, because its actor, its gates and its tenant
 // resolution are all different.

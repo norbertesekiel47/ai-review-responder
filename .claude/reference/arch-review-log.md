@@ -56,9 +56,16 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   and `admin/autonomy/unsuspend`, `admin/solicitation/batch/halt` and
   `admin/solicitation/breaker/reset` now call it. **The audit change is the half
   that makes this legitimate**: `GATE_JSON_FN` is a THIRD recognized gate shape,
-  credited only when bound by an import from the canonical module, with the
-  fail-closed posture unchanged — a different wrapper from the same module is
-  still a finding. The identical extraction was built and reverted during #898
+  credited only when bound by an import that RESOLVES to the canonical module,
+  with the fail-closed posture unchanged — a different wrapper from the same
+  module is still a finding. **Branch review then found the provenance check
+  itself was weaker than its own header claimed**: it matched the trailing path
+  segment, so `@/evil/admin-mfa-gate` was credited and any file could mint gate
+  credit by choosing a filename. `resolveSpecifier` now maps the `@/` alias onto
+  `src/` and resolves a relative specifier against the importing file. Two of the
+  audit's OWN fixtures had been spelling relative depths that do not resolve and
+  passing on the basename alone — the loose check was already costing accuracy
+  before anyone abused it. The identical extraction was built and reverted during #898
   step 8 for want of exactly this half; **the revert was correct**, and the
   lesson recorded in lab-notes [2026-08-21] stands for the next preamble. The
   `.fallowrc.jsonc` acknowledgement is removed and `ci:fallow` is green without

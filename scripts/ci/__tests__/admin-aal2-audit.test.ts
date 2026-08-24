@@ -8,6 +8,7 @@ import {
   readAdminPageGate,
   readPreAuthAdminPaths,
   routeGetRequiresAal2,
+  resolveSpecifier,
   pageRoutePath,
   siblingRouteFile,
   collectRouteFiles,
@@ -515,10 +516,14 @@ describe('scanRouteFile — verb scoping, indirection and provenance', () => {
   });
 
   it('(H3-h3) relative specifiers for the canonical modules are still credited', () => {
+    // FOUR levels, not three. From src/app/api/admin/channels/telegram/start/
+    // the canonical resolver is src/app/api/_shared/channels/resolve-actor, and
+    // the depth is now ARITHMETIC rather than a basename match — this fixture
+    // spelled three and was credited anyway until #909 tightened provenance.
     const channelPath = 'src/app/api/admin/channels/telegram/start/route.ts';
     const text = [
-      "import { runChannelStart } from '../../../_shared/channels/start';",
-      "import { resolveAdminActor } from '../../../_shared/channels/resolve-actor';",
+      "import { runChannelStart } from '../../../../_shared/channels/start';",
+      "import { resolveAdminActor } from '../../../../_shared/channels/resolve-actor';",
       '',
       'export const POST = withSameOrigin()((req: NextRequest) =>',
       '  runChannelStart(sql, req, { channel: "telegram", resolveActor: resolveAdminActor }),',
@@ -954,9 +959,40 @@ describe('scanRouteFile — requireAdminJson, the third recognized gate shape (#
     expect(scanRouteFile(adminPath, text)).toHaveLength(0);
   });
 
-  it('credits it through a relative specifier for the same module', () => {
-    const text = route("import { requireAdminJson } from '../../../../../lib/auth/admin-mfa-gate';");
+  it('credits it through a relative specifier that RESOLVES to the same module', () => {
+    // Six levels up from src/app/api/admin/solicitation/breaker/reset/ reaches
+    // src/, so this is src/lib/auth/admin-mfa-gate. The count is checked, not
+    // the basename.
+    const text = route("import { requireAdminJson } from '../../../../../../lib/auth/admin-mfa-gate';");
     expect(scanRouteFile(adminPath, text)).toHaveLength(0);
+  });
+
+  it('PROVENANCE: a relative specifier with the right BASENAME but the wrong depth earns nothing', () => {
+    // One level short lands on src/app/lib/auth/admin-mfa-gate, which is not the
+    // canonical module and need not even exist.
+    const text = route("import { requireAdminJson } from '../../../../../lib/auth/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(1);
+  });
+
+  it('PROVENANCE: an ALIASED path that merely ENDS in the canonical basename earns nothing', () => {
+    // The hole this replaced: the predecessor matched `(^|/)admin-mfa-gate$`, so
+    // any file in the tree could mint gate credit by choosing a filename.
+    const text = route("import { requireAdminJson } from '@/evil/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(1);
+  });
+
+  it('PROVENANCE: a bare package specifier ending in the canonical basename earns nothing', () => {
+    const text = route("import { requireAdminJson } from 'some-package/admin-mfa-gate';");
+    expect(scanRouteFile(adminPath, text)).toHaveLength(1);
+  });
+
+  it('the canonical ALIAS is credited, extension or not', () => {
+    expect(
+      scanRouteFile(adminPath, route("import { requireAdminJson } from '@/lib/auth/admin-mfa-gate';")),
+    ).toHaveLength(0);
+    expect(
+      scanRouteFile(adminPath, route("import { requireAdminJson } from '@/lib/auth/admin-mfa-gate.ts';")),
+    ).toHaveLength(0);
   });
 
   it('PROVENANCE: the same name imported from another module earns nothing → FINDING', () => {
@@ -1040,5 +1076,37 @@ describe('scanRouteFile — requireAdminJson, the third recognized gate shape (#
     const findings = scanRouteFile(adminPath, text);
     expect(findings[0]).toContain('requireAdminWithAal2');
     expect(findings[0]).toContain('requireAdminJson');
+  });
+});
+
+describe('resolveSpecifier — the provenance primitive (#909 hardening)', () => {
+  const FROM = 'src/app/api/admin/solicitation/breaker/reset/route.ts';
+
+  it('maps the @/ alias onto src/, which is what tsconfig paths do', () => {
+    expect(resolveSpecifier('@/lib/auth/admin-mfa-gate', FROM)).toBe('src/lib/auth/admin-mfa-gate');
+  });
+
+  it('strips an explicit extension before comparing', () => {
+    expect(resolveSpecifier('@/lib/auth/admin-mfa-gate.ts', FROM)).toBe('src/lib/auth/admin-mfa-gate');
+  });
+
+  it('resolves a relative specifier against the IMPORTING file, not the repo root', () => {
+    expect(resolveSpecifier('../../../../../../lib/auth/admin-mfa-gate', FROM))
+      .toBe('src/lib/auth/admin-mfa-gate');
+  });
+
+  it('does NOT collapse a wrong depth onto the canonical path', () => {
+    expect(resolveSpecifier('../../../../../lib/auth/admin-mfa-gate', FROM))
+      .not.toBe('src/lib/auth/admin-mfa-gate');
+  });
+
+  it('refuses a bare package specifier — it cannot be a repo file', () => {
+    expect(resolveSpecifier('some-package/admin-mfa-gate', FROM)).toBeNull();
+  });
+
+  it('refuses a relative specifier with no importing file — fail closed', () => {
+    // readAdminPageGate(text) with no path is the bare-text scan the unit tests
+    // use. It must credit nothing it cannot prove.
+    expect(resolveSpecifier('../../lib/auth/admin-mfa-gate', null)).toBeNull();
   });
 });
