@@ -9,6 +9,13 @@
 //
 // Task 0 authors both promised titles parked; Task 5 lands the bodies.
 //
+// The `subscription guard` block below carries NO promised title. Invariant #11
+// requires the guard and CLAUDE.md's working rules require it be tested, but the
+// feature's promised corpus never named a case for it — so the guard shipped with
+// only the indirect coverage of one `active` fixture flowing through the real
+// `checkSubscription`. These are ordinary tests, deliberately not added to the
+// intake, and they are the guard's only direct coverage.
+//
 // The outbox module is deliberately NOT mocked: the real
 // `markOutboxCompletedIfOwned` reads `result.count`, so the queue is fed
 // `mkTaggedResult` (deviation D19 — a bare array carries no `count` and the
@@ -61,6 +68,8 @@ vi.mock('@/lib/shared/logger', async (importOriginal) => ({
 
 import type { Sql } from 'postgres';
 import { QUEUE_NAMES, ALL_QUEUE_NAMES } from '../../src/lib/shared/queue-names';
+import { checkSubscription } from '../../src/lib/shared/subscription-guard';
+import { SubscriptionStatus } from '../../src/lib/shared/subscription-status';
 import type { SolicitationAttributionPayload } from '../../src/lib/shared/worker-types';
 import { queues, topicToQueue } from '../queues';
 import { handleSolicitationAttribution } from '../jobs/solicitation-attribution/SolicitationAttributionWorker';
@@ -88,14 +97,20 @@ function job(): Job<SolicitationAttributionPayload> {
 }
 
 /** The subscription-guard row the handler reads first (invariant #11), then
- *  the one affected row the attempt-guarded completion CAS must see. */
-function queueActiveAccount(): void {
+ *  the one affected row the attempt-guarded completion CAS must see. The same
+ *  two-row shape serves a DENIED run: the guard's own `markOutboxCompleted` is
+ *  the second query on that path too. */
+function queueAccount(status: string): void {
   sqlReturnQueue.push(
     mkTaggedResult([
-      { subscription_status: 'active', account_past_due_at: null, account_flags: {} },
+      { subscription_status: status, account_past_due_at: null, account_flags: {} },
     ]),
   );
   sqlReturnQueue.push(mkTaggedResult([{ id: OUTBOX_ID }]));
+}
+
+function queueActiveAccount(): void {
+  queueAccount(SubscriptionStatus.ACTIVE);
 }
 
 function loggedPayloads(): unknown[] {
@@ -217,5 +232,113 @@ describe('SolicitationAttributionWorker', () => {
         businessId: BUSINESS_ID,
       });
     }
+  });
+});
+
+describe('subscription guard', () => {
+  // The guard runs BEFORE anything reads tenant content, so "denied" has to mean
+  // three things at once: no domain call, no transaction, and a settled outbox
+  // row. Each case below asserts all three rather than only the first, because
+  // an early `return` that forgets the completion is the failure mode that hides
+  // — the review is silently uncounted AND the row churns until it exhausts.
+
+  /** Everything a denied run must be able to prove it did not do. */
+  function expectNoAttribution(): void {
+    expect(mockAttributeReview).not.toHaveBeenCalled();
+    expect(mockSql.begin).not.toHaveBeenCalled();
+    expect(mockLogger.log).not.toHaveBeenCalledWith('attribution_resolved', expect.anything());
+  }
+
+  it('SolicitationAttributionWorker: a cancelled account never attributes', async () => {
+    queueAccount(SubscriptionStatus.CANCELLED);
+
+    await handleSolicitationAttribution(mockSql as unknown as Sql, job());
+
+    expectNoAttribution();
+    // On this arm and the next, the guard's reason vocabulary reuses the status
+    // name, so the status constant is the literal-free spelling of the reason.
+    expect(mockLogger.log).toHaveBeenCalledWith('attribution_skipped', {
+      reviewId: REVIEW_ID,
+      businessId: BUSINESS_ID,
+      reason: SubscriptionStatus.CANCELLED,
+    });
+  });
+
+  it('SolicitationAttributionWorker: a pending_payment account never attributes', async () => {
+    queueAccount(SubscriptionStatus.PENDING_PAYMENT);
+
+    await handleSolicitationAttribution(mockSql as unknown as Sql, job());
+
+    expectNoAttribution();
+    expect(mockLogger.log).toHaveBeenCalledWith('attribution_skipped', {
+      reviewId: REVIEW_ID,
+      businessId: BUSINESS_ID,
+      reason: SubscriptionStatus.PENDING_PAYMENT,
+    });
+
+    // This is the case that pins the handler's `workerType: 'summary'`.
+    // `pending_payment` is the ONE status the worker-type choice moves — the
+    // guard exempts it for `generator` alone, for admin demo drafts. The pair
+    // below shows the exemption is real, so flipping the handler's argument to
+    // `generator` would let the run through, open the transaction and call
+    // attributeReview — which is what the assertions above turn red on.
+    const account = {
+      status: SubscriptionStatus.PENDING_PAYMENT,
+      pastDueAt: null,
+      accountFlags: {},
+    };
+    expect(checkSubscription({ ...account, workerType: 'summary' })).toEqual({
+      allowed: false,
+      reason: SubscriptionStatus.PENDING_PAYMENT,
+    });
+    expect(checkSubscription({ ...account, workerType: 'generator' })).toEqual({ allowed: true });
+  });
+
+  it('SolicitationAttributionWorker: a guard denial completes its outbox row instead of leaving it dispatched', async () => {
+    // A denial is a SETTLED outcome, not a failure. A row left `dispatched` is
+    // the watchdog's to reclaim, and it will re-dispatch it until the entry
+    // exhausts — every attempt re-denying, none of them ever doing work.
+    for (const status of [SubscriptionStatus.CANCELLED, SubscriptionStatus.PENDING_PAYMENT]) {
+      vi.clearAllMocks();
+      resetMockSql();
+      queueAccount(status);
+
+      await handleSolicitationAttribution(mockSql as unknown as Sql, job());
+
+      const completion = sqlCalls.find((call) => call.text.includes('UPDATE job_outbox'));
+      expect(completion, `${status} denial left its outbox row dispatched`).toBeDefined();
+      expect(completion?.text).toContain("status = 'completed'");
+      expect(completion?.values).toContain(OUTBOX_ID);
+      // Attempt-guarded, same as the success path: a stale attempt resolving
+      // after the watchdog re-dispatched must not stomp the newer attempt's row.
+      expect(completion?.values).toContain(OUTBOX_ATTEMPT);
+      // OUTSIDE a transaction, unlike the success path — there is no domain
+      // write for the completion to be atomic with, and `sql.begin` never opens.
+      expect(completion?.inTransaction).toBe(false);
+      expect(mockAttributeReview).not.toHaveBeenCalled();
+    }
+  });
+
+  it('SolicitationAttributionWorker: a trialing account attributes exactly like active', async () => {
+    // Invariant #11: `trialing` is full access everywhere except recurring paid
+    // ranking. This is the control that makes the denials above mean something —
+    // without it they would all still pass if the guard denied EVERY status.
+    queueAccount(SubscriptionStatus.TRIALING);
+    mockAttributeReview.mockResolvedValueOnce({ resolution: 'no_match', candidateCount: 2 });
+
+    await handleSolicitationAttribution(mockSql as unknown as Sql, job());
+
+    expect(mockAttributeReview).toHaveBeenCalledWith(mockSql, {
+      reviewId: REVIEW_ID,
+      businessId: BUSINESS_ID,
+    });
+    expect(mockLogger.log).toHaveBeenCalledWith('attribution_resolved', {
+      reviewId: REVIEW_ID,
+      businessId: BUSINESS_ID,
+      resolution: 'no_match',
+      candidateCount: 2,
+      rule: null,
+    });
+    expect(mockLogger.log).not.toHaveBeenCalledWith('attribution_skipped', expect.anything());
   });
 });
