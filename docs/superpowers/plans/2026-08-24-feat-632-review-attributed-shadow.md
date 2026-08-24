@@ -74,7 +74,14 @@ Worked against every example the grilling locked:
 | `dana rodriguez` | `dana ramirez` | REJECT — neither surname is an initial |
 | `d. rodriguez` | `dana r.` | REJECT — no shared full token |
 
-> **Flagged for the owner.** The locked preview wrote rule B as "first tokens equal", and gave "no shared full token" as the reason `d. rodriguez` ~ `dana r.` is rejected. The rule above takes the *rationale* as the contract, which makes `m. okafor` ~ `michael okafor` a match — the mirror of the stated rule at identical strength, and the shape the owner-surface mock showed. If the owner wants the literal narrower reading (`first tokens equal` only), drop the `isInitial` arm from `compatible(firstA, firstB)`; one line, one test.
+> **Owner-decided 2026-08-24. The rule above is FINAL — do not reopen it.** The
+> locked preview wrote rule B as "first tokens equal", and gave "no shared full
+> token" as the reason `d. rodriguez` ~ `dana r.` is rejected. The owner ruled
+> that the *rationale* is the contract, so `compatible(firstA, firstB)` KEEPS its
+> `isInitial` arm and `m. okafor` ~ `michael okafor` matches with rule
+> `first_last_initial` — the mirror of the stated rule at identical strength, and
+> the shape the owner-surface mock showed. The narrower literal reading was
+> considered and **rejected**; it is not a follow-up.
 
 ---
 
@@ -125,7 +132,7 @@ Task 0 (eval) ──► Task 1 (migration) ──► Task 2 (matcher) ──┬�
 
 Authors **all 54 `tests_to_add` titles verbatim**. The authoritative list is `.feature/intake.json` → `tests_to_add`; it is deliberately not copied here, because a second copy would drift from the one the gate greps. Read it and reproduce every title byte-for-byte.
 
-Slices not yet buildable use `.todo` **during Task 0 only**. The eval-contract test in Step 0 makes that temporary by construction: it stays red until the last `.todo` is filled, so a `.todo` can never survive to step 5.
+Slices not yet buildable use `.todo` **during Task 0 only**. The eval-contract test in Step 0 makes that temporary by construction: it stays red until the last `.todo` is filled, so a `.todo` can never survive to the WORKFLOW's step 5 gate (not Task 0's Step 5, which is its commit).
 
 > **Round-1 revision.** The first draft promised 26 titles and left 18 as `.todo`. Vitest reports skipped tests as success and `promised-tests` only greps title text, so Task 0's gate was **vacuous** — the eval could pass with the feature materially wrong (finding A11). The 28 added titles close the gaps the review found: outbox completion, call-site atomicity, the excluded import lane, crossed-tenant ids, concurrent replay, the outcome's attachment to the **Lazy child**, the no-billing claim, worker registration, the PII-free log line, and the UI's flag-off and one-star behaviour.
 
@@ -178,17 +185,33 @@ it('eval contract: every promised test executes with zero todo or skip cases', (
   // DESCRIBE wrapper slipped through because the wrapper's argument is not a
   // promised title.
   //
-  // Comments are stripped FIRST (round-3 finding). Without that, a comment in
-  // this very file that names a parked form matches the scan and the test can
-  // never go green. Do not describe parked forms in these suites' comments.
+  // Comment lines are dropped FIRST (round-3 finding). Without that, a comment
+  // in this very file that names a parked form matches the scan and the test
+  // can never go green. Do not describe parked forms in these suites' comments.
+  //
+  // The drop is WHOLE-LINE and therefore FAIL-CLOSED (round-4 finding). The
+  // round-3 version used lexical regex replacement, which is not syntax-aware
+  // and silently ate real code:
+  //   `const marker = "//"; it.skip('t', fn)` lost everything from the `//`
+  //   inside the string, hiding the `it.skip` — a FALSE GREEN.
+  //   A block-comment strip did the same between a `"/*"` and a `"*/"` in two
+  //   different string literals, erasing every parked test between them.
+  // Dropping only lines that are ENTIRELY a comment cannot hide a marker,
+  // because a marker never appears on a comment-only line. The trade is that a
+  // TRAILING comment naming a parked form is not stripped and turns the test
+  // RED. That is the safe direction, and the rule above forbids writing one.
   //
   // The pattern covers chained and x-prefixed forms too: `it.concurrent.skip`,
   // `it.skip.each`, `it.skipIf(...)`, `xit`, `xtest`, `xdescribe`.
   //
   // This test is MEANT to be red for most of the branch's life.
   const code = corpus
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    .split('\n')
+    .filter((line) => {
+      const t = line.trim();
+      return !(t.startsWith('//') || t.startsWith('/*') || t.startsWith('*'));
+    })
+    .join('\n');
   const parked = [
     ...code.matchAll(/\b(?:it|test|describe)(?:\s*\.\s*\w+)*\s*\.\s*(?:todo|skip|skipIf|fails)\b/g),
     ...code.matchAll(/\bx(?:it|test|describe)\s*\(/g),
@@ -209,14 +232,25 @@ it('eval contract: every promised test executes with zero todo or skip cases', (
 > promised title living in a file this list omits reads as "missing" — the safe
 > direction, but fix the list rather than the assertion.
 
-**Files:**
+**Files — all NINE title homes, and nothing else (round-4 finding).** This list
+must equal Step 2's ownership table and Step 5's `git add`, path for path. The
+round-3 revision left it listing five Creates and two stale Modifies:
+
 - Create: `src/lib/solicitation/__tests__/attribution.test.ts`
 - Create: `src/lib/solicitation/__tests__/attribution.integration.test.ts`
 - Create: `src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts`
+- Create: `src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts`
+- Create: `src/lib/reviews/__tests__/process-review-attribution.integration.test.ts`
+- Create: `worker/__tests__/solicitation-attribution.test.ts`
+- Create: `worker/__tests__/solicitation-attribution.integration.test.ts`
 - Create: `src/app/api/dashboard/solicitation/attributed/__tests__/route.test.ts`
 - Create: `src/app/(authenticated)/dashboard/requests/__tests__/attributed-reviews.test.tsx`
-- Modify: `src/lib/shared/__tests__/job-outbox-helpers.test.ts`
-- Modify: `src/lib/reviews/__tests__/process-review.test.ts`
+
+> **Task 0 modifies NO existing suite.** Step 2's ownership table is the arbiter:
+> `job-outbox-helpers.test.ts` and `process-review.test.ts` own none of the 54
+> titles, so Task 0 writes nothing into either. They stay in `SUITE_FILES` and in
+> `allowed_edit_surface` because **Task 4** modifies them — see Task 4's Files
+> block for why `process-review.test.ts` cannot escape a change.
 
 - [ ] **Step 1: Write the pure-matcher suite with every title verbatim**
 
@@ -397,7 +431,11 @@ Expected: the `promised-tests` row is PASS — all **54** titles exist verbatim.
 Other rows fail; that is expected at Task 0. `feature-surface` stays RED until
 the production files exist, which is Task 1 onward.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 5: Commit**
+
+Nine paths, matching the Files block and Step 2's ownership table exactly. The
+round-3 revision numbered this step 8 while Task 0 has no steps 5 to 7; a
+subagent reading a gap stalls or invents work (round-4 finding).
 
 ```bash
 git add src/lib/solicitation/__tests__/attribution.test.ts \
@@ -417,6 +455,7 @@ git commit -m "test(632): failing eval suite for review_attributed shadow attrib
 ## Task 1: Migration 114 — attribution columns
 
 **Blocked by:** Task 0.
+**Turns green:** all **4** of its budgeted titles — the 4 `migration 114:`.
 
 **Files:**
 - Create: `supabase/migrations/114_solicitation_attribution.sql`
@@ -575,7 +614,7 @@ git commit -m "feat(632): migration 114 — attribution columns on solicitation_
 
 ## Task 2: The pure matcher
 
-**Blocked by:** Task 1. **Turns green:** all 7 `matchAttribution:` titles — including `one matching candidate among unrelated non-matches attributes that candidate`, which pins that the matcher does not abstain merely because several candidates were supplied — and all 3 `invariants:` titles.
+**Blocked by:** Task 1. **Turns green:** all **10** of its budgeted titles — all 7 `matchAttribution:` titles — including `one matching candidate among unrelated non-matches attributes that candidate`, which pins that the matcher does not abstain merely because several candidates were supplied — and all 3 `invariants:` titles.
 
 **Files:**
 - Create: `src/lib/solicitation/attribution.ts`
@@ -736,7 +775,8 @@ git commit -m "feat(632): pure two-rule attribution matcher with abstain-on-ambi
 ## Task 3: Candidate query and the write transaction
 
 **Blocked by:** Task 2. **Independent of Task 4** — may run in parallel.
-**Turns green:** the 8 `attribution:` integration tests.
+**Turns green:** all **16** of its budgeted titles — the 14 `attribution:`
+integration tests, `attributeReview:` and `tenant isolation:`.
 
 **Files:**
 - Modify: `src/lib/solicitation/attribution.ts`
@@ -937,15 +977,30 @@ git commit -m "feat(632): attribution candidate query and idempotent write trans
 ## Task 4: Topic, payload, helper and the ingest enqueue
 
 **Blocked by:** Task 2. **Independent of Task 3** — may run in parallel.
-**Turns green:** the 2 `enqueueSolicitationAttribution` tests.
+**Turns green:** all **7** of its budgeted titles — the 4
+`enqueueSolicitationAttribution:`, the 2 `processReview:` and `importReview:`.
 
 **Files:**
 - Modify: `src/lib/shared/queue-names.ts`
 - Modify: `src/lib/shared/worker-types.ts`
 - Modify: `src/lib/shared/job-outbox-helpers.ts`
 - Modify: `src/lib/reviews/process-review.ts`
+- Modify: `src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts`
+- Modify: `src/lib/reviews/__tests__/process-review-attribution.integration.test.ts`
 - Modify: `src/lib/shared/__tests__/job-outbox-helpers.test.ts`
 - Modify: `src/lib/reviews/__tests__/process-review.test.ts`
+
+> **`process-review.test.ts` CANNOT escape a change, and the round-3 revision
+> hid that (round-4 finding).** It is a mocked unit suite that counts
+> transaction calls by hand: `expect(tx).toHaveBeenCalledTimes(5)` on the happy
+> path, and `tx.mock.calls[3]` to reach the `job_outbox` INSERT by index. This
+> task adds a SECOND outbox INSERT inside the same `sql.begin`, so every such
+> count and index shifts. Update them in this task. The same applies to the
+> other counted paths in that file (3, 6 and 7).
+>
+> `job-outbox-helpers.test.ts` owns none of the 54 promised titles (round-1
+> finding A8 — a mocked suite cannot prove live guard behaviour), but it gains a
+> mocked case for the new helper. Both files are staged in Step 7.
 
 - [ ] **Step 1: Add the topic**
 
@@ -1091,7 +1146,9 @@ account.
 
 - [ ] **Step 5: Unpark all FOUR `enqueueSolicitationAttribution:` titles and the three `processReview:`/`importReview:` titles**
 
-Two commands — `job-outbox-helpers.test.ts` is a MOCKED unit suite and cannot prove live guard behaviour (round-1 finding A8):
+All 7 promised titles live in the two INTEGRATION suites —
+`job-outbox-helpers.test.ts` is a MOCKED unit suite and cannot prove live guard
+behaviour (round-1 finding A8). Run the integration project first:
 
 ```bash
 TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integration \
@@ -1100,6 +1157,22 @@ TEST_DATABASE_POOL_URL=$TEST_DATABASE_POOL_URL pnpm vitest run --project integra
 ```
 
 Expected: 7 passed — the 4 `enqueueSolicitationAttribution:` titles, the 2 `processReview:` titles and `importReview:`.
+
+**Then run the two mocked unit suites this task BREAKS (round-4 finding).** The
+round-3 revision ran the integration suites only, so the new enqueue could shift
+every hand-counted `toHaveBeenCalledTimes` in `process-review.test.ts` and the
+task would still report success. The breakage would then surface at the
+workflow's step 5 gate, attributed to the wrong task:
+
+```bash
+pnpm vitest run src/lib/reviews/__tests__/process-review.test.ts \
+                src/lib/shared/__tests__/job-outbox-helpers.test.ts
+```
+
+Expected: green. If it is red, fix the counts and indices IN THIS TASK. Do not
+defer them and do not weaken an assertion to `expect.any` — the exact count is
+what proves the enqueue joined the existing transaction rather than opening a
+second one (invariant #2).
 
 **`enqueueSolicitationAttribution: a business whose only sent outreach is out of window still enqueues and resolves no_candidates` asserts that the row IS written** (round-1 finding A22). The guard is a lossless superset by design; the window is the matcher's job, not the guard's.
 
@@ -1110,11 +1183,17 @@ Expected: all exit 0.
 
 - [ ] **Step 7: Commit**
 
+Eight paths, matching the Files block exactly. The round-3 revision staged six
+and dropped both mocked unit suites, so a real fix to
+`process-review.test.ts` would have been left uncommitted (round-4 finding):
+
 ```bash
 git add src/lib/shared/queue-names.ts src/lib/shared/worker-types.ts \
         src/lib/shared/job-outbox-helpers.ts src/lib/reviews/process-review.ts \
         src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts \
-        src/lib/reviews/__tests__/process-review-attribution.integration.test.ts
+        src/lib/reviews/__tests__/process-review-attribution.integration.test.ts \
+        src/lib/shared/__tests__/job-outbox-helpers.test.ts \
+        src/lib/reviews/__tests__/process-review.test.ts
 git commit -m "feat(632): solicitation_attribution topic, guarded helper, ingest enqueue"
 ```
 
@@ -1123,11 +1202,23 @@ git commit -m "feat(632): solicitation_attribution topic, guarded helper, ingest
 ## Task 5: The worker
 
 **Blocked by:** Task 3 and Task 4.
+**Turns green:** all **5** of its budgeted titles — `worker registration:`, the
+2 `SolicitationAttributionWorker:`, `handleSolicitationAttribution:` and
+`architecture:`. (The round-3 revision gave Task 5 no `Turns green` line at all,
+which is how the four stale counts went unnoticed — round-4 finding.)
 
 **Files:**
 - Create: `worker/jobs/solicitation-attribution/SolicitationAttributionWorker.ts`
 - Modify: `worker/queues.ts`
 - Modify: `worker/index.ts`
+- Modify: `worker/__tests__/solicitation-attribution.test.ts`
+- Modify: `worker/__tests__/solicitation-attribution.integration.test.ts`
+- Modify: `src/lib/solicitation/__tests__/attribution.test.ts`
+
+> The last three unpark this task's 5 titles and were **staged by Step 6 but not
+> declared here** (round-4 finding, same class as the Task 0 and Task 4 manifest
+> slips). `attribution.test.ts` is on the list because `architecture:` lives
+> there, not in a worker suite.
 
 - [ ] **Step 1: Write the handler**
 
@@ -1263,7 +1354,8 @@ git commit -m "feat(632): SolicitationAttributionWorker, registration and outbox
 
 ## Task 6: Read model and owner route
 
-**Blocked by:** Task 5. **Turns green:** the 3 `listAttributedReviews` tests and the route test.
+**Blocked by:** Task 5. **Turns green:** all **5** of its budgeted titles — the
+4 `listAttributedReviews:` tests and `GET attributed:`.
 
 **Files:**
 - Modify: `src/lib/solicitation/attribution.ts`
@@ -1383,7 +1475,8 @@ git commit -m "feat(632): listAttributedReviews read model and owner route"
 
 ## Task 7: The owner surface
 
-**Blocked by:** Task 6. **Turns green:** the 3 `AttributedReviews` tests.
+**Blocked by:** Task 6. **Turns green:** all **6** of its budgeted titles — the
+5 `AttributedReviews:` tests and `RequestsClient:`.
 
 **Files:**
 - Create: `src/app/(authenticated)/dashboard/requests/AttributedReviews.tsx`
@@ -1508,4 +1601,6 @@ inline task code above already reflects them, and this list is the checklist.
 ## Follow-ups to file, deliberately not in this PR
 
 1. **`already_reviewed` wiring** — `batch-builder.ts:366` keeps `matchedReview: null`. The matcher this PR builds is what that pre-send gate has been waiting for, but promoting a heuristic from no-charge shadow to a gate that suppresses real sends needs its own grilling and its own risk review.
-2. **The mirror-rule narrowing**, if the owner prefers the literal `first tokens equal` reading — one line in `compatible`, one test.
+> The mirror-rule narrowing was item 2 here. The owner **rejected** it on
+> 2026-08-24 and locked the broad reading (see the rule-B note above). It is not
+> a follow-up. Do not re-file it.

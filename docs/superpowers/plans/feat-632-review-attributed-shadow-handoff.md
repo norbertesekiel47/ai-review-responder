@@ -5,21 +5,33 @@
 
 ## Current step
 
-**Step 3 — round 4 is in flight under an explicit OWNER OVERRIDE of the cap.**
-`planReviewRounds=4`. The branch is UN-PARKED and `arm-check.sh` reports ARMED.
+**Step 3 complete — the review loop is CLOSED at round 4.**
+`planReviewRounds=4`. Awaiting the OWNER'S CALL, which substitutes for
+`APPROVED`. On that call: `bash scripts/feature-state.sh set-phase plan_approved`,
+then step 4.
 
 | Round | Verdict | Record |
 |---|---|---|
 | 1 | `REVISE` | `docs/reviews/.../plan-round1-triage.md` — 22 accepted, 2 rejected |
 | 2 | `REVISE` | `plan-round2-triage.md` — 6 accepted, all verification failures |
 | 3 | `REVISE` | `plan-round3-triage.md` — 4 accepted, all mechanical |
-| 4 | in flight | verification-only, scoped to commit `b2cf606b` |
+| 4 | `REVISE` | `plan-round4-triage.md` — 7 accepted (4 reviewer, 3 self), 0 rejected |
 
-Rounds 1–3 are fixed and committed. Round 4 exists because **round 3's fixes
-carried no reviewer verification** — they landed after the last review. Round 4
-does not re-review the plan. It verifies exactly four things: that C1–C4 landed,
-that each fix closes the defect it names, and that no fix broke an adjacent
-part of the same document.
+Every finding across all four rounds is fixed and committed.
+
+**Round 4 was worth opening.** It was verification-only, scoped to commit
+`b2cf606b`, and it found that **two of the four round-3 fixes were wrong or
+incomplete**. The important one, D1: the round-3 comment stripper was lexical,
+not syntax-aware, and failed OPEN — a string literal containing `//` deleted the
+rest of its line from the scan, so a parked test could hide and the eval-contract
+test would report GREEN. Round 3's stated fallback was "Task 0's eval-contract
+test will catch it". It could not have: the defect was inside that test, and its
+failure mode was false green.
+
+Round 4's own fixes carry no reviewer verification — the same honest limit, one
+round on. The difference is that they are **fail-closed by construction**: the
+whole-line comment filter and the widened Task 4 command can only produce extra
+RED, never a false green.
 
 The plan grew `tests_to_add` 26 → **54** and `allowed_edit_surface` 24 → **28**
 across the three rounds.
@@ -29,9 +41,13 @@ across the three rounds.
 > **without** a second increment. Correct form:
 > `codex exec --sandbox read-only --json --cd <dir> resume <thread-id> "<prompt>"`.
 
-> **The cap is 3. Round 4 is an owner override, not a precedent.** There is no
-> round 5. If round 4 returns `REVISE`, the findings are fixed and the remaining
-> position goes to the owner, or it surfaces in step 5's gate.
+> **The cap is 3. Round 4 was an owner override, not a precedent.** There is no
+> round 5. The remaining position is the owner's, or it surfaces in step 5's gate.
+
+> **Lesson worth keeping.** Rounds 2, 3 and 4 each found defects that the
+> PREVIOUS round's fixes introduced. A fix is not verified by the round that
+> produced it. When a review loop must stop, prefer fixes that fail CLOSED — a
+> wrong one then costs a red run, not a silent pass.
 
 ## Surface amendments spent: 1 of 2
 
@@ -144,11 +160,9 @@ not refresh either field; `set-phase` does. Both are now correct. Re-run
 
 ## Next actions
 
-1. **Round 4 is in flight.** Wait for it. Write the report to
-   `docs/reviews/feat-632-review-attributed-shadow/plan-round4-codex.md` and the
-   triage to `plan-round4-triage.md`, matching the rounds 1–3 format.
-2. `APPROVED` → go to action 4. `REVISE` → fix every accepted finding, commit,
-   then the remaining position goes to the OWNER. **There is no round 5.**
+1. **Round 4 is closed.** Report and triage are written and committed. All seven
+   findings are fixed. **There is no round 5.**
+2. Get the owner's call. It substitutes for `APPROVED`.
 3. On the owner's go: `bash scripts/feature-state.sh set-phase plan_approved`.
 4. Then step 4 — `subagent-driven-development`. **Task 0 runs ALONE first.** After
    it completes, diff `git status --porcelain` against `allowed_edit_surface`; an
