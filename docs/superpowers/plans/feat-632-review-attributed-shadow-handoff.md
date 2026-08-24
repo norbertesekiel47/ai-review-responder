@@ -41,64 +41,22 @@ rule. **A SECOND amendment triggers re-classification (step 5).** Both intake
 copies are in sync; re-sync `.feature/intake.json` from the committed copy after
 any further edit.
 
-## Corrections found by the orchestrator before the round-1 verdict — ALL FIVE ARE NOW APPLIED
+## Superseded by later rounds — do NOT act on an older copy
 
-Kept for the record. These were confirmed against the code, and the round-1
-reviewer independently confirmed each in its "mandatory artifact resolution"
-section. The plan on disk now carries the fixed versions.
+Two facts in this doc's earlier drafts were later overturned. They are recorded
+here because a resumed session that acts on the old version does real damage:
 
-1. **`reviewTimeAnchor(sql, prefix)` takes `'' | 'r.'`, not `'bare'`.**
-   `src/lib/kpi/fragments.ts:44`. The plan's candidate CTE aliases the review
-   row as `r_outer`, which neither value serves. Alias it `r` and pass `'r.'`.
+1. **"Enqueue in BOTH entry points" was WRONG.** `processReview` (line 36) is the
+   live lane; `importReview` (line 515) is the Zernio backfill lane the intake's
+   non-goals **exclude**. The enqueue goes in `processReview` **only**
+   (round-1 finding A2), and `importReview: never enqueues …` pins it.
+2. **The guard's marker is `attributed_at`, not `attributed_review_id`**
+   (round-2 finding B3). The review-delete FK nulls the review id but never the
+   timestamp, so keying on the id resurrects an already-attributed row and lets
+   the next match overwrite retained provenance. **Four sites must agree**: the
+   candidate query, the enqueue guard, the index predicate, and the final CAS.
 
-2. **Migration 114 must add `job_outbox_solicitation_attribution_inflight`.**
-   The `job_outbox` in-flight unique indexes are **per topic**, not generic —
-   `job_outbox_solicitation_send_inflight` (091:541),
-   `job_outbox_generate_solicitation_asks_inflight` (091:546),
-   `job_outbox_solicitation_veto_notice_inflight` (113:24). Without one, the
-   helper's `ON CONFLICT … WHERE topic = 'solicitation_attribution' AND status
-   IN (…)` has no constraint to infer and the INSERT throws. Copy 113's shape
-   byte-for-byte and re-spell the status set by hand (`ci:outbox-status` checks
-   members AND order).
-
-3. **`accountId` is NOT in scope at the enqueue site.** In
-   `src/lib/reviews/process-review.ts` the account id is resolved inside
-   `startReviewRun` (line 203), not at the caller. Therefore:
-   - Drop `account_id` from `SolicitationAttributionPayload`. It carries
-     `review_id` + `business_id` only.
-   - `attributeReview` resolves `accountId` from `businesses` inside its own
-     transaction, exactly as `startReviewRun` and
-     `maybeEnqueueFirstReviewIngested` already do. This also removes any way a
-     wrong account id could arrive on a payload.
-   - The file has **TWO** new-review entry points (the enqueue site near line 87
-     and the one near line 540). Both call `maybeEnqueueFirstReviewIngested`.
-     **The enqueue must land beside it in BOTH**, or one ingest lane silently
-     never attributes.
-
-4. **The helper's `WHERE EXISTS` guard as planned is NOT a superset — it drops
-   real matches.** The candidate window is anchor-relative; the guard was
-   `NOW()`-relative. Counter-example: a review whose `review_date` is 13 days
-   old but which we only detect today has an anchor 13 days back, so an ask
-   sent 20 days ago IS a legitimate candidate — while the guard's
-   `sent_at > NOW() - 14 days` is false and no job is ever enqueued. Silent
-   data loss.
-   **Fix: drop the time bound from the guard entirely.**
-
-   ```sql
-   WHERE EXISTS (
-     SELECT 1 FROM solicitation_outreach o
-      WHERE o.business_id = ${input.businessId}
-        AND o.delivery_status = 'sent'
-        AND o.attributed_review_id IS NULL
-   )
-   ```
-
-   Now provably a superset: every candidate satisfies all three arms. It also
-   removes the `eligibilityWindowDays` parameter, so
-   `src/lib/shared/job-outbox-helpers.ts` needs no window constant and no
-   domain import — the layering problem the plan spent a section on dissolves.
-   Keep the header comment explaining that over-enqueueing is harmless and that
-   the guard must never be tightened into a second copy of the candidate query.
+The plan on disk is correct on both. This doc is the summary; **the plan wins**.
 
 ## Locked decisions the plan must not reopen
 
@@ -139,10 +97,15 @@ that discovers it updates it.
 
 ## Next actions
 
-1. Read the round-1 verdict from `<scratchpad>/632-plan-round1.jsonl` (last `agent_message`).
-2. Fold in the four corrections above **plus** every accepted finding.
-3. If `REVISE`: `bash scripts/feature-state.sh incr-round plan` **before** re-dispatching, and re-submit only the findings-and-fixes delta to the SAME codex thread.
-4. On `APPROVED` (or the owner's call after round 3):
-   `bash scripts/feature-state.sh set-phase plan_approved`, then step 4 —
-   `subagent-driven-development`, Task 0 alone first, with the first-task
-   enforcement spot check before any further dispatch.
+1. Get the owner's call on the capped review loop. It substitutes for `APPROVED`.
+2. Then: `bash scripts/feature-state.sh set-phase plan_approved`.
+3. Then step 4 — `subagent-driven-development`. **Task 0 runs ALONE first.** After
+   it completes, diff `git status --porcelain` against `allowed_edit_surface`; an
+   out-of-surface path means enforcement did not bind for subagent tool calls —
+   STOP and report, do not dispatch further tasks.
+4. After Task 0 passes, Task 1 → Task 2 → then **Task 3 and Task 4 may run as
+   concurrent subagents** (no blocking edge, disjoint files) → Task 5 → Task 6 →
+   Task 7 → Task 8.
+5. `feature-surface` stays RED until Task 1 creates the first production file.
+   That is expected, not a defect. A WIP push before then needs
+   `git push --no-verify` (#867).
