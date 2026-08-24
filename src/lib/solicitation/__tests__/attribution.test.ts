@@ -213,6 +213,30 @@ describe('matchAttribution', () => {
 });
 
 describe('architecture', () => {
-  // Unparked by Task 5, once `attribution.ts` exists to scan.
-  it.todo('architecture: attribution.ts receives its DB executor and never imports the singleton');
+  // Invariant #15 read straight off the module source. `ci:db-imports` is the
+  // repo-wide gate, but it derives composition-root status from registration
+  // and could one day classify this module as a root by accident; this case
+  // pins the narrower claim the whole feature rests on — attribution.ts is a
+  // DOMAIN module, and the only way it can reach Postgres is through the
+  // executor its caller hands it.
+  it('architecture: attribution.ts receives its DB executor and never imports the singleton', () => {
+    const source = readFileSync(join(process.cwd(), 'src/lib/solicitation/attribution.ts'), 'utf8');
+
+    // Every import specifier in the module, quotes stripped. Matching on the
+    // specifier rather than on raw text means a mention inside a comment or a
+    // string can never make this pass or fail.
+    const specifiers = [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    for (const forbidden of ['@/lib/db/server', '../db/server', '../../db/server']) {
+      expect(specifiers, `attribution.ts imports the singleton from ${forbidden}`)
+        .not.toContain(forbidden);
+    }
+    expect(specifiers.filter((s) => s !== undefined && /(^|\/)db\/server$/.test(s))).toEqual([]);
+
+    // The two exported DB-touching entry points both take the executor first.
+    expect(source).toContain('export async function attributeReview(\n  tx: TransactionSql,');
+    expect(source).toContain('async function loadCandidates(\n  tx: TransactionSql,');
+
+    // …and nothing in the module reaches for a module-scope client instead.
+    expect(source).not.toMatch(/^\s*(?:const|let)\s+sql\s*=/m);
+  });
 });
