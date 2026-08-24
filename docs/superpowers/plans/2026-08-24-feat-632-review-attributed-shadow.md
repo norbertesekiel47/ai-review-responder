@@ -138,7 +138,13 @@ test that makes every other promised test real:
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const INTAKE = join(process.cwd(), '.feature', 'intake.json');
+// The COMMITTED audit copy, never `.feature/intake.json`. The arming copy is
+// gitignored by design (#512), so a test that read it would pass locally and
+// fail on every CI checkout. feature-setup.sh commits this one.
+const INTAKE = join(
+  process.cwd(),
+  'docs/superpowers/plans/feat-632-review-attributed-shadow-intake.json',
+);
 const SUITE_FILES = [
   'src/lib/solicitation/__tests__/attribution.test.ts',
   'src/lib/solicitation/__tests__/attribution.integration.test.ts',

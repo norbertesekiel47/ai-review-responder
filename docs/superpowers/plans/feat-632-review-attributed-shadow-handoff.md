@@ -5,8 +5,25 @@
 
 ## Current step
 
-**Step 3 — plan review, round 1 in flight.** Not yet approved. Do not start Task 0
-until the verdict lands and the corrections below are folded in.
+**Step 3 — plan review, round 2 in flight.** Not yet approved. Do not start
+Task 0 until the verdict lands.
+
+- **Round 1: `REVISE`.** A strong review. Triage and every accept/reject verdict:
+  `docs/reviews/feat-632-review-attributed-shadow/plan-round1-triage.md`.
+  Full report: `plan-round1-codex.md`. 22 findings accepted, 2 rejected.
+- **The revision is applied and committed** (`a0cc4946` + the follow-up).
+  `tests_to_add` grew 26 → **54**. `allowed_edit_surface` grew 24 → **28**.
+- **Round 2 is verification-only.** Brief: `<scratchpad>/632-plan-review-round2.md`.
+  Output: `<scratchpad>/632-plan-round2.jsonl`. Same codex thread.
+
+> **Counter note.** `planReviewRounds=2`. Round 2's first dispatch died on a
+> codex CLI syntax error (`--sandbox` must precede `resume`, not follow it) and
+> produced no review, so it was retried **without** a second increment. Flags
+> before the subcommand: `codex exec --sandbox read-only --json --cd <dir>
+> resume <thread-id> "<prompt>"`.
+
+> **After round 3 the loop STOPS.** Surface the remaining disagreement to the
+> owner with both positions; their call substitutes for APPROVED.
 
 ## Read these, in this order — never the prior transcript
 
@@ -37,10 +54,20 @@ until the verdict lands and the corrections below are folded in.
 - A first foreground attempt was killed by the 10-minute cap. The background
   re-run is the authoritative one.
 
-## Corrections found by the orchestrator before the verdict — fold ALL FOUR into the revision
+## Surface amendments spent: 1 of 2
 
-These are confirmed against the code, not guesses. The plan on disk still
-carries the defective versions.
+`src/lib/shared/worker-types.ts` plus three new test files were added to
+`allowed_edit_surface` in the round-1 revision. One file inside `src/lib/shared/`
+— a tree the surface already covered — so it is auto-approved under step 2's
+rule. **A SECOND amendment triggers re-classification (step 5).** Both intake
+copies are in sync; re-sync `.feature/intake.json` from the committed copy after
+any further edit.
+
+## Corrections found by the orchestrator before the round-1 verdict — ALL FIVE ARE NOW APPLIED
+
+Kept for the record. These were confirmed against the code, and the round-1
+reviewer independently confirmed each in its "mandatory artifact resolution"
+section. The plan on disk now carries the fixed versions.
 
 1. **`reviewTimeAnchor(sql, prefix)` takes `'' | 'r.'`, not `'bare'`.**
    `src/lib/kpi/fragments.ts:44`. The plan's candidate CTE aliases the review
