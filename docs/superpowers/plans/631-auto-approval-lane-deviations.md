@@ -71,3 +71,11 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   RELEASE_PER_TICK_BUDGET=2/60s (ADR 0022). Intake edge_cases updated to
   match (intake-field correction, not an amendment).
 - Appendix nit (Task 5 title count 6 → 7) — ACCEPT, fixed.
+
+## Task 1 execution (2026-08-23)
+
+- [2026-08-23] #656 promised-test integrity meta-test (postal-address.test.ts:70)
+  forbids it.todo in ask-generation.integration.test.ts → the 4 finale eval
+  titles moved to auto-approval.integration.test.ts; Task 4 authors their
+  bodies there (they drive generateAsksForBatch by import, so placement is
+  equivalent). Plan Task 1 item 3 superseded.

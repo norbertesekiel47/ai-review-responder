@@ -9,6 +9,14 @@
 // `anchorVetoDeadlines` (the D9 Veto anchor CAS), verbatim from intake rev 2.
 // Bodies land in Tasks 3-8, which is also where the real bootstrap (schema
 // assertion, tenant seed, live-DB lock) is added.
+//
+// The four generation-finale titles below were originally scaffolded in
+// ask-generation.integration.test.ts per the plan, but that file is one of
+// the #656 promised-test files postal-address.test.ts's integrity meta-test
+// asserts is FREE of `it.todo`/`it.skip` — so they moved here instead (see
+// docs/superpowers/plans/631-auto-approval-lane-deviations.md, dated entry).
+// Task 4 authors their bodies against `generateAsksForBatch` by import, which
+// is unaffected by which file drives it.
 
 import { describe, it } from 'vitest';
 
@@ -44,4 +52,19 @@ describe('anchorVetoDeadlines', () => {
   it.todo('one corrupt anchor candidate does not prevent a healthy sibling batch from anchoring');
 
   it.todo('a wrong-template or different-batch delivery row never anchors');
+});
+
+// Relocated from ask-generation.integration.test.ts — see file header.
+describe('auto-approval at the generation finale (#631)', () => {
+  it.todo(
+    'the initial ask-generation finale auto-approves and enqueues the Veto notice when every gate holds',
+  );
+
+  it.todo('regenerateAsk never invokes the auto-approval lane');
+
+  it.todo(
+    'the real generation finale leaves the batch built when SOLICITATION_SEND_ENABLED is off',
+  );
+
+  it.todo('Judge unavailability at approval time does not block auto approval');
 });
