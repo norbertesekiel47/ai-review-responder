@@ -18,15 +18,23 @@ A resumed session bootstraps from this file. Disk beats any summary.
 
 ## Current step / state
 
-- Phase: `.feature/state.json` (worktree_ready; plan review round 1 in flight).
-- Plan review round 1: the companion-runtime dispatch (task-mt6kk8hy-u0ut5m)
-  was LOST by the wrapper — the known failure mode. Re-dispatched 2026-08-23 via
-  DIRECT `codex exec --sandbox read-only` from the worktree root; stdout goes
-  straight to `docs/reviews/631-auto-approval-lane/plan-round-1.md` (codex
-  session id in that file's header / scratchpad codex-r1-stderr.log).
-- Gate: RED on `feature-surface` only — pre-implementation artifact (two surface
-  entries match no file until Tasks 1-2 create them). 18/19 audits PASS.
-- Branch: `631-auto-approval-lane`; commits `d718f871` (intake), `1eec2f47` (plan).
+- Phase: `plan_approved` (`.feature/state.json`), head `b80aa5c6`. Step 4
+  (execution) is next: Task 1 (eval) dispatches ALONE, then the first-task
+  enforcement spot check, then 2 → 3 → 4 serial, then parallel {5, 6, 8},
+  then 7, then 9.
+- Plan review: 3 rounds, counter at 3/3. Round 1 REVISE (14 findings, all
+  triaged ACCEPT — see deviations file); round 2 left F3/F14 + a nit; round 3
+  **VERDICT: APPROVED**. Reports:
+  `docs/reviews/631-auto-approval-lane/plan-round-{1,2,3}.md`. Codex session
+  `01a0316f-1ea8-73e3-8dfd-d4876710ba22` (direct `codex exec`; the companion
+  wrapper lost its task — do not use the wrapper for later rounds).
+- Intake is REV 2 (owner-re-locked; amendment counter reset; 44 promised test
+  titles). Plan is REV 2.1.
+- Gate: RED on `feature-surface` only — pre-implementation artifact (two
+  surface entries match no file until Tasks 1-2 create them). All other audits
+  PASS.
+- Branch: `631-auto-approval-lane`; key commits `d718f871` (intake rev 1),
+  `1eec2f47` (plan rev 1), `80ad7169` (rev 2), `b80aa5c6` (APPROVED).
 
 ## Owner decisions locked this session
 
