@@ -442,7 +442,7 @@ intake decision; nothing triggers RE-PLAN.
   tag, the one stable `ITEM_FAILURE_MESSAGE` log text), which is the
   alignment quality F3 prescribed. The Judge arm's own Sentry call is not
   separately test-pinned, so the "mirror the assertion" clause did not
-  trigger. VERDICT: pending orchestrator review.
+  trigger. VERDICT: ACCEPT (orchestrator read-back 2026-08-24, below).
 - [2026-08-24] **One glossary site sits outside the allowed file surface:
   `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts`** (the "its
   auto-lane paths" comment quality F1 lists among the 12 sites). The fix
@@ -450,7 +450,7 @@ intake decision; nothing triggers RE-PLAN.
   includes it, so the one-word comment-only edit was applied there despite
   the file living outside `src/lib/solicitation/**` /
   `src/lib/auto-approval/**` — no behavior, no test titles, no assertions
-  touched. VERDICT: pending orchestrator review.
+  touched. VERDICT: ACCEPT (orchestrator read-back 2026-08-24, below).
 - [2026-08-24] **F-A2 forced one line in
   `scripts/ci/tenant-scope-allowlist.ts` (outside the allowed surface).**
   The allowlist pins the Veto anchor's candidate scan as a byte-identical
@@ -459,5 +459,23 @@ intake decision; nothing triggers RE-PLAN.
   two unused-entry + two missing-scope findings until the snippet (and its
   reason's first sentence) tracked the new predicate. Snippet updated in
   place — same two entries, baseline unchanged at 393. A mandatory
-  consequence of the accepted F-A2 fix, not new scope. VERDICT: pending
-  orchestrator review.
+  consequence of the accepted F-A2 fix, not new scope. VERDICT: ACCEPT (orchestrator read-back 2026-08-24, below).
+
+## Round-1 fix-wave read-back (2026-08-24) — orchestrator verdicts
+
+- F-Q5 Sentry half already satisfied at HEAD — ACCEPT (verified at read-back:
+  `AUTO_DOWNGRADE_ALERT_MESSAGE` reaches `Sentry.captureMessage`
+  (release.ts:1725-1729) with the confirmed reason as a tag, and
+  release.integration.test.ts:2525 pins it; `isolateAnchorItem` /
+  `ANCHOR_ITEM_FAILURE_MESSAGE` have zero remaining references. Round-2
+  quality review APPROVED the post-fix state).
+- One-word comment edit in `src/lib/approval/__tests__/`
+  `outcome-anchor-pairing.test.ts` (outside the surface) — ACCEPT (the fix
+  directive names the file; comment-only; covered by the owner's
+  3rd-surface-file override on record in the step-7 handoff).
+- F-A2's forced snippet update in `scripts/ci/tenant-scope-allowlist.ts` —
+  ACCEPT (byte-identical-snippet pin must track the accepted predicate
+  change; same two entries, baseline unchanged at 393; `ci:tenant-scope`
+  PASS in the green gate at 82b00f50. Mandatory consequence, not new scope).
+
+No RE-PLAN triggers. Deviations ledger fully closed for the branch.
