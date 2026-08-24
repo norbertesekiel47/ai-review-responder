@@ -783,3 +783,68 @@ literally, and **Review-time anchor** is named as the term instead.
 initial the other starts with, **on either position**, gives `m. okafor` →
 `michael okafor` by name with its rule, and records the rejected narrow reading
 with its date so it cannot be re-litigated as a finding.
+
+---
+
+## D31 — the step-5 gate caught a REAL concurrency defect that nine tasks and four review rounds missed
+
+**Stage:** step 5 gate. **The most important entry in this file.**
+
+`attributeReview` ends in `recordOutcome`, which takes an `agent_runs` FK KEY
+SHARE that cycles with `recordStep` holders. `outcomes.ts`'s caller contract
+therefore requires the reviews row `FOR UPDATE` first. **It took no lock at all.**
+
+```
+New recordOutcome/recordStep/completeRun caller(s) detected:
+  src/lib/solicitation/attribution.ts
+```
+
+**How it hid.** The plan imported `recordOutcome` **by name** and neither it nor
+four rounds of adversarial review noticed the contract attached to it. All nine
+tasks passed, because each ran only its own targeted suites — and this contract
+lives in `src/lib/approval/__tests__/`, which no task had reason to run.
+
+**The lesson, and it is mechanical:** per-task verification cannot catch a
+cross-cutting contract. **Run the full gate BEFORE the last task, not after it.**
+On this branch the gate ran once, at the end, and it found in one run what nine
+targeted runs could not.
+
+**Fix.** The reviews read was already inside `attributeReview`. It moved AHEAD of
+`loadCandidates` and gained `FOR UPDATE`, so the anchor is the function's first
+domain statement rather than an incidental read in the middle — matching
+`process-review.ts`, which the allowlist names as the canonical order owner.
+`attribution.ts` joins `CALLER_ALLOWLIST` as a **review-subject** caller, unlike
+its solicitation siblings, which are all batch subjects and exempt for that
+reason. The attribution suites stayed green through the reordering.
+
+**Cost: surface amendment 2 of 2**, covering
+`src/lib/approval/__tests__/outcome-anchor-pairing.test.ts` and
+`.claude/reference/arch-review-log.md`. Both intake copies updated in lockstep and
+verified identical; `arm-check` re-armed clean. **This triggers re-classification
+at step 5.**
+
+---
+
+## D32 — `react-doctor` run, and its exit 1 is a PRE-EXISTING baseline
+
+**Stage:** step 5 gate. Closes the item owed under D28.
+
+`pnpm doctor` exits 1 on **13 blocking errors**. **None is in a file this branch
+touched:**
+
+| Rule | Files |
+|---|---|
+| `effect-needs-cleanup` ×2 | `useEditReplyDraft.ts`, `PlaceAutocomplete.tsx` |
+| `no-layout-property-animation` ×3 | `SiteNav.tsx` |
+| `supabase-table-missing-rls` ×8 | migrations 001, 002, 032, 046 |
+
+**Migration 114 does not appear** in the RLS list — it only `ALTER`s an existing
+table and creates no new one.
+
+**One #632 finding, and it is a WARNING, not an error:**
+`no-locale-format-in-render` at `AttributedReviews.tsx:210`. It is the same
+pattern as its three neighbours in `BatchReport.tsx` (259, 262, 264) — the file
+`formatDay` was copied from (D28.1). The CI workflow is `blocking: error`, so a
+warning does not gate. Fixing it means changing the house pattern across four
+call sites, which belongs in the follow-up that consolidates `formatDay`, not
+here.
