@@ -6,12 +6,19 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 11** — reset by the **2026-08-22 pass**
-(entry below), then #891, #890, #913, #914, #908, the #910 pull-forwards, #893,
-#909, #886 and #880 counted 2026-08-23, and **#631 (PR #950)** counted 2026-08-24
-(the #919 seedUpload consolidation, #942, is test-only and does not count). Full artifacts:
-`docs/reviews/PATHFINDER-2026-08-22/`.
-Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
+**Merges since last architecture pass: 0** — reset by the **2026-08-24 pass**
+(entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-24/`.
+Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
+
+> **The counter was CORRECT this time — the first pass in five for which that is
+> true.** The 2026-08-24 pass measured its window independently
+> (`42a247b1..0278366c`: 13 first-parent merges, 11 counting, 75 production
+> files) and got the same answer this log already carried. `ci:merge-ledger`
+> (`2f386c52`, PR #935) landed inside that window and is the reason. The
+> four-pass streak of hand-corrections — 2026-08-10 (3 missed), -08-15 (#803
+> invisible), -08-18 (read 8, measured 11), -08-22 (four missed, incl. #905 at 51
+> files) — is **closed**. Do not re-derive that streak next pass; verify the
+> current window and move on.
 
 > **Corrected 2026-08-23 from a stale 3.** The counter had missed four merges.
 > Two were never counted at the time (#901, #905); two are the #917/#923 pair
@@ -49,6 +56,74 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > at all. The counter's blind spot is not the small merges it rounds past; it is
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
+
+- **Architecture pass — 2026-08-24** (windowed: `42a247b1..0278366c`; 13
+  first-parent merges, **11 counting**, 75 production files). Artifacts:
+  `docs/reviews/PATHFINDER-2026-08-24/`. **Counter reset 11 → 0.**
+
+  **Window shape:** one merge is 64% of it — #950/#631, the Solicitation
+  auto-approval lane (48 files, migration 113), landed hours before the pass.
+  The rest is the admin consolidation wave (#880/#886/#893/#909, 19 files) and
+  the send-lane vocabulary work (#890/#891/#913/#914). Excluded: #948
+  (governance-only) and #942 (test-only).
+
+  **Health baseline: 20/20 CI audits, `typecheck` and `lint` all green.**
+  Migration lockstep verified by direct `pg_indexes` introspection in **both**
+  projects — 112 and 113 fully applied, no drift. The standing 078-absent
+  exception was re-introspected in production and is **accurate, not stale**
+  (`businesses.subscription_tier` nullable; neither check constraint present).
+
+  **Headline — the notice-family clone, decided.** The family has **six**
+  members, not the four the seed claimed (`autonomy-suspended-notice` was
+  omitted; `worker/jobs/notification/` is the progenitor). Decision: **bless the
+  four-file shape, extract the invariants.** A shared `runNoticeJob` owner is
+  explicitly REJECTED — every current member assumes a single `businessId`, and
+  the next plausible member (Insights / Governor) needs account-scoped fan-in, so
+  extracting today encodes the wrong axis. Three latent bugs, all of the form
+  "the fix landed in some copies":
+  - **BUG 1** `auto-post-notice` enrolls in `OWNER_DIRECTED_TEMPLATES`
+    (`resend.ts:97-99`), so a bounce **sets** `owner_email_bounced` — but it is
+    the only member of six that never **reads** it (0 references vs 7–8 in the
+    other five). Identified 2026-07-12 as "known follow-up #3a";
+    `grep -rn "#3a" docs/` returns one hit, the sentence itself. Six weeks live,
+    untracked.
+  - **BUG 2** `auto-post-notice` and `escalation-notice` lack the 15-minute
+    stale-claim reap the other three have **and** read a claim conflict as a
+    harmless dedup. One crash dedup-blocks a channel permanently while the outbox
+    reports success — losing the Guardian persona's only owner-facing output.
+  - **BUG 3** three members run the provider error classifier on Postgres errors
+    and can mark a delivered notice failed. The two newest members carry a
+    written warning about exactly this.
+
+  **Second finding — the autonomy control surface is split.** Two independent
+  kill-switch families now exist; `AUTO_APPROVAL_ENABLED` has **zero** effect on
+  the Solicitation lane. Scoped honestly: `env-vars.md:661` is correct per-flag,
+  invariant #3 is **not** violated (that lane does not post to Google), and
+  production has none of the flags set — **zero live hazard**. The gap is that
+  the runbooks enumerating "the autonomy flags" predate this lane. **Must close
+  before #633 flips anything.**
+
+  **Seed 3 REFUTED — a clean result, recorded as such:** the four admin
+  consolidations compose cleanly. No file imports from more than one of the four
+  seams; three stack in disjoint layers and the fourth (`#886`) is on the owner
+  surface, unreachable from any admin route.
+
+  **Prior handoffs: five of nine genuinely closed** (#890, #893, #896, and both
+  08-22 next-session PRs). #891 is closed but incompletely adopted — **latent,
+  not a live defect**; a first reading called it live and the correction plus its
+  reasoning are preserved in `07-handoff-reverification.md` rather than deleted.
+  #892, #894 and #895 are untouched across two consecutive windows and
+  re-verified still live. If they survive a third, close them as won't-fix rather
+  than re-derive them a fourth time.
+
+  **Five DO-NOT-UNIFY entries added**, including a boundary correction: the
+  21-line offboarding SELECT appears in **18 files repo-wide**, so it must NOT be
+  extracted into the notice family — if extracted it belongs at
+  `src/lib/account-offboarding/gate.ts`.
+
+  **Process note:** a follow-up named only in spec prose is not tracked. `#3a` is
+  the proof. Suggested rule — a follow-up named in a spec gets an issue number in
+  the same PR, or it does not get named.
 
 - **feat — `/feature` run progress + the Claude/Codex review record** (2026-08-23).
   **Governance-only: this merge changes no file under `src/`, `worker/` or
