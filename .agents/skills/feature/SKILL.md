@@ -42,6 +42,8 @@ The durable artifacts win after compaction or resume:
 - `.feature/gate-status.json` — underlying repository gate result.
 - `.feature/codex-gate-fingerprint.json` — proof that the gate matches the
   current HEAD, intake, staged/unstaged diff, and untracked files.
+- `.feature/progress.json` — the step ladder and tracer bullets.
+- `.feature/review-transcript.jsonl` — the Claude/Codex review exchange.
 - `docs/superpowers/plans/<branch>-intake.json` — committed audit copy when the
   user has authorized a commit.
 - The referenced spec, plan, deviations, and accepted review findings.
@@ -49,6 +51,21 @@ The durable artifacts win after compaction or resume:
 Do not create a handoff merely because context is growing. Create one only when
 work is actually pausing, moving to another task, or waiting at an authority
 boundary.
+
+## Report progress at every phase boundary
+
+The user must never have to ask where the run stands. Read
+[progress-and-live-view.md](references/progress-and-live-view.md) before the
+first step, then:
+
+- Advance the step ladder as each workflow section below closes. The write
+  commands print the block, so a boundary is one command.
+- Log every Claude turn and every triage verdict in the review transcript.
+  Point the transcript at each Codex job instead of copying its output.
+- Start the live view before the first review round. Publish its snapshot as
+  an Artifact once the rounds close.
+
+Both surfaces derive from durable state. Never report a phase from memory.
 
 ## Workflow
 
@@ -64,6 +81,15 @@ Treat worker, webhook, migration/schema, billing, approval/autonomy, auth,
 tenant isolation, destructive data, and production-operation changes as high
 risk. Read [execution-lanes.md](references/execution-lanes.md) for lane rules,
 question budgets, TDD, and delegation.
+
+Open the ladder as soon as the three axes are fixed:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs init --size <size> --risk <risk> --surface <surface>
+```
+
+Mark every step the chosen lane does not run as `skipped`, with the lane as
+the note. A `trivial` lane skips `armed` and `plan`.
 
 For an epic, produce a domain model and dependency-ordered investigation and
 implementation map, then stop. Each implementation ticket must fit a separate
@@ -86,6 +112,10 @@ Require `open_questions` to be empty and obtain user sign-off for `standard` or
 `high` work. For ticket-seeded work, inherit locked decisions and ask only
 about unresolved deltas.
 
+```bash
+node .agents/skills/feature/scripts/progress.mjs step intake done --note "<revision> · signed off"
+```
+
 ### 2. Isolate and arm
 
 For `small`, `standard`, and `high` work, create the sibling worktree with
@@ -104,6 +134,16 @@ Require `scripts/arm-check.sh` to report `ARMED`. Prefix every shell command
 with an explicit worktree `cd` and use absolute paths for edits. Do not edit the
 parent checkout from a feature worktree.
 
+Steps 0 and 1 ran in the parent checkout, so the ladder is still there. Carry
+it into the armed worktree — the command also marks the `armed` step:
+
+```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
+```
+
+Every later progress, review-log, and live-view command runs from the
+worktree. A lane that uses no worktree skips this step instead.
+
 ### 3. Plan the change
 
 Use tracer bullets: each task delivers one vertical behavior slice, names its
@@ -115,9 +155,19 @@ Write a plan only for standard/high work. For high-risk work, dispatch one
 fresh read-only plan skeptic using [review-prompts.md](references/review-prompts.md),
 triage its evidence, and obtain user sign-off. Maximum three plan-review rounds.
 
-Transition state through the guarded wrapper:
+Start the live view before the first plan-review round, then log the round:
 
 ```bash
+node .agents/skills/feature/scripts/live-view.mjs start
+node .agents/skills/feature/scripts/review-log.mjs round-start --axis plan-skeptic
+node .agents/skills/feature/scripts/review-log.mjs attach-codex --latest --axis plan-skeptic
+```
+
+Register the tracer bullets and transition state through the guarded wrapper:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs tracers set "T1 <title>|T2 <title>|..."
+node .agents/skills/feature/scripts/progress.mjs step plan done
 node .agents/skills/feature/scripts/transition-state.mjs plan_approved
 ```
 
@@ -137,6 +187,14 @@ Apply red-green TDD when behavior is specifiable. Use characterization tests
 for behavior-preserving refactors. Do not manufacture tests for prose-only or
 mechanical configuration changes; require a deterministic verification command
 instead.
+
+Move each tracer to `active` when you start it and to `done` when its
+evidence is green:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs tracer T3 active
+node .agents/skills/feature/scripts/progress.mjs tracer T3 done
+```
 
 Record a deviation only when reality invalidates or changes the approved plan.
 Do not use a deviations file as a running diary.
@@ -163,10 +221,17 @@ is stale. Confirm freshness with:
 node .agents/skills/feature/scripts/gate-fingerprint.mjs check
 ```
 
+Close the gate step only from a green review gate with a current fingerprint:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs step gate done
+```
+
 After the same failure class twice, stop patching and use the
 `diagnosing-bugs` feedback-loop discipline. After three full failed gate
 rounds, a second surface amendment, or a deviation that invalidates intent,
-stop and re-plan with the user.
+stop and re-plan with the user. Mark the ladder step `blocked` with the reason
+as its note before you stop.
 
 ### 6. Review proportionally
 
@@ -184,10 +249,23 @@ actionable table. The root reproduces or verifies each finding, records
 `ACCEPT` or `REJECT` with a reason, applies accepted fixes, and reruns the
 verified gate.
 
-Transition to `reviewed` only while the fingerprint is current:
+Log every round in the transcript, one axis per round. A triage verdict that
+only exists in conversation is lost at the next compaction:
 
 ```bash
+node .agents/skills/feature/scripts/review-log.mjs round-start --axis spec-correctness
+node .agents/skills/feature/scripts/review-log.mjs finding --id F1 --severity high --title "<claim>" --at "<file:line>"
+node .agents/skills/feature/scripts/review-log.mjs triage --id F1 --verdict ACCEPT --reason "<evidence>"
+node .agents/skills/feature/scripts/review-log.mjs round-end --verdict REVISE
+```
+
+Transition to `reviewed` only while the fingerprint is current, and only when
+no finding is untriaged:
+
+```bash
+node .agents/skills/feature/scripts/review-log.mjs render
 node .agents/skills/feature/scripts/gate-fingerprint.mjs check
+node .agents/skills/feature/scripts/progress.mjs step review done
 node .agents/skills/feature/scripts/transition-state.mjs reviewed
 ```
 
@@ -198,6 +276,17 @@ verification evidence, review verdicts, deviations, and unresolved risks.
 State which external action is available next, but do not take it without
 explicit authorization. Read [shipping-boundaries.md](references/shipping-boundaries.md)
 if the user asks to continue.
+
+Close the ladder, publish the review record, and stop the server:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs step ready done
+node .agents/skills/feature/scripts/live-view.mjs snapshot
+node .agents/skills/feature/scripts/live-view.mjs stop
+```
+
+Publish the snapshot with the Artifact tool and give the user its link. The
+final progress block belongs in the report.
 
 ## Resume and recovery
 

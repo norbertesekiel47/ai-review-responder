@@ -7,6 +7,10 @@ read-only: they must not edit, commit, or run external mutations.
 Run independent axes in parallel when both are required. Do not expose one
 reviewer's conclusions to another.
 
+Log every round, finding, and triage verdict as it happens. Read
+[progress-and-live-view.md](progress-and-live-view.md) for the commands. The
+axis names in that file are these axes; keep them in step.
+
 ## Plan skeptic — high risk only
 
 ```text
@@ -71,7 +75,8 @@ For every actionable finding:
 
 1. Open the cited source and contract field.
 2. Reproduce the scenario or prove the violated standard applies.
-3. Record `ACCEPT` or `REJECT` with one evidence-based reason.
+3. Record `ACCEPT` or `REJECT` with one evidence-based reason, in the
+   transcript as well as in the report.
 4. Fix accepted findings in the root context or give a bounded edit lease.
 5. Rerun the verified gate after any change.
 

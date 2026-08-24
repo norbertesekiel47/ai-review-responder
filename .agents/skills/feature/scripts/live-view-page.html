@@ -1,0 +1,859 @@
+<!-- Must stay within the document's first 1024 bytes: the snapshot is a bare
+     fragment, and without this a host that serves it with no charset renders
+     every multi-byte glyph as mojibake. -->
+<meta charset="utf-8">
+<title>Feature Run Recorder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- DM Sans and JetBrains Mono are DESIGN.md's Body/UI and Mono faces. The app
+     self-hosts them; this page cannot. It is a standalone fragment, and an
+     Artifact's CSP admits no font host but Google Fonts. Nothing here reaches
+     the Next build, so the no-`next/font/google` rule is untouched. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+
+<style>
+  /* Light is the base set. Dark redefines tokens only — never a component
+     rule — so the un-stamped (system) state resolves as a complete set. */
+  :root {
+    --ground: #eaeef3;
+    --surface: #ffffff;
+    --surface-sunk: #f3f6f9;
+    --rule: #ced6e0;
+    --rule-soft: #e2e8ef;
+    --ink: #14181e;
+    --muted: #5a6472;
+    --faint: #8b95a4;
+    --signal: #a8560a;
+    --signal-soft: #f6e6d2;
+    --pass: #146449;
+    --fail: #9d2f26;
+    --codex: #0c6274;
+    --codex-soft: #dcedf1;
+    --shadow: 0 1px 2px rgba(20, 24, 30, .06), 0 8px 24px -12px rgba(20, 24, 30, .18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0e1216;
+      --surface: #171c22;
+      --surface-sunk: #12171c;
+      --rule: #2a323c;
+      --rule-soft: #222932;
+      --ink: #e6eaf0;
+      --muted: #8b96a6;
+      --faint: #67717f;
+      --signal: #f0a54a;
+      --signal-soft: #3a2c17;
+      --pass: #4fbf95;
+      --fail: #f0796c;
+      --codex: #46b0c6;
+      --codex-soft: #14313a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0e1216;
+    --surface: #171c22;
+    --surface-sunk: #12171c;
+    --rule: #2a323c;
+    --rule-soft: #222932;
+    --ink: #e6eaf0;
+    --muted: #8b96a6;
+    --faint: #67717f;
+    --signal: #f0a54a;
+    --signal-soft: #3a2c17;
+    --pass: #4fbf95;
+    --fail: #f0796c;
+    --codex: #46b0c6;
+    --codex-soft: #14313a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---------------------------------------------------------------- header */
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 18px 24px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .identity {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+  }
+
+  .branch {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+
+  .lane {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .lane.risk-high {
+    border-color: var(--signal);
+    color: var(--signal);
+    background: var(--signal-soft);
+  }
+
+  .identity-spacer { flex: 1 1 auto; }
+
+  .pct {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  /* The track is the data: each of the eight segments fills by its own
+     fraction, so the execute segment advances tracer by tracer. */
+  .track {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 3px;
+    padding-bottom: 16px;
+  }
+
+  .seg {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+    text-align: left;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: default;
+  }
+
+  .seg-bar {
+    height: 5px;
+    border-radius: 1px;
+    background: var(--rule-soft);
+    overflow: hidden;
+  }
+
+  /* The fill spans the bar and is scaled, not resized. Animating width would
+     lay out all eight segments on every frame of every 2s poll. */
+  .seg-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--ink);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform .4s cubic-bezier(.2, .7, .3, 1);
+    will-change: transform;
+  }
+
+  .seg[data-status="active"] .seg-fill { background: var(--signal); }
+  .seg[data-status="blocked"] .seg-fill { background: var(--fail); }
+  .seg[data-status="skipped"] .seg-fill { background: var(--rule); }
+
+  /* Segments sit 3px apart so the bars read as one track. The text under
+     them needs its own gutter, or two adjacent notes read as one sentence. */
+  .seg-label,
+  .seg-note { padding-right: 16px; }
+
+  .seg-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .seg-num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  .seg[data-status="done"] .seg-label,
+  .seg[data-status="skipped"] .seg-label { color: var(--muted); }
+
+  .seg[data-status="active"] .seg-label { color: var(--signal); font-weight: 600; }
+
+  .seg-note {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 1.4em;
+  }
+
+  .seg[data-status="active"] .seg-note { color: var(--signal); }
+
+  /* ------------------------------------------------------------------ body */
+
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 1000px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  aside { position: sticky; top: 148px; display: flex; flex-direction: column; gap: 16px; }
+
+  @media (max-width: 1000px) { aside { position: static; } }
+
+  /* ----------------------------------------------------------- gate strip */
+
+  .facts { display: flex; flex-direction: column; }
+
+  .fact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+    font-size: 13px;
+  }
+
+  .fact:last-child { border-bottom: 0; }
+  .fact dt { color: var(--muted); margin: 0; }
+  .fact dd {
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    text-align: right;
+    word-break: break-all;
+  }
+
+  .gate-current { color: var(--pass); font-weight: 700; }
+  .gate-stale, .gate-red { color: var(--fail); font-weight: 700; }
+
+  /* --------------------------------------------------------------- ledger */
+
+  .ledger { display: flex; flex-direction: column; }
+
+  .finding {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  .finding:last-child { border-bottom: 0; }
+
+  .finding-id {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .finding-title { font-size: 13px; line-height: 1.4; }
+
+  .finding-meta {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .finding-at {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--faint);
+    overflow-wrap: anywhere;
+  }
+
+  .chip {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+
+  .chip-accept { color: var(--pass); }
+  .chip-reject { color: var(--fail); }
+  .chip-open { color: var(--signal); }
+  .chip-high { color: var(--fail); }
+  .chip-medium { color: var(--signal); }
+  .chip-low { color: var(--muted); }
+
+  /* --------------------------------------------------------------- stream */
+
+  .rounds { display: flex; flex-direction: column; gap: 20px; }
+
+  .round-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  .round-n {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .round-axis { font-size: 13px; color: var(--muted); }
+  .round-spacer { flex: 1 1 auto; }
+
+  .verdict {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .05em;
+  }
+
+  .verdict-approved { color: var(--pass); }
+  .verdict-revise { color: var(--fail); }
+  .verdict-open { color: var(--signal); }
+
+  .turns { display: flex; flex-direction: column; }
+
+  .turn {
+    display: grid;
+    grid-template-columns: 3px minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+    animation: rise .16s ease-out both;
+  }
+
+  .turn:last-child { border-bottom: 0; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* The rail encodes voice: hairline for the accountable house agent,
+     solid for the outside challenger. */
+  .rail { background: var(--rule); border-radius: 2px; }
+  .turn[data-actor="codex"] .rail { background: var(--codex); }
+  .turn[data-actor="claude"] .rail { background: var(--rule); }
+
+  .turn-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 5px;
+  }
+
+  .who {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .turn[data-actor="codex"] .who { color: var(--codex); }
+  .turn[data-actor="claude"] .who { color: var(--muted); }
+
+  .ts {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  .turn-body { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .job-summary {
+    margin-top: 6px;
+    padding: 10px 12px;
+    background: var(--codex-soft);
+    border-radius: 3px;
+    font-size: 13.5px;
+  }
+
+  .job-findings { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+
+  .job-findings li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 13px;
+  }
+
+  .ticker {
+    margin-top: 8px;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    max-height: 150px;
+    overflow: auto;
+    padding: 8px 10px;
+  }
+
+  .ticker-line {
+    display: flex;
+    gap: 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+
+  .ticker-line .t { color: var(--faint); flex: none; }
+  .ticker-line .m { overflow-wrap: anywhere; }
+
+  .running {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--signal);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .35; transform: scale(.75); }
+  }
+
+  .triage-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 14px; }
+
+  .empty { padding: 40px 16px; text-align: center; color: var(--faint); font-size: 14px; }
+
+  footer {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 4px 24px 40px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--faint);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<header>
+  <div class="head-inner">
+    <div class="identity">
+      <span class="eyebrow">Feature run</span>
+      <span class="branch" id="branch">—</span>
+      <span id="lanes" style="display:contents"></span>
+      <span class="identity-spacer"></span>
+      <span class="pct" id="pct">0%</span>
+    </div>
+    <div class="track" id="track"></div>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <section class="panel">
+      <div class="panel-head"><span class="eyebrow">Run facts</span></div>
+      <dl class="facts" id="facts"></dl>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <span class="eyebrow">Findings ledger</span>
+        <span class="eyebrow mono" id="ledger-count">0</span>
+      </div>
+      <div class="ledger" id="ledger"></div>
+    </section>
+  </aside>
+
+  <section class="panel" style="background:none;border:0;box-shadow:none">
+    <div class="rounds" id="rounds"></div>
+  </section>
+</main>
+
+<footer>
+  <span id="mode"></span>
+  <span id="stamp" class="mono"></span>
+</footer>
+
+<script>
+  (function () {
+    'use strict';
+
+    // Snapshot mode inlines the data and never polls; live mode polls the
+    // local server. A published artifact is always snapshot mode.
+    var BOOTSTRAP = window.__FEATURE_SNAPSHOT__ || null;
+    var POLL_MS = 2000;
+    var last = '';
+
+    function el(tag, cls, text) {
+      var node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function clock(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d)) return '';
+      return String(d.getHours()).padStart(2, '0') + ':' +
+        String(d.getMinutes()).padStart(2, '0') + ':' +
+        String(d.getSeconds()).padStart(2, '0');
+    }
+
+    function chip(text, cls) {
+      return el('span', 'chip ' + cls, text);
+    }
+
+    function renderTrack(data) {
+      var track = document.getElementById('track');
+      track.replaceChildren();
+      data.steps.forEach(function (step) {
+        var seg = el('div', 'seg');
+        seg.dataset.status = step.status;
+        seg.title = step.label + (step.note ? ' — ' + step.note : '');
+
+        var bar = el('div', 'seg-bar');
+        var fill = el('div', 'seg-fill');
+        // A blocked step shows a full red bar: the run stopped there, it did
+        // not part-complete. Inline style wins the cascade, so the scale is
+        // set here rather than in a [data-status] rule.
+        fill.style.transform =
+          'scaleX(' + (step.status === 'blocked' ? 1 : step.fraction) + ')';
+        bar.appendChild(fill);
+
+        var label = el('div', 'seg-label');
+        label.appendChild(el('span', 'seg-num', step.index));
+        label.appendChild(el('span', null, step.label));
+
+        seg.appendChild(bar);
+        seg.appendChild(label);
+        seg.appendChild(el('div', 'seg-note', step.note || ''));
+        track.appendChild(seg);
+      });
+    }
+
+    function renderFacts(data) {
+      var facts = document.getElementById('facts');
+      facts.replaceChildren();
+
+      var gateClass = data.gate.status === 'current' ? 'gate-current'
+        : (data.gate.status === 'stale' || data.gate.status === 'red') ? 'gate-stale' : '';
+
+      var rows = [
+        ['Phase', data.phase || '—', 'mono'],
+        ['Gate', data.gate.label, 'mono ' + gateClass],
+        ['Plan rounds', String(data.reviewRounds.plan), 'mono'],
+        ['Review rounds', String(data.reviewRounds.branch), 'mono'],
+        ['HEAD', data.headSha ? data.headSha.slice(0, 12) : '—', 'mono'],
+        ['Merge base', data.baseSha ? data.baseSha.slice(0, 12) : '—', 'mono']
+      ];
+
+      rows.forEach(function (row) {
+        var wrap = el('div', 'fact');
+        wrap.appendChild(el('dt', null, row[0]));
+        wrap.appendChild(el('dd', row[2], row[1]));
+        facts.appendChild(wrap);
+      });
+    }
+
+    function renderLedger(data) {
+      var ledger = document.getElementById('ledger');
+      ledger.replaceChildren();
+      document.getElementById('ledger-count').textContent =
+        data.findings.filter(function (f) { return f.verdict === 'ACCEPT'; }).length +
+        '/' + data.findings.length + ' accepted';
+
+      if (!data.findings.length) {
+        ledger.appendChild(el('div', 'empty', 'No findings logged yet.'));
+        return;
+      }
+
+      data.findings.forEach(function (finding) {
+        var row = el('div', 'finding');
+        row.appendChild(el('span', 'finding-id', finding.id));
+        row.appendChild(el('span', 'finding-title', finding.title));
+
+        var meta = el('div', 'finding-meta');
+        if (finding.severity) meta.appendChild(chip(finding.severity, 'chip-' + finding.severity));
+        meta.appendChild(finding.verdict
+          ? chip(finding.verdict, finding.verdict === 'ACCEPT' ? 'chip-accept' : 'chip-reject')
+          : chip('open', 'chip-open'));
+        if (finding.location) meta.appendChild(el('span', 'finding-at', finding.location));
+        row.appendChild(meta);
+        ledger.appendChild(row);
+      });
+    }
+
+    function renderJobTurn(turn) {
+      var job = turn.job || {};
+      var body = el('div');
+
+      var head = el('div', 'turn-head');
+      head.appendChild(el('span', 'who', 'Codex'));
+      head.appendChild(el('span', 'ts', clock(turn.ts)));
+      if (job.status === 'running' || job.status === 'pending') {
+        var live = el('span', 'running');
+        live.appendChild(el('span', 'dot'));
+        live.appendChild(el('span', null, job.phase || 'running'));
+        head.appendChild(live);
+      } else if (job.verdict) {
+        var v = el('span', 'verdict verdict-' +
+          (/approve/i.test(job.verdict) ? 'approved' : 'revise'), 'VERDICT: ' + job.verdict.toUpperCase());
+        head.appendChild(v);
+      }
+      body.appendChild(head);
+
+      body.appendChild(el('div', 'turn-body', job.title || job.kind || 'Codex job'));
+
+      if (job.summary) body.appendChild(el('div', 'job-summary', job.summary));
+
+      if (job.findings && job.findings.length) {
+        var list = el('ul', 'job-findings');
+        job.findings.forEach(function (finding) {
+          var item = el('li');
+          if (finding.severity) item.appendChild(chip(finding.severity, 'chip-' + finding.severity));
+          item.appendChild(el('span', null, finding.title));
+          if (finding.location) item.appendChild(el('span', 'finding-at', finding.location));
+          list.appendChild(item);
+        });
+        body.appendChild(list);
+      }
+
+      if (job.log && job.log.length) {
+        var ticker = el('div', 'ticker');
+        job.log.forEach(function (line) {
+          var match = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+          var row = el('div', 'ticker-line');
+          row.appendChild(el('span', 't', match ? clock(match[1]) : ''));
+          row.appendChild(el('span', 'm', match ? match[2] : line));
+          ticker.appendChild(row);
+        });
+        body.appendChild(ticker);
+        requestAnimationFrame(function () { ticker.scrollTop = ticker.scrollHeight; });
+      }
+
+      return body;
+    }
+
+    function renderTriageTurn(turn) {
+      var body = el('div');
+      var head = el('div', 'turn-head');
+      head.appendChild(el('span', 'who', 'Claude · triage'));
+      head.appendChild(el('span', 'ts', clock(turn.ts)));
+      body.appendChild(head);
+
+      var line = el('div', 'triage-line');
+      line.appendChild(el('span', 'finding-id', turn.id));
+      line.appendChild(chip(turn.verdict, turn.verdict === 'ACCEPT' ? 'chip-accept' : 'chip-reject'));
+      line.appendChild(el('span', null, turn.reason || ''));
+      body.appendChild(line);
+      return body;
+    }
+
+    function renderPlainTurn(turn) {
+      var body = el('div');
+      var head = el('div', 'turn-head');
+      head.appendChild(el('span', 'who', turn.actor === 'codex' ? 'Codex' : 'Claude'));
+      head.appendChild(el('span', 'ts', clock(turn.ts)));
+      body.appendChild(head);
+      body.appendChild(el('div', 'turn-body', turn.text || ''));
+      return body;
+    }
+
+    function renderRounds(data) {
+      var host = document.getElementById('rounds');
+      host.replaceChildren();
+
+      if (!data.rounds.length) {
+        var blank = el('section', 'panel');
+        blank.appendChild(el('div', 'empty', 'No review round has opened yet.'));
+        host.appendChild(blank);
+        return;
+      }
+
+      data.rounds.forEach(function (round) {
+        var panel = el('section', 'panel');
+
+        var head = el('div', 'round-head');
+        head.appendChild(el('span', 'round-n', 'Round ' + round.round));
+        head.appendChild(el('span', 'round-axis', round.axis || 'unlabelled axis'));
+        head.appendChild(el('span', 'round-spacer'));
+        head.appendChild(round.verdict
+          ? el('span', 'verdict verdict-' + round.verdict.toLowerCase(), round.verdict)
+          : el('span', 'verdict verdict-open', 'OPEN'));
+        panel.appendChild(head);
+
+        var turns = el('div', 'turns');
+        round.turns.forEach(function (turn) {
+          var wrap = el('div', 'turn');
+          wrap.dataset.actor = turn.actor;
+          wrap.appendChild(el('div', 'rail'));
+          wrap.appendChild(
+            turn.kind === 'codex-job' ? renderJobTurn(turn)
+              : turn.kind === 'triage' ? renderTriageTurn(turn)
+                : renderPlainTurn(turn)
+          );
+          turns.appendChild(wrap);
+        });
+        panel.appendChild(turns);
+        host.appendChild(panel);
+      });
+    }
+
+    function render(data) {
+      document.getElementById('branch').textContent = data.branch || '(no branch)';
+      document.getElementById('pct').textContent = data.percent + '%';
+
+      var lanes = document.getElementById('lanes');
+      lanes.replaceChildren();
+      ['size', 'risk', 'surface'].forEach(function (key) {
+        var value = data.classification[key];
+        if (!value) return;
+        lanes.appendChild(
+          el('span', 'lane' + (key === 'risk' && value === 'high' ? ' risk-high' : ''), value)
+        );
+      });
+
+      renderTrack(data);
+      renderFacts(data);
+      renderLedger(data);
+      renderRounds(data);
+
+      document.getElementById('stamp').textContent = data.generatedAt
+        ? new Date(data.generatedAt).toLocaleString()
+        : '';
+    }
+
+    // generatedAt changes on every poll. Comparing it would re-render the whole
+    // stream every 2s: the fade-in would replay and the log ticker would lose
+    // its scroll position. Compare the run itself, and update the stamp alone.
+    function apply(data) {
+      var stamp = document.getElementById('stamp');
+      var copy = {};
+      for (var key in data) if (key !== 'generatedAt') copy[key] = data[key];
+
+      var next = JSON.stringify(copy);
+      if (next === last) {
+        stamp.textContent = data.generatedAt
+          ? new Date(data.generatedAt).toLocaleString()
+          : '';
+        return;
+      }
+      last = next;
+      render(data);
+    }
+
+    if (BOOTSTRAP) {
+      document.getElementById('mode').textContent = 'Snapshot — captured at';
+      apply(BOOTSTRAP);
+      return;
+    }
+
+    document.getElementById('mode').textContent = 'Live — polling every 2s · last read';
+
+    function poll() {
+      fetch('/api/state', { cache: 'no-store' })
+        .then(function (response) { return response.json(); })
+        .then(apply)
+        .catch(function () {
+          document.getElementById('mode').textContent = 'Disconnected — last read';
+        })
+        .finally(function () { setTimeout(poll, POLL_MS); });
+    }
+
+    poll();
+  })();
+</script>
