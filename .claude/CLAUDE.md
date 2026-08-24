@@ -143,7 +143,7 @@ decide *where new worker code goes*:
   `notification/`, `auto-post-notice/`, `publisher/`, `zernio/`, `billing/`,
   `onboarding-demo/`, `account-offboarding/`, `judge/`, `escalation-notice/`,
   `autonomy-suspended-notice/`, `pending-post-notice/`, `csv-ingest/`,
-  `solicitation-batch/`, `solicitation-send/`).
+  `solicitation-batch/`, `solicitation-send/`, `solicitation-veto-notice/`).
 - **Publishing goes through the `ReviewPublisher` seam** (`src/lib/publishing/review-publisher.ts`):
   the `worker/jobs/publisher/` call-sites resolve + post via `getReviewPublisher()`
   (`resolveTarget`/`publishReply`/`deleteReply`/`findReply`), NOT `zernioClient`
