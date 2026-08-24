@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **113** — next migration is **114**
+Current head: **114** — next migration is **115**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2490,6 +2490,75 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **114** — `solicitation_attribution`: the **Attributed review** columns on
+  `solicitation_outreach` plus three indexes (#632, map #617; spec
+  `docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md`
+  D14/D16). Four additive nullable columns — `attributed_review_id UUID
+  REFERENCES reviews(id) ON DELETE SET NULL`, `attributed_at TIMESTAMPTZ`,
+  `attribution_rule TEXT`, `attribution_detail JSONB` — each carrying a
+  `COMMENT ON COLUMN`, so a reader of the database learns the rules without the
+  plan. **The FK is `ON DELETE SET NULL`, never `CASCADE`**: deleting a review
+  must not delete the **Outreach row** that recorded a real send to a real
+  person. `attribution_rule` stores the RULE NAME, not a score (deviation D1) —
+  the locked matcher is the strict two-rule boolean with no scored fallback, so
+  a numeric column would have shipped with no writer, and May §6.4's M3
+  precision bar slices by rule. `attribution_detail` carries **NO personal
+  data** (deviation D2): no reviewer name, no contact name — both live in their
+  own tables and the owner surface joins for them, and a denormalized copy would
+  SURVIVE the review's deletion, which is the retention leak **Body redaction**
+  exists to prevent.
+
+  `solicitation_outreach_attribution_consistency` is one-directional on
+  purpose — a review id requires a timestamp, rule and detail, but a timestamp
+  may outlive its review id, which is exactly what SET NULL leaves behind — and
+  it is wrapped in a trailing **`IS TRUE`** (deviation D9). That wrapper is not
+  decoration: a CHECK is SATISFIED by NULL, so the bare disjunction would ADMIT
+  the row it exists to forbid (review id, timestamp and detail present,
+  `attribution_rule` NULL ⇒ `attribution_rule IN (…)` is NULL, the conjunction
+  collapses to NULL, and `FALSE OR NULL` is NULL). Every neighbouring constraint
+  on this table (091, 110) wraps for the same reason.
+
+  Three indexes. `solicitation_outreach_attributed_review_uniq` on
+  `(attributed_review_id) WHERE attributed_review_id IS NOT NULL` — one review
+  attributes to at most one outreach row **GLOBALLY**, keyed on the review id
+  ALONE and deliberately not `(business_id, attributed_review_id)`, which would
+  have permitted the same review once per business (round-1 finding A4).
+  `solicitation_outreach_attribution_candidates` on `(business_id, sent_at DESC)
+  WHERE delivery_status = 'sent' AND attributed_at IS NULL AND bounced_at IS
+  NULL AND complained_at IS NULL` — the **Attribution window** scan, byte-matching
+  the candidate query's fixed arms in `src/lib/solicitation/attribution.ts`;
+  every arm is IMMUTABLE (constant comparisons and IS NULL tests only), which an
+  index predicate requires. **The "not yet attributed" marker is `attributed_at
+  IS NULL`, NEVER `attributed_review_id IS NULL`** (round-1 finding A3): the FK
+  above nulls the review id on a delete, so keying on it would make an
+  already-attributed row a candidate again and let the next match overwrite
+  retained provenance — the candidate query, the enqueue guard, this predicate
+  and the final CAS must all agree. `job_outbox_solicitation_attribution_inflight`
+  on `job_outbox (topic, aggregate_id) WHERE topic = 'solicitation_attribution'
+  AND status IN ('pending', 'dispatching', 'dispatched')` — the per-topic
+  in-flight dedup (deviation D5; 091:541/091:546 and 113:24 are the precedents).
+  Without it the helper's `ON CONFLICT … WHERE` has no constraint to infer and
+  the INSERT throws **inside the review-ingest transaction**, the one place this
+  feature promised never to break; the status literal is
+  `src/lib/shared/job-outbox-status.ts`'s byte-for-byte contract, re-spelled by
+  hand (`ci:outbox-status` checks members AND order) and never parameterized.
+
+  **Runs inside one `BEGIN … COMMIT` with `SET LOCAL lock_timeout = '10s'`**
+  (deviation D10, 110's reasoning verbatim): psql autocommits per statement, so
+  an unwrapped `DROP CONSTRAINT IF EXISTS` that succeeds followed by a failing
+  `ADD CONSTRAINT` would leave the table with **no** attribution constraint at
+  all, and the timeout bounds the ACCESS EXCLUSIVE acquisition on a hot send
+  table. The consequence is deliberate: all three indexes are plain `CREATE
+  INDEX`, not `CONCURRENTLY`, which cannot run inside a transaction — safe
+  because the predicates name brand-new columns and a brand-new topic with zero
+  existing rows in every environment (112/113's precedent). Additive and
+  re-runnable (`IF NOT EXISTS` throughout); no data change, no RLS change, no
+  retention-policy row change.
+  **LOCAL-ONLY** — applied and verified only against the local test container
+  database (`pnpm test:db:setup`); not yet applied to staging or production.
+  Apply staging first, then production, both Supabase projects in lockstep, per
+  usual.
 
 - **113** — `solicitation_auto_approval_lane`: two dedup indexes for the new
   `solicitation_veto_notice` topic/template (#631 Auto-approval lane). 074 §4
