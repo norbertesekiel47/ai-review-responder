@@ -40,15 +40,26 @@ Read in this order:
 2. `.feature/intake.json` and the matching durable intake copy.
 3. `.feature/state.json`.
 4. `.feature/gate-status.json` and the Codex gate fingerprint.
-5. The spec and plan referenced by the intake/handoff.
-6. Deviations and root-triaged review findings.
-7. Handoff prose, if present.
+5. `.feature/progress.json` and `.feature/review-transcript.jsonl`.
+6. The spec and plan referenced by the intake/handoff.
+7. Deviations and root-triaged review findings.
+8. Handoff prose, if present.
 
 Run the fingerprint check whenever its file exists:
 
 ```bash
 cd <worktree-root> && node .agents/skills/feature/scripts/gate-fingerprint.mjs check
 ```
+
+Rebuild the two report surfaces before deciding anything. Both read the files
+above, so they show the reconstructed run, not the prior conversation:
+
+```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs render
+cd <worktree-root> && node .agents/skills/feature/scripts/review-log.mjs render
+```
+
+Print the progress block to the user as the first thing the resume produces.
 
 A missing, red, or stale fingerprint means verification is incomplete even if
 the repository gate file says green. Do not repair that by rewriting state;
@@ -62,6 +73,8 @@ Surface before editing:
 - `state.intakeSha256` differing from the intake
 - branch drift from `origin/main`
 - review output without root `ACCEPT`/`REJECT` triage
+- a step ladder that contradicts `state.phase`
+- untriaged findings reported by `review-log.mjs render`
 - external actions claimed without verifiable evidence
 
 Read [recovery.md](../feature/references/recovery.md) if any inconsistency
@@ -84,10 +97,20 @@ Do not reread every workflow section. Dispatch from reconciled state:
 | `reviewed` | report review-ready and wait for explicit external authority |
 | `shipped` | verify the external outcome before proposing cleanup |
 
-Use the guarded transition wrapper for manual phase changes:
+Use the guarded transition wrapper for manual phase changes, and repair the
+ladder in the same move so the two never disagree:
 
 ```bash
 cd <worktree-root> && node .agents/skills/feature/scripts/transition-state.mjs <phase>
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs step <step> <status>
+```
+
+Restart the live view when the selected phase is a plan review, a branch
+review, or accepted-fix rework. The server holds no state, so a restart costs
+nothing and the page rebuilds from disk:
+
+```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/live-view.mjs start
 ```
 
 If state and evidence imply different rows, evidence wins. State the mismatch
@@ -101,9 +124,11 @@ the selected phase:
 - intent/intake: `references/intake-contract.md`
 - planning/execution: `references/execution-lanes.md`
 - review: `references/review-prompts.md`
+- progress and live view: `references/progress-and-live-view.md`
 - external action: `references/shipping-boundaries.md`
 - inconsistent state: `references/recovery.md`
 
-Update the live Codex task plan to reflect the reconstructed phase. Report in
-one concise line: current phase, exact next action, and reconciliation flags.
-Then continue without asking for prior transcript context.
+Update the live Codex task plan to reflect the reconstructed phase. Report the
+progress block, then one concise line: current phase, exact next action, and
+reconciliation flags. Then continue without asking for prior transcript
+context.

@@ -50,6 +50,40 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
 > that nothing outside the `/feature` workflow's step 8 ever increments it, so
 > any merge that does not run that workflow is invisible by construction.
 
+- **feat — `/feature` run progress + the Claude/Codex review record** (2026-08-23).
+  **Governance-only: this merge changes no file under `src/`, `worker/` or
+  `supabase/`, so by this log's own rule it does NOT increment the counter,
+  which stays at 10.** It lands here because `.agents/skills/` is on the
+  `ci:merge-ledger` governance surface — which is the point of that audit: the
+  #905 blind spot was merges that leave no trace, not merges that count.
+  Six new files under `.agents/skills/feature/`, three edited. A run now prints
+  an 8-step ladder at every phase boundary and on resume, and serves a
+  loopback-only page carrying that ladder, a findings ledger with ACCEPT/REJECT
+  verdicts, and the Claude/Codex review stream; `snapshot` writes the same page
+  as an Artifact fragment for a shareable record. **Ownership is the design:**
+  `progress.json` holds only the ladder and tracers — `state.json` keeps phase,
+  branch, SHAs and review counters, and the gate files keep gate truth, so the
+  new file duplicates nothing (pinned by a gate that fails on any `state.json`
+  key appearing in `progress.json`). Codex output is never copied: the
+  transcript stores a POINTER to the companion's job files, leaving the
+  companion the single owner of its verdict, findings and log.
+  `lib/feature-snapshot.mjs` is the one merge point for all three readers.
+  **Verified under a 31-gate ledger against a real adversarial-review job,
+  which found four defects in this code before it landed** — a self-carry guard
+  that missed symlinked paths (`resolve` does not follow symlinks while git
+  returns the root resolved), a failed `start` that orphaned a listener `stop`
+  could never reach, a stale registry that could SIGTERM an unrelated process
+  after pid reuse, and a cross-round triage that published a REJECTED finding
+  as ACCEPTED. Two of the sweep's own tests were also wrong and are recorded
+  because a test that lies is worse than none: a `die` inside a subshell let a
+  case print OK with three assertions failed, and the docs-coverage gate probed
+  commands by EXECUTING them, so it started real servers on port 7717.
+  **Known collision, not resolved here:** `codex/feature-workflow-hardening` is
+  a parallel, almost entirely uncommitted hardening of this same skill
+  (`tracer-ledger.mjs`, `review-findings.mjs`, `durable-store.mjs`) that would
+  give tracers, findings and durable reads a second owner. It edits the same
+  three documents. Someone must choose before it lands.
+
 - **refactor #880** — `useAdminActionForm`, and all five admin surfaces migrated
   in one change (2026-08-23; surfaced by #865's branch review, standards axis).
   The `useReducer` + 7-to-9-member action union + switch + `initialState` was
