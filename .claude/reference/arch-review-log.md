@@ -238,8 +238,7 @@ Prior passes: `PATHFINDER-2026-08-18/`, `-08-15/`, `-08-10/`.
   `ApprovalPanel.tsx`'s false verbs-comment corrected. Exhaustiveness-pinned unit suite +
   three route-level `no_send_parent → closed:false` pins. **Counts: +1 production merge.**
 - **feat #631** — Auto-approval lane: Autopilot batches behind flag, Judge-gated,
-  veto-windowed (2026-08-23, branch `631-auto-approval-lane`; PR number lands at
-  step 8). One new deep module `src/lib/solicitation/auto-approval.ts` (four-condition
+  veto-windowed (2026-08-23, branch `631-auto-approval-lane`, PR #950). One new deep module `src/lib/solicitation/auto-approval.ts` (four-condition
   gate D20 + account-wide Governor read D19, `auto_policy` approval verb at the
   ask-generation finale, **Veto anchor** on first-sent notice, release-time re-check
   with reason-parameterized downgrade split); new `worker/jobs/solicitation-veto-notice/`
