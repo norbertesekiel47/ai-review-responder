@@ -27,9 +27,16 @@ Plus Jakarta Sans at 200/300, weights that exist for this page.
 - Full-bleed video bookends (sections 1 and 9), liquid-glass narrative sections between.
 - **Native scroll, content-height sections (2026-08-16 Linear pass).** No smooth-scroll
   layer, no snap, no scroll-linked dissolve, no chapter rail or markers, no scroll cue.
-  Sections 2–5 are as tall as their content plus `--rw-lp-section-gap`; the one motion
-  on arrival is `Reveal`'s ≤200ms opacity fade. One gold-filled pill is the primary action
-  (nav, hero, closing band). Every label is the mono `--rw-lp-label-*` role.
+  The narrative sections (2–6, 8) are as tall as their content plus
+  `--rw-lp-section-gap`; the one motion a block gets on arrival is `Reveal`'s ≤200ms
+  opacity fade. One gold-filled pill is the primary action (nav, hero, closing band).
+  Every label is the mono `--rw-lp-label-*` role.
+- **Bookend cinema + arrival choreography (2026-08-24, owner override).** Three motions
+  were deliberately added back inside the Linear pass's constraints: the two film
+  bookends carry a scroll-linked push-in/settle (≤1.045, on an internal zoom layer,
+  reader-driven), the hero copy enters in five staged beats on load, and the tiers
+  thumb breathes. Native scroll is untouched, no section wrapper transforms, and no
+  transform ever sits on an ancestor of the future section's glow.
 
 **Sections 1 and 9 are a deliberate pair:** the same world, opened in daylight with the
 copy set RIGHT and closed at night with it set LEFT. They are the only two full-bleed
@@ -158,12 +165,17 @@ reasoning and the numbers are in [`measurements.md`](./measurements.md).
 | Arrival fade | `0.2s`, opacity only, `easeOut` | `Reveal` — the ONE motion a block gets on entering the viewport |
 | Arrival stagger | `60ms` per index, capped at 6 | `Reveal` |
 | Pill hover | `translateY(-1px)` + lifted gold, `200–240ms` | nav pill, hero CTA, closing action |
+| Hero entrance | 5 beats, `650ms` fade + 14px rise, `110ms` apart, once on load | hero copy column (`useHeroEntrance`); reduced motion renders the final frame via `initial: false` |
+| Bookend push-in / settle | scale `1 → 1.045` (hero exit) and `1.045 → 1` (closing-band arrival), scroll-linked | `.rw-lp-hero-zoom` / `.rw-lp-cta-zoom` — internal zoom layers, never the media wrapper (a transformed box grows the page's scrollable overflow) |
+| Thumb breathe | box-shadow spread `6px → 9px`, `4.5s`, infinite | `.rw-lp-tiers-thumb`; covered by the universal pause rule, skipped under reduced motion |
 
 Native scroll. There is no smooth-scroll layer, no snap (Lenis or CSS), and no
 scroll-linked section dissolve — all removed 2026-08-16 so the reader owns the wheel and
 content is present when the viewport arrives. `Reveal` is opacity-only on purpose: it
 never puts a transform on an ancestor of the future section's `background-attachment:
-fixed` glow. Zero layout-animating transitions remain on the page; zero `transition:
+fixed` glow. The 2026-08-24 bookend cinema is scroll-LINKED, not scroll-hijacking: the
+push-in rides the reader's own scroll on a layer inside sections 1 and 9, which are
+siblings — not ancestors — of the future section. Zero layout-animating transitions remain on the page; zero `transition:
 all`; zero `will-change` at rest. The reasoning is in
 [`measurements.md`](./measurements.md).
 
@@ -222,6 +234,31 @@ Role: the action layer and the oversight layer, distinguished by temperature.
 - `.rw-lp-flip .rw-lp-flip-face` is scoped deliberately — flattening the selector drops
   both faces into normal flow.
 
+### Problem (section 6)
+
+Role: the one purely typographic beat — between the hero film and the fleet diagram,
+an essay opening: no glass, no cards, no media. Framed at reputation width (owner
+direction, 2026-08-24) so the copy cannot go stale as new agents ship; the only
+product claim is the pivot line's existence claim ("So we built the staff"). See
+`problem/problem-copy.ts` for the framing contract.
+
+### Tiers — Copilot vs Autopilot (section 8)
+
+Role: the dial-track. The dial IS the layout: one horizontal travel line spans the
+section, `COPILOT` and `AUTOPILOT` anchor its ends, three detents between the end
+stops argue "a range, not a toggle", and the gold thumb rests on the Copilot side —
+where every account starts. Decorative and static (`aria-hidden`); if it ever becomes
+interactive it needs a `--rw-lp-accent` ring and a focus-test row. Below 720px the
+travel rotates to a vertical line beside the stacked modes. Neither mode takes a tier
+temperature — they are modes, not agents — and nothing here is gold-filled.
+
+### The watchdogs' door (section 4 → /how-it-works)
+
+The pipeline is deliberately NOT a landing section (owner decision, 2026-08-24):
+`/how-it-works` already tells it in depth, so the watchdogs section ends with a gold
+text link there — `.rw-lp-watch-pipeline-link`, asserted in the focus test. Gold, not
+teal: it is an action, not part of the oversight diagram. A text link, not a pill.
+
 ### Future (section 5)
 
 Role: what is coming. **Static** cards (tag, name, body all visible — the flip was
@@ -278,7 +315,7 @@ is covered without anyone remembering to.
   its channel token.
 - **Do** keep the `.rw-lp-` prefix on every class in this folder.
 - **Do** add any new interactive element to `focus-visible-marketing.test.ts` (it asserts
-  a ring on **13** landing controls today).
+  a ring on **14** landing controls today).
 - **Do** take the **structure** from a reference and keep RepWorth's palette and Plus
   Jakarta. Four references were adapted, never copied — each shipped its own palette
   (EOSAI dark/gold; a `#0a0a0a` + Playfair spec; an Orbis `#010828` + Anton spec; a
@@ -302,9 +339,11 @@ is covered without anyone remembering to.
   single-class rule and silently render headlines near-black on the dark scrim.
 - **Don't** collapse the gold and the teal — the temperature shift *is* the tier.
 - **Don't** fold the deliberate literals into tokens (see **Tokens — Colors**).
-- **Don't** reintroduce snap, smooth-scroll, or a scroll-linked section transform. The
-  page scrolls natively (2026-08-16); a transformed ancestor also breaks the future
-  section's fixed-attachment glow.
+- **Don't** reintroduce snap, smooth-scroll, or a scroll-linked transform on a section
+  wrapper. The page scrolls natively (2026-08-16); a transformed ancestor also breaks
+  the future section's fixed-attachment glow. The one sanctioned scroll-linked
+  transform is the bookends' internal zoom layer (2026-08-24, owner override) —
+  inside sections 1 and 9, never on them.
 - **Don't** add a fourth gold-filled element. The nav pill, the hero CTA and the closing
   action are the whole set.
 - **Don't** "tidy" a load-bearing number. Every one of them is indexed in

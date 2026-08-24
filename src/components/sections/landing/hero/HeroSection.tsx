@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Fragment, useState, useSyncExternalStore } from 'react';
+import { m, useScroll, useTransform } from 'motion/react';
+import { Fragment, useRef, useState, useSyncExternalStore } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { AmbientVideo } from '../ambient-motion';
@@ -84,6 +85,26 @@ function HeroBackdrop() {
   const isNarrow = useMediaQuery(NARROW_QUERY);
   const [videoReady, setVideoReady] = useState(false);
 
+  /**
+   * Bookend cinema (owner override of the Linear pass, 2026-08-24): as the
+   * hero scrolls out, the film grows to at most 1.045 — a slow push-in that
+   * the closing band mirrors in reverse. Reader-driven, not autoplaying, so
+   * it sits outside the ambient pause control (WCAG 2.2.2 governs motion that
+   * moves on its own; this moves only under the reader's hand) and is skipped
+   * under reduced motion. At rest the scale is exactly 1: the state every
+   * scrim contrast figure was measured in.
+   *
+   * The transform lives on `.rw-lp-hero-media` — INSIDE this section. It is
+   * never an ancestor of the future section, so the fixed-attachment glow
+   * constraint (measurements.md §2) is untouched.
+   */
+  const mediaRef = useRef<HTMLDivElement | null>(null);
+  const { scrollYProgress } = useScroll({
+    target: mediaRef,
+    offset: ['start start', 'end start'],
+  });
+  const exitScale = useTransform(scrollYProgress, [0, 1], [1, 1.045]);
+
   // Derived, never synchronised: the video simply does not exist until the
   // client has told us the viewport and the motion preference.
   const videoSrc =
@@ -97,8 +118,17 @@ function HeroBackdrop() {
   // breakpoint: React reuses the element, which keeps painting its last frame
   // while the new source loads, so holding it visible avoids a flash to poster.
   return (
-    <div className="rw-lp-hero-media" aria-hidden="true">
-      <Image src={HERO_POSTER} alt="" fill priority sizes="100vw" className="rw-lp-hero-poster" />
+    // The scale lives on the inner zoom layer, NOT on this wrapper: a
+    // transformed box grows the page's scrollable overflow even when a parent
+    // clips its pixels, which put a horizontal scrollbar on the whole page.
+    // The wrapper stays untransformed (stable for useScroll's measurements)
+    // and its `overflow: hidden` clips the zoom.
+    <div ref={mediaRef} className="rw-lp-hero-media" aria-hidden="true">
+      <m.div
+        className="rw-lp-hero-zoom"
+        style={prefersReducedMotion ? undefined : { scale: exitScale }}
+      >
+        <Image src={HERO_POSTER} alt="" fill priority sizes="100vw" className="rw-lp-hero-poster" />
       {videoSrc ? (
         <AmbientVideo
           className="rw-lp-hero-video"
@@ -111,6 +141,7 @@ function HeroBackdrop() {
           onCanPlay={() => setVideoReady(true)}
         />
       ) : null}
+      </m.div>
     </div>
   );
 }
@@ -157,7 +188,33 @@ function ArrowGlyph() {
   );
 }
 
+/**
+ * Arrival choreography (direction B, 2026-08-24): the copy column enters in
+ * five staged beats — title, rule, subhead, CTA, scope note — each a 650ms
+ * fade with a 14px rise, 110ms apart. One-time, on load, finite; it is
+ * motion/react-driven, so the CSS pause rule (which governs only keyframe
+ * animations) cannot freeze it mid-flight. Reduced motion renders the final
+ * frame immediately via `initial: false` — same element types both ways, so
+ * nothing that ever observes these nodes can capture a stale one (the trap
+ * measurements.md records against `Reveal`'s branch-by-type shape).
+ *
+ * The y-drift transforms sit on the hero's own children, never on an
+ * ancestor of the future section's fixed-attachment glow.
+ */
+function useHeroEntrance() {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  return (step: number) =>
+    prefersReducedMotion
+      ? { initial: false as const }
+      : {
+          initial: { opacity: 0, y: 14 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.65, ease: 'easeOut' as const, delay: 0.15 + step * 0.11 },
+        };
+}
+
 export function HeroSection({ primaryCtaHref, primaryCtaLabel }: HeroSectionProps) {
+  const enter = useHeroEntrance();
   return (
     <section className="rw-lp-hero" aria-labelledby="rw-lp-hero-title">
       <HeroBackdrop />
@@ -165,7 +222,7 @@ export function HeroSection({ primaryCtaHref, primaryCtaLabel }: HeroSectionProp
 
       <div className="rw-lp-hero-inner">
         <div className="rw-lp-hero-copy">
-          <h1 className="rw-lp-hero-title" id="rw-lp-hero-title" aria-label={TITLE_PLAIN}>
+          <m.h1 {...enter(0)} className="rw-lp-hero-title" id="rw-lp-hero-title" aria-label={TITLE_PLAIN}>
             {/* The explicit `{' '}` matter: the lines are `display: block` at
                 desktop (where the breaks are hand-set) and `display: inline`
                 below 900px, where they need real word gaps to flow. */}
@@ -173,24 +230,28 @@ export function HeroSection({ primaryCtaHref, primaryCtaLabel }: HeroSectionProp
               <span className="rw-lp-hero-title-line">{TITLE_LEAD}</span>{' '}
               <span className="rw-lp-hero-title-line rw-lp-hero-title-accent">{TITLE_ACCENT}</span>
             </span>
-          </h1>
+          </m.h1>
 
-          <div className="rw-lp-hero-rule" aria-hidden="true" />
+          <m.div {...enter(1)} className="rw-lp-hero-rule" aria-hidden="true" />
 
-          <p className="rw-lp-hero-sub">
+          <m.p {...enter(2)} className="rw-lp-hero-sub">
             <BrokenLines lines={SUBHEAD_LINES} />
-          </p>
+          </m.p>
 
           {/* One filled pill, the page's primary action. The nav and the
               closing band carry the same control. */}
-          <Link href={primaryCtaHref} className="rw-lp-hero-cta">
-            <span className="rw-lp-hero-cta-label">{primaryCtaLabel}</span>
-            <ArrowGlyph />
-          </Link>
+          {/* A block wrapper, not m.create(Link): the copy column is plain
+              block flow, so wrapping the inline-flex pill changes nothing. */}
+          <m.div {...enter(3)}>
+            <Link href={primaryCtaHref} className="rw-lp-hero-cta">
+              <span className="rw-lp-hero-cta-label">{primaryCtaLabel}</span>
+              <ArrowGlyph />
+            </Link>
+          </m.div>
 
-          <p className="rw-lp-hero-note">
+          <m.p {...enter(4)} className="rw-lp-hero-note">
             <BrokenLines lines={SCOPE_NOTE_LINES} />
-          </p>
+          </m.p>
         </div>
       </div>
     </section>

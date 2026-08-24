@@ -44,6 +44,10 @@ const LIGHTBOX_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/sections/landing/fleet/video-lightbox.css'),
   'utf-8',
 );
+const WATCH_CSS = readFileSync(
+  resolve(process.cwd(), 'src/components/sections/landing/watchdogs/watchdogs.css'),
+  'utf-8',
+);
 
 const FOCUS_RULES = [
   { css: LANDING_CSS, selector: '.rw-lp-wordmark:focus-visible', token: '--rw-lp-accent', offset: '3px' },
@@ -60,6 +64,9 @@ const FOCUS_RULES = [
   { css: FOOTER_CSS, selector: '.rw-lp-foot-brand-name:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   { css: FLEET_CSS, selector: '.rw-lp-fleet-play:focus-visible', token: '--rw-lp-accent', offset: '4px' },
   { css: LIGHTBOX_CSS, selector: '.rw-lp-lightbox-close:focus-visible', token: '--rw-lp-accent', offset: '3px' },
+  // The watchdogs section's door to /how-it-works (the landing page links to
+  // the pipeline story instead of retelling it).
+  { css: WATCH_CSS, selector: '.rw-lp-watch-pipeline-link:focus-visible', token: '--rw-lp-accent', offset: '3px' },
   // The three gold pills ring at 3px: outward, past the pill's own fill.
   { css: HERO_CSS, selector: '.rw-lp-hero-cta:focus-visible', token: '--rw-lp-hero-accent', offset: '3px' },
   { css: CTA_CSS, selector: '.rw-lp-cta-action:focus-visible', token: '--rw-lp-cta-accent', offset: '3px' },

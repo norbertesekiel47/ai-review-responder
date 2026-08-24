@@ -6,9 +6,23 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0** — reset by the **2026-08-24 pass**
-(entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-24/`.
+**Merges since last architecture pass: 1** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge line here. Full artifacts:
+`docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
+
+Merges since the 2026-08-24 pass:
+
+- 2026-08-24 — `feat-landing-elevation`: landing-page elevation. Sections 6
+  (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
+  dial-track) built; section 7 deliberately NOT a section — the watchdogs
+  section ends with a gold door to `/how-it-works` instead of retelling the
+  pipeline. Hero five-beat arrival, bookend push-in/settle on internal zoom
+  layers (owner override of part of the 2026-08-16 Linear pass; accent
+  contrast re-measured at ~3.35:1 worst case), tiers thumb breathe. 15
+  production files, all `src/components/sections/landing/**` + 2 test files;
+  landing DESIGN.md/measurements.md updated (14 focus rings, three infinite
+  animations).
 
 > **The counter was CORRECT this time — the first pass in five for which that is
 > true.** The 2026-08-24 pass measured its window independently

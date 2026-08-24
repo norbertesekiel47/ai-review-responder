@@ -335,3 +335,9 @@
     transition: none;
   }
 }
+
+/* The bookend-cinema zoom layer — the hero's twin (see hero.css). */
+.rw-lp-cta-zoom {
+  position: absolute;
+  inset: 0;
+}
