@@ -1,10 +1,8 @@
 /**
  * Copilot vs Autopilot — section 8 copy.
  *
- * ── PROVISIONAL ───────────────────────────────────────────────────────────
- * Drafted from the design of record (§8) and the narrative spine before the
- * brief's exact §3.4 wording was available in-session. Verify against
- * `RepWorth-website-design-reference.md` before merge and delete this banner.
+ * Drafted from the design of record (§8); wording blessed by the owner on
+ * staging, 2026-08-24.
  *
  * ── Accuracy contract ─────────────────────────────────────────────────────
  * The reference's visual metaphor for this section is a DIAL between control
