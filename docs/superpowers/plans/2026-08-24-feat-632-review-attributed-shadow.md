@@ -123,7 +123,60 @@ Task 0 (eval) ──► Task 1 (migration) ──► Task 2 (matcher) ──┬�
 
 ## Task 0: The eval task — author every promised test as failing
 
-Authors all 26 `tests_to_add` titles verbatim. Slices not yet buildable use `.todo`. This is the spec in executable form and lands before any implementation.
+Authors **all 54 `tests_to_add` titles verbatim**. The authoritative list is `.feature/intake.json` → `tests_to_add`; it is deliberately not copied here, because a second copy would drift from the one the gate greps. Read it and reproduce every title byte-for-byte.
+
+Slices not yet buildable use `.todo` **during Task 0 only**. The eval-contract test in Step 0 makes that temporary by construction: it stays red until the last `.todo` is filled, so a `.todo` can never survive to step 5.
+
+> **Round-1 revision.** The first draft promised 26 titles and left 18 as `.todo`. Vitest reports skipped tests as success and `promised-tests` only greps title text, so Task 0's gate was **vacuous** — the eval could pass with the feature materially wrong (finding A11). The 28 added titles close the gaps the review found: outbox completion, call-site atomicity, the excluded import lane, crossed-tenant ids, concurrent replay, the outcome's attachment to the **Lazy child**, the no-billing claim, worker registration, the PII-free log line, and the UI's flag-off and one-star behaviour.
+
+- [ ] **Step 0: Write the eval-contract test FIRST**
+
+`src/lib/solicitation/__tests__/attribution.test.ts`, at the top. This is the
+test that makes every other promised test real:
+
+```typescript
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const INTAKE = join(process.cwd(), '.feature', 'intake.json');
+const SUITE_FILES = [
+  'src/lib/solicitation/__tests__/attribution.test.ts',
+  'src/lib/solicitation/__tests__/attribution.integration.test.ts',
+  'src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts',
+  'src/lib/shared/__tests__/job-outbox-helpers.test.ts',
+  'src/lib/shared/__tests__/job-outbox-helpers-attribution.integration.test.ts',
+  'src/lib/reviews/__tests__/process-review.test.ts',
+  'src/lib/reviews/__tests__/process-review-attribution.integration.test.ts',
+  'worker/__tests__/solicitation-attribution.test.ts',
+  'src/app/api/dashboard/solicitation/attributed/__tests__/route.test.ts',
+  'src/app/(authenticated)/dashboard/requests/__tests__/attributed-reviews.test.tsx',
+];
+
+it('eval contract: every promised test executes with zero todo or skip cases', () => {
+  const promised: string[] = JSON.parse(readFileSync(INTAKE, 'utf8')).tests_to_add;
+  const corpus = SUITE_FILES
+    .map((f) => { try { return readFileSync(join(process.cwd(), f), 'utf8'); } catch { return ''; } })
+    .join('\n');
+
+  // Every promised title must appear.
+  const missing = promised.filter((title) => !corpus.includes(title));
+  expect(missing).toEqual([]);
+
+  // …and none of them may be parked. `promised-tests` greps titles only, so
+  // without this assertion 54 `.todo` lines satisfy the gate while asserting
+  // nothing. This test is MEANT to be red for most of the branch's life.
+  const parked = promised.filter((title) => {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(it|test|describe)\\s*\\.\\s*(todo|skip|fails)\\s*\\(\\s*['"\`]${escaped}`)
+      .test(corpus);
+  });
+  expect(parked).toEqual([]);
+});
+```
+
+> The `SUITE_FILES` list must stay in step with `allowed_edit_surface`. A
+> promised title living in a file this list omits reads as "missing" — which is
+> the safe direction, but fix the list rather than the assertion.
 
 **Files:**
 - Create: `src/lib/solicitation/__tests__/attribution.test.ts`
@@ -200,18 +253,43 @@ describe('matchAttribution', () => {
   describe('invariants', () => {
     const nameArb = fc.stringMatching(/^[a-z]{1,8}( [a-z]{1,8}){0,2}$/);
 
+    // A TEST-SIDE oracle. It re-implements the locked rule independently and
+    // calls neither matchAttribution nor normalizePersonName. The first draft
+    // decided the expected answer by calling matchAttribution again on
+    // singletons, which is circular: a matcher that always abstains for arrays
+    // longer than one passed vacuously (round-1 finding A12).
+    const oracleTokens = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+        .replace(/[.,]/g, ' ').split(/\s+/).filter(Boolean);
+
+    function oracleMatches(contactName: string, reviewerName: string): boolean {
+      const a = oracleTokens(contactName), b = oracleTokens(reviewerName);
+      if (a.length < 2 || b.length < 2) return false;
+      const ok = (x: string, y: string) =>
+        x === y || (x.length === 1 && y.startsWith(x)) || (y.length === 1 && x.startsWith(y));
+      const fa = a[0]!, la = a[a.length - 1]!, fb = b[0]!, lb = b[b.length - 1]!;
+      return ok(fa, fb) && ok(la, lb) && (fa === fb || la === lb);
+    }
+
+    it('matchAttribution agrees with an independent test-side oracle on match cardinality', () => {
+      fc.assert(
+        fc.property(nameArb, fc.array(nameArb, { maxLength: 6 }), (reviewer, names) => {
+          const result = matchAttribution(reviewer, names.map((n, i) => candidate(n, `o${i}`)));
+          const hits = names.filter((n) => oracleMatches(n, reviewer)).length;
+          if (names.length === 0) return result.resolution === 'no_candidates';
+          if (hits === 0) return result.resolution === 'no_match';
+          if (hits > 1) return result.resolution === 'ambiguous';
+          return result.resolution === 'attributed';
+        }),
+      );
+    });
+
     it('matchAttribution never returns more than one attributed candidate', () => {
       fc.assert(
         fc.property(nameArb, fc.array(nameArb, { maxLength: 6 }), (reviewer, names) => {
-          const result = matchAttribution(
-            reviewer,
-            names.map((n, i) => candidate(n, `o${i}`)),
-          );
+          const result = matchAttribution(reviewer, names.map((n, i) => candidate(n, `o${i}`)));
           if (result.resolution !== 'attributed') return true;
-          const winners = names.filter(
-            (n) => matchAttribution(reviewer, [candidate(n)]).resolution === 'attributed',
-          );
-          return winners.length === 1;
+          return names.filter((n) => oracleMatches(n, reviewer)).length === 1;
         }),
       );
     });
@@ -233,7 +311,9 @@ describe('matchAttribution', () => {
 
 - [ ] **Step 2: Write the integration suite with every title verbatim, bodies as `.todo`**
 
-`src/lib/solicitation/__tests__/attribution.integration.test.ts` — file name ends `.integration.test.ts` so vitest's serialized `integration` project selects it. **No run-time DDL** (`ci:live-db-suites`). Use `assertSchemaReady`, following `src/lib/solicitation/__tests__/batch-view.integration.test.ts`.
+`src/lib/solicitation/__tests__/attribution.integration.test.ts` — the file name ends `.integration.test.ts` so vitest's serialized `integration` project selects it. **No run-time DDL** (`ci:live-db-suites`).
+
+Import `assertSchemaReady` from `@/lib/shared/__tests__/helpers/schema-ready` and follow **`src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts`** for suite shape, the cross-process live-DB lock and the outreach fixtures. (The first draft cited `batch-view.integration.test.ts`, which uses neither the helper nor shared fixtures — round-1 finding A10.)
 
 ```typescript
 describe('attribution', () => {
@@ -363,26 +443,35 @@ ALTER TABLE solicitation_outreach
     )
   );
 
--- One review attributes to at most one Outreach row. business_id leads so the
--- index is tenant-scoped and usable by the candidate scan's equality prefix.
+-- One review attributes to at most one Outreach row GLOBALLY. Keyed on the
+-- review id ALONE, not (business_id, attributed_review_id): review ids are
+-- globally unique, and the composite form would have permitted the same review
+-- once per business (round-1 finding A4).
 CREATE UNIQUE INDEX IF NOT EXISTS solicitation_outreach_attributed_review_uniq
-  ON solicitation_outreach (business_id, attributed_review_id)
+  ON solicitation_outreach (attributed_review_id)
   WHERE attributed_review_id IS NOT NULL;
 
 -- The Attribution window scan. The partial predicate byte-matches the
 -- candidate query's fixed arms in src/lib/solicitation/attribution.ts; only
 -- the sent_at range is parameterized.
+--
+-- The "not yet attributed" marker is `attributed_at IS NULL`, NEVER
+-- `attributed_review_id IS NULL` (round-1 finding A3). The FK above nulls the
+-- review id when a review is deleted; keying on it would make an
+-- already-attributed row a candidate again and let the next match overwrite
+-- retained provenance. `attributed_at` is never cleared, so it is the honest
+-- "has this row ever been attributed" fact.
 CREATE INDEX IF NOT EXISTS solicitation_outreach_attribution_candidates
   ON solicitation_outreach (business_id, sent_at DESC)
   WHERE delivery_status = 'sent'
-    AND attributed_review_id IS NULL
+    AND attributed_at IS NULL
     AND bounced_at IS NULL
     AND complained_at IS NULL;
 
 -- The in-flight outbox dedup for the NEW topic. These indexes are PER TOPIC,
 -- not generic — see job_outbox_solicitation_send_inflight (091:541),
 -- job_outbox_generate_solicitation_asks_inflight (091:546) and
--- job_outbox_solicitation_veto_notice_inflight (113:24). Without this index the
+-- idx_jo_solicitation_veto_notice_inflight (113:24). Without this index the
 -- helper's ON CONFLICT has no constraint to infer and the INSERT throws inside
 -- the review-ingest transaction — the one place this feature promised never to
 -- break. The status literal is a byte-for-byte contract owned by
@@ -655,7 +744,14 @@ interface CandidateRow {
  *     same-name review cannot have been caused by it.
  *   - unsubscribed rows STAY eligible: an unsubscribe is evidence the mail was
  *     opened, and the two acts happen in either order.
- *   - already attributed — one Outreach row attributes at most one review.
+ *   - already attributed — one Outreach row attributes at most one review,
+ *     PERMANENTLY. The marker is `attributed_at`, never `attributed_review_id`:
+ *     the FK nulls the review id on delete, and keying on it would resurrect
+ *     the row as a candidate and overwrite retained provenance (finding A3).
+ *
+ * The window is INCLUSIVE at both ends (`<= anchor`, `>= anchor - 14d`). The
+ * intake excludes only "MORE than 14 days", so an ask sent exactly 14 days
+ * before the anchor is eligible (finding A5).
  *
  * The anchor is `reviewTimeAnchor` (ADR 0019), the single owner of
  * LEAST(review_date, detected_at). A review whose anchor precedes sent_at is
@@ -683,12 +779,12 @@ async function loadCandidates(
      WHERE o.business_id = ${input.businessId}::uuid
        AND o.account_id  = ${input.accountId}::uuid
        AND o.delivery_status = 'sent'
-       AND o.attributed_review_id IS NULL
+       AND o.attributed_at IS NULL
        AND o.bounced_at    IS NULL
        AND o.complained_at IS NULL
        AND o.sent_at IS NOT NULL
        AND o.sent_at <= anchor.at
-       AND o.sent_at >  anchor.at - make_interval(days => ${ATTRIBUTION_WINDOW_DAYS})
+       AND o.sent_at >= anchor.at - make_interval(days => ${ATTRIBUTION_WINDOW_DAYS})
      ORDER BY o.sent_at DESC
   `;
   return rows.map((row) => ({
@@ -912,7 +1008,7 @@ export async function enqueueSolicitationAttribution(
       SELECT 1 FROM solicitation_outreach o
        WHERE o.business_id = ${input.businessId}
          AND o.delivery_status = 'sent'
-         AND o.attributed_review_id IS NULL
+         AND o.attributed_at IS NULL
     )
     ON CONFLICT (topic, aggregate_id)
     WHERE topic = 'solicitation_attribution' -- topic-audit-ignore: partial-index inference needs a literal
@@ -930,12 +1026,18 @@ export async function enqueueSolicitationAttribution(
 > `src/lib/shared/job-outbox-status.ts` and `ci:outbox-status` checks members
 > AND order.
 
-- [ ] **Step 4: Call it from BOTH live-ingest transactions**
+- [ ] **Step 4: Call it from the LIVE lane only**
 
-`src/lib/reviews/process-review.ts` has **TWO** new-review entry points. Both
-call `maybeEnqueueFirstReviewIngested(tx, { businessId, reviewId })` — near line
-87 and near line 540. **The enqueue goes beside it in BOTH**, or one ingest lane
-silently never attributes. Add the identical block to each:
+`src/lib/reviews/process-review.ts` has **two** entry points and they are not
+peers: `processReview` (line 36) is the LIVE lane; `importReview` (line 515) is
+the Zernio backfill lane, which the intake's non-goals **exclude**. An earlier
+draft of this plan said "both"; that would have wired the excluded lane
+(round-1 finding A2).
+
+**The enqueue goes in `processReview` ONLY**, beside its
+`maybeEnqueueFirstReviewIngested(tx, { businessId, reviewId })` call. Add
+nothing to `importReview` — an imported historical review was never caused by an
+ask sent after it, and the negative test pins that.
 
 ```typescript
       // #632: the attribution lookback. Enqueued in THIS transaction
@@ -954,8 +1056,9 @@ Placed on the NEW-review path only. The update, unchanged and status-only paths
 get no enqueue — a review that already existed was never caused by an ask sent
 after it.
 
-> Verify the second entry point actually has `correlationId` in scope before
-> writing. If it does not, omit the field there; it is optional on the input.
+`reviewId`, `businessId` and `correlationId` are all in scope at that site
+(verified). `biz.account_id` is **not**, which is why the payload carries no
+account.
 
 - [ ] **Step 5: Fill in the two enqueue test bodies and run**
 
@@ -1006,6 +1109,10 @@ import type { Job } from 'bullmq';
 import type { Sql } from 'postgres';
 import { attributeReview } from '../../../src/lib/solicitation/attribution';
 import { createWorkerLogger } from '../../../src/lib/shared/logger';
+import {
+  extractOutboxHandle,
+  markOutboxCompletedIfOwned,
+} from '../../../src/lib/shared/outbox';
 import type { SolicitationAttributionPayload } from '../../../src/lib/shared/worker-types';
 
 const logger = createWorkerLogger('solicitation-attribution');
@@ -1015,10 +1122,28 @@ export async function handleSolicitationAttribution(
   job: Job<SolicitationAttributionPayload>,
 ): Promise<void> {
   const { review_id: reviewId, business_id: businessId } = job.data;
+  const { outboxId, attempt } = extractOutboxHandle(job.data, job.id ?? '');
 
+  // ONE transaction: claim the outbox attempt, then do the domain write.
+  //
+  // The claim comes FIRST and is attempt-guarded (round-1 finding A1). Without
+  // it the row stays `dispatched` forever and the watchdog re-dispatches it
+  // until it fails — the plan's first draft never completed its own row. A
+  // `false` return means a stale attempt lost the race to the watchdog's newer
+  // one: perform NO mutation, because the winner is already doing this work.
+  //
   // The account is resolved inside attributeReview from the business FK
   // (deviation D3) — it never rides the payload.
-  const match = await sql.begin((tx) => attributeReview(tx, { reviewId, businessId }));
+  const match = await sql.begin(async (tx) => {
+    const owned = await markOutboxCompletedIfOwned(tx, outboxId, attempt);
+    if (!owned) return null;
+    return attributeReview(tx, { reviewId, businessId });
+  });
+
+  if (match === null) {
+    logger.log('attribution_stale_attempt', { reviewId, businessId, outboxId });
+    return;
+  }
 
   // The ONE observability signal for this feature. `resolution` is a closed
   // set; a rising `ambiguous` rate is the evidence that the name rule is too
@@ -1138,7 +1263,13 @@ export async function listAttributedReviews(
            r.star_rating, r.review_date,
            o.sent_at AS ask_sent_at, o.attributed_at, o.attribution_rule
       FROM solicitation_outreach o
-      JOIN reviews r ON r.id = o.attributed_review_id
+      -- The business predicate is NOT redundant (round-1 finding A6). The FK
+      -- binds only reviews(id); it does not bind the review's business to the
+      -- Outreach row's. Joining on id alone would let one schema-valid bad
+      -- write expose another tenant's review text on this surface.
+      JOIN reviews r
+        ON r.id = o.attributed_review_id
+       AND r.business_id = o.business_id
      WHERE o.account_id  = ${input.accountId}::uuid
        AND o.business_id = ${input.businessId}::uuid
        AND o.attributed_review_id IS NOT NULL
@@ -1296,6 +1427,34 @@ git commit -m "docs(632): attribution glossary terms, directory rows, migration 
 ## Out-of-band, owner-owned (not a task)
 
 Map #617's migration-queue line must record that **#632 is migration-bearing (114)**. That map lives on the issue tracker, not in this repo, and its own rule says the session that discovers it updates it. Done in the orchestrating session at ship time, not by a subagent.
+
+## Round-1 corrections that apply across tasks
+
+Read these before writing any code. They are accepted findings from
+`docs/reviews/feat-632-review-attributed-shadow/plan-round1-triage.md`; the
+inline task code above already reflects them, and this list is the checklist.
+
+1. **`TIMESTAMPTZ` decodes to a JS `Date`, not a string** (finding A7). Every
+   row type in this plan that declares `sent_at`, `attributed_at`, `review_date`
+   or an anchor as `string` is wrong. Type them `Date`, or select `::text` — pick
+   one and hold it across `attribution.ts`. Postgres.js also truncates
+   microseconds on that decode, so any test that compares a seeded timestamp
+   against a window derived from it must seed with a microsecond offset or
+   compare on the DB side (the #520 class).
+2. **`job-outbox-helpers.test.ts` is a mocked UNIT suite** (finding A8). Do not
+   run it under `--project integration`. The live guard behaviour belongs in
+   `job-outbox-helpers-attribution.integration.test.ts`; the mocked shape
+   assertions stay in the unit suite. Two commands, not one.
+3. **The worker owes its outbox row a completion** (finding A1). Claim the
+   attempt with `markOutboxCompletedIfOwned` inside the same transaction as the
+   domain write, and mutate nothing when it returns `false`.
+4. **`attributed_at`, never `attributed_review_id`, is the "already attributed"
+   marker** (finding A3) — in the candidate query, in the enqueue guard and in
+   the index predicate. All three must agree.
+5. **The window is inclusive at both ends** (finding A5).
+6. **`processReview` only; never `importReview`** (finding A2).
+7. **The owner read joins reviews on business as well as id** (finding A6).
+8. **The unique index is on `(attributed_review_id)` alone** (finding A4).
 
 ## Follow-ups to file, deliberately not in this PR
 
