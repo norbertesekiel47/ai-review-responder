@@ -1,12 +1,23 @@
 // worker/jobs/solicitation-veto-notice/context.ts
 //
-// Loads the send-batch + business rows needed by the Auto-approval lane's
+// Loads the business + send-batch rows needed by the Auto-approval lane's
 // Veto notice dispatcher (#631 Task 5). Mirrors pending-post-notice/context.ts's
 // shape, but the notice is about a BATCH, not a response, and the worker gates
 // on BATCH STATE ONLY (owner re-lock decision 11 — no flag reads anywhere in
-// this family):
-//   - batch not found                     → fail outbox
-//   - business_id mismatch                → fail outbox
+// this family). The business+account lookup runs FIRST (unlike
+// pending-post-notice, which validates its response before its business) —
+// that is what supplies `account_id`, which the payload does not carry, so
+// the batch lookup below can be tenant-scoped by BOTH `account_id` AND
+// `business_id` (invariant #8; byte-matches the `WHERE id = … AND account_id
+// = … AND business_id = …` shape every other solicitation_batches query in
+// this codebase uses — see src/lib/solicitation/approval.ts and
+// src/lib/solicitation/auto-approval.ts). Gates:
+//   - business not found                   → fail outbox
+//   - archived / offboarding               → skip
+//   - batch not found (incl. cross-tenant — the scoped WHERE clause makes a
+//     wrong-tenant batch id indistinguishable from a missing one, which is
+//     the point: no cross-tenant row is ever read into memory to compare)
+//                                           → fail outbox
 //   - approval_method != 'auto_policy'     → skip (owner-approved, downgraded
 //                                            at release, or never auto-approved
 //                                            — the notice would be stale noise)
@@ -17,8 +28,6 @@
 // delivered yet, and the anchor itself is computed FROM this notice's own
 // sent_at (decision 4), so refusing an already-anchored batch would starve
 // the anchor of its input on every retry.
-//   - business not found                   → fail outbox
-//   - archived / offboarding               → skip
 //
 // N — the copy's live review-request count — is read HERE, fresh, not carried
 // on the payload: `COUNT(*) FROM solicitation_outreach ... AND delivery_status
@@ -49,7 +58,6 @@ export interface SolicitationVetoNoticeContextLogger {
 export interface SolicitationVetoNoticeBatchRow {
   id: string;
   account_id: string;
-  batch_business_id: string;
   approval_method: string | null;
   halted_at: Date | null;
   send_closed_at: Date | null;
@@ -78,48 +86,18 @@ export type SolicitationVetoNoticeContextResult =
   | { kind: 'skip'; reason: string };
 
 // discriminated ok/fail/skip context loader whose branches map 1:1 to the
-// load-and-validate gates (batch missing/mismatch, batch state, business
-// missing, archived, offboarding); inherent to a single-pass loader.
+// load-and-validate gates (business missing, archived, offboarding, batch
+// missing/state); inherent to a single-pass loader.
 // fallow-ignore-next-line complexity
 export async function loadSolicitationVetoNoticeContext(
   sql: Sql,
   input: SolicitationVetoNoticeContextInput,
   logger: SolicitationVetoNoticeContextLogger,
 ): Promise<SolicitationVetoNoticeContextResult> {
-  const [batch] = await sql<SolicitationVetoNoticeBatchRow[]>`
-    SELECT id, account_id, business_id AS batch_business_id, approval_method,
-           halted_at, send_closed_at
-    FROM solicitation_batches
-    WHERE id = ${input.batchId}::uuid
-  `;
-
-  if (!batch) {
-    logger.warn(`Batch ${input.batchId} not found`);
-    return { kind: 'fail', reason: 'batch_not_found' };
-  }
-  if (batch.batch_business_id !== input.businessId) {
-    logger.error(
-      `Batch ${input.batchId} belongs to business ${batch.batch_business_id}, not ${input.businessId}`,
-    );
-    return { kind: 'fail', reason: 'business_id_mismatch' };
-  }
-  // Batch-state gate (decision 11): only a still-live auto_policy batch gets a
-  // Veto notice. Anchored is deliberately NOT checked here — see module header.
-  if (batch.approval_method !== APPROVAL_METHOD.AUTO_POLICY) {
-    logger.warn(
-      `Batch ${input.batchId} approval_method=${batch.approval_method} is not auto_policy — skipping notice`,
-    );
-    return { kind: 'skip', reason: 'not_auto_policy' };
-  }
-  if (batch.halted_at !== null) {
-    logger.warn(`Batch ${input.batchId} is halted — skipping notice`);
-    return { kind: 'skip', reason: 'halted' };
-  }
-  if (batch.send_closed_at !== null) {
-    logger.warn(`Batch ${input.batchId} is closed — skipping notice`);
-    return { kind: 'skip', reason: 'send_closed' };
-  }
-
+  // Business+account FIRST (unlike pending-post-notice) — this is what
+  // supplies account_id, absent from the payload, so the batch lookup below
+  // can be tenant-scoped by BOTH account_id AND business_id (ci:tenant-scope;
+  // see module header).
   const [business] = await sql<SolicitationVetoNoticeBusinessRow[]>`
     SELECT b.name, b.display_label, b.owner_email_bounced, b.archived_at,
            a.id AS account_id, a.subscription_status,
@@ -155,6 +133,39 @@ export async function loadSolicitationVetoNoticeContext(
   if (isNotificationBlocked(offboardingState)) {
     logger.warn(`Business ${input.businessId} account is offboarding — skipping notice`);
     return { kind: 'skip', reason: 'offboarding' };
+  }
+
+  // Tenant-scoped by id + account_id + business_id, matching every other
+  // solicitation_batches query in the codebase byte-for-byte in shape. A
+  // cross-tenant batch id (belongs to a different account/business) is
+  // indistinguishable from a missing one here — no other tenant's row is ever
+  // read into memory to compare, unlike a bare `WHERE id = …` would allow.
+  const [batch] = await sql<SolicitationVetoNoticeBatchRow[]>`
+    SELECT id, account_id, approval_method, halted_at, send_closed_at
+    FROM solicitation_batches
+    WHERE id = ${input.batchId}::uuid
+      AND account_id = ${business.account_id}::uuid
+      AND business_id = ${input.businessId}::uuid
+  `;
+  if (!batch) {
+    logger.warn(`Batch ${input.batchId} not found for business ${input.businessId}`);
+    return { kind: 'fail', reason: 'batch_not_found' };
+  }
+  // Batch-state gate (decision 11): only a still-live auto_policy batch gets a
+  // Veto notice. Anchored is deliberately NOT checked here — see module header.
+  if (batch.approval_method !== APPROVAL_METHOD.AUTO_POLICY) {
+    logger.warn(
+      `Batch ${input.batchId} approval_method=${batch.approval_method} is not auto_policy — skipping notice`,
+    );
+    return { kind: 'skip', reason: 'not_auto_policy' };
+  }
+  if (batch.halted_at !== null) {
+    logger.warn(`Batch ${input.batchId} is halted — skipping notice`);
+    return { kind: 'skip', reason: 'halted' };
+  }
+  if (batch.send_closed_at !== null) {
+    logger.warn(`Batch ${input.batchId} is closed — skipping notice`);
+    return { kind: 'skip', reason: 'send_closed' };
   }
 
   const [live] = await sql<{ count: number }[]>`
