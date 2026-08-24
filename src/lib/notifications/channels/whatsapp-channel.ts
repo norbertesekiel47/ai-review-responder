@@ -15,6 +15,7 @@ import {
   formatEscalationNoticeWhatsApp,
   formatPendingPostNoticeWhatsApp,
   formatAutonomySuspendedNoticeWhatsApp,
+  formatSolicitationVetoNoticeWhatsApp,
   toWaRecipient,
 } from './whatsapp-body';
 import { WhatsAppClient } from './whatsapp-client';
@@ -33,6 +34,8 @@ import type {
   SendPendingPostNoticeResult,
   SendAutonomySuspendedNoticeParams,
   SendAutonomySuspendedNoticeResult,
+  SendSolicitationVetoNoticeParams,
+  SendSolicitationVetoNoticeResult,
 } from './types';
 
 export class WhatsAppChannel implements NotificationChannel {
@@ -81,9 +84,6 @@ export class WhatsAppChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: result.externalMessageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
-  // escalation-notice worker; fallow's member graph misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     // Business-initiated → outside any 24h session window → approved template
     // only (ADR 0003). Until WHATSAPP_ESCALATION_TEMPLATE_SID is set, skip
@@ -157,6 +157,30 @@ export class WhatsAppChannel implements NotificationChannel {
       reason: p.reason,
       settingsPath: 'settings/auto-approval',
     }, contentSid);
+    const client = new WhatsAppClient();
+    const result = await client.sendTemplate({
+      to: toWaRecipient(p.handle),
+      contentSid,
+      contentVariables,
+      statusCallback: `${getWorkerPublicUrl()}/ingress/twilio/whatsapp-status`,
+    });
+    return { status: 'sent', externalMessageId: result.externalMessageId };
+  }
+
+  async sendSolicitationVetoNotice(
+    p: SendSolicitationVetoNoticeParams,
+  ): Promise<SendSolicitationVetoNoticeResult> {
+    // Business-initiated → outside any 24h session window → approved template
+    // only (ADR 0003). Until WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID is set,
+    // skip cleanly — email + Telegram still send.
+    const contentSid = getWorkerConfig().WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID;
+    if (!contentSid) {
+      return { status: 'skipped', reason: 'whatsapp_solicitation_veto_template_unset' };
+    }
+    const { contentVariables } = formatSolicitationVetoNoticeWhatsApp(
+      { businessName: p.businessName, requestCount: p.requestCount },
+      contentSid,
+    );
     const client = new WhatsAppClient();
     const result = await client.sendTemplate({
       to: toWaRecipient(p.handle),

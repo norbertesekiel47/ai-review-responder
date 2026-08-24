@@ -291,6 +291,46 @@ export function formatPendingPostNoticeWhatsApp(
   };
 }
 
+export interface SolicitationVetoNoticeWhatsAppParams {
+  businessName: string;
+  /** Live rendered Outreach count on the batch, read at send time. */
+  requestCount: number;
+}
+
+const SOLICITATION_VETO_NOTICE_WHATSAPP_BODY_TEMPLATE =
+  '{{1}} review request(s) for {{2}} were auto-approved.\n\n' +
+  'They will send once your veto window closes. Visit the Requests page to stop them.';
+
+export function renderSolicitationVetoNoticeWhatsAppBody(
+  variables: Record<string, string>,
+): string {
+  return SOLICITATION_VETO_NOTICE_WHATSAPP_BODY_TEMPLATE.replace(
+    PLACEHOLDER_RE,
+    (_match, index: string) => variables[index] ?? '',
+  );
+}
+
+/**
+ * Variables for the Auto-approval lane's Veto notice template (#631;
+ * WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID). The template's CTA button targets
+ * a FIXED URL (`${APP_URL}/dashboard/requests`, decision 10) configured once
+ * on the Meta-approved template — unlike the pending-post notice's
+ * `/approve/{{n}}` button, there is no per-notice token to thread through as
+ * a URL-button suffix variable, so only the two free-text fields are needed.
+ */
+export function formatSolicitationVetoNoticeWhatsApp(
+  params: SolicitationVetoNoticeWhatsAppParams,
+  contentSid: string,
+): WhatsAppSendContent {
+  return {
+    contentSid,
+    contentVariables: {
+      '1': String(params.requestCount),
+      '2': truncate(oneLine(params.businessName), BUSINESS_NAME_MAX),
+    },
+  };
+}
+
 export interface AutonomySuspendedNoticeWhatsAppParams {
   accountName: string;
   reason: string;

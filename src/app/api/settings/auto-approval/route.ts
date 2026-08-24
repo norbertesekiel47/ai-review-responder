@@ -6,6 +6,8 @@ import { reportCaughtError } from '@/lib/shared/report-caught-error';
 import {
   AutoApprovalConfirmationRequiredError,
   AutoApprovalExpansionBlockedError,
+} from '@/lib/auto-approval/settings-guards';
+import {
   AutoApprovalSettingsError,
   getAutoApprovalSettings,
   patchAutoApprovalSettings,

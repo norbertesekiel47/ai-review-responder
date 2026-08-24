@@ -106,6 +106,9 @@ const OWNER_DIRECTED_TEMPLATES = new Set([
   // Autonomy suspension safety notice (WS6) — owner-directed account status,
   // so a hard bounce must suppress future owner email until admin remediation.
   'autonomy_suspended_notice',
+  // Auto-approval lane's Veto notice (#631) — owner-directed, so a hard bounce
+  // flags businesses.owner_email_bounced like any other owner email.
+  'solicitation_veto_notice',
 ]);
 
 /**

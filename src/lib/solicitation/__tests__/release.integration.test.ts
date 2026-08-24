@@ -590,6 +590,14 @@ async function setSubscriptionStatus(status: string): Promise<void> {
   `;
 }
 
+/** The tier is the Auto-approval lane's entitlement dial (`tierGrantsAutopilot`);
+ *  the seeded default is `copilot` and the shared afterEach restores it. */
+async function setSubscriptionTier(tier: string): Promise<void> {
+  await sql()`
+    UPDATE accounts SET subscription_tier = ${tier} WHERE id = ${accountId()}::uuid
+  `;
+}
+
 // ── readers ─────────────────────────────────────────────────────────────────
 
 interface OutreachRow {
@@ -875,6 +883,8 @@ describeWithDb(
       await sql()`DELETE FROM agent_runs WHERE account_id IN ${sql()(ownedAccounts)}`;
       await sql()`DELETE FROM auto_approval_policies WHERE account_id IN ${sql()(ownedAccounts)}`;
       await sql()`DELETE FROM account_audit_log WHERE account_id IN ${sql()(ownedAccounts)}`;
+      // The Auto-approval-lane cases (#631) flip the tier; restore the seeded default.
+      await setSubscriptionTier('copilot');
     }, 60_000);
 
     afterAll(async () => {
@@ -2308,6 +2318,322 @@ describeWithDb(
     // above passes its own value explicitly).
     it('RELEASE_PER_TICK_BUDGET is the platform-wide default the poller drips at', () => {
       expect(RELEASE_PER_TICK_BUDGET).toBe(2);
+    });
+
+    // #631 Task 1 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md)
+    // — the eval task. Bodies land in Tasks 3-8; this block only scaffolds the
+    // eight promised release-time re-check titles for the Auto-approval lane,
+    // verbatim from intake rev 2.
+    //
+    // #631 Task 6: relocated INSIDE describeWithDb (its original position was
+    // a separate top-level `describe`, outside this closure — invisible while
+    // every title here was `it.todo` since a todo never runs its body, but a
+    // REAL test needs the outer beforeAll's `db` connection, which the outer
+    // afterAll below tears down once this closure's OWN tests finish; a test
+    // outside it ran against an already-`db.end()`'d connection and failed
+    // with `CONNECTION_ENDED`). The 7 todos below are byte-for-byte
+    // unchanged — only their nesting moved; Task 7 still owns their bodies.
+    describe('auto_policy release re-check (#631)', () => {
+      /** Arm the lane end-to-end — auto flag on, Autopilot tier, live policy
+       *  row — so each case can break exactly ONE of the four re-check
+       *  conditions and prove the recorded reason is that condition's. */
+      async function armAutoLane(): Promise<void> {
+        setEnv('SOLICITATION_AUTO_APPROVAL_ENABLED', 'true');
+        await setSubscriptionTier('autopilot');
+        await seedSolicitationPolicy(10);
+      }
+
+      /** An anchored `auto_policy` batch with an ELAPSED deadline — the P4
+       *  candidate the re-check runs against — plus its Send batch parent and
+       *  one rendered Outreach row. */
+      async function seedAutoCandidate(
+        overrides: BatchInput = {},
+      ): Promise<{ batch: SeededBatch; parentRunId: string; outreachId: string }> {
+        const batch = await seedBatch(
+          approvedBatchInput({ approvalMethod: 'auto_policy', ...overrides }),
+        );
+        const parentRunId = await seedSendParent({ batch });
+        const { outreachId } = await seedOutreach({ batch });
+        return { batch, parentRunId, outreachId };
+      }
+
+      /** Every downgrade case asserts the same durable shape: all four
+       *  approval columns NULLed together (the Requests panel must never see
+       *  a batch it cannot act on), and the spine step carrying the EXACT
+       *  reason — `toEqual`, so a stowaway key or a hard-coded constant both
+       *  fail (R1 finding 5). */
+      async function expectDowngraded(
+        batchId: string,
+        parentRunId: string,
+        reason: string,
+      ): Promise<void> {
+        const after = await readBatch(batchId);
+        expect(after.approved_at).toBeNull();
+        expect(after.approval_method).toBeNull();
+        expect(after.approved_by_user_id).toBeNull();
+        expect(after.veto_deadline_at).toBeNull();
+        expect(after.halted_at).toBeNull();
+        const steps = await readSteps(parentRunId, 'approval_downgraded');
+        expect(steps).toHaveLength(1);
+        expect(jsonObject(steps[0]!.detail)).toEqual({ reason });
+      }
+
+      it(
+        'downgrades an unreleased auto_policy batch to owner review when the auto flag is off at release',
+        async () => {
+          await armAutoLane();
+          // ONLY the flag fails — tier, policy row and suspension all hold.
+          // B15's boundary: the MASTER flag stays on, so the phase itself
+          // runs and it is the re-check, not `flag_off`, that acts.
+          setEnv('SOLICITATION_AUTO_APPROVAL_ENABLED', 'false');
+          const { batch, parentRunId, outreachId } = await seedAutoCandidate();
+
+          const report = await cycle();
+
+          expect(report.autoDowngradedByReason).toEqual({ auto_approval_disabled: 1 });
+          // The Judge counter is the OTHER lane's number — untouched.
+          expect(report.downgraded).toBe(0);
+          expect(report.released).toBe(0);
+          expect(report.releasePhaseStoppedBy).toBeNull();
+          await expectDowngraded(batch.batchId, parentRunId, 'auto_approval_disabled');
+          expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+          expect(await readSendJobs(outreachId)).toHaveLength(0);
+        },
+      );
+
+      it('downgrades an unreleased auto_policy batch when the account loses the Autopilot tier', async () => {
+        await armAutoLane();
+        // The entitlement lapse: a downgrade to the Copilot tier after the
+        // batch auto-approved. `tierGrantsAutopilot` is the ONLY tier
+        // predicate consulted (decision 6).
+        await setSubscriptionTier('copilot');
+        const { batch, parentRunId, outreachId } = await seedAutoCandidate();
+
+        const report = await cycle();
+
+        expect(report.autoDowngradedByReason).toEqual({ autopilot_entitlement_lost: 1 });
+        expect(report.downgraded).toBe(0);
+        expect(report.released).toBe(0);
+        await expectDowngraded(batch.batchId, parentRunId, 'autopilot_entitlement_lost');
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(outreachId)).toHaveLength(0);
+      });
+
+      it('downgrades an unreleased auto_policy batch when the solicitation policy row is removed', async () => {
+        // The owner's opt-in is gone: flag on, tier held — but NO
+        // solicitation/sending account-default row exists any more.
+        setEnv('SOLICITATION_AUTO_APPROVAL_ENABLED', 'true');
+        await setSubscriptionTier('autopilot');
+        const { batch, parentRunId, outreachId } = await seedAutoCandidate();
+
+        const report = await cycle();
+
+        expect(report.autoDowngradedByReason).toEqual({ policy_removed: 1 });
+        expect(report.downgraded).toBe(0);
+        expect(report.released).toBe(0);
+        await expectDowngraded(batch.batchId, parentRunId, 'policy_removed');
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(outreachId)).toHaveLength(0);
+
+        // Rev 2.1 (decision 6): the SAME failure landing AFTER a passing
+        // arm-level check — between it and the row's release transaction —
+        // releases NOTHING. Re-arm the lane, then delete the policy row at
+        // the top of every transaction: the arm-level quick read runs
+        // OUTSIDE any transaction and still sees the live row, so it passes;
+        // `releaseOutreachRow`'s in-transaction guard re-reads the four
+        // conditions under the batch + account locks, finds the opt-in gone,
+        // and withholds the row unreleased — no CAS, no outbox row, no
+        // un-approval. The durable downgrade belongs to the NEXT tick's
+        // arm-level check.
+        await seedSolicitationPolicy(10);
+        const raced = await seedAutoCandidate({ onBusinessId: siblingBusinessId });
+        const deletingExecutor = precedingExecutor(sql(), async (tx) => {
+          await tx`
+            DELETE FROM auto_approval_policies
+            WHERE account_id = ${accountId()}::uuid
+              AND persona = 'solicitation'
+              AND action_class = 'sending'
+              AND location_id IS NULL
+          `;
+        });
+
+        const racedReport = await cycle(deletingExecutor);
+
+        expect(racedReport.released).toBe(0);
+        expect(racedReport.withheldByReason.auto_conditions).toBe(1);
+        expect(racedReport.autoDowngradedByReason).toEqual({});
+        const racedAfter = await readBatch(raced.batch.batchId);
+        expect(racedAfter.approval_method).toBe('auto_policy');
+        expect(racedAfter.approved_at).not.toBeNull();
+        expect(racedAfter.veto_deadline_at).not.toBeNull();
+        expect((await readOutreach(raced.outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(raced.outreachId)).toHaveLength(0);
+        expect(await readSteps(raced.parentRunId, 'approval_downgraded')).toHaveLength(0);
+      });
+
+      it(
+        'downgrades an unreleased auto_policy batch when a Governor suspension latches after approval',
+        async () => {
+          await armAutoLane();
+          const { batch, parentRunId, outreachId } = await seedAutoCandidate();
+          // The Governor's kill switch is per ACCOUNT (D19): ANY suspended
+          // policy row on the account trips the re-check — and it outranks
+          // the opt-in row's own health.
+          await sql()`
+            UPDATE auto_approval_policies
+            SET suspended_at = NOW(), suspended_reason = 'governor_batch_rate'
+            WHERE account_id = ${accountId()}::uuid
+          `;
+
+          const report = await cycle();
+
+          expect(report.autoDowngradedByReason).toEqual({ policy_suspended: 1 });
+          expect(report.downgraded).toBe(0);
+          expect(report.released).toBe(0);
+          await expectDowngraded(batch.batchId, parentRunId, 'policy_suspended');
+          expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+          expect(await readSendJobs(outreachId)).toHaveLength(0);
+        },
+      );
+
+      it(
+        'a subscription lapse holds an auto_policy batch unchanged and never downgrades it',
+        async () => {
+          // B14: the lapse is the EXISTING recoverable `subscription`
+          // withhold in the account arm. The auto re-check never consults
+          // subscription status, so the approval evidence survives intact —
+          // paying resumes the drip with no intervention, which un-approving
+          // would have destroyed.
+          await armAutoLane();
+          await setSubscriptionStatus('past_due');
+          const { batch, parentRunId, outreachId } = await seedAutoCandidate();
+          const before = await readBatch(batch.batchId);
+
+          const report = await cycle();
+
+          expect(report.withheldByReason.subscription).toBeGreaterThanOrEqual(1);
+          expect(report.autoDowngradedByReason).toEqual({});
+          expect(report.downgraded).toBe(0);
+          expect(report.released).toBe(0);
+          expect(await readBatch(batch.batchId)).toEqual(before);
+          expect(await readSteps(parentRunId, 'approval_downgraded')).toHaveLength(0);
+          expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+          expect(await readSendJobs(outreachId)).toHaveLength(0);
+        },
+      );
+
+      it('the auto downgrade records its exact reason and never judge_unavailable', async () => {
+        // The STRONGEST arrangement: the Judge is down at the same moment an
+        // auto condition fails. The re-check runs BEFORE the Judge split, so
+        // the durable reason must be the auto condition's — filing it as
+        // judge_unavailable would send the operator to the wrong dial.
+        spies.isJudgeHealthy.mockResolvedValue(false);
+        await armAutoLane();
+        setEnv('SOLICITATION_AUTO_APPROVAL_ENABLED', 'false');
+        const { batch, parentRunId } = await seedAutoCandidate();
+
+        const report = await cycle();
+
+        expect(report.autoDowngradedByReason).toEqual({ auto_approval_disabled: 1 });
+        expect(report.downgraded).toBe(0);
+        const steps = await readSteps(parentRunId, 'approval_downgraded');
+        expect(steps).toHaveLength(1);
+        const detail = jsonObject(steps[0]!.detail);
+        expect(detail.reason).toBe('auto_approval_disabled');
+        expect(detail.reason).not.toBe('judge_unavailable');
+        // The ephemeral alert mirrors the durable record: the Auto-approval lane's own
+        // Sentry title (never the Judge-outage issue) with the exact reason
+        // as the tag.
+        expect(sentrySpies.captureMessage).toHaveBeenCalledWith(
+          'Solicitation batch approval downgraded: auto-approval conditions failed',
+          expect.objectContaining({
+            tags: expect.objectContaining({ reason: 'auto_approval_disabled' }),
+          }),
+        );
+        await expectDowngraded(batch.batchId, parentRunId, 'auto_approval_disabled');
+      });
+
+      it('a mid-drip auto_policy batch is held when an auto condition fails, never unapproved', async () => {
+        // Mid-drip (`sending_started_at` set) the batch cannot go back to the
+        // owner at all — 091's send-ordering CHECK refuses it at the database
+        // — so the split answers `held`: no writes, no spine step. The drip
+        // resumes if the condition recovers, or P2 terminalizes the batch
+        // honestly at the 72h window.
+        await armAutoLane();
+        setEnv('SOLICITATION_AUTO_APPROVAL_ENABLED', 'false');
+        const batch = await seedBatch(wedgedBatchInput({ approvalMethod: 'auto_policy' }));
+        const parentRunId = await seedSendParent({ batch });
+        await seedOutreach({ batch, deliveryStatus: 'sent' });
+        const { outreachId } = await seedOutreach({ batch });
+        const before = await readBatch(batch.batchId);
+
+        const report = await cycle();
+
+        expect(report.autoDowngradedByReason).toEqual({});
+        expect(report.downgraded).toBe(0);
+        expect(report.released).toBe(0);
+        // A hold writes nothing and takes no lock.
+        expect(await readBatch(batch.batchId)).toEqual(before);
+        expect(await readSteps(parentRunId)).toHaveLength(0);
+        expect((await readOutreach(outreachId)).delivery_status).toBe('rendered');
+        expect(await readSendJobs(outreachId)).toHaveLength(0);
+      });
+
+      // #631 Task 6 — the phase-wiring title. The other 7 todos above are
+      // Task 7's (the release-time re-check); left untouched.
+      it(
+        'runReleaseCycle runs the Veto anchor phase before release and reports the anchored count',
+        async () => {
+          // An auto_policy batch, no deadline yet — the Veto anchor's candidate.
+          const batch = await seedBatch(
+            approvedBatchInput({ approvalMethod: 'auto_policy', vetoDeadlineAgo: undefined }),
+          );
+          const parentRunId = await seedSendParent({ batch });
+          await seedOutreach({ batch });
+          await sql()`
+            INSERT INTO agent_run_steps (
+              id, agent_run_id, step_index, step_key, attributed_agent, status, detail
+            ) VALUES (
+              ${randomUUID()}::uuid, ${parentRunId}::uuid, 1, 'batch_approved', 'solicitation',
+              'completed',
+              ${sql().json({
+                approval_method: 'auto_policy',
+                approved_count: 1,
+                veto_window_minutes: 60,
+              })}
+            )
+          `;
+          await sql()`
+            INSERT INTO notification_deliveries (
+              id, business_id, account_id, entity_id, channel, recipient, template, sent_at
+            ) VALUES (
+              ${randomUUID()}::uuid, ${businessId}::uuid, ${accountId()}::uuid,
+              ${batch.batchId}::uuid, 'email', 'owner@example.test',
+              'solicitation_veto_notice', NOW()
+            )
+          `;
+
+          const report = await cycle();
+          expect(report.anchored).toBe(1);
+          // The window (60 minutes, granted at "approval") has not elapsed
+          // since the notice just sent — nothing released THIS tick, which
+          // is what proves the anchor ran BEFORE the release phase read
+          // `veto_deadline_at`: a batch anchored to a future deadline is
+          // excluded from P4's `NOW() >= veto_deadline_at` candidate
+          // predicate in the SAME cycle that set it.
+          expect(report.released).toBe(0);
+
+          const after = await readBatch(batch.batchId);
+          expect(after.veto_deadline_at).not.toBeNull();
+          expect(after.approval_method).toBe('auto_policy');
+
+          // This file's shared afterEach does not clean
+          // `notification_deliveries` (no other test in it writes that
+          // table) — self-contained cleanup rather than widening the shared
+          // hook for one test.
+          await sql()`DELETE FROM notification_deliveries WHERE entity_id = ${batch.batchId}::uuid`;
+        },
+      );
     });
   },
 );

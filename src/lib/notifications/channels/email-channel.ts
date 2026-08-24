@@ -10,6 +10,7 @@ import {
   sendEscalationNoticeEmail,
   sendPendingPostNoticeEmail,
   sendAutonomySuspendedNoticeEmail,
+  sendSolicitationVetoNoticeEmail,
 } from '../email';
 import { getWorkerConfig } from '@/lib/config/worker';
 import type {
@@ -24,6 +25,8 @@ import type {
   SendPendingPostNoticeResult,
   SendAutonomySuspendedNoticeParams,
   SendAutonomySuspendedNoticeResult,
+  SendSolicitationVetoNoticeParams,
+  SendSolicitationVetoNoticeResult,
 } from './types';
 
 export class EmailChannel implements NotificationChannel {
@@ -75,9 +78,6 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendEscalationNotice in the
-  // escalation-notice worker; fallow's member graph misses interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendEscalationNotice(p: SendEscalationNoticeParams): Promise<SendEscalationNoticeResult> {
     const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
@@ -101,10 +101,6 @@ export class EmailChannel implements NotificationChannel {
     return { status: 'sent', externalMessageId: messageId };
   }
 
-  // Interface-dispatched via getChannel(id).sendPendingPostNotice in the
-  // pending-post-notice worker (Task 7); fallow's member graph misses
-  // interface dispatch.
-  // fallow-ignore-next-line unused-class-member
   async sendPendingPostNotice(p: SendPendingPostNoticeParams): Promise<SendPendingPostNoticeResult> {
     const from = getWorkerConfig().RESEND_FROM_EMAIL;
     if (!from) {
@@ -140,6 +136,23 @@ export class EmailChannel implements NotificationChannel {
       settingsUrl: p.settingsUrl,
       supportUrl: p.supportUrl,
       idempotencyKey: `autonomy_suspended_notice:${p.suspensionEventId}`,
+    });
+    return { status: 'sent', externalMessageId: messageId };
+  }
+
+  async sendSolicitationVetoNotice(
+    p: SendSolicitationVetoNoticeParams,
+  ): Promise<SendSolicitationVetoNoticeResult> {
+    const from = getWorkerConfig().RESEND_FROM_EMAIL;
+    if (!from) throw new Error('RESEND_FROM_EMAIL not configured');
+    const { messageId } = await sendSolicitationVetoNoticeEmail({
+      to: p.handle,
+      from,
+      locationLabel: p.locationLabel,
+      businessName: p.businessName,
+      requestCount: p.requestCount,
+      requestsUrl: p.requestsUrl,
+      idempotencyKey: `solicitation_veto_notice:${p.batchId}`,
     });
     return { status: 'sent', externalMessageId: messageId };
   }

@@ -14,6 +14,7 @@ export * from './email/templates/auto-post-notice';
 export * from './email/templates/escalation-notice';
 export * from './email/templates/pending-post-notice';
 export * from './email/templates/autonomy-suspended-notice';
+export * from './email/templates/solicitation-veto-notice';
 export * from './email/templates/internal';
 export * from './email/templates/weekly-value-report';
 export * from './email/templates/monthly-impact';

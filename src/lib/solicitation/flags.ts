@@ -15,3 +15,11 @@ export function solicitationWatchEnabled(): boolean {
 export function solicitationSendEnabled(): boolean {
   return readFlag('SOLICITATION_SEND_ENABLED');
 }
+
+/** Auto-approval lane switch (#631, map #617 decision 7). Default off; #633
+ *  owns the staging flip via the flag-flip skill. Gates ONLY the
+ *  Auto-approval lane — SOLICITATION_SEND_ENABLED masters the whole send
+ *  surface. Server-authoritative, invariant #13. */
+export function solicitationAutoApprovalEnabled(): boolean {
+  return readFlag('SOLICITATION_AUTO_APPROVAL_ENABLED');
+}

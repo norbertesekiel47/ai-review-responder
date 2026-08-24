@@ -476,7 +476,7 @@ async function stampApprovedBatch(batchId: string): Promise<void> {
   `;
 }
 
-/** An auto-lane approval (#631's shape): `approval_method='auto_policy'`,
+/** An Auto-approval-lane approval (#631's shape): `approval_method='auto_policy'`,
  *  no acting user. Withdrawal must not gate on the method. */
 async function stampAutoApprovedBatch(batchId: string): Promise<void> {
   await sql()`

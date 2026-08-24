@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **112** — next migration is **113**
+Current head: **113** — next migration is **114**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2490,6 +2490,29 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **113** — `solicitation_auto_approval_lane`: two dedup indexes for the new
+  `solicitation_veto_notice` topic/template (#631 Auto-approval lane). 074 §4
+  shape (`pending_post_notice` precedent) — index-only, no columns, no CHECKs
+  (091 already widened `auto_approval_policies` for this lane per D19).
+  `idx_jo_solicitation_veto_notice_inflight` on `job_outbox (topic,
+  aggregate_id) WHERE topic = 'solicitation_veto_notice' AND status IN
+  ('pending', 'dispatching', 'dispatched')` — the in-flight literal is
+  `src/lib/shared/job-outbox-status.ts`'s byte-for-byte contract, re-spelled
+  by hand (`ci:outbox-status` checks members and order).
+  `notification_deliveries_solicitation_veto_notice_claim` on
+  `notification_deliveries (entity_id, channel, recipient) WHERE entity_id IS
+  NOT NULL AND template = 'solicitation_veto_notice'` — `entity_id` is 076's
+  generic non-response notice entity key; for this template it carries the
+  `solicitation_batches` id. Plain `CREATE INDEX` (not `CONCURRENTLY`, which
+  cannot run inside a migration transaction): both predicates are brand-new
+  topic/template values with zero existing rows anywhere, so the build is
+  instant and the lock moot (112's precedent). No table, data, RLS, or
+  retention-policy change.
+  **LOCAL-ONLY** — applied and verified only against the local test container
+  database (`pnpm test:db:setup`); not yet applied to staging or production.
+  Staging application rides step 8 of the #631 plan; apply staging first, then
+  production, both Supabase projects in lockstep, per usual.
 
 - **112** — `breaker_window_indexes`: two partial indexes so the **Breaker
   window** read model is index-servable (#908; follow-up B3.8 from #898/PR

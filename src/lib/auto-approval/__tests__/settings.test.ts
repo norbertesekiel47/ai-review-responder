@@ -16,6 +16,13 @@ type Policy = {
   suspendedAt?: Date | null;
   suspendedReason?: string | null;
 };
+// #631 D20: the Solicitation persona's one policy row (account default only).
+type SolicitationPolicy = {
+  id: string;
+  vetoWindowMinutes: 30 | 60;
+  dailySendCap: number | null;
+  suspendedAt?: Date | null;
+};
 type Location = {
   id: string;
   name: string;
@@ -43,6 +50,7 @@ const dbState = {
   pastDueAt: null as Date | string | null,
   flags: null as Record<string, unknown> | string | null,
   accountDefault: null as Policy | null,
+  solicitationDefault: null as SolicitationPolicy | null,
   locations: [] as Location[],
   overrides: new Map<string, Policy>(),
   offboarding: null as Offboarding | null,
@@ -116,6 +124,57 @@ const mockSql: any = vi.fn(async (strings: TemplateStringsArray, ...values: unkn
 
   if (text.includes('FROM account_offboardings')) {
     return dbState.offboarding ? [dbState.offboarding] : [];
+  }
+
+  // Solicitation branches route BEFORE their Reply counterparts: the SELECT
+  // and INSERT texts are discriminated by the daily_send_cap column, the
+  // DELETE (textually identical to the Reply account-default delete) by the
+  // bound persona value.
+  if (
+    text.includes('FROM auto_approval_policies') &&
+    text.includes('daily_send_cap') &&
+    text.includes('LIMIT 1')
+  ) {
+    return dbState.solicitationDefault
+      ? [{
+          id: dbState.solicitationDefault.id,
+          veto_window_minutes: dbState.solicitationDefault.vetoWindowMinutes,
+          daily_send_cap: dbState.solicitationDefault.dailySendCap,
+          suspended_at: dbState.solicitationDefault.suspendedAt ?? null,
+        }]
+      : [];
+  }
+
+  if (text.includes('SELECT EXISTS') && text.includes('suspended_at IS NOT NULL')) {
+    const anySuspended =
+      Boolean(dbState.accountDefault?.suspendedAt)
+      || Boolean(dbState.solicitationDefault?.suspendedAt)
+      || [...dbState.overrides.values()].some((policy) => Boolean(policy.suspendedAt));
+    return [{ any_suspended: anySuspended }];
+  }
+
+  if (
+    text.includes('INSERT INTO auto_approval_policies') &&
+    text.includes('daily_send_cap = EXCLUDED.daily_send_cap')
+  ) {
+    // values: [policyId, accountId, persona, action_class, veto, cap]; the
+    // conflict path keeps the existing row id, exactly like the real upsert.
+    const existing = dbState.solicitationDefault;
+    dbState.solicitationDefault = {
+      id: existing?.id ?? (values[0] as string),
+      vetoWindowMinutes: values[4] as 30 | 60,
+      dailySendCap: values[5] as number | null,
+      suspendedAt: existing?.suspendedAt ?? null,
+    };
+    return [];
+  }
+
+  if (
+    text.includes('DELETE FROM auto_approval_policies') &&
+    values.includes('solicitation')
+  ) {
+    dbState.solicitationDefault = null;
+    return [];
   }
 
   if (
@@ -260,6 +319,7 @@ function resetDb(): void {
   dbState.pastDueAt = null;
   dbState.flags = null;
   dbState.accountDefault = null;
+  dbState.solicitationDefault = null;
   dbState.locations = [
     { id: LOCATION_1, name: 'Main Cafe', displayLabel: 'Main', archivedAt: null },
     { id: LOCATION_2, name: 'East Cafe', displayLabel: null, archivedAt: null },
@@ -395,8 +455,8 @@ describe('auto-approval settings service', () => {
 
   it('requires standard confirmation for account-default expansion even with zero active inheriting locations', async () => {
     dbState.locations = [];
-    const { AutoApprovalConfirmationRequiredError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalConfirmationRequiredError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -472,8 +532,8 @@ describe('auto-approval settings service', () => {
   it('allows past-due grace but blocks expansion after the grace window', async () => {
     dbState.subscriptionStatus = SubscriptionStatus.PAST_DUE;
     dbState.pastDueAt = new Date(Date.now() - 86_400_000);
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     await expect(patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -969,8 +1029,8 @@ describe('auto-approval settings service', () => {
       purge_cancelled_at: null,
     };
 
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -1237,8 +1297,8 @@ describe('auto-approval settings service', () => {
     // guarantee under test: the upsert/delete never runs and no audit row is
     // written — proven directly via the sql call log, NOT via transaction rollback.
     process.env.AUTO_APPROVAL_ENABLED = 'false';
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     let caught: unknown;
     try {
@@ -1427,11 +1487,9 @@ describe('auto-approval settings service', () => {
       suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
       suspendedReason: 'governor_negative_feedback',
     };
-    const {
-      AutoApprovalExpansionBlockedError,
-      getAutoApprovalSettings,
-      patchAutoApprovalSettings,
-    } = await import('../settings');
+    const { getAutoApprovalSettings, patchAutoApprovalSettings } =
+      await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     const state = await getAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -1500,8 +1558,8 @@ describe('auto-approval settings service', () => {
       suspendedAt: new Date('2026-07-08T00:00:00.000Z'),
       suspendedReason: 'governor_negative_feedback',
     };
-    const { AutoApprovalExpansionBlockedError, patchAutoApprovalSettings } =
-      await import('../settings');
+    const { patchAutoApprovalSettings } = await import('../settings');
+    const { AutoApprovalExpansionBlockedError } = await import('../settings-guards');
 
     const cleared = await patchAutoApprovalSettings(mockSql, {
       accountId: ACCOUNT_ID,
@@ -1746,5 +1804,251 @@ describe('auto-approval settings service', () => {
       vetoWindowMinutes: 15,
       dailyAutoPostCap: 25,
     });
+  });
+});
+
+// #631 Task 8 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md) —
+// the D20 Solicitation persona opt-in surface. Titles verbatim from intake
+// rev 2. The lane's PATCH operations share the account lock + offboarding
+// gate with the Reply lane but none of its snapshot machinery.
+describe('solicitation persona opt-in (#631)', () => {
+  const SET_BASE = {
+    accountId: ACCOUNT_ID,
+    actorUserId: ACTOR_USER_ID,
+    impersonated: false,
+  } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sqlCalls.length = 0;
+    resetDb();
+    enableReadiness();
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+    process.env.SOLICITATION_AUTO_APPROVAL_ENABLED = 'true';
+    mockSql.begin = vi.fn(async (cb: (tx: typeof mockSql) => Promise<unknown>) => cb(mockSql));
+  });
+
+  it('PATCH creates the solicitation policy row only for an Autopilot account', async () => {
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await expect(patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 5,
+      confirmationLevel: 'standard',
+    })).rejects.toMatchObject({
+      name: 'AutoApprovalExpansionBlockedError',
+      blockReasons: ['autopilot_unavailable'],
+    });
+    expect(dbState.solicitationDefault).toBeNull();
+    expect(mockWriteAccountAuditLog).not.toHaveBeenCalled();
+
+    dbState.subscriptionTier = SubscriptionTier.AUTOPILOT;
+    const result = await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 5,
+      confirmationLevel: 'standard',
+    });
+
+    expect(dbState.solicitationDefault).toMatchObject({ dailySendCap: 5, vetoWindowMinutes: 60 });
+    expect(result.solicitation).toEqual({
+      available: true,
+      enabled: true,
+      dailySendCap: 5,
+      vetoWindowMinutes: 60,
+    });
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'set_solicitation_account_default',
+          persona: 'solicitation',
+          exposureClassification: 'expansion',
+          expansion: true,
+          requiredConfirmationLevel: 'standard',
+        }),
+      }),
+    );
+  });
+
+  it('PATCH rejects daily_send_cap outside 1..50 and veto windows other than 30 or 60', async () => {
+    // The zod schema is the PATCH contract's single source of truth — the
+    // route validates every body against it (types.ts).
+    const { AutoApprovalPatchSchema } = await import('../types');
+    const parse = (patch: Record<string, unknown>) =>
+      AutoApprovalPatchSchema.safeParse({ operation: 'set_solicitation_account_default', ...patch });
+
+    expect(parse({ dailySendCap: 0 }).success).toBe(false);
+    expect(parse({ dailySendCap: 51 }).success).toBe(false);
+    expect(parse({ dailySendCap: 10.5 }).success).toBe(false);
+    expect(parse({ dailySendCap: 5, vetoWindowMinutes: 15 }).success).toBe(false);
+    expect(parse({ dailySendCap: 5, vetoWindowMinutes: 45 }).success).toBe(false);
+
+    expect(parse({ dailySendCap: 1 }).success).toBe(true);
+    expect(parse({ dailySendCap: 50, vetoWindowMinutes: 30 }).success).toBe(true);
+    expect(parse({ dailySendCap: null, vetoWindowMinutes: 60 }).success).toBe(true);
+  });
+
+  it('PATCH round-trips valid dials and defaults an omitted veto window to 60', async () => {
+    const { getAutoApprovalSettings, patchAutoApprovalSettings } = await import('../settings');
+
+    const first = await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 25,
+      confirmationLevel: 'standard',
+    });
+    expect(first.solicitation).toMatchObject({
+      enabled: true,
+      dailySendCap: 25,
+      vetoWindowMinutes: 60,
+    });
+
+    const second = await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 3,
+      vetoWindowMinutes: 30,
+      confirmationLevel: 'standard',
+    });
+    expect(second.solicitation).toMatchObject({
+      enabled: true,
+      dailySendCap: 3,
+      vetoWindowMinutes: 30,
+    });
+
+    const readBack = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+    expect(readBack.solicitation).toEqual({
+      available: true,
+      enabled: true,
+      dailySendCap: 3,
+      vetoWindowMinutes: 30,
+    });
+  });
+
+  it('enabling Solicitation twice upserts exactly one account-default row', async () => {
+    const { patchAutoApprovalSettings } = await import('../settings');
+
+    await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 5,
+      confirmationLevel: 'standard',
+    });
+    const firstId = dbState.solicitationDefault?.id;
+    expect(firstId).toBeTruthy();
+
+    await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'set_solicitation_account_default',
+      dailySendCap: 8,
+      vetoWindowMinutes: 30,
+      confirmationLevel: 'standard',
+    });
+
+    const upserts = sqlCalls.filter((call) =>
+      call.text.includes('INSERT INTO auto_approval_policies')
+      && call.text.includes('daily_send_cap'));
+    expect(upserts).toHaveLength(2);
+    // Byte-for-byte the migration-074 account-default index predicate — a
+    // drifted clause fails at runtime with no-matching-constraint.
+    for (const upsert of upserts) {
+      expect(upsert.text.replace(/\s+/g, ' '))
+        .toContain('ON CONFLICT (account_id, persona, action_class) WHERE location_id IS NULL');
+    }
+    // The conflict path updated the one existing row in place.
+    expect(dbState.solicitationDefault).toMatchObject({
+      id: firstId,
+      dailySendCap: 8,
+      vetoWindowMinutes: 30,
+    });
+  });
+
+  it('removing the opt-in deletes only the solicitation account-default row and the lane stays off', async () => {
+    dbState.accountDefault = { id: 'policy-reply-default', threshold: 4, vetoWindowMinutes: 30 };
+    dbState.overrides.set(LOCATION_1, { id: 'policy-reply-loc', threshold: 5 });
+    dbState.solicitationDefault = {
+      id: 'policy-solicitation',
+      vetoWindowMinutes: 60,
+      dailySendCap: 5,
+    };
+    const { getAutoApprovalSettings, patchAutoApprovalSettings } = await import('../settings');
+
+    const result = await patchAutoApprovalSettings(mockSql, {
+      ...SET_BASE,
+      operation: 'clear_solicitation_account_default',
+    });
+
+    expect(result.solicitation).toEqual({
+      available: true,
+      enabled: false,
+      dailySendCap: null,
+      vetoWindowMinutes: null,
+    });
+    expect(dbState.solicitationDefault).toBeNull();
+    // The Reply account default and the location override both survive.
+    expect(dbState.accountDefault?.id).toBe('policy-reply-default');
+    expect(dbState.overrides.get(LOCATION_1)?.id).toBe('policy-reply-loc');
+
+    const deletes = sqlCalls.filter((call) => call.text.includes('DELETE FROM auto_approval_policies'));
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]?.values).toContain('solicitation');
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledTimes(1);
+    expect(mockWriteAccountAuditLog).toHaveBeenCalledWith(
+      mockSql,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          operation: 'clear_solicitation_account_default',
+          exposureClassification: 'contraction',
+          expansion: false,
+        }),
+      }),
+    );
+
+    const readBack = await getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+    expect(readBack.solicitation.enabled).toBe(false);
+  });
+
+  it('GET marks solicitation available only when both server flags and tierGrantsAutopilot hold', async () => {
+    dbState.solicitationDefault = {
+      id: 'policy-solicitation',
+      vetoWindowMinutes: 60,
+      dailySendCap: 5,
+    };
+    const { getAutoApprovalSettings } = await import('../settings');
+    const read = () => getAutoApprovalSettings(mockSql, {
+      accountId: ACCOUNT_ID,
+      impersonated: false,
+    });
+
+    await expect(read()).resolves.toMatchObject({
+      solicitation: { available: true, enabled: true, dailySendCap: 5, vetoWindowMinutes: 60 },
+    });
+
+    process.env.SOLICITATION_SEND_ENABLED = 'false';
+    // `enabled` reports the stored row regardless of availability.
+    await expect(read()).resolves.toMatchObject({
+      solicitation: { available: false, enabled: true },
+    });
+    process.env.SOLICITATION_SEND_ENABLED = 'true';
+
+    process.env.SOLICITATION_AUTO_APPROVAL_ENABLED = 'false';
+    await expect(read()).resolves.toMatchObject({ solicitation: { available: false } });
+    process.env.SOLICITATION_AUTO_APPROVAL_ENABLED = 'true';
+
+    dbState.subscriptionTier = SubscriptionTier.COPILOT;
+    await expect(read()).resolves.toMatchObject({ solicitation: { available: false } });
+
+    dbState.subscriptionTier = SubscriptionTier.AUTOPILOT;
+    await expect(read()).resolves.toMatchObject({ solicitation: { available: true } });
   });
 });

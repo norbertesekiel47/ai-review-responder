@@ -260,6 +260,84 @@ export async function claimAutonomySuspendedNoticeDelivery(sql: Sql, params: {
 }
 
 /**
+ * Claim the Auto-approval lane's Veto notice before send (#631 Task 5). Keyed
+ * by (entity_id, channel, recipient) for template='solicitation_veto_notice' —
+ * entity_id carries the solicitation_batches id, mirroring
+ * claimAutonomySuspendedNoticeDelivery's shape (the notice is about a BATCH,
+ * not a response, so response_id is NULL). ON CONFLICT predicate matches the
+ * partial index notification_deliveries_solicitation_veto_notice_claim
+ * (migration 113) BYTE-FOR-BYTE — the 'solicitation_veto_notice' literal must
+ * stay a literal, never a bound param, or Postgres won't recognise the
+ * constraint.
+ */
+export type SolicitationVetoNoticeClaimResult =
+  | { kind: 'claimed'; deliveryId: string }
+  | { kind: 'settled'; deliveryId: string }
+  | { kind: 'pending'; deliveryId: string | null };
+
+export async function claimSolicitationVetoNoticeDelivery(sql: Sql, params: {
+  accountId: string;
+  businessId: string;
+  batchId: string;
+  channel: ChannelId;
+  recipient: string;
+}): Promise<SolicitationVetoNoticeClaimResult> {
+  const id = uuidv7();
+  // Self-reap stale unfinalized claims after 15 minutes — same contract as
+  // claimPendingPostNoticeDelivery / claimAutonomySuspendedNoticeDelivery. A
+  // claim that is neither sent nor terminally failed after 15 minutes is an
+  // orphan (a live send finalizes within seconds).
+  await sql`
+    DELETE FROM notification_deliveries
+    WHERE entity_id = ${params.batchId}
+      AND account_id = ${params.accountId}
+      AND channel = ${params.channel}
+      AND recipient = ${params.recipient}
+      AND template = 'solicitation_veto_notice'
+      AND sent_at IS NULL
+      AND failed_at IS NULL
+      AND created_at < NOW() - INTERVAL '15 minutes'
+  `;
+  const claimed = await sql<{ id: string }[]>`
+    INSERT INTO notification_deliveries
+      (id, account_id, business_id, response_id, entity_id, channel, recipient, template)
+    VALUES
+      (${id}, ${params.accountId}, ${params.businessId}, ${null}, ${params.batchId},
+       ${params.channel}, ${params.recipient}, 'solicitation_veto_notice')
+    ON CONFLICT (entity_id, channel, recipient)
+      WHERE entity_id IS NOT NULL AND template = 'solicitation_veto_notice'
+      DO NOTHING
+    RETURNING id
+  `;
+  if (claimed.length === 1) return { kind: 'claimed', deliveryId: id };
+
+  // A conflict is not automatically a harmless dedup (autonomy-suspended-notice
+  // precedent): a sent or terminally failed row is settled; an unfinalized live
+  // claim means an earlier attempt may still be sending or may have failed
+  // lifecycle persistence. Surface it as pending so the outbox row stays
+  // incomplete rather than risk a silent double-send.
+  const [existing] = await sql<{
+    id: string;
+    sent_at: Date | null;
+    failed_at: Date | null;
+  }[]>`
+    SELECT id, sent_at, failed_at
+    FROM notification_deliveries
+    WHERE entity_id = ${params.batchId}
+      AND account_id = ${params.accountId}
+      AND channel = ${params.channel}
+      AND recipient = ${params.recipient}
+      AND template = 'solicitation_veto_notice'
+    LIMIT 1
+  `;
+  if (!existing) return { kind: 'pending', deliveryId: null };
+  if (existing.sent_at !== null || existing.failed_at !== null) {
+    return { kind: 'settled', deliveryId: existing.id };
+  }
+  return { kind: 'pending', deliveryId: existing.id };
+}
+
+/**
  * Insert a PENDING approval-request delivery claim (sent_at NULL, failed_at
  * NULL) and return its id. The approval dispatcher claims this row BEFORE the
  * provider send so a crash between provider-accept and the delivery record

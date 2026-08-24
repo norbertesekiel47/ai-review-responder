@@ -97,6 +97,23 @@
     {
       "file": "src/lib/reviews/status.ts",
       "exports": ["ReviewStatus"]
+    },
+    // #631 Auto-approval lane test seams. readAutoApprovalConditions is the
+    // four-condition gate's reader, exercised directly by auto-approval.test.ts
+    // and ask-generation.test.ts; fallow excludes test files as consumers, so
+    // it reads as unused. Same acknowledged-seam lane as resolveContactNotifyTo.
+    {
+      "file": "src/lib/solicitation/auto-approval.ts",
+      "exports": ["readAutoApprovalConditions"]
+    },
+    // The Veto notice's WhatsApp body render is the byte-pin seam the runbook
+    // names ("must remain byte-for-byte equal to the template rendered by
+    // renderSolicitationVetoNoticeWhatsAppBody") and whatsapp-body.test.ts
+    // asserts — a test-only consumer, like the autonomy-suspended render
+    // beside it (that one predates the gate and rides as an inherited finding).
+    {
+      "file": "src/lib/notifications/channels/whatsapp-body.ts",
+      "exports": ["renderSolicitationVetoNoticeWhatsAppBody"]
     }
   ],
   // NotificationChannel send methods are invoked via interface dispatch through the

@@ -12,7 +12,12 @@ import {
   isThresholdExpansion,
   type PolicyExposure,
 } from '@/lib/auto-approval/policy';
-import { autoApprovalThresholdLabel, isVetoWindowMinutes } from '@/lib/auto-approval/types';
+import {
+  SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES,
+  autoApprovalThresholdLabel,
+  isSolicitationVetoWindowMinutes,
+  isVetoWindowMinutes,
+} from '@/lib/auto-approval/types';
 import type {
   AutoApprovalLocationSettings,
   AutoApprovalPatchRequest,
@@ -20,8 +25,14 @@ import type {
   AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
+  SolicitationAutoApprovalApiState,
+  SolicitationVetoWindowMinutes,
   VetoWindowMinutes,
 } from '@/lib/auto-approval/types';
+import {
+  DEFAULT_DAILY_SEND_CAP_ACCOUNT,
+  resolveAccountDailySendCap,
+} from '@/lib/solicitation/send-caps';
 import { readJsonObject } from '@/lib/client-response';
 
 const THRESHOLD_OPTIONS: Array<{ value: AutoApprovalThreshold | null; label: string }> = [
@@ -53,14 +64,17 @@ interface Props {
 // demands a 'standard' confirmation level). 'location_dial' asks before a veto-window or
 // cap change creates a location override row: that row shadows the account
 // threshold with NULL, silently switching the location to manual approval — the
-// owner must opt in before the write happens.
+// owner must opt in before the write happens. 'solicitation_expansion' is the
+// same expansion gate for the Solicitation lane (#631 D20) with its own copy —
+// what expands is review-request SENDING, not reply posting.
 type PendingConfirmation =
   | { kind: 'exposure_expansion'; request: AutoApprovalPatchRequest; label: string }
   | {
       kind: 'location_dial';
       request: AutoApprovalPatchRequest;
       label: string;
-    };
+    }
+  | { kind: 'solicitation_expansion'; request: AutoApprovalPatchRequest };
 
 type SelectValue = 'inherit' | 'manual' | `${AutoApprovalThreshold}`;
 
@@ -222,6 +236,29 @@ export function AutoApprovalClient({ initialState }: Props) {
     void sendPatch(request, requestKey(request));
   }
 
+  /**
+   * Solicitation-lane change (#631 D20): expansions (enabling the lane,
+   * shortening the veto window, raising the ENFORCED cap) confirm first —
+   * the server demands 'standard' for them; contractions submit directly.
+   */
+  function requestSolicitationSet(
+    config: { dailySendCap: number | null; vetoWindowMinutes: SolicitationVetoWindowMinutes },
+    expansion: boolean,
+  ) {
+    const request: AutoApprovalPatchRequest = {
+      operation: 'set_solicitation_account_default',
+      ...config,
+    };
+    if (!expansion) {
+      void sendPatch(request, 'solicitation');
+      return;
+    }
+    dispatch({
+      type: 'set_pending_confirmation',
+      pending: { kind: 'solicitation_expansion', request },
+    });
+  }
+
   function confirmPending() {
     const pending = state.pendingConfirmation;
     if (!pending) return;
@@ -229,7 +266,9 @@ export function AutoApprovalClient({ initialState }: Props) {
     void sendPatch(
       pending.request,
       requestKey(pending.request),
-      pending.kind === 'exposure_expansion' ? 'standard' : undefined,
+      pending.kind === 'exposure_expansion' || pending.kind === 'solicitation_expansion'
+        ? 'standard'
+        : undefined,
     );
   }
 
@@ -327,8 +366,10 @@ export function AutoApprovalClient({ initialState }: Props) {
           <DailyCapField
             key={`account-cap-${capDraftEpoch}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
             ariaLabel="Account default daily auto-post cap"
+            label="Daily auto-post cap"
+            hint="Most replies auto-posted per day for this scope. Leave blank to use the default."
+            placeholder={`Default (${data.accountDefault.effectiveDailyCap})`}
             storedCap={data.accountDefault.dailyAutoPostCap}
-            effectiveDailyCap={data.accountDefault.effectiveDailyCap}
             disabled={accountSaving}
             expansionBlocked={!data.readiness.canExpand}
             onCommit={(cap) => requestDialChange(
@@ -381,6 +422,19 @@ export function AutoApprovalClient({ initialState }: Props) {
         </div>
       </section>
 
+      {data.solicitation.available && (
+        <SolicitationSection
+          state={data.solicitation}
+          saving={savingKey === 'solicitation'}
+          capDraftEpoch={capDraftEpoch}
+          onSet={requestSolicitationSet}
+          onDisable={() => {
+            void sendPatch({ operation: 'clear_solicitation_account_default' }, 'solicitation');
+          }}
+          onDiscardCapDraft={() => dispatch({ type: 'discard_cap_draft' })}
+        />
+      )}
+
       {saveError && (
         <p className="settings-error-copy settings-error-copy--before">{saveError}</p>
       )}
@@ -396,6 +450,35 @@ export function AutoApprovalClient({ initialState }: Props) {
           </div>
           <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
             This expands auto-approval for {pendingConfirmation.label}. Matching rated reviews can post to Google automatically without owner review when safety, billing, active location, and Google connection checks pass.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={cancelPending}
+            >
+              Cancel
+            </button>
+            <button type="button" className="btn btn-primary" onClick={confirmPending}>
+              Confirm auto-approval
+            </button>
+          </div>
+        </SettingsModal>
+      )}
+
+      {pendingConfirmation?.kind === 'solicitation_expansion' && (
+        <SettingsModal
+          title="Confirm review request auto-approval"
+          closeLabel="Cancel review request auto-approval change"
+          onClose={cancelPending}
+        >
+          <div className="set-section-title" style={{ marginBottom: 8 }}>
+            Confirm review request auto-approval
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--rw-app-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+            This expands auto-approval for review requests. Built request batches are approved for
+            sending automatically; each batch notifies you and waits out its veto window before
+            anything sends, and you can halt it from the Requests page until then.
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button
@@ -576,13 +659,16 @@ function LocationPolicyRow({
         <DailyCapField
           key={`location-cap-${capDraftEpoch}-${location.override.dailyAutoPostCap ?? 'default'}`}
           ariaLabel={`Daily auto-post cap for ${location.displayName}`}
+          label="Daily auto-post cap"
+          hint="Most replies auto-posted per day for this scope. Leave blank to use the default."
+          // The effective (inherited) value drives the display via the
+          // placeholder only.
+          placeholder={`Default (${location.effective.effectiveDailyCap})`}
           // The commit baseline is the OVERRIDE's stored value (null while the
           // location has no row) — baselining on the effective (inherited) cap
           // made typing the inherited number a no-op, so the cap could never be
-          // pinned onto the location. The effective value still drives the
-          // display via the placeholder.
+          // pinned onto the location.
           storedCap={location.override.dailyAutoPostCap}
-          effectiveDailyCap={location.effective.effectiveDailyCap}
           disabled={saving}
           expansionBlocked={location.override.exists && expansionBlocked}
           onCommit={(cap) => onRequestDial(
@@ -654,19 +740,30 @@ function VetoWindowField({
  * Draft-holding cap input: commits on blur (blank = platform default, submitted
  * as null). Callers remount it via `key` when the stored value or the cap-draft
  * epoch changes — that is the draft-reset mechanism.
+ *
+ * The CANONICAL cap field for BOTH lanes (R1 standards finding 6): the Reply
+ * lane's auto-post caps and the Solicitation lane's send cap render through
+ * this one component, so the badInput blur-discard invariant below has exactly
+ * one owner. `label`/`hint`/`placeholder` carry the per-lane copy; a caller
+ * with no expansion gate passes `expansionBlocked={false}` and that arm
+ * no-ops.
  */
 function DailyCapField({
   ariaLabel,
+  label,
+  hint,
+  placeholder,
   storedCap,
-  effectiveDailyCap,
   disabled,
   expansionBlocked,
   onCommit,
   onDiscardDraft,
 }: {
   ariaLabel: string;
+  label: string;
+  hint: string;
+  placeholder: string;
   storedCap: number | null;
-  effectiveDailyCap: number;
   disabled: boolean;
   expansionBlocked: boolean;
   onCommit: (cap: number | null) => void;
@@ -700,7 +797,7 @@ function DailyCapField({
 
   return (
     <label className="field">
-      <span className="field-label">Daily auto-post cap</span>
+      <span className="field-label">{label}</span>
       <input
         type="number"
         className="input"
@@ -709,15 +806,13 @@ function DailyCapField({
         max={MAX_DAILY_CAP}
         step={1}
         inputMode="numeric"
-        placeholder={`Default (${effectiveDailyCap})`}
+        placeholder={placeholder}
         value={draft}
         disabled={disabled}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
       />
-      <span className="field-hint">
-        Most replies auto-posted per day for this scope. Leave blank to use the default.
-      </span>
+      <span className="field-hint">{hint}</span>
     </label>
   );
 }
@@ -728,6 +823,129 @@ function normalizeCapDraft(draft: string): number | null {
   const parsed = Number.parseInt(trimmed, 10);
   if (Number.isNaN(parsed)) return null;
   return Math.min(MAX_DAILY_CAP, Math.max(MIN_DAILY_CAP, parsed));
+}
+
+/**
+ * The Solicitation lane's opt-in card (#631 D20). Rendered ONLY when the
+ * server says the lane is available (both lane flags AND the Autopilot tier —
+ * invariant #13, the client never reads flags). The toggle IS the opt-in: on
+ * creates the account-default solicitation policy row, off deletes it.
+ * Expansion classification mirrors the server: enabling, shortening the veto
+ * window, or raising the ENFORCED cap (resolveAccountDailySendCap's <= 10
+ * clamp) confirms first.
+ */
+function SolicitationSection({
+  state,
+  saving,
+  capDraftEpoch,
+  onSet,
+  onDisable,
+  onDiscardCapDraft,
+}: {
+  state: SolicitationAutoApprovalApiState;
+  saving: boolean;
+  capDraftEpoch: number;
+  onSet: (
+    config: { dailySendCap: number | null; vetoWindowMinutes: SolicitationVetoWindowMinutes },
+    expansion: boolean,
+  ) => void;
+  onDisable: () => void;
+  onDiscardCapDraft: () => void;
+}) {
+  const currentWindow: SolicitationVetoWindowMinutes =
+    isSolicitationVetoWindowMinutes(state.vetoWindowMinutes)
+      ? state.vetoWindowMinutes
+      : SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES;
+  const effectiveDailySendCap = resolveAccountDailySendCap({ dailySendCap: state.dailySendCap });
+
+  return (
+    <section className="set-section">
+      <div className="set-section-head">
+        <div className="set-section-icon violet" aria-hidden>
+          <Icon name="sparkle" size={18} />
+        </div>
+        <div>
+          <div className="set-section-title">Review requests</div>
+          <div className="set-section-sub">
+            Autopilot can approve a built batch of review requests for sending without waiting for your approval.
+          </div>
+        </div>
+      </div>
+
+      <div className="toggle-row">
+        <div className="toggle-info">
+          <div className="t-title">Auto-approve request batches</div>
+          <div className="t-sub">
+            Each auto-approved batch notifies you first and waits out its veto window, so you can still halt it from the Requests page.
+          </div>
+        </div>
+        <button
+          type="button"
+          className={`switch ${state.enabled ? 'on' : ''}`}
+          role="switch"
+          aria-checked={state.enabled}
+          aria-label="Auto-approve request batches"
+          disabled={saving}
+          onClick={() => {
+            if (state.enabled) {
+              onDisable();
+              return;
+            }
+            onSet(
+              { dailySendCap: null, vetoWindowMinutes: SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES },
+              true,
+            );
+          }}
+        />
+      </div>
+
+      {state.enabled && (
+        <div className="auto-policy-dials">
+          <label className="field">
+            <span className="field-label">Veto window</span>
+            <select
+              className="input"
+              aria-label="Review request veto window"
+              value={`${currentWindow}`}
+              disabled={saving}
+              onChange={(event) => {
+                const minutes = Number(event.target.value);
+                if (!isSolicitationVetoWindowMinutes(minutes)) return;
+                onSet(
+                  { dailySendCap: state.dailySendCap, vetoWindowMinutes: minutes },
+                  minutes < currentWindow,
+                );
+              }}
+            >
+              <option value="30">30 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+            <span className="field-hint">
+              How long an auto-approved batch waits after its notice before sending, so you can still halt it.
+            </span>
+          </label>
+          <DailyCapField
+            key={`solicitation-cap-${capDraftEpoch}-${state.dailySendCap ?? 'default'}`}
+            ariaLabel="Daily review request send cap"
+            label="Daily send cap"
+            hint={`Most review requests sent per day. Leave blank to use the default — RepWorth never sends more than ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} in a day.`}
+            placeholder={`Default (${DEFAULT_DAILY_SEND_CAP_ACCOUNT})`}
+            storedCap={state.dailySendCap}
+            disabled={saving}
+            // This lane's expansion question (raising the ENFORCED cap) is
+            // answered by the onCommit's classifier below, not by a readiness
+            // block — so the shared field's expansion-discard arm no-ops.
+            expansionBlocked={false}
+            onCommit={(cap) => onSet(
+              { dailySendCap: cap, vetoWindowMinutes: currentWindow },
+              resolveAccountDailySendCap({ dailySendCap: cap }) > effectiveDailySendCap,
+            )}
+            onDiscardDraft={onDiscardCapDraft}
+          />
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ReadinessBlock({ copy }: { copy: string[] }) {
@@ -802,6 +1020,12 @@ function locationRequest(locationId: string, value: SelectValue): AutoApprovalPa
 }
 
 function requestKey(request: AutoApprovalPatchRequest): string {
+  if (
+    request.operation === 'set_solicitation_account_default'
+    || request.operation === 'clear_solicitation_account_default'
+  ) {
+    return 'solicitation';
+  }
   return 'locationId' in request ? request.locationId : 'account';
 }
 

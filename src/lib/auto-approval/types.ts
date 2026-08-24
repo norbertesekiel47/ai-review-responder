@@ -51,12 +51,31 @@ export const APPROVAL_METHOD = {
   AUTO_POLICY: 'auto_policy',
 } as const;
 
-// The only persona/action-class scope built today — migration 074's CHECKs are
-// deliberately single-valued (spec §2.1); Solicitation v1.1 widens them in its
-// own migration. Every policy SELECT/upsert filters on these constants (Task 12
-// settings writers included), never on string literals at call sites.
+// Persona/action-class scopes. Migration 074 shipped single-valued CHECKs
+// (spec §2.1); migration 091 widened them for the Solicitation lane (D19),
+// whose only policy row is the account default (`location_id IS NULL` — the
+// lane has no location overrides). Every policy SELECT/upsert filters on
+// these constants (Task 12 settings writers included), never on string
+// literals at call sites.
 export const POLICY_PERSONA_REPLY = 'reply';
 export const POLICY_ACTION_POSTING = 'posting';
+export const POLICY_PERSONA_SOLICITATION = 'solicitation';
+export const POLICY_ACTION_SENDING = 'sending';
+
+// Solicitation-lane dials (#631 D20; migration 091's persona-consistency CHECK
+// pins the solicitation arm to exactly these domains). The lane's veto windows
+// are 30/60 — deliberately NOT the Reply lane's 15/30 union above.
+const SolicitationVetoWindowMinutesSchema = z.union([z.literal(30), z.literal(60)]);
+
+export type SolicitationVetoWindowMinutes = z.infer<typeof SolicitationVetoWindowMinutesSchema>;
+
+/** Granted window when the enable/update operation omits one (#631 Task 8). */
+export const SOLICITATION_DEFAULT_VETO_WINDOW_MINUTES: SolicitationVetoWindowMinutes = 60;
+
+// Daily send cap: stored 1..50, null = platform default. The ENFORCED cap is
+// resolveAccountDailySendCap's clamp (<= 10) either way — the dial moves toward
+// restraint only (#619 D20).
+const DailySendCapSchema = z.number().int().min(1).max(50).nullable();
 
 export type ApprovalMethod = (typeof APPROVAL_METHOD)[keyof typeof APPROVAL_METHOD];
 
@@ -136,10 +155,27 @@ export interface AutoApprovalLocationSettings {
   };
 }
 
+/**
+ * #631 D20: the Solicitation persona's opt-in slice of the settings GET.
+ * `available` is server-authoritative (invariant #13): both lane flags
+ * (`SOLICITATION_SEND_ENABLED`, `SOLICITATION_AUTO_APPROVAL_ENABLED`) AND the
+ * Autopilot tier — the client renders the card only when it holds. `enabled`
+ * is row existence: the account-default `persona='solicitation'` /
+ * `action_class='sending'` row IS the opt-in. The dials are null when no row
+ * exists (the lane is off, so there is nothing to report).
+ */
+export interface SolicitationAutoApprovalApiState {
+  available: boolean;
+  enabled: boolean;
+  dailySendCap: number | null;
+  vetoWindowMinutes: number | null;
+}
+
 export interface AutoApprovalSettingsResponse {
   accountDefault: AutoApprovalPolicyApiState;
   locations: AutoApprovalLocationSettings[];
   readiness: AutoApprovalReadiness;
+  solicitation: SolicitationAutoApprovalApiState;
 }
 
 // 'standard' is the ONLY level the server can require since the threshold
@@ -211,6 +247,22 @@ export const AutoApprovalPatchSchema = z.discriminatedUnion('operation', [
     cap: DailyAutoPostCapSchema,
     confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
   }),
+  // Solicitation lane (#631 D20): account-default scope only — the lane has no
+  // location overrides. The set operation is declarative lane config: it
+  // enables the lane when off and rewrites BOTH dials when on (an omitted
+  // vetoWindowMinutes means the 60-minute default, never "keep stored").
+  // Enabling/widening is an exposure expansion and requires `standard`
+  // confirmation, exactly like the Reply operations above.
+  z.strictObject({
+    operation: z.literal('set_solicitation_account_default'),
+    dailySendCap: DailySendCapSchema,
+    vetoWindowMinutes: SolicitationVetoWindowMinutesSchema.optional(),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }),
+  z.strictObject({
+    operation: z.literal('clear_solicitation_account_default'),
+    confirmationLevel: AutoApprovalConfirmationLevelSchema.optional(),
+  }),
 ]);
 
 export type AutoApprovalPatchRequest = z.infer<typeof AutoApprovalPatchSchema>;
@@ -221,4 +273,10 @@ export function isAutoApprovalThreshold(value: unknown): value is AutoApprovalTh
 
 export function isVetoWindowMinutes(value: unknown): value is VetoWindowMinutes {
   return VetoWindowMinutesSchema.safeParse(value).success;
+}
+
+export function isSolicitationVetoWindowMinutes(
+  value: unknown,
+): value is SolicitationVetoWindowMinutes {
+  return SolicitationVetoWindowMinutesSchema.safeParse(value).success;
 }

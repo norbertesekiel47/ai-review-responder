@@ -150,6 +150,31 @@ export type SendPendingPostNoticeResult =
   | { status: 'sent'; externalMessageId: string }
   | { status: 'skipped'; reason: string };
 
+/**
+ * Params for the Auto-approval lane's Veto notice (#631): "N review requests
+ * were auto-approved for {business}; they will send once your veto window
+ * closes; stop them from the Requests page." The notice is about a BATCH, not
+ * a response or a review — no reviewer/star/review fields, and the CTA is a
+ * tokenless dashboard link (decision 10), unlike the Reply lane's tokenized
+ * approve-page notice.
+ */
+export interface SendSolicitationVetoNoticeParams {
+  /** Per-enrollment recipient: email address, E.164 phone, or telegram chat_id. */
+  handle: string;
+  locationLabel: string;
+  businessName: string;
+  /** Live rendered Outreach count on the batch, read at send time. */
+  requestCount: number;
+  /** `${APP_URL}/dashboard/requests` — tokenless CTA (decision 10; NOT createApprovalLink). */
+  requestsUrl: string;
+  /** solicitation_batches id — provider idempotency suffix. Non-secret. */
+  batchId: string;
+}
+
+export type SendSolicitationVetoNoticeResult =
+  | { status: 'sent'; externalMessageId: string }
+  | { status: 'skipped'; reason: string };
+
 /** Account-level safety notice emitted when the judge/governor pauses auto-posting. */
 export interface SendAutonomySuspendedNoticeParams {
   handle: string;
@@ -194,4 +219,12 @@ export interface NotificationChannel {
   sendAutonomySuspendedNotice(
     p: SendAutonomySuspendedNoticeParams,
   ): Promise<SendAutonomySuspendedNoticeResult>;
+  /**
+   * Send the Auto-approval lane's Veto notice (#631): "N review requests will
+   * send automatically — stop them from the Requests page." Returns a
+   * sent/skipped union (WhatsApp skips without its approved template SID).
+   */
+  sendSolicitationVetoNotice(
+    p: SendSolicitationVetoNoticeParams,
+  ): Promise<SendSolicitationVetoNoticeResult>;
 }

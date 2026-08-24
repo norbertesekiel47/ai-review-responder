@@ -10,6 +10,14 @@
 //                                 two reasons it writes depends on whether the
 //                                 **Send breaker** is open this tick.
 //   3. `batch_expired` (B7)
+//   3.5. Veto anchor (#631 D9)  — CASes `veto_deadline_at` on `auto_policy`
+//                                 batches (`anchorVetoDeadlines`,
+//                                 auto-approval.ts), inserted here rather than
+//                                 renumbered into the P1-P5 labels the rest of
+//                                 this file uses (those stay as-is below): it
+//                                 MUST precede phase 4 — its output is P4's
+//                                 `veto_deadline_at IS NOT NULL` precondition,
+//                                 fail-closed — no anchor, no release, ever.
 //   4. RELEASE phase            — the only phase gated on
 //                                 `SOLICITATION_SEND_ENABLED`.
 //   5. backstop join (D11)      — `closeBatchIfSettled` over every still-open
@@ -68,6 +76,8 @@
 import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { completeRun, recordStep } from '@/lib/agents/run-spine';
+import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
+import { APPROVAL_METHOD } from '@/lib/auto-approval/types';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { judgeEnabled } from '@/lib/responses/judge-flags';
 import { isJudgeHealthy } from '@/lib/responses/judge-health';
@@ -77,6 +87,11 @@ import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { latchSystemHalt } from './approval';
 import type { SystemHaltReason } from './approval';
+import {
+  anchorVetoDeadlines,
+  findAutoDowngradeReason,
+  type AutoDowngradeReason,
+} from './auto-approval';
 import { solicitationSendEnabled } from './flags';
 import {
   BATCH_APPROVAL_WINDOW_DAYS,
@@ -84,6 +99,12 @@ import {
   closeBatchIfSettled,
   UNKNOWN_GRACE_MINUTES,
 } from './outreach';
+import {
+  alertPhaseFailure,
+  isolateItem,
+  tallyPhase,
+  type PhaseTally,
+} from './release-phases';
 import { readSendBreaker } from './send-breaker';
 import {
   countAccountDispatchAttemptsToday,
@@ -98,10 +119,25 @@ const logger = createWorkerLogger('[SolicitationRelease]');
 /** The one reason a Judge downgrade ever carries. Written into the spine step. */
 const JUDGE_UNAVAILABLE_REASON = 'judge_unavailable';
 
+/**
+ * Every reason a downgrade can carry (#631 decision 7): the Judge arm's one
+ * reason, plus the Auto-approval lane's four re-check reasons. The spine step and the
+ * Sentry tag both carry the member that actually failed — `downgradeApproval`
+ * no longer hard-codes `judge_unavailable` (R1 finding 5).
+ */
+type DowngradeReason = typeof JUDGE_UNAVAILABLE_REASON | AutoDowngradeReason;
+
 /** Stable Sentry title — Sentry groups `captureMessage` by its text, so one
  *  title collapses a fleet-wide Judge outage into ONE issue that keeps
  *  receiving events rather than N issues. */
 const DOWNGRADE_ALERT_MESSAGE = 'Solicitation batch approval downgraded: Judge unavailable';
+
+/** Stable Sentry title for the Auto-approval lane's downgrades (#631 decision 6) — a
+ *  SEPARATE title from the Judge one so a Governor trip or an entitlement
+ *  lapse never files into the Judge-outage issue; the exact failed condition
+ *  is the `reason` tag. */
+const AUTO_DOWNGRADE_ALERT_MESSAGE =
+  'Solicitation batch approval downgraded: auto-approval conditions failed';
 
 /**
  * The one reason an `unknown` terminalization ever carries. Migration 091 pairs
@@ -136,16 +172,31 @@ export type ReleaseWithheldReason =
   | 'account_cap'
   | 'subscription'
   | 'judge_unhealthy'
-  | 'per_tick_budget';
+  | 'per_tick_budget'
+  // #631 rev 2.1 (decision 6): an `auto_policy` batch whose four auto
+  // conditions failed INSIDE `releaseOutreachRow`'s transaction — after the
+  // arm-level re-check passed. The row stays `rendered`; the NEXT tick's
+  // arm-level check performs the durable downgrade.
+  | 'auto_conditions';
 
 export interface ReleaseCycleReport {
   released: number;
+  /** Batches the Veto anchor CASed a `veto_deadline_at` onto this tick (#631
+   *  Task 6, `anchorVetoDeadlines`) — decision 4's MIN(sent_at) anchor, run
+   *  immediately before the release phase, every tick. */
+  anchored: number;
   /** The FIRST gate that stopped the whole release phase, or null when it ran. */
   releasePhaseStoppedBy: ReleaseWithheldReason | null;
   /** Per-account and per-batch withholds, counted by reason. */
   withheldByReason: Partial<Record<ReleaseWithheldReason, number>>;
   downgraded: number;
   heldForJudge: number;
+  /** Auto-lane downgrades by the exact condition that failed (#631 decision
+   *  6), incremented only on a `'downgraded'` outcome. DISJOINT from
+   *  `downgraded`, which stays the Judge arm's counter — one operator
+   *  question ("did the Judge outage un-approve batches?") must never be
+   *  answered by the other lane's number. */
+  autoDowngradedByReason: Partial<Record<AutoDowngradeReason, number>>;
   /** Batches the P2 sweep terminalized with `send_window_elapsed` — the window
    *  ran out and sending was NOT halted platform-wide. */
   sendWindowElapsed: number;
@@ -166,16 +217,6 @@ export interface ReleaseCycleReport {
    * cycle line rather than as a silent absence of work.
    */
   itemFailures: number;
-}
-
-/**
- * What one phase's per-item loop did: the items it acted on, and the items it
- * isolated. Both halves are per-PHASE; the cycle report folds them through
- * `tallyPhase`.
- */
-interface PhaseTally {
-  handled: number;
-  failed: number;
 }
 
 export interface ReleaseCycleOptions {
@@ -215,128 +256,11 @@ export const RELEASE_PER_TICK_BUDGET = 2;
 /** Rows scanned per phase per tick. Bounds the tick, and every phase logs what it dropped. */
 export const RELEASE_SCAN_LIMIT = 50;
 
-/** Stable prefix for the isolated-item log line, for the same grouping reason
- *  the two alert titles above are constants. The phase is a Sentry TAG rather
- *  than part of the text so one query answers "which phase is poisoned". */
-const ITEM_FAILURE_MESSAGE = 'Solicitation release item failed and was isolated';
-
-/**
- * Run ONE item's body, isolating a throw to that item.
- *
- * **WHY EVERY PER-ITEM LOOP NEEDS THIS, stated once here.** The five phases run
- * in sequence and every scan is `ORDER BY … ASC`, so without isolation a single
- * deterministically-failing item is re-selected as the FIRST row of its phase on
- * every subsequent tick and aborts every phase after it — platform-wide, and
- * permanently. That is issue #915's wedge arriving through the door built to
- * close it. One poisoned item must cost one item, not the lane.
- *
- * NOT A SILENT CATCH. Every failure is logged with the ids needed to find the
- * row, counted into `ReleaseCycleReport.itemFailures`, and raised to Sentry —
- * the log line is the fallback sink for Sentry itself being unreachable, so it
- * lives outside that guard, exactly as `alertUnknownTerminalization` does.
- *
- * It does NOT wrap a phase's SCAN, and a scan throw does NOT reach the
- * crash-net. `createGuardedPoll` catches everything `runReleaseCycle` throws and
- * never rethrows (`worker/background/guarded-poll.ts`), so the throw is never an
- * `unhandledRejection` and `worker/index.ts`'s classifier never sees it; what it
- * leaves behind is one `logger.error` JSON line, and the logger has NO Sentry
- * hook (`src/lib/shared/logger.ts`). A scan, `readSendBreaker` or
- * `groupByAccount` throw therefore aborts every LATER phase — P5's backstop join
- * included — on every tick for as long as the condition persists, which is a
- * wider blast radius than any item failure. `alertPhaseFailure` is that class's
- * sink: it alerts and RETHROWS, so the containment behaviour is unchanged and
- * only the alerting is added.
- */
-async function isolateItem<T>(
-  phase: string,
-  context: Record<string, string>,
-  tally: { failed: number },
-  body: () => Promise<T>,
-): Promise<T | undefined> {
-  try {
-    return await body();
-  } catch (error) {
-    recordItemFailure(phase, context, tally, error);
-    return undefined;
-  }
-}
-
-/**
- * The sink `isolateItem` wraps, exposed separately because the RELEASE phase
- * cannot use the wrapper: its per-account body carries `continue` and `break`
- * that target the enclosing loops, and neither may cross a function boundary.
- * A bare `try`/`catch` around that body plus this call is the same act.
- */
-function recordItemFailure(
-  phase: string,
-  context: Record<string, string>,
-  tally: { failed: number },
-  error: unknown,
-): void {
-  tally.failed += 1;
-  const cause = toError(error);
-  try {
-    Sentry.captureException(cause, {
-      level: 'warning',
-      tags: { subsystem: 'solicitation-release', phase },
-      extra: { ...context },
-    });
-  } catch {
-    // The log line below is the fallback sink for Sentry itself being
-    // unreachable, so it lives OUTSIDE this guard.
-  }
-  logger.error(ITEM_FAILURE_MESSAGE, cause, { phase, ...context });
-}
-
-/** Stable prefix for the phase-level failure line, grouped like the others. The
- *  phase is a Sentry TAG, so one query separates "which phase is poisoned" from
- *  the item-level issues that carry the same tag. */
-const PHASE_FAILURE_MESSAGE = 'Solicitation release phase failed and aborted the cycle';
-
-/**
- * Give a PHASE-level throw the alerting sink the per-item catch already has,
- * then RETHROW.
- *
- * **IT CHANGES NO CONTROL FLOW.** The cycle still aborts, `createGuardedPoll`
- * still catches, and the tick still ends without the phases after this one —
- * that containment is deliberate and unchanged. What this closes is the
- * asymmetry `isolateItem`'s docstring describes: an ITEM failure (blast radius
- * one row) raised a Sentry issue while a SCAN failure (blast radius every later
- * phase, every tick, P5's backstop join included) raised nothing at all. A
- * `selectReleaseCandidates` that starts timing out under PgBouncer's
- * `statement_timeout` is exactly that shape — the lane silently stops closing
- * batches and no alert fires.
- *
- * `readSendBreaker`'s throw comes through here too, and belongs here: the throw
- * IS the fail-closed halt signal (#622 §3.2B), and a halt signal that suppresses
- * P5 for as long as it persists is worth an alert. Alerting is not catching —
- * the rethrow is what keeps that invariant intact.
- */
-async function alertPhaseFailure<T>(phase: string, body: () => Promise<T>): Promise<T> {
-  try {
-    return await body();
-  } catch (error) {
-    const cause = toError(error);
-    try {
-      Sentry.captureException(cause, {
-        level: 'warning',
-        tags: { subsystem: 'solicitation-release', phase },
-      });
-    } catch {
-      // The log line below is the fallback sink for Sentry itself being
-      // unreachable, so it lives OUTSIDE this guard.
-    }
-    logger.error(PHASE_FAILURE_MESSAGE, cause, { phase });
-    throw error;
-  }
-}
-
-/** Fold one phase's tally into the cycle report: the handled count is that
- *  phase's own field, the isolated failures accumulate across the tick. */
-function tallyPhase(report: ReleaseCycleReport, tally: PhaseTally): number {
-  report.itemFailures += tally.failed;
-  return tally.handled;
-}
+// The per-item isolation idiom (`isolateItem`/`recordItemFailure`), the
+// phase-level alerting sink (`alertPhaseFailure`) and the tally vocabulary
+// (`PhaseTally`/`tallyPhase`) live in `./release-phases` — the shared seam the
+// **Veto anchor** (`auto-approval.ts`) consumes too, extracted so the
+// isolate-don't-poison-the-tick idiom (#915) has exactly one owner.
 
 /**
  * Run one release cycle.
@@ -355,10 +279,12 @@ export async function runReleaseCycle(
 
   const report: ReleaseCycleReport = {
     released: 0,
+    anchored: 0,
     releasePhaseStoppedBy: null,
     withheldByReason: {},
     downgraded: 0,
     heldForJudge: 0,
+    autoDowngradedByReason: {},
     sendWindowElapsed: 0,
     platformHalted: 0,
     batchExpired: 0,
@@ -397,6 +323,16 @@ export async function runReleaseCycle(
   report.batchExpired = tallyPhase(
     report,
     await alertPhaseFailure('batch_expired', () => sweepBatchExpired(sql, scanLimit)),
+  );
+  // The Veto anchor (#631 Task 6, decision 4) — MUST run before the release
+  // phase: P4's scan requires `veto_deadline_at IS NOT NULL`, so an
+  // `auto_policy` batch can never release in the same tick it is anchored on
+  // (this phase and P4 read a DIFFERENT snapshot of the row either way — the
+  // anchor commits in its own transaction per candidate, before P4's scan
+  // runs), and D9 is fail-closed: no anchor, no release, ever.
+  report.anchored = tallyPhase(
+    report,
+    await alertPhaseFailure('veto_anchor', () => anchorVetoDeadlines(sql, scanLimit)),
   );
   await alertPhaseFailure('release', () =>
     runReleasePhase(sql, { perTickBudget, scanLimit }, report),
@@ -1099,6 +1035,12 @@ interface ReleaseCandidateBatch {
   id: string;
   account_id: string;
   business_id: string;
+  /** How the batch was approved (#631 decision 6): `'auto_policy'` routes the
+   *  batch through the Auto-approval lane's release-time re-check and the in-tx
+   *  release guard; the owner lane skips both. Nullable in the TYPE because
+   *  the column is, though the scan's `approved_at IS NOT NULL` arm plus
+   *  091's approval-consistency CHECK mean a selected row always carries one. */
+  approval_method: string | null;
   sending_started_at: Date | null;
   approval_window_open: boolean;
 }
@@ -1114,6 +1056,7 @@ interface ReleaseCandidateRow {
   id: string | null;
   account_id: string | null;
   business_id: string | null;
+  approval_method: string | null;
   sending_started_at: Date | null;
   approval_window_open: boolean | null;
 }
@@ -1137,12 +1080,15 @@ interface SendParentRow {
   send_parent_run_id: string | null;
 }
 
-/** What the Judge split did to one batch. `skipped` is the RACE arm: the CAS
- *  matched nothing, so nothing was downgraded and nothing was held. Two writers
- *  reach it — a concurrent **Halt latch**, and the approval window shutting
- *  between the scan and the lock. Both are one-tick states: the next tick
- *  re-scans and reports the honest outcome (`held`, or no candidate at all). */
-type JudgeSplitOutcome = 'downgraded' | 'held' | 'skipped';
+/** What a downgrade split did to one batch — shared by the Judge arm and the
+ *  Auto-approval lane's re-check (#631 decision 7). `skipped` is the RACE arm: the CAS
+ *  matched nothing (or, on the auto arm, the serialized in-tx re-read found
+ *  the conditions healthy again), so nothing was downgraded and nothing was
+ *  held. The other writers that reach it — a concurrent **Halt latch**, and
+ *  the approval window shutting between the scan and the lock — are one-tick
+ *  states: the next tick re-scans and reports the honest outcome (`held`, or
+ *  no candidate at all). */
+type DowngradeSplitOutcome = 'downgraded' | 'held' | 'skipped';
 
 /**
  * Count withholds under one reason. `count` is a parameter for exactly one
@@ -1229,6 +1175,34 @@ async function runBatchArm(
 ): Promise<'next' | 'stop'> {
   if (ctx.capacityExhausted()) return 'stop';
 
+  // 5.5. The Auto-approval lane's release-time re-check (#631 decision 6), BEFORE the
+  //      Judge split and ONLY for `auto_policy` batches: the auto flag, the
+  //      Autopilot tier, the policy row's presence and the account-wide
+  //      Governor suspension. Subscription and the master send flag are NOT
+  //      consulted here — B14/B15: the first is the recoverable `subscription`
+  //      withhold `runAccountArm` already applied, the second stopped the
+  //      whole phase before any arm ran. This quick read is UNLOCKED and
+  //      advisory; `applyAutoDowngrade` re-reads under the batch + account
+  //      locks before anything is written, and a re-read that passes is a
+  //      quiet skip. It runs before the Judge split so an auto batch that
+  //      lost its mandate is downgraded for the TRUE reason, never filed
+  //      under a coincident Judge outage.
+  if (batch.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+    const armReason = await findAutoDowngradeReason(ctx.sql, batch.account_id);
+    if (armReason !== null) {
+      const { outcome, reason } = await applyAutoDowngrade(ctx.sql, batch, armReason);
+      if (outcome === 'downgraded') {
+        ctx.report.autoDowngradedByReason[reason] =
+          (ctx.report.autoDowngradedByReason[reason] ?? 0) + 1;
+      }
+      // `held` and `skipped` write nothing and count nothing: a mid-drip
+      // batch waits (the drip cannot go back to the owner), a raced-back
+      // skip was never a failure. The Judge counters stay untouched either
+      // way (`downgraded` is the Judge arm's number).
+      return 'next';
+    }
+  }
+
   // 6. The Judge split, LAST and only for a batch that has passed every other
   //    gate and still has capacity. A downgrade is DESTRUCTIVE, so it must never
   //    fire for a batch the account cap alone would have stopped.
@@ -1240,11 +1214,35 @@ async function runBatchArm(
     return 'next';
   }
 
+  await releaseBatchRows(ctx, batch);
+  return 'next';
+}
+
+/**
+ * Release the rendered rows of ONE batch, inside the caps. Split from
+ * `runBatchArm` so the arm reads as its gate ladder (capacity → auto
+ * re-check → Judge split → rows) and each piece stays under the cognitive
+ * threshold.
+ */
+async function releaseBatchRows(
+  ctx: ReleaseArmContext,
+  batch: ReleaseCandidateBatch,
+): Promise<void> {
   const candidates = await selectRenderedOutreach(ctx.sql, batch, ctx.scanLimit);
   for (const outreachId of candidates) {
-    if (ctx.capacityExhausted()) break;
+    if (ctx.capacityExhausted()) return;
 
-    if (!(await releaseOutreachRow(ctx.sql, batch, outreachId))) continue;
+    const rowOutcome = await releaseOutreachRow(ctx.sql, batch, outreachId);
+    if (rowOutcome === 'withheld_auto_conditions') {
+      // Rev 2.1 (decision 6): an auto condition failed INSIDE the row's
+      // release transaction, after `runBatchArm`'s arm-level check passed.
+      // The condition is ACCOUNT-level, so every sibling row of this batch
+      // would withhold identically — count the batch once and stop its loop;
+      // the next tick's arm-level check performs the durable downgrade.
+      withhold(ctx.report, 'auto_conditions');
+      return;
+    }
+    if (rowOutcome !== 'released') continue;
 
     // All three, on EVERY release. See the module header.
     ctx.report.released += 1;
@@ -1252,7 +1250,6 @@ async function runBatchArm(
     ctx.counters.platform -= 1;
     ctx.counters.account -= 1;
   }
-  return 'next';
 }
 
 /**
@@ -1533,7 +1530,8 @@ async function selectReleaseCandidates(
       HAVING COUNT(*) >= ${DEFAULT_DAILY_SEND_CAP_ACCOUNT}
     ),
     eligible AS (
-      SELECT b.id, b.account_id, b.business_id, b.approved_at, b.sending_started_at,
+      SELECT b.id, b.account_id, b.business_id, b.approval_method, b.approved_at,
+             b.sending_started_at,
              b.built_at > NOW() - make_interval(days => ${BATCH_APPROVAL_WINDOW_DAYS})
                AS approval_window_open,
              EXISTS (
@@ -1566,7 +1564,7 @@ async function selectReleaseCandidates(
        WHERE account_capped
     )
     SELECT w.capped_accounts_withheld, c.id, c.account_id, c.business_id,
-           c.sending_started_at, c.approval_window_open
+           c.approval_method, c.sending_started_at, c.approval_window_open
       FROM withheld w
       LEFT JOIN candidates c ON TRUE
      ORDER BY c.approved_at ASC
@@ -1593,6 +1591,7 @@ async function selectReleaseCandidates(
       id: row.id,
       account_id: row.account_id,
       business_id: row.business_id,
+      approval_method: row.approval_method,
       sending_started_at: row.sending_started_at,
       approval_window_open: row.approval_window_open,
     });
@@ -1692,23 +1691,60 @@ async function selectRenderedOutreach(
 async function applyJudgeSplit(
   sql: Sql,
   batch: ReleaseCandidateBatch,
-): Promise<JudgeSplitOutcome> {
-  if (batch.sending_started_at !== null || !batch.approval_window_open) return 'held';
+): Promise<DowngradeSplitOutcome> {
+  const { outcome } = await applyDowngradeSplit(sql, batch, JUDGE_UNAVAILABLE_REASON);
+  return outcome;
+}
 
-  const parentRunId = await sql.begin(async (tx) => downgradeApproval(tx, batch));
-  if (parentRunId === undefined) return 'skipped';
+/**
+ * The downgrade split's shared body (#631 decision 7), extracted VERBATIM from
+ * the Judge arm above so the Auto-approval lane's re-check could not grow a second
+ * implementation of the held/skipped arms or the alerting shape: same HOLD
+ * condition (mid-drip, or the approval window shut — a downgrade's whole
+ * promise is "the batch reappears as approvable", and both make it false),
+ * same one-transaction downgrade, same Sentry-then-log pattern with the
+ * reason in the spine detail, the Sentry tag and the log line.
+ *
+ * `confirmReason` is the auto arm's rev-2.1 serialization hook (R1 finding 3):
+ * it runs INSIDE the downgrade transaction, after the batch row lock and
+ * before the CAS — see `downgradeApproval`. The Judge arm passes none: Judge
+ * availability is a per-tick fact the transaction cannot re-derive.
+ *
+ * Generic over the reason so the auto arm gets back the narrow
+ * {@link AutoDowngradeReason} its per-reason report counter needs.
+ */
+async function applyDowngradeSplit<R extends DowngradeReason>(
+  sql: Sql,
+  batch: ReleaseCandidateBatch,
+  reason: R,
+  confirmReason?: (tx: TransactionSql) => Promise<R | null>,
+): Promise<{ outcome: DowngradeSplitOutcome; reason: R }> {
+  if (batch.sending_started_at !== null || !batch.approval_window_open) {
+    return { outcome: 'held', reason };
+  }
+
+  const result = await sql.begin(async (tx) =>
+    downgradeApproval(tx, batch, reason, confirmReason),
+  );
+  if (result === undefined) return { outcome: 'skipped', reason };
 
   // Best-effort, AFTER the durable write and in its own catch: an alerting
-  // failure must never flip a completed downgrade into a failed tick.
+  // failure must never flip a completed downgrade into a failed tick. The
+  // title splits by LANE (Sentry groups by text; a Governor trip must not
+  // file into the Judge-outage issue), the exact reason rides the tag.
+  const message =
+    result.reason === JUDGE_UNAVAILABLE_REASON
+      ? DOWNGRADE_ALERT_MESSAGE
+      : AUTO_DOWNGRADE_ALERT_MESSAGE;
   try {
-    Sentry.captureMessage(DOWNGRADE_ALERT_MESSAGE, {
+    Sentry.captureMessage(message, {
       level: 'warning',
-      tags: { subsystem: 'solicitation-release', reason: JUDGE_UNAVAILABLE_REASON },
+      tags: { subsystem: 'solicitation-release', reason: result.reason },
       extra: {
         batch_id: batch.id,
         account_id: batch.account_id,
         business_id: batch.business_id,
-        send_parent_run_id: parentRunId,
+        send_parent_run_id: result.sendParentRunId,
       },
     });
   } catch {
@@ -1716,21 +1752,51 @@ async function applyJudgeSplit(
     // the log line below is the fallback sink for Sentry itself being
     // unreachable, so it lives OUTSIDE this guard.
   }
-  logger.warn(DOWNGRADE_ALERT_MESSAGE, {
+  logger.warn(message, {
     batch_id: batch.id,
     account_id: batch.account_id,
     business_id: batch.business_id,
-    reason: JUDGE_UNAVAILABLE_REASON,
+    reason: result.reason,
   });
-  return 'downgraded';
+  return { outcome: 'downgraded', reason: result.reason };
 }
 
 /**
- * The downgrade, in its own transaction: lock the batch row, CAS the four
- * approval columns to NULL together, then record the spine step.
+ * The Auto-approval lane's downgrade (#631 decision 6), reached only after the
+ * arm-level quick read found a failing condition. The TOCTOU between that
+ * unlocked read and the downgrade CAS is closed HERE: `confirmReason`
+ * re-reads the SAME four conditions inside the downgrade transaction, under
+ * the batch row lock `downgradeApproval` has just taken and the account-wide
+ * autonomy lock (batch-then-account, the documented order) — the same
+ * serialization settings and Governor writers take. Conditions healthy again
+ * ⇒ `null` ⇒ the split reports `skipped` and writes nothing; still failing ⇒
+ * the CONFIRMED reason (which may differ from the arm-level one — the row
+ * under lock is the truth) is what the spine step, tag and report carry.
+ */
+async function applyAutoDowngrade(
+  sql: Sql,
+  batch: ReleaseCandidateBatch,
+  armReason: AutoDowngradeReason,
+): Promise<{ outcome: DowngradeSplitOutcome; reason: AutoDowngradeReason }> {
+  return applyDowngradeSplit(sql, batch, armReason, async (tx) => {
+    await lockAutonomyAccount(tx, batch.account_id);
+    return findAutoDowngradeReason(tx, batch.account_id);
+  });
+}
+
+/**
+ * The downgrade, in its own transaction: lock the batch row, confirm the
+ * reason (the auto arm's in-tx hook — see below), CAS the four approval
+ * columns to NULL together, then record the spine step with the reason that
+ * actually held under the lock.
  *
- * Returns the Send batch parent's run id on a downgrade (`null` when the batch
- * never minted one), or `undefined` when the CAS matched nothing.
+ * Returns the Send batch parent's run id (`null` when the batch never minted
+ * one) plus the confirmed reason on a downgrade, or `undefined` when the CAS
+ * matched nothing — or when `confirmReason` found the conditions healthy
+ * again, which is the Auto-approval lane's raced-back-to-healthy skip (#631 decision
+ * 6). `confirmReason` runs AFTER the batch row lock and BEFORE the CAS, so
+ * the auto arm can take the account lock inside it (batch-then-account, the
+ * documented order) and re-read under full serialization.
  *
  * **`halted_at IS NULL AND send_closed_at IS NULL` are load-bearing** (round-1
  * finding 7). A **Halt latch** does NOT clear `approved_at`. Without those two
@@ -1752,10 +1818,12 @@ async function applyJudgeSplit(
  * All four approval columns move together, or the Requests panel shows a batch
  * it cannot act on — 091's approval-consistency CHECK says the same thing.
  */
-async function downgradeApproval(
+async function downgradeApproval<R extends DowngradeReason>(
   tx: TransactionSql,
   batch: ReleaseCandidateBatch,
-): Promise<string | null | undefined> {
+  reason: R,
+  confirmReason?: (tx: TransactionSql) => Promise<R | null>,
+): Promise<{ sendParentRunId: string | null; reason: R } | undefined> {
   const [locked] = await tx<SendParentRow[]>`
     SELECT (
              SELECT r.id
@@ -1775,6 +1843,13 @@ async function downgradeApproval(
      FOR UPDATE OF b
   `;
   if (locked === undefined) return undefined;
+
+  let confirmedReason: R = reason;
+  if (confirmReason !== undefined) {
+    const confirmed = await confirmReason(tx);
+    if (confirmed === null) return undefined;
+    confirmedReason = confirmed;
+  }
 
   const [downgraded] = await tx<{ id: string }[]>`
     UPDATE solicitation_batches
@@ -1796,21 +1871,29 @@ async function downgradeApproval(
 
   // The DURABLE record; the Sentry warning is ephemeral. No owner notification
   // (locked decision 4) — the batch simply reappears as approvable, which the
-  // CAS's own `built_at` arm above is what makes true.
+  // CAS's own `built_at` arm above is what makes true. The reason is the one
+  // confirmed under the lock, never a hard-coded constant (R1 finding 5).
   if (locked.send_parent_run_id !== null) {
     await recordStep(tx, {
       runId: locked.send_parent_run_id,
       stepKey: 'approval_downgraded',
-      detail: { reason: JUDGE_UNAVAILABLE_REASON },
+      detail: { reason: confirmedReason },
     });
   }
-  return locked.send_parent_run_id;
+  return { sendParentRunId: locked.send_parent_run_id, reason: confirmedReason };
 }
+
+/** What `releaseOutreachRow` did with one row. `skipped` is any lost race —
+ *  the batch lock re-read refused, or another writer moved the row first.
+ *  `withheld_auto_conditions` is the rev-2.1 guard (#631 decision 6): an
+ *  `auto_policy` batch's conditions failed under the release transaction's
+ *  own locks, so the row stays `rendered` and nothing is written. */
+type ReleaseRowOutcome = 'released' | 'skipped' | 'withheld_auto_conditions';
 
 /**
  * Release ONE Outreach row: the batch lock, the `rendered` → `queued` CAS, the
  * `sending_started_at` stamp and the `job_outbox` row, in ONE transaction
- * (invariant #2). Returns whether the row moved.
+ * (invariant #2). Returns what happened to the row.
  *
  * THE LOCKED RE-READ IS LOAD-BEARING (round-1 finding 8). P4 selects candidates
  * before the tick takes any lock, so a candidate that then waits on the batch
@@ -1819,15 +1902,26 @@ async function downgradeApproval(
  * under the lock is what stops a release after the terminal deadline; the
  * window arm is spelled in SQL so the DATABASE clock decides it.
  *
- * A `false` from the CAS means another writer moved the row first — skip it and
- * enqueue nothing.
+ * FOR AN `auto_policy` BATCH ONLY, the same transaction re-reads the four auto
+ * conditions before the CAS (#631 rev 2.1, decision 6): batch lock first (the
+ * statement above), then `lockAutonomyAccount` — the documented
+ * batch-then-account order — then the conditions, so a settings opt-out, a
+ * tier lapse or a Governor suspension committed after the arm-level check can
+ * never race a row out the door. A failure withholds the row and writes
+ * NOTHING; the durable downgrade belongs to the next tick's arm-level check.
+ * Owner-lane batches skip the guard entirely. Affordable by construction:
+ * RELEASE_PER_TICK_BUDGET = 2 per 60s tick (ADR 0022), so at most two extra
+ * condition reads per minute.
+ *
+ * A `skipped` from the CAS means another writer moved the row first — skip it
+ * and enqueue nothing.
  */
 async function releaseOutreachRow(
   sql: Sql,
   batch: ReleaseCandidateBatch,
   outreachId: string,
-): Promise<boolean> {
-  return sql.begin(async (tx) => {
+): Promise<ReleaseRowOutcome> {
+  return sql.begin(async (tx): Promise<ReleaseRowOutcome> => {
     const [locked] = await tx<{ id: string }[]>`
       SELECT b.id
         FROM solicitation_batches b
@@ -1840,7 +1934,14 @@ async function releaseOutreachRow(
          AND b.approved_at > NOW() - make_interval(hours => ${BATCH_SEND_WINDOW_HOURS})
        FOR UPDATE OF b
     `;
-    if (locked === undefined) return false;
+    if (locked === undefined) return 'skipped';
+
+    if (batch.approval_method === APPROVAL_METHOD.AUTO_POLICY) {
+      await lockAutonomyAccount(tx, batch.account_id);
+      if ((await findAutoDowngradeReason(tx, batch.account_id)) !== null) {
+        return 'withheld_auto_conditions';
+      }
+    }
 
     const [moved] = await tx<{ id: string }[]>`
       UPDATE solicitation_outreach
@@ -1853,7 +1954,7 @@ async function releaseOutreachRow(
          AND delivery_status = 'rendered'
       RETURNING id
     `;
-    if (moved === undefined) return false;
+    if (moved === undefined) return 'skipped';
 
     // Decision 6: stamped in the FIRST release transaction, CAS on NULL. It is
     // the boundary between "a Judge outage may return this batch to the owner"
@@ -1883,6 +1984,6 @@ async function releaseOutreachRow(
         `runReleaseCycle: outreach ${outreachId} moved rendered -> queued but already owns an in-flight solicitation_send job`,
       );
     }
-    return true;
+    return 'released';
   });
 }

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   supersedeLiveRender: vi.fn(),
   closeBatchIfSettled: vi.fn(),
   solicitationSendEnabled: vi.fn(),
+  solicitationAutoApprovalEnabled: vi.fn(),
   runLlmTask: vi.fn(),
   moderateResponse: vi.fn(),
   openaiModerationEnabled: vi.fn(),
@@ -56,6 +57,11 @@ vi.mock('../outreach', async (importOriginal) => ({
 vi.mock('../flags', () => ({
   solicitationWatchEnabled: vi.fn(),
   solicitationSendEnabled: mocks.solicitationSendEnabled,
+  // #631 Task 4: the finale's auto-approval hook (../auto-approval.ts) reads
+  // this flag too — same resolved module, same mock. Defaulted off below so
+  // the hook's default outcome is an `auto_flag_off` decline, not a thrown
+  // "not a function".
+  solicitationAutoApprovalEnabled: mocks.solicitationAutoApprovalEnabled,
 }));
 vi.mock('@/lib/llm/run-task', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/llm/run-task')>()),
@@ -171,9 +177,39 @@ const lifecycleRow = (overrides: Record<string, unknown> = {}) =>
 const tallyRow = (alive: number, failedCount = 0, withheldCount = 0) =>
   mkTaggedResult([{ alive, failed_count: failedCount, withheld_count: withheldCount }]);
 
-/** FIFO for the finale transaction: batch FOR UPDATE row, then the tally. */
+/**
+ * The finale's auto-approval hook (#631 Task 4, `runFinaleAutoApproval` in
+ * ../auto-approval.ts) fires whenever the finale stays open with a live row
+ * (`tally.alive > 0` and `closeBatchIfSettled` — defaulted `not_settled` in
+ * `beforeEach` — agrees) AND both process-env flags pass: the perf follow-up
+ * checks `solicitationSendEnabled`/`solicitationAutoApprovalEnabled` FIRST,
+ * BEFORE taking the account lock or reading any DB-backed condition — so
+ * with this suite's default flags (`solicitationSendEnabled` true,
+ * `solicitationAutoApprovalEnabled` false, see `beforeEach`), the hook
+ * declines on `auto_flag_off` WITHOUT touching `sql` at all, and these four
+ * queries are never owed. Only a test that flips
+ * `solicitationAutoApprovalEnabled` on (alongside the send flag) reaches
+ * `lockAutonomyAccount`/`readAutoApprovalConditions` and needs this queued.
+ */
+function enqueueAutoApprovalDecline() {
+  sqlReturnQueue.push(
+    mkTaggedResult([{ id: ACCOUNT_ID }]), // lockAutonomyAccount
+    mkTaggedResult([{ subscription_status: 'active', subscription_tier: 'copilot' }]), // readAutoApprovalConditions: account
+    mkTaggedResult([{ any_suspended: false }]), // readAutoApprovalConditions: suspension
+    mkTaggedResult([]), // readAutoApprovalConditions: solicitation policy row (none)
+  );
+}
+
+/** FIFO for the finale transaction: batch FOR UPDATE row, then the tally —
+ *  plus the auto-approval hook's four queries, but ONLY when the tally
+ *  reports a live row AND both process-env flags are on for this test (see
+ *  {@link enqueueAutoApprovalDecline}) — otherwise the flag pre-check declines
+ *  before ever reaching `sql`, and the DB-backed conditions are unread. */
 function enqueueFinale(tally = tallyRow(1)) {
   sqlReturnQueue.push(mkTaggedResult([{ id: BATCH_ID }]), tally);
+  const bothFlagsOn =
+    mocks.solicitationSendEnabled() === true && mocks.solicitationAutoApprovalEnabled() === true;
+  if ((tally[0]?.alive ?? 0) > 0 && bothFlagsOn) enqueueAutoApprovalDecline();
 }
 
 function cleanModeration() {
@@ -200,6 +236,7 @@ beforeEach(() => {
   for (const fn of Object.values(mocks.logger)) fn.mockReset();
 
   mocks.solicitationSendEnabled.mockReturnValue(true);
+  mocks.solicitationAutoApprovalEnabled.mockReturnValue(false);
   mocks.lockDispatchedOutboxAttemptIfOwned.mockResolvedValue(true);
   mocks.markOutboxCompletedIfOwned.mockResolvedValue(true);
   mocks.startOrGetSolicitationSendBatchRun.mockResolvedValue({

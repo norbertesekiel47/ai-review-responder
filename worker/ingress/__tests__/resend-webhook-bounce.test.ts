@@ -300,3 +300,32 @@ describe('handleResendWebhook — bounce handling', () => {
     expect(mockSendInternalEmail).not.toHaveBeenCalled();
   });
 });
+
+// #631 Task 5 (docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md,
+// decision 16) — solicitation_veto_notice joins OWNER_DIRECTED_TEMPLATES so a
+// hard bounce on the Auto-approval lane's Veto notice flags
+// businesses.owner_email_bounced the same as every other owner email.
+describe('solicitation veto notice bounce classification (#631)', () => {
+  it('a hard bounce for solicitation_veto_notice marks owner_email_bounced', async () => {
+    sqlReturnQueue.push({ count: 1 });
+    sqlReturnQueue.push([{ business_id: 'biz-1', template: 'solicitation_veto_notice' }]);
+    sqlReturnQueue.push([]); // UPDATE notification_deliveries
+    sqlReturnQueue.push([{ id: 'biz-1' }]); // UPDATE businesses RETURNING (transition)
+    sqlReturnQueue.push([]); // UPDATE inbound_events
+
+    const body = {
+      type: 'email.bounced',
+      data: { email_id: 'msg-abc', bounce: { type: 'Permanent' } },
+    };
+    const { reply, captured } = makeReply();
+    await handleResendWebhook(makeReq(body), reply);
+
+    expect(captured.status).toBe(200);
+    const joinedSql = joinSql(mockSql.mock.calls);
+    expect(joinedSql).toMatch(/UPDATE\s+businesses[\s\S]*owner_email_bounced\s*=\s*TRUE/i);
+    expect(mockSendInternalEmail).toHaveBeenCalledOnce();
+    expect(String(mockSendInternalEmail.mock.calls[0]?.[0]?.bodyHtml)).toContain(
+      'solicitation_veto_notice',
+    );
+  });
+});

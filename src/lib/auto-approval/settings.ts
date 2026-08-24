@@ -9,9 +9,6 @@ import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { writeAccountAuditLog } from '@/lib/audit/log';
 import { isPreviewEnvironment } from '@/lib/config/flags';
 import { autopilotPurchasable } from '@/lib/payments/tier-purchasability';
-import type { AccountFlagsInput } from '@/lib/shared/past-due-recovery';
-import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
-import { assertWritableSubscriptionStatus } from '@/lib/shared/writable-subscription';
 import {
   autoApprovalRuntimeEnabled,
   providerModerationEnabled,
@@ -25,12 +22,21 @@ import {
   resolveEffectivePolicy,
 } from './policy';
 import { buildAutoApprovalReadiness } from './readiness';
+import {
+  AutoApprovalExpansionBlockedError,
+  accountSubscriptionWritable,
+  assertConfirmationProvided,
+} from './settings-guards';
+import type { SettingsAccountEntitlementRow } from './settings-guards';
+import {
+  applySolicitationMutation,
+  loadSolicitationApiState,
+} from './solicitation-settings';
 import type {
   AutoApprovalConfirmationLevel,
   AutoApprovalPatchRequest,
   AutoApprovalPolicyApiState,
   AutoApprovalReadiness,
-  AutoApprovalReadinessBlockReason,
   AutoApprovalSettingsResponse,
   AutoApprovalThreshold,
   EffectiveAutoApprovalPolicy,
@@ -60,6 +66,23 @@ export type PatchAutoApprovalSettingsInput = AutoApprovalPatchRequest & {
   userAgent?: string | null;
   requestId?: string | null;
 };
+
+type SolicitationPatchOperation =
+  | 'set_solicitation_account_default'
+  | 'clear_solicitation_account_default';
+
+// The Reply-lane machinery below (before/after snapshots, exposure ranks, the
+// archived-location gates) switches EXHAUSTIVELY over the Reply operations, so
+// it takes the narrowed input type; the Solicitation lane branches off first in
+// updatePolicyInTransaction into `./solicitation-settings` and never enters it.
+export type SolicitationPatchInput = Extract<
+  PatchAutoApprovalSettingsInput,
+  { operation: SolicitationPatchOperation }
+>;
+type ReplyLanePatchInput = Exclude<
+  PatchAutoApprovalSettingsInput,
+  { operation: SolicitationPatchOperation }
+>;
 
 interface PolicyDbRow {
   id: string;
@@ -98,14 +121,6 @@ interface TargetLocationRow {
   archived_at: Date | null;
 }
 
-interface SettingsAccountEntitlementRow {
-  id: string;
-  subscription_tier: string;
-  subscription_status: string;
-  past_due_at: Date | string | null;
-  flags: AccountFlagsInput;
-}
-
 // One point-in-time view of the targeted policy: its API row plus the effective
 // policy that results for the targeted scope.
 interface PolicySnapshot {
@@ -136,20 +151,6 @@ interface PolicyMutationAfterState {
   snapshot: PolicySnapshot;
 }
 
-export class AutoApprovalConfirmationRequiredError extends Error {
-  constructor(readonly confirmationLevel: AutoApprovalConfirmationLevel) {
-    super('auto_approval_confirmation_required');
-    this.name = 'AutoApprovalConfirmationRequiredError';
-  }
-}
-
-export class AutoApprovalExpansionBlockedError extends Error {
-  constructor(readonly blockReasons: AutoApprovalReadinessBlockReason[]) {
-    super('auto_approval_expansion_blocked');
-    this.name = 'AutoApprovalExpansionBlockedError';
-  }
-}
-
 export class AutoApprovalSettingsError extends Error {
   constructor(
     readonly code: string,
@@ -178,7 +179,9 @@ async function loadAutoApprovalSettings(
   // mutation lock, so it loads the same projection once for its point-in-time
   // readiness response.
   const account = lockedAccount ?? await loadSettingsAccount(db, input.accountId);
-  // FP: all three reads share one db SqlExecutor (single pooled connection) and the prior read consumes accountDefault; sequential by design, not safely parallelizable.
+  // FP: all these reads share one db SqlExecutor (single pooled connection), the second consumes accountDefault and the last two consume account; sequential by design, not safely parallelizable.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+  const solicitation = await loadSolicitationApiState(db, input.accountId, account);
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const readiness = await buildReadiness(db, input.accountId, {
     impersonated: input.impersonated,
@@ -189,6 +192,7 @@ async function loadAutoApprovalSettings(
     accountDefault: toApiState(accountDefault),
     locations,
     readiness,
+    solicitation,
   };
 }
 
@@ -217,6 +221,17 @@ async function updatePolicyInTransaction(
   const offboardingState = await getOffboardingState(input.accountId, tx);
   if (isOperationalUIBlocked(offboardingState)) {
     throw new AutoApprovalSettingsError('account_offboarding_blocked', 403);
+  }
+
+  // The Solicitation lane (#631 D20) shares the account lock + offboarding
+  // gate above but none of the Reply lane's snapshot machinery — its only row
+  // is the account default and its dials live in different columns.
+  if (
+    input.operation === 'set_solicitation_account_default'
+    || input.operation === 'clear_solicitation_account_default'
+  ) {
+    await applySolicitationMutation(tx, input, lockedAccount, offboardingState);
+    return lockedAccount;
   }
 
   // Gate BEFORE write: read the current state, derive the after-state purely,
@@ -249,30 +264,13 @@ interface PolicyChangeAuditContext {
 // buildAuditContext (the expansion case); housed together here, before any write.
 function assertArchivedPolicyAllowed(
   before: PolicyMutationBeforeState,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   expansion: boolean,
 ): void {
   if (before.scope !== 'location_override' || !before.locationArchived) return;
   if (input.operation === 'set_location_override' || expansion) {
     throw new AutoApprovalSettingsError('location_inactive', 409);
   }
-}
-
-// Every expansion requires the 'standard' confirmation ('all_ratings' died
-// with the 1-star threshold in WS4). Any submitted level satisfies it — a
-// stale cached client may still send 'all_ratings', and the pre-WS4
-// confirmationSatisfies already accepted it as covering 'standard'; that
-// tolerance is kept for one release (see the schema comment in types.ts).
-// Returns the required level (or null) for the audit row.
-function assertConfirmationProvided(
-  input: PatchAutoApprovalSettingsInput,
-  expansion: boolean,
-): AutoApprovalConfirmationLevel | null {
-  if (!expansion) return null;
-  if (input.confirmationLevel === undefined) {
-    throw new AutoApprovalConfirmationRequiredError('standard');
-  }
-  return 'standard';
 }
 
 // Reads readiness once (for the expansion gate) and returns it so the audit row
@@ -282,7 +280,7 @@ function assertConfirmationProvided(
 // expansion while contractions and dial changes stay allowed.
 async function assertExpansionReady(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   expansion: boolean,
   lockedAccount: SettingsAccountEntitlementRow,
@@ -302,7 +300,7 @@ async function assertExpansionReady(
 // written. Gate order is preserved: archived -> confirmation -> readiness.
 async function assertMutationAllowed(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
   lockedAccount: SettingsAccountEntitlementRow,
@@ -330,7 +328,7 @@ async function assertMutationAllowed(
 
 async function writeAudit(
   tx: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: PolicyMutationAfterState,
   context: PolicyChangeAuditContext,
@@ -396,7 +394,7 @@ async function lockAccount(
 
 async function readBeforeState(
   db: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
 ): Promise<PolicyMutationBeforeState> {
   const accountDefault = await loadAccountDefault(db, input.accountId);
 
@@ -453,7 +451,7 @@ type PolicyRowPatch =
 // the persisted row id equals this derived id — afterRow stays truthful).
 function computeAfterState(
   before: PolicyMutationBeforeState,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   newPolicyId: string,
 ): PolicyMutationAfterState {
   const upsertPolicyId = before.snapshot.row.exists
@@ -506,7 +504,7 @@ const COMPLETE_DISABLE_OPERATIONS = new Set<PatchAutoApprovalSettingsInput['oper
 ]);
 
 function createsManualLocationOverride(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
 ): boolean {
   return before.scope === 'location_override'
@@ -515,7 +513,7 @@ function createsManualLocationOverride(
 }
 
 function transitionsEnabledPolicyToManual(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: EffectiveAutoApprovalPolicy,
 ): boolean {
@@ -525,7 +523,7 @@ function transitionsEnabledPolicyToManual(
 }
 
 function isCompleteDisable(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
   after: EffectiveAutoApprovalPolicy,
 ): boolean {
@@ -554,7 +552,7 @@ function clearsSuspendedRow(before: PolicyMutationBeforeState): boolean {
 // Which shape a clear/delete op runs, recorded on the audit row. Null for
 // operations that are not clears.
 function clearShapeFor(
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   before: PolicyMutationBeforeState,
 ): 'delete' | 'threshold_null_suspended' | null {
   if (input.operation !== 'clear_account_default' && input.operation !== 'delete_location_override') {
@@ -650,7 +648,7 @@ function noneEffective(): EffectiveAutoApprovalPolicy {
 
 async function applyMutation(
   db: TransactionSql,
-  input: PatchAutoApprovalSettingsInput,
+  input: ReplyLanePatchInput,
   newPolicyId: string,
   before: PolicyMutationBeforeState,
 ): Promise<void> {
@@ -949,6 +947,12 @@ async function upsertLocationDailyCap(
   `;
 }
 
+// The Solicitation lane (#631 D20) lives in `./solicitation-settings` — its
+// row-state type, exposure classifier, expansion gate, audit writer, loader
+// and upsert. This file keeps the public interface and joins to it exactly
+// twice: `updatePolicyInTransaction`'s solicitation branch (PATCH) and
+// `loadAutoApprovalSettings`'s `loadSolicitationApiState` call (GET).
+
 async function loadAccountDefault(
   db: SqlExecutor,
   accountId: string,
@@ -1123,15 +1127,6 @@ async function buildReadiness(
     previewEnvironment: preview,
     impersonated: context.impersonated,
   });
-}
-
-function accountSubscriptionWritable(account: SettingsAccountEntitlementRow): boolean {
-  if (subscriptionGrantsFullAccess(account.subscription_status)) return true;
-  return assertWritableSubscriptionStatus({
-    subscriptionStatus: account.subscription_status,
-    pastDueAt: account.past_due_at,
-    accountFlags: account.flags,
-  }).ok;
 }
 
 function toPolicyRow(row: PolicyDbRow): SettingsPolicyRow {

@@ -7,6 +7,8 @@ import {
   renderAutonomySuspendedNoticeWhatsAppBody,
   formatEscalationNoticeWhatsApp,
   formatPendingPostNoticeWhatsApp,
+  formatSolicitationVetoNoticeWhatsApp,
+  renderSolicitationVetoNoticeWhatsAppBody,
   renderApprovalCardBody,
   extractTokenFromApprovalUrl,
   stripWaPrefix,
@@ -67,6 +69,38 @@ describe('formatAutonomySuspendedNoticeWhatsApp', () => {
       reason: 'Safety review.',
       settingsPath: '/settings/auto-approval',
     }, 'HXsuspended')).toThrow(/settingsPath must equal settings\/auto-approval/);
+  });
+});
+
+describe('formatSolicitationVetoNoticeWhatsApp', () => {
+  it('is batch-scoped: exactly two variables, no reviewer/star/review-text fields', () => {
+    const { contentSid, contentVariables } = formatSolicitationVetoNoticeWhatsApp(
+      { businessName: 'Acme\nRestaurant  Group', requestCount: 3 },
+      'HXveto',
+    );
+
+    expect(contentSid).toBe('HXveto');
+    expect(contentVariables).toEqual({
+      '1': '3',
+      '2': 'Acme Restaurant Group',
+    });
+  });
+
+  it('is byte-pinned to the runbook body and variable contract', () => {
+    const runbook = readFileSync('docs/runbooks/whatsapp-templates.md', 'utf8');
+    const section = runbook.split('## Solicitation veto notice (`WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID`)')[1]
+      ?.split('\n---')[0];
+    expect(section).toBeTruthy();
+    const documentedBody = section!.match(/\*\*Exact provider body \(byte-locked\):\*\*\n\n```\n([\s\S]*?)\n```/)?.[1];
+    const sourceBody = renderSolicitationVetoNoticeWhatsAppBody({
+      '1': '{{1}}',
+      '2': '{{2}}',
+    });
+    expect(documentedBody).toBe(sourceBody);
+    expect(section).toContain('"1" = String(requestCount)');
+    expect(section).toContain('"2" = truncate(oneLine(businessName), 100)');
+    // Decision 10: fixed, tokenless CTA — no {{n}} suffix on the URL button.
+    expect(section).toContain('"url": "https://app.repworth.com/dashboard/requests"');
   });
 });
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
