@@ -414,3 +414,95 @@ duplication. Re-classifying a feature to relocate one constant is a bad trade.
 schema guard, declare only what that suite actually needs — the `job_outbox`
 in-flight index — which is a DIFFERENT requirement, not another copy of the
 columns one.
+
+---
+
+## D19 — the plan's helper return check would have been a FALSE GREEN in the mocked suite
+
+**Stage:** execution (step 4), Task 4. **Second plan defect the review rounds missed.**
+
+The plan wrote the suppressed-enqueue check as `inserted.count === 0 ? null : outboxId`.
+Task 4 wrote `rows.length > 0 ? outboxId : null`.
+
+In production the two are identical — postgres.js sets both on an
+`INSERT … RETURNING`. **In the mocked unit suite they are not.**
+`createMockTx()` resolves a bare `[]` with **no `.count` property**, so
+`inserted.count === 0` is `undefined === 0`, which is `false`, and the plan's form
+**returns an id for the suppressed case**. The test asserting "enqueues nothing
+when the business has never sent an ask" would have passed while the helper
+reported a write that never happened.
+
+The chosen form also matches the direct neighbour `enqueueSolicitationSend`.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D20 — "every hand-counted assertion shifts" was OVER-BROAD; only the new-review win path moves
+
+**Stage:** execution (step 4), Task 4. This corrects **D6** and the Task 4 brief.
+
+D6 said the new enqueue shifts "every count and index" in
+`process-review.test.ts`, naming paths 3, 5, 6 and 7. Task 4 checked each instead
+of trusting it. **Only the new-review win branch gains a transaction call.**
+
+- Changed: happy-path new review `5 → 6`, plus five sibling new-review cases that
+  each gained a mock. `capturedJsonbPayloads` `toHaveLength(1) → 2`.
+- **Deliberately unchanged, each verified as not reaching the new branch:** the
+  race-loss path (3), the stale-marking path (7), the flag-off path (6), the
+  posted-response path (6), and every `importReview` count.
+- `tx.mock.calls[3]` and `capturedJsonbPayloads[0]` are **unmoved**, because the
+  enqueue was placed AFTER `maybeEnqueueFirstReviewIngested` rather than before.
+  Same transaction either way; the ordering keeps the diff to counts plus
+  additions instead of a reindex.
+- **No assertion was weakened. No `expect.any` was introduced.** New positive
+  assertions were added: `tx.mock.calls[5]` names the topic, and an exact
+  `toEqual` on the attribution payload proves ids-only and correlation passthrough.
+
+D6 was right that the task must run the mocked suite. It was wrong about the
+blast radius, and checking beat believing.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D21 — the guard's marker is proved TEXTUALLY, not behaviourally. Stated, not papered over.
+
+**Stage:** execution (step 4), Task 4.
+
+Swapping the enqueue guard's marker to `attributed_review_id IS NULL` fails only
+the **mocked** helper test, which asserts `not.toContain('attributed_review_id')`.
+No integration test catches it. The two markers diverge only **after a review
+delete**, and that is the candidate query's territory — already pinned
+behaviourally by Task 3's title `attribution: deleting an attributed review does
+not make its outreach row eligible for another review`.
+
+So the guard is a lossless superset whose marker choice is enforced by a string
+assertion. That is the honest bound. It is acceptable because the guard
+over-enqueueing is harmless by design (the matcher owns the window) and the
+under-enqueue case is what the integration titles cover.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D22 — three smaller Task 4 choices
+
+1. **Explicit `::uuid` casts** on the `id`, `aggregate_id` and guard `business_id`
+   bindings, following `enqueueValidatePlaceId`, the other `INSERT … SELECT`
+   helper. The `SELECT` form resolves parameter types before the target columns;
+   the value-list helpers do not need this.
+2. **D16 applied.** Every SQL comment copied from the plan into a tagged template
+   had its backticks stripped. Only `-- topic-audit-ignore: …` survives inside a
+   template; the backticked prose moved to the JSDoc above the function.
+3. **D18 honoured minimally.** Each integration suite declares a local
+   `MIGRATION_114_ATTRIBUTION_OUTBOX_INFLIGHT` naming only the in-flight index — a
+   DIFFERENT requirement, not a third copy of the columns one. Migration 114 runs
+   in one `BEGIN … COMMIT` and that index is its last created object, so asserting
+   it proves the whole file ran.
+
+**Negative controls run and reverted.** Adding a 14-day bound to the guard fails
+the out-of-window title, so D3 bites. Removing the `ON CONFLICT … DO NOTHING`
+throws `duplicate key value violates unique constraint
+"job_outbox_solicitation_attribution_inflight"` **inside the review-ingest
+transaction** — D5's hazard is real and the index is load-bearing.
