@@ -684,3 +684,103 @@ variable. When unset, the dispatcher pre-skips WhatsApp and
 |-----|---------------|------------|-----|-------------|
 | Prod | `repworth_autonomy_suspended_notice_v1` | `https://app.repworth.com/{{3}}` | `HX________ (record at go-live)` | not yet submitted |
 | Staging | `repworth_autonomy_suspended_notice_staging_v1` | `https://staging.repworth.net/{{3}}` | `HX________ (record at go-live)` | not yet submitted |
+
+---
+
+## Solicitation veto notice (`WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID`)
+
+**Purpose:** Tell a business owner that the Auto-approval lane (#631) auto-approved
+a batch of review requests and they will send once the batch's veto window
+closes. The notice is BATCH-scoped, not response/review-scoped — no
+reviewer/star/review-text fields, unlike every other notice in this file. One
+URL button opens the (tokenless) Requests page, where the owner can stop the
+batch before it sends.
+
+**Template name/version:** `repworth_solicitation_veto_notice_v1`
+
+**Twilio Content type:** `whatsapp/card`
+
+**Language:** `en`
+
+**Meta category:** UTILITY (transactional safety-state notice, not promotion).
+Any wording, variable, button, URL-base, language, or category change requires
+a versioned template and a fresh Meta review.
+
+**Exact provider body (byte-locked):**
+
+```
+{{1}} review request(s) for {{2}} were auto-approved.
+
+They will send once your veto window closes. Visit the Requests page to stop them.
+```
+
+This body must remain byte-for-byte equal to the template rendered by
+`renderSolicitationVetoNoticeWhatsAppBody` in
+`src/lib/notifications/channels/whatsapp-body.ts`.
+
+**Variables:** `formatSolicitationVetoNoticeWhatsApp` sends exactly two
+positional values:
+
+| Index | Runtime mapping | Template use | Bound |
+|-------|-----------------|--------------|-------|
+| 1 | `"1" = String(requestCount)` | `{{1}}` in body | live rendered Outreach count on the batch, read at send time |
+| 2 | `"2" = truncate(oneLine(businessName), 100)` | `{{2}}` in body | one-line, truncated to 100 chars |
+
+**Button contract:**
+
+| Index | Type | Label | Dynamic content |
+|-------|------|-------|-----------------|
+| 0 | URL | Stop these requests | production `url` = `https://app.repworth.com/dashboard/requests` (FIXED — no `{{n}}` suffix) |
+
+**No dynamic URL-button suffix, unlike every other template in this file.**
+Decision 10 (`docs/superpowers/plans/2026-08-23-631-auto-approval-lane.md`)
+makes the CTA tokenless: every send targets the SAME `/dashboard/requests`
+destination, so unlike `repworth_pending_post_notice_v1`'s `/approve/{{7}}` or
+`repworth_autopost_notice_v1`'s `/r/google/{{4}}` there is no per-notice
+suffix to thread through as a variable. The fixed production base is
+`https://app.repworth.com/dashboard/requests`; staging must use its own
+approved template pointed at `https://staging.repworth.net/dashboard/requests`.
+
+### Submission JSON (Twilio Content API)
+
+Submit through the Twilio Content Editor or `POST /v1/Content`:
+
+```json
+{
+  "friendly_name": "repworth_solicitation_veto_notice_v1",
+  "language": "en",
+  "variables": {
+    "1": "12",
+    "2": "Acme Restaurant Group"
+  },
+  "types": {
+    "whatsapp/card": {
+      "body": "{{1}} review request(s) for {{2}} were auto-approved.\n\nThey will send once your veto window closes. Visit the Requests page to stop them.",
+      "actions": [
+        { "type": "URL", "title": "Stop these requests", "url": "https://app.repworth.com/dashboard/requests" }
+      ]
+    }
+  }
+}
+```
+
+Before submission, verify the two variable mappings above against
+`formatSolicitationVetoNoticeWhatsApp`. After Meta approves, record the
+returned `HX...` SID and set `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` on the
+**Railway worker only**. The value is read through `getWorkerConfig()`; it is
+not a startup-required variable. When unset, the dispatcher pre-filters
+WhatsApp and `WhatsAppChannel.sendSolicitationVetoNotice` independently
+returns `{status:'skipped'}`. Email and Telegram remain eligible.
+
+### Rollout and environment SIDs
+
+- Keep `CHANNELS_WHATSAPP_ENABLED=false` (and `SOLICITATION_AUTO_APPROVAL_ENABLED=false`,
+  its own separate kill switch — #631/#633) until the template is Meta-approved
+  and the correct environment SID/base pairing is verified in staging.
+- Smoke-test the rendered body, Requests-page button, and delivery claim in
+  staging; do not use a production SID with the staging URL base or vice versa.
+
+| Env | Template name | URL action | SID | Meta status |
+|-----|---------------|------------|-----|-------------|
+| Prod | `repworth_solicitation_veto_notice_v1` | `https://app.repworth.com/dashboard/requests` | `HX________ (record at go-live)` | not yet submitted |
+| Staging | `repworth_solicitation_veto_notice_staging_v1` | `https://staging.repworth.net/dashboard/requests` | `HX________ (record at go-live)` | not yet submitted |

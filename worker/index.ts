@@ -34,6 +34,7 @@ import { handleGenerateSolicitationAsks } from './jobs/solicitation-batch/genera
 import { handleGenerateSolicitationAsksFailed } from './jobs/solicitation-batch/generate-failed-hook';
 import { handleSolicitationSend } from './jobs/solicitation-send';
 import { handleSolicitationSendFailed } from './jobs/solicitation-send/failed-hook';
+import { handleSolicitationVetoNotice } from './jobs/solicitation-veto-notice/SolicitationVetoNoticeWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -61,6 +62,7 @@ import type {
   BuildSolicitationBatchPayload,
   GenerateSolicitationAsksPayload,
   SolicitationSendPayload,
+  SolicitationVetoNoticePayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -353,6 +355,16 @@ solicitationSendWorker.on('failed', (job, err) =>
   handleSolicitationSendFailed(sql, job, err),
 );
 
+// Auto-approval lane's Veto notice (#631 Task 5). No `'failed'` exhaustion
+// hook by design (decision 9) — exhaustion is fail-closed at release: an
+// unanchored batch never releases, and the shared job-failure sink still
+// raises the Sentry issue on the terminal attempt.
+const solicitationVetoNoticeWorker = new Worker(
+  QUEUE_NAMES.SOLICITATION_VETO_NOTICE,
+  withJobLogContext<SolicitationVetoNoticePayload>((job) => handleSolicitationVetoNotice(sql, job)),
+  workerOpts,
+);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -478,6 +490,7 @@ const workersByQueue = {
   [QUEUE_NAMES.BUILD_SOLICITATION_BATCH]: solicitationBatchWorker,
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: generateSolicitationAsksWorker,
   [QUEUE_NAMES.SOLICITATION_SEND]: solicitationSendWorker,
+  [QUEUE_NAMES.SOLICITATION_VETO_NOTICE]: solicitationVetoNoticeWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

@@ -214,6 +214,40 @@ export function formatPendingPostNoticeTelegram(
   return { text, inline_keyboard };
 }
 
+export interface TelegramSolicitationVetoNoticeParams {
+  /** Resolved location label: display_label ?? businesses.name. Always non-null. */
+  locationLabel: string;
+  businessName: string;
+  /** Live rendered Outreach count on the batch, read at send time. */
+  requestCount: number;
+  /** `${APP_URL}/dashboard/requests` — tokenless CTA (decision 10). */
+  requestsUrl: string;
+}
+
+/**
+ * Pure formatter for the Auto-approval lane's Veto notice (#631). No
+ * reviewer/star/review fields — the notice is about a BATCH, not one review.
+ * A single URL button leads to the (tokenless) Requests page.
+ */
+export function formatSolicitationVetoNoticeTelegram(
+  p: TelegramSolicitationVetoNoticeParams,
+): FormattedApprovalMessage {
+  const location = escapeHtml(sanitizeLocationLabelForPrefix(p.locationLabel));
+  const businessName = escapeHtml(p.businessName);
+  const plural = p.requestCount === 1 ? 'review request' : 'review requests';
+
+  const text = [
+    `<b>[${location}] ${p.requestCount} ${plural} will send automatically</b>`,
+    `These review requests for ${businessName} were auto-approved. They will send once your veto window closes.`,
+  ].join('\n');
+
+  const inline_keyboard: TelegramInlineButton[][] = [
+    [{ text: '🛑 Stop these requests', url: p.requestsUrl }],
+  ];
+
+  return { text, inline_keyboard };
+}
+
 export interface TelegramAutonomySuspendedNoticeParams {
   accountName: string;
   reason: string;

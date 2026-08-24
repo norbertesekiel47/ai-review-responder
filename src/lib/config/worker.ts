@@ -175,6 +175,12 @@ const workerSchema = z.object({
   // WS6 account-level safety notice; unset means WhatsApp skips cleanly while
   // email/Telegram still deliver. Read only through this worker config seam.
   WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID: rawOpt,
+  // Auto-approval lane's Veto notice (#631 Task 5): same "unset → skip
+  // cleanly" contract as the SIDs above — WhatsAppChannel's
+  // sendSolicitationVetoNotice guards with `if (!contentSid)`, so
+  // rawOptionalVar preserves ''/'   '/unset byte-for-byte (#7); no asserting
+  // accessor (#5).
+  WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID: rawOpt,
   ZERNIO_INGEST_MAX_PAGES: rawOpt,
   ZERNIO_IMPORT_MAX_PAGES: rawOpt,
 

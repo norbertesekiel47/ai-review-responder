@@ -15,6 +15,7 @@ import {
   formatEscalationNoticeTelegram,
   formatPendingPostNoticeTelegram,
   formatAutonomySuspendedNoticeTelegram,
+  formatSolicitationVetoNoticeTelegram,
 } from './telegram-body';
 import { TelegramClient } from './telegram-client';
 import type {
@@ -30,6 +31,8 @@ import type {
   SendPendingPostNoticeResult,
   SendAutonomySuspendedNoticeParams,
   SendAutonomySuspendedNoticeResult,
+  SendSolicitationVetoNoticeParams,
+  SendSolicitationVetoNoticeResult,
 } from './types';
 
 export class TelegramChannel implements NotificationChannel {
@@ -134,6 +137,30 @@ export class TelegramChannel implements NotificationChannel {
     p: SendAutonomySuspendedNoticeParams,
   ): Promise<SendAutonomySuspendedNoticeResult> {
     const { text, inline_keyboard } = formatAutonomySuspendedNoticeTelegram(p);
+    const client = new TelegramClient();
+    const result = await client.sendMessage({
+      chat_id: p.handle,
+      text,
+      reply_markup: { inline_keyboard },
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    return { status: 'sent', externalMessageId: `${result.chat.id}:${result.message_id}` };
+  }
+
+  // Interface-dispatched via getChannel(id).sendSolicitationVetoNotice in the
+  // solicitation-veto-notice worker (#631 Task 5); fallow's member graph
+  // misses interface dispatch.
+  // fallow-ignore-next-line unused-class-member
+  async sendSolicitationVetoNotice(
+    p: SendSolicitationVetoNoticeParams,
+  ): Promise<SendSolicitationVetoNoticeResult> {
+    const { text, inline_keyboard } = formatSolicitationVetoNoticeTelegram({
+      locationLabel: p.locationLabel,
+      businessName: p.businessName,
+      requestCount: p.requestCount,
+      requestsUrl: p.requestsUrl,
+    });
     const client = new TelegramClient();
     const result = await client.sendMessage({
       chat_id: p.handle,

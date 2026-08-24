@@ -92,6 +92,8 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   bodies there (they drive generateAsksForBatch by import, so placement is
   equivalent). Plan Task 1 item 3 superseded.
 
+## Task 6 execution note placeholder (2026-08-23)
+
 ## Task 4 execution (2026-08-23)
 
 - [2026-08-23] **Interim red the plan's task split implies, made explicit.**
@@ -111,3 +113,40 @@ Report: `docs/reviews/631-auto-approval-lane/plan-round-2.md`. 12/14 findings
   data — identical failure behavior). The Task 5/6 suites that also need 113
   should hoist it into schema-ready.ts and point this suite at the shared
   export. VERDICT: pending.
+
+## Task 5 execution (2026-08-23)
+
+- [2026-08-23] **Delegated file list was narrower than the recorded intake
+  surface — reconciled to the intake, not the delegation.** This task's
+  delegation prompt scoped email/telegram/whatsapp work to
+  `src/lib/notifications/channels/**` only, omitting
+  `src/lib/notifications/email/templates/**` and
+  `docs/runbooks/whatsapp-templates.md`. The recorded
+  `631-auto-approval-lane-intake.json` `allowed_edit_surface` (pre-approved,
+  "Surface amendment 1 of 2 (owner-approved)" entry above) already grants
+  both — `src/lib/notifications/**` (full tree) and the whatsapp-templates
+  runbook — specifically so this family's email content lives in its own
+  `email/templates/<family>.ts` file, matching all 6 sibling notice families
+  (pending-post-notice, autonomy-suspended-notice, escalation-notice,
+  auto-post-notice, approval, and the rest). No sibling task touches either
+  path (the parallel agents' disjoint territories are `src/lib/solicitation/`
+  and `src/lib/auto-approval/**`). Built accordingly:
+  - Created `src/lib/notifications/email/templates/solicitation-veto-notice.ts`
+    (subject/HTML/send, mirrors `pending-post-notice.ts`'s shape) and added it
+    to the `email.ts` barrel export list.
+  - Added the "Solicitation veto notice" section to
+    `docs/runbooks/whatsapp-templates.md` (template name, body, variable map,
+    button contract, submission JSON, environment-SID table), matching every
+    other template's documented shape.
+  - `email-channel.ts`/`telegram-channel.ts`/`whatsapp-channel.ts` and
+    `telegram-body.ts`/`whatsapp-body.ts` (all `channels/**`, in every version
+    of the surface) implement `sendSolicitationVetoNotice` by delegating to
+    those content builders — same wiring shape as every other notice.
+  - Did NOT touch `docs/directory.md`, `.claude/reference/env-vars.md`, or
+    `CONTEXT.md` — the plan (line ~572-579) assigns directory-map rows,
+    env-var rows, and glossary terms to Task 9 explicitly, which runs after
+    this task. Leaving those for Task 9 avoids a race on files a sibling task
+    owns even though they're in the same intake surface.
+  VERDICT: pending (broadened within the pre-approved intake surface, zero
+  collision risk with either parallel sibling; not an improvised surface
+  grant).
