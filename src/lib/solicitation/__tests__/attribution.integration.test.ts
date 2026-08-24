@@ -15,7 +15,13 @@
 // on the exactly-14-days case. `dbStamp` resolves one instant on the database
 // and carries it as `::text`; `stampPlus` shifts it in SQL.
 //
-// The four `listAttributedReviews:` titles stay parked until Task 6.
+// The same truncation runs on the way IN — see `dbStampMs`, which the owner
+// read-model cases use because they PREDICT a stored stamp rather than compare
+// two values that both took the lossy path.
+//
+// The owner read model's cases live at the bottom of the SAME live-DB block:
+// they need the same three fixtures, and the only honest way to prove what an
+// owner sees is to drive real attributions through and then read them back.
 
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -48,7 +54,12 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
-import { attributeReview, type AttributionMatch } from '../attribution';
+import {
+  attributeReview,
+  listAttributedReviews,
+  type AttributedReviewView,
+  type AttributionMatch,
+} from '../attribution';
 
 /**
  * Declared here rather than imported: the canonical constant is still local to
@@ -176,9 +187,95 @@ function stampPlus(base: string, interval: string): OutreachStamp {
   return sql()`${base}::timestamptz + ${interval}::interval`;
 }
 
+/**
+ * Like `dbStamp`, TRUNCATED TO MILLISECONDS — and the read-model cases must
+ * use it, because the #520 truncation runs in BOTH directions.
+ *
+ * `dbStamp` proves it on the way out. On the way IN, postgres.js reads the
+ * `::timestamptz` cast that follows a parameter and declares the parameter to
+ * BE a timestamptz, then serializes it through a JS `Date`: measured on this
+ * database, `SELECT (${text})::text` round-trips 29 characters unchanged while
+ * `SELECT (${text}::timestamptz)::text` comes back at millisecond precision.
+ * So a case that predicts a stored stamp from a full-precision seed can never
+ * match. The candidate-window cases are unaffected — both sides of every
+ * comparison there take the same path, so the truncation cancels.
+ */
+async function dbStampMs(offset: string): Promise<string> {
+  const [row] = await sql()<{ at: string }[]>`
+    SELECT date_trunc('milliseconds', NOW() - ${offset}::interval)::text AS at
+  `;
+  if (!row) throw new Error('dbStampMs returned no row');
+  return row.at;
+}
+
+/**
+ * `base + interval` RESOLVED to text. Shifted on the database rather than in
+ * JS, so a millisecond-precision base survives the arithmetic intact.
+ */
+async function shiftStamp(base: string, interval: string): Promise<string> {
+  const [row] = await sql()<{ at: string }[]>`
+    SELECT (${base}::timestamptz + ${interval}::interval)::text AS at
+  `;
+  if (!row) throw new Error('shiftStamp returned no row');
+  return row.at;
+}
+
+/**
+ * A SECOND batch under an already-seeded location. Attribution lands up to
+ * `ATTRIBUTION_WINDOW_DAYS` after a send, so by the time a review arrives the
+ * matched ask usually hangs off a batch that is no longer the most recent one
+ * — the whole reason the owner list is not part of BatchView.
+ */
+async function seedBatch(fx: Fixture, ageDays: number): Promise<string> {
+  // Its OWN upload: `solicitation_batches_source_upload_uniq` allows one batch
+  // per upload, so a second batch is a second upload by construction.
+  const uploadId = await seedContactCsvUpload(sql(), {
+    accountId: fx.accountId,
+    businessId: fx.businessId,
+    attestedByUserId: fx.tenant.userId,
+    filenamePrefix: `attribution-632-batch-${ageDays}d`,
+    attestationVersion: 'attribution-632-test',
+  });
+
+  const batchId = randomUUID();
+  await sql()`
+    INSERT INTO solicitation_batches (
+      id, account_id, business_id, source_upload_id, created_at, built_at
+    ) VALUES (
+      ${batchId}::uuid, ${fx.accountId}::uuid, ${fx.businessId}::uuid,
+      ${uploadId}::uuid,
+      NOW() - make_interval(days => ${ageDays}),
+      NOW() - make_interval(days => ${ageDays})
+    )
+  `;
+  return batchId;
+}
+
+/**
+ * Ages an existing attribution. The display window keys on `attributed_at`,
+ * which the handler always stamps NOW() — so the only way to build a row
+ * outside the 30-day reach is to move the timestamp after the fact. Shifted in
+ * SQL, never through a JS `Date` (#520).
+ */
+async function backdateAttribution(
+  fx: Fixture,
+  outreachId: string,
+  interval: string,
+): Promise<void> {
+  await sql()`
+    UPDATE solicitation_outreach
+       SET attributed_at = attributed_at - ${interval}::interval
+     WHERE id = ${outreachId}::uuid
+       AND account_id = ${fx.accountId}::uuid
+       AND business_id = ${fx.businessId}::uuid
+  `;
+}
+
 interface OutreachInput {
   fixture: Fixture;
   contactName: string;
+  /** Defaults to the fixture's own batch. */
+  batchId?: string;
   /** SQL fragment; `null` only for a status 091 forbids a `sent_at`. */
   sentAt: OutreachStamp;
   queuedAt: OutreachStamp;
@@ -202,6 +299,7 @@ interface OutreachInput {
  */
 async function seedOutreach(input: OutreachInput): Promise<string> {
   const fx = input.fixture;
+  const batchId = input.batchId ?? fx.batchId;
   const contactId = randomUUID();
   await sql()`
     INSERT INTO solicitation_contacts (id, business_id, name, email, created_by_upload_id)
@@ -216,7 +314,7 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
       withheld_reason, evidence, decided_at
     ) VALUES (
       ${askId}::uuid, ${fx.accountId}::uuid, ${fx.businessId}::uuid,
-      ${fx.batchId}::uuid, ${contactId}::uuid, 'send', NULL,
+      ${batchId}::uuid, ${contactId}::uuid, 'send', NULL,
       ${sql().json({
         contact_id: contactId,
         policy_version: 'attribution-632-fixture',
@@ -229,7 +327,7 @@ async function seedOutreach(input: OutreachInput): Promise<string> {
   const outreachId = await insertOutreach(sql(), {
     accountId: fx.accountId,
     businessId: fx.businessId,
-    batchId: fx.batchId,
+    batchId,
     askId,
     contactId,
     deliveryStatus: input.deliveryStatus ?? 'sent',
@@ -335,6 +433,56 @@ async function runAttribution(
       businessId: businessIdOverride ?? fx.businessId,
     }),
   ) as Promise<AttributionMatch>;
+}
+
+interface AttributedPair {
+  outreachId: string;
+  reviewId: string;
+  /** The exact `::text` stamps the row was seeded with, for exact assertions. */
+  anchor: string;
+  sentAt: string;
+}
+
+/**
+ * A matching ask + review, driven through the REAL matcher. The read-model
+ * cases assert what an owner sees, so nothing here hand-writes the attribution
+ * columns: a fixture that stamped them directly could pass while the handler
+ * wrote something the read model would never surface.
+ */
+async function seedAttributedPair(input: {
+  fixture: Fixture;
+  contactName: string;
+  reviewerName: string;
+  starRating?: number;
+  /** Age of the review anchor. The ask goes out two days before it. */
+  ageDays: number;
+  batchId?: string;
+}): Promise<AttributedPair> {
+  const anchor = await dbStampMs(`${input.ageDays} days`);
+  const sentAt = await shiftStamp(anchor, '-2 days');
+
+  const outreachId = await seedOutreach({
+    fixture: input.fixture,
+    contactName: input.contactName,
+    batchId: input.batchId,
+    queuedAt: sql()`${sentAt}::timestamptz`,
+    sentAt: sql()`${sentAt}::timestamptz`,
+  });
+  const reviewId = await seedReview({
+    fixture: input.fixture,
+    reviewerName: input.reviewerName,
+    starRating: input.starRating,
+    reviewDate: anchor,
+    detectedAt: anchor,
+  });
+
+  expect((await runAttribution(input.fixture, reviewId)).resolution).toBe('attributed');
+  return { outreachId, reviewId, anchor, sentAt };
+}
+
+/** Just the ids, in the order the read model returned them. */
+function outreachIds(rows: AttributedReviewView[]): string[] {
+  return rows.map((row) => row.outreachId);
 }
 
 // ── readers ─────────────────────────────────────────────────────────────────
@@ -1100,14 +1248,226 @@ describeWithDb(
         expect(await readOutcomes(own)).toHaveLength(1);
       });
     });
+
+    // ── the owner read model ────────────────────────────────────────────────
+
+    describe('listAttributedReviews', () => {
+      it('listAttributedReviews: returns matches across batches within the last 30 days', async () => {
+        // The two matches hang off DIFFERENT batches on purpose. Attribution
+        // lands days after a send, so by the time a review arrives the matched
+        // ask is usually not in the most recent batch — a per-batch surface
+        // would hide the common case, which is why this is not BatchView.
+        const fx = fixture('primary');
+        const earlierBatchId = await seedBatch(fx, 25);
+
+        const older = await seedAttributedPair({
+          fixture: fx,
+          contactName: CONTACT_NAME,
+          reviewerName: REVIEWER_NAME,
+          starRating: 4,
+          ageDays: 20,
+          batchId: earlierBatchId,
+        });
+        // The handler stamps attributed_at NOW(), so two attributions in one
+        // test are milliseconds apart. Age the first one so the newest-first
+        // ordering under test cannot be decided by scheduling noise.
+        await backdateAttribution(fx, older.outreachId, '19 days');
+
+        const newer = await seedAttributedPair({
+          fixture: fx,
+          contactName: OTHER_CONTACT_NAME,
+          reviewerName: 'Priya S.',
+          starRating: 5,
+          ageDays: 1,
+          batchId: fx.batchId,
+        });
+
+        const rows = await listAttributedReviews(sql(), {
+          accountId: fx.accountId,
+          businessId: fx.businessId,
+          sendEnabled: true,
+        });
+
+        expect(outreachIds(rows)).toEqual([newer.outreachId, older.outreachId]);
+
+        // Every field the owner surface renders, compared against the exact
+        // text the fixture seeded — no loose matcher, so a column that silently
+        // changed shape (a JS Date, a truncated microsecond) goes red.
+        const expectedNewer: Omit<AttributedReviewView, 'attributedAt'> = {
+          outreachId: newer.outreachId,
+          reviewId: newer.reviewId,
+          reviewerName: 'Priya S.',
+          starRating: 5,
+          reviewDate: newer.anchor,
+          askSentAt: newer.sentAt,
+          rule: 'first_last_initial',
+        };
+        expect(rows[0]).toMatchObject(expectedNewer);
+        expect(rows[1]).toMatchObject({
+          outreachId: older.outreachId,
+          reviewId: older.reviewId,
+          reviewerName: REVIEWER_NAME,
+          starRating: 4,
+          reviewDate: older.anchor,
+          askSentAt: older.sentAt,
+          rule: 'full_name',
+        } satisfies Omit<AttributedReviewView, 'attributedAt'>);
+
+        // The view carries EXACTLY these keys: nothing the migration-114
+        // deviation D2 kept out of attribution_detail may reappear here by way
+        // of an over-wide SELECT.
+        expect(Object.keys(rows[0]!).sort()).toEqual([
+          'askSentAt', 'attributedAt', 'outreachId', 'reviewDate',
+          'reviewId', 'reviewerName', 'rule', 'starRating',
+        ]);
+        for (const row of rows) {
+          expect(Number.isNaN(Date.parse(row.attributedAt))).toBe(false);
+        }
+
+        // The premise of the title, proved rather than assumed.
+        const batches = await sql()<{ batch_id: string }[]>`
+          SELECT DISTINCT batch_id::text AS batch_id
+            FROM solicitation_outreach
+           WHERE account_id = ${fx.accountId}::uuid
+             AND business_id = ${fx.businessId}::uuid
+             AND attributed_at IS NOT NULL
+        `;
+        expect(batches).toHaveLength(2);
+      });
+
+      it('listAttributedReviews: excludes attribution older than 30 days', async () => {
+        // The display reach is PRESENTATION ONLY and is a different number
+        // from the matcher's filter: 30 days of list, 14 days of eligibility.
+        // The boundary row proves the cut is at 30 and not "any backdate".
+        const fx = fixture('primary');
+        const fresh = await seedAttributedPair({
+          fixture: fx,
+          contactName: CONTACT_NAME,
+          reviewerName: REVIEWER_NAME,
+          ageDays: 1,
+        });
+        const boundary = await seedAttributedPair({
+          fixture: fx,
+          contactName: OTHER_CONTACT_NAME,
+          reviewerName: OTHER_CONTACT_NAME,
+          ageDays: 3,
+        });
+        const aged = await seedAttributedPair({
+          fixture: fx,
+          contactName: 'Marcus Bell',
+          reviewerName: 'Marcus Bell',
+          ageDays: 5,
+        });
+
+        await backdateAttribution(fx, boundary.outreachId, '29 days');
+        await backdateAttribution(fx, aged.outreachId, '31 days');
+
+        const rows = await listAttributedReviews(sql(), {
+          accountId: fx.accountId,
+          businessId: fx.businessId,
+          sendEnabled: true,
+        });
+        expect(outreachIds(rows)).toEqual([fresh.outreachId, boundary.outreachId]);
+
+        // The aged row is still attributed in Postgres — it fell off the LIST,
+        // and the attribution fact itself is permanent.
+        const row = await readAttribution(fx, aged.outreachId);
+        expect(row.attributed_review_id).toBe(aged.reviewId);
+        expect(row.attributed_at).not.toBeNull();
+      });
+
+      it('listAttributedReviews: scopes every read by account_id and business_id', async () => {
+        // Both halves of invariant #8 get their own decoy: `sibling` is a
+        // SECOND LOCATION under the SAME account, which an account-only scope
+        // would swallow, and `crossed` is a different account entirely.
+        const own = fixture('primary');
+        const sibling = fixture('sibling');
+        const other = fixture('crossed');
+
+        const ownPair = await seedAttributedPair({
+          fixture: own,
+          contactName: CONTACT_NAME,
+          reviewerName: REVIEWER_NAME,
+          ageDays: 1,
+        });
+        const siblingPair = await seedAttributedPair({
+          fixture: sibling,
+          contactName: OTHER_CONTACT_NAME,
+          reviewerName: OTHER_CONTACT_NAME,
+          ageDays: 1,
+        });
+        const crossedPair = await seedAttributedPair({
+          fixture: other,
+          contactName: CONTACT_NAME,
+          reviewerName: REVIEWER_NAME,
+          ageDays: 1,
+        });
+
+        const read = (accountId: string, businessId: string) =>
+          listAttributedReviews(sql(), { accountId, businessId, sendEnabled: true });
+
+        expect(outreachIds(await read(own.accountId, own.businessId)))
+          .toEqual([ownPair.outreachId]);
+        expect(outreachIds(await read(sibling.accountId, sibling.businessId)))
+          .toEqual([siblingPair.outreachId]);
+        expect(outreachIds(await read(other.accountId, other.businessId)))
+          .toEqual([crossedPair.outreachId]);
+
+        // The right location under the wrong account, and the right account
+        // with a foreign location, both read empty.
+        expect(await read(other.accountId, own.businessId)).toEqual([]);
+        expect(await read(own.accountId, other.businessId)).toEqual([]);
+
+        // Round-1 finding A6. Migration 114's FK binds reviews(id) ALONE — it
+        // does not bind the review's business to the outreach row's — so one
+        // schema-valid bad write can point this tenant's outreach row at
+        // another tenant's review. The join carries business_id as well as id,
+        // so the row drops out instead of rendering foreign review content.
+        const foreignReview = await seedReview({
+          fixture: other,
+          reviewerName: 'Someone Else',
+          reviewDate: null,
+          detectedAt: await dbStamp('1 hour'),
+        });
+        await sql()`
+          UPDATE solicitation_outreach
+             SET attributed_review_id = ${foreignReview}::uuid
+           WHERE id = ${ownPair.outreachId}::uuid
+             AND account_id = ${own.accountId}::uuid
+             AND business_id = ${own.businessId}::uuid
+        `;
+
+        expect(await read(own.accountId, own.businessId)).toEqual([]);
+        // Nothing about the bad write leaked into the other tenant's list.
+        expect(outreachIds(await read(other.accountId, other.businessId)))
+          .toEqual([crossedPair.outreachId]);
+      });
+
+      it('listAttributedReviews: returns an empty list when SOLICITATION_SEND_ENABLED is off', async () => {
+        // The flag is PASSED IN, never read here (invariant #13): the route
+        // owns the read, the browser learns the state from the response, and
+        // no NEXT_PUBLIC companion ever exists.
+        const fx = fixture('primary');
+        const pair = await seedAttributedPair({
+          fixture: fx,
+          contactName: CONTACT_NAME,
+          reviewerName: REVIEWER_NAME,
+          ageDays: 1,
+        });
+
+        expect(await listAttributedReviews(sql(), {
+          accountId: fx.accountId,
+          businessId: fx.businessId,
+          sendEnabled: false,
+        })).toEqual([]);
+
+        // Positive control: the row exists and only the flag was hiding it.
+        expect(outreachIds(await listAttributedReviews(sql(), {
+          accountId: fx.accountId,
+          businessId: fx.businessId,
+          sendEnabled: true,
+        }))).toEqual([pair.outreachId]);
+      });
+    });
   },
 );
-
-// ── the owner read model (Task 6) ───────────────────────────────────────────
-
-describe('listAttributedReviews', () => {
-  it.todo('listAttributedReviews: returns matches across batches within the last 30 days');
-  it.todo('listAttributedReviews: excludes attribution older than 30 days');
-  it.todo('listAttributedReviews: scopes every read by account_id and business_id');
-  it.todo('listAttributedReviews: returns an empty list when SOLICITATION_SEND_ENABLED is off');
-});

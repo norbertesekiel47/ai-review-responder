@@ -301,3 +301,95 @@ export async function attributeReview(
   }
   return match;
 }
+
+// ── the owner read model ────────────────────────────────────────────────────
+
+export interface AttributedReviewView {
+  outreachId: string;
+  reviewId: string;
+  reviewerName: string | null;
+  starRating: number | null;
+  reviewDate: string | null;
+  askSentAt: string;
+  attributedAt: string;
+  rule: AttributionRule;
+}
+
+interface AttributedReviewRow {
+  outreach_id: string;
+  review_id: string;
+  reviewer_name: string | null;
+  star_rating: number | null;
+  review_date: string | null;
+  ask_sent_at: string;
+  attributed_at: string;
+  attribution_rule: AttributionRule;
+}
+
+/**
+ * Every Attributed review for one location in the display window, newest
+ * first. Deliberately NOT part of BatchView: that contract is "the most recent
+ * batch", and attribution lands up to ATTRIBUTION_WINDOW_DAYS after a send, by
+ * which time a newer batch usually exists. A per-batch surface would hide the
+ * common case.
+ *
+ * ATTRIBUTION_DISPLAY_WINDOW_DAYS is PRESENTATION ONLY, and it is a DIFFERENT
+ * number from the matcher's filter: how far back the owner's list reaches, not
+ * how far back a review may attribute. Neither is re-spelled anywhere.
+ *
+ * `sendEnabled` is passed IN, never read here (invariant #13) — the same shape
+ * readLatestBatch uses for its send lane, so the browser learns the flag state
+ * from the response rather than from a NEXT_PUBLIC companion.
+ *
+ * Rows whose review has since been deleted drop out: migration 114's FK sets
+ * attributed_review_id to NULL and the INNER JOIN then excludes them. The
+ * outreach row keeps its attributed_at provenance either way.
+ *
+ * Timestamps are selected as text end to end, matching the candidate query:
+ * postgres.js decodes timestamptz to a JS Date and TRUNCATES microseconds
+ * doing it (#520), and this module holds ONE convention across both reads.
+ */
+export async function listAttributedReviews(
+  sql: Sql,
+  input: { accountId: string; businessId: string; sendEnabled: boolean },
+): Promise<AttributedReviewView[]> {
+  if (!input.sendEnabled) return [];
+
+  const rows = await sql<AttributedReviewRow[]>`
+    SELECT o.id AS outreach_id, r.id AS review_id, r.reviewer_name,
+           r.star_rating, r.review_date::text AS review_date,
+           o.sent_at::text       AS ask_sent_at,
+           o.attributed_at::text AS attributed_at,
+           o.attribution_rule
+      FROM solicitation_outreach o
+      -- The business predicate on this join is NOT redundant (round-1 finding
+      -- A6). The FK binds only reviews(id); it does not bind the review's
+      -- business to the outreach row's, so joining on id alone would let one
+      -- schema-valid bad write expose another tenant's review on this surface.
+      -- (No backticks in a SQL comment inside a tagged template — one closes
+      -- the literal, and the truncated tail still typechecks.)
+      JOIN reviews r
+        ON r.id = o.attributed_review_id
+       AND r.business_id = o.business_id
+     WHERE o.account_id  = ${input.accountId}::uuid
+       AND o.business_id = ${input.businessId}::uuid
+       -- The reviews binding is spelled out rather than inherited through the
+       -- join key: ci:tenant-scope reads raw template text per table and does
+       -- not accept a join key as scope evidence.
+       AND r.business_id = ${input.businessId}::uuid
+       AND o.attributed_review_id IS NOT NULL
+       AND o.attributed_at > NOW() - make_interval(days => ${ATTRIBUTION_DISPLAY_WINDOW_DAYS})
+     ORDER BY o.attributed_at DESC
+  `;
+
+  return rows.map((row) => ({
+    outreachId: row.outreach_id,
+    reviewId: row.review_id,
+    reviewerName: row.reviewer_name,
+    starRating: row.star_rating,
+    reviewDate: row.review_date,
+    askSentAt: row.ask_sent_at,
+    attributedAt: row.attributed_at,
+    rule: row.attribution_rule,
+  }));
+}
