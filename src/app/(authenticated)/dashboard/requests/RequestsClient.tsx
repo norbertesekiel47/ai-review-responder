@@ -6,11 +6,8 @@ import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
 import type { BatchView } from '@/lib/solicitation/batch-view';
-import {
-  ApprovalPanel,
-  type LaneRefresh,
-  type LaneWriteOutcome,
-} from './ApprovalPanel';
+import { ApprovalPanel } from './ApprovalPanel';
+import type { LaneRefresh, LaneWriteOutcome } from './lane-writes';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
 import './requests.css';
