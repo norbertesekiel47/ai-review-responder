@@ -350,16 +350,17 @@ async function haltBatch(batchId: string): Promise<void> {
  *  retried" rows for the SAME batch need distinct recipients to coexist. */
 async function seedVetoNoticeDelivery(
   entityId: string,
-  opts: { sentAgo?: string; template?: string; recipient?: string } = {},
+  opts: { sentAgo?: string; template?: string; recipient?: string; failedAgo?: string } = {},
 ): Promise<void> {
   await sql()`
     INSERT INTO notification_deliveries (
-      id, business_id, account_id, entity_id, channel, recipient, template, sent_at
+      id, business_id, account_id, entity_id, channel, recipient, template, sent_at, failed_at
     ) VALUES (
       ${randomUUID()}::uuid, ${businessId}::uuid, ${accountId()}::uuid,
       ${entityId}::uuid, 'email', ${opts.recipient ?? `owner-${randomUUID()}@example.test`},
       ${opts.template ?? 'solicitation_veto_notice'},
-      NOW() - ${opts.sentAgo ?? '10 minutes'}::interval
+      NOW() - ${opts.sentAgo ?? '10 minutes'}::interval,
+      ${opts.failedAgo === undefined ? null : sql()`NOW() - ${opts.failedAgo}::interval`}
     )
   `;
 }
@@ -714,7 +715,7 @@ describeWithDb(
         expect(approval).toMatchObject({ status: 'approved', approvedCount: 1 });
 
         // owner_won is a QUIET outcome: the owner approval survives intact
-        // and the auto lane wrote nothing.
+        // and the Auto-approval lane wrote nothing.
         const row = await readBatchRow(batchId);
         expect(row.approval_method).toBe('owner');
         expect(row.approved_by_user_id).toBe(userId());
@@ -831,13 +832,19 @@ describeWithDb(
         expect(await readBatchApprovedSteps(parent.id)).toHaveLength(0);
         expect(await readVetoNoticeRows(batchId)).toHaveLength(0);
 
-        // Flip the flag ON: no sweep exists, so the already-built batch
-        // stays exactly where the decline left it...
+        // Flip the flag ON. The guarantee this test pins is EXACTLY this:
+        // NO SWEEP approves pre-flip batches — enabling the flag by itself
+        // moves nothing, and the already-built batch stays where the decline
+        // left it...
         process.env.SOLICITATION_AUTO_APPROVAL_ENABLED = 'true';
         expect((await readBatchRow(batchId)).approved_at).toBeNull();
         expect(await readVetoNoticeRows(batchId)).toHaveLength(0);
 
-        // ...and only a NEW generation finale evaluates the lane again.
+        // ...and only a NEW generation finale evaluates the lane again. That
+        // finale deciding WITH CURRENT STATE — and so approving a batch built
+        // before the flip — is the locked decision-at-finale design, not a
+        // retroactivity leak: the finale is the lane's ONE decision point,
+        // and it reads the world as it is when it runs.
         const rerun = await generateAsksForBatch(sql(), {
           batchId,
           businessId,
@@ -1148,6 +1155,14 @@ describeWithDb(
         // A delivery scoped to a DIFFERENT (non-existent) batch id — never
         // matches THIS batch's scan.
         await seedVetoNoticeDelivery(randomUUID(), { sentAgo: '5 minutes' });
+        // Provider-accepted then BOUNCED (adversarial R1 finding 2): sent_at
+        // set AND failed_at set. Acceptance alone is not evidence the owner
+        // was told — a bounced delivery must never start the veto clock, so
+        // the right template on the right batch still never anchors.
+        await seedVetoNoticeDelivery(batchId, {
+          sentAgo: '5 minutes',
+          failedAgo: '4 minutes',
+        });
 
         const tally = await anchorVetoDeadlines(sql(), 50);
         expect(tally).toEqual({ handled: 0, failed: 0 });

@@ -590,8 +590,8 @@ async function setSubscriptionStatus(status: string): Promise<void> {
   `;
 }
 
-/** The tier is the auto lane's entitlement dial (`tierGrantsAutopilot`); the
- *  seeded default is `copilot` and the shared afterEach restores it. */
+/** The tier is the Auto-approval lane's entitlement dial (`tierGrantsAutopilot`);
+ *  the seeded default is `copilot` and the shared afterEach restores it. */
 async function setSubscriptionTier(tier: string): Promise<void> {
   await sql()`
     UPDATE accounts SET subscription_tier = ${tier} WHERE id = ${accountId()}::uuid
@@ -883,7 +883,7 @@ describeWithDb(
       await sql()`DELETE FROM agent_runs WHERE account_id IN ${sql()(ownedAccounts)}`;
       await sql()`DELETE FROM auto_approval_policies WHERE account_id IN ${sql()(ownedAccounts)}`;
       await sql()`DELETE FROM account_audit_log WHERE account_id IN ${sql()(ownedAccounts)}`;
-      // The auto-lane cases (#631) flip the tier; restore the seeded default.
+      // The Auto-approval-lane cases (#631) flip the tier; restore the seeded default.
       await setSubscriptionTier('copilot');
     }, 60_000);
 
@@ -2541,7 +2541,7 @@ describeWithDb(
         const detail = jsonObject(steps[0]!.detail);
         expect(detail.reason).toBe('auto_approval_disabled');
         expect(detail.reason).not.toBe('judge_unavailable');
-        // The ephemeral alert mirrors the durable record: the auto lane's own
+        // The ephemeral alert mirrors the durable record: the Auto-approval lane's own
         // Sentry title (never the Judge-outage issue) with the exact reason
         // as the tag.
         expect(sentrySpies.captureMessage).toHaveBeenCalledWith(

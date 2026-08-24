@@ -420,3 +420,44 @@ intake decision; nothing triggers RE-PLAN.
   flag-off finale).
 - Step 5 finale / two owner overrides — ACCEPT (recorded above with the
   owner's calls).
+
+## Round-1 review-fix deviations (2026-08-24)
+
+- [2026-08-24] **F-Q5's premise is already satisfied at HEAD — no code change
+  was needed for the Sentry half.** The fix directive said "the
+  auto-downgrade path's alert constant only reaches logger.error"; at HEAD,
+  `applyDowngradeSplit` (release.ts) already calls `Sentry.captureMessage`
+  with the auto lane's own stable title
+  (`AUTO_DOWNGRADE_ALERT_MESSAGE`) + the confirmed reason as a tag, in the
+  guarded best-effort Sentry-then-log shape, on EVERY release-time auto
+  downgrade — and the integration test "the auto downgrade records its exact
+  reason and never judge_unavailable" already pins that captureMessage call
+  (title + reason tag). The intake observability promise holds. What WAS
+  wrong is quality finding F4's comment: the Veto anchor's duplicated
+  `isolateAnchorItem` carried a constant (`ANCHOR_ITEM_FAILURE_MESSAGE`)
+  that never reached Sentry, under a comment claiming `captureException`
+  groups by message text. F-Q3's extraction deletes that function, its
+  constant and the wrong comment outright — the anchor now fails through the
+  shared `release-phases.ts` seam (captureException + `phase: 'veto_anchor'`
+  tag, the one stable `ITEM_FAILURE_MESSAGE` log text), which is the
+  alignment quality F3 prescribed. The Judge arm's own Sentry call is not
+  separately test-pinned, so the "mirror the assertion" clause did not
+  trigger. VERDICT: pending orchestrator review.
+- [2026-08-24] **One glossary site sits outside the allowed file surface:
+  `src/lib/approval/__tests__/outcome-anchor-pairing.test.ts`** (the "its
+  auto-lane paths" comment quality F1 lists among the 12 sites). The fix
+  directive names "the 3 test files the quality report names", which
+  includes it, so the one-word comment-only edit was applied there despite
+  the file living outside `src/lib/solicitation/**` /
+  `src/lib/auto-approval/**` — no behavior, no test titles, no assertions
+  touched. VERDICT: pending orchestrator review.
+- [2026-08-24] **F-A2 forced one line in
+  `scripts/ci/tenant-scope-allowlist.ts` (outside the allowed surface).**
+  The allowlist pins the Veto anchor's candidate scan as a byte-identical
+  SQL snippet (`VETO_ANCHOR_SCAN_SQL`); adding `AND nd.failed_at IS NULL`
+  to the scan changed its template hash, so `ci:tenant-scope` failed with
+  two unused-entry + two missing-scope findings until the snippet (and its
+  reason's first sentence) tracked the new predicate. Snippet updated in
+  place — same two entries, baseline unchanged at 393. A mandatory
+  consequence of the accepted F-A2 fix, not new scope. VERDICT: pending
+  orchestrator review.

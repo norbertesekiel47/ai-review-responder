@@ -27,17 +27,14 @@
 // Invariant #15: this module takes its DB client as an explicit parameter
 // (`sql: Sql | TransactionSql`) and never imports `@/lib/db/server`.
 
-import * as Sentry from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { tierGrantsAutopilot } from '@/lib/accounts/tier-config';
 import { subscriptionGrantsFullAccess } from '@/lib/shared/subscription-status';
 import { recordStep } from '@/lib/agents/run-spine';
 import { enqueueSolicitationVetoNotice } from '@/lib/shared/job-outbox-helpers';
-import { createWorkerLogger, toError } from '@/lib/shared/logger';
 import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { solicitationAutoApprovalEnabled, solicitationSendEnabled } from './flags';
-
-const logger = createWorkerLogger('[VetoAnchor]');
+import { isolateItem, type PhaseTally } from './release-phases';
 
 export type AutoApprovalDeclineReason =
   | 'send_flag_off'
@@ -132,7 +129,8 @@ export type AutoApprovalDbConditions = Omit<
  *
  * 1. the account's `subscription_status` / `subscription_tier`;
  * 2. whether ANY `auto_approval_policies` row for this account is suspended
- *    (D19 — account-wide, not persona-scoped);
+ *    (D19 — account-wide, not persona-scoped), via
+ *    {@link readAccountWideSuspension}, the locked semantic's one owner;
  * 3. the `persona='solicitation' AND action_class='sending'
  *    AND location_id IS NULL` account-default row's `veto_window_minutes`, if
  *    one exists. A Reply-persona row or a location-override row (`location_id
@@ -157,13 +155,7 @@ export async function readAutoApprovalConditions(
     throw new Error(`auto_approval_conditions_account_missing:${accountId}`);
   }
 
-  const [suspension] = await sql<{ any_suspended: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM auto_approval_policies
-      WHERE account_id = ${accountId}::uuid
-        AND suspended_at IS NOT NULL
-    ) AS any_suspended
-  `;
+  const anySuspended = await readAccountWideSuspension(sql, accountId);
 
   const [policyRow] = await sql<{ veto_window_minutes: number }[]>`
     SELECT veto_window_minutes
@@ -177,9 +169,36 @@ export async function readAutoApprovalConditions(
   return {
     subscriptionStatus: account.subscription_status,
     subscriptionTier: account.subscription_tier,
-    anySuspended: suspension?.any_suspended ?? false,
+    anySuspended,
     policy: policyRow ? { vetoWindowMinutes: policyRow.veto_window_minutes } : null,
   };
+}
+
+/**
+ * The ONE spelling of D19's account-wide Governor suspension read: true when
+ * ANY `auto_approval_policies` row belonging to this account is suspended,
+ * regardless of persona or scope — design §8 defines the Governor's kill
+ * switch as per-ACCOUNT autonomy suspension, so a Reply-lane trip protects
+ * Solicitation too.
+ *
+ * Exported because the semantic is LOCKED and must have one owner (R1
+ * standards finding 5): {@link readAutoApprovalConditions} delegates here for
+ * the gate and the release-time re-check, and the Settings expansion gate
+ * (`src/lib/auto-approval/solicitation-settings.ts`) calls it so the D20
+ * opt-in can never disagree with `decideAutoApproval` about suspension.
+ */
+export async function readAccountWideSuspension(
+  sql: Sql | TransactionSql,
+  accountId: string,
+): Promise<boolean> {
+  const [suspension] = await sql<{ any_suspended: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM auto_approval_policies
+      WHERE account_id = ${accountId}::uuid
+        AND suspended_at IS NOT NULL
+    ) AS any_suspended
+  `;
+  return suspension?.any_suspended ?? false;
 }
 
 /**
@@ -453,23 +472,25 @@ export async function runFinaleAutoApproval(
 //
 // D9 is fail-closed: an `auto_policy` batch may release ONLY after a FULL
 // veto window has elapsed since the FIRST provider-accepted Veto notice send
-// — `MIN(sent_at)`, never `delivered_at` (Telegram has no delivery receipt,
-// the Reply lane's shipped `veto-window-gate.ts:84` semantic). No sent
-// notice, no anchor, no release, ever. This phase is what turns that fact
-// into the `veto_deadline_at` column `release.ts`'s P4 scan reads.
+// **not known to have failed at anchor time** — `MIN(sent_at)` over rows with
+// `failed_at IS NULL`, never `delivered_at` (Telegram has no delivery
+// receipt, the Reply lane's shipped `veto-window-gate.ts:84` semantic). The
+// `failed_at` arm (adversarial R1 finding 2) keeps a provider-accepted-then-
+// BOUNCED send from anchoring: acceptance alone is not evidence the owner was
+// told, and an email-only owner whose one notice hard-bounced must never have
+// their veto clock started by it. The guard is evaluated AT ANCHOR TIME only
+// — a bounce recorded AFTER the deadline is anchored does not move or clear
+// an anchored deadline (the CAS is once-only by design). No sent notice, no
+// anchor, no release, ever. This phase is what turns that fact into the
+// `veto_deadline_at` column `release.ts`'s P4 scan reads.
 //
 // Wired by `release.ts`'s `runReleaseCycle` immediately before the release
-// phase, through the SAME `tallyPhase`/`alertPhaseFailure` seam every other
-// phase in that file uses — see its module header for the full phase order.
-
-/** Structurally identical to `release.ts`'s private `PhaseTally` — duplicated
- *  rather than imported so this module (which `release.ts` imports FROM)
- *  never depends on its own caller. TypeScript's structural typing makes the
- *  object this returns assignable to `tallyPhase`'s parameter either way. */
-export interface VetoAnchorTally {
-  handled: number;
-  failed: number;
-}
+// phase, through the SAME phase seam every other phase in that file uses —
+// `./release-phases` owns `PhaseTally`, `isolateItem`, `tallyPhase` and
+// `alertPhaseFailure`, so this phase's per-item isolation, its Sentry tags
+// and its log lines are byte-identical to its siblings' (one stable log
+// prefix, the phase riding the TAG). See `release.ts`'s module header for
+// the full phase order.
 
 interface VetoAnchorCandidate {
   id: string;
@@ -477,14 +498,12 @@ interface VetoAnchorCandidate {
   business_id: string;
 }
 
-/** Stable Sentry title / log prefix — `Sentry.captureException` groups by
- *  message text, matching every other per-item failure sink in this lane. */
-const ANCHOR_ITEM_FAILURE_MESSAGE = 'Veto anchor candidate failed and was isolated';
-
 /**
  * P4.5's scan (plan Task 6, decision 4's exact predicate) — `auto_policy`
  * batches with no anchored deadline yet, whose Veto notice has landed at
- * least once. `halted_at IS NULL AND send_closed_at IS NULL` keep a Halt
+ * least once WITHOUT a recorded bounce (`failed_at IS NULL` — a provider-
+ * accepted-then-bounced delivery never anchors, see the section header).
+ * `halted_at IS NULL AND send_closed_at IS NULL` keep a Halt
  * latch or a release-time downgrade winner out of the candidate set; the CAS
  * in {@link anchorOneBatch} re-asserts both under the batch lock regardless,
  * but excluding them here keeps the scan itself honest about what it counts.
@@ -504,41 +523,10 @@ async function selectAnchorCandidates(
         WHERE nd.entity_id = b.id
           AND nd.template = 'solicitation_veto_notice'
           AND nd.sent_at IS NOT NULL
+          AND nd.failed_at IS NULL
       )
     LIMIT ${scanLimit}
   `;
-}
-
-/**
- * ONE candidate's isolated body — a throw here costs this batch, not the
- * phase or the tick. `release.ts`'s `isolateItem` docstring states why every
- * per-item loop in this lane needs this; duplicated here rather than
- * imported for the reason {@link VetoAnchorTally} gives.
- */
-async function isolateAnchorItem<T>(
-  context: Record<string, string>,
-  tally: { failed: number },
-  body: () => Promise<T>,
-): Promise<T | undefined> {
-  try {
-    return await body();
-  } catch (error) {
-    tally.failed += 1;
-    const cause = toError(error);
-    try {
-      Sentry.captureException(cause, {
-        level: 'warning',
-        tags: { subsystem: 'solicitation-release', phase: 'veto_anchor' },
-        extra: { ...context },
-      });
-    } catch {
-      // The log line below is the fallback sink for Sentry itself being
-      // unreachable, so it lives OUTSIDE this guard — same shape as every
-      // other per-item catch in this lane.
-    }
-    logger.error(ANCHOR_ITEM_FAILURE_MESSAGE, cause, { phase: 'veto_anchor', ...context });
-    return undefined;
-  }
 }
 
 /**
@@ -558,8 +546,8 @@ async function isolateAnchorItem<T>(
  * `veto_window_minutes`, is an IMPOSSIBLE state for a batch this scan ever
  * selects: `autoApproveBatch` writes both facts, together, in the SAME
  * transaction as the `auto_policy` stamp (Task 4). Assert it loudly — a
- * corrupt candidate is isolated to itself by the caller's
- * {@link isolateAnchorItem}, never silently skipped.
+ * corrupt candidate is isolated to itself by the caller's `isolateItem`
+ * (the shared phase seam, `./release-phases`), never silently skipped.
  */
 async function anchorOneBatch(
   tx: TransactionSql,
@@ -608,7 +596,10 @@ async function anchorOneBatch(
   }
   const grantedMinutes = step.granted_window_minutes;
 
-  // The CAS: the deadline is computed IN SQL from MIN(sent_at) — the
+  // The CAS: the deadline is computed IN SQL from MIN(sent_at) over rows
+  // with `failed_at IS NULL` — the anchor input is the first provider-
+  // accepted send not known to have failed at THIS moment (a bounce recorded
+  // after this CAS commits never moves the anchored deadline) — and the
   // DATABASE clock decides it, never a JS Date round-trip. Re-asserting
   // approval_method/halted_at/send_closed_at/veto_deadline_at here (not just
   // in the scan) is what makes zero rows the honest answer to "a Halt latch
@@ -625,6 +616,7 @@ async function anchorOneBatch(
         AND nd.business_id = ${batch.business_id}::uuid
         AND nd.template = 'solicitation_veto_notice'
         AND nd.sent_at IS NOT NULL
+        AND nd.failed_at IS NULL
     ) sub
     WHERE b.id = ${batch.id}::uuid AND b.account_id = ${batch.account_id}::uuid
       AND b.business_id = ${batch.business_id}::uuid
@@ -653,23 +645,24 @@ async function anchorOneBatch(
 
 /**
  * The Veto anchor. CASes `veto_deadline_at` on every `auto_policy` batch
- * whose Veto notice has been provider-accepted at least once, fail-closed
- * per D9.
+ * whose Veto notice has been provider-accepted at least once without a
+ * recorded bounce, fail-closed per D9.
  *
- * Returns a `{ handled, failed }` tally — the same shape `release.ts`'s
- * `tallyPhase` expects from every other phase, so `runReleaseCycle` wires
- * this one in identically (see the module-header note above and this file's
- * deviations log entry for why the shape is `{ handled, failed }` rather
- * than a bare count).
+ * Returns the shared seam's {@link PhaseTally} — the shape `tallyPhase`
+ * expects from every other phase, so `runReleaseCycle` wires this one in
+ * identically (see the module-header note above; the shape is
+ * `{ handled, failed }` rather than a bare count because the tally's `failed`
+ * half is what the cycle report folds into `itemFailures`).
  */
 export async function anchorVetoDeadlines(
   sql: Sql,
   scanLimit: number,
-): Promise<VetoAnchorTally> {
+): Promise<PhaseTally> {
   const candidates = await selectAnchorCandidates(sql, scanLimit);
-  const tally: VetoAnchorTally = { handled: 0, failed: 0 };
+  const tally: PhaseTally = { handled: 0, failed: 0 };
   for (const batch of candidates) {
-    const anchored = await isolateAnchorItem(
+    const anchored = await isolateItem(
+      'veto_anchor',
       { batch_id: batch.id, account_id: batch.account_id, business_id: batch.business_id },
       tally,
       () => sql.begin((tx) => anchorOneBatch(tx, batch)),

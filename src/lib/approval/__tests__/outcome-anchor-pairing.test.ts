@@ -202,7 +202,7 @@ const LOCK_HELD_BY_CALLER = new Set([
 // the batch row. Note in particular that `readSendBreaker`, `isJudgeHealthy` and
 // both cap counters run ABOVE every transaction with no lock held — moving any
 // of them inside would hold the batch row across a platform-wide scan.
-// (#631 added one lock to its auto-lane paths: `lockAutonomyAccount`'s
+// (#631 added one lock to its Auto-approval-lane paths: `lockAutonomyAccount`'s
 // accounts row FOR UPDATE, taken inside `applyAutoDowngrade`'s confirm hook
 // and `releaseOutreachRow`, strictly AFTER the batch lock and BEFORE any
 // agent_runs touch — batch → account → run, so the entry's batch → run claim

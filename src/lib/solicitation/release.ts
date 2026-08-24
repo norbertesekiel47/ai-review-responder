@@ -99,6 +99,12 @@ import {
   closeBatchIfSettled,
   UNKNOWN_GRACE_MINUTES,
 } from './outreach';
+import {
+  alertPhaseFailure,
+  isolateItem,
+  tallyPhase,
+  type PhaseTally,
+} from './release-phases';
 import { readSendBreaker } from './send-breaker';
 import {
   countAccountDispatchAttemptsToday,
@@ -115,7 +121,7 @@ const JUDGE_UNAVAILABLE_REASON = 'judge_unavailable';
 
 /**
  * Every reason a downgrade can carry (#631 decision 7): the Judge arm's one
- * reason, plus the auto lane's four re-check reasons. The spine step and the
+ * reason, plus the Auto-approval lane's four re-check reasons. The spine step and the
  * Sentry tag both carry the member that actually failed — `downgradeApproval`
  * no longer hard-codes `judge_unavailable` (R1 finding 5).
  */
@@ -126,7 +132,7 @@ type DowngradeReason = typeof JUDGE_UNAVAILABLE_REASON | AutoDowngradeReason;
  *  receiving events rather than N issues. */
 const DOWNGRADE_ALERT_MESSAGE = 'Solicitation batch approval downgraded: Judge unavailable';
 
-/** Stable Sentry title for the auto lane's downgrades (#631 decision 6) — a
+/** Stable Sentry title for the Auto-approval lane's downgrades (#631 decision 6) — a
  *  SEPARATE title from the Judge one so a Governor trip or an entitlement
  *  lapse never files into the Judge-outage issue; the exact failed condition
  *  is the `reason` tag. */
@@ -213,16 +219,6 @@ export interface ReleaseCycleReport {
   itemFailures: number;
 }
 
-/**
- * What one phase's per-item loop did: the items it acted on, and the items it
- * isolated. Both halves are per-PHASE; the cycle report folds them through
- * `tallyPhase`.
- */
-interface PhaseTally {
-  handled: number;
-  failed: number;
-}
-
 export interface ReleaseCycleOptions {
   /** Outreach rows released platform-wide per tick. Default RELEASE_PER_TICK_BUDGET. */
   perTickBudget?: number;
@@ -260,128 +256,11 @@ export const RELEASE_PER_TICK_BUDGET = 2;
 /** Rows scanned per phase per tick. Bounds the tick, and every phase logs what it dropped. */
 export const RELEASE_SCAN_LIMIT = 50;
 
-/** Stable prefix for the isolated-item log line, for the same grouping reason
- *  the two alert titles above are constants. The phase is a Sentry TAG rather
- *  than part of the text so one query answers "which phase is poisoned". */
-const ITEM_FAILURE_MESSAGE = 'Solicitation release item failed and was isolated';
-
-/**
- * Run ONE item's body, isolating a throw to that item.
- *
- * **WHY EVERY PER-ITEM LOOP NEEDS THIS, stated once here.** The five phases run
- * in sequence and every scan is `ORDER BY … ASC`, so without isolation a single
- * deterministically-failing item is re-selected as the FIRST row of its phase on
- * every subsequent tick and aborts every phase after it — platform-wide, and
- * permanently. That is issue #915's wedge arriving through the door built to
- * close it. One poisoned item must cost one item, not the lane.
- *
- * NOT A SILENT CATCH. Every failure is logged with the ids needed to find the
- * row, counted into `ReleaseCycleReport.itemFailures`, and raised to Sentry —
- * the log line is the fallback sink for Sentry itself being unreachable, so it
- * lives outside that guard, exactly as `alertUnknownTerminalization` does.
- *
- * It does NOT wrap a phase's SCAN, and a scan throw does NOT reach the
- * crash-net. `createGuardedPoll` catches everything `runReleaseCycle` throws and
- * never rethrows (`worker/background/guarded-poll.ts`), so the throw is never an
- * `unhandledRejection` and `worker/index.ts`'s classifier never sees it; what it
- * leaves behind is one `logger.error` JSON line, and the logger has NO Sentry
- * hook (`src/lib/shared/logger.ts`). A scan, `readSendBreaker` or
- * `groupByAccount` throw therefore aborts every LATER phase — P5's backstop join
- * included — on every tick for as long as the condition persists, which is a
- * wider blast radius than any item failure. `alertPhaseFailure` is that class's
- * sink: it alerts and RETHROWS, so the containment behaviour is unchanged and
- * only the alerting is added.
- */
-async function isolateItem<T>(
-  phase: string,
-  context: Record<string, string>,
-  tally: { failed: number },
-  body: () => Promise<T>,
-): Promise<T | undefined> {
-  try {
-    return await body();
-  } catch (error) {
-    recordItemFailure(phase, context, tally, error);
-    return undefined;
-  }
-}
-
-/**
- * The sink `isolateItem` wraps, exposed separately because the RELEASE phase
- * cannot use the wrapper: its per-account body carries `continue` and `break`
- * that target the enclosing loops, and neither may cross a function boundary.
- * A bare `try`/`catch` around that body plus this call is the same act.
- */
-function recordItemFailure(
-  phase: string,
-  context: Record<string, string>,
-  tally: { failed: number },
-  error: unknown,
-): void {
-  tally.failed += 1;
-  const cause = toError(error);
-  try {
-    Sentry.captureException(cause, {
-      level: 'warning',
-      tags: { subsystem: 'solicitation-release', phase },
-      extra: { ...context },
-    });
-  } catch {
-    // The log line below is the fallback sink for Sentry itself being
-    // unreachable, so it lives OUTSIDE this guard.
-  }
-  logger.error(ITEM_FAILURE_MESSAGE, cause, { phase, ...context });
-}
-
-/** Stable prefix for the phase-level failure line, grouped like the others. The
- *  phase is a Sentry TAG, so one query separates "which phase is poisoned" from
- *  the item-level issues that carry the same tag. */
-const PHASE_FAILURE_MESSAGE = 'Solicitation release phase failed and aborted the cycle';
-
-/**
- * Give a PHASE-level throw the alerting sink the per-item catch already has,
- * then RETHROW.
- *
- * **IT CHANGES NO CONTROL FLOW.** The cycle still aborts, `createGuardedPoll`
- * still catches, and the tick still ends without the phases after this one —
- * that containment is deliberate and unchanged. What this closes is the
- * asymmetry `isolateItem`'s docstring describes: an ITEM failure (blast radius
- * one row) raised a Sentry issue while a SCAN failure (blast radius every later
- * phase, every tick, P5's backstop join included) raised nothing at all. A
- * `selectReleaseCandidates` that starts timing out under PgBouncer's
- * `statement_timeout` is exactly that shape — the lane silently stops closing
- * batches and no alert fires.
- *
- * `readSendBreaker`'s throw comes through here too, and belongs here: the throw
- * IS the fail-closed halt signal (#622 §3.2B), and a halt signal that suppresses
- * P5 for as long as it persists is worth an alert. Alerting is not catching —
- * the rethrow is what keeps that invariant intact.
- */
-async function alertPhaseFailure<T>(phase: string, body: () => Promise<T>): Promise<T> {
-  try {
-    return await body();
-  } catch (error) {
-    const cause = toError(error);
-    try {
-      Sentry.captureException(cause, {
-        level: 'warning',
-        tags: { subsystem: 'solicitation-release', phase },
-      });
-    } catch {
-      // The log line below is the fallback sink for Sentry itself being
-      // unreachable, so it lives OUTSIDE this guard.
-    }
-    logger.error(PHASE_FAILURE_MESSAGE, cause, { phase });
-    throw error;
-  }
-}
-
-/** Fold one phase's tally into the cycle report: the handled count is that
- *  phase's own field, the isolated failures accumulate across the tick. */
-function tallyPhase(report: ReleaseCycleReport, tally: PhaseTally): number {
-  report.itemFailures += tally.failed;
-  return tally.handled;
-}
+// The per-item isolation idiom (`isolateItem`/`recordItemFailure`), the
+// phase-level alerting sink (`alertPhaseFailure`) and the tally vocabulary
+// (`PhaseTally`/`tallyPhase`) live in `./release-phases` — the shared seam the
+// **Veto anchor** (`auto-approval.ts`) consumes too, extracted so the
+// isolate-don't-poison-the-tick idiom (#915) has exactly one owner.
 
 /**
  * Run one release cycle.
@@ -1157,7 +1036,7 @@ interface ReleaseCandidateBatch {
   account_id: string;
   business_id: string;
   /** How the batch was approved (#631 decision 6): `'auto_policy'` routes the
-   *  batch through the auto lane's release-time re-check and the in-tx
+   *  batch through the Auto-approval lane's release-time re-check and the in-tx
    *  release guard; the owner lane skips both. Nullable in the TYPE because
    *  the column is, though the scan's `approved_at IS NOT NULL` arm plus
    *  091's approval-consistency CHECK mean a selected row always carries one. */
@@ -1202,7 +1081,7 @@ interface SendParentRow {
 }
 
 /** What a downgrade split did to one batch — shared by the Judge arm and the
- *  auto lane's re-check (#631 decision 7). `skipped` is the RACE arm: the CAS
+ *  Auto-approval lane's re-check (#631 decision 7). `skipped` is the RACE arm: the CAS
  *  matched nothing (or, on the auto arm, the serialized in-tx re-read found
  *  the conditions healthy again), so nothing was downgraded and nothing was
  *  held. The other writers that reach it — a concurrent **Halt latch**, and
@@ -1296,7 +1175,7 @@ async function runBatchArm(
 ): Promise<'next' | 'stop'> {
   if (ctx.capacityExhausted()) return 'stop';
 
-  // 5.5. The auto lane's release-time re-check (#631 decision 6), BEFORE the
+  // 5.5. The Auto-approval lane's release-time re-check (#631 decision 6), BEFORE the
   //      Judge split and ONLY for `auto_policy` batches: the auto flag, the
   //      Autopilot tier, the policy row's presence and the account-wide
   //      Governor suspension. Subscription and the master send flag are NOT
@@ -1806,7 +1685,7 @@ async function applyJudgeSplit(
 
 /**
  * The downgrade split's shared body (#631 decision 7), extracted VERBATIM from
- * the Judge arm above so the auto lane's re-check could not grow a second
+ * the Judge arm above so the Auto-approval lane's re-check could not grow a second
  * implementation of the held/skipped arms or the alerting shape: same HOLD
  * condition (mid-drip, or the approval window shut — a downgrade's whole
  * promise is "the batch reappears as approvable", and both make it false),
@@ -1870,7 +1749,7 @@ async function applyDowngradeSplit<R extends DowngradeReason>(
 }
 
 /**
- * The auto lane's downgrade (#631 decision 6), reached only after the
+ * The Auto-approval lane's downgrade (#631 decision 6), reached only after the
  * arm-level quick read found a failing condition. The TOCTOU between that
  * unlocked read and the downgrade CAS is closed HERE: `confirmReason`
  * re-reads the SAME four conditions inside the downgrade transaction, under
@@ -1901,7 +1780,7 @@ async function applyAutoDowngrade(
  * Returns the Send batch parent's run id (`null` when the batch never minted
  * one) plus the confirmed reason on a downgrade, or `undefined` when the CAS
  * matched nothing — or when `confirmReason` found the conditions healthy
- * again, which is the auto lane's raced-back-to-healthy skip (#631 decision
+ * again, which is the Auto-approval lane's raced-back-to-healthy skip (#631 decision
  * 6). `confirmReason` runs AFTER the batch row lock and BEFORE the CAS, so
  * the auto arm can take the account lock inside it (batch-then-account, the
  * documented order) and re-read under full serialization.

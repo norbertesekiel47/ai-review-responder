@@ -366,8 +366,10 @@ export function AutoApprovalClient({ initialState }: Props) {
           <DailyCapField
             key={`account-cap-${capDraftEpoch}-${data.accountDefault.dailyAutoPostCap ?? 'default'}`}
             ariaLabel="Account default daily auto-post cap"
+            label="Daily auto-post cap"
+            hint="Most replies auto-posted per day for this scope. Leave blank to use the default."
+            placeholder={`Default (${data.accountDefault.effectiveDailyCap})`}
             storedCap={data.accountDefault.dailyAutoPostCap}
-            effectiveDailyCap={data.accountDefault.effectiveDailyCap}
             disabled={accountSaving}
             expansionBlocked={!data.readiness.canExpand}
             onCommit={(cap) => requestDialChange(
@@ -657,13 +659,16 @@ function LocationPolicyRow({
         <DailyCapField
           key={`location-cap-${capDraftEpoch}-${location.override.dailyAutoPostCap ?? 'default'}`}
           ariaLabel={`Daily auto-post cap for ${location.displayName}`}
+          label="Daily auto-post cap"
+          hint="Most replies auto-posted per day for this scope. Leave blank to use the default."
+          // The effective (inherited) value drives the display via the
+          // placeholder only.
+          placeholder={`Default (${location.effective.effectiveDailyCap})`}
           // The commit baseline is the OVERRIDE's stored value (null while the
           // location has no row) — baselining on the effective (inherited) cap
           // made typing the inherited number a no-op, so the cap could never be
-          // pinned onto the location. The effective value still drives the
-          // display via the placeholder.
+          // pinned onto the location.
           storedCap={location.override.dailyAutoPostCap}
-          effectiveDailyCap={location.effective.effectiveDailyCap}
           disabled={saving}
           expansionBlocked={location.override.exists && expansionBlocked}
           onCommit={(cap) => onRequestDial(
@@ -735,19 +740,30 @@ function VetoWindowField({
  * Draft-holding cap input: commits on blur (blank = platform default, submitted
  * as null). Callers remount it via `key` when the stored value or the cap-draft
  * epoch changes — that is the draft-reset mechanism.
+ *
+ * The CANONICAL cap field for BOTH lanes (R1 standards finding 6): the Reply
+ * lane's auto-post caps and the Solicitation lane's send cap render through
+ * this one component, so the badInput blur-discard invariant below has exactly
+ * one owner. `label`/`hint`/`placeholder` carry the per-lane copy; a caller
+ * with no expansion gate passes `expansionBlocked={false}` and that arm
+ * no-ops.
  */
 function DailyCapField({
   ariaLabel,
+  label,
+  hint,
+  placeholder,
   storedCap,
-  effectiveDailyCap,
   disabled,
   expansionBlocked,
   onCommit,
   onDiscardDraft,
 }: {
   ariaLabel: string;
+  label: string;
+  hint: string;
+  placeholder: string;
   storedCap: number | null;
-  effectiveDailyCap: number;
   disabled: boolean;
   expansionBlocked: boolean;
   onCommit: (cap: number | null) => void;
@@ -781,7 +797,7 @@ function DailyCapField({
 
   return (
     <label className="field">
-      <span className="field-label">Daily auto-post cap</span>
+      <span className="field-label">{label}</span>
       <input
         type="number"
         className="input"
@@ -790,15 +806,13 @@ function DailyCapField({
         max={MAX_DAILY_CAP}
         step={1}
         inputMode="numeric"
-        placeholder={`Default (${effectiveDailyCap})`}
+        placeholder={placeholder}
         value={draft}
         disabled={disabled}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
       />
-      <span className="field-hint">
-        Most replies auto-posted per day for this scope. Leave blank to use the default.
-      </span>
+      <span className="field-hint">{hint}</span>
     </label>
   );
 }
@@ -910,10 +924,18 @@ function SolicitationSection({
               How long an auto-approved batch waits after its notice before sending, so you can still halt it.
             </span>
           </label>
-          <SolicitationCapField
+          <DailyCapField
             key={`solicitation-cap-${capDraftEpoch}-${state.dailySendCap ?? 'default'}`}
+            ariaLabel="Daily review request send cap"
+            label="Daily send cap"
+            hint={`Most review requests sent per day. Leave blank to use the default — RepWorth never sends more than ${DEFAULT_DAILY_SEND_CAP_ACCOUNT} in a day.`}
+            placeholder={`Default (${DEFAULT_DAILY_SEND_CAP_ACCOUNT})`}
             storedCap={state.dailySendCap}
             disabled={saving}
+            // This lane's expansion question (raising the ENFORCED cap) is
+            // answered by the onCommit's classifier below, not by a readiness
+            // block — so the shared field's expansion-discard arm no-ops.
+            expansionBlocked={false}
             onCommit={(cap) => onSet(
               { dailySendCap: cap, vetoWindowMinutes: currentWindow },
               resolveAccountDailySendCap({ dailySendCap: cap }) > effectiveDailySendCap,
@@ -923,58 +945,6 @@ function SolicitationSection({
         </div>
       )}
     </section>
-  );
-}
-
-/**
- * Draft-holding send-cap input, the DailyCapField pattern (commit on blur,
- * blank = platform default submitted as null, badInput blur discards).
- */
-function SolicitationCapField({
-  storedCap,
-  disabled,
-  onCommit,
-  onDiscardDraft,
-}: {
-  storedCap: number | null;
-  disabled: boolean;
-  onCommit: (cap: number | null) => void;
-  onDiscardDraft: () => void;
-}) {
-  const [draft, setDraft] = useState(storedCap === null ? '' : String(storedCap));
-
-  function commit(event: FocusEvent<HTMLInputElement>) {
-    if (event.currentTarget.validity.badInput) {
-      onDiscardDraft();
-      return;
-    }
-    const normalized = normalizeCapDraft(draft);
-    setDraft(normalized === null ? '' : String(normalized));
-    if (normalized === storedCap) return;
-    onCommit(normalized);
-  }
-
-  return (
-    <label className="field">
-      <span className="field-label">Daily send cap</span>
-      <input
-        type="number"
-        className="input"
-        aria-label="Daily review request send cap"
-        min={MIN_DAILY_CAP}
-        max={MAX_DAILY_CAP}
-        step={1}
-        inputMode="numeric"
-        placeholder={`Default (${DEFAULT_DAILY_SEND_CAP_ACCOUNT})`}
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-      />
-      <span className="field-hint">
-        Most review requests sent per day. Leave blank to use the default — RepWorth never sends more than {DEFAULT_DAILY_SEND_CAP_ACCOUNT} in a day.
-      </span>
-    </label>
   );
 }
 
