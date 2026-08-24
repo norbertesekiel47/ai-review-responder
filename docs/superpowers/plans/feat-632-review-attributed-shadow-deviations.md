@@ -640,3 +640,88 @@ is parked. It does **not** forbid extra tests. So the guard case lands in
 
 Cost: no intake change, no surface amendment, no churn in the budget table, and
 `eval contract:` still passes. D23 is closed by this.
+
+---
+
+## D27 — Task 7 BREAKS 8 pre-existing tests, and the plan never says so
+
+**Stage:** execution (step 4), Task 7. **Third plan defect found by execution.**
+Same species as D6: a task that changes shared behaviour without naming the suite
+it breaks.
+
+`RequestsClient` now issues one more `fetch`. `requests-client.test.tsx` stubs
+fetch **by call index**, not by URL — `mockResolvedValueOnce` chains, plus a
+`routedFetch` helper that pops the next scripted `BatchView` for any URL that is
+not `/batch/reviewed` — and several cases assert exact call counts. So the new
+read either consumed a scripted batch answer or was counted as one:
+
+```
+Tests  8 failed | 81 passed (89)
+  × offers a retry after a failed load            expected 2 calls, got 3
+  × leaves a 401 to the dashboard auth redirect   expected 1 call, got 2
+  × discards a stale response mid-poll            expected '…/attributed…' to contain 'scope=loc-2'
+  × hits the polling ceiling when the first fetch never resolves
+  × re-announces a second building → built transition
+  × clears the lane sentence on a location switch
+  × reports that nothing changed when a regeneration settles
+  × pings the second batch after a location switch
+```
+
+Every failure is a harness artefact. No assertion about the batch screen's
+behaviour changed.
+
+**It is unavoidable, not a placement choice.** The promised title says the section
+mounts *"independently of batch-build state"*, so the read cannot be deferred into
+the built-batch branch — and gating it there still broke the
+completion-announcement case.
+
+**Fix, and the surface question.** One `stubFetch(inner)` helper answers
+`/solicitation/attributed` with the flag-off body and forwards everything else to
+the test's own mock. All 23 `vi.stubGlobal('fetch', …)` sites route through it.
+**No assertion was weakened, removed or loosened. No `expect.any` introduced.**
+Result: 89 of 89.
+
+The fifth file, `requests-client.test.tsx`, is **inside `allowed_edit_surface`**
+(`src/app/(authenticated)/dashboard/requests/__tests__/**`) and inside the plan's
+own directory-level `git add`. Verified: the commit has **zero out-of-surface
+paths**. It is missing only from Task 7's four-file prose list. So this is a plan
+manifest gap, not a surface breach, and it consumed **no** amendment.
+
+Leaving it red was the worse option — `pnpm test` is the CI gate.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D28 — four smaller Task 7 choices
+
+1. **`formatDay` duplicated** (~10 lines) from `BatchReport.tsx` rather than
+   shared, because that file is outside Task 7's surface. Fold into one owner in a
+   follow-up **if a third caller appears** — two callers do not yet justify an
+   abstraction.
+2. **`ATTRIBUTION_DISPLAY_WINDOW_DAYS` is a VALUE import from a `src/lib/` module
+   into a client component**, the only way to satisfy "do not re-spell 30". Risk
+   checked, not assumed: the module's only runtime import chain is
+   `run-spine → uuid` — everything `postgres` is type-only — so it trips no
+   invariant-#1 ESLint boundary, and `pnpm build` succeeds.
+3. **404 and 401 collapse into `{ enabled: false }`** rather than a fourth union
+   member. Deliberate, and it is invariant #13: a distinguishable rendering would
+   let the browser tell "flag off" from "surface absent", which leaks flag state.
+4. **The error state is not `role="alert"`.** A list that failed to load is a gap
+   in an evidence section, not something the owner must act on, and an alert here
+   would collide with the surface's real alerts.
+
+**Brand pass done properly:** Console (Warm Editorial). Tokens only, no literals.
+`--rw-star` used for the filled star run **only** — gold belongs to review ratings
+and never becomes a warning or CTA colour — with the unfilled remainder in
+`--rw-hair-2` so the SHAPE carries the rating once colour is removed. Nothing is
+colour-only: the star run carries `role="img"` with an `aria-label`, and the match
+count is words.
+
+---
+
+## Owed before ship — `react-doctor` was NOT run
+
+The plan's Task 7 Step 4 calls for `react-doctor`. My task brief omitted it from
+the Verify list, and the agent flagged the omission rather than letting it pass as
+done. **Run it during the step 5 gate, not later.**
