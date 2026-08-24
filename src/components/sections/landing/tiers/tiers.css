@@ -137,8 +137,31 @@
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: var(--rw-lp-accent, #dcc489);
-  /* A soft halo seats the thumb on the line without a shadow stack. */
+  /* A soft halo seats the thumb on the line without a shadow stack. The
+     breathing (box-shadow spread 6px -> 9px, 4.5s — the fleet pulse's cadence)
+     is the section's one sign of life: the dial is set, not inert. Infinite,
+     so the universal pause rule in landing-experience.css covers it without
+     enumeration; skipped under reduced motion below. box-shadow, not a
+     transform: the thumb's translate(-50%, -50%) is positional, and a scale
+     keyframe would have to restate it to avoid clobbering it. */
   box-shadow: 0 0 0 6px rgb(var(--rw-lp-accent-rgb) / 0.14);
+  animation: rw-lp-tiers-breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes rw-lp-tiers-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 6px rgb(var(--rw-lp-accent-rgb) / 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 9px rgb(var(--rw-lp-accent-rgb) / 0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rw-lp-tiers-thumb {
+    animation: none;
+  }
 }
 
 /* ---------- the two modes, anchored at the ends ---------- */

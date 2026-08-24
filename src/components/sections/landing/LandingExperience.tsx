@@ -66,6 +66,13 @@ import './landing-experience.css';
  * owns the wheel, sections are as tall as their content, and the only motion
  * on arrival is `Reveal`'s single opacity fade. Rationale and the measurements
  * that changed: docs/design/landing/measurements.md §2.
+ *
+ * 2026-08-24, owner override of part of that pass: the two film bookends now
+ * carry a scroll-linked push-in/settle on their internal zoom layers, the hero
+ * copy enters in five staged beats on load, and the tiers thumb breathes. All
+ * three stay inside the Linear pass's real constraints — native scroll, no
+ * snap, no transform on any ancestor of the future section — see
+ * measurements.md §2 ("Bookend cinema").
  */
 
 interface LandingExperienceProps {
