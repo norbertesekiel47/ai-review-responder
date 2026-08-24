@@ -181,14 +181,15 @@ const tallyRow = (alive: number, failedCount = 0, withheldCount = 0) =>
  * The finale's auto-approval hook (#631 Task 4, `runFinaleAutoApproval` in
  * ../auto-approval.ts) fires whenever the finale stays open with a live row
  * (`tally.alive > 0` and `closeBatchIfSettled` — defaulted `not_settled` in
- * `beforeEach` — agrees). It ALWAYS takes the account lock and reads the
- * three DB-backed conditions before deciding: `readAutoApprovalConditions`
- * runs unconditionally ahead of the flag/tier/policy short-circuit inside
- * `evaluateAutoApproval`, so a live-row finale owes the mock these four
- * queries regardless of which condition ultimately declines. This suite's
- * default flags (`solicitationSendEnabled` true, `solicitationAutoApprovalEnabled`
- * false) make it a same-turn `auto_flag_off` decline — a no-op for every test
- * here that isn't specifically exercising the auto-approval lane.
+ * `beforeEach` — agrees) AND both process-env flags pass: the perf follow-up
+ * checks `solicitationSendEnabled`/`solicitationAutoApprovalEnabled` FIRST,
+ * BEFORE taking the account lock or reading any DB-backed condition — so
+ * with this suite's default flags (`solicitationSendEnabled` true,
+ * `solicitationAutoApprovalEnabled` false, see `beforeEach`), the hook
+ * declines on `auto_flag_off` WITHOUT touching `sql` at all, and these four
+ * queries are never owed. Only a test that flips
+ * `solicitationAutoApprovalEnabled` on (alongside the send flag) reaches
+ * `lockAutonomyAccount`/`readAutoApprovalConditions` and needs this queued.
  */
 function enqueueAutoApprovalDecline() {
   sqlReturnQueue.push(
@@ -200,11 +201,15 @@ function enqueueAutoApprovalDecline() {
 }
 
 /** FIFO for the finale transaction: batch FOR UPDATE row, then the tally —
- *  plus the auto-approval hook's four queries when the tally reports a live
- *  row (see {@link enqueueAutoApprovalDecline}). */
+ *  plus the auto-approval hook's four queries, but ONLY when the tally
+ *  reports a live row AND both process-env flags are on for this test (see
+ *  {@link enqueueAutoApprovalDecline}) — otherwise the flag pre-check declines
+ *  before ever reaching `sql`, and the DB-backed conditions are unread. */
 function enqueueFinale(tally = tallyRow(1)) {
   sqlReturnQueue.push(mkTaggedResult([{ id: BATCH_ID }]), tally);
-  if ((tally[0]?.alive ?? 0) > 0) enqueueAutoApprovalDecline();
+  const bothFlagsOn =
+    mocks.solicitationSendEnabled() === true && mocks.solicitationAutoApprovalEnabled() === true;
+  if ((tally[0]?.alive ?? 0) > 0 && bothFlagsOn) enqueueAutoApprovalDecline();
 }
 
 function cleanModeration() {

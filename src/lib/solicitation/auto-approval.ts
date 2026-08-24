@@ -74,6 +74,25 @@ export interface AutoApprovalConditionSnapshot {
 }
 
 /**
+ * The two process-local flag checks, factored out of {@link decideAutoApproval}
+ * so `runFinaleAutoApproval` can apply them on their own, BEFORE taking the
+ * account lock or reading any DB-backed condition (perf follow-up to #631
+ * Task 4): unlike the account lock, which serializes this read against
+ * concurrent `auto_approval_policies`/Governor-suspension writers, these two
+ * flags are plain `process.env` reads — free, and in no need of that
+ * serialization. Single source of truth for the reason strings/order so the
+ * fast pre-check and the full decision can never drift from each other.
+ */
+function decideFlags(
+  sendFlag: boolean,
+  autoFlag: boolean,
+): Extract<AutoApprovalDeclineReason, 'send_flag_off' | 'auto_flag_off'> | null {
+  if (!sendFlag) return 'send_flag_off';
+  if (!autoFlag) return 'auto_flag_off';
+  return null;
+}
+
+/**
  * Pure decision core, exported for the property test. Decision order IS the
  * reason precedence (D20's four independent things, in the order a caller
  * would want to fix them): `send_flag_off`, `auto_flag_off`, `subscription`,
@@ -85,8 +104,8 @@ export interface AutoApprovalConditionSnapshot {
 export function decideAutoApproval(
   c: AutoApprovalConditionSnapshot,
 ): AutoApprovalDecision {
-  if (!c.sendFlag) return { eligible: false, reason: 'send_flag_off' };
-  if (!c.autoFlag) return { eligible: false, reason: 'auto_flag_off' };
+  const flagReason = decideFlags(c.sendFlag, c.autoFlag);
+  if (flagReason) return { eligible: false, reason: flagReason };
   if (!subscriptionGrantsFullAccess(c.subscriptionStatus)) {
     return { eligible: false, reason: 'subscription' };
   }
@@ -385,14 +404,24 @@ export type FinaleAutoApprovalOutcome =
   | { status: 'declined'; reason: AutoApprovalDeclineReason };
 
 /**
- * The finale hook body (#631 Task 4 Step 3), extracted so the finale itself
- * stays orchestration: take the account lock (decision 3 — AFTER the batch
- * row lock the finale already holds, the documented batch-then-account
- * order), evaluate the gate under that serialization, then either run the
- * verb or report the decline. Called ONLY from `generateAsksForBatch`'s
- * finale transaction, only when the batch stayed open with live rows — never
- * from `regenerateAsk` (locked decision 1: regen exists only in `built`,
- * i.e. only for batches this lane already declined).
+ * The finale hook body (#631 Task 4 Step 3; flag-first ordering added as a
+ * perf follow-up), extracted so the finale itself stays orchestration.
+ *
+ * Cheapest-first: {@link decideFlags}'s two `process.env` reads are checked
+ * BEFORE anything else, since — unlike the DB-backed conditions below — they
+ * need no serialization against a concurrent writer. Only once both flags
+ * pass does this take the account lock (decision 3 — AFTER the batch row
+ * lock the finale already holds, the documented batch-then-account order)
+ * and evaluate the remaining DB-backed conditions under that serialization —
+ * the lock exists to serialize against `auto_approval_policies`/Governor
+ * suspension writers, not against a flag flip, so it would otherwise be an
+ * unconditional row lock plus three reads on every finale for no reason: the
+ * auto-approval lane is off in every environment today
+ * (`SOLICITATION_AUTO_APPROVAL_ENABLED` unset). Either declines or runs the
+ * verb. Called ONLY from `generateAsksForBatch`'s finale transaction, only
+ * when the batch stayed open with live rows — never from `regenerateAsk`
+ * (locked decision 1: regen exists only in `built`, i.e. only for batches
+ * this lane already declined).
  */
 export async function runFinaleAutoApproval(
   tx: TransactionSql,
@@ -404,6 +433,9 @@ export async function runFinaleAutoApproval(
     correlationId?: string;
   },
 ): Promise<FinaleAutoApprovalOutcome> {
+  const flagReason = decideFlags(solicitationSendEnabled(), solicitationAutoApprovalEnabled());
+  if (flagReason) return { status: 'declined', reason: flagReason };
+
   await lockAutonomyAccount(tx, input.accountId);
   const decision = await evaluateAutoApproval(tx, { accountId: input.accountId });
   if (!decision.eligible) return { status: 'declined', reason: decision.reason };
