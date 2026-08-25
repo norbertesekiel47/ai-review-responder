@@ -35,8 +35,22 @@ Plus Jakarta Sans at 200/300, weights that exist for this page.
   were deliberately added back inside the Linear pass's constraints: the two film
   bookends carry a scroll-linked push-in/settle (≤1.045, on an internal zoom layer,
   reader-driven), the hero copy enters in five staged beats on load, and the tiers
-  thumb breathes. Native scroll is untouched, no section wrapper transforms, and no
+  gauge halo breathes. Native scroll is untouched, no section wrapper transforms, and no
   transform ever sits on an ancestor of the future section's glow.
+- **The sections revamp (2026-08-24, owner-directed).** Sections 2–7 were elevated in
+  place: every section's blocks enter as `Staged` beats (the hero-entrance grammar made
+  shareable — motion-driven and finite, so the ambient pause rule cannot strand them),
+  the fleet diagram assembles on arrival (wires draw in via motion `pathLength`) and a
+  hovered node brightens its own wire, the autonomy dial is a circular OPERABLE gauge
+  (two `aria-pressed` mode buttons swing a sprung needle), the problem section pairs the
+  essay with an ambient generated diagram clip, and the future cards open with a
+  generated off-CRT still. One header grammar binds all six: prose sections set left,
+  instrument sections (fleet, tiers) centered, one heading scale
+  (`clamp(1.75rem, min(4.4vw, 5.2vh), 3rem)`) and one lead scale
+  (`clamp(0.9375rem, 1.1vw, 1.0625rem)`) — the problem essay's larger heading is the one
+  stated exception. Constraints kept: native scroll, no snap, no transform on any
+  ancestor of the future glow (future-section entrances are opacity-only), reduced
+  motion renders settled frames everywhere.
 
 **Sections 1 and 9 are a deliberate pair:** the same world, opened in daylight with the
 copy set RIGHT and closed at night with it set LEFT. They are the only two full-bleed
@@ -162,12 +176,17 @@ reasoning and the numbers are in [`measurements.md`](./measurements.md).
 
 | Name | Value | Where |
 |---|---|---|
-| Arrival fade | `0.2s`, opacity only, `easeOut` | `Reveal` — the ONE motion a block gets on entering the viewport |
+| Arrival fade | `0.2s`, opacity only, `easeOut` | `Reveal` — the quiet default for a block entering the viewport |
 | Arrival stagger | `60ms` per index, capped at 6 | `Reveal` |
+| Staged beat | `650ms` fade + 14px rise, `110ms` per beat, once in view | `Staged` / `StagedLine` (`staged.tsx`) — the hero-entrance grammar shared by sections 2–7; `rise={0}` (opacity only) is MANDATORY around the future cards; reduced motion renders the final frame via `initial: false` |
 | Pill hover | `translateY(-1px)` + lifted gold, `200–240ms` | nav pill, hero CTA, closing action |
 | Hero entrance | 5 beats, `650ms` fade + 14px rise, `110ms` apart, once on load | hero copy column (`useHeroEntrance`); reduced motion renders the final frame via `initial: false` |
 | Bookend push-in / settle | scale `1 → 1.045` (hero exit) and `1.045 → 1` (closing-band arrival), scroll-linked | `.rw-lp-hero-zoom` / `.rw-lp-cta-zoom` — internal zoom layers, never the media wrapper (a transformed box grows the page's scrollable overflow) |
-| Thumb breathe | box-shadow spread `6px → 9px`, `4.5s`, infinite | `.rw-lp-tiers-thumb`; covered by the universal pause rule, skipped under reduced motion |
+| Fleet assembly | live wires draw in (motion `pathLength 0 → 1`, `0.9s`, `90ms` stagger); nodes/centre fade (opacity ONLY — they are measured); flow current + dashed NEXT wire fade in after (`data-armed` transitions) | `FleetSection` + `fleet.css`; one `useInView` arming signal |
+| Wire hover | hovered node's wire goes steady full-strength, flow to `0.85` | `g[data-hot='true']` in `fleet.css`, driven by node `pointerenter` |
+| Dial travel | needle + fill on a spring (`stiffness 170, damping 26`); needle swings via sprung endpoint math, never a CSS rotate on SVG | `TiersSection` — `useSpring`/`useTransform`; reduced motion jumps |
+| Halo breathe | opacity `1 → 0.55`, `4.5s`, infinite | `.rw-lp-tiers-gauge-halo`; covered by the universal pause rule, skipped under reduced motion |
+| Problem finale | gold rule draws (`scaleX 0 → 1`, `0.8s`), pivot beats land on it | `.rw-lp-problem-pivot-rule` — transform on the span itself, never an ancestor |
 
 Native scroll. There is no smooth-scroll layer, no snap (Lenis or CSS), and no
 scroll-linked section dissolve — all removed 2026-08-16 so the reader owns the wheel and
@@ -215,12 +234,20 @@ ink. Hover lifts to `#e8d3a1` and `translateY(-1px)`.
 
 ### Fleet (section 2)
 
-Role: the agent map. Centred flex tiers of nodes; a click opens the film in
-`VideoLightbox`.
+Role: the agent map — a LIVING diagram since 2026-08-24. Centred flex tiers of
+nodes; a click opens the film in `VideoLightbox`.
 
 - The **node cap**, not the container, sets the drawing width (`.rw-lp-fleet-node`).
 - Unshipped capabilities render with a dashed border, dimmed media, a `COMING` tag, and a
   dashed unanimated connector.
+- The diagram assembles on first view (one `useInView` arming signal): live wires draw
+  in, nodes and centre fade up, the flow current starts after. Hovering a node lifts it
+  and brightens its own wire (`data-hot`).
+- **Measured elements enter by opacity only.** The nodes and the media card are measured
+  for the wire endpoints (`getBoundingClientRect` includes transforms, and the observer
+  re-fires only on size change) — an entrance transform would bake a mid-flight position
+  into the wires. Nodes carry the object craft: lit top edge, inset highlight, hover lift
+  with an ink shadow and a faint gold halo.
 
 ### Persona / watchdog flip cards (sections 3 + 4)
 
@@ -228,7 +255,11 @@ Role: the action layer and the oversight layer, distinguished by temperature.
 `agent-flip-card.tsx` is shared; each section styles it.
 
 - Personas are the shared portrait shape; **watchdog cards are the ROW form**, not the
-  portrait shape.
+  portrait shape. Since 2026-08-24 the row WORKS its width: a larger avatar stage
+  (`clamp(5.5rem, 19vh, 9.5rem)`, teal rim) and the governing rule stamped as a mono
+  plate in column 3 (`frontRule` prop on `AgentFlipCard`; hidden below 560px, where the
+  rule stays on the back). The backs carry a teal cast that deepens on hover
+  (hover-gated like every flip arm).
 - **Three flip selectors, all required:** `:hover` (hover-capable fine pointers —
   media-gated, because sticky tap-hover latched cards flipped on touch),
   `[data-flipped='true']` (touch — the click toggle is gated to non-hover devices,
@@ -239,21 +270,32 @@ Role: the action layer and the oversight layer, distinguished by temperature.
 
 ### Problem (section 6)
 
-Role: the one purely typographic beat — between the hero film and the fleet diagram,
-an essay opening: no glass, no cards, no media. Framed at reputation width (owner
-direction, 2026-08-24) so the copy cannot go stale as new agents ship; the only
-product claim is the pivot line's existence claim ("So we built the staff"). See
-`problem/problem-copy.ts` for the framing contract.
+Role: the kinetic essay + the reputation diagram (v0.2, owner-directed 2026-08-24).
+The essay owns the left column — staged heading lines, trimmed body, and the pivot
+landing on a drawn gold rule; the right carries the section's one visual: an ambient
+generated clip of a café orbited by what a customer finds (stars, a review bubble, a
+reply arrow, one dark card — the silence). Grid AREAS keep the pivot the section's
+exit at every width. Framed at reputation width (owner direction, 2026-08-24) so the
+copy cannot go stale as new agents ship; the only product claim is the pivot line's
+existence claim ("So we built the staff"). The diagram is decorative, `aria-hidden`,
+claim-free (asset rules in `problem/problem-copy.ts`), rides `AmbientVideo`, and
+shows its still under reduced motion.
 
 ### Tiers — Copilot vs Autopilot (section 8)
 
-Role: the dial-track. The dial IS the layout: one horizontal travel line spans the
-section, `COPILOT` and `AUTOPILOT` anchor its ends, three detents between the end
-stops argue "a range, not a toggle", and the gold thumb rests on the Copilot side —
-where every account starts. Decorative and static (`aria-hidden`); if it ever becomes
-interactive it needs a `--rw-lp-accent` ring and a focus-test row. Below 720px the
-travel rotates to a vertical line beside the stacked modes. Neither mode takes a tier
-temperature — they are modes, not agents — and nothing here is gold-filled.
+Role: the circular dial (v4, owner-directed 2026-08-24 — v3's straight track was
+rejected in favour of the round instrument). A semicircular machined gauge sits
+between the two modes: recessed groove, three detents and two end ticks ("a range,
+not a toggle"), a sprung gold needle, and a fill that measures the granted autonomy.
+It is OPERABLE: the mode names are two `aria-pressed` buttons (keyboard tab stops, no
+custom key handling) that swing the needle and shift the modes' emphasis
+(`data-active`); the gauge itself stays `aria-hidden` — it is the needle, not the
+control. Both buttons ring in `--rw-lp-accent` and sit in the focus test. The needle
+starts on Copilot — where every account starts — and the dial is an ILLUSTRATION: it
+changes nothing but the page. Below 720px the gauge centres above the stacked modes
+on a vertical travel line whose active node takes the gold. Neither mode takes a tier
+temperature — they are modes, not agents — and nothing here is gold-filled in the
+pill sense (the three pills stay the whole set).
 
 ### The watchdogs' door (section 4 → /how-it-works)
 
@@ -264,9 +306,14 @@ teal: it is an action, not part of the oversight diagram. A text link, not a pil
 
 ### Future (section 5)
 
-Role: what is coming. **Static** cards (tag, name, body all visible — the flip was
-removed 2026-08-16; a roadmap does not need a reveal) whose glow is
-`background-attachment: fixed`.
+Role: what is coming — "screens not yet on" since 2026-08-24. **Static** cards (tag,
+name, body all visible — the flip was removed 2026-08-16; a roadmap does not need a
+reveal) whose glow is `background-attachment: fixed`. Each card opens with the
+generated off-CRT still: the same set the shipped agents live in, its screen dead —
+all four cards share one still on purpose (four identical unpowered units). An OFF
+screen cannot read as shipped; the dashed edge, tier disclaimer and `Planned` tag
+stay regardless. Card entrances are opacity-only `m.li` fades — never a transform
+near the glow's ancestry.
 
 - Nothing above the section may put a transform on an ancestor — a transformed ancestor
   silently downgrades fixed attachment to `scroll`. `Reveal` is opacity-only for exactly
@@ -295,7 +342,7 @@ Role: the night bookend. Full-bleed video, copy set LEFT.
 
 ### Ambient-motion control
 
-Role: the WCAG 2.2.2 pause control. **One** control (`ambient-motion.tsx`) governs all 8
+Role: the WCAG 2.2.2 pause control. **One** control (`ambient-motion.tsx`) governs all 9
 looping clips *and* every infinite CSS animation. The CSS half is a single universal
 `animation-play-state` rule on `.rw-lp[data-ambient-motion]`, so an animation added later
 is covered without anyone remembering to.
@@ -318,7 +365,8 @@ is covered without anyone remembering to.
   its channel token.
 - **Do** keep the `.rw-lp-` prefix on every class in this folder.
 - **Do** add any new interactive element to `focus-visible-marketing.test.ts` (it asserts
-  a ring on **14** landing controls today).
+  a ring on **16** landing controls today, across 15 rows — the dial's two mode buttons
+  share one).
 - **Do** take the **structure** from a reference and keep RepWorth's palette and Plus
   Jakarta. Four references were adapted, never copied — each shipped its own palette
   (EOSAI dark/gold; a `#0a0a0a` + Playfair spec; an Orbis `#010828` + Anton spec; a
@@ -371,6 +419,12 @@ argument the gold/teal split does.
 The 6 avatar clips are `aria-hidden`, declared on the wrapper so it covers the
 reduced-motion still as well as the video.
 
+Two generated companions joined 2026-08-24, both made against the agent stills as
+style reference so they inherit the world: `public/problem/problem-diagram.{mp4,jpg}`
+(the reputation diagram — a café orbited by review artifacts; 10s seamless ping-pong
+loop, 108KB, locked camera) and `public/future/off-crt.jpg` (the unpowered set on the
+future cards, 13KB). Asset rules for the diagram live in `problem/problem-copy.ts`.
+
 ### Ambient video
 
 Every looping background clip must go through `AmbientVideo` (`ambient-motion.tsx`) so
@@ -379,8 +433,9 @@ none can escape the WCAG 2.2.2 pause control.
 ### Scroll
 
 Native. Nothing intercepts the wheel, nothing snaps, nothing dissolves on scroll. Blocks
-inside a section arrive with `Reveal` (opacity, ≤200ms) and that is the whole scroll
-vocabulary. The Lenis + Snap layer, the CSS snap fallback, `SectionTransition`, the
+inside a section arrive with `Reveal` (opacity, ≤200ms) or as `Staged` beats (the
+hero-entrance grammar, once, on first view — see the Motion table); both are
+viewport-triggered arrivals, never scroll-scrubbed. The Lenis + Snap layer, the CSS snap fallback, `SectionTransition`, the
 chapter rail and the chapter markers were removed together on 2026-08-16 — see
 [`measurements.md`](./measurements.md) §2 for what was measured and why it went.
 

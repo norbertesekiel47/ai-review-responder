@@ -484,7 +484,7 @@
    stop a media element); every keyframe animation on the page is stopped here.
 
    The universal selector is deliberate. Three infinite animations exist today
-   — the fleet's pulse and flow, and the tiers thumb's breathing — and
+   — the fleet's pulse and flow, and the tiers gauge halo's breathing — and
    enumerating them means the next one added silently escapes the control. Every
    animation on this page is decorative and infinite (checked: there is not one
    finite keyframe animation under `sections/landing/`), so there is nothing

@@ -110,7 +110,9 @@
   margin: 0;
   font-family: var(--rw-font-display);
   font-weight: 200;
-  font-size: clamp(1.625rem, min(3.2vw, 4.9vh), 2.75rem);
+  /* The shared section-heading scale (2026-08-24 header-grammar pass): one
+     clamp for every section heading except the problem essay's exception. */
+  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
   line-height: 1.06;
   letter-spacing: -0.025em;
   color: var(--rw-lp-future-text);
@@ -125,7 +127,8 @@
   max-width: 34rem;
   font-family: var(--rw-font-display);
   font-weight: 400;
-  font-size: clamp(0.875rem, 1.05vw, 1rem);
+  /* The shared lead scale (2026-08-24 header-grammar pass). */
+  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
   line-height: 1.6;
   color: var(--rw-lp-future-muted);
 }
@@ -276,6 +279,31 @@
   background: rgba(255, 255, 255, 0.022);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+/* ---------- the unpowered set ("screens not yet on", 2026-08-24) ----------
+   Each card opens with the generated off-CRT still: the same set the
+   shipped agents live in, its screen dead (asset rules in future-copy.ts).
+   Decorative (aria-hidden in the JSX) — the tag, name and body carry the
+   information; the set argues membership of the fleet's CRT family while an
+   OFF screen cannot read as shipped. The still is slightly dimmed so even
+   its rim light sits below the live agents' cards. */
+
+.rw-lp-future-card-screen {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 0.5rem;
+  border-radius: 0.875rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgb(var(--rw-lp-ink-rgb) / 0.92);
+}
+
+.rw-lp-future-card-screen-still {
+  object-fit: cover;
+  opacity: 0.88;
 }
 
 .rw-lp-future-card-tag {
