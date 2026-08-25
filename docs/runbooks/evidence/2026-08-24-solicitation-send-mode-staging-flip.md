@@ -45,6 +45,12 @@ Precedent: `2026-07-26-solicitation-watch-mode-staging-flip.md`.
   staging-specific `rua` — never reuse the prod/apex tokens (keyed per domain).
   Fallback if registration fails: create the record without `rua` (valid DMARC;
   staging loses digests only) and record it here.
+  **RESOLVED 03:14 UTC** — registered via Postmark's public API (HTTP 201):
+  `rua = mailto:re+c4itw8rihpd@dmarc.postmarkapp.com`, digests to
+  `norbert.esekiel@repworth.net`. External-auth wildcard verified:
+  `dig +short TXT feedback.staging.repworth.net._report._dmarc.dmarc.postmarkapp.com`
+  → `"v=DMARC1;"`. Process note: the registration call ran ~1 min before its
+  ledger row was written — recorded here rather than silently absorbed.
 - **D-2 (03:11)** — Intake invariant wrote "cap=50" into the pre-flip env step.
   Runbook §7 is authoritative: before §6 the cap is the smallest value that
   admits the seed list; 50/day is ramp stage 1 and starts only after §6 passes.
@@ -60,7 +66,11 @@ NOT the goal for those rows.
 
 | Fixture | Identifier | Pre-run value | Intended end state | Remove / roll back by | Done |
 |---|---|---|---|---|---|
-| *(none yet — rows are added before each fixture is created)* | | | | | |
+| Postmark DMARC registration | `feedback.staging.repworth.net` → `re+c4itw8rihpd@dmarc.postmarkapp.com` | none | **keep** (staging digest sink) | Postmark record deletion via its private token (held off-repo) | n/a — kept |
+| Resend domain | `feedback.staging.repworth.net` (us-east-1, custom return path `bounce`) | none | **keep** (staging Sending identity) | `DELETE /domains/{id}` with team key | n/a — kept |
+| Credential file: full-access Resend key | `scratchpad/resend.key` (session scratchpad, off-repo) | none | **delete at teardown** | `rm`; user may also revoke the key in Resend | [ ] |
+| Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [ ] |
+| Cloudflare DNS records ×4 (zone `repworth.net`, id `59b9cc47…`) | TXT `resend._domainkey.feedback.staging`, MX `bounce.feedback.staging`, TXT `bounce.feedback.staging`, TXT `_dmarc.feedback.staging` | none | **keep** (staging Sending identity) | delete records by id via zone DNS API/console | n/a — kept |
 
 ## Unproven paths (campaign cannot PASS while any is open)
 
@@ -79,4 +89,64 @@ NOT the goal for those rows.
 
 ## Step log
 
-*(entries appended in runbook order)*
+### §1 — Resend domain create — PASS (03:23 UTC)
+
+- `POST /domains` → HTTP 201, id `903fde2f-511c-44a3-968f-ac9501b0465a`,
+  `name=feedback.staging.repworth.net`, `region=us-east-1`,
+  `custom_return_path=bounce`, `status=not_started`.
+- `PATCH /domains/{id}` `{"open_tracking":false,"click_tracking":false}` →
+  HTTP 200. Read-back check deferred to the §2 verification step.
+- No `links.` CNAME will be created (§1 belt-and-braces).
+- DNS records returned by Resend (authoritative over §2's shape table):
+  | Name | Type | Value | Priority |
+  |---|---|---|---|
+  | `resend._domainkey.feedback.staging` | TXT | `p=MIGf…` (218-char DKIM key) | — |
+  | `bounce.feedback.staging` | MX | `feedback-smtp.us-east-1.amazonses.com` | 10 |
+  | `bounce.feedback.staging` | TXT | `v=spf1 include:amazonses.com ~all` | — |
+- **D-3 (03:24)** — runbook §2 table shows "DKIM ×3 CNAME →
+  `<selector>.dkim.amazonses.com`"; Resend actually returned ONE DKIM TXT
+  record (`resend._domainkey.…`). The runbook already warns the table is the
+  shape, not the values, but the shape itself is now stale — runbook fix due
+  in this session (feedback-loop rule 7). Grey-cloud warning still applies to
+  the MX/TXT records Cloudflare could proxy; TXT/MX records are not proxyable,
+  so the trap is now largely moot for this record set — noted in the fix.
+
+### §2 — Cloudflare DNS — PASS (03:29 UTC)
+
+Zone `repworth.net` (`59b9cc471e9aeb33b04bf01bed93dc92`), all records created
+via API with `proxied=false`, token scoped to Edit-zone-DNS only:
+
+| Record id | Type | Name | Content |
+|---|---|---|---|
+| `2b6926ec…` | TXT | `resend._domainkey.feedback.staging` | `p=MIGf…` (DKIM key) |
+| `53e52f28…` | MX | `bounce.feedback.staging` | `feedback-smtp.us-east-1.amazonses.com` (prio 10) |
+| `c6fcb880…` | TXT | `bounce.feedback.staging` | `v=spf1 include:amazonses.com ~all` |
+| `44462e9b…` | TXT | `_dmarc.feedback.staging` | §3 record below |
+
+Verified by `dig` against BOTH authoritative nameservers (`wally`/`zahir`
+`.ns.cloudflare.com`): all four answer correctly. Note: a first `dig` ~10 s
+after creation returned empty for three records — Cloudflare edge propagation
+lag, resolved within ~2 min; no occlusion (the `staging.repworth.net` CNAME →
+`cname.vercel-dns.com` creates no zone cut).
+
+### §3 — DMARC — PASS (03:29 UTC)
+
+```
+_dmarc.feedback.staging.repworth.net TXT
+"v=DMARC1; p=reject; adkim=s; aspf=r; rua=mailto:re+c4itw8rihpd@dmarc.postmarkapp.com; pct=100"
+```
+
+- `p=reject` day one, `adkim=s`, `aspf=r` (custom return path ⇒ relaxed SPF
+  alignment), staging-specific Postmark `rua` (D-1), Postmark suggested-record
+  trap avoided.
+- External-auth wildcard confirmed before record creation (D-1).
+
+### §1–§3 verification — Resend domain VERIFIED (03:32 UTC)
+
+- `POST /domains/{id}/verify` accepted; ~20 s later `GET /domains/{id}` →
+  `status: "verified"`, records DKIM/SPF/SPF all `verified`.
+- Tracking read-back: `open_tracking: false`, `click_tracking: false` — the §1
+  PATCH held. No `links.` record exists in the zone.
+- **Unproven path 1 CLOSED.**
+
+*(further entries appended in runbook order)*
