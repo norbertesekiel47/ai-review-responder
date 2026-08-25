@@ -52,17 +52,24 @@ complete; the Copilot arm is proven end-to-end.
    batch B's upload (#965 erases the row).
 2. **Batch B — everything else at once** (accepts erasing A3); runs only
    after the bounce stamp is recorded:
-   - Owner prep: mint one more Zoho alias on the staging domain (second
-     deliverable handle, e.g. `seed-b@feedback.staging.repworth.net`);
-     second Google account (display name also "Norbert Esekiel", never
-     reviewed this location) signed in and ready.
+   - Owner prep: second Google account (display name also
+     "Norbert Esekiel", never reviewed this location) signed in and
+     ready. NO second alias — owner decision: test design must not mint
+     infrastructure per specimen; candidacy is `sent`-based, so the
+     second ambiguous row does not need a real mailbox.
    - Flip `SOLICITATION_AUTO_APPROVAL_ENABLED=true` via the `flag-flip`
      skill FIRST (judge already on).
    - CSV B row ORDER is the choreography (drip = 2/tick): rows 1–2 the
-     TWO "Norbert Esekiel" contacts (`reviews@` alias + the new alias —
-     the ambiguous pair, both deliver on tick 1); row 3 the globally
-     suppressed Gmail handle (dispatch-gate withhold → the **B3.4**
-     cap-slot observation); row 4 deliverable filler; rows 5–6 halt
+     TWO "Norbert Esekiel" contacts — `reviews@` alias (delivers) +
+     `norbert-b@no-mx.staging.repworth.net` (fresh no-MX local part;
+     reaches `sent`, bounces hours later). **Race control: the ambiguous
+     review must be posted PROMPTLY after tick 1, and verify row 2's
+     `bounced_at` is still NULL immediately before posting — if the
+     bounce lands first, the matcher would wrongly ATTRIBUTE to row 1
+     and burn the specimen.** Row 3 the globally suppressed Gmail handle
+     (dispatch-gate withhold → the **B3.4** cap-slot observation);
+     row 4 deliverable filler (`reviews@` is taken — row 4 may reuse a
+     no-MX local part; it exists only to fill tick 2); rows 5–6 halt
      fodder (cancelled, never dispatched).
    - Prove the **auto lane**: `auto_policy` approval + veto notice +
      60-min veto window + release drip with judge available.

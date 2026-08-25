@@ -555,4 +555,21 @@ candidates. Therefore the remaining arms run in this order:
   coupling batch B to a second multi-hour SES bounce clock — the same
   evidence-integrity reasoning that sequenced the arms after #965.
 
+### Owner decision — no second alias for the ambiguous pair (19:2x UTC)
+
+- Owner declined minting a second Zoho alias, with an architectural
+  rationale worth keeping: a test design that needs one alias per
+  ambiguous specimen scales infrastructure with test cases — wrong
+  direction. Attribution candidacy is `sent`-based by design
+  (provider-accept, not delivery), so the second same-name contact uses
+  a fresh no-MX address instead (`norbert-b@no-mx.staging.repworth.net`).
+- Honest limitation recorded: the ambiguous specimen's second row is
+  undeliverable by design. The match test is unaffected (the matcher
+  reads contact names and row timestamps, never the inbox), but the row
+  will hard-bounce hours post-send. **Race control** (in the batch-B
+  choreography): post the ambiguous review promptly after tick 1 and
+  re-verify row 2's `bounced_at IS NULL` immediately before posting —
+  a landed bounce would exclude row 2 and wrongly ATTRIBUTE to row 1,
+  burning the specimen.
+
 *(further entries appended in runbook order)*
