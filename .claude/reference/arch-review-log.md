@@ -6,9 +6,18 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0** — reset by the **2026-08-24 pass**
-(entry below). Full artifacts: `docs/reviews/PATHFINDER-2026-08-24/`.
+**Merges since last architecture pass: 1** — counting **#632**, whose line is
+below. Reset to 0 by the **2026-08-24 pass**; full artifacts:
+`docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
+
+> **Incremented in #632's own PR, before merge, deliberately.** This log records
+> four consecutive passes that found this counter wrong, always the same way —
+> the increment was left for after the merge and then nobody did it. Bumping it
+> in the merging PR is the only version that cannot be forgotten, and
+> `ci:merge-ledger` gates the accompanying line. If #632 does not merge, this
+> number is wrong by one in the safe direction; a pass measures its own window
+> anyway.
 
 ### Merges since the 2026-08-24 pass
 
