@@ -103,10 +103,15 @@ function candidate(name: string, id = 'o1'): AttributionCandidate {
 describe('matchAttribution', () => {
   it('matchAttribution: exact normalized full-name equality attributes', () => {
     const result = matchAttribution('Dana Rodriguez', [candidate('dana rodriguez')]);
+    // `candidateCount` is on the attributed arm too (branch-review M3). Kept as
+    // an exact `toEqual` rather than loosened to `toMatchObject`: this is the one
+    // case that pins the WHOLE returned shape, so a field appearing or vanishing
+    // should break it.
     expect(result).toEqual({
       resolution: 'attributed',
       candidate: candidate('dana rodriguez'),
       rule: 'full_name',
+      candidateCount: 1,
     });
   });
 
@@ -232,9 +237,15 @@ describe('architecture', () => {
     }
     expect(specifiers.filter((s) => s !== undefined && /(^|\/)db\/server$/.test(s))).toEqual([]);
 
-    // The two exported DB-touching entry points both take the executor first.
+    // EVERY DB-touching entry point takes its executor first — all THREE, not
+    // two (branch-review C4). The earlier version checked `attributeReview` and
+    // the private `loadCandidates` and omitted the exported
+    // `listAttributedReviews`, so dropping that read model's parameter and
+    // reaching for a client indirectly would have left this test green while
+    // breaking invariant #15 and this test's own title.
     expect(source).toContain('export async function attributeReview(\n  tx: TransactionSql,');
     expect(source).toContain('async function loadCandidates(\n  tx: TransactionSql,');
+    expect(source).toContain('export async function listAttributedReviews(\n  sql: Sql,');
 
     // …and nothing in the module reaches for a module-scope client instead.
     expect(source).not.toMatch(/^\s*(?:const|let)\s+sql\s*=/m);

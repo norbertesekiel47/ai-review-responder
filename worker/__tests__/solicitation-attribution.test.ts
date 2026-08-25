@@ -173,9 +173,14 @@ describe('SolicitationAttributionWorker', () => {
     // whole logged corpus is re-scanned after each one.
     const resolutions = [
       {
+        // candidateCount 4, deliberately NOT 1 (branch-review M3). The attributed
+        // arm used to report a hardcoded 1, so a fixture using 1 could not tell
+        // the constant from the real value. Four asks were in the window and one
+        // matched; the log must say four.
         match: {
           resolution: 'attributed',
           rule: 'full_name',
+          candidateCount: 4,
           candidate: {
             outreachId: 'outreach-1',
             contactName: REVIEWER_NAME,
@@ -183,7 +188,7 @@ describe('SolicitationAttributionWorker', () => {
             agentRunId: 'run-1',
           },
         },
-        expected: { resolution: 'attributed', candidateCount: 1, rule: 'full_name' },
+        expected: { resolution: 'attributed', candidateCount: 4, rule: 'full_name' },
       },
       {
         match: { resolution: 'no_candidates' },

@@ -85,8 +85,21 @@ function withCount<T extends unknown[]>(arr: T, count: number): T & { count: num
 describe('processReview', () => {
   let tx: ReturnType<typeof vi.fn>;
 
+  // No global `unstubEnvs` is configured, so the stub below is undone by hand.
+  // Leaving it set would leak the flag into any later suite this worker runs.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // The attribution enqueue is TypeScript-gated on this flag (branch-review
+    // H1): its SQL names migration 114's column and index, and a predicate
+    // protects rows but not the PARSE, so a database without 114 would abort the
+    // whole review-ingest transaction. Every case below that counts transaction
+    // calls assumes the enqueue runs, so the flag is on for the file. The cases
+    // that must NOT enqueue prove it by their lane, not by the flag.
+    vi.stubEnv('SOLICITATION_SEND_ENABLED', 'true');
     // Drain the payloads array between tests
     capturedJsonbPayloads.splice(0);
 

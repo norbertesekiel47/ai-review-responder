@@ -2560,6 +2560,21 @@ Revisit triggers:
   Apply staging first, then production, both Supabase projects in lockstep, per
   usual.
 
+  **ORDERING IS LOAD-BEARING — 114 MUST reach a database BEFORE any deploy
+  carrying #632's code does.** This is the 105 class, and it is worse: without
+  114, `enqueueSolicitationAttribution`'s statement names
+  `solicitation_outreach.attributed_at` and an `ON CONFLICT` on this migration's
+  partial index, which raise `42703` and `42P10` **at plan time**. That aborts
+  the transaction it runs in — and that transaction is the **review INSERT**. New
+  reviews would stop ingesting for **every** account, including the ones that
+  have never touched solicitation.
+  `SOLICITATION_SEND_ENABLED` does **not** save you on its own: the helper's
+  guard is a SQL predicate, and a predicate protects ROWS, not the PARSE.
+  Since the branch review, `process-review.ts` also gates the call in TypeScript
+  on that flag, so the statement is unreachable while the lane is dark — that is
+  a second line of defence, **not** a licence to deploy ahead of the migration
+  once the flag is on.
+
 - **113** — `solicitation_auto_approval_lane`: two dedup indexes for the new
   `solicitation_veto_notice` topic/template (#631 Auto-approval lane). 074 §4
   shape (`pending_post_notice` precedent) — index-only, no columns, no CHECKs

@@ -195,11 +195,17 @@ const DAY_FORMAT = new Intl.DateTimeFormat(undefined, {
 });
 
 /**
- * `askSentAt` arrives as Postgres `::text` ("2026-07-22 12:00:00+00") and
- * `reviewDate` as a plain `YYYY-MM-DD` date — both are selected as text end to
- * end so postgres.js cannot truncate them into a JS Date (#520). A value that
- * does not parse is rendered raw rather than as "Invalid Date"; a null review
- * date is a real state (`reviews.review_date` is nullable) and says so.
+ * Both `askSentAt` and `reviewDate` arrive as Postgres `::text`
+ * ("2026-07-22 12:00:00+00"), selected as text end to end so postgres.js cannot
+ * truncate them through a JS Date (#520).
+ *
+ * The bare `YYYY-MM-DD` branch below is DEFENSIVE, not a live case
+ * (branch-review L7 — an earlier version of this comment claimed `reviewDate`
+ * arrives that way). `reviews.review_date` is `TIMESTAMPTZ`, and the read model
+ * selects it `::text`, so the timestamp branch is the one that runs.
+ *
+ * A value that does not parse is rendered raw rather than as "Invalid Date"; a
+ * null review date is a real state (the column is nullable) and says so.
  */
 function formatDay(value: string | null): string {
   if (value === null) return 'date not recorded';

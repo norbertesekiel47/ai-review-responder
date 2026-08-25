@@ -62,9 +62,13 @@ async function loadAttributionSubscriptionContext(
  * reached for with `??`: `candidateCount` and `rule` each live on only some arms
  * of the union, and TypeScript is right to refuse the shorter spelling.
  *
- * The `attributed` arm reports 1 because that arm carries no candidate-set size
- * — the full count is durable in `solicitation_outreach.attribution_detail`
- * (`candidate_count`), which is where a precision analysis reads it from.
+ * EVERY arm reports the size it actually saw. The `attributed` arm used to
+ * report the literal 1 (branch-review M3), which biased the one distribution the
+ * future precision bar reads, on the arm that matters: a review arriving into a
+ * window holding six asks and matching exactly one logged a candidate set of
+ * size 1. The count is also durable in
+ * `solicitation_outreach.attribution_detail` (`candidate_count`) — but only for
+ * `attributed`, which is the arm that needed it least.
  */
 function describeResolution(match: AttributionMatch): {
   candidateCount: number;
@@ -72,7 +76,7 @@ function describeResolution(match: AttributionMatch): {
 } {
   switch (match.resolution) {
     case 'attributed':
-      return { candidateCount: 1, rule: match.rule };
+      return { candidateCount: match.candidateCount, rule: match.rule };
     case 'no_candidates':
       return { candidateCount: 0, rule: null };
     case 'no_match':

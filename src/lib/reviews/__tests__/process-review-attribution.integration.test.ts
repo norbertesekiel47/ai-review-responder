@@ -14,7 +14,7 @@
 // temporary constraint.
 
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
@@ -279,6 +279,13 @@ describeWithDb(
   { enabled: Boolean(testDatabaseUrl), timeout: 180_000 },
   () => {
     beforeAll(async () => {
+      // The enqueue is TypeScript-gated on this flag (branch-review H1): its SQL
+      // names migration 114's column and index, and a SQL predicate protects
+      // ROWS but not the PARSE, so a database without 114 would abort the whole
+      // review-ingest transaction. This suite asserts the enqueue HAPPENS, so it
+      // turns the lane on. The `importReview` case still proves its own point —
+      // what excludes it is the backfill LANE, not the flag.
+      vi.stubEnv('SOLICITATION_SEND_ENABLED', 'true');
       const databaseUrl = assertLocalTestDatabaseUrl(testDatabaseUrl);
       featureDatabaseLock = await acquireLiveDbLock(databaseUrl);
       db = postgres(databaseUrl, {
@@ -313,6 +320,10 @@ describeWithDb(
         } finally {
           await featureDatabaseLock?.release();
           featureDatabaseLock = undefined;
+          // No global `unstubEnvs` is configured, so the flag stub is undone by
+          // hand. Leaving it set would leak the send lane into any later suite
+          // this worker runs.
+          vi.unstubAllEnvs();
         }
       }
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);

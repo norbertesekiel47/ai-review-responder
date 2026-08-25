@@ -19,6 +19,8 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { recordOutcome } from '@/lib/agents/run-spine';
 import { reviewTimeAnchor } from '@/lib/kpi/fragments';
+import { REVIEW_STATUS } from '@/lib/reviews/status';
+import { acquireSolicitationBatchLock } from './batch-builder';
 
 /** The Attribution window (May §6.4, spec D16b). The ONE owner of this number. */
 export const ATTRIBUTION_WINDOW_DAYS = 14;
@@ -43,7 +45,16 @@ export interface AttributionCandidate {
 }
 
 export type AttributionMatch =
-  | { resolution: 'attributed'; candidate: AttributionCandidate; rule: AttributionRule }
+  // `candidateCount` is on EVERY arm, including this one (branch-review M3). It
+  // was once hardcoded to 1 at the log site, which biased the one distribution
+  // the future precision bar reads: a review that arrived into a window holding
+  // six asks and matched exactly one reported a candidate set of size 1.
+  | {
+      resolution: 'attributed';
+      candidate: AttributionCandidate;
+      rule: AttributionRule;
+      candidateCount: number;
+    }
   | { resolution: 'no_candidates' }
   | { resolution: 'no_match'; candidateCount: number }
   | { resolution: 'ambiguous'; candidateCount: number };
@@ -126,7 +137,12 @@ export function matchAttribution(
 
   if (hits.length === 0) return { resolution: 'no_match', candidateCount };
   if (hits.length > 1) return { resolution: 'ambiguous', candidateCount };
-  return { resolution: 'attributed', candidate: hits[0]!.candidate, rule: hits[0]!.rule };
+  return {
+    resolution: 'attributed',
+    candidate: hits[0]!.candidate,
+    rule: hits[0]!.rule,
+    candidateCount,
+  };
 }
 
 interface CandidateRow {
@@ -231,6 +247,19 @@ export async function attributeReview(
   // `accountId` is not in scope at the enqueue site in process-review.ts, and
   // resolving it from the FK removes any way a wrong account id could ride a
   // job. Same shape startReviewRun and maybeEnqueueFirstReviewIngested use.
+  // ADVISORY LOCK BEFORE ANY ROW LOCK. purge-stages.ts:270 states the global
+  // contract: "advisory first, then row locks … Reversing either side is an ABBA
+  // deadlock." Account purge takes this same key per business, then deletes
+  // contact_csv_uploads (cascading into solicitation_outreach) and only THEN
+  // deletes reviews — outreach before reviews, in ONE transaction. This function
+  // locks reviews and then updates outreach, the exact inverse, so without the
+  // advisory lock the two cycle and Postgres aborts one of them; aborting the
+  // purge is the bad half. Taking only the batch key cannot invert with itself,
+  // and this function never touches the csv-ingest key that purge takes first.
+  // (Branch-review C1 — the cycle did not exist until the reviews lock was added
+  // to satisfy the run-spine contract, so it is a hazard that fix introduced.)
+  await acquireSolicitationBatchLock(tx, input.businessId);
+
   const [biz] = await tx<{ account_id: string }[]>`
     SELECT account_id FROM businesses WHERE id = ${input.businessId}::uuid
   `;
@@ -293,6 +322,17 @@ export async function attributeReview(
        -- a NULL review id and overwrite permanent provenance. All FOUR sites —
        -- candidate query, enqueue guard, index predicate, this CAS — must agree.
        AND attributed_at IS NULL
+       -- RE-ASSERT ELIGIBILITY, do not trust the unlocked candidate read
+       -- (branch-review C2). loadCandidates runs without a row lock, so a Resend
+       -- bounce or complaint can stamp this row between that read and this
+       -- UPDATE. Without these three predicates the CAS still succeeds and emits
+       -- review_attributed against a row the candidate rules explicitly exclude
+       -- — a false attribution, which is the expensive direction of error for a
+       -- precision-first metric. These must stay byte-identical to the candidate
+       -- query's arms above.
+       AND delivery_status = 'sent'
+       AND bounced_at    IS NULL
+       AND complained_at IS NULL
     RETURNING id
   `;
   // Zero rows means a concurrent run already attributed it — a replay, not a
@@ -388,6 +428,15 @@ export async function listAttributedReviews(
        -- not accept a join key as scope evidence.
        AND r.business_id = ${input.businessId}::uuid
        AND o.attributed_review_id IS NOT NULL
+       -- A review DELETED AT SOURCE must leave this list at once (branch-review
+       -- M2). The docstring above reasons about the HARD delete, where the FK
+       -- nulls the id and the inner join drops the row on its own. The soft
+       -- delete is the one that actually happens: ZernioRecentReviewPoller sets
+       -- reviews.status = 'deleted' and every other owner surface stops showing
+       -- it, while this list would keep rendering the reviewer's name for up to
+       -- the full display window. Presentation only — the outreach row keeps its
+       -- provenance either way.
+       AND r.status <> ${REVIEW_STATUS.DELETED}
        AND o.attributed_at > NOW() - make_interval(days => ${ATTRIBUTION_DISPLAY_WINDOW_DAYS})
      ORDER BY o.attributed_at DESC
   `;
