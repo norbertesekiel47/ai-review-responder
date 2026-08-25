@@ -76,3 +76,13 @@ export const STATEMENT_FOOTNOTE =
 
 /** Framing above the two cards. */
 export const TIER_LABEL = 'Oversight layer';
+
+/**
+ * The door to /how-it-works (owner decision, 2026-08-24): the landing page
+ * does NOT retell the pipeline — the How It Works page already tells it in
+ * depth, step by step. This link stands where a pipeline section would have
+ * gone: at the end of the supervision story, where "so how does a review
+ * actually move through all of this?" is the question the reader is holding.
+ * The href comes from MARKETING_LINKS.howItWorks (single owner of that fact).
+ */
+export const PIPELINE_LINK_LABEL = 'See how a review moves through the fleet, step by step';

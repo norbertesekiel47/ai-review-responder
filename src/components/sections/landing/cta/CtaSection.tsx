@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Fragment, useState, useSyncExternalStore } from 'react';
+import { m, useScroll, useTransform } from 'motion/react';
+import { Fragment, useRef, useState, useSyncExternalStore } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { AmbientVideo } from '../ambient-motion';
@@ -83,12 +84,35 @@ function CtaBackdrop() {
   const isNarrow = useMediaQuery(NARROW_QUERY);
   const [videoReady, setVideoReady] = useState(false);
 
+  /**
+   * Bookend cinema, the night half (owner override of the Linear pass,
+   * 2026-08-24): the hero's film pushes IN to 1.045 as it leaves; this one
+   * arrives at 1.045 and settles to exactly 1 as the band fills the viewport
+   * — the page closes into stillness. Reader-driven (outside the ambient
+   * pause control's remit), skipped under reduced motion, and at full cover
+   * the scale is 1: the state the scrim contrast was measured in. The
+   * transform never sits on an ancestor of the future section's glow.
+   */
+  const mediaRef = useRef<HTMLDivElement | null>(null);
+  const { scrollYProgress } = useScroll({
+    target: mediaRef,
+    offset: ['start end', 'start start'],
+  });
+  const settleScale = useTransform(scrollYProgress, [0, 1], [1.045, 1]);
+
   const videoSrc =
     !hasMounted || prefersReducedMotion ? null : isNarrow ? CTA_VIDEO_NARROW : CTA_VIDEO_WIDE;
 
   return (
-    <div className="rw-lp-cta-media" aria-hidden="true">
-      <Image src={CTA_POSTER} alt="" fill sizes="100vw" className="rw-lp-cta-poster" />
+    // Scale on the inner zoom layer, not this wrapper — a transformed box
+    // grows the page's scrollable overflow even when clipped (see the hero's
+    // twin comment). The wrapper stays untransformed and clips the zoom.
+    <div ref={mediaRef} className="rw-lp-cta-media" aria-hidden="true">
+      <m.div
+        className="rw-lp-cta-zoom"
+        style={prefersReducedMotion ? undefined : { scale: settleScale }}
+      >
+        <Image src={CTA_POSTER} alt="" fill sizes="100vw" className="rw-lp-cta-poster" />
       {videoSrc ? (
         <AmbientVideo
           className="rw-lp-cta-video"
@@ -103,6 +127,7 @@ function CtaBackdrop() {
           onCanPlay={() => setVideoReady(true)}
         />
       ) : null}
+      </m.div>
     </div>
   );
 }

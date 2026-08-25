@@ -13,6 +13,15 @@ The page's design system — palette, type, components, copy contracts — is
 held by one missing asset — see §5. Gate at that point: typecheck ✓, lint ✓, 10,668
 tests, build exit 0.
 
+**2026-08-24 — the elevation pass (owner-directed).** Sections 6 (problem) and 8
+(Copilot vs Autopilot, the dial-track) were built; section 7 is deliberately NOT a
+section — the watchdogs section ends with a gold door to `/how-it-works` instead of
+the page retelling the pipeline. Three motions were added back under an explicit owner
+override of part of the Linear pass: the bookends' scroll-linked push-in/settle, the
+hero's five-beat arrival, and the tiers thumb's breathing. New §2 entries below carry
+the measurements ("Bookend cinema", "The zoom layer", "Hero entrance"); the focus test
+now asserts **14** rings.
+
 **2026-08-16 — the Linear pass (findings 2, 4, 7, 8 of the RepWorth-vs-Linear teardown).**
 Four things changed, and several measurements in §2 changed with them: (a) the primary
 action is one gold-filled pill in the nav, the hero and the closing band; (b) the page
@@ -39,9 +48,9 @@ Sections sit directly in the landmark; there is no wrapper component.
 | 3 | The agents that act | `personas/PersonasSection.tsx` | built |
 | 4 | The agents that watch | `watchdogs/WatchdogsSection.tsx` | built |
 | 5 | Where this is going | `future/FutureSection.tsx` | built |
-| 6 | The problem | — | **not built** |
-| 7 | The pipeline (7 steps) | — | **not built** |
-| 8 | Copilot vs Autopilot | — | **not built** |
+| 6 | The problem | `problem/ProblemSection.tsx` | built (2026-08-24) |
+| 7 | The pipeline (7 steps) | — | **deliberately not a section** — the watchdogs section links to `/how-it-works` instead (owner decision, 2026-08-24) |
+| 8 | Copilot vs Autopilot | `tiers/TiersSection.tsx` | built (2026-08-24, the dial-track) |
 | 9 | Closing CTA | `cta/CtaSection.tsx` | built |
 | — | Footer | `footer/LandingFooter.tsx` | built |
 
@@ -65,6 +74,8 @@ src/components/sections/landing/
   fleet/      {FleetSection.tsx, fleet.css, fleet-copy.ts,
                VideoLightbox.tsx, video-lightbox.css}
   personas/   {PersonasSection.tsx, personas.css, personas-copy.ts}
+  problem/    {ProblemSection.tsx, problem.css, problem-copy.ts}
+  tiers/      {TiersSection.tsx, tiers.css, tiers-copy.ts}
   watchdogs/  {WatchdogsSection.tsx, watchdogs.css, watchdogs-copy.ts}
   future/     {FutureSection.tsx, future.css, future-copy.ts}
   cta/        {CtaSection.tsx, cta.css, cta-copy.ts}
@@ -72,7 +83,7 @@ src/components/sections/landing/
 src/hooks/useMediaQuery.ts
 src/app/(public)/page.tsx      passes primaryCtaHref/Label + selfServeEnabled
 src/app/layout.tsx             Plus Jakarta weights 200/300
-src/__tests__/focus-visible-marketing.test.ts   13 asserted focus rings
+src/__tests__/focus-visible-marketing.test.ts   14 asserted focus rings
 
 (`scroll/` — SectionTransition, ChapterRail, SmoothScroll, section-map,
 scroll-experience.css — was deleted 2026-08-16. See §2, "Scroll".)
@@ -205,6 +216,40 @@ stagger per index capped at 6, skipped under reduced motion. It was a 700ms `blu
 + 22px drift; both were dropped for the same reason as the dissolve, and "opacity only" is
 also what keeps the future glow safe (above).
 
+**Bookend cinema — the accent still clears its floor under the push-in.** The hero's
+film scales `1 → 1.045` as the section scrolls out. The gold headline accent is the
+tight figure (3.38:1 at rest against a 3.0 floor), so the moving state was measured
+with §4's honest method, not assumed: at scroll 250 (scale 1.0139 — near the largest
+push-in at which the accent line is still fully readable; it has left the viewport
+entirely by scale ~1.018), text hidden, six seeks awaited, brightest pixel in the
+glyph band per frame → **≈3.35:1 worst case**. The push-in also carries the glyphs UP
+into the darker top scrim band, so the margin grows during scroll rather than
+shrinking. At rest the scale is exactly 1 — the state every scrim figure was measured
+in. Re-run this if the scale ceiling, the scrim stops, or the copy position change.
+
+**The zoom layer — a transformed box grows the page's scrollable overflow even when a
+parent clips its pixels.** The first cut put the bookends' scale on `.rw-lp-*-media`
+(absolute, inset 0, `overflow: hidden`) and the whole page grew a horizontal scrollbar:
+`overflow: hidden` clips a CHILD's rendering, but the wrapper's own transformed box
+still extends the scrollable area. The scale therefore lives on an internal
+`.rw-lp-hero-zoom` / `.rw-lp-cta-zoom` layer, and the untransformed wrapper both clips
+it and serves as `useScroll`'s stable measurement target (a scaling target would feed
+its own animation).
+
+**Hero entrance — reduced motion is `initial: false`, not a branch by element type.**
+The five-beat arrival keeps the same `m.*` elements in both branches and disables the
+animation via props, so anything that ever observes those nodes can never capture a
+stale one — the `SectionTransition`/`ChapterRail` trap recorded below. The beats are
+finite and motion/react-driven, so the CSS pause rule (keyframes only) cannot strand
+them mid-flight; the y-drift sits on the hero's own children, never on an ancestor of
+the future glow.
+
+**Three infinite CSS animations exist — the fleet's pulse and flow, and the tiers
+thumb's breathing; re-count before editing the pause-rule comment.** The tiers thumb's
+breathing joined 2026-08-24; the universal `animation-play-state` rule covered it with
+zero changes, which is the rule working as designed. It also carries its own
+`prefers-reduced-motion` disable.
+
 **Personas — the gold wash (`0.055` at 12% 0%) is measured like the watchdogs' teal one.**
 Its peak lifts the ground to rgb(31,41,34); the 0.55 column-note measures 5.10:1 there
 (5.40 on flat ink) and the gold eyebrow 8.79:1. Re-measure both before raising the alpha.
@@ -325,7 +370,7 @@ on a paused video without waiting repaints nothing — 24 "different" frames cam
 identical), screenshot the **tight glyph band** from `Range.getClientRects()` rather than the
 block box, and take the brightest pixel. That is what found the hero accent at 2.89:1.
 
-`focus-visible-marketing.test.ts` asserts a ring on **13** landing controls. Adding an
+`focus-visible-marketing.test.ts` asserts a ring on **14** landing controls. Adding an
 interactive element means adding it there. Landing rings use `--rw-lp-accent`; the Island's
 `--rw-teal-strong` is near-invisible on this ink.
 

@@ -6,24 +6,31 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — counting **#632**, whose line is
-below. Reset to 0 by the **2026-08-24 pass**; full artifacts:
+**Merges since last architecture pass: 2** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by each merge line here. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
-> **Incremented in #632's own PR, before merge, deliberately.** This log records
-> four consecutive passes that found this counter wrong, always the same way —
-> the increment was left for after the merge and then nobody did it. Bumping it
-> in the merging PR is the only version that cannot be forgotten, and
-> `ci:merge-ledger` gates the accompanying line. If #632 does not merge, this
-> number is wrong by one in the safe direction; a pass measures its own window
-> anyway.
+> **#953 and #632 each incremented this in their own PR, and they COLLIDED —
+> which is the mechanism working, not failing.** Both read 0 and wrote 1, so the
+> merge conflicted here and the arithmetic had to be done by eye: **2**. Compare
+> the failure it replaces — four consecutive passes found this counter wrong,
+> every time because the increment was left for after the merge and then nobody
+> did it. A conflict that forces the sum to be seen is strictly better than a
+> silent miss. Expect one per concurrent PR pair, and resolve it by counting the
+> lines below, which is the only source that cannot drift.
 
-### Merges since the 2026-08-24 pass
+Merges since the 2026-08-24 pass:
 
-One line per merge, written by the merging PR. The **count above** is bumped at
-merge by `/feature` step 8, not here — `ci:merge-ledger` audits the line, never
-the number.
+- 2026-08-24 — `feat-landing-elevation` (#953): landing-page elevation. Sections
+  6 (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
+  dial-track) built; section 7 deliberately NOT a section — the watchdogs
+  section ends with a gold door to `/how-it-works` instead of retelling the
+  pipeline. Hero five-beat arrival, bookend push-in/settle on internal zoom
+  layers (owner override of part of the 2026-08-16 Linear pass; accent contrast
+  re-measured at ~3.35:1 worst case), tiers thumb breathe. 15 production files,
+  all `src/components/sections/landing/**` + 2 test files; landing
+  DESIGN.md/measurements.md updated (14 focus rings, three infinite animations).
 
 - **#632** — `review_attributed` shadow attribution. Migration 114 adds four
   evidence columns to `solicitation_outreach`; a pure two-rule name matcher

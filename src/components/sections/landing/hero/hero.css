@@ -403,3 +403,12 @@
     transition: none;
   }
 }
+
+/* The bookend-cinema zoom layer (2026-08-24). Carries the scroll-linked scale
+   so the media wrapper above it stays untransformed: a transformed box grows
+   the page's scrollable overflow even when its pixels are clipped, and the
+   wrapper's `overflow: hidden` can only clip a CHILD's transform. */
+.rw-lp-hero-zoom {
+  position: absolute;
+  inset: 0;
+}
