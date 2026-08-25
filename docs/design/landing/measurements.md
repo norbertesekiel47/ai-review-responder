@@ -279,8 +279,12 @@ bar carries them beside the copyright; the links reuse `.rw-lp-foot-link` so the
 focus ring covers them, and `.rw-lp-foot-legal-link` only sets the smaller size plus the same
 6px target-size padding trick the column links use.
 
-**Three flip selectors, all required:** `:hover` (pointer), `[data-flipped='true']` (touch),
-`:focus-visible` (keyboard).
+**Three flip selectors, all required:** `:hover` (hover-capable fine pointers only —
+media-gated 2026-08-24, because sticky tap-hover held a card flipped after the tap that
+set `data-flipped` back to false, so a second tap could never restore the front),
+`[data-flipped='true']` (touch — the click toggle is gated to non-hover devices for the
+mirror reason: on a pointer device a click latched the card flipped after the pointer
+left), `:focus-visible` (keyboard).
 
 **The nav row at 320px has ~70px of slack** since the motion toggle left it (2026-08-16).
 It USED to have zero: lockup (185px) + gap + toggle (44px) + gap + hamburger (40px) landed

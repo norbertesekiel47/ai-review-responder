@@ -6,21 +6,33 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by each merge line here. Full artifacts:
+**Merges since last architecture pass: 3** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
-> **#953 and #632 each incremented this in their own PR, and they COLLIDED —
-> which is the mechanism working, not failing.** Both read 0 and wrote 1, so the
-> merge conflicted here and the arithmetic had to be done by eye: **2**. Compare
-> the failure it replaces — four consecutive passes found this counter wrong,
-> every time because the increment was left for after the merge and then nobody
-> did it. A conflict that forces the sum to be seen is strictly better than a
-> silent miss. Expect one per concurrent PR pair, and resolve it by counting the
-> lines below, which is the only source that cannot drift.
+> **THREE concurrent PRs each incremented this in their own PR, and each
+> COLLIDED — which is the mechanism working, not failing.** #953, #955 and #632
+> all read the then-current value and wrote value+1, so the merges conflicted
+> here and the arithmetic had to be done by eye each time: 1 → 2 → **3**.
+> Compare the failure it replaces — four consecutive passes found this counter
+> wrong, every time because the increment was left for after the merge and then
+> nobody did it. **A conflict that forces the sum to be seen is strictly better
+> than a silent miss**, and the cost is one small text merge per concurrent pair.
+> Resolve it by COUNTING THE LINES BELOW, never by trusting either side's number
+> — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-24 — `fix-flip-card-touch-latch` (#955): landing flip-card input fix.
+  The agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
+  fine)` — sticky tap-hover latched a flipped card on every touch device: the
+  tap that set `data-flipped` back to false left `:hover` holding the card
+  flipped, so a second tap could never restore the front. The click toggle is
+  gated to non-hover devices for the mirror reason (a desktop click latched
+  the card flipped after the pointer left). 2 production files
+  (`agent-flip-card.{css,tsx}`); flip-selector contract lines updated in
+  landing DESIGN.md + measurements.md.
 
 - 2026-08-24 — `feat-landing-elevation` (#953): landing-page elevation. Sections
   6 (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
