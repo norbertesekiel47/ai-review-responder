@@ -490,4 +490,35 @@ candidates. Therefore the remaining arms run in this order:
   event types — dev leftover, hygiene flag for the owner; not touched by
   this campaign.
 
+### Attribution arm — clean `attributed` match PROVEN (18:53–18:59 UTC)
+
+- Owner posted a real Google review on the Tanicia Resort location:
+  "Great Atmosphere", 5★, reviewer name "Norbert Esekiel",
+  `review_date` 18:53:24. Zernio detected it at 18:59:20 (~6 min
+  post-to-ingest). Review row `01a03a4a-92fe-73c0-af02-7fae36419282`,
+  `status=new` (reply lane proceeds independently of this campaign).
+- **All 4 evidence columns** written on the matching outreach row
+  `01a039e2-09b4…` (the "Norbert Esekiel" contact):
+  `attributed_review_id` = the review id, `attributed_at` 18:59:24.973,
+  `attribution_rule='full_name'`, `attribution_detail` =
+  `{rule: full_name, sent_at, star_rating: 5, candidate_count: 4,
+  matcher_version: attribution_v1}` — no personal data in the detail,
+  as specified. Exactly ONE row attributed; the other three rows
+  untouched (verified by full-table read — only 4 outreach rows exist).
+- **`review_attributed` outcome on the Lazy child**: outcome
+  `01a03a4a-a3f9…`, `outcome_kind='review_attributed'`,
+  `attributed_agent='solicitation'`, `unit_count=1`, on run kind
+  `solicitation_ask` (subject `01a039e1-ee52…`), `occurred_at` identical
+  to `attributed_at` — same transaction, as designed.
+- `attribution_resolved` logged 18:59:25.398 (Railway's MCP log view
+  renders only the `msg` field; the resolution facts are durable in
+  `attribution_detail`, which is the authoritative record anyway).
+- **Unsubscribed-stays-eligible OBSERVED (the locked rule)**:
+  `candidate_count=4` includes both globally-suppressed handles (17:43
+  and 17:50 ledger rows), and the ATTRIBUTED contact's own handle is the
+  suppressed Gmail one — suppression did not exclude it from candidacy,
+  exactly as specified. The bounced/complained-exclusion half of path 11
+  still waits on the bounce stamp (SES `delivery_delayed`).
+- **Unproven path 8 CLOSED.** Path 11 half-closed (eligibility half).
+
 *(further entries appended in runbook order)*
