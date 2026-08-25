@@ -538,5 +538,21 @@ candidates. Therefore the remaining arms run in this order:
 - `ambiguous` (path 9) re-planned on owner constraint: no Google account
   rename is possible; the arm will use the name "Norbert Esekiel" —
   mechanics recorded when the second-account detail is confirmed.
+- **Second-account detail confirmed (owner)**: a second Google account with
+  the SAME display name "Norbert Esekiel" exists and has never reviewed
+  this location. The ambiguous arm therefore rides batch B: CSV B seeds
+  TWO "Norbert Esekiel" contacts (both deliverable), and the second
+  account posts the review after the drip → two matching rows →
+  `ambiguous` logged, nothing attributed. Full batch-B choreography:
+  handoff doc, "Remaining arms" step 2.
+- **Bounced-exclusion disposition (recommended, owner veto open until
+  batch B)**: prove the STAMP live on A3 (webhook `email.bounced` →
+  `bounced_at`/`bounce_kind` — watcher running), and close the
+  candidate-query EXCLUSION half as test-covered
+  (`src/lib/solicitation/attribution.ts:231-232` — `bounced_at IS NULL
+  AND complained_at IS NULL`;
+  `attribution.integration.test.ts:609` exercises it), rather than
+  coupling batch B to a second multi-hour SES bounce clock — the same
+  evidence-integrity reasoning that sequenced the arms after #965.
 
 *(further entries appended in runbook order)*

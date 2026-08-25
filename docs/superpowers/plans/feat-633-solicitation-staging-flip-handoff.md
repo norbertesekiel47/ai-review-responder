@@ -42,22 +42,43 @@ complete; the Copilot arm is proven end-to-end.
 
 #965 forces the ordering: any new CSV upload erases A3's outreach rows.
 
-1. **Attribution (must be first — needs A3's surviving `sent` rows).**
-   Owner leaves a real Google review on the Tanicia Resort location under a
-   name matching a seeded contact. Then verify: 4 evidence columns on the
-   outreach row + one `review_attributed` outcome on the Lazy child. Also
-   exercise `ambiguous` — A3 already holds TWO `sent` contacts named
-   "Alex Rivera", so only the REVIEW side needs a decision (second Google
-   identity or seeding) — plus `no_candidates` (a live-detected review whose
-   anchor precedes every `sent_at`), and the bounced/complained exclusion
-   (bounce-arm sits in `delivery_delayed` at SES; `bounced_at` arrives when
-   it gives up). Note the locked rule: **unsubscribed stays eligible** — the
-   two suppressed handles above are the specimen.
-2. **Batch B — everything else at once** (accepts erasing A3):
-   the **auto-approval lane** (flip `SOLICITATION_AUTO_APPROVAL_ENABLED=true`
-   via the `flag-flip` skill FIRST — judge is already on, which is why the
-   Judge flip preceded it), the **mid-flight halt** arm, and the **#966
-   one-click proof** (POST the new mail's header URL; expect a ledger row).
+1. **Attribution — DONE except the bounce stamp.** Clean `attributed`
+   PROVEN (owner review "Great Atmosphere" → 4 evidence columns +
+   `review_attributed` outcome, rule `full_name`). Unsubscribed-stays-
+   eligible OBSERVED (candidate_count 4 incl. both suppressed handles).
+   `no_candidates` closed as a DOCUMENTED GAP (owner call). Still pending:
+   the SES hard bounce onto A3's bounce-arm row (`delivery_delayed`;
+   watcher polls `bounced_at`) — it MUST be observed and recorded BEFORE
+   batch B's upload (#965 erases the row).
+2. **Batch B — everything else at once** (accepts erasing A3); runs only
+   after the bounce stamp is recorded:
+   - Owner prep: mint one more Zoho alias on the staging domain (second
+     deliverable handle, e.g. `seed-b@feedback.staging.repworth.net`);
+     second Google account (display name also "Norbert Esekiel", never
+     reviewed this location) signed in and ready.
+   - Flip `SOLICITATION_AUTO_APPROVAL_ENABLED=true` via the `flag-flip`
+     skill FIRST (judge already on).
+   - CSV B row ORDER is the choreography (drip = 2/tick): rows 1–2 the
+     TWO "Norbert Esekiel" contacts (`reviews@` alias + the new alias —
+     the ambiguous pair, both deliver on tick 1); row 3 the globally
+     suppressed Gmail handle (dispatch-gate withhold → the **B3.4**
+     cap-slot observation); row 4 deliverable filler; rows 5–6 halt
+     fodder (cancelled, never dispatched).
+   - Prove the **auto lane**: `auto_policy` approval + veto notice +
+     60-min veto window + release drip with judge available.
+   - **Mid-flight halt**: owner clicks "Stop this batch" after tick 2 —
+     rows 5–6 cancel, sent rows stay sent.
+   - **#966 one-click proof**: POST the `List-Unsubscribe` header URL of
+     a NEW batch-B mail (now the worker ingress URL); expect a fresh
+     Suppression ledger row.
+   - **Ambiguous arm**: after the drip, the second account posts a review
+     (name "Norbert Esekiel") → matches both batch-B Norbert rows →
+     `ambiguous` logged, nothing attributed.
+   - Bounced-EXCLUSION disposition (recommended; owner may veto before
+     batch B): stamp proven live on A3, the candidate-query exclusion
+     closes as test-covered (`src/lib/solicitation/attribution.ts:231`,
+     `attribution.integration.test.ts:609`) rather than coupling batch B
+     to a second multi-hour SES bounce.
 3. Then: cap → 50 (ramp stage 1) only if §6 is fully green; write the final
    verdict block; execute the teardown ledger rows marked `[ ]`
    (both credential files; the user revokes the Cloudflare token).
