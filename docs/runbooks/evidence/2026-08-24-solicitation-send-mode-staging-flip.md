@@ -71,6 +71,8 @@ NOT the goal for those rows.
 | Credential file: full-access Resend key | `scratchpad/resend.key` (session scratchpad, off-repo) | none | **delete at teardown** | `rm`; user may also revoke the key in Resend | [ ] |
 | Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [ ] |
 | Cloudflare DNS records ×4 (zone `repworth.net`, id `59b9cc47…`) | TXT `resend._domainkey.feedback.staging`, MX `bounce.feedback.staging`, TXT `bounce.feedback.staging`, TXT `_dmarc.feedback.staging` | none | **keep** (staging Sending identity) | delete records by id via zone DNS API/console | n/a — kept |
+| Cloudflare DNS: Zoho inbound MX ×3 + verification TXT on `feedback.staging` | MX `feedback.staging` → mx/mx2/mx3.zoho.com; TXT `feedback.staging` (zoho-verification) | none | **keep** (§4 inbound routing) | delete records by id via zone DNS API/console | n/a — kept |
+| Zoho org: domain `feedback.staging.repworth.net` + aliases `reviews@`, `unsubscribe@` | Zoho Mail admin, org of `repworth.net` | none | **keep** (§4 monitored mailboxes → norbert.esekiel@repworth.net) | remove domain/aliases in Zoho admin | n/a — kept |
 
 ## Unproven paths (campaign cannot PASS while any is open)
 
@@ -148,5 +150,32 @@ _dmarc.feedback.staging.repworth.net TXT
 - Tracking read-back: `open_tracking: false`, `click_tracking: false` — the §1
   PATCH held. No `links.` record exists in the zone.
 - **Unproven path 1 CLOSED.**
+
+### §4 — `reviews@` + `unsubscribe@` mailboxes — PASS (05:12 UTC)
+
+- **D-4 (04:45)** — runbook §4 suggests a Cloudflare Email Routing forward;
+  the org's actual mail stack is **Zoho** (apex MX `mx*.zoho.com`, SPF
+  `include:zoho.com`). Cloudflare routing on a subdomain is plan-gated and
+  risks the apex MX. Resolution (owner call): faithful §4 via Zoho — domain
+  `feedback.staging.repworth.net` added to the Zoho org (ownership
+  auto-verified as a subdomain of verified `repworth.net`; unique code
+  `zb54732528`), three Zoho MX records on the subdomain (Cloudflare ids
+  `1e638520…`/`c36a538b…`/`a065c1ca…`), aliases `reviews@` + `unsubscribe@`
+  on `norbert.esekiel@repworth.net`. Runbook wording patched (rule 7).
+- Probe evidence (Resend events):
+  - `reviews@` probe `9868016b…` → `delivered`; owner confirmed **Inbox**
+    placement in Zoho.
+  - `unsubscribe@` probe `62c31ad6…` → `bounced` (sent before the alias
+    existed — the owner first created the aliases on the wrong domain);
+    Resend auto-suppressed the address (`01a0374a…`, origin `bounce`).
+    Suppression deleted via API, re-probe `c0ee5deb…` → `delivered`.
+    (The RETRY2 probe was accidentally sent twice — harmless, own alias.)
+- Both mailboxes route to a monitored destination (`norbert.esekiel@repworth.net`).
+  Servicing obligations noted: manual opt-out entry within 10 business days
+  via `/admin/suppressions` (`admin_manual`); `unsubscribe@` daily on
+  business days once advertised.
+- Transient fixture handled: Resend suppression row created by the bounce
+  was deleted 05:08 UTC (verified by the successful re-send).
+- **Unproven path 2 CLOSED.**
 
 *(further entries appended in runbook order)*

@@ -180,9 +180,13 @@ alone — retuning it is spec follow-up FU-2 and touches the approval-email lane
 
 ## 4. The `reviews@` mailbox — real, routed, not `no-reply@`
 
-`reviews@feedback.<env>.repworth.net` **must accept and route mail.** A Cloudflare
-Email Routing forward to a monitored destination is sufficient — this needs a
-destination, not a staffed desk.
+`reviews@feedback.<env>.repworth.net` **must accept and route mail.** A forward
+to a monitored destination is sufficient — this needs a destination, not a
+staffed desk. Use the org's actual mail provider: the apex runs on **Zoho**, so
+the staging run (#633) added the subdomain to the Zoho org (auto-verified as a
+child of verified `repworth.net`) with `reviews@`/`unsubscribe@` as user
+aliases; Cloudflare Email Routing does not fit this zone (apex MX is Zoho's,
+and subdomain routing is plan-gated).
 
 Three reasons, and the third is the one that bites:
 
