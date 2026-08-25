@@ -146,7 +146,13 @@
   color: rgb(var(--rw-lp-text-rgb) / 0.72);
 }
 
-.rw-lp-flip-tag {
+/* The roadmap tag pill — ONE owner for both wearers ("Coming" on a flip
+   card, "Next" on a fleet node). This file is the shared-component sheet and
+   loads before fleet.css, so the grouped rule reaches both; fleet.css
+   deliberately declares no copy (the pair drifted as byte-identical
+   duplicates until #959's fallow gate flagged the clone). */
+.rw-lp-flip-tag,
+.rw-lp-fleet-tag {
   padding: 0.1875rem 0.5rem;
   font-family: var(--rw-font-display);
   font-weight: 500;

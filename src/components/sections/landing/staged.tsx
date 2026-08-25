@@ -43,22 +43,31 @@ const BEAT_MS = 110;
 const DURATION_S = 0.65;
 /** The hero entrance's ease — a soft glide-out, no overshoot. */
 const EASE: [number, number, number, number] = [0.22, 0.61, 0.36, 1];
+const VIEWPORT = { once: true, amount: 0.3 } as const;
+
+/**
+ * The ONE beat contract, shared by both elements — `Staged` and `StagedLine`
+ * must never drift apart, so neither declares its own motion props.
+ */
+function useStagedMotionProps(beat: number, rise: number) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  return {
+    initial: prefersReducedMotion
+      ? (false as const)
+      : rise === 0
+        ? { opacity: 0 }
+        : { opacity: 0, y: rise },
+    whileInView: rise === 0 ? { opacity: 1 } : { opacity: 1, y: 0 },
+    viewport: VIEWPORT,
+    transition: prefersReducedMotion
+      ? { duration: 0 }
+      : { duration: DURATION_S, ease: EASE, delay: (beat * BEAT_MS) / 1000 },
+  };
+}
 
 export function Staged({ children, beat = 0, rise = 14, className }: StagedProps) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-
   return (
-    <m.div
-      className={className}
-      initial={prefersReducedMotion ? false : rise === 0 ? { opacity: 0 } : { opacity: 0, y: rise }}
-      whileInView={rise === 0 ? { opacity: 1 } : { opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.3 }}
-      transition={
-        prefersReducedMotion
-          ? { duration: 0 }
-          : { duration: DURATION_S, ease: EASE, delay: (beat * BEAT_MS) / 1000 }
-      }
-    >
+    <m.div className={className} {...useStagedMotionProps(beat, rise)}>
       {children}
     </m.div>
   );
@@ -70,20 +79,8 @@ export function Staged({ children, beat = 0, rise = 14, className }: StagedProps
  * there. Same grammar, same reduced-motion contract, on an `m.span`.
  */
 export function StagedLine({ children, beat = 0, rise = 14, className }: StagedProps) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-
   return (
-    <m.span
-      className={className}
-      initial={prefersReducedMotion ? false : rise === 0 ? { opacity: 0 } : { opacity: 0, y: rise }}
-      whileInView={rise === 0 ? { opacity: 1 } : { opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.3 }}
-      transition={
-        prefersReducedMotion
-          ? { duration: 0 }
-          : { duration: DURATION_S, ease: EASE, delay: (beat * BEAT_MS) / 1000 }
-      }
-    >
+    <m.span className={className} {...useStagedMotionProps(beat, rise)}>
       {children}
     </m.span>
   );

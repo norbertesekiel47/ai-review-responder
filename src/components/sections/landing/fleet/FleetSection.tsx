@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { m, useInView } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { Staged } from '../staged';
@@ -40,13 +41,15 @@ import {
  * The diagram assembles when it arrives: live wires DRAW themselves in
  * (motion `pathLength`, staggered), the nodes and centre fade up, the flow
  * current starts once the wires exist, and hovering a node brightens its own
- * wire — the diagram behaves like the system it describes.
+ * wire — the diagram behaves like the system it describes. The wire layer is
+ * `FleetWires`, the media hub `FleetCentre`; `FleetSection` only composes.
  *
  * Motion rule for THIS section: the nodes and the media card are MEASURED
  * (`getBoundingClientRect`, which includes transforms), and the observer
  * only re-fires on size change — an entrance TRANSFORM on a measured element
  * would bake its mid-flight position into the wire endpoints. So every
- * measured element enters by OPACITY ONLY; only the unmeasured intro rises.
+ * measured element enters by OPACITY ONLY (`armedFadeProps`); only the
+ * unmeasured intro rises.
  *
  * Below 900px the constellation is abandoned entirely for a stacked list — a
  * six-node radial diagram is illegible at phone widths, and faking it with a
@@ -75,6 +78,27 @@ interface Connector {
   status: FleetAgent['status'];
 }
 
+/** One stable identity for the full roster. Building this inline in the
+ *  component recreated the array every render, which recreated `measure`
+ *  (it depends on `agents`), which re-ran the observer effect — a
+ *  re-observe/re-measure loop the async ResizeObserver merely disguised.
+ *  A module constant ends the cycle at the root. */
+const ALL_AGENTS: readonly FleetAgent[] = [...WATCHDOGS, ...PERSONAS];
+
+/** The assembly's ONE fade contract: opacity only (measured elements — see
+ *  the section comment), gated on the arming signal, settled instantly under
+ *  reduced motion. Every fading element consumes this so none can drift into
+ *  a transform. */
+function armedFadeProps(prefersReducedMotion: boolean, armed: boolean, delay: number) {
+  return {
+    initial: prefersReducedMotion ? (false as const) : { opacity: 0 },
+    animate: armed ? { opacity: 1 } : undefined,
+    transition: prefersReducedMotion
+      ? { duration: 0 }
+      : { duration: 0.6, ease: 'easeOut' as const, delay },
+  };
+}
+
 /**
  * Measures where each agent node actually sits and returns the bezier paths
  * joining them to the centre.
@@ -85,9 +109,9 @@ interface Connector {
  * external-system callback rather than the effect body.
  */
 function useConnectorPaths(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  mediaRef: React.RefObject<HTMLDivElement | null>,
-  nodeRefs: React.RefObject<Map<string, HTMLElement>>,
+  containerRef: RefObject<HTMLDivElement | null>,
+  mediaRef: RefObject<HTMLDivElement | null>,
+  nodeRefs: RefObject<Map<string, HTMLElement>>,
   agents: readonly FleetAgent[],
   enabled: boolean,
 ) {
@@ -179,19 +203,12 @@ function AgentCard({
 }) {
   const prefersReducedMotion = usePrefersReducedMotion();
   return (
-    /* Opacity only — this element is MEASURED for the wire endpoints (see the
-       section comment). `initial={false}` renders the settled frame under
-       reduced motion on the same element type. */
     <m.article
       ref={(el: HTMLElement | null) => registerRef(agent.id, el)}
       className="rw-lp-fleet-node"
       data-tier={tier}
       data-status={agent.status}
-      initial={prefersReducedMotion ? false : { opacity: 0 }}
-      animate={armed ? { opacity: 1 } : undefined}
-      transition={
-        prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: entranceDelay }
-      }
+      {...armedFadeProps(prefersReducedMotion, armed, entranceDelay)}
       onPointerEnter={() => onHot(agent.id)}
       onPointerLeave={() => onHot(null)}
     >
@@ -204,6 +221,123 @@ function AgentCard({
   );
 }
 
+/**
+ * The connector layer. The draw-in is motion-driven and finite
+ * (pause-rule-immune); `pathLength` normalises every bezier to 0..1, so one
+ * duration fits all lengths. The dashed NEXT connector keeps its stylesheet
+ * dash geometry and simply fades in via the `data-armed` transitions in
+ * fleet.css (a pathLength draw would override its dashes).
+ */
+function FleetWires({
+  connectors,
+  armed,
+  hotId,
+}: {
+  connectors: Connector[];
+  armed: boolean;
+  hotId: string | null;
+}) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const gradientId = useId();
+  return (
+    <svg
+      className="rw-lp-fleet-wires"
+      data-still={prefersReducedMotion ? 'true' : 'false'}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--rw-lp-fleet-wire-bright)" />
+          <stop offset="100%" stopColor="var(--rw-lp-fleet-wire-dim)" />
+        </linearGradient>
+      </defs>
+      {connectors.map((connector, index) => (
+        <g
+          key={connector.id}
+          data-status={connector.status}
+          data-hot={hotId === connector.id ? 'true' : 'false'}
+        >
+          {connector.status === 'live' ? (
+            <m.path
+              className="rw-lp-fleet-wire"
+              d={connector.d}
+              stroke={`url(#${gradientId})`}
+              initial={prefersReducedMotion ? false : { pathLength: 0 }}
+              animate={armed ? { pathLength: 1 } : undefined}
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0 }
+                  : { duration: 0.9, ease: 'easeInOut', delay: 0.2 + index * 0.09 }
+              }
+            />
+          ) : (
+            <path className="rw-lp-fleet-wire" d={connector.d} stroke={`url(#${gradientId})`} />
+          )}
+          <path className="rw-lp-fleet-wire-flow" d={connector.d} />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * The media hub. Opacity only — the media card inside is measured (see the
+ * section comment). A real <button>, not a div with onClick: it opens a
+ * modal, so it has to be reachable and operable from the keyboard and
+ * announced as a control. The poster is decorative — the button's own label
+ * carries the meaning.
+ */
+function FleetCentre({
+  videoSrc,
+  videoPoster,
+  videoTitle,
+  armed,
+  mediaRef,
+  onOpen,
+}: FleetSectionProps & {
+  armed: boolean;
+  mediaRef: RefObject<HTMLDivElement | null>;
+  onOpen: () => void;
+}) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  return (
+    <m.div className="rw-lp-fleet-centre" {...armedFadeProps(prefersReducedMotion, armed, 0.25)}>
+      <p className="rw-lp-fleet-pill">
+        <span className="rw-lp-fleet-pill-dot" aria-hidden="true" />
+        {CENTRE_PILL}
+      </p>
+
+      <div className="rw-lp-fleet-media" ref={mediaRef}>
+        {videoSrc && videoPoster ? (
+          <button type="button" className="rw-lp-fleet-play" onClick={onOpen}>
+            <Image
+              src={videoPoster}
+              alt=""
+              fill
+              sizes="(max-width: 900px) 90vw, 40rem"
+              className="rw-lp-fleet-play-poster"
+            />
+            <span className="rw-lp-fleet-play-ring" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                <path d="M9 7.5v9l7.5-4.5L9 7.5z" fill="currentColor" />
+              </svg>
+            </span>
+            <span className="rw-lp-fleet-play-label">{videoTitle ?? 'Watch the film'}</span>
+          </button>
+        ) : (
+          /* Placeholder. Pass `videoSrc` + `videoPoster` to swap it out. */
+          <div className="rw-lp-fleet-placeholder">
+            <span className="rw-lp-fleet-placeholder-ratio">16 : 9</span>
+            <span className="rw-lp-fleet-placeholder-hint">Video</span>
+          </div>
+        )}
+        <p className="rw-lp-fleet-media-label">{CENTRE_LABEL}</p>
+      </div>
+    </m.div>
+  );
+}
+
 export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSectionProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [playerOpen, setPlayerOpen] = useState(false);
@@ -211,7 +345,6 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const gradientId = useId();
 
   /* One arming signal for the whole assembly, so the wires, nodes and centre
      choreograph as a single event rather than six independent fades. */
@@ -228,12 +361,11 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
     else nodeRefs.current.delete(id);
   }, []);
 
-  const allAgents = [...WATCHDOGS, ...PERSONAS];
   const connectors = useConnectorPaths(
     containerRef,
     mediaRef,
     nodeRefs,
-    allAgents,
+    ALL_AGENTS,
     constellation,
   );
 
@@ -256,55 +388,12 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
           className="rw-lp-fleet-stage"
           ref={containerRef}
           data-armed={armed ? 'true' : 'false'}
-          data-hot={hotId ?? undefined}
         >
-          <svg
-            className="rw-lp-fleet-wires"
-            data-still={prefersReducedMotion ? 'true' : 'false'}
-            aria-hidden="true"
-            focusable="false"
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--rw-lp-fleet-wire-bright)" />
-                <stop offset="100%" stopColor="var(--rw-lp-fleet-wire-dim)" />
-              </linearGradient>
-            </defs>
-            {(constellation ? connectors : []).map((connector, index) => (
-              <g
-                key={connector.id}
-                data-status={connector.status}
-                data-hot={hotId === connector.id ? 'true' : 'false'}
-              >
-                {connector.status === 'live' ? (
-                  /* The draw-in. Motion-driven and finite (pause-rule-immune);
-                     `pathLength` normalises every bezier to 0..1, so one
-                     duration fits all lengths. The dashed NEXT connector keeps
-                     its stylesheet dash geometry and simply fades in (a
-                     pathLength draw would override its dashes). */
-                  <m.path
-                    className="rw-lp-fleet-wire"
-                    d={connector.d}
-                    stroke={`url(#${gradientId})`}
-                    initial={prefersReducedMotion ? false : { pathLength: 0 }}
-                    animate={armed ? { pathLength: 1 } : undefined}
-                    transition={
-                      prefersReducedMotion
-                        ? { duration: 0 }
-                        : { duration: 0.9, ease: 'easeInOut', delay: 0.2 + index * 0.09 }
-                    }
-                  />
-                ) : (
-                  <path
-                    className="rw-lp-fleet-wire"
-                    d={connector.d}
-                    stroke={`url(#${gradientId})`}
-                  />
-                )}
-                <path className="rw-lp-fleet-wire-flow" d={connector.d} />
-              </g>
-            ))}
-          </svg>
+          <FleetWires
+            connectors={constellation ? connectors : []}
+            armed={armed}
+            hotId={hotId}
+          />
 
           <div className="rw-lp-fleet-tier" data-tier="watchdog">
             {WATCHDOGS.map((agent, index) => (
@@ -320,57 +409,14 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
             ))}
           </div>
 
-          {/* Opacity only — the media card inside is measured (see above). */}
-          <m.div
-            className="rw-lp-fleet-centre"
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={armed ? { opacity: 1 } : undefined}
-            transition={
-              prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: 0.25 }
-            }
-          >
-            <p className="rw-lp-fleet-pill">
-              <span className="rw-lp-fleet-pill-dot" aria-hidden="true" />
-              {CENTRE_PILL}
-            </p>
-
-            <div className="rw-lp-fleet-media" ref={mediaRef}>
-              {videoSrc && videoPoster ? (
-                /* A real <button>, not a div with onClick: this opens a modal,
-                   so it has to be reachable and operable from the keyboard and
-                   announced as a control. The poster is decorative here — the
-                   button's own label carries the meaning. */
-                <button
-                  type="button"
-                  className="rw-lp-fleet-play"
-                  onClick={() => setPlayerOpen(true)}
-                >
-                  <Image
-                    src={videoPoster}
-                    alt=""
-                    fill
-                    sizes="(max-width: 900px) 90vw, 40rem"
-                    className="rw-lp-fleet-play-poster"
-                  />
-                  <span className="rw-lp-fleet-play-ring" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" focusable="false">
-                      <path d="M9 7.5v9l7.5-4.5L9 7.5z" fill="currentColor" />
-                    </svg>
-                  </span>
-                  <span className="rw-lp-fleet-play-label">
-                    {videoTitle ?? 'Watch the film'}
-                  </span>
-                </button>
-              ) : (
-                /* Placeholder. Pass `videoSrc` + `videoPoster` to swap it out. */
-                <div className="rw-lp-fleet-placeholder">
-                  <span className="rw-lp-fleet-placeholder-ratio">16 : 9</span>
-                  <span className="rw-lp-fleet-placeholder-hint">Video</span>
-                </div>
-              )}
-              <p className="rw-lp-fleet-media-label">{CENTRE_LABEL}</p>
-            </div>
-          </m.div>
+          <FleetCentre
+            videoSrc={videoSrc}
+            videoPoster={videoPoster}
+            videoTitle={videoTitle}
+            armed={armed}
+            mediaRef={mediaRef}
+            onOpen={() => setPlayerOpen(true)}
+          />
 
           <div className="rw-lp-fleet-tier" data-tier="persona">
             {PERSONAS.map((agent, index) => (
@@ -393,11 +439,7 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
               `m.p` rather than a `Staged` wrapper. */}
           <m.p
             className="rw-lp-fleet-caption"
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={armed ? { opacity: 1 } : undefined}
-            transition={
-              prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: 0.9 }
-            }
+            {...armedFadeProps(prefersReducedMotion, armed, 0.9)}
           >
             {CENTRE_CAPTION}
           </m.p>
