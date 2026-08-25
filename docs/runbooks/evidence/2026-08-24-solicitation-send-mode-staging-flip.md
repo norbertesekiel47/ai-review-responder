@@ -427,4 +427,21 @@ candidates. Therefore the remaining arms run in this order:
 2. Then #966's fix + batch B, which also carries the **auto-approval lane**
    and **mid-flight halt** arms.
 
+### #966 fix shipped to staging (18:0x UTC)
+
+- Commit `d007ee80` on the same branch (PR #964 now covers #963 + #966).
+  Dispatch mints TWO urls: `/u/<token>` page for the footer,
+  `${WORKER_PUBLIC_URL}/ingress/unsubscribe/<token>` for the header.
+  `OutboundMessage.unsubscribeOneClickUrl` added; `EmailAdapter` feeds the
+  machine url to `getEmailHeaders`.
+- Guard integrity: the adapter's fail-closed test asserted on the FOOTER url
+  (which is how the wrong endpoint shipped) — it now asserts on the machine
+  url, plus `not.toContain` on the header for the page url, plus a dispatch
+  assertion that the machine url never enters body/subject. 1,236 tests green
+  across `src/lib/messaging`, `src/lib/solicitation`, `worker/ingress`.
+- Staging fast-forwarded to `d007ee80`. Proof of the fixed header requires a
+  NEW send (batch B), which per #965 erases A3's outreach — so batch B is
+  where the auto-approval lane, the halt arm, and the #966 proof all land
+  TOGETHER, after the attribution arms finish on A3.
+
 *(further entries appended in runbook order)*
