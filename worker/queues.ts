@@ -90,6 +90,10 @@ export const queues = {
   // Auto-approval lane's Veto notice (#631 Task 5). Producer: the ask-generation
   // finale transaction (autoApproveBatch → enqueueSolicitationVetoNotice).
   solicitationVetoNotice: new Queue(QUEUE_NAMES.SOLICITATION_VETO_NOTICE, { connection: opts, defaultJobOptions }),
+  // #632 attribution lookback. Producer: the LIVE review-ingest transaction
+  // (processReview → enqueueSolicitationAttribution). defaultJobOptions, NOT
+  // llmJobOptions — the matcher is deterministic and makes no provider call.
+  solicitationAttribution: new Queue(QUEUE_NAMES.SOLICITATION_ATTRIBUTION, { connection: opts, defaultJobOptions }),
 } as const;
 
 // Queues emit 'error' on Redis connection failures; without a listener that
@@ -141,4 +145,5 @@ export const topicToQueue: Record<string, Queue> = {
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: queues.generateSolicitationAsks,
   [QUEUE_NAMES.SOLICITATION_SEND]: queues.solicitationSend,
   [QUEUE_NAMES.SOLICITATION_VETO_NOTICE]: queues.solicitationVetoNotice,
+  [QUEUE_NAMES.SOLICITATION_ATTRIBUTION]: queues.solicitationAttribution,
 };

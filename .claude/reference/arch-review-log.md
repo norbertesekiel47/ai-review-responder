@@ -6,15 +6,26 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — reset to 0 by the **2026-08-24
+**Merges since last architecture pass: 3** — reset to 0 by the **2026-08-24
 pass** (entry below), then incremented by the merge lines here. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
+> **THREE concurrent PRs each incremented this in their own PR, and each
+> COLLIDED — which is the mechanism working, not failing.** #953, #955 and #632
+> all read the then-current value and wrote value+1, so the merges conflicted
+> here and the arithmetic had to be done by eye each time: 1 → 2 → **3**.
+> Compare the failure it replaces — four consecutive passes found this counter
+> wrong, every time because the increment was left for after the merge and then
+> nobody did it. **A conflict that forces the sum to be seen is strictly better
+> than a silent miss**, and the cost is one small text merge per concurrent pair.
+> Resolve it by COUNTING THE LINES BELOW, never by trusting either side's number
+> — the lines are the only source that cannot drift.
+
 Merges since the 2026-08-24 pass:
 
-- 2026-08-24 — `fix-flip-card-touch-latch`: landing flip-card input fix. The
-  agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
+- 2026-08-24 — `fix-flip-card-touch-latch` (#955): landing flip-card input fix.
+  The agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
   fine)` — sticky tap-hover latched a flipped card on every touch device: the
   tap that set `data-flipped` back to false left `:hover` holding the card
   flipped, so a second tap could never restore the front. The click toggle is
@@ -23,16 +34,31 @@ Merges since the 2026-08-24 pass:
   (`agent-flip-card.{css,tsx}`); flip-selector contract lines updated in
   landing DESIGN.md + measurements.md.
 
-- 2026-08-24 — `feat-landing-elevation`: landing-page elevation. Sections 6
-  (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
+- 2026-08-24 — `feat-landing-elevation` (#953): landing-page elevation. Sections
+  6 (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
   dial-track) built; section 7 deliberately NOT a section — the watchdogs
   section ends with a gold door to `/how-it-works` instead of retelling the
   pipeline. Hero five-beat arrival, bookend push-in/settle on internal zoom
-  layers (owner override of part of the 2026-08-16 Linear pass; accent
-  contrast re-measured at ~3.35:1 worst case), tiers thumb breathe. 15
-  production files, all `src/components/sections/landing/**` + 2 test files;
-  landing DESIGN.md/measurements.md updated (14 focus rings, three infinite
-  animations).
+  layers (owner override of part of the 2026-08-16 Linear pass; accent contrast
+  re-measured at ~3.35:1 worst case), tiers thumb breathe. 15 production files,
+  all `src/components/sections/landing/**` + 2 test files; landing
+  DESIGN.md/measurements.md updated (14 focus rings, three infinite animations).
+
+- **#632** — `review_attributed` shadow attribution. Migration 114 adds four
+  evidence columns to `solicitation_outreach`; a pure two-rule name matcher
+  attributes a newly ingested review to at most one Outreach row and **abstains
+  on ambiguity**; a new `solicitation_attribution` outbox topic and worker run
+  the lookback off the ingest transaction; the Requests surface gains a 30-day
+  section. The metric is **shadow and never billed**. Three notes for the next
+  pass: (a) `attribution.ts` is a new **review-subject** spine writer, now in
+  `outcome-anchor-pairing`'s `CALLER_ALLOWLIST` with an in-file `reviews FOR
+  UPDATE` — the plan imported `recordOutcome` by name and neither it nor four
+  review rounds caught the attached lock contract; only the full-suite gate did,
+  which is an argument for running it before the last task rather than after;
+  (b) the "already attributed" marker is `attributed_at`, never
+  `attributed_review_id`, across four sites, because the FK is `ON DELETE SET
+  NULL`; (c) migration 114 is **LOCAL-ONLY** — not applied to staging or
+  production, so `migration-immutability-guard.sh` does not yet protect it.
 
 > **The counter was CORRECT this time — the first pass in five for which that is
 > true.** The 2026-08-24 pass measured its window independently

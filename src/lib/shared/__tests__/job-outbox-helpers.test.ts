@@ -18,6 +18,7 @@ import {
   enqueueJudgeVerdict,
   enqueuePendingPostNotice,
   enqueuePublishResponse,
+  enqueueSolicitationAttribution,
   enqueueSolicitationSend,
   enqueueStripeSubscriptionMirrorSync,
   enqueueValidatePlaceId,
@@ -672,6 +673,74 @@ describe('job outbox helpers', () => {
     expect(objectArgs(suppressed)).toContainEqual({
       outreach_id: 'outreach-1',
       batch_id: 'batch-1',
+      business_id: 'business-1',
+    });
+  });
+
+  it('enqueueSolicitationAttribution binds a time-unbounded guard and the 114 in-flight predicate', async () => {
+    // This suite is MOCKED, so it can prove the STATEMENT and nothing about the
+    // guard's live behaviour — `job-outbox-helpers-attribution.integration.test.ts`
+    // owns that half (round-1 finding A8). What belongs here is the byte-level
+    // contract: a wrong `ON CONFLICT` predicate infers no index and the INSERT
+    // throws inside the review-ingest transaction (deviation D5).
+    const inserted = createMockTx();
+    inserted.mockResolvedValueOnce([{ id: 'outbox-uuid' }]);
+
+    const outboxId = await enqueueSolicitationAttribution(inserted, {
+      reviewId: 'review-1',
+      businessId: 'business-1',
+      correlationId: 'corr-1',
+    });
+
+    expect(outboxId).toBe('outbox-uuid');
+    expect(inserted).toHaveBeenCalledOnce();
+    const text = sqlText(inserted.mock.calls[0]!);
+    expect(text).toContain('INSERT INTO job_outbox');
+    // The eligibility guard: a COARSER superset of the candidate predicate,
+    // carrying exactly two arms and nothing else.
+    expect(text).toContain(
+      "WHERE EXISTS ( SELECT 1 FROM solicitation_outreach o WHERE o.business_id = ?::uuid AND o.delivery_status = 'sent' AND o.attributed_at IS NULL )",
+    );
+    // Deviation D3, pinned as a NEGATIVE: the candidate window is
+    // anchor-relative, so a NOW()-relative bound here would be false for a
+    // legitimate candidate and lose the match silently. The guard must never
+    // grow a time bound, and it keys on attributed_at — never
+    // attributed_review_id, which the FK nulls on a review delete.
+    expect(text).not.toContain('NOW()');
+    expect(text).not.toContain('sent_at');
+    expect(text).not.toContain('attributed_review_id');
+    // Byte-for-byte the predicate of migration 114's
+    // `job_outbox_solicitation_attribution_inflight`. A bind parameter inside an
+    // ON CONFLICT ... WHERE defeats partial-index inference, so the in-flight
+    // set is re-spelled by hand — members AND order, per
+    // src/lib/shared/job-outbox-status.ts and `ci:outbox-status`.
+    expect(text).toContain('ON CONFLICT (topic, aggregate_id)');
+    expect(text).toContain(
+      "WHERE topic = 'solicitation_attribution' AND status IN ('pending', 'dispatching', 'dispatched') DO NOTHING RETURNING id",
+    );
+    expect(inserted.mock.calls[0]).toContain(QUEUE_NAMES.SOLICITATION_ATTRIBUTION);
+    // aggregate_id is the REVIEW id — the lookback is per newly ingested review.
+    expect(inserted.mock.calls[0]).toContain('review');
+    expect(inserted.mock.calls[0]).toContain('review-1');
+    // ids only: no account_id rides the payload (deviation D3).
+    expect(objectArgs(inserted)).toContainEqual({
+      review_id: 'review-1',
+      business_id: 'business-1',
+      correlation_id: 'corr-1',
+    });
+
+    // The suppressed arm: either the business has never sent an ask (the guard
+    // matched nothing) or a lookback is already in flight. Both are answers,
+    // not failures — a shadow metric must never be able to fail review ingest.
+    const suppressed = createMockTx(); // resolves []
+    const second = await enqueueSolicitationAttribution(suppressed, {
+      reviewId: 'review-1',
+      businessId: 'business-1',
+    });
+
+    expect(second).toBeNull();
+    expect(objectArgs(suppressed)).toContainEqual({
+      review_id: 'review-1',
       business_id: 'business-1',
     });
   });

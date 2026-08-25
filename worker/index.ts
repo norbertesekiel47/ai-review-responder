@@ -35,6 +35,7 @@ import { handleGenerateSolicitationAsksFailed } from './jobs/solicitation-batch/
 import { handleSolicitationSend } from './jobs/solicitation-send';
 import { handleSolicitationSendFailed } from './jobs/solicitation-send/failed-hook';
 import { handleSolicitationVetoNotice } from './jobs/solicitation-veto-notice/SolicitationVetoNoticeWorker';
+import { handleSolicitationAttribution } from './jobs/solicitation-attribution/SolicitationAttributionWorker';
 import { handlePublishResponse } from './jobs/publisher/ResponsePublisherWorker';
 import { handlePublisherFailed } from './jobs/publisher/failed-hook';
 import { handleZernioReviewIngest } from './jobs/zernio/ZernioReviewIngestWorker';
@@ -63,6 +64,7 @@ import type {
   GenerateSolicitationAsksPayload,
   SolicitationSendPayload,
   SolicitationVetoNoticePayload,
+  SolicitationAttributionPayload,
 } from '../src/lib/shared/worker-types';
 import { handleAdminException } from './jobs/AdminExceptionWorker';
 import { handleWeeklySummary } from './jobs/WeeklySummaryWorker';
@@ -365,6 +367,16 @@ const solicitationVetoNoticeWorker = new Worker(
   workerOpts,
 );
 
+// #632 attribution lookback. No `'failed'` exhaustion hook by design — see the
+// worker file's header: attribution is a shadow metric with no downstream
+// consumer, and the shared job-failure sink still raises the Sentry issue on
+// the terminal attempt.
+const solicitationAttributionWorker = new Worker(
+  QUEUE_NAMES.SOLICITATION_ATTRIBUTION,
+  withJobLogContext<SolicitationAttributionPayload>((job) => handleSolicitationAttribution(sql, job)),
+  workerOpts,
+);
+
 const adminExceptionWorker = new Worker(QUEUE_NAMES.NOTIFY_ADMIN, handleAdminException, workerOpts);
 
 const weeklySummaryWorker = new Worker(QUEUE_NAMES.WEEKLY_SUMMARY, handleWeeklySummary, workerOpts);
@@ -491,6 +503,7 @@ const workersByQueue = {
   [QUEUE_NAMES.GENERATE_SOLICITATION_ASKS]: generateSolicitationAsksWorker,
   [QUEUE_NAMES.SOLICITATION_SEND]: solicitationSendWorker,
   [QUEUE_NAMES.SOLICITATION_VETO_NOTICE]: solicitationVetoNoticeWorker,
+  [QUEUE_NAMES.SOLICITATION_ATTRIBUTION]: solicitationAttributionWorker,
   [QUEUE_NAMES.NOTIFY_ADMIN]: adminExceptionWorker,
   [QUEUE_NAMES.WEEKLY_SUMMARY]: weeklySummaryWorker,
   [QUEUE_NAMES.VALIDATE_PLACE_ID]: placeIdValidationWorker,

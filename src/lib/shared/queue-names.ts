@@ -29,6 +29,12 @@ export const QUEUE_NAMES = {
   // producer is dark until then anyway: SOLICITATION_AUTO_APPROVAL_ENABLED is
   // off in every environment until #633 flips it.
   SOLICITATION_VETO_NOTICE: 'solicitation_veto_notice',
+  // Must byte-match migration 114's in-flight partial-index predicate topic
+  // (job_outbox_solicitation_attribution_inflight). Producer is the LIVE review
+  // ingest transaction (processReview → enqueueSolicitationAttribution, #632);
+  // the Zernio backfill lane deliberately produces nothing. The worker family
+  // registers in the same PR (#632 Task 5).
+  SOLICITATION_ATTRIBUTION: 'solicitation_attribution',
   GENERATE_RESPONSE: 'generate_response',
   SEND_NOTIFICATION: 'send_notification',
   PUBLISH_RESPONSE: 'publish_response',

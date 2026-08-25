@@ -9,8 +9,12 @@ import type {
   NotifyAdminExceptionPayload,
 } from '@/lib/shared/worker-types';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
-import { enqueueGenerateResponse } from '@/lib/shared/job-outbox-helpers';
+import {
+  enqueueGenerateResponse,
+  enqueueSolicitationAttribution,
+} from '@/lib/shared/job-outbox-helpers';
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { solicitationSendEnabled } from '@/lib/solicitation/flags';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
 import { classifySentiment } from '@/lib/reviews/sentiment';
@@ -88,6 +92,39 @@ export async function processReview(
           businessId,
           reviewId,
         });
+
+        // #632: the attribution lookback. Enqueued in THIS transaction
+        // (invariant #2), handled on the worker — a matcher fault must never
+        // roll back a review write. The helper's guard means no row is written
+        // for a business that has never sent an ask, which is every business
+        // while SOLICITATION_SEND_ENABLED is off.
+        //
+        // NEW-review path only, and the LIVE lane only. An imported historical
+        // review (importReview, the Zernio backfill lane) and a review that
+        // already existed were both never caused by an ask sent after them.
+        //
+        // No accountId and no window (deviation D3): the account is not in
+        // scope here — startReviewRun resolves it internally — and the guard
+        // carries no time bound. attributeReview resolves the account from the
+        // business FK.
+        //
+        // FLAG-GATED IN TYPESCRIPT, and the reason is not the one it looks like
+        // (branch-review H1). The helper's own SQL guard already writes no row
+        // while the lane is dark — but a SQL predicate protects ROWS, not the
+        // PARSE. Its statement names `solicitation_outreach.attributed_at` and an
+        // ON CONFLICT on migration 114's partial index; against a database
+        // without 114 those raise 42703 and 42P10 at plan time, which aborts THIS
+        // transaction — the review-ingest transaction. That would stop new-review
+        // ingestion for EVERY account, including the ones that have never touched
+        // solicitation. A TypeScript branch makes the statement unreachable while
+        // the flag is off, which is the entire production state today.
+        //
+        // This is a second line of defence, not the contract. Migration 114 MUST
+        // reach a database before any deploy carrying this code does — see its
+        // entry in .claude/reference/migrations-log.md.
+        if (solicitationSendEnabled()) {
+          await enqueueSolicitationAttribution(tx, { reviewId, businessId, correlationId });
+        }
 
         return 'new' as const;
       }

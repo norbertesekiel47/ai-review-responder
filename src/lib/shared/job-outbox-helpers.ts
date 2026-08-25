@@ -18,6 +18,7 @@ import {
   type PendingPostNoticePayload,
   type PublishResponsePayload,
   type SendNotificationPayload,
+  type SolicitationAttributionPayload,
   type SolicitationSendPayload,
   type SolicitationVetoNoticePayload,
 } from './worker-types';
@@ -166,6 +167,15 @@ export interface EnqueueSolicitationVetoNoticeInput {
   /** The Send batch parent that just auto-approved. Also the `aggregate_id`. */
   batchId: string;
   /** Tenant proof for the notice worker's queries (invariant #8). */
+  businessId: string;
+  correlationId?: string;
+}
+
+export interface EnqueueSolicitationAttributionInput {
+  outboxId?: string;
+  /** The newly ingested review to look back from. Also the `aggregate_id`. */
+  reviewId: string;
+  /** Tenant proof for the attribution module's queries (invariant #8). */
   businessId: string;
   correlationId?: string;
 }
@@ -801,6 +811,82 @@ export async function enqueueSolicitationVetoNotice(
     DO NOTHING
   `;
   return outboxId;
+}
+
+/**
+ * Enqueue the #632 attribution lookback for ONE newly ingested review.
+ *
+ * The WHERE EXISTS guard is a deliberately COARSER SUPERSET of the matcher's
+ * candidate predicate: it drops the anchor comparison and the bounce and
+ * complaint arms, so every real candidate satisfies it. It skips only
+ * businesses that have never sent an ask — which is every business while
+ * SOLICITATION_SEND_ENABLED is off. Over-enqueueing is harmless: the handler
+ * resolves no_candidates and exits. Do NOT tighten it into a second copy of
+ * the candidate query — that would give one fact two owners.
+ *
+ * **It carries NO time bound, and must never grow one** (deviation D3). The
+ * candidate window is ANCHOR-relative, not NOW()-relative: a review posted 13
+ * days ago but detected today anchors 13 days back, which makes an ask sent 20
+ * days ago a legitimate candidate. A sent_at > NOW() - 14 days guard is FALSE
+ * for that row, so no job is ever enqueued and the match is lost silently.
+ * Dropping the bound is what makes the superset claim provable — and it is also
+ * why this file needs no window constant and therefore no domain import.
+ *
+ * The "not yet attributed" marker is attributed_at, NEVER attributed_review_id
+ * (migration 114, round-1 finding A3). The FK nulls the review id when a review
+ * is deleted; keying the guard on it would resurrect an already-attributed row
+ * and keep enqueueing lookbacks for a business whose only ask is spent. All
+ * FOUR sites — candidate query, this guard, the index predicate and the CAS —
+ * agree on the timestamp.
+ *
+ * ON CONFLICT targets migration 114's partial unique index
+ * job_outbox_solicitation_attribution_inflight, spelled byte-for-byte: without
+ * a matching predicate Postgres infers no constraint and the INSERT throws
+ * INSIDE the review-ingest transaction (deviation D5). The in-flight status set
+ * is re-spelled by hand — members AND order, per job-outbox-status.ts — because
+ * a bind parameter inside an ON CONFLICT ... WHERE defeats that inference.
+ *
+ * Returns the outbox id when a row was written, or `null` when the business has
+ * never sent an ask or a lookback for this review is already in flight. `null`
+ * rather than a throw follows enqueueSolicitationSend / enqueueValidatePlaceId:
+ * the suppressed insert IS the answer, decided atomically inside the caller's
+ * transaction, and a shadow metric must never be able to fail review ingest.
+ */
+export async function enqueueSolicitationAttribution(
+  tx: TxClient,
+  input: EnqueueSolicitationAttributionInput,
+): Promise<string | null> {
+  const outboxId = input.outboxId ?? uuidv7();
+  const payload: SolicitationAttributionPayload = {
+    review_id: input.reviewId,
+    business_id: input.businessId,
+  };
+  if (input.correlationId !== undefined) {
+    payload.correlation_id = input.correlationId;
+  }
+
+  const rows = await tx`
+    INSERT INTO job_outbox (id, topic, aggregate_type, aggregate_id, payload, status)
+    SELECT
+      ${outboxId}::uuid,
+      ${QUEUE_NAMES.SOLICITATION_ATTRIBUTION},
+      ${AGGREGATE_TYPE_REVIEW},
+      ${input.reviewId}::uuid,
+      ${tx.json(payload as never)},
+      ${JOB_OUTBOX_STATUS_PENDING}
+    WHERE EXISTS (
+      SELECT 1 FROM solicitation_outreach o
+       WHERE o.business_id = ${input.businessId}::uuid
+         AND o.delivery_status = 'sent'
+         AND o.attributed_at IS NULL
+    )
+    ON CONFLICT (topic, aggregate_id)
+    WHERE topic = 'solicitation_attribution' -- topic-audit-ignore: partial-index inference needs a literal
+      AND status IN ('pending', 'dispatching', 'dispatched')
+    DO NOTHING
+    RETURNING id
+  `;
+  return rows.length > 0 ? outboxId : null;
 }
 
 /**
