@@ -228,8 +228,14 @@ _dmarc.feedback.staging.repworth.net TXT
   `assertSolicitationSendEnv` accepted the four §7 vars (a violation refuses
   boot). Release poller ticking; lane live at cap 10 with zero eligible
   batches (staging data was wiped 2026-08-05 — nothing can send yet).
-- 05:31 — Vercel staging redeploy triggered via `POST /v13/deployments`
+- 05:25 — Vercel staging redeploy triggered via `POST /v13/deployments`
   (git-sourced, `target:"staging"`, ref `staging`, repoId 1202359628):
-  `dpl_2swP98waDaRc9ApSRWDpUaZabiwL`. READY-state check recorded below.
+  `dpl_2swP98waDaRc9ApSRWDpUaZabiwL` → **READY 05:26:44 UTC**. UI now reads
+  `SOLICITATION_SEND_ENABLED=true` + the mailto var.
+- **§7 state at this point**: Railway staging = 4 vars + `JUDGE_ENABLED=true`
+  + `SOLICITATION_SEND_ENABLED=true`, cap 10;
+  `SOLICITATION_AUTO_APPROVAL_ENABLED` still unset (post-§6 step);
+  Vercel staging = mailto + send flag, deployed. Both §7 dual-lane values
+  verified equal.
 
 *(further entries appended in runbook order)*
