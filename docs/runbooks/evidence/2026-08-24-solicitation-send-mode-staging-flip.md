@@ -79,6 +79,7 @@ NOT the goal for those rows.
 | Railway staging flag `SOLICITATION_SEND_ENABLED` | worker env `staging` | unset | **`true`** (lane master) | set `false` (release phase stops; sweeps continue) | n/a — kept |
 | Railway staging flag `SOLICITATION_AUTO_APPROVAL_ENABLED` | worker env `staging` | unset | **`true`** after §6 | set `false` (durable downgrade `auto_approval_disabled`) | n/a — kept |
 | Vercel staging vars: `SOLICITATION_UNSUBSCRIBE_MAILTO`, `SOLICITATION_SEND_ENABLED` | project `rep-worth`, custom env `staging` | unset | **set equal to Railway** + redeploy | remove vars + redeploy | n/a — kept |
+| Staging business + contacts + batches (campaign fixtures) | business `01a03992-4210-77cc-8ae2-e1764bf6d29f` "Tanicia Resort" (owner-created 2026-08-25, attested postal address); seed CSVs A/B/C with owner-controlled inboxes (incl. `+tag` variants) and ONE deliberate hard-bounce address (`bounce-arm@no-mx.staging.repworth.net`) | none (staging wiped 2026-08-05) | **keep** (standing staging fixtures, like the watch-mode precedent) | offboarding flow or targeted SQL cleanup if ever needed | n/a — kept |
 
 ## Unproven paths (campaign cannot PASS while any is open)
 
@@ -237,5 +238,37 @@ _dmarc.feedback.staging.repworth.net TXT
   `SOLICITATION_AUTO_APPROVAL_ENABLED` still unset (post-§6 step);
   Vercel staging = mailto + send flag, deployed. Both §7 dual-lane values
   verified equal.
+
+### First E2E attempt — batch A withheld 4/4 — PRODUCT DEFECT FOUND (15:52–16:2x UTC)
+
+- Owner re-seeded staging: business `01a03992…` "Tanicia Resort" (fresh
+  connect, attested postal address), CSV A uploaded 15:52:00. Pipeline ran
+  clean: `csv_ingest` → `build_solicitation_batch` →
+  `generate_solicitation_asks`, all completed on attempt 1. Batch
+  `01a0399f-175d…` built 15:52:07 with 4 send-mode asks.
+- **Defect**: send parent run `01a0399f-3978…` failed
+  `{"code":"generation_failed","failed_count":0,"withheld_count":4}` —
+  all four Outreach rows `withheld` / `lint_failed` / `lint_detail:
+  ["unverifiable_fact"]`. Batch settled 15:52:20 (13 s after build); the
+  Requests panel correctly shows "This batch is finished".
+- **D-6 root cause** (diagnosed from run spine + code, no content persisted
+  by design): `ask-prompt-policy.ts:35` tells the model to ask for a
+  "Google review"; the class-6 provenance rule requires every capitalized
+  mid-sentence token to appear in an interpolation value or
+  `PROVENANCE_ALLOWLIST` (ask-compliance-lint.ts:472) — which contains
+  scaffolding tokens (`repworth`, `leave`, months, weekdays) but **not
+  `google`**. The model echoes "Google" mid-sentence ⇒ deterministic
+  withhold. Never caught earlier: the flag existed in no environment
+  (lane shipped inert), and lint tests/goldens run fixture bodies, not real
+  prompt output.
+- False trails eliminated on the way (recorded so nobody re-walks them):
+  Vercel deployment env proven correct via the unauthenticated `/u/<token>`
+  Neutral-page probe (mailto renders); client staleness eliminated by
+  hard-reload + re-login; the "Watch-mode · nothing sent" pill sits in
+  `BatchReport`'s FunnelHero alongside the send-lane ApprovalPanel and is
+  not the flag signal.
+- Disposition: bug filed as **#963**; fix rides its own branch, NOT
+  this docs-only campaign worktree. Campaign blocked at §6 until the fix
+  deploys to staging; §1–§4 + §7 evidence unaffected.
 
 *(further entries appended in runbook order)*
