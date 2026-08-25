@@ -34,6 +34,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
+import { ATTRIBUTION_RULES } from '@/lib/solicitation/attribution';
 import {
   acquireLiveDbLock,
   assertLocalTestDatabaseUrl,
@@ -404,8 +405,13 @@ describeWithDb(
       // may outlive its review id — which is what ON DELETE SET NULL leaves.
       expect(checkDef).toContain('(attributed_review_id IS NULL)');
       expect(checkDef).toContain('(attributed_at IS NOT NULL)');
+      // BUILT from ATTRIBUTION_RULES, not hand-typed (branch-review C4/L6).
+      // `attribution.ts` claims that constant "byte-matches migration 114's
+      // CHECK"; hand-typing the same text here left the claim unenforced and the
+      // array with no runtime reader at all. Deriving it means adding a rule to
+      // the TypeScript union without adding it to the migration turns this red.
       expect(checkDef).toContain(
-        "(attribution_rule = ANY (ARRAY['full_name'::text, 'first_last_initial'::text]))",
+        `(attribution_rule = ANY (ARRAY[${ATTRIBUTION_RULES.map((r) => `'${r}'::text`).join(', ')}]))`,
       );
       expect(checkDef).toContain('(attribution_detail IS NOT NULL)');
       // A CHECK is SATISFIED by NULL, so without the `IS TRUE` wrapper a row

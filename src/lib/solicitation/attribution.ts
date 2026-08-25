@@ -22,17 +22,31 @@ import { reviewTimeAnchor } from '@/lib/kpi/fragments';
 import { REVIEW_STATUS } from '@/lib/reviews/status';
 import { acquireSolicitationBatchLock } from './batch-builder';
 
-/** The Attribution window (May §6.4, spec D16b). The ONE owner of this number. */
-export const ATTRIBUTION_WINDOW_DAYS = 14;
+// Two of the four constants below are MODULE-PRIVATE on purpose (the fallow
+// gate's unused-export finding). Each had exactly one reader — this file — so
+// exporting them advertised a seam nothing used, and an export with no consumer
+// is a maintenance claim nobody is keeping. Private does not weaken "one owner":
+// the number still lives in exactly one place, which is what that rule means.
+//
+// The other two ARE exported, each for a named consumer, not on spec.
 
-/** How far back the owner-facing list reaches. Presentation only. */
+/** The Attribution window (May §6.4, spec D16b). The ONE owner of this number. */
+const ATTRIBUTION_WINDOW_DAYS = 14;
+
+/** How far back the owner-facing list reaches. Presentation only. EXPORTED
+ *  because `AttributedReviews.tsx` renders it — the alternative is re-spelling
+ *  30 in the component, which is the drift this constant exists to stop. */
 export const ATTRIBUTION_DISPLAY_WINDOW_DAYS = 30;
 
 /** Stamped into attribution_detail so a stored verdict stays attributable to
  *  the ruleset that produced it — the ASK_LINT_VERSION precedent. */
-export const ATTRIBUTION_MATCHER_VERSION = 'attribution_v1';
+const ATTRIBUTION_MATCHER_VERSION = 'attribution_v1';
 
-/** Byte-matches migration 114's CHECK. */
+/** Byte-matches migration 114's CHECK — and that claim is now ENFORCED, not
+ *  asserted: `migration-114-solicitation-attribution.integration.test.ts` builds
+ *  its expected CHECK text from this array (branch-review C4/L6). Adding a rule
+ *  to the union without adding it to the migration turns that suite red. This is
+ *  the export's real consumer; before it, the array had no runtime reader. */
 export const ATTRIBUTION_RULES = ['full_name', 'first_last_initial'] as const;
 export type AttributionRule = (typeof ATTRIBUTION_RULES)[number];
 
