@@ -1656,6 +1656,88 @@ describe('tenant-scope-audit', () => {
   });
 });
 
+describe('users bridge shapes (#894 Step 2)', () => {
+  const finding = (file: string, table: string) => ({
+    file,
+    table,
+    reason: 'missing account_id or business_id scope',
+    sqlIdentity: expect.any(String),
+  });
+
+  // The PRIMARY shape, VERBATIM from a former supabase-auth-id allowlist
+  // entry (signup-status): an anchored `users` bridge proves `accounts`
+  // through `a.id = u.account_id`, and `businesses` chains through the
+  // existing `b.account_id = a.id` rule.
+  it('proves the verbatim signup-status query — accounts via a.id = u.account_id, businesses chained', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified'
+          + ' FROM users u JOIN accounts a ON a.id = u.account_id'
+          + ' JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE'
+          + " WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
+      ),
+    ).toEqual([]);
+  });
+
+  it('proves the 4th shape — accounts.owner_user_id = users.id (inbound FK on the parent)', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT a.id FROM accounts a JOIN users u ON a.owner_user_id = u.id'
+          + ' WHERE u.auth_id = ${authId}',
+      ),
+    ).toEqual([]);
+  });
+
+  it('proves the 5th shape — sibling-through-account (businesses.account_id = users.account_id)', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT b.id FROM businesses b JOIN users u ON b.account_id = u.account_id'
+          + ' WHERE u.auth_id = ${authId}',
+      ),
+    ).toEqual([]);
+  });
+
+  it('an UNANCHORED users join proves nothing — the bridge needs its auth_id predicate', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT a.id FROM accounts a JOIN users u ON a.id = u.account_id'
+          + " WHERE u.email = ${email}",
+      ),
+    ).toEqual([finding('src/example.ts', 'accounts')]);
+  });
+
+  it('the anchor must be QUALIFIED — a bare auth_id in a multi-relation statement is not proof', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT a.id FROM accounts a JOIN users u ON a.id = u.account_id'
+          + ' WHERE auth_id = ${authId}',
+      ),
+    ).toEqual([finding('src/example.ts', 'accounts')]);
+  });
+
+  it('LEFT JOIN polarity stays conservative — an anchored bridge behind a left join does not prove the base', () => {
+    expect(
+      auditSqlText(
+        'src/example.ts',
+        'SELECT a.id FROM accounts a LEFT JOIN users u ON a.id = u.account_id'
+          + ' WHERE u.auth_id = ${authId}',
+      ),
+    ).toEqual([finding('src/example.ts', 'accounts')]);
+  });
+
+  it('a users binding is never ITSELF a finding — bridge, not audited target', () => {
+    expect(auditSqlText('src/example.ts', 'SELECT id FROM users')).toEqual([]);
+    expect(
+      auditSqlText('src/example.ts', 'SELECT id FROM users u WHERE u.email = ${email}'),
+    ).toEqual([]);
+  });
+});
+
 describe('allowlist integrity (baseline gate + category invariants)', () => {
   const entry = (overrides: Partial<TenantScopeAllowlistEntry>): TenantScopeAllowlistEntry => ({
     file: 'src/app/api/admin/example/route.ts',

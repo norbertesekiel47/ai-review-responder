@@ -97,6 +97,12 @@ export async function lookupSuppressions(
       ORDER BY (s.scope = 'global') DESC, s.suppressed_at ASC
     `;
   // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- the rule is right that this await ignores the previous result, and its advice ("run them together with Promise.all") is exactly the change #893 reverted. The two reads are independent BY DESIGN and stay sequential: on `DB_POOL_MAX` = 3, a fan-out of two pipelines onto a busy connection and wedges a backend in ClientRead. Guarded by `ci:pool-fanout`.
+  // Neither `solicitation_suppression_corrections` nor `users` is in
+  // `scripts/ci/tenant-tables.ts`, so `ci:tenant-scope` forms no opinion on
+  // this statement — correct, not an oversight: this is the admin
+  // Correction-path audit trail, keyed by normalized handle across tenants by
+  // design, and `users` is joined only to label the acting ADMIN. Do not add
+  // a tenant join to make it look scoped.
   const corrections = await sql<{
     id: string;
     suppression_id: string;

@@ -287,6 +287,9 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     // Sequential awaits share one Postgres.js transaction connection (sql.begin); they execute
     // serially on a single connection and cannot be parallelized.
     // react-doctor-disable-next-line react-doctor/async-parallel
+    // `flagged_responses` is outside `scripts/ci/tenant-tables.ts` →
+    // unaudited by `ci:tenant-scope`; the account_id predicate is the purge
+    // lane's own boundary.
     await tx`
       DELETE FROM flagged_responses
       WHERE account_id = ${row.account_id}::uuid

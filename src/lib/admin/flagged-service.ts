@@ -80,6 +80,9 @@ export async function listOpenFlaggedResponses(
   // Admin cross-tenant read of the OPEN flagged queue. The joins to tenant
   // tables (responses/reviews/businesses) are intentionally unscoped (admin
   // sees every tenant) and are covered by tenant-scope-allowlist.ts entries.
+  // `flagged_responses` ITSELF is outside `scripts/ci/tenant-tables.ts`, so
+  // the audit is silent on it — the allowlist entries above belong to the
+  // JOINED tenant tables (responses/reviews/businesses), not to the flag row.
   const rows = await sql<FlaggedRow[]>`
     SELECT fr.id, fr.response_id, fr.business_id, fr.account_id, fr.review_id,
            fr.source, fr.reason, fr.severity, fr.status, fr.created_at,

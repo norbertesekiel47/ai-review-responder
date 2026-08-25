@@ -28,6 +28,13 @@
 //     behind is still a purge violation.
 //   - The producer (response-generation/persist.ts): writes the flag row and
 //     keeps its own module-local status const (different lifecycle).
+//
+// Audit note (#894): `flagged_responses` is absent from
+// `scripts/ci/tenant-tables.ts`, so `ci:tenant-scope` forms NO opinion on any
+// statement in this file or on the `openFlagExistsSql` fragment's consumers —
+// silence means "not audited", never "reviewed and exempt". Scoping here rides
+// the RESPONSE row: every read binds a response id the caller already proved.
+// Do not join a tenant table into these statements to make them look scoped.
 
 import type postgres from 'postgres';
 

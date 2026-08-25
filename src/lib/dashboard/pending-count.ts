@@ -26,8 +26,11 @@ export async function getPendingApprovalCount(sql: Sql, businessId: string): Pro
  * `business_id` and account-scoped, so the All-Locations aggregate gets every
  * location's count in ONE query instead of a fan-out. Returns a Map keyed by
  * `business_id`; locations with zero pending drafts are simply absent (callers
- * default them to 0). The explicit `JOIN businesses … account_id` scope is what
- * the tenant-scope audit requires for an account-wide read.
+ * default them to 0). The `JOIN businesses … account_id` scope is this
+ * function's own tenant boundary — NOT something `ci:tenant-scope` demands
+ * here: the held-draft predicate reaches `flagged_responses`, which is absent
+ * from `scripts/ci/tenant-tables.ts`, so the audit forms no opinion on that
+ * part of the statement. Silence means "not audited", never "reviewed".
  */
 export async function getPendingApprovalCountsForAccount(
   sql: Sql,

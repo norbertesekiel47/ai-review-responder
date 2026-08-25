@@ -500,6 +500,29 @@ interface TableBinding {
   bindingOrdinal: number;
 }
 
+/**
+ * A BRIDGE relation (#894 Step 2): not a tenant table, never audited, never a
+ * finding — but a binding of it can PROVE a tenant binding's scope. `users`
+ * is the only bridge today: `WHERE u.auth_id = $x` anchors it to the caller's
+ * Supabase identity (invariant #8), and three relationship shapes carry that
+ * proof onto tenant tables (see localScopedBindings). Note the one-way flow:
+ * an anchored bridge proves tenant bindings; a scoped tenant binding does NOT
+ * retro-prove the bridge (no consumer needs that direction).
+ */
+const BRIDGE_TABLES = ['users'] as const;
+type BridgeTable = (typeof BRIDGE_TABLES)[number];
+
+/** The column whose bound predicate anchors each bridge table. */
+const BRIDGE_ANCHOR_COLUMNS: Record<BridgeTable, string> = {
+  users: 'auth_id',
+};
+
+interface BridgeBinding {
+  table: BridgeTable;
+  alias: SqlIdentifier;
+  bindingOrdinal: number;
+}
+
 interface ProvenBinding extends TableBinding {}
 
 interface RawScopeFinding extends TenantScopeFinding {
@@ -676,6 +699,7 @@ interface RelationCandidate extends ParsedRelation {
 
 interface BindingCollection {
   tenantBindings: TableBinding[];
+  bridgeBindings: BridgeBinding[];
   localAliases: ReadonlySet<string>;
 }
 
@@ -860,6 +884,7 @@ function tableBindings(maskedSql: string, cteNames: ReadonlySet<string>): Bindin
   const seenCandidates = new Set<string>();
   const localAliases = new Set<string>();
   const tenantBindings: TableBinding[] = [];
+  const bridgeBindings: BridgeBinding[] = [];
   for (const candidate of candidates) {
     const relationKey = candidate.relationName ? identifierKey(candidate.relationName) : '';
     const schemaKey = candidate.schemaName ? identifierKey(candidate.schemaName) : '';
@@ -871,19 +896,28 @@ function tableBindings(maskedSql: string, cteNames: ReadonlySet<string>): Bindin
 
     const schemaTargetsPublic = candidate.schemaName === undefined || schemaKey === 'public';
     const cteReference = candidate.schemaName === undefined && cteNames.has(relationKey);
-    if (candidate.isFunctionOrDerived
-      || !schemaTargetsPublic
-      || cteReference
-      || !TENANT_TABLES.includes(relationKey as TenantTable)) {
+    if (candidate.isFunctionOrDerived || !schemaTargetsPublic || cteReference) {
       continue;
     }
-    tenantBindings.push({
-      table: relationKey as TenantTable,
-      alias: candidate.alias,
-      bindingOrdinal: tenantBindings.length + 1,
-    });
+    if (TENANT_TABLES.includes(relationKey as TenantTable)) {
+      tenantBindings.push({
+        table: relationKey as TenantTable,
+        alias: candidate.alias,
+        bindingOrdinal: tenantBindings.length + 1,
+      });
+    } else if ((BRIDGE_TABLES as readonly string[]).includes(relationKey)) {
+      // Retained SEPARATELY from the audited targets: a bridge binding can
+      // prove scope but must never become a finding itself (#894 Step 2 —
+      // before this, `users` was discarded here and any bridge logic
+      // downstream was dead code).
+      bridgeBindings.push({
+        table: relationKey as BridgeTable,
+        alias: candidate.alias,
+        bindingOrdinal: bridgeBindings.length + 1,
+      });
+    }
   }
-  return { tenantBindings, localAliases };
+  return { tenantBindings, bridgeBindings, localAliases };
 }
 
 function directlyScoped(
@@ -913,9 +947,9 @@ function directlyScoped(
 
 function bindingsRelated(
   clauses: readonly PredicateClause[],
-  target: TableBinding,
+  target: Pick<TableBinding, 'alias'>,
   targetColumn: string,
-  source: TableBinding,
+  source: Pick<TableBinding, 'alias'>,
   sourceColumn: string,
 ): boolean {
   const targetAlias = identifierKey(target.alias);
@@ -939,15 +973,46 @@ function bindingsRelated(
   );
 }
 
+/**
+ * A bridge binding is ANCHORED when its anchor column carries a bound
+ * predicate (for `users`: `u.auth_id = $x`). Qualified identifiers only — an
+ * unqualified `auth_id` inside a multi-relation statement could resolve to an
+ * outer row, and the bridge's whole job is to be proof.
+ */
+function anchoredBridgeBindings(
+  bridges: readonly BridgeBinding[],
+  clauses: readonly PredicateClause[],
+): Set<BridgeBinding> {
+  const anchored = new Set<BridgeBinding>();
+  for (const bridge of bridges) {
+    const alias = identifierKey(bridge.alias);
+    const applicableClauses = clauses.filter((clause) => {
+      if (clause.provenance === 'filter' || clause.provenance === 'inner-on') return true;
+      if (clause.provenance === 'left-on') return clause.joinedAliases?.has(alias) ?? false;
+      if (clause.provenance === 'right-on') return !(clause.joinedAliases?.has(alias) ?? true);
+      return false;
+    });
+    const anchorColumn = BRIDGE_ANCHOR_COLUMNS[bridge.table];
+    if (hasBoundIdentifierPredicate(applicableClauses, [
+      qualifiedIdentifier(bridge.alias, anchorColumn),
+    ])) {
+      anchored.add(bridge);
+    }
+  }
+  return anchored;
+}
+
 function localScopedBindings(
   bindings: readonly TableBinding[],
   clauses: readonly PredicateClause[],
+  bridgeBindings: readonly BridgeBinding[] = [],
 ): Set<TableBinding> {
   const scoped = new Set<TableBinding>();
   const allowUnqualified = bindings.length === 1;
   for (const binding of bindings) {
     if (directlyScoped(binding, clauses, allowUnqualified)) scoped.add(binding);
   }
+  const anchoredBridges = anchoredBridgeBindings(bridgeBindings, clauses);
 
   let changed = true;
   while (changed) {
@@ -980,7 +1045,35 @@ function localScopedBindings(
           && bindingsRelated(clauses, binding, 'account_offboarding_id', offboarding, 'id')
         ));
 
-      if (viaAccount || viaBusiness || viaOffboarding) {
+      // The `users` bridge shapes (#894 Step 2), specified from the MEASURED
+      // allowlist SQL rather than the issue text:
+      //   PRIMARY (24 of the 25 supabase-auth-id entries):
+      //     `users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = $x`
+      //     — an anchored bridge proves `accounts` through its inbound FK;
+      //     `businesses` then chains through the existing viaBusiness rule.
+      //   4th shape: `accounts.owner_user_id = users.id` (inbound FK on the
+      //     parent).
+      //   5th shape, generalized: `<t>.account_id = users.account_id`
+      //     (sibling-through-account; live example
+      //     worker/jobs/summary-report-helpers.ts).
+      const viaUsersInboundFk = binding.table === 'accounts'
+        && [...anchoredBridges].some((bridge) => (
+          bridge.table === 'users'
+          && bindingsRelated(clauses, binding, 'id', bridge, 'account_id')
+        ));
+      const viaOwnerUser = binding.table === 'accounts'
+        && [...anchoredBridges].some((bridge) => (
+          bridge.table === 'users'
+          && bindingsRelated(clauses, binding, 'owner_user_id', bridge, 'id')
+        ));
+      const viaUserSiblingAccount = hasScopeColumn(binding.table, 'account_id')
+        && [...anchoredBridges].some((bridge) => (
+          bridge.table === 'users'
+          && bindingsRelated(clauses, binding, 'account_id', bridge, 'account_id')
+        ));
+
+      if (viaAccount || viaBusiness || viaOffboarding
+        || viaUsersInboundFk || viaOwnerUser || viaUserSiblingAccount) {
         scoped.add(binding);
         changed = true;
       }
@@ -1065,9 +1158,9 @@ function analyzeQueryBlock(input: AnalyzeBlockInput): AnalysisResult {
   const directSql = maskChildRanges(lexical.masked, children);
   const ctes = collectCtes(lexical.masked);
   const visibleCtes = new Set([...input.visibleCtes, ...ctes.allNames]);
-  const { tenantBindings: bindings, localAliases } = tableBindings(directSql, visibleCtes);
+  const { tenantBindings: bindings, bridgeBindings, localAliases } = tableBindings(directSql, visibleCtes);
   const clauses = predicateClauses(directSql);
-  const scoped = localScopedBindings(bindings, clauses);
+  const scoped = localScopedBindings(bindings, clauses, bridgeBindings);
   for (const binding of bindings) {
     if (scoped.has(binding)) continue;
     if (scopedFromAncestor(binding, localAliases, input.ancestors, clauses)) scoped.add(binding);

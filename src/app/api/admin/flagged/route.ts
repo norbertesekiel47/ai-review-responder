@@ -94,6 +94,10 @@ async function dispositionFlaggedResponse(request: NextRequest): Promise<NextRes
 
   try {
     await sql.begin(async (tx) => {
+      // `flagged_responses` is outside `scripts/ci/tenant-tables.ts`, so this
+      // statement (and the UPDATE below) is unaudited by `ci:tenant-scope` —
+      // fine here: admin disposition addresses the FLAG ROW by id, behind the
+      // admin gate, cross-tenant by design. Do not fake-scope with a join.
       const rows = await tx<OpenFlagRow[]>`
         SELECT id, response_id, business_id, account_id
         FROM flagged_responses
