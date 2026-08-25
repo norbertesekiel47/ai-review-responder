@@ -30,8 +30,11 @@ export class EmailAdapter implements MessagingAdapter {
     // validate one string and send another (round-1 review).
     const recipient = assertSendable(message);
 
+    // The HEADER carries the machine endpoint, never the footer's page URL: a
+    // client POSTs this member unattended, so it must reach a handler that
+    // writes the suppression (#966).
     const headers = getEmailHeaders('solicitation', {
-      unsubscribeUrl: message.unsubscribeUrl,
+      unsubscribeUrl: message.unsubscribeOneClickUrl,
     });
 
     const result = await sendEmail(

@@ -30,6 +30,10 @@ import { resetServerConfigForTests } from '@/lib/config/server';
 const FROM_ADDRESS = 'reviews@feedback.test.repworth.net';
 const UNSUBSCRIBE_MAILBOX = 'unsubscribe@feedback.test.repworth.net';
 const UNSUBSCRIBE_URL = 'https://worker.test.repworth.net/u/tok_657_adapter';
+/** The MACHINE endpoint — deliberately a DIFFERENT URL from the footer page,
+ *  so an assertion cannot pass by them being equal (#966). */
+const UNSUBSCRIBE_ONE_CLICK_URL =
+  'https://worker.test.repworth.net/ingress/unsubscribe/tok_657_adapter';
 
 /** Only the members `sendEmail` and these cases ever touch. */
 interface FakeResend {
@@ -85,6 +89,7 @@ function message(overrides: Partial<OutboundMessage> = {}): OutboundMessage {
     bodyHtml: '<p>Would you mind leaving a review?</p>',
     bodyText: 'Would you mind leaving a review?',
     unsubscribeUrl: UNSUBSCRIBE_URL,
+    unsubscribeOneClickUrl: UNSUBSCRIBE_ONE_CLICK_URL,
     ...overrides,
   };
 }
@@ -251,8 +256,11 @@ describe('EmailAdapter — the §7.1 envelope', () => {
     const headerNames = Object.keys(headersOf(client)).map((name) => name.toLowerCase());
     expect(headerNames).not.toContain('auto-submitted');
     // The List-Unsubscribe pair IS expected — this is the compliance header set,
-    // not an empty one.
-    expect(headersOf(client)['List-Unsubscribe']).toContain(UNSUBSCRIBE_URL);
+    // not an empty one. The HTTPS member is the MACHINE endpoint and the footer
+    // page must never appear there: a client POSTs this URL unattended, and the
+    // page writes nothing (#966, found live on staging).
+    expect(headersOf(client)['List-Unsubscribe']).toContain(UNSUBSCRIBE_ONE_CLICK_URL);
+    expect(headersOf(client)['List-Unsubscribe']).not.toContain(UNSUBSCRIBE_URL);
   });
 
   it('the email adapter sends through the solicitation Resend client, never the transactional one', async () => {
@@ -285,7 +293,11 @@ describe('EmailAdapter — the §7.1 envelope', () => {
 
     // getEmailHeaders' fail-closed 'solicitation' branch throws; the adapter
     // must let it out rather than catching and sending a headerless ask.
-    await expect(adapterFor(client).send(message({ unsubscribeUrl: '' }))).rejects.toThrow();
+    // The header's input is the ONE-CLICK url since #966 — asserting on the
+    // footer url here is what let the wrong-endpoint header ship.
+    await expect(
+      adapterFor(client).send(message({ unsubscribeOneClickUrl: '' })),
+    ).rejects.toThrow();
     expect(client.sendCalls).toBe(0);
   });
 
