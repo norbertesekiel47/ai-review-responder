@@ -73,6 +73,12 @@ NOT the goal for those rows.
 | Cloudflare DNS records ×4 (zone `repworth.net`, id `59b9cc47…`) | TXT `resend._domainkey.feedback.staging`, MX `bounce.feedback.staging`, TXT `bounce.feedback.staging`, TXT `_dmarc.feedback.staging` | none | **keep** (staging Sending identity) | delete records by id via zone DNS API/console | n/a — kept |
 | Cloudflare DNS: Zoho inbound MX ×3 + verification TXT on `feedback.staging` | MX `feedback.staging` → mx/mx2/mx3.zoho.com; TXT `feedback.staging` (zoho-verification) | none | **keep** (§4 inbound routing) | delete records by id via zone DNS API/console | n/a — kept |
 | Zoho org: domain `feedback.staging.repworth.net` + aliases `reviews@`, `unsubscribe@` | Zoho Mail admin, org of `repworth.net` | none | **keep** (§4 monitored mailboxes → norbert.esekiel@repworth.net) | remove domain/aliases in Zoho admin | n/a — kept |
+| Resend API key, domain-scoped `sending_access` | name `solicitation-staging` (id recorded at creation below) | none | **keep** (becomes `SOLICITATION_RESEND_API_KEY`) | delete key in Resend | n/a — kept |
+| Railway staging vars: `SOLICITATION_UNSUBSCRIBE_MAILTO`, `SOLICITATION_RESEND_API_KEY`, `SOLICITATION_SEND_FROM_ADDRESS`, `SOLICITATION_PLATFORM_DAILY_CAP` | worker `repworth-worker` env `staging` | all **unset** | **set** (10 = seed-gate cap; →50 at stage 1) | unset the vars (worker restarts) | n/a — kept |
+| Railway staging flag `JUDGE_ENABLED` | worker env `staging` | `false` | **`true`** (solicitation release precondition) | set back `false` | n/a — kept |
+| Railway staging flag `SOLICITATION_SEND_ENABLED` | worker env `staging` | unset | **`true`** (lane master) | set `false` (release phase stops; sweeps continue) | n/a — kept |
+| Railway staging flag `SOLICITATION_AUTO_APPROVAL_ENABLED` | worker env `staging` | unset | **`true`** after §6 | set `false` (durable downgrade `auto_approval_disabled`) | n/a — kept |
+| Vercel staging vars: `SOLICITATION_UNSUBSCRIBE_MAILTO`, `SOLICITATION_SEND_ENABLED` | project `rep-worth`, custom env `staging` | unset | **set equal to Railway** + redeploy | remove vars + redeploy | n/a — kept |
 
 ## Unproven paths (campaign cannot PASS while any is open)
 
@@ -177,5 +183,34 @@ _dmarc.feedback.staging.repworth.net TXT
 - Transient fixture handled: Resend suppression row created by the bounce
   was deleted 05:08 UTC (verified by the successful re-send).
 - **Unproven path 2 CLOSED.**
+
+### §7 — env vars, staged (05:15–05:2x UTC)
+
+- **Baseline moved (recorded, not a deviation):** while the campaign ran,
+  `main` advanced (#959 landing revamp, #961 `ci:env-registry`, #962
+  tenant-scope audit — all inert for the solicitation worker lane) and
+  staging was realigned by a parallel session at 05:12 UTC. Staging worker
+  now deploys `ef9e9ac5`; preflight P4/P5 SHAs are superseded.
+- 05:15 — Resend scoped key created: id `33ef3708-d6ec-49b2-87b8-380427ccfd47`,
+  name `solicitation-staging`, `permission=sending_access`,
+  `domain_id=903fde2f…` (the staging domain). Token held off-repo.
+- 05:17 — Railway staging batch 1 set in ONE call (one restart):
+  `SOLICITATION_UNSUBSCRIBE_MAILTO=unsubscribe@feedback.staging.repworth.net`,
+  `SOLICITATION_RESEND_API_KEY=<scoped key>`,
+  `SOLICITATION_SEND_FROM_ADDRESS=reviews@feedback.staging.repworth.net`,
+  `SOLICITATION_PLATFORM_DAILY_CAP=10` (seed-gate value per §7; NOT stage 1).
+  Deployment `c4ca3ff8` SUCCESS; boot log clean
+  (`[boot] readiness cure complete`), release cycle ticking with the lane
+  still off (sweeps-run-while-flag-off behavior confirmed).
+- 05:18 — Vercel staging custom env: `SOLICITATION_UNSUBSCRIBE_MAILTO`
+  (equal value) and `SOLICITATION_SEND_ENABLED=true` added via CLI
+  (project linked from scratchpad, `.vercel/` kept out of the repo).
+  **Redeploy deliberately deferred** until the Railway flags are green —
+  worker-before-UI ordering for the same logical flag.
+- 05:20 — Flag flip 1/2: `JUDGE_ENABLED` `false`→`true` (Railway only —
+  worker-only read; WS6 governor stays `false`, not read by this lane).
+  Out-of-§8.4-order enablement (TRIAGE/ESCALATION off) confirmed by owner
+  in the batch sign-off; risk: judge sweep idles for the reply lane since
+  `AUTO_APPROVAL_ENABLED=false`.
 
 *(further entries appended in runbook order)*
