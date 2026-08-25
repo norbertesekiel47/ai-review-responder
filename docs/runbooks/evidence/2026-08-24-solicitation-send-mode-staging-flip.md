@@ -79,6 +79,8 @@ NOT the goal for those rows.
 | Railway staging flag `SOLICITATION_SEND_ENABLED` | worker env `staging` | unset | **`true`** (lane master) | set `false` (release phase stops; sweeps continue) | n/a — kept |
 | Railway staging flag `SOLICITATION_AUTO_APPROVAL_ENABLED` | worker env `staging` | unset | **`true`** after §6 | set `false` (durable downgrade `auto_approval_disabled`) | n/a — kept |
 | Vercel staging vars: `SOLICITATION_UNSUBSCRIBE_MAILTO`, `SOLICITATION_SEND_ENABLED` | project `rep-worth`, custom env `staging` | unset | **set equal to Railway** + redeploy | remove vars + redeploy | n/a — kept |
+| Staging account tier flip (D-8) | `accounts` `01a03992-…ebcfba7e0f2e` + `businesses` `01a03992-…e1764bf6d29f`: `subscription_tier` `copilot`→`autopilot` | `copilot` | **keep** (standing Autopilot staging fixture) | `UPDATE … SET subscription_tier='copilot'` on both | n/a — kept |
+| Seeded solicitation `auto_approval_policies` row (D-8) | account `01a03992-…ebcfba7e0f2e`, `persona='solicitation'`, `action_class='sending'`, veto 30 min, account-level | none | **keep** (auto lane stays exercisable) | `DELETE` the row | n/a — kept |
 | Staging business + contacts + batches (campaign fixtures) | business `01a03992-4210-77cc-8ae2-e1764bf6d29f` "Tanicia Resort" (owner-created 2026-08-25, attested postal address); seed CSVs A/B/C with owner-controlled inboxes (incl. `+tag` variants) and ONE deliberate hard-bounce address (`bounce-arm@no-mx.staging.repworth.net`) | none (staging wiped 2026-08-05) | **keep** (standing staging fixtures, like the watch-mode precedent) | offboarding flow or targeted SQL cleanup if ever needed | n/a — kept |
 
 ## Unproven paths (campaign cannot PASS while any is open)
@@ -571,5 +573,55 @@ candidates. Therefore the remaining arms run in this order:
   re-verify row 2's `bounced_at IS NULL` immediately before posting —
   a landed bounce would exclude row 2 and wrongly ATTRIBUTE to row 1,
   burning the specimen.
+
+### Owner decision — batch B starts NOW; bounce-stamp proof retargets to batch B rows (19:4x UTC)
+
+- Owner call: finish the campaign today. The "bounce before upload" rule
+  existed to protect the stamp EVIDENCE, not the A3 row itself; batch B
+  seeds two no-MX rows whose bounces land tonight on rows that survive
+  the campaign (no further upload follows batch B). The live stamp proof
+  (webhook `email.bounced` → `bounced_at`/`bounce_kind`) transfers to
+  those rows; the watcher retargets after the drip. A3's still-pending
+  bounce will arrive against a cascade-deleted row and no-op in the
+  Solicitation lane — EXPECTED, recorded here in advance so the warn log
+  is not misread.
+- Interim state at decision time: A3 bounce-arm still `delivery_delayed`
+  at the provider (~2.5 h of SES retries), `bounced_at` NULL.
+
+### §7 final flag — `SOLICITATION_AUTO_APPROVAL_ENABLED` → `true` (20:11–20:14 UTC)
+
+- `flag-flip` skill run: env-vars.md entry read; couplings verified —
+  `SOLICITATION_SEND_ENABLED=true` (required twin) and `JUDGE_ENABLED=true`
+  (Judge stays release-owned, #900). Reply-lane §8.4 ordering does not
+  govern this lane's own switch; the Judge flip preceded it by design.
+- Railway staging: unset → `true` in one call; deployment `e6445b3e`
+  SUCCESS, boot clean 20:13:34 UTC.
+- Vercel staging twin (settings routes read the flag through
+  `src/lib/auto-approval/settings.ts` → `solicitation-settings.ts`):
+  `vercel api` (beta, CLI 54.14.5) mangles POST bodies — three body forms
+  all returned 400 "Invalid JSON"; the CLI token file is not readable in
+  this session (classifier). The var is set by the OWNER interactively
+  (`vercel env add` on a real TTY — D-5's empty-value trap is specifically
+  the non-TTY stdin path) — completion recorded below when done.
+
+### D-8 (20:1x) — Autopilot tier + solicitation policy seeded via SQL
+
+- Pre-upload check of `decideAutoApproval` conditions found the Tanicia
+  account `tier=copilot` with ZERO `auto_approval_policies` rows — batch B
+  would silently land in the owner lane (`tier` / `no_policy_row`).
+  `AUTOPILOT_PURCHASABLE=false` on staging blocks the UI seeding path.
+- Precedent followed: evidence 2026-07-21 Phase C — SQL tier shortcut +
+  server-side policy seed, recorded as an invariant-#14 deviation there
+  and again here.
+- Applied in one transaction (20:16 UTC): `accounts` + `businesses`
+  `subscription_tier` → `'autopilot'`; one `auto_approval_policies` row —
+  `persona='solicitation'`, `action_class='sending'`,
+  `veto_window_minutes=30` (the SHORTEST legal solicitation window per
+  the `persona_consistency` CHECK — {30,60}; the reply lane's {15,30} does
+  not apply), `location_id` NULL (account-level), caps NULL,
+  `gen_random_uuid()` id (seed row — not the UUIDv7 convention).
+- Verified post-seed: `account_tier=autopilot`,
+  `solicitation_policy_rows=1` (unsuspended). All `decideAutoApproval`
+  conditions now pass. Teardown rows appended to the ledger.
 
 *(further entries appended in runbook order)*

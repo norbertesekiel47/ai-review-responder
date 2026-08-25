@@ -72,7 +72,8 @@ complete; the Copilot arm is proven end-to-end.
      no-MX local part; it exists only to fill tick 2); rows 5–6 halt
      fodder (cancelled, never dispatched).
    - Prove the **auto lane**: `auto_policy` approval + veto notice +
-     60-min veto window + release drip with judge available.
+     30-min veto window (seeded policy, D-8 — {30,60} are the legal
+     solicitation values) + release drip with judge available.
    - **Mid-flight halt**: owner clicks "Stop this batch" after tick 2 —
      rows 5–6 cancel, sent rows stay sent.
    - **#966 one-click proof**: POST the `List-Unsubscribe` header URL of
