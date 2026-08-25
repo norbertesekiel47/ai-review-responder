@@ -2,9 +2,16 @@
    Agent flip card — animated avatar on the front, duties on the back.
 
    The flip is driven by THREE selectors, and all three are required:
-     :hover                  pointer devices
+     :hover                  hover-capable fine pointers only — media-gated,
+                             because touch fires STICKY hover on tap: an
+                             ungated arm held the card flipped after the tap
+                             that set `data-flipped` back to false, so a
+                             second tap could never restore the front
      :focus-visible          keyboard
-     [data-flipped='true']   touch (React state, since touch has no hover)
+     [data-flipped='true']   touch (React state; the click toggle is gated to
+                             non-hover devices in agent-flip-card.tsx — on a
+                             pointer device a click would latch the card
+                             flipped after the pointer left)
 
    Drop any one of them and a whole input class loses access to the duties.
    ========================================================================== */
@@ -44,10 +51,17 @@
   transition: transform 620ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.rw-lp-flip:hover .rw-lp-flip-inner,
 .rw-lp-flip:focus-visible .rw-lp-flip-inner,
 .rw-lp-flip[data-flipped='true'] .rw-lp-flip-inner {
   transform: rotateY(180deg);
+}
+
+/* The hover arm, gated — see the header comment: ungated, sticky tap-hover
+   latched cards flipped on every touch device. */
+@media (hover: hover) and (pointer: fine) {
+  .rw-lp-flip:hover .rw-lp-flip-inner {
+    transform: rotateY(180deg);
+  }
 }
 
 /* Scoped under `.rw-lp-flip` deliberately, to out-specify `.rw-lp-glass`.
@@ -223,15 +237,26 @@
     opacity: 0;
   }
 
-  .rw-lp-flip:hover .rw-lp-flip-front,
   .rw-lp-flip:focus-visible .rw-lp-flip-front,
   .rw-lp-flip[data-flipped='true'] .rw-lp-flip-front {
     opacity: 0;
   }
 
-  .rw-lp-flip:hover .rw-lp-flip-back,
   .rw-lp-flip:focus-visible .rw-lp-flip-back,
   .rw-lp-flip[data-flipped='true'] .rw-lp-flip-back {
+    opacity: 1;
+  }
+}
+
+/* The reduce-branch hover arms, gated the same way as the 3D flip's — sticky
+   tap-hover latches the cross-fade exactly like the rotation, and reduced
+   motion + touch is a common pairing (iOS Reduce Motion). */
+@media (prefers-reduced-motion: reduce) and (hover: hover) and (pointer: fine) {
+  .rw-lp-flip:hover .rw-lp-flip-front {
+    opacity: 0;
+  }
+
+  .rw-lp-flip:hover .rw-lp-flip-back {
     opacity: 1;
   }
 }

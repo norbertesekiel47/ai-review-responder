@@ -6,12 +6,22 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by the merge line here. Full artifacts:
+**Merges since last architecture pass: 2** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-24 — `fix-flip-card-touch-latch`: landing flip-card input fix. The
+  agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
+  fine)` — sticky tap-hover latched a flipped card on every touch device: the
+  tap that set `data-flipped` back to false left `:hover` holding the card
+  flipped, so a second tap could never restore the front. The click toggle is
+  gated to non-hover devices for the mirror reason (a desktop click latched
+  the card flipped after the pointer left). 2 production files
+  (`agent-flip-card.{css,tsx}`); flip-selector contract lines updated in
+  landing DESIGN.md + measurements.md.
 
 - 2026-08-24 — `feat-landing-elevation`: landing-page elevation. Sections 6
   (The problem, reputation-wide framing) and 8 (Copilot vs Autopilot, the
