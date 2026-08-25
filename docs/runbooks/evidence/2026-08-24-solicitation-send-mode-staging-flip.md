@@ -521,4 +521,22 @@ candidates. Therefore the remaining arms run in this order:
   still waits on the bounce stamp (SES `delivery_delayed`).
 - **Unproven path 8 CLOSED.** Path 11 half-closed (eligibility half).
 
+### Owner decision — `no_candidates` closes as a DOCUMENTED GAP (19:0x UTC)
+
+- Owner call (this session): the `no_candidates` resolution is not exercised
+  live in this campaign. Basis, recorded so the decision is auditable:
+  inside the campaign window every new live-ingested review has in-window
+  candidates (A3 now, batch B later), so the only natural specimen is a
+  review whose Review-time anchor PRECEDES every `sent_at` detected late —
+  luck-dependent, not schedulable. The resolution is a log-only abstention
+  sharing `attributeReview`'s early-return path with `ambiguous`/`no_match`
+  (integration-test covered); no durable row exists to verify either way
+  by design (branch-review M4).
+- **Unproven path 10 closed as a documented gap with owner sign-off**
+  (same disposition shape as D-7 provider coverage). The #620 prod-flip
+  brief should re-decide whether the prod campaign needs a live specimen.
+- `ambiguous` (path 9) re-planned on owner constraint: no Google account
+  rename is possible; the arm will use the name "Norbert Esekiel" —
+  mechanics recorded when the second-account detail is confirmed.
+
 *(further entries appended in runbook order)*
