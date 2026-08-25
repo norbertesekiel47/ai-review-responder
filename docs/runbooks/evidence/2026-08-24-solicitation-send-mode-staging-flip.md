@@ -322,4 +322,15 @@ _dmarc.feedback.staging.repworth.net TXT
 - Batch A2's contacts burned like batch A's; campaign resumes on CSV **A3**
   (`+a3` identities).
 
+### Batch A3 — first clean render + owner approval (17:05–17:06 UTC)
+
+- Batch `01a039e1-dd42…` (CSV A3) built 17:05:03 on worker `f400245a`:
+  **4/4 Outreach rows `rendered`** — the lint passed on the first live
+  generation after both #963 fixes. All four subjects sentence-case
+  ("Thank you for visiting Tanicia Resort"); prompt style rule effective,
+  Title-Case rate this batch: 0/4.
+- Owner approved 17:06:40 — `approval_method='owner'` recorded (invariant
+  #3's Copilot form). Release drip (2/tick, cap 10) begins on the next
+  poller tick; delivery evidence follows.
+
 *(further entries appended in runbook order)*
