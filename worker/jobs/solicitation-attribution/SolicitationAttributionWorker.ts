@@ -18,7 +18,7 @@ import {
   type AttributionMatch,
   type AttributionRule,
 } from '@/lib/solicitation/attribution';
-import { createWorkerLogger } from '@/lib/shared/logger';
+import { createWorkerLogger, type WorkerLogger } from '@/lib/shared/logger';
 import {
   extractOutboxHandle,
   markOutboxCompleted,
@@ -85,18 +85,34 @@ function describeResolution(match: AttributionMatch): {
   }
 }
 
-export async function handleSolicitationAttribution(
-  sql: Sql,
-  job: Job<SolicitationAttributionPayload>,
-): Promise<void> {
-  const logger = createWorkerLogger('[SolicitationAttributionWorker]', job.data.correlation_id);
-  const { review_id: reviewId, business_id: businessId } = job.data;
-  const { outboxId, attempt } = extractOutboxHandle(job.data, job.id ?? '');
+/** The review this job is about and the outbox entry that asked for it — the
+ *  four values every step below is keyed on. */
+interface AttributionJobHandle {
+  reviewId: string;
+  businessId: string;
+  outboxId: string;
+  /** `undefined` when the payload carried no `outbox_attempt` — exactly what
+   *  `extractOutboxHandle` returns, and what the completion CAS accepts. */
+  attempt: number | undefined;
+}
 
-  // Invariant #11, checked before anything else reads tenant content. The
-  // worker type is `summary` because attribution is reporting, not delivery:
-  // the only status the choice moves is `pending_payment`, which is exempt for
-  // `generator` alone (admin demo drafts) and must not attribute here.
+/**
+ * The subscription guard, whole (invariant #12: a branch this size is a named
+ * unit, not an entry-point preamble). Answers one question — may this run
+ * attribute? — and both `false` arms have ALREADY settled the outbox row before
+ * returning, because a denial is a settled outcome and not a failure: a row
+ * left `dispatched` is the watchdog's to reclaim, and it would redispatch it
+ * until the entry exhausts, every attempt re-denying and none doing work.
+ *
+ * The worker type is `summary` because attribution is reporting, not delivery:
+ * the only status the choice moves is `pending_payment`, which is exempt for
+ * `generator` alone (admin demo drafts) and must not attribute here.
+ */
+async function attributionAllowed(
+  sql: Sql,
+  logger: WorkerLogger,
+  { reviewId, businessId, outboxId, attempt }: AttributionJobHandle,
+): Promise<boolean> {
   const context = await loadAttributionSubscriptionContext(sql, businessId);
   if (context === null) {
     // The business was deleted between enqueue and dispatch. Nothing to
@@ -104,7 +120,7 @@ export async function handleSolicitationAttribution(
     // watchdog redispatch it until it exhausts.
     logger.warn('attribution_skipped', { reviewId, businessId, reason: 'business_missing' });
     await markOutboxCompleted(sql, outboxId, attempt);
-    return;
+    return false;
   }
   const guard = checkSubscription({
     status: context.subscription_status,
@@ -115,8 +131,25 @@ export async function handleSolicitationAttribution(
   if (!guard.allowed) {
     logger.log('attribution_skipped', { reviewId, businessId, reason: guard.reason });
     await markOutboxCompleted(sql, outboxId, attempt);
-    return;
+    return false;
   }
+  return true;
+}
+
+export async function handleSolicitationAttribution(
+  sql: Sql,
+  job: Job<SolicitationAttributionPayload>,
+): Promise<void> {
+  const logger = createWorkerLogger('[SolicitationAttributionWorker]', job.data.correlation_id);
+  const { review_id: reviewId, business_id: businessId } = job.data;
+  const { outboxId, attempt } = extractOutboxHandle(job.data, job.id ?? '');
+  const handle: AttributionJobHandle = { reviewId, businessId, outboxId, attempt };
+
+  // FIRST, before anything else reads tenant content and before the
+  // transaction below opens (invariant #11). A denial settles its own outbox
+  // row, so there is nothing left here but to return.
+  const allowed = await attributionAllowed(sql, logger, handle);
+  if (!allowed) return;
 
   // ONE transaction: claim the outbox attempt, then do the domain write.
   //
