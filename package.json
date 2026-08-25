@@ -26,6 +26,7 @@
     "ci:rls-audit": "tsx scripts/ci/rls-audit.ts",
     "ci:analytics-events": "tsx scripts/ci/analytics-events-audit.ts",
     "ci:static-policy": "tsx scripts/ci/static-policy-audit.ts",
+    "ci:env-registry": "tsx scripts/ci/env-registry-audit.ts",
     "ci:response-status": "tsx scripts/ci/response-status-audit.ts",
     "ci:admin-aal2": "tsx scripts/ci/admin-aal2-audit.ts",
     "ci:config-coverage": "tsx scripts/ci/config-coverage-audit.ts",

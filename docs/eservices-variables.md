@@ -41,26 +41,47 @@ against `.env.example`.
 
 ## 2. Environment variable inventory
 
-**Legend:** ✅ in code + `.env.example` · 🟢 added to `.env.example` in the
-2026-05-29 pass · 🔸 retired as vestigial · 🧩 future placeholder · 🧪 test/CI
-only · ⚙️ platform-injected (not app config).
+**Format contract (since 2026-08-24, #918):** one variable per table row; the
+first cell holds exactly one backticked name. `ci:env-registry` parses ONLY
+that name cell — a var mentioned in another row's prose does not count as
+registered — and fails on the old inline-list / slash-separated shapes.
 
-### Database (Supabase)
+**Legend:** ✅ in code + `.env.example` · 🟢 added to `.env.example` in the
+2026-05-29 pass · ⬜ inventoried in the 2026-08-24 #918 audit pass (read by
+production code; `.env.example` coverage not re-audited) · 🔸 retired as
+vestigial · 🧩 future placeholder · 🧪 test/CI only · ⚙️ platform-injected
+(not app config).
+
+### Database (Supabase / Postgres)
 | Var | Status | Note |
 |---|---|---|
 | `DATABASE_URL` | ✅ | direct (5432) — migrations/tooling; **not** read by app runtime |
 | `DATABASE_POOL_URL` | ✅ | pooled (6543, PgBouncer) — app runtime |
-| `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` | ✅ | |
+| `SUPABASE_URL` | ✅ | |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | browser-safe sibling of `SUPABASE_URL` |
 | `SUPABASE_SERVICE_KEY` | ✅ | server-only |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | browser-safe |
+| `DB_POOL_MAX` | ⬜ | write-pool ceiling; deep tuning notes in `.claude/reference/env-vars.md` |
+| `DB_READ_POOL_MAX` | ⬜ | read-pool (`sqlRead`) ceiling |
+| `DB_ADMISSION_ENABLED` | ⬜ | default-ON kill switch for the #773 admission chokepoint |
 
-### Redis (Upstash)
-`REDIS_CACHE_URL` ✅ · `REDIS_CACHE_TOKEN` ✅ · `REDIS_QUEUE_URL` ✅ · `REDIS_QUEUE_TOKEN` ✅
+### Redis (Upstash cache / Railway queue)
+| Var | Status | Note |
+|---|---|---|
+| `REDIS_CACHE_URL` | ✅ | Upstash (TLS, Vercel-reachable) |
+| `REDIS_CACHE_TOKEN` | ✅ | |
+| `REDIS_QUEUE_URL` | ✅ | Railway Redis (private net; BullMQ) |
+| `REDIS_QUEUE_TOKEN` | ✅ | |
 
 ### LLM
-`OPENAI_API_KEY` ✅ · `ANTHROPIC_API_KEY` ✅ · `OPENAI_MODERATION_ENABLED` 🟢 (worker-only moderation gate, fail-open)
+| Var | Status | Note |
+|---|---|---|
+| `OPENAI_API_KEY` | ✅ | |
+| `ANTHROPIC_API_KEY` | ✅ | fallback provider |
+| `OPENAI_MODERATION_ENABLED` | 🟢 | worker-only moderation gate, fail-open |
+| `LLM_CIRCUIT_BREAKER_ENABLED` | ⬜ | default-ON kill switch for the per-provider circuit breaker |
 
-### Reviews / GBP
+### Reviews / GBP (Zernio, SerpAPI, Maps)
 | Var | Status | Note |
 |---|---|---|
 | `ZERNIO_PUBLISHING_ENABLED` | 🟢 | master flag (ingestion **and** posting) |
@@ -69,83 +90,246 @@ only · ⚙️ platform-injected (not app config).
 | `ZERNIO_API_BASE` | 🟢 | optional — sandbox override |
 | `ZERNIO_PROFILE_ID_PREFIX` | 🟢 | optional — prod/staging/local collision guard |
 | `ZERNIO_INGEST_MAX_PAGES` | 🟢 | optional — backfill page cap |
+| `ZERNIO_IMPORT_MAX_PAGES` | ⬜ | optional — consented-import page cap (distinct from ingest cap) |
 | `ZERNIO_RECENT_REVIEW_POLL_DISABLED` | 🟢 | optional |
+| `ZERNIO_RECENT_REVIEW_POLL_INTERVAL_MS` | ⬜ | optional poller cadence |
 | `ZERNIO_RECENT_REVIEW_POLL_MAX_PAGES` | 🟢 | optional |
 | `ZERNIO_RECENT_REVIEW_POLL_MAX_CONNECTIONS` | 🟢 | optional |
 | `ZERNIO_RECENT_REVIEW_POLL_CONCURRENCY` | 🟢 | optional |
 | `ZERNIO_RECENT_REVIEW_POLL_DEADLINE_MS` | 🟢 | optional |
+| `ZERNIO_RECENT_REVIEW_POLL_PAGE_SIZE` | ⬜ | optional |
+| `ZERNIO_RECENT_REVIEW_CONNECT_GRACE_MS` | ⬜ | optional — skip-poll grace after a fresh connect |
+| `MOCK_ZERNIO_LOCATION_COUNT` | ⬜ | local-dev only — synthetic location count under `MOCK_EXTERNAL_APIS` |
 | `SERPAPI_API_KEY` | ✅ | |
 | `SERPAPI_TIMEOUT_MS` | 🟢 | optional |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | ✅ | referrer-locked |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GCP_PROJECT_ID` | 🧩 | Phase-5 GBP API placeholders |
+| `GOOGLE_CLIENT_ID` | 🧩 | Phase-5 GBP API placeholder |
+| `GOOGLE_CLIENT_SECRET` | 🧩 | Phase-5 GBP API placeholder |
+| `GCP_PROJECT_ID` | 🧩 | Phase-5 GBP API placeholder |
 
 ### Email (Resend) & lead intake
-`RESEND_API_KEY` ✅ · `RESEND_WEBHOOK_SECRET` ✅ · `RESEND_FROM_EMAIL` ✅ · `ADMIN_NOTIFICATION_EMAIL` ✅ · `CONTACT_NOTIFY_TO` ✅ · `LIST_UNSUBSCRIBE_EMAIL` ✅ (mailto fallback) · `LIST_UNSUBSCRIBE_URL` 🟢 (one-click https endpoint — distinct var) · `OWNER_LEADS_GOOGLE_SHEET_ID` ✅ · `OWNER_LEADS_GOOGLE_SHEET_RANGE` ✅ · `GOOGLE_SHEETS_CLIENT_EMAIL` ✅ · `GOOGLE_SHEETS_PRIVATE_KEY` ✅
+| Var | Status | Note |
+|---|---|---|
+| `RESEND_API_KEY` | ✅ | |
+| `RESEND_WEBHOOK_SECRET` | ✅ | |
+| `RESEND_FROM_EMAIL` | ✅ | |
+| `ADMIN_NOTIFICATION_EMAIL` | ✅ | |
+| `CONTACT_NOTIFY_TO` | ✅ | |
+| `LIST_UNSUBSCRIBE_EMAIL` | ✅ | mailto fallback |
+| `LIST_UNSUBSCRIBE_URL` | 🟢 | one-click https endpoint — distinct var |
+| `EMAIL_SEND_TIMEOUT_MS` | ⬜ | optional — outbound Resend call timeout |
+| `OWNER_LEADS_GOOGLE_SHEET_ID` | ✅ | |
+| `OWNER_LEADS_GOOGLE_SHEET_RANGE` | ✅ | |
+| `GOOGLE_SHEETS_CLIENT_EMAIL` | ✅ | |
+| `GOOGLE_SHEETS_PRIVATE_KEY` | ✅ | |
 
 ### Payments (Stripe)
-`STRIPE_SECRET_KEY` ✅ · `STRIPE_WEBHOOK_SECRET` ✅ ·
-`STRIPE_PRICE_COPILOT_LIST` ✅ · `STRIPE_PRICE_COPILOT_FOUNDING` ✅ ·
-`STRIPE_PRICE_AUTOPILOT_LIST` ✅ · `STRIPE_PRICE_AUTOPILOT_FOUNDING` ✅ ·
-`STRIPE_PRICE_COPILOT_OVERAGE` ✅ · `STRIPE_PRICE_AUTOPILOT_OVERAGE` ✅ ·
-`FOUNDING_DEADLINE` ✅. The seven pre-WS8 Price variables remain deployed only
-through the cutover rollback window and are read only by the cutover preflight,
-not strict runtime price resolution: `STRIPE_PRICE_BASIC`,
-`STRIPE_PRICE_FOUNDING`, `STRIPE_PRICE_FOUNDERS_OVERAGE`,
-`STRIPE_PRICE_STANDARD`, `STRIPE_PRICE_STANDARD_OVERAGE`,
-`STRIPE_PRICE_PREMIUM`, `STRIPE_PRICE_PREMIUM_OVERAGE`.
-`BETA_COMP_COUPON_ID` ✅ **(2026-08-14, unset by default)** — the Stripe **Coupon**
-ID for the admin-invite beta comp (100% off, `repeating`, 3 months). Vercel-only
-(no worker path reaches `applyTierSnapshot`), server-only, no `NEXT_PUBLIC_*`
-companion. Unsetting is the kill switch, for **new** Checkout attempts only.
-Different IDs per Stripe mode. ⚠️ The coupon itself has not been created in
-either mode yet — see `.claude/reference/env-vars.md` → `BETA_COMP_COUPON_ID`.
+| Var | Status | Note |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | ✅ | |
+| `STRIPE_WEBHOOK_SECRET` | ✅ | |
+| `STRIPE_PRICE_COPILOT_LIST` | ✅ | |
+| `STRIPE_PRICE_COPILOT_FOUNDING` | ✅ | |
+| `STRIPE_PRICE_AUTOPILOT_LIST` | ✅ | |
+| `STRIPE_PRICE_AUTOPILOT_FOUNDING` | ✅ | |
+| `STRIPE_PRICE_COPILOT_OVERAGE` | ✅ | |
+| `STRIPE_PRICE_AUTOPILOT_OVERAGE` | ✅ | |
+| `FOUNDING_DEADLINE` | ✅ | |
+| `STRIPE_TAX_ENABLED` | ⬜ | server-only, default off — behavior row in `env-vars.md` |
+| `TRIAL_ENABLED` | ⬜ | card-up-front 30-day trial flag (migration 069) |
+| `TRIAL_PERIOD_DAYS` | ⬜ | optional trial-length override |
+| `BETA_COMP_COUPON_ID` | ✅ | admin-invite beta comp coupon — full behavior row in `env-vars.md` |
+
+The seven pre-WS8 Price variables remain deployed only through the cutover
+rollback window and are read only by the cutover preflight (`scripts/`), not by
+production runtime: `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
+`STRIPE_PRICE_FOUNDERS_OVERAGE`, `STRIPE_PRICE_STANDARD`,
+`STRIPE_PRICE_STANDARD_OVERAGE`, `STRIPE_PRICE_PREMIUM`,
+`STRIPE_PRICE_PREMIUM_OVERAGE`.
 
 ### Channels (Twilio / Telegram) — flags off by default
-Telegram: `CHANNELS_TELEGRAM_ENABLED` ✅ · `TELEGRAM_BOT_TOKEN` ✅ · `TELEGRAM_WEBHOOK_SECRET` ✅ · `TELEGRAM_BOT_USERNAME` ✅
-WhatsApp: `CHANNELS_WHATSAPP_ENABLED` ✅ · `TWILIO_ACCOUNT_SID` ✅ · `TWILIO_AUTH_TOKEN` ✅ · `TWILIO_WHATSAPP_NUMBER` ✅ · `WHATSAPP_APPROVAL_TEMPLATE_SID` ✅ · `WHATSAPP_APPROVAL_URL_BASE` ✅
+| Var | Status | Note |
+|---|---|---|
+| `CHANNELS_TELEGRAM_ENABLED` | ✅ | |
+| `TELEGRAM_BOT_TOKEN` | ✅ | |
+| `TELEGRAM_WEBHOOK_SECRET` | ✅ | |
+| `TELEGRAM_BOT_USERNAME` | ✅ | |
+| `CHANNELS_WHATSAPP_ENABLED` | ✅ | |
+| `TWILIO_ACCOUNT_SID` | ✅ | |
+| `TWILIO_AUTH_TOKEN` | ✅ | |
+| `TWILIO_WHATSAPP_NUMBER` | ✅ | |
+| `WHATSAPP_APPROVAL_TEMPLATE_SID` | ✅ | |
+| `WHATSAPP_APPROVAL_URL_BASE` | ✅ | |
+| `WHATSAPP_AUTOPOST_TEMPLATE_SID` | ⬜ | auto-approved post FYI template |
+| `WHATSAPP_PENDING_POST_TEMPLATE_SID` | ⬜ | pending-post notice template |
+| `WHATSAPP_ESCALATION_TEMPLATE_SID` | ⬜ | Guardian escalation template |
+| `WHATSAPP_AUTONOMY_SUSPENDED_TEMPLATE_SID` | ⬜ | Governor suspension notice template |
+| `WHATSAPP_SOLICITATION_VETO_TEMPLATE_SID` | ⬜ | solicitation veto-window notice template |
 
 ### Security / secrets
 | Var | Status | Note |
 |---|---|---|
 | `SESSION_COOKIE_SECRET` | ✅ | |
+| `SESSION_COOKIE_SECRET_PREVIOUS` | ⬜ | rotation predecessor — accepted for verify, never for sign |
 | `CSRF_SECRET` | ✅ | |
 | `IMPERSONATION_COOKIE_SECRET` | ✅ | HMAC-SHA256, ≥32 chars |
-| `ENCRYPTION_KEY` / `ENCRYPTION_KEY_VERSION` | 🔸 | **Retired.** No references anywhere in code (no symmetric crypto exists; tokens are SHA-256 *hashed*). Commented out in `.env.example` pending full removal. |
+| `WORKER_INTERNAL_SECRET` | ⬜ | shared secret for internal worker-to-app calls |
+| `ENCRYPTION_KEY` | 🔸 | **Retired.** No references in code (tokens are SHA-256 *hashed*, no symmetric crypto). Commented out in `.env.example` pending removal. |
+| `ENCRYPTION_KEY_VERSION` | 🔸 | **Retired.** Sibling of `ENCRYPTION_KEY`. |
 
-### App / worker URLs
+### App / worker URLs & lifecycle
 | Var | Status | Note |
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | ✅ | |
 | `WORKER_PUBLIC_URL` | ✅ | public worker origin (webhook signature base); 10 code refs |
 | `WORKER_SERVICE_URL` | 🔸 | **Retired.** 0 code refs — superseded by `WORKER_PUBLIC_URL`. Commented out pending removal. |
+| `WORKER_SHUTDOWN_GRACE_MS` | ⬜ | optional — graceful-shutdown budget before hard exit |
+| `BOOT_STAGGER_ENABLED` | ⬜ | optional — staggers worker registrations at boot |
 
 ### Observability
-`SENTRY_DSN` ✅ · `NEXT_PUBLIC_SENTRY_DSN` ✅ · `SENTRY_ORG` ✅ · `SENTRY_PROJECT` ✅ · `SENTRY_AUTH_TOKEN` ✅ · `POSTHOG_API_KEY` ✅ · `POSTHOG_HOST` ✅ · `LOG_SERVICE` 🟢 (log-label, cosmetic)
+| Var | Status | Note |
+|---|---|---|
+| `SENTRY_DSN` | ✅ | worker boot gate (`assertAlertSinkEnv`) |
+| `NEXT_PUBLIC_SENTRY_DSN` | ✅ | |
+| `SENTRY_ORG` | ✅ | |
+| `SENTRY_PROJECT` | ✅ | |
+| `SENTRY_AUTH_TOKEN` | ✅ | |
+| `POSTHOG_API_KEY` | ✅ | no-op when unset |
+| `POSTHOG_HOST` | ✅ | |
+| `LOG_SERVICE` | 🟢 | log-label, cosmetic |
 
-### Feature flags
-`SELF_SERVE_SIGNUP_ENABLED` ✅ · `RANKING_TRACKING_ENABLED` ✅ · `EDIT_REPLIES_ENABLED` ✅ · `MULTI_LOCATION_ENABLED` 🟢 · `ONBOARDING_DEMO_ENABLED` 🟢 · `EXTERNAL_REPLY_IMPORT_ENABLED` 🟢 · `MFA_ENFORCEMENT_ENABLED` 🟢 · `AUTO_APPROVAL_ENABLED` 🟢 · `AUTOPILOT_PURCHASABLE` ✅ · `AUTO_APPROVAL_PROVIDER_MODERATION_READY` 🟢 · `ACCOUNT_OFFBOARDING_ENABLED` 🟢 · `OPENAI_MODERATION_ENABLED` 🟢 (listed under LLM)
-> Behavior of each flag: `.claude/reference/env-vars.md`. All are server-authoritative — never add a `NEXT_PUBLIC_*` companion.
-> **Retired:** `PAST_REPLIES_VIEW_ENABLED` (#678) — the **Reviews list** at `dashboard/reviews/history` renders unconditionally, so the flag would have let `import_decision='accepted'` coexist with imported reviews landing on a `notFound()`. `EDIT_REPLIES_ENABLED` is kept: it gates the live-Google mutation, a different and larger risk. The var may still be set in deployed environments; it is simply unread.
+### Agentic autonomy (personas + watchdogs) — behavior rows in `env-vars.md`
+| Var | Status | Note |
+|---|---|---|
+| `TRIAGE_ENABLED` | ⬜ | Guardian triage lane |
+| `ESCALATION_ENABLED` | ⬜ | Guardian escalation notices |
+| `JUDGE_ENABLED` | ⬜ | Judge review of auto-posts — posting precondition (invariant #3) |
+| `JUDGE_POLL_INTERVAL_MS` | ⬜ | optional poller cadence |
+| `GOVERNOR_ENABLED` | ⬜ | per-account autonomy suspension |
+| `GOVERNOR_INTERVAL_MS` | ⬜ | optional poller cadence |
+| `AUTO_APPROVAL_ENABLED` | 🟢 | auto-policy approval master flag, default off |
+| `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | 🟢 | provider-moderation gate attestation |
+| `AUTOPILOT_PURCHASABLE` | ✅ | Autopilot tier purchasable in checkout |
+
+### Solicitation
+| Var | Status | Note |
+|---|---|---|
+| `SOLICITATION_WATCH_ENABLED` | ⬜ | watch-mode lane flag |
+| `SOLICITATION_SEND_ENABLED` | ⬜ | send-mode lane flag |
+| `SOLICITATION_AUTO_APPROVAL_ENABLED` | ⬜ | Autopilot solicitation batches (#631), veto-windowed |
+| `SOLICITATION_RESEND_API_KEY` | ⬜ | dedicated Sending-identity Resend key |
+| `SOLICITATION_SEND_FROM_ADDRESS` | ⬜ | the one shared Sending identity |
+| `SOLICITATION_UNSUBSCRIBE_MAILTO` | ⬜ | List-Unsubscribe mailto for asks |
+| `SOLICITATION_PLATFORM_DAILY_CAP` | ⬜ | platform-wide daily send ceiling (blast-radius bound) |
+| `SOLICITATION_RELEASE_POLL_INTERVAL_MS` | ⬜ | optional release-poller cadence (#900) |
+
+### Feature flags (behavior rows in `env-vars.md`)
+| Var | Status | Note |
+|---|---|---|
+| `SELF_SERVE_SIGNUP_ENABLED` | ✅ | |
+| `RANKING_TRACKING_ENABLED` | ✅ | |
+| `EDIT_REPLIES_ENABLED` | ✅ | |
+| `MULTI_LOCATION_ENABLED` | 🟢 | |
+| `ONBOARDING_DEMO_ENABLED` | 🟢 | |
+| `EXTERNAL_REPLY_IMPORT_ENABLED` | 🟢 | |
+| `MFA_ENFORCEMENT_ENABLED` | 🟢 | |
+| `ACCOUNT_OFFBOARDING_ENABLED` | 🟢 | |
+
+> Behavior of each flag: `.claude/reference/env-vars.md`. All are
+> server-authoritative — never add a `NEXT_PUBLIC_*` companion.
+> **Retired:** `PAST_REPLIES_VIEW_ENABLED` (#678) — the **Reviews list** at
+> `dashboard/reviews/history` renders unconditionally. `EDIT_REPLIES_ENABLED`
+> is kept: it gates the live-Google mutation, a different and larger risk. The
+> var may still be set in deployed environments; it is simply unread.
 
 ### Costs
-`GLOBAL_DAILY_COST_LIMIT_CENTS` ✅ · `DAILY_COST_LIMIT_CENTS_COPILOT` ✅
-(required positive operator input) · `DAILY_COST_LIMIT_CENTS_AUTOPILOT` ✅
-(required positive operator input) · `ONBOARDING_DEMO_DAILY_CENTS` 🟢 ·
-`ONBOARDING_DEMO_STAFF_EMAILS_CSV` 🟢
+| Var | Status | Note |
+|---|---|---|
+| `GLOBAL_DAILY_COST_LIMIT_CENTS` | ✅ | |
+| `DAILY_COST_LIMIT_CENTS_COPILOT` | ✅ | required positive operator input |
+| `DAILY_COST_LIMIT_CENTS_AUTOPILOT` | ✅ | required positive operator input |
+| `ONBOARDING_DEMO_DAILY_CENTS` | 🟢 | |
+| `ONBOARDING_DEMO_STAFF_EMAILS_CSV` | 🟢 | |
 
-### Poller / scheduler tuning — all optional, code defaults; 🟢 added as commented docs
-`OUTBOX_POLL_INTERVAL_MS` · `OUTBOX_BATCH_SIZE` · `ARCHIVAL_INTERVAL_MS` · `CANCELLATION_GRACE_INTERVAL_MS` · `ENGAGEMENT_MONITOR_INTERVAL_MS` · `EMAIL_CHANNEL_RECONCILE_INTERVAL_MS` / `_BATCH_SIZE` / `_DISABLED` · `ANALYTICS_DISPATCH_POLL_INTERVAL_MS` / `_BATCH_SIZE` · `STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS` / `_DISABLED` · `MONTHLY_IMPACT_SCHEDULER_INTERVAL_MS` · `WEEKLY_SUMMARY_SCHEDULER_INTERVAL_MS` · `ONBOARDING_DRIP_INTERVAL_MS` · `NOTIFICATION_FAILOVER_INTERVAL_MS` / `_DISABLED` · `CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS` / `_BATCH_SIZE` · `RANKING_TRACKING_INTERVAL_MS`
+### Poller / scheduler tuning — all optional, code defaults
+| Var | Status | Note |
+|---|---|---|
+| `OUTBOX_POLL_INTERVAL_MS` | 🟢 | |
+| `OUTBOX_BATCH_SIZE` | ⬜ | |
+| `OUTBOX_DISPATCH_TIMEOUT_MS` | ⬜ | per-dispatch enqueue timeout |
+| `OUTBOX_POLL_MAX_CYCLE_MS` | ⬜ | cycle watchdog budget |
+| `OUTBOX_WATCHDOG_STALE_MS` | ⬜ | stale `dispatching` reclaim threshold |
+| `ARCHIVAL_INTERVAL_MS` | 🟢 | |
+| `CANCELLATION_GRACE_INTERVAL_MS` | 🟢 | |
+| `ENGAGEMENT_MONITOR_INTERVAL_MS` | 🟢 | |
+| `EMAIL_CHANNEL_RECONCILE_INTERVAL_MS` | 🟢 | |
+| `EMAIL_CHANNEL_RECONCILE_BATCH_SIZE` | 🟢 | |
+| `EMAIL_CHANNEL_RECONCILE_DISABLED` | 🟢 | |
+| `ANALYTICS_DISPATCH_POLL_INTERVAL_MS` | 🟢 | |
+| `ANALYTICS_DISPATCH_BATCH_SIZE` | 🟢 | |
+| `STRIPE_LOCATIONS_RECONCILE_INTERVAL_MS` | 🟢 | |
+| `STRIPE_LOCATIONS_RECONCILE_DISABLED` | 🟢 | |
+| `MONTHLY_IMPACT_SCHEDULER_INTERVAL_MS` | 🟢 | |
+| `WEEKLY_SUMMARY_SCHEDULER_INTERVAL_MS` | 🟢 | |
+| `ONBOARDING_DRIP_INTERVAL_MS` | 🟢 | |
+| `NOTIFICATION_FAILOVER_INTERVAL_MS` | 🟢 | |
+| `NOTIFICATION_FAILOVER_DISABLED` | 🟢 | |
+| `CLEANUP_ABANDONED_SIGNUPS_INTERVAL_MS` | 🟢 | |
+| `CLEANUP_ABANDONED_SIGNUPS_BATCH_SIZE` | 🟢 | |
+| `RANKING_TRACKING_INTERVAL_MS` | 🟢 | |
+| `ACCOUNT_OFFBOARDING_ACCESS_END_INTERVAL_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_ACCESS_END_BATCH_SIZE` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_PURGE_INTERVAL_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_PURGE_BATCH_SIZE` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_PURGE_REMINDER_INTERVAL_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_PURGE_REMINDER_BATCH_SIZE` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_PURGE_WINDOW_OVERRIDE_MS` | ⬜ | **staging/non-prod only** — see `env-vars.md` |
+| `ACCOUNT_OFFBOARDING_REACTIVATION_RESET_INTERVAL_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_REACTIVATION_RESET_BATCH_SIZE` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_INTERVAL_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_BATCH_SIZE` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_RETRY_COOLDOWN_MS` | ⬜ | |
+| `ACCOUNT_OFFBOARDING_TEARDOWN_MAX_RETRIES` | ⬜ | |
+
+### Worker health alerting (`HealthAlertPoller`) — all optional threshold tuning
+| Var | Status | Note |
+|---|---|---|
+| `HEALTH_ALERT_POLL_INTERVAL_MS` | ⬜ | |
+| `HEALTH_ALERT_MONITOR_SLUG` | ⬜ | Sentry cron-monitor slug |
+| `HEALTH_ALERT_FAILED_THRESHOLD` | ⬜ | |
+| `HEALTH_ALERT_FAILED_WINDOW_S` | ⬜ | |
+| `HEALTH_ALERT_STALE_DISPATCHING_S` | ⬜ | |
+| `HEALTH_ALERT_PENDING_AGE_S` | ⬜ | |
+| `HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD` | ⬜ | |
+| `HEALTH_ALERT_ZERO_DELIVERY_WINDOW_S` | ⬜ | |
+| `HEALTH_ALERT_FLAGGED_OPEN_THRESHOLD` | ⬜ | |
+| `HEALTH_ALERT_OWNER_UNREACHABLE_THRESHOLD` | ⬜ | |
+| `HEALTH_ALERT_OWNER_UNREACHABLE_AGE_S` | ⬜ | |
+| `HEALTH_ALERT_WEDGED_CLIENT_READ_THRESHOLD` | ⬜ | |
+| `HEALTH_ALERT_WEDGED_CLIENT_READ_AGE_S` | ⬜ | |
 
 ### Docs / misc
-`NEXT_PUBLIC_DOCS_BASE_URL` 🟢 (makes `/admin/runbook` names clickable) · `MOCK_EXTERNAL_APIS` ✅
+| Var | Status | Note |
+|---|---|---|
+| `NEXT_PUBLIC_DOCS_BASE_URL` | 🟢 | makes `/admin/runbook` names clickable |
+| `MOCK_EXTERNAL_APIS` | ✅ | local-dev bypass of all external APIs; `false` in CI |
 
-### Test / CI only — 🟢 documented under a test section
-`TEST_DATABASE_POOL_URL` · `PLAYWRIGHT_BASE_URL` · `ALLOW_E2E_DB_WRITES` · `E2E_ADMIN_TEST_BUSINESS_ID`
+### Test / CI only
+| Var | Status | Note |
+|---|---|---|
+| `TEST_DATABASE_POOL_URL` | 🧪 | |
+| `PLAYWRIGHT_BASE_URL` | 🧪 | |
+| `ALLOW_E2E_DB_WRITES` | 🧪 | |
+| `E2E_ADMIN_TEST_BUSINESS_ID` | 🧪 | |
 
-### Platform-injected — ⚙️ never put in `.env.example`
-`NODE_ENV` · `NEXT_RUNTIME` · `PORT` · `CI` · `VERCEL_GIT_COMMIT_SHA`
-
----
+### Platform-injected — never put in `.env.example`
+| Var | Status | Note |
+|---|---|---|
+| `NODE_ENV` | ⚙️ | |
+| `NEXT_RUNTIME` | ⚙️ | |
+| `PORT` | ⚙️ | |
+| `CI` | ⚙️ | |
+| `VERCEL_GIT_COMMIT_SHA` | ⚙️ | |
 
 ## 3. Historical drift report (2026-05-29 snapshot; not the current inventory)
 
