@@ -46,10 +46,13 @@ complete; the Copilot arm is proven end-to-end.
    Owner leaves a real Google review on the Tanicia Resort location under a
    name matching a seeded contact. Then verify: 4 evidence columns on the
    outreach row + one `review_attributed` outcome on the Lazy child. Also
-   exercise `ambiguous` (needs seeding — `MIN_GAP_DAYS` blocks the natural
-   path), `no_candidates` (out-of-window), and the bounced/complained
-   exclusion. Note the locked rule: **unsubscribed stays eligible** — the two
-   suppressed handles above are the specimen.
+   exercise `ambiguous` — A3 already holds TWO `sent` contacts named
+   "Alex Rivera", so only the REVIEW side needs a decision (second Google
+   identity or seeding) — plus `no_candidates` (a live-detected review whose
+   anchor precedes every `sent_at`), and the bounced/complained exclusion
+   (bounce-arm sits in `delivery_delayed` at SES; `bounced_at` arrives when
+   it gives up). Note the locked rule: **unsubscribed stays eligible** — the
+   two suppressed handles above are the specimen.
 2. **Batch B — everything else at once** (accepts erasing A3):
    the **auto-approval lane** (flip `SOLICITATION_AUTO_APPROVAL_ENABLED=true`
    via the `flag-flip` skill FIRST — judge is already on, which is why the

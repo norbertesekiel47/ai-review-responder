@@ -444,4 +444,50 @@ candidates. Therefore the remaining arms run in this order:
   where the auto-approval lane, the halt arm, and the #966 proof all land
   TOGETHER, after the attribution arms finish on A3.
 
+### Session resume — reconciliation + provider-state reads (18:2x–18:4x UTC)
+
+- Resume reconciliation clean: worktree at `b0d5396b`, gate GREEN at HEAD,
+  intake copies match; branch 5 commits behind `origin/main` (docs-only —
+  no rebase mid-campaign). Staging worker healthy on `d007ee80`
+  (deployment `4ec1b27d`, 18:07 UTC).
+- A3 re-verified in DB: all 4 outreach rows `sent`, none attributed; the
+  newest review detection is still the 15:42 initial import — the owner
+  review for the attribution arm has not been left yet.
+- **Ambiguous-arm update**: CSV A3 seeded TWO distinct contacts named
+  "Alex Rivera" (different emails), both `sent` — the two-candidate
+  specimen already exists inside ONE batch, so the earlier
+  "MIN_GAP_DAYS blocks the natural path" concern is moot on the outreach
+  side. The arm still needs the REVIEW side: a live-ingested Google review
+  under the name "Alex Rivera" (second Google identity, or a seeding
+  decision — owner call, open).
+- **Bounce-arm status (not a defect)**: Resend shows the bounce-arm message
+  (`fdc1c6c6…`) in `delivery_delayed` — SES treats the NXDOMAIN target as
+  retryable and has not hard-bounced yet (`no-mx.staging.repworth.net`
+  verified: no A, no MX, no wildcard). The staging webhook endpoint
+  (`0e671d1f…`) is enabled and subscribed to `email.bounced` /
+  `email.complained` / `email.delivered` / `email.opened` (matches
+  deployment-guide §6.1); the drip's three `email.delivered` events landed
+  as `processed` `inbound_events` rows. The lane works; `bounced_at` writes
+  itself whenever SES gives up. The bounced-exclusion attribution arm
+  waits on that.
+- **Attribution enqueue scope re-confirmed in code**
+  (`src/lib/reviews/process-review.ts`): NEW-review LIVE lane only — the
+  15:42 imported reviews deliberately never enqueue attribution (zero
+  `attribution_resolved` lines in that deployment's logs, as designed).
+  `no_candidates` therefore still needs its own specimen. Natural shape
+  noted for the seeding decision: a live-DETECTED review whose Review-time
+  anchor PRECEDES every `sent_at` (e.g. a stranger's review left before
+  17:22 today, detected by a later poll) resolves `no_candidates`, not
+  `no_match`.
+- **Observations, non-campaign**: (a) staging `/ingress/stripe` returns
+  500s on a stream of `customer.subscription.deleted` events for test-mode
+  customers erased by the 2026-08-05 staging wipe — pre-existing
+  retry-by-design noise, not caused by `d007ee80`; it may pollute the
+  "HealthAlertPoller stays quiet" observation window and is recorded here
+  so it is not misread as a campaign regression. (b) The Resend team
+  carries a second ENABLED webhook endpoint pointing at an ngrok dev
+  tunnel (`unmoderated-stormy-sweer.ngrok-free.dev`), subscribed to ALL
+  event types — dev leftover, hygiene flag for the owner; not touched by
+  this campaign.
+
 *(further entries appended in runbook order)*
