@@ -298,4 +298,28 @@ _dmarc.feedback.staging.repworth.net TXT
   DISPATCH-GATE withhold (post-queue). Staging has not yet produced one;
   the arm stays open.
 
+### #963 second finding — Title-Case subjects (16:41–16:5x UTC)
+
+- Batch A2 (`01a039cb-e753…`, built 16:41:04 on the google-fixed worker)
+  withheld 4/4 again: `lint_failed` / `unverifiable_fact`, send parent
+  `generation_failed`. Same signature, different offender.
+- Render bytes ARE persisted (`solicitation_outreach.rendered_subject/_body`
+  + `interpolation_inputs`) — diagnosis went straight to content this time.
+  Specimen subject: `We'd Love Your Feedback!` — the model writes
+  **Title-Case subjects**, and §2.4's provenance arm reads every capitalized
+  mid-sentence token ("Love", "Your", "Feedback") as an invented fact.
+- **Mechanical confirmation**: replaying `lintAsk` on the exact persisted
+  bytes reproduces `unverifiable_fact`; the identical content with a
+  sentence-case subject lints CLEAN. The google fix works; the subject was
+  the second, independent deterministic offender.
+- Fix (same branch, commit `f400245a`): prompt style rule — "Write the
+  subject in sentence case…" — `SOLICITATION_ASK_PROMPT_VERSION` →
+  `2026-08-25.1`. Lint deliberately unchanged: weakening subject provenance
+  coverage is a spec-owner decision, kept as the recorded fallback if the
+  model's style compliance proves flaky. Residual risk: a stochastic
+  Title-Case subject still withholds (visible, owner-regenerable) — this
+  campaign measures the rate.
+- Batch A2's contacts burned like batch A's; campaign resumes on CSV **A3**
+  (`+a3` identities).
+
 *(further entries appended in runbook order)*
