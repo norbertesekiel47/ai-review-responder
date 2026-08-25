@@ -367,4 +367,64 @@ _dmarc.feedback.staging.repworth.net TXT
 - The #963 specimen renders quoted in this doc are now the ONLY surviving
   copy — the DB rows were cascade-deleted by the A3 upload.
 
+### §6 seed gate — Gmail auth verdicts (owner-captured raw source, 17:22 send)
+
+```
+Authentication-Results: mx.google.com;
+  dkim=pass header.i=@feedback.staging.repworth.net header.s=resend
+  dkim=pass header.i=@amazonses.com (SES infra signature — expected)
+  spf=pass smtp.mailfrom=…@bounce.feedback.staging.repworth.net
+  dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=feedback.staging.repworth.net
+```
+
+- All three verdicts PASS under `p=reject`; §3's `spf=pass + dmarc=fail`
+  trap absent (aspf=r working). TLS1_3 in transit.
+- **Placement**: Gmail **Promotions** (not Spam) — recorded honestly; Zoho:
+  both copies in the primary Inbox. Coverage per D-7: Gmail + Zoho.
+- RFC 8058: `List-Unsubscribe` = HTTPS one-click `/u/<token>` + `mailto:`;
+  `List-Unsubscribe-Post: List-Unsubscribe=One-Click` present.
+- Footer: identification line, attested postal address (20350 Stevens Creek
+  Blvd, Cupertino, CA 95014), unsubscribe line. Review link:
+  `https://search.google.com/local/writereview?placeid=ChIJqb_7RPR5UDcR…` —
+  canonical Place ID, google.com property, NO `links.` rewrite.
+- `Reply-To: <owner email>` (§4 stray-catcher design confirmed).
+- **Unproven path 3 (auth half) CLOSED; placement recorded.** One-click POST
+  half continues below.
+
+### Unsubscribe arm — ledger writes; FOURTH live finding (#966) (17:43–17:52 UTC)
+
+- **Human path PROVEN**: owner clicked the footer link in the Gmail copy and
+  confirmed → `solicitation_suppressions` row 17:43:02, `channel=email`,
+  `normalized_handle=norbertesekiel@gmail.com`, **`scope=global`**,
+  `source=unsubscribe_link`.
+- **Token single-use PROVEN**: re-POSTing that redeemed token returns the
+  Neutral page ("may already have been used…") and writes NO second row —
+  the §5.4 no-dead-end rule and idempotency, both observed.
+- **#966 — the advertised one-click URI is the wrong endpoint.** Tested with
+  a FRESH token from the Zoho copy:
+  | POST target | Result | Ledger |
+  |---|---|---|
+  | `/u/<token>` (**what the header advertises**) | 200, renders the confirm-button page | **no write** |
+  | `/api/u/<token>` | 303 | row written 17:50:54 |
+  | worker `/ingress/unsubscribe/<token>` (invariant #6 home) | 200 `{"received":true}` | idempotent re-POST |
+  So every provider-automated one-click (Gmail chip, Yahoo, Apple Mail)
+  silently no-ops: 200, no suppression. Filed **#966** with the fix shape
+  (dispatch mints ONE url for two consumers — `dispatch.ts:786`
+  `buildUnsubscribeUrl` → `:1747`; the header half must become the worker
+  ingress URL).
+- Also observed: Gmail showed **no unsubscribe chip** for this message —
+  consistent with a brand-new domain lacking sender reputation, and not
+  itself proof of the header defect (the header IS present and well-formed).
+- Unproven path 3's one-click half stays **OPEN**, now with a named cause.
+
+### Campaign sequencing decision (#965 forces it)
+
+Proving #966's fix needs a NEW send → a new batch → a new CSV upload →
+which per #965 **erases A3's outreach rows**, i.e. the attribution
+candidates. Therefore the remaining arms run in this order:
+1. **Attribution arms on A3's surviving `sent` rows** (needs a real Google
+   review; 14-day window is generous).
+2. Then #966's fix + batch B, which also carries the **auto-approval lane**
+   and **mid-flight halt** arms.
+
 *(further entries appended in runbook order)*
