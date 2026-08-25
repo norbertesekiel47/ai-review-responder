@@ -20,7 +20,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 
-const LIVE_DB_LOCK_KEY = 'repworth_live_db_integration';
+// Exported as the single TS owner of the key literal (#877): ci:rls-audit's
+// shared acquisition imports it, and scripts/test-db-setup.sh — which cannot
+// import TS — re-spells it under a drift-guard test
+// (scripts/ci/__tests__/test-db-provision.test.ts).
+export const LIVE_DB_LOCK_KEY = 'repworth_live_db_integration';
 const LIVE_DB_LOCK_ACQUISITION_TIMEOUT_MS = 4 * 60_000;
 const LIVE_DB_LOCK_SESSION_PREFIX = 'repworth_livedb_lock_';
 
