@@ -229,8 +229,11 @@ Role: the action layer and the oversight layer, distinguished by temperature.
 
 - Personas are the shared portrait shape; **watchdog cards are the ROW form**, not the
   portrait shape.
-- **Three flip selectors, all required:** `:hover` (pointer), `[data-flipped='true']`
-  (touch), `:focus-visible` (keyboard).
+- **Three flip selectors, all required:** `:hover` (hover-capable fine pointers —
+  media-gated, because sticky tap-hover latched cards flipped on touch),
+  `[data-flipped='true']` (touch — the click toggle is gated to non-hover devices,
+  since on a pointer device a click would latch the card flipped after the pointer
+  left), `:focus-visible` (keyboard).
 - `.rw-lp-flip .rw-lp-flip-face` is scoped deliberately — flattening the selector drops
   both faces into normal flow.
 

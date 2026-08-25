@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useCallback, useState } from 'react';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { AmbientVideo } from './ambient-motion';
 
@@ -14,9 +15,12 @@ import { AmbientVideo } from './ambient-motion';
  * touch device, and every keyboard user. Making the card a real button gives
  * all three input methods the same access —
  *
- *   pointer   :hover flips it
- *   touch     click toggles `flipped` (no hover state exists to strand it)
- *   keyboard  :focus-visible flips it, Enter/Space toggles
+ *   pointer   :hover flips it (the CSS arm is gated to hover-capable fine
+ *             pointers; the click toggle is OFF here, because a click would
+ *             latch the card flipped after the pointer left)
+ *   touch     click toggles `flipped` — and the hover arm's media gate keeps
+ *             sticky tap-hover from holding a card flipped
+ *   keyboard  :focus-visible flips it while focused
  *
  * ── Screen readers ────────────────────────────────────────────────────────
  * Both faces stay in the DOM and neither is `aria-hidden`. The flip is purely
@@ -68,6 +72,11 @@ export function AgentFlipCard({
   tier = 'persona',
 }: AgentFlipCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
+  // Mirrors the CSS hover gate. On hover-capable fine pointers the hover /
+  // focus arms own the flip, and a click must NOT latch `data-flipped` — the
+  // card would stay flipped after the pointer left. `false` during SSR is the
+  // safe default: it enables the toggle, and only post-hydration clicks exist.
+  const canHover = useMediaQuery('(hover: hover) and (pointer: fine)');
   const [flipped, setFlipped] = useState(false);
 
   const toggle = useCallback(() => setFlipped((v) => !v), []);
@@ -80,7 +89,7 @@ export function AgentFlipCard({
       data-status={status}
       data-tier={tier}
       aria-pressed={flipped}
-      onClick={toggle}
+      onClick={canHover ? undefined : toggle}
     >
       <span className="rw-lp-flip-inner">
         <span className="rw-lp-flip-face rw-lp-flip-front rw-lp-glass">
