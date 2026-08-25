@@ -1,0 +1,66 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "Flip the Solicitation send lane and the Auto-approval lane ON in staging, prove both lanes drip end-to-end, and record the evidence doc (issue #633, map #617).",
+  "non_goals": [
+    "Prod flip — prod stays OFF; prod bring-up + counsel sign-off ride the #620 brief, outside this map",
+    "Amending the B3 cap-counting basis (B3.4) — deferred; decided before the prod flip using this campaign's data",
+    "Durable persistence for attribution abstentions — already filed as a follow-up (they stay log-only)",
+    "Ramp advancement beyond stage 1 (50/day) — dwell/advance rules are a prod concern",
+    "Any production code change — a discovered code need re-classifies the ticket"
+  ],
+  "user_visible_behavior": [
+    "STAGING ONLY: SendLaneView renders and /dashboard/requests approval panel is live (flag absence no longer nulls them)",
+    "Seeded/test recipients receive real ask emails from reviews@feedback.staging.repworth.net",
+    "Unsubscribe link in a received email writes a suppression ledger row and the page confirms from a ledger read"
+  ],
+  "invariants": [
+    "No prod env var changes of any kind during this campaign",
+    "Flip order: env vars (SOLICITATION_RESEND_API_KEY, SOLICITATION_SEND_FROM_ADDRESS, SOLICITATION_PLATFORM_DAILY_CAP=50) -> JUDGE_ENABLED=true -> SOLICITATION_SEND_ENABLED=true -> SOLICITATION_AUTO_APPROVAL_ENABLED=true; every flag via the flag-flip skill",
+    "Runbook order: sections 1->2->3 verified before 4; 4 before 6; 6 before any send; the send flag goes on last (boot assertion)",
+    "DMARC record is the runbook's (p=reject, adkim=s, aspf=r) — never Postmark's suggested p=none record",
+    "openTracking=false, clickTracking=false, no links. CNAME on the Resend domain",
+    "Sends go to seeded/test recipients only — never real customer contacts",
+    "Fresh staging location connects use DISTINCT Google locations (invariant #9 ambiguity lesson)"
+  ],
+  "edge_cases": [
+    "Owner-approved batch drips end-to-end (Copilot arm)",
+    "Auto-approved batch drips end-to-end with Judge available (Autopilot arm)",
+    "Mid-flight halt exercised on a dripping batch",
+    "Unsubscribe writes suppression; page confirms from ledger read",
+    "Attribution: one clean attributed match (four evidence columns + review_attributed outcome on the Lazy child)",
+    "Attribution: seeded two-or-more match resolves ambiguous (logged only)",
+    "Attribution: out-of-window send resolves no_candidates (guard still enqueues, lossless D3)",
+    "Attribution: bounced/complained row excluded; unsubscribed row STAYS eligible (locked decision, looks like a bug)",
+    "B3.4 observation: count of withheld children that burned cap slots, recorded in the evidence doc",
+    "Ambiguous rate captured from worker logs while retention lasts (M3 precision bar input)"
+  ],
+  "existing_patterns_to_follow": [
+    "docs/runbooks/evidence/2026-07-26-solicitation-watch-mode-staging-flip.md (evidence precedent)",
+    "docs/runbooks/solicitation-sending-domain.md (the runbook this ticket executes)",
+    "flag-flip skill per flag; runbook skill drives the campaign"
+  ],
+  "allowed_edit_surface": [
+    "docs/runbooks/evidence/2026-08-24-solicitation-send-mode-staging-flip.md",
+    "docs/runbooks/solicitation-sending-domain.md",
+    ".claude/reference/env-vars.md",
+    "docs/superpowers/plans/feat-633-solicitation-staging-flip-handoff.md",
+    "docs/superpowers/plans/feat-633-solicitation-staging-flip-deviations.md"
+  ],
+  "tests_to_add": [],
+  "verification_commands": [],
+  "estimated_prod_lines": "0",
+  "estimated_test_lines": "0",
+  "dependencies_added": [],
+  "rollback_plan": "Flags are the rollback, in reverse order: SOLICITATION_AUTO_APPROVAL_ENABLED=false (unreleased auto_policy batches downgrade to owner review, durable reason auto_approval_disabled); SOLICITATION_SEND_ENABLED=false if needed (release phase stops; sweeps keep running so no batch strands); SOLICITATION_PLATFORM_DAILY_CAP=0 is the emergency brake. Domain/DNS artifacts stay in place — harmless while flags are off.",
+  "observability": [
+    "releasePhaseStoppedBy log lines from the release poller (platform_ceiling / breaker / caps)",
+    "attribution_resolved worker log lines: resolution, candidateCount, rule",
+    "Resend dashboard delivery/bounce/complaint events for feedback.staging.repworth.net",
+    "Suppression ledger rows (solicitation_suppressions) after unsubscribe",
+    "review_attributed outcome on the run spine (agent_outcomes)",
+    "HealthAlertPoller stays quiet (no new warning signals during the campaign)"
+  ],
+  "open_questions": []
+}
