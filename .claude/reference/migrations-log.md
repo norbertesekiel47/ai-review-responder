@@ -2555,10 +2555,15 @@ Revisit triggers:
   existing rows in every environment (112/113's precedent). Additive and
   re-runnable (`IF NOT EXISTS` throughout); no data change, no RLS change, no
   retention-policy row change.
-  **LOCAL-ONLY** — applied and verified only against the local test container
-  database (`pnpm test:db:setup`); not yet applied to staging or production.
-  Apply staging first, then production, both Supabase projects in lockstep, per
-  usual.
+  Applied to **STAGING** (`kubdiqdhqbhwmqfditeg`) and **PRODUCTION**
+  (`udeyaqnvpojbwgoaxwdg`) on **2026-08-25**, staging first, both in lockstep.
+  Verified on both by reading the catalogue back rather than trusting the apply:
+  4 columns, the consistency CHECK **with its `IS TRUE` wrapper**, all 3 indexes,
+  and `confdeltype = 'n'` (`ON DELETE SET NULL`) on the review FK. The in-flight
+  index's predicate carries the status list in the exact byte order the helper's
+  `ON CONFLICT` re-spells: `('pending', 'dispatching', 'dispatched')`.
+  No longer LOCAL-ONLY, so `migration-immutability-guard.sh` now protects it —
+  **114 is immutable; any change is a new migration.**
 
   **ORDERING IS LOAD-BEARING — 114 MUST reach a database BEFORE any deploy
   carrying #632's code does.** This is the 105 class, and it is worse: without
