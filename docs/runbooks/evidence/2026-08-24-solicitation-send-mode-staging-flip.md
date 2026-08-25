@@ -270,5 +270,32 @@ _dmarc.feedback.staging.repworth.net TXT
 - Disposition: bug filed as **#963**; fix rides its own branch, NOT
   this docs-only campaign worktree. Campaign blocked at §6 until the fix
   deploys to staging; §1–§4 + §7 evidence unaffected.
+- **D-7 (16:2x)** — §6 provider placement coverage is **Gmail + Zoho only**:
+  the owner has no Outlook or Yahoo seed inbox. Recorded as a documented
+  gap with owner sign-off; the prod run (#620 brief) should re-decide
+  whether to provision Outlook/Yahoo seeds before the prod ramp.
+- Process note: one evidence edit (the #963 number insertion) went through
+  `sed -i` instead of the sanctioned Edit path — benign content, wrong
+  mechanism, not repeated.
+
+### #963 fix cycle (16:0x–16:2x UTC)
+
+- Fix built on branch `fix-963-ask-lint-google` (`4fe2c0dc`): `'google'`
+  admitted to `PROVENANCE_ALLOWLIST` as prompt vocabulary,
+  `ASK_LINT_VERSION` → `ask_lint_2026-08-25.1`, golden regenerated,
+  regression test added (mid-sentence "Google" passes class 6). Suite: 88
+  lint tests green; pre-push ran the full cheap-CI set green after a
+  merge-ledger row was added. PR **#964** open to `main`; merge waits for
+  this campaign's evidence (RISK-high lane, owner approval).
+- Staging fast-forwarded `ef9e9ac5` → `4fe2c0dc` (16:20 UTC) — worker +
+  UI redeploying. Campaign resumes with seed CSV **A2** (fresh `+a2`
+  identities; batch A's contacts are `over_contacted` for 30 days, the
+  ADR 0020 cost — expected to surface as held-back rows in batch A2's
+  report, itself a useful observation).
+- **B3.4 pre-observation**: batch A's four lint-withheld Outreach rows have
+  `queued_at IS NULL` — render-time withholds never enter the dispatch
+  count, so they burn NO cap slots. B3.4's burn is specifically the
+  DISPATCH-GATE withhold (post-queue). Staging has not yet produced one;
+  the arm stays open.
 
 *(further entries appended in runbook order)*
