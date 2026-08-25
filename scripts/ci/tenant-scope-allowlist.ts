@@ -212,7 +212,7 @@ export interface TenantScopeAllowlistEntry {
 //     outer row, the BATCH_EXPIRED_SWEEP_SCAN shape) — and the granted-window
 //     read-back from the send parent's latest `batch_approved` step
 //     (`agent_run_steps` has no tenant columns at all).
-export const ALLOWLIST_BASELINE = 393;
+export const ALLOWLIST_BASELINE = 369;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -1563,176 +1563,15 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     category: 'pre-auth-token',
     reason: "Opaque approval token lookup resolves tenant rows before business scope is known.",
   },
-  {
-    file: "src/app/api/auth/signup-status/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.onboarding_wizard_completed_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/auth/signup-status/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT a.id AS account_id, a.subscription_status, u.role, b.place_id_verified, b.google_maps_url, a.onboarding_wizard_completed_at FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = ${ownerRole} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/auth/verify-otp/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id, a.subscription_status, a.onboarding_wizard_completed_at, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/auth/verify-otp/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT u.id AS user_id, u.role, u.account_id, b.id AS business_id, a.subscription_status, a.onboarding_wizard_completed_at, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${data.user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/business/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/business/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/demo/regenerate/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/demo/regenerate/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/demo/status/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/demo/status/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/select-plan/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/select-plan/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, b.owner_email FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${userId} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/start/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/api/onboarding/start/route.ts",
-    table: "businesses",
-    sqlSnippet: "SELECT b.id, a.id AS account_id, u.id AS user_id, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/business/page.tsx",
-    table: "accounts",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.category, b.website, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/business/page.tsx",
-    table: "businesses",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.category, b.website, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/demo/page.tsx",
-    table: "accounts",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id, u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/demo/page.tsx",
-    table: "businesses",
-    sqlSnippet: "SELECT u.id AS user_id, b.id AS business_id, u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name AS business_name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
   // The two /onboarding/pay entries: snippet refreshed when the page gained
   // `AND u.role = 'owner'` — the filter that replaced its
   // SELF_SERVE_SIGNUP_ENABLED gate. Strictly tighter than the shape it replaces.
-  {
-    file: "src/app/onboarding/pay/page.tsx",
-    table: "accounts",
-    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/pay/page.tsx",
-    table: "businesses",
-    sqlSnippet: "SELECT b.id AS business_id, a.price_variant, a.subscription_status, b.place_id_verified, b.google_maps_url FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
   // The two /onboarding/start entries: snippet refreshed when the page added
   // `b.name`, read so an admin-invited owner sees the admin-typed business name
   // instead of an empty input. Same scope key, one extra projected column.
-  {
-    file: "src/app/onboarding/start/page.tsx",
-    table: "accounts",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
-  {
-    file: "src/app/onboarding/start/page.tsx",
-    table: "businesses",
-    sqlSnippet: "SELECT u.role, a.subscription_status, b.place_id_verified, b.google_maps_url, b.name FROM users u JOIN accounts a ON a.id = u.account_id JOIN businesses b ON b.account_id = a.id AND b.is_primary = TRUE WHERE u.auth_id = ${user.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
   // New: the owner + pre-activation-state lookup that replaced this route's
   // SELF_SERVE_SIGNUP_ENABLED gate. The read IS the guard — without it a
   // SerpAPI-billed endpoint would be permanently public.
-  {
-    file: "src/app/api/signup/place-prefill/route.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${user.id} AND u.role = 'owner' LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
-  },
   {
     file: "src/lib/admin/business-detail/queries.ts",
     table: "responses",
@@ -1753,13 +1592,6 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT r.id, r.business_id, r.status FROM responses r JOIN reviews rv ON rv.id = r.review_id JOIN businesses b ON b.id = rv.business_id WHERE rv.id = ${reviewId} AND b.account_id = ${owner.accountId}::uuid AND b.archived_at IS NULL AND r.status NOT IN ('superseded', 'failed') ORDER BY r.version DESC LIMIT 1",
     category: 'pre-auth-token',
     reason: "Owner approval route filters the review through owner.accountId and returns only the active response for that scoped review.",
-  },
-  {
-    file: "src/lib/auth/require-owner-access.ts",
-    table: "accounts",
-    sqlSnippet: "SELECT u.role, u.account_id, a.subscription_status FROM users u JOIN accounts a ON a.id = u.account_id WHERE u.auth_id = ${authUser.id} LIMIT 1",
-    category: 'supabase-auth-id',
-    reason: "Auth/onboarding flow scopes through Supabase auth_id to users.account_id before joining account or primary-location rows.",
   },
   {
     file: "src/lib/dashboard/service.ts",

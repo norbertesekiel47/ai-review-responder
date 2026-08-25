@@ -1,7 +1,9 @@
 import postgres from 'postgres';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { LIVE_DB_LOCK_KEY } from '../../src/lib/shared/__tests__/helpers/live-db-lock';
 import { TENANT_TABLES } from './tenant-tables';
 
 export interface RlsRow {
@@ -80,21 +82,132 @@ function reportFailures(label: string, failures: readonly string[]): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Provisioning coordination (#877). The live check joins the same advisory
+// protocol as scripts/test-db-setup.sh (exclusive) and the DDL suites
+// (exclusive, via live-db-lock.ts): a SHARED acquisition on the same key, so
+// this read can never observe a half-dropped schema — the class of failure
+// that produced 20+ bogus "missing from pg_class" lines on #865.
+
+/** Bounds both the shared-lock wait and the queries on the audit session. */
+const LIVE_AUDIT_STATEMENT_TIMEOUT_MS = 240_000;
+
+// Re-exported for the DB-free provisioning tests: importing the live-db-lock
+// helper directly would mark them as live-DB suites (`ci:live-db-suites`
+// counts that import as suite-shaped), and this audit is the key's
+// shared-lock consumer anyway.
+export { LIVE_DB_LOCK_KEY };
+
+/** A minimal tagged-template query surface — what the helpers below need. */
+export type LiveSql = (
+  strings: TemplateStringsArray,
+  ...params: unknown[]
+) => Promise<Record<string, unknown>[]>;
+
+export const PROVISION_MARKER_MISSING = 'provision_marker_missing';
+
+/**
+ * Hash of the ordered bootstrap + migration file contents — byte-for-byte the
+ * value scripts/test-db-setup.sh records in `test_meta.provision`
+ * (`cat bootstrap migrations… | shasum -a 256`). Hashing CONTENT rather than
+ * the head filename means an edit to an existing migration or to the
+ * bootstrap also reads as not-at-head.
+ */
+export function computeProvisionHash(orderedSqlContents: readonly string[]): string {
+  const hash = createHash('sha256');
+  for (const content of orderedSqlContents) hash.update(content);
+  return hash.digest('hex');
+}
+
+export function expectedProvisionHash(): string {
+  const bootstrap = readFileSync(
+    resolve(process.cwd(), 'scripts/ci/test-db-bootstrap.sql'),
+    'utf8',
+  );
+  const migrations = readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith('.sql'))
+    .sort()
+    .map((file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+  return computeProvisionHash([bootstrap, ...migrations]);
+}
+
+/**
+ * Reads the provisioning marker. An absent `test_meta` schema (3F000), absent
+ * table (42P01), or empty table all mean the same thing: no completed
+ * provision — an interrupted run clears the marker before touching `public`
+ * and rewrites it only as its final statement.
+ */
+export async function readProvisionMarker(
+  sql: LiveSql,
+): Promise<{ contentHash: string } | typeof PROVISION_MARKER_MISSING> {
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await sql`SELECT content_hash FROM test_meta.provision`;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === '3F000' || code === '42P01') return PROVISION_MARKER_MISSING;
+    throw error;
+  }
+  const contentHash = rows[0]?.content_hash;
+  return typeof contentHash === 'string' ? { contentHash } : PROVISION_MARKER_MISSING;
+}
+
+export function findProvisionFailure(
+  marker: { contentHash: string } | typeof PROVISION_MARKER_MISSING,
+  expectedHash: string,
+): string | undefined {
+  if (marker === PROVISION_MARKER_MISSING || marker.contentHash !== expectedHash) {
+    return 'test DB provisioning incomplete or behind head — run pnpm test:db:setup';
+  }
+  return undefined;
+}
+
+/**
+ * Runs `fn` holding the SHARED live-DB advisory lock, releasing it on every
+ * path — an audit crash must never leave a shared hold that blocks the next
+ * provisioning run for the session's lifetime.
+ */
+export async function withSharedLiveDbLock<T>(sql: LiveSql, fn: () => Promise<T>): Promise<T> {
+  await sql`SELECT pg_advisory_lock_shared(hashtext(${LIVE_DB_LOCK_KEY}))`;
+  try {
+    return await fn();
+  } finally {
+    await sql`SELECT pg_advisory_unlock_shared(hashtext(${LIVE_DB_LOCK_KEY}))`;
+  }
+}
+
 /**
  * Live relrowsecurity check against a real database. Owns the connection
  * lifecycle and returns the tables whose RLS is actually disabled or missing.
+ * A missing or stale provisioning marker short-circuits to ONE actionable
+ * line instead of a per-table failure flood.
  */
 async function auditLiveRls(databaseUrl: string): Promise<string[]> {
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, {
+    max: 1,
+    prepare: false,
+    connection: { statement_timeout: LIVE_AUDIT_STATEMENT_TIMEOUT_MS },
+  });
+  // postgres.js's Sql is structurally a LiveSql at runtime (tagged template →
+  // thenable rows); its declared parameter types are narrower, hence the cast.
+  const liveSql = sql as unknown as LiveSql;
   try {
-    const rows = await sql<RlsRow[]>`
-      SELECT c.relname, c.relrowsecurity
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public'
-        AND c.relkind IN ('r', 'p')
-    `;
-    return findRlsFailures(rows);
+    return await withSharedLiveDbLock(liveSql, async () => {
+      const provisionFailure = findProvisionFailure(
+        await readProvisionMarker(liveSql),
+        expectedProvisionHash(),
+      );
+      if (provisionFailure) return [provisionFailure];
+
+      const rows = await sql<RlsRow[]>`
+        SELECT c.relname, c.relrowsecurity
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind IN ('r', 'p')
+      `;
+      return findRlsFailures(rows);
+    });
   } finally {
     await sql.end({ timeout: 5 });
   }
