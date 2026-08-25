@@ -1,9 +1,11 @@
 'use client';
 
 import Image from 'next/image';
+import { m, useInView } from 'motion/react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { Staged } from '../staged';
 import { VideoLightbox } from './VideoLightbox';
 import {
   CENTRE_CAPTION,
@@ -33,6 +35,18 @@ import {
  *      viewBox. Node positions come from flex/grid and move with the viewport,
  *      so hard-coded path coordinates would drift at every width. See
  *      `useConnectorPaths`.
+ *
+ * ── The living diagram (2026-08-24 revamp) ────────────────────────────────
+ * The diagram assembles when it arrives: live wires DRAW themselves in
+ * (motion `pathLength`, staggered), the nodes and centre fade up, the flow
+ * current starts once the wires exist, and hovering a node brightens its own
+ * wire — the diagram behaves like the system it describes.
+ *
+ * Motion rule for THIS section: the nodes and the media card are MEASURED
+ * (`getBoundingClientRect`, which includes transforms), and the observer
+ * only re-fires on size change — an entrance TRANSFORM on a measured element
+ * would bake its mid-flight position into the wire endpoints. So every
+ * measured element enters by OPACITY ONLY; only the unmeasured intro rises.
  *
  * Below 900px the constellation is abandoned entirely for a stacked list — a
  * six-node radial diagram is illegible at phone widths, and faking it with a
@@ -150,35 +164,58 @@ function NextTag() {
 function AgentCard({
   agent,
   tier,
+  entranceDelay,
+  armed,
   registerRef,
+  onHot,
 }: {
   agent: FleetAgent;
   tier: 'watchdog' | 'persona';
+  /** Seconds. The dock order: watchdogs, centre, then personas. */
+  entranceDelay: number;
+  armed: boolean;
   registerRef: (id: string, el: HTMLElement | null) => void;
+  onHot: (id: string | null) => void;
 }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
-    <article
-      ref={(el) => registerRef(agent.id, el)}
+    /* Opacity only — this element is MEASURED for the wire endpoints (see the
+       section comment). `initial={false}` renders the settled frame under
+       reduced motion on the same element type. */
+    <m.article
+      ref={(el: HTMLElement | null) => registerRef(agent.id, el)}
       className="rw-lp-fleet-node"
       data-tier={tier}
       data-status={agent.status}
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
+      animate={armed ? { opacity: 1 } : undefined}
+      transition={
+        prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: entranceDelay }
+      }
+      onPointerEnter={() => onHot(agent.id)}
+      onPointerLeave={() => onHot(null)}
     >
       <header className="rw-lp-fleet-node-head">
         <h3 className="rw-lp-fleet-node-name">{agent.name}</h3>
         {agent.status === 'next' ? <NextTag /> : null}
       </header>
       <p className="rw-lp-fleet-node-role">{agent.role}</p>
-    </article>
+    </m.article>
   );
 }
 
 export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSectionProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [hotId, setHotId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef<Map<string, HTMLElement>>(new Map());
   const gradientId = useId();
+
+  /* One arming signal for the whole assembly, so the wires, nodes and centre
+     choreograph as a single event rather than six independent fades. */
+  const armed = useInView(containerRef, { once: true, amount: 0.2 });
 
   // Connectors are drawn only in the constellation layout. Below the
   // breakpoint the nodes stack, and lines between stacked cards mean nothing.
@@ -205,15 +242,22 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
       <div className="rw-lp-fleet-field" aria-hidden="true" />
 
       <div className="rw-lp-fleet-inner">
-        <header className="rw-lp-fleet-intro">
-          <p className="rw-lp-fleet-eyebrow">{EYEBROW}</p>
-          <h2 className="rw-lp-fleet-heading" id="rw-lp-fleet-heading">
-            {HEADING_LEAD} <span className="rw-lp-fleet-heading-accent">{HEADING_ACCENT}</span>
-          </h2>
-          <p className="rw-lp-fleet-lead">{LEAD_IN}</p>
-        </header>
+        <Staged beat={0}>
+          <header className="rw-lp-fleet-intro">
+            <p className="rw-lp-fleet-eyebrow">{EYEBROW}</p>
+            <h2 className="rw-lp-fleet-heading" id="rw-lp-fleet-heading">
+              {HEADING_LEAD} <span className="rw-lp-fleet-heading-accent">{HEADING_ACCENT}</span>
+            </h2>
+            <p className="rw-lp-fleet-lead">{LEAD_IN}</p>
+          </header>
+        </Staged>
 
-        <div className="rw-lp-fleet-stage" ref={containerRef}>
+        <div
+          className="rw-lp-fleet-stage"
+          ref={containerRef}
+          data-armed={armed ? 'true' : 'false'}
+          data-hot={hotId ?? undefined}
+        >
           <svg
             className="rw-lp-fleet-wires"
             data-still={prefersReducedMotion ? 'true' : 'false'}
@@ -226,21 +270,65 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
                 <stop offset="100%" stopColor="var(--rw-lp-fleet-wire-dim)" />
               </linearGradient>
             </defs>
-            {(constellation ? connectors : []).map((connector) => (
-              <g key={connector.id} data-status={connector.status}>
-                <path className="rw-lp-fleet-wire" d={connector.d} stroke={`url(#${gradientId})`} />
+            {(constellation ? connectors : []).map((connector, index) => (
+              <g
+                key={connector.id}
+                data-status={connector.status}
+                data-hot={hotId === connector.id ? 'true' : 'false'}
+              >
+                {connector.status === 'live' ? (
+                  /* The draw-in. Motion-driven and finite (pause-rule-immune);
+                     `pathLength` normalises every bezier to 0..1, so one
+                     duration fits all lengths. The dashed NEXT connector keeps
+                     its stylesheet dash geometry and simply fades in (a
+                     pathLength draw would override its dashes). */
+                  <m.path
+                    className="rw-lp-fleet-wire"
+                    d={connector.d}
+                    stroke={`url(#${gradientId})`}
+                    initial={prefersReducedMotion ? false : { pathLength: 0 }}
+                    animate={armed ? { pathLength: 1 } : undefined}
+                    transition={
+                      prefersReducedMotion
+                        ? { duration: 0 }
+                        : { duration: 0.9, ease: 'easeInOut', delay: 0.2 + index * 0.09 }
+                    }
+                  />
+                ) : (
+                  <path
+                    className="rw-lp-fleet-wire"
+                    d={connector.d}
+                    stroke={`url(#${gradientId})`}
+                  />
+                )}
                 <path className="rw-lp-fleet-wire-flow" d={connector.d} />
               </g>
             ))}
           </svg>
 
           <div className="rw-lp-fleet-tier" data-tier="watchdog">
-            {WATCHDOGS.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} tier="watchdog" registerRef={registerRef} />
+            {WATCHDOGS.map((agent, index) => (
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                tier="watchdog"
+                entranceDelay={index * 0.11}
+                armed={armed}
+                registerRef={registerRef}
+                onHot={setHotId}
+              />
             ))}
           </div>
 
-          <div className="rw-lp-fleet-centre">
+          {/* Opacity only — the media card inside is measured (see above). */}
+          <m.div
+            className="rw-lp-fleet-centre"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={armed ? { opacity: 1 } : undefined}
+            transition={
+              prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: 0.25 }
+            }
+          >
             <p className="rw-lp-fleet-pill">
               <span className="rw-lp-fleet-pill-dot" aria-hidden="true" />
               {CENTRE_PILL}
@@ -282,18 +370,37 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
               )}
               <p className="rw-lp-fleet-media-label">{CENTRE_LABEL}</p>
             </div>
-          </div>
+          </m.div>
 
           <div className="rw-lp-fleet-tier" data-tier="persona">
-            {PERSONAS.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} tier="persona" registerRef={registerRef} />
+            {PERSONAS.map((agent, index) => (
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                tier="persona"
+                entranceDelay={0.35 + index * 0.11}
+                armed={armed}
+                registerRef={registerRef}
+                onHot={setHotId}
+              />
             ))}
           </div>
 
           {/* Sits BELOW the personas, not under the media card: the gap between
               the card and the persona tier is where the wires fan out, and text
-              placed there collides with every one of them. */}
-          <p className="rw-lp-fleet-caption">{CENTRE_CAPTION}</p>
+              placed there collides with every one of them. Kept a direct child
+              (its mobile `order` must stay on the grid item), so it is an
+              `m.p` rather than a `Staged` wrapper. */}
+          <m.p
+            className="rw-lp-fleet-caption"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={armed ? { opacity: 1 } : undefined}
+            transition={
+              prefersReducedMotion ? { duration: 0 } : { duration: 0.6, ease: 'easeOut', delay: 0.9 }
+            }
+          >
+            {CENTRE_CAPTION}
+          </m.p>
         </div>
       </div>
 

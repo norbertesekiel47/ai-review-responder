@@ -57,6 +57,11 @@ export interface AgentFlipCardProps {
   statusTag?: string;
   /** `watchdog` switches the card to the cooler oversight palette. */
   tier?: 'persona' | 'watchdog';
+  /** Optional rule plate shown on the FRONT face (2026-08-24 watchtower
+   *  rows): the governing rule, stamped where the row form had a void. The
+   *  back's chip stays the full statement; this is the front's summary of
+   *  it, so the card argues its rule before it is ever flipped. */
+  frontRule?: string;
 }
 
 export function AgentFlipCard({
@@ -70,6 +75,7 @@ export function AgentFlipCard({
   status = 'live',
   statusTag,
   tier = 'persona',
+  frontRule,
 }: AgentFlipCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   // Mirrors the CSS hover gate. On hover-capable fine pointers the hover /
@@ -125,6 +131,7 @@ export function AgentFlipCard({
             ) : null}
           </span>
           <span className="rw-lp-flip-tagline">{tagline}</span>
+          {frontRule ? <span className="rw-lp-flip-rule">{frontRule}</span> : null}
         </span>
 
         <span className="rw-lp-flip-face rw-lp-flip-back rw-lp-glass">

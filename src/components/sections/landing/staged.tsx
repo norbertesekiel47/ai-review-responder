@@ -1,0 +1,90 @@
+'use client';
+
+import { m } from 'motion/react';
+import type { ReactNode } from 'react';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+
+/**
+ * Staged arrival — the cinematic sibling of `Reveal` (2026-08-24 revamp).
+ *
+ * `Reveal` remains the quiet default: one ≤200ms opacity fade. `Staged` is the
+ * hero-entrance grammar made shareable — a 650ms fade with a 14px rise, beats
+ * 110ms apart — for the blocks each section elevates into a performance
+ * (the problem essay's lines, the persona dock-in, the watchdog statement).
+ *
+ * Motion-driven, NOT CSS keyframes, for the same reason the hero entrance is
+ * (measurements.md §2 "Hero entrance"): the beats are finite, and the ambient
+ * pause rule freezes CSS keyframes only — a finite CSS animation could be
+ * stranded mid-flight by the pause control, a motion animation cannot.
+ *
+ * Reduced motion renders the final frame via `initial={false}` on the SAME
+ * element type — never a `div`-vs-`m.div` branch. `SectionTransition` died of
+ * that branch (an observer captured the pre-swap node); keeping one element
+ * type means nothing can ever observe a stale one.
+ *
+ * ── The future-section rule ───────────────────────────────────────────────
+ * `rise=0` exists for the future section, where the card glow is
+ * `background-attachment: fixed` and a transformed ANCESTOR silently breaks
+ * it. With `rise=0` no transform is ever written — the beat is opacity only.
+ * Any `Staged` wrapping a `.rw-lp-future-card` (or an ancestor of one) MUST
+ * pass `rise={0}`.
+ */
+
+interface StagedProps {
+  children: ReactNode;
+  /** Beat index. Each beat adds 110ms — the hero-entrance cadence. */
+  beat?: number;
+  /** Entry rise in px. `0` writes NO transform at all (future-glow safe). */
+  rise?: number;
+  className?: string;
+}
+
+const BEAT_MS = 110;
+const DURATION_S = 0.65;
+/** The hero entrance's ease — a soft glide-out, no overshoot. */
+const EASE: [number, number, number, number] = [0.22, 0.61, 0.36, 1];
+
+export function Staged({ children, beat = 0, rise = 14, className }: StagedProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  return (
+    <m.div
+      className={className}
+      initial={prefersReducedMotion ? false : rise === 0 ? { opacity: 0 } : { opacity: 0, y: rise }}
+      whileInView={rise === 0 ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.3 }}
+      transition={
+        prefersReducedMotion
+          ? { duration: 0 }
+          : { duration: DURATION_S, ease: EASE, delay: (beat * BEAT_MS) / 1000 }
+      }
+    >
+      {children}
+    </m.div>
+  );
+}
+
+/**
+ * The inline form, for lines INSIDE a block element (a heading's two lines, a
+ * blockquote's halves) — `Staged` wraps children in a div, which is invalid
+ * there. Same grammar, same reduced-motion contract, on an `m.span`.
+ */
+export function StagedLine({ children, beat = 0, rise = 14, className }: StagedProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  return (
+    <m.span
+      className={className}
+      initial={prefersReducedMotion ? false : rise === 0 ? { opacity: 0 } : { opacity: 0, y: rise }}
+      whileInView={rise === 0 ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.3 }}
+      transition={
+        prefersReducedMotion
+          ? { duration: 0 }
+          : { duration: DURATION_S, ease: EASE, delay: (beat * BEAT_MS) / 1000 }
+      }
+    >
+      {children}
+    </m.span>
+  );
+}

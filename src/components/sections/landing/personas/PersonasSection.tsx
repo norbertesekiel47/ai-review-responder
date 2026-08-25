@@ -1,7 +1,7 @@
 'use client';
 
 import { AgentFlipCard } from '../agent-flip-card';
-import { Reveal } from '../reveal';
+import { Staged } from '../staged';
 import {
   avatarFor,
   EYEBROW,
@@ -25,13 +25,18 @@ import {
  * The publish chip is the section's real payload. It answers "will this thing
  * post something in my name?" per agent, in a fixed vocabulary — see the
  * accuracy contract in personas-copy.ts.
+ *
+ * 2026-08-24 (light elevation): the cards themselves are untouched — they are
+ * the page's benchmark — but the section joins the cinema: the cards dock in
+ * as staged beats instead of a flat fade, so the page's best objects no
+ * longer have its flattest entrance.
  */
 
 export function PersonasSection() {
   return (
     <section className="rw-lp-personas" aria-labelledby="rw-lp-personas-heading">
       <div className="rw-lp-personas-inner">
-        <Reveal>
+        <Staged beat={0}>
           <header className="rw-lp-personas-intro">
             <p className="rw-lp-personas-eyebrow">{EYEBROW}</p>
             <h2 className="rw-lp-personas-heading" id="rw-lp-personas-heading">
@@ -40,13 +45,15 @@ export function PersonasSection() {
             </h2>
             <p className="rw-lp-personas-lead">{LEAD_IN}</p>
           </header>
-        </Reveal>
+        </Staged>
 
-        <p className="rw-lp-personas-column-note">{PUBLISH_HEADING}</p>
+        <Staged beat={1}>
+          <p className="rw-lp-personas-column-note">{PUBLISH_HEADING}</p>
+        </Staged>
 
         <div className="rw-lp-personas-list">
           {PERSONAS.map((persona, index) => (
-            <Reveal key={persona.id} index={index}>
+            <Staged key={persona.id} beat={2 + index}>
               <AgentFlipCard
                 name={persona.name}
                 tagline={persona.tagline}
@@ -58,7 +65,7 @@ export function PersonasSection() {
                 tier="persona"
                 {...avatarFor(persona.id)}
               />
-            </Reveal>
+            </Staged>
           ))}
         </div>
       </div>
