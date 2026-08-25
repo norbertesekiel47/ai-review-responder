@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** — reset to 0 by the **2026-08-24
+**Merges since last architecture pass: 4** — reset to 0 by the **2026-08-24
 pass** (entry below), then incremented by the merge lines here. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
@@ -23,6 +23,21 @@ Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 > — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
+  (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance
+  grammar page-wide — motion-driven finite beats, pause-rule-immune,
+  `initial:false` reduced motion); fleet assembles on arrival (wire draw-in via
+  motion `pathLength`, measured elements enter opacity-only) with hover
+  wire-highlighting; watchdog rows gain an avatar stage + front rule plate
+  (`frontRule` on the shared flip card, teal graduates to a channel token);
+  tiers dial is now a circular OPERABLE gauge (v4 — two `aria-pressed`
+  buttons, sprung needle via endpoint math after a CSS-rotate-on-SVG origin
+  bug); problem section pairs a trimmed essay with a generated ambient diagram
+  clip (clip count 8 → 9); future cards open with a generated off-CRT still.
+  One header grammar (prose left / instruments centered, shared scales). 19
+  production files + `staged.tsx` + 2 asset folders; focus test 14 → 16
+  controls; landing DESIGN.md/measurements.md rewritten for all of it.
 
 - 2026-08-24 — `fix-flip-card-touch-latch` (#955): landing flip-card input fix.
   The agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
