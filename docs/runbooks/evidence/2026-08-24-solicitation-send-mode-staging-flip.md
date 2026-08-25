@@ -333,4 +333,38 @@ _dmarc.feedback.staging.repworth.net TXT
   #3's Copilot form). Release drip (2/tick, cap 10) begins on the next
   poller tick; delivery evidence follows.
 
+### Batch A3 drip — the lane sends (17:21–17:23 UTC)
+
+- Owner veto window (15 min, `veto_deadline_at` 17:21:40) held exactly: first
+  queue 17:21:52, twelve seconds after the deadline. Rate bound held: 2 per
+  tick (17:21:52 pair, 17:22:52 pair), `RELEASE_PER_TICK_BUDGET=2` on the
+  60 s poll as ADR 0022 pins.
+- All 4 `sent`; Resend events: Gmail + Zoho primary + `reviews@` alias
+  **delivered**, bounce-arm `sent` (hard bounce pending, async). From
+  renders per-business: `"Tanicia Resort" <reviews@feedback.staging.repworth.net>`
+  (§2.3 display-name behavior confirmed).
+- Note: the upload normalizes `+tag` sub-addresses away — recipients are the
+  base handles. Same inboxes; no impact on the arms.
+- **Unproven paths 4 partially closed** (drip + delivery proven; §6
+  placement + raw-header auth check pending owner capture).
+
+### THIRD live finding — re-upload erases ask/outreach history (#965, 17:3x UTC)
+
+- Investigating why `over_contacted` never fired across A/A2/A3's identical
+  normalized handles: the prior-send lookup keys on `contact_id`
+  (`batch-builder.ts` ~:501), AND an upload REPLACES the contact rows,
+  cascading their asks + outreach away. Verified: batches A and A2 now have
+  **zero children**; only A3's 4 outreach rows exist platform-wide.
+- Consequences (filed as **#965**): MIN_GAP resets on any list re-upload;
+  #632's attribution candidates are destroyed inside the 14-day window;
+  dispatch receipts/bounce records erasable; send-breaker window under-reads.
+  Design decision needed before the prod flip — named input to the #620
+  brief alongside B3.4.
+- **Campaign sequencing consequence**: NO further CSV uploads until every
+  A3-dependent arm completes (§6 headers, unsubscribe, ALL attribution
+  arms). Batch B (auto lane) and the halt arm run after, accepting that
+  their upload erases A3 history — by then the evidence is captured here.
+- The #963 specimen renders quoted in this doc are now the ONLY surviving
+  copy — the DB rows were cascade-deleted by the A3 upload.
+
 *(further entries appended in runbook order)*
