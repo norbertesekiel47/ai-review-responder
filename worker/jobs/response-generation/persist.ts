@@ -681,6 +681,9 @@ async function recordModerationAndHold(
   // High-confidence unsafe draft: hold it for admin disposition (PR 3b) and
   // do NOT enqueue the owner notification. The response stays pending_approval.
   if (flaggedHigh) {
+    // `flagged_responses` is outside `scripts/ci/tenant-tables.ts` →
+    // unaudited by `ci:tenant-scope`; tenant ids come from the response row
+    // this same transaction just persisted.
     await tx`
       INSERT INTO flagged_responses (
         id, response_id, account_id, business_id, review_id, api_cost_id,

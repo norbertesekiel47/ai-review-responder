@@ -167,3 +167,63 @@ export const TENANT_SCOPE_COLUMNS: Record<TenantTable, readonly TenantScopeColum
   review_escalations: ['account_id', 'business_id'],
   judge_verdicts: ['account_id', 'business_id'],
 };
+
+/**
+ * Every `public` table the tenant-scope audit deliberately does NOT cover,
+ * with the reviewed reason (#894 Step 3). The completeness contract, enforced
+ * by `scripts/ci/__tests__/tenant-tables.integration.test.ts`: every live
+ * `public` table appears in EXACTLY ONE of `TENANT_TABLES` or this list — a
+ * new table forces a deliberate decision, a table on both lists fails, and a
+ * listed table that no longer exists fails (no stale rows).
+ *
+ * Keyed on "is a public table the audit does not cover, for a stated reason"
+ * — NOT on tenant-column presence: `solicitation_send_breaker` carries no
+ * tenant column at all and still needs an entry, which a column-presence
+ * predicate could never see.
+ *
+ * Adding a table here is a REVIEW, not a formality: silence from
+ * `ci:tenant-scope` means "not audited", never "safe". Do not move a table
+ * here to quiet a finding — that is what the allowlist (with its baseline
+ * gate) is for.
+ */
+export const REVIEWED_NOT_TENANT_SCOPED: readonly { table: string; reason: string }[] = [
+  {
+    table: 'analytics_events',
+    reason:
+      'Analytics event outbox: rows carry tenant ids as event attributes, but every reader is the platform dispatch poller or an admin rollup — cross-tenant by design; no per-tenant access path flows through this table.',
+  },
+  {
+    table: 'flagged_responses',
+    reason:
+      'Held-draft flag rows (invariant #4): admin dispositions address the flag row by id behind the admin gate, alerting counts are cross-tenant, and owner-facing holds ride the RESPONSE row (src/lib/moderation/held-draft.ts owns the convention note).',
+  },
+  {
+    table: 'impersonation_sessions',
+    reason:
+      'Admin impersonation audit trail: the actor is an ADMIN; reads are admin-only session lookups, not tenant data paths.',
+  },
+  {
+    table: 'job_outbox',
+    reason:
+      'Transactional outbox (invariant #2): platform dispatch spine — scoping rides the enqueuing transaction; src/lib/solicitation/batch-view.ts carries the canonical convention comment.',
+  },
+  {
+    table: 'owner_leads',
+    reason:
+      'Pre-signup marketing intake: no account exists yet, so there is no tenant to scope by.',
+  },
+  {
+    table: 'poller_cursors',
+    reason: 'Worker poller bookkeeping: pure platform state, no tenant data.',
+  },
+  {
+    table: 'solicitation_send_breaker',
+    reason:
+      'Platform-scoped send circuit breaker (migration 110): carries NO tenant column — its only user reference (reset_by) is an actor, not a tenant. The entry a column-presence predicate could never demand.',
+  },
+  {
+    table: 'users',
+    reason:
+      'The BRIDGE relation (#894 Step 2): identity side of invariant #8. Carries account_id, but the audit proves tenant scope THROUGH anchored users bindings (auth_id + the bridge shapes) rather than auditing users rows themselves.',
+  },
+];

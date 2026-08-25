@@ -148,6 +148,9 @@ export async function checkStaleDispatching(sql: postgres.Sql, cfg: HealthAlertC
 // Unreviewed high-severity held drafts. A growing backlog means nobody is
 // working /admin/flagged, so safe-but-held drafts never reach owners.
 export async function checkOpenFlaggedResponses(sql: postgres.Sql, cfg: HealthAlertConfig): Promise<HealthFinding | null> {
+  // `flagged_responses` is outside `scripts/ci/tenant-tables.ts`; this
+  // cross-tenant COUNT is worker alerting by design and unaudited by
+  // `ci:tenant-scope`.
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count FROM flagged_responses WHERE status = 'open'
   `;

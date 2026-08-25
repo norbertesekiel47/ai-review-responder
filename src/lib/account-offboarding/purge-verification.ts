@@ -478,6 +478,9 @@ export function verificationQuery(
       `;
 
     case 'flagged_responses':
+      // Outside `scripts/ci/tenant-tables.ts` → unaudited by
+      // `ci:tenant-scope`; the account/business predicates below are this
+      // verifier's own boundary, not audit-demanded.
       return exec<VerificationRow[]>`
         WITH account_businesses AS (
           SELECT id FROM businesses WHERE account_id = ${accountId}::uuid
