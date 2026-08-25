@@ -431,11 +431,16 @@ export async function listAttributedReviews(
        -- A review DELETED AT SOURCE must leave this list at once (branch-review
        -- M2). The docstring above reasons about the HARD delete, where the FK
        -- nulls the id and the inner join drops the row on its own. The soft
-       -- delete is the one that actually happens: ZernioRecentReviewPoller sets
-       -- reviews.status = 'deleted' and every other owner surface stops showing
-       -- it, while this list would keep rendering the reviewer's name for up to
-       -- the full display window. Presentation only — the outreach row keeps its
-       -- provenance either way.
+       -- delete is the one that actually happens: ZernioRecentReviewPoller moves
+       -- the review into the deleted state and every other owner surface stops
+       -- showing it, while this list would keep rendering the reviewer's name
+       -- for up to the full display window. Presentation only — the outreach row
+       -- keeps its provenance either way.
+       --
+       -- The state is named through REVIEW_STATUS, and this comment does not
+       -- spell the raw literal: ci:reviews-status is a TEXT scan and does not
+       -- strip comments, so quoting the value here fails the audit even though
+       -- the code is correct. Same class as D16's backticks.
        AND r.status <> ${REVIEW_STATUS.DELETED}
        AND o.attributed_at > NOW() - make_interval(days => ${ATTRIBUTION_DISPLAY_WINDOW_DAYS})
      ORDER BY o.attributed_at DESC
