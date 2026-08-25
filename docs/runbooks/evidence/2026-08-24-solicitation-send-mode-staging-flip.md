@@ -213,4 +213,23 @@ _dmarc.feedback.staging.repworth.net TXT
   in the batch sign-off; risk: judge sweep idles for the reply lane since
   `AUTO_APPROVAL_ENABLED=false`.
 
+- **D-5 (05:28)** — the two `vercel env add` calls (CLI 54.14.5) stored
+  **EMPTY values** — the exact trap deployment-guide Phase 3 records for
+  v54.6.1; it is still live in 54.14.5. Detected by `vercel env pull`
+  (`SOLICITATION_SEND_ENABLED=""`). Fix: REST per the guide — DELETE the two
+  empty rows (both 200), `POST /v9/projects/{id}/env` with the value in the
+  JSON body + `customEnvironmentIds:[env_Xdvi79…]`. Re-pull confirms
+  `SOLICITATION_SEND_ENABLED="true"`,
+  `SOLICITATION_UNSUBSCRIBE_MAILTO="unsubscribe@feedback.staging.repworth.net"`.
+  Lesson: never trust `vercel env add` stdin on this CLI generation — pull
+  and verify, or go REST from the start.
+- 05:24 — Flag flip 2/2: `SOLICITATION_SEND_ENABLED` unset→`true` (Railway).
+  Deployment `86045c16` SUCCESS, boot clean 05:24:23 —
+  `assertSolicitationSendEnv` accepted the four §7 vars (a violation refuses
+  boot). Release poller ticking; lane live at cap 10 with zero eligible
+  batches (staging data was wiped 2026-08-05 — nothing can send yet).
+- 05:31 — Vercel staging redeploy triggered via `POST /v13/deployments`
+  (git-sourced, `target:"staging"`, ref `staging`, repoId 1202359628):
+  `dpl_2swP98waDaRc9ApSRWDpUaZabiwL`. READY-state check recorded below.
+
 *(further entries appended in runbook order)*
