@@ -280,6 +280,16 @@ Write the plan to `docs/superpowers/plans/`. If DB-touching, read
    incr-round plan`. The counter lives in `.feature/state.json`, so a
    resumed session CONTINUES the count — uncounted rounds are how #628
    reached a round-5 review under a "max 3" cap.
+   Then PRE-VALIDATE the plan mechanically — a ~300s round must never be
+   spent on a defect a shell command finds in under a second:
+   `python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py
+   <plan.md> --repo "$(git rev-parse --show-toplevel)"`. It resolves every
+   `path:line` citation against current HEAD, tests every referenced
+   test-shaped path with `git check-ignore`, and resolves every cited commit
+   SHA including a stale `HEAD is <sha>` handoff claim. Three #643 plan
+   rounds each re-reviewed plan-internal consistency and all missed a cited
+   `CONTEXT.md` section that had never been written — mechanical, not
+   judgement. Dispatch only on `PREVALIDATE: PASS`.
 2. **Round 1 (full, eval-first)**: the primary review target is the
    failable definition of done, not the plan prose. Dispatch the codex
    rescue agent (read-only) to adversarially review the plan + the eval
@@ -400,6 +410,16 @@ mechanically instead of hoping a reviewer notices.
 
 Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
 after every fix round is cheap; do it.
+
+**SUBAGENT BARRIER — the gate is the LAST serialized step.** Never start a
+gate run while any step-4 subagent is still in flight. A subagent that returns
+mid-gate moves HEAD underneath the evidence, `gate-status.json` ends up older
+than HEAD, and the Stop hook then refuses a feature that was actually
+finished — the single most common way a completed run stalls. The order is
+fixed: every dispatched subagent has returned → commit → `git rev-parse HEAD`
+→ run the gate → record that SHA in the report. If HEAD moves afterwards for
+any reason (a late fix, a rebase, a merge from main), the previous gate result
+is VOID. Re-derive it; never reuse it.
 
 On failure, read back only the log tail and failing test/rule names — never
 the full log. Report the gate as a one-line-per-check PASS/FAIL table.

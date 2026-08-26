@@ -191,3 +191,9 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 .design-sync/design-docs/
+
+# /unlazy skill (~/.claude/skills/unlazy) — per-run acceptance ledger and the
+# Stop hook's progress state. Work product of a session, never of the repo.
+GATES.md
+gates/
+.unlazy-hook-state.json
