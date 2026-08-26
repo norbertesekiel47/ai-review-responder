@@ -508,7 +508,22 @@ run):
   `solicitation_batch` watch-mode as first tenant.
 - **Watch-mode batch UI** behind `SOLICITATION_WATCH_ENABLED`.
 
-### 9.3 Next — Phase 2b: send-mode (own map, after watch-mode earns trust)
+### 9.3 Phase 2b: send-mode (own map, after watch-mode earned trust)
+
+> **DESTINATION REACHED 2026-08-26.** Wayfinder map **#617** (charted
+> 2026-07-28, all tickets #618–#633 closed incl. the #626/#627
+> decompositions). Send-mode live on **staging** behind
+> `SOLICITATION_SEND_ENABLED` + `SOLICITATION_AUTO_APPROVAL_ENABLED`:
+> both lanes proven dripping real email, mid-flight halt, both unsubscribe
+> paths → global suppression, one clean `review_attributed` match, cap at
+> ramp stage 1 (evidence:
+> `docs/runbooks/evidence/2026-08-24-solicitation-send-mode-staging-flip.md`,
+> VERDICT PASS). Locked specs: `docs/superpowers/specs/2026-07-28-*` (the
+> cross-spec amendments doc is binding); ADRs 0014/0020/0021/0022.
+> **Prod flip = production bring-up (§8.4) + counsel sign-off on the #620
+> Part II brief** — deliberately not owned by the map. Surviving debt on
+> the tracker: #965, #949 (rides the §8.4 autonomy-flip checklist), #612,
+> #910, #919, #958.
 
 Everything §2.3 always specified: consent ledger semantics beyond the upload
 attestation, suppression, email adapter + deliverability, CAN-SPAM/TCPA,
