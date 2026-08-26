@@ -67,6 +67,39 @@ Merges since the 2026-08-24 pass:
   subject, so this class is invisible until someone follows a citation.
   Comment and docs only — no behaviour change, no test change.
 
+- 2026-08-25 — `fix/895-truth-tripwires`: five independent fixes from the
+  2026-08-18 pass's H6 bundle — (a) the admin batch panel read
+  `HALT_REASON_LABELS[haltReason]` unguarded, and #917's `platform_halt` made
+  the **Halt reason** union six-wide, so a browser cached behind that deploy
+  rendered `Stopped <date> — undefined`; (c) the purge's suppression contract
+  still claimed `recordSuppression` had zero production callers; (d) the
+  agent-spine delete comment; (e) `recordFailure`'s log omitted `business_id`
+  where its four siblings carry it; (f) `auth-island.css` redeclared 8 Island
+  colours and 2 brand fonts, the fonts already diverged — this pass's own X10
+  finding. (b) shipped in #920/#900 and was not touched.
+  **Three notes for the next pass, all about the issue text being wrong:**
+  (i) #895(d) is wrong TWICE. Its "moving `agent_runs` earlier inverts an order
+  three other files depend on" is over-broad — `runContentPurgeStage` takes both
+  per-business advisory locks ~110 lines ABOVE the delete, so any position after
+  the loop preserves `advisory → batches row → agent_runs`. AND the rationale
+  already in the file — "deleting runs first would only orphan them" — is
+  FALSE: the outcomes delete is scoped by `account_id`, not `agent_run_id`, so
+  runs-first would merely NULL the FK (071:71) and still remove every row.
+  `PurgeWorker.test.ts` pinned that non-constraint with an index comparison
+  while the REAL constraint went unguarded; the assertion is now
+  lock-before-runs and the mock returns a business row so the loop executes.
+  (ii) #895(c)'s "Resend retries forever" is refuted by the lane's own
+  docstring — `verifySignature` 401s every attempt past the 300s window before
+  lane dispatch. The real residual is that a post-purge bounce cannot write the
+  global row to the **Suppression ledger**, because `loadAttribution` reads the
+  **Normalized handle** from our own contact row and the purge deletes it.
+  Filed as **#967** (go-live blocker) rather than patched: the obvious fix
+  contradicts a tested invariant that the lane never normalizes the
+  provider-echoed recipient. (iii) the contract now points at
+  `recordSuppression` as the one chokepoint instead of enumerating four call
+  sites — a hand-maintained census is the drift that went stale here.
+  9 files; four new assertions, each mutation-verified RED before trusting it.
+
 - 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
   (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance
   grammar page-wide — motion-driven finite beats, pause-rule-immune,

@@ -2,18 +2,14 @@
  * Auth Island — sage parallax field, white rounded island, two-pane layout.
  * Tokens align with the marketing palette in src/app/(public)/. */
 
+/* Island colours and brand fonts are NOT redeclared here. globals.css owns
+ * them on :root and the root layout imports it, so this scope inherits them.
+ * This block used to re-declare eight colours and two fonts; the colours
+ * matched, but the two font stacks had already drifted from globals.css by
+ * dropping their named fallbacks. That is the divergence a second declaration
+ * always eventually produces. design-token-single-source.test.ts now walks
+ * this directory and fails on any re-declaration. */
 .rw-auth {
-  --rw-sage: #d2e0d3;
-  --rw-teal: #97b3ae;
-  --rw-peach: #f2c3b9;
-  --rw-pink: #f0ddd6;
-  --rw-beige: #d6cbbf;
-  --rw-cream: #f0eeea;
-  --rw-ink: #2a2a2a;
-  --rw-ink-soft: #6a6a6a;
-  --rw-font-display: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
-  --rw-font-body: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
-
   font-family: var(--rw-font-body);
   background: var(--rw-sage);
   color: var(--rw-ink);

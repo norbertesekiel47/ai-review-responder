@@ -208,6 +208,33 @@ describe('SolicitationBatchPanel', () => {
     }
   });
 
+  it('a halt reason from outside the union renders a stop, never the literal undefined', async () => {
+    const { SolicitationBatchPanel } = await loadPanel();
+
+    // The read model ASSERTS halt_reason against its CHECK rather than
+    // re-validating it. The live trigger is a browser cached behind the deploy
+    // that widened HaltReason to six members (platform_halt, #917): the server
+    // sends a reason the bundle's label table has never heard of. Unguarded,
+    // the sentence rendered "Stopped <date> — undefined".
+    const { container } = render(
+      <SolicitationBatchPanel
+        accountId={ACCOUNT_ID}
+        businessId={BUSINESS_ID}
+        summary={summary({
+          batchState: 'halted',
+          haltedAt: '2026-08-17T11:00:00.000Z',
+          haltReason: 'a_reason_this_bundle_has_never_heard_of' as AdminBatchSummary['haltReason'],
+          cancellableCount: 0,
+        })}
+        onHalted={() => {}}
+      />,
+    );
+
+    const rendered = container.textContent ?? '';
+    expect(rendered).not.toContain('undefined');
+    expect(rendered).toContain('reason not recognised by this page');
+  });
+
   it('the admin halt panel distinguishes sending outreach from the rendered and queued outreach a stop will cancel', async () => {
     const { SolicitationBatchPanel } = await loadPanel();
 
