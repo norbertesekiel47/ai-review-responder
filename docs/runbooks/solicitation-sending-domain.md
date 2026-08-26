@@ -89,9 +89,14 @@ DNS for `repworth.net` is on Cloudflare (`wally.ns.cloudflare.com`,
 |---|---|---|---|
 | SPF (return-path) | `bounce.feedback` | MX | `feedback-smtp.us-east-1.amazonses.com` (priority 10) |
 | SPF (return-path) | `bounce.feedback` | TXT | `"v=spf1 include:amazonses.com ~all"` |
-| DKIM ×3 | `<selector>._domainkey.feedback` | CNAME | `<selector>.dkim.amazonses.com.` |
+| DKIM | `resend._domainkey.feedback` | TXT | `p=<key>` — **one TXT record**, from the create response |
 | DMARC | `_dmarc.feedback` | TXT | see §3 |
 | Tracking | — | — | **deliberately absent** (§1) |
+
+> Shape corrected at #633 (staging run, evidence D-3): Resend now returns a
+> single `resend._domainkey` DKIM **TXT** record, not the historical three
+> `<selector>.dkim.amazonses.com` CNAMEs this table showed. The create
+> response stays authoritative either way.
 
 For staging, every name gains the `staging` label (`bounce.feedback.staging`,
 `<selector>._domainkey.feedback.staging`, `_dmarc.feedback.staging`).
@@ -175,9 +180,13 @@ alone — retuning it is spec follow-up FU-2 and touches the approval-email lane
 
 ## 4. The `reviews@` mailbox — real, routed, not `no-reply@`
 
-`reviews@feedback.<env>.repworth.net` **must accept and route mail.** A Cloudflare
-Email Routing forward to a monitored destination is sufficient — this needs a
-destination, not a staffed desk.
+`reviews@feedback.<env>.repworth.net` **must accept and route mail.** A forward
+to a monitored destination is sufficient — this needs a destination, not a
+staffed desk. Use the org's actual mail provider: the apex runs on **Zoho**, so
+the staging run (#633) added the subdomain to the Zoho org (auto-verified as a
+child of verified `repworth.net`) with `reviews@`/`unsubscribe@` as user
+aliases; Cloudflare Email Routing does not fit this zone (apex MX is Zoho's,
+and subdomain routing is plan-gated).
 
 Three reasons, and the third is the one that bites:
 
