@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { PURGE_TOMBSTONE_SENTINELS as SENTINELS } from './purge-sentinels';
 import {
   PURGE_VERIFICATION_TABLES,
   type AccountOffboardingDisposition,
@@ -94,10 +95,10 @@ export function verificationQuery(
         FROM accounts
         WHERE id = ${accountId}::uuid
           AND (
-            display_name <> 'Deleted account'
+            display_name IS DISTINCT FROM ${SENTINELS.accountName}
             OR stripe_customer_id IS NOT NULL
             OR stripe_subscription_id IS NOT NULL
-            OR flags <> '{}'::jsonb
+            OR flags IS DISTINCT FROM ${exec.json(SENTINELS.accountFlags)}
           )
       `;
 
@@ -110,16 +111,25 @@ export function verificationQuery(
         FROM businesses b
         WHERE b.id IN (SELECT id FROM account_businesses)
           AND (
-            b.name <> 'Deleted location'
+            b.name IS DISTINCT FROM ${SENTINELS.businessName}
             OR b.category IS NOT NULL
-            -- tone is the one column the tombstone RESTORES to its schema
-            -- default instead of nulling, so the violation is "anything else".
-            -- IS DISTINCT FROM, never <>: the column is nullable, and
-            -- NULL <> 'professional and friendly' evaluates to NULL, which
-            -- would let a nulled tone slip past the predicate meant to catch it.
-            OR b.tone IS DISTINCT FROM 'professional and friendly'
-            OR b.owner_name <> 'Deleted owner'
-            OR b.owner_email NOT LIKE ('deleted-' || b.id::text || '@repworth.invalid')
+            -- EVERY tombstone-sentinel equality comparison in this file uses
+            -- IS DISTINCT FROM. (Not every predicate — the residue checks are
+            -- IS NOT NULL and stay that way.) The rule is not stylistic: this
+            -- is a fail-closed gate whose predicates sit in an OR-chain, and a
+            -- three-valued predicate reads as "not a violation", so a NULL
+            -- opens the gate. <> is three-valued the moment its column becomes
+            -- nullable, which makes the gate's correctness depend on today's
+            -- NOT NULL constraints. IS DISTINCT FROM reads identically under
+            -- either nullability and survives a future DROP NOT NULL.
+            -- tone (nullable since 001:71) is where that first mattered; the
+            -- rest were converted in #892 so no site is left depending on it.
+            -- Three of this file's predicates compare against a RESTORED schema
+            -- default rather than testing for residue: tone and
+            -- tracked_keywords here, accounts.flags above.
+            OR b.tone IS DISTINCT FROM ${SENTINELS.tone}
+            OR b.owner_name IS DISTINCT FROM ${SENTINELS.ownerName}
+            OR b.owner_email IS DISTINCT FROM (${SENTINELS.emailPrefix} || b.id::text || ${SENTINELS.emailSuffix})
             OR b.owner_phone IS NOT NULL
             OR b.stripe_customer_id IS NOT NULL
             OR b.stripe_subscription_id IS NOT NULL
@@ -141,12 +151,15 @@ export function verificationQuery(
             OR b.ranking_search_location IS NOT NULL
             OR b.website IS NOT NULL
             OR b.display_label IS NOT NULL
-            OR b.tracked_keywords <> '[]'::jsonb
-            -- The only NON-residue predicate in this branch. The tombstone SETS
-            -- archived_at to COALESCE(archived_at, NOW()), so a value still
-            -- NULL means the row was never tombstoned at all — the failure the
-            -- residue predicates above cannot see, because an untouched row
-            -- whose optional columns happen to be empty looks purged to them.
+            OR b.tracked_keywords IS DISTINCT FROM ${exec.json(SENTINELS.trackedKeywords)}
+            -- The only PRESENCE check in this branch — NOT, as this comment
+            -- used to say, the only non-residue predicate: tone and
+            -- tracked_keywords are also non-residue, they just compare against
+            -- a restored default instead. The tombstone SETS archived_at to
+            -- COALESCE(archived_at, NOW()), so a value still NULL means the row
+            -- was never tombstoned at all — the failure the residue predicates
+            -- above cannot see, because an untouched row whose optional columns
+            -- happen to be empty looks purged to them.
             OR b.archived_at IS NULL
           )
       `;
@@ -158,8 +171,8 @@ export function verificationQuery(
         WHERE account_id = ${accountId}::uuid
           AND (
             auth_id IS NOT NULL
-            OR name <> 'Deleted user'
-            OR email NOT LIKE ('deleted-' || id::text || '@repworth.invalid')
+            OR name IS DISTINCT FROM ${SENTINELS.userName}
+            OR email IS DISTINCT FROM (${SENTINELS.emailPrefix} || id::text || ${SENTINELS.emailSuffix})
             OR phone IS NOT NULL
           )
       `;

@@ -7,6 +7,7 @@ import {
   unresolvedApplicableTeardownProviders,
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
+import { PURGE_TOMBSTONE_SENTINELS as SENTINELS } from '../../../src/lib/account-offboarding/purge-sentinels';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
@@ -674,8 +675,8 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       UPDATE users
-      SET name = 'Deleted user',
-          email = 'deleted-' || id::text || '@repworth.invalid',
+      SET name = ${SENTINELS.userName},
+          email = ${SENTINELS.emailPrefix} || id::text || ${SENTINELS.emailSuffix},
           phone = NULL,
           auth_id = NULL,
           updated_at = NOW()
@@ -683,22 +684,22 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     `;
     await tx`
       UPDATE businesses
-      SET name = 'Deleted location',
+      SET name = ${SENTINELS.businessName},
           category = NULL,
           google_place_id = NULL,
           google_maps_url = NULL,
-          tone = 'professional and friendly',
+          tone = ${SENTINELS.tone},
           products_services = NULL,
           staff_names = NULL,
           highlight_facts = NULL,
           avoid_facts = NULL,
           sample_responses = NULL,
-          owner_name = 'Deleted owner',
-          owner_email = 'deleted-' || id::text || '@repworth.invalid',
+          owner_name = ${SENTINELS.ownerName},
+          owner_email = ${SENTINELS.emailPrefix} || id::text || ${SENTINELS.emailSuffix},
           owner_phone = NULL,
           stripe_customer_id = NULL,
           stripe_subscription_id = NULL,
-          tracked_keywords = '[]'::jsonb,
+          tracked_keywords = ${tx.json(SENTINELS.trackedKeywords)},
           google_place_address = NULL,
           google_place_lat = NULL,
           google_place_lng = NULL,
@@ -722,10 +723,10 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     `;
     await tx`
       UPDATE accounts
-      SET display_name = 'Deleted account',
+      SET display_name = ${SENTINELS.accountName},
           stripe_customer_id = NULL,
           stripe_subscription_id = NULL,
-          flags = '{}'::jsonb,
+          flags = ${tx.json(SENTINELS.accountFlags)},
           updated_at = NOW()
       WHERE id = ${row.account_id}::uuid
     `;

@@ -391,6 +391,25 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(agentRunsDelete?.scope).toBe('tx');
     expect(sqlText).not.toContain('DELETE FROM agent_run_steps');
 
+    // #892 / lab-notes "An exact count written into a comment is a maintenance
+    // trap". docs/directory.md states 29 writer assignments against the
+    // verifier's 28 predicates — the whole point of #892 being that the old
+    // number (27) had rotted unpinned. Pin the writer half here; the verifier
+    // half is pinned in purge-verification.test.ts.
+    const businessTombstone = calls.find(
+      (call) => call.text.includes('UPDATE businesses') && call.text.includes('SET name ='),
+    );
+    expect(businessTombstone, 'no businesses tombstone UPDATE emitted').toBeDefined();
+    const setClause = businessTombstone!.text
+      .replace(/--[^\n]*/g, '')
+      .split('SET ')[1]!
+      .split('WHERE ')[0]!;
+    const assignments = (setClause.match(/^\s*[a-z_]+ =/gm) ?? []).length;
+    // 28 tombstone-state columns + updated_at. The verifier deliberately does
+    // NOT check updated_at, which is why the two numbers differ by one.
+    expect(assignments).toBe(29);
+    expect(setClause).toContain('updated_at = NOW()');
+
     // The order that IS load-bearing, and it is a LOCK order, not an FK one.
     // agent_runs row locks must be taken after the per-business advisory locks,
     // because approval.ts/outreach.ts/batch-builder.ts all take

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PURGE_TOMBSTONE_SENTINELS } from '../purge-sentinels';
 import {
   PURGE_VERIFICATION_TABLES,
   TABLE_DISPOSITIONS,
@@ -17,6 +18,12 @@ const { calls, mockSql } = vi.hoisted(() => {
     calls.push({ text, values });
     return [{ violation_count: 0 }];
   });
+  // The verifier binds its two jsonb sentinels through exec.json(...) (#892).
+  // Postgres.js exposes `.json` on the Sql instance itself, so a bare vi.fn
+  // stands in for a template tag but NOT for the real executor — without this
+  // every branch throws "exec.json is not a function". Identity is enough: the
+  // shape assertions read call text, and the value assertions read `values`.
+  mockSql.json = vi.fn((value: unknown) => value);
   return { calls, mockSql };
 });
 
@@ -32,7 +39,11 @@ import {
 } from '../purge-verification';
 
 describe('purge verification fail-closed guards', () => {
-  const noopExec = (() => Promise.resolve([])) as unknown as Parameters<typeof verificationQuery>[2];
+  // Same reason as mockSql.json above: verificationQuery reaches for
+  // exec.json(...) while building the businesses and accounts branches.
+  const noopExec = Object.assign(() => Promise.resolve([]), {
+    json: (value: unknown) => value,
+  }) as unknown as Parameters<typeof verificationQuery>[2];
 
   it('throws for a table with no verification branch so inventory drift is caught, not silently passed', () => {
     expect(() => verificationQuery(
@@ -316,6 +327,112 @@ describe('purge verification', () => {
     expect(notificationQuery?.text).toContain('business_id IN');
     expect(notificationQuery?.text).not.toContain("recipient <> '[redacted]'");
     expect(notificationQuery?.text).not.toContain('external_message_id IS NOT NULL');
+  });
+
+  // #892. The writer and the verifier must agree BY CONSTRUCTION, and the two
+  // properties below are what "by construction" means here. Both read the SQL
+  // this module actually emits — not its source text — so they cannot break on
+  // reformatting.
+  describe('tombstone sentinel comparisons', () => {
+    /** The nine sentinel comparisons, by the branch that emits them. */
+    const SENTINEL_BRANCHES = ['FROM accounts', 'FROM businesses b', 'FROM users'] as const;
+
+    const sentinelQueries = async (): Promise<string[]> => {
+      calls.length = 0;
+      await verifyAccountOffboardingPurge({
+        accountId: '00000000-0000-7000-8000-000000000001',
+        offboardingId: '00000000-0000-7000-8000-000000000002',
+      }, mockSql);
+      return SENTINEL_BRANCHES.map((marker) => {
+        const call = calls.find((entry) => entry.text.includes(marker));
+        expect(call, `no verification query emitted for ${marker}`).toBeDefined();
+        return call!.text;
+      });
+    };
+
+    it('compares every tombstone sentinel with IS DISTINCT FROM, never <> or NOT LIKE', async () => {
+      // The gate is fail-closed and its predicates sit in an OR-chain, so a
+      // three-valued predicate reads as "not a violation" and OPENS it. <> goes
+      // three-valued the moment its column becomes nullable, which would make
+      // this gate's correctness depend on today's NOT NULL constraints.
+      // Runtime coverage cannot catch a regression here — every column except
+      // tone is NOT NULL, so <> and IS DISTINCT FROM behave identically against
+      // a live database today. Only the emitted SQL shows the difference.
+      // Strip `-- …` line comments first: the branches EXPLAIN this rule in
+      // prose that necessarily names the operators it forbids, and a prose
+      // mention is not a predicate.
+      const stripSqlComments = (sql: string) => sql.replace(/--[^\n]*/g, '');
+
+      for (const text of await sentinelQueries()) {
+        const predicates = stripSqlComments(text);
+        expect(predicates).not.toContain('<>');
+        expect(predicates).not.toContain('NOT LIKE');
+        expect(predicates).toContain('IS DISTINCT FROM');
+      }
+    });
+
+    it('pins the businesses OR-chain at 28 predicates, three of them non-residue', async () => {
+      // lab-notes "An exact count written into a comment is a maintenance
+      // trap": #892 exists because 27 rotted. Replacing it with an unpinned 28
+      // would rot the same way, so the numbers docs/directory.md and the
+      // branch comments state are asserted here.
+      const businesses = (await sentinelQueries())[1];
+      expect(businesses, 'no businesses verification query emitted').toBeDefined();
+      const predicates = businesses!.replace(/--[^\n]*/g, '');
+
+      // The chain is `AND ( <first> OR <rest> … )`, so predicates = ORs + 1.
+      const orCount = (predicates.match(/\bOR\s/g) ?? []).length;
+      expect(orCount + 1).toBe(28);
+
+      // The 28 split three ways, and the split is what the prose claims:
+      //   5 sentinel-equality  — name, tone, owner_name, owner_email,
+      //                          tracked_keywords
+      //   1 presence           — archived_at IS NULL
+      //  22 residue            — IS NOT NULL
+      // Of those, THREE are non-residue: tone and tracked_keywords compare
+      // against a RESTORED schema default, and archived_at is the presence
+      // check. (accounts.flags is the third restored default across the FILE,
+      // in the accounts branch — not this one.)
+      const sentinelEquality = (predicates.match(/IS DISTINCT FROM/g) ?? []).length;
+      const residueChecks = (predicates.match(/IS NOT NULL/g) ?? []).length;
+      expect(sentinelEquality).toBe(5);
+      expect(residueChecks).toBe(22);
+      expect(predicates).toContain('b.archived_at IS NULL');
+      expect(sentinelEquality + residueChecks + 1).toBe(28);
+
+      expect(predicates).toContain('b.tone IS DISTINCT FROM');
+      expect(predicates).toContain('b.tracked_keywords IS DISTINCT FROM');
+    });
+
+    it('binds all nine sentinel values from PURGE_TOMBSTONE_SENTINELS, never a re-typed literal', async () => {
+      calls.length = 0;
+      await verifyAccountOffboardingPurge({
+        accountId: '00000000-0000-7000-8000-000000000001',
+        offboardingId: '00000000-0000-7000-8000-000000000002',
+      }, mockSql);
+      const bound = calls.flatMap((call) => call.values);
+
+      // Strings arrive as bind values; the two jsonb sentinels arrive through
+      // exec.json, which the mock passes through by identity.
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.accountName);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.businessName);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.ownerName);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.userName);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.tone);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.emailPrefix);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.emailSuffix);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.trackedKeywords);
+      expect(bound).toContain(PURGE_TOMBSTONE_SENTINELS.accountFlags);
+
+      // The literals the verifier used to carry are gone from the SQL text.
+      const allText = calls.map((call) => call.text).join('\n');
+      for (const literal of [
+        "'Deleted account'", "'Deleted location'", "'Deleted owner'", "'Deleted user'",
+        "'professional and friendly'", "'deleted-'", "'@repworth.invalid'",
+      ]) {
+        expect(allText, `${literal} is still typed into the verifier`).not.toContain(literal);
+      }
+    });
   });
 
   it('does not silently add disposition tables without verification coverage', () => {
