@@ -218,11 +218,71 @@ its existing `shadow-lg`/`shadow-xl` recipes.
 Everything is gated on `prefers-reduced-motion: reduce` — reveals land on the final
 frame, loops stop, the wash video never mounts (the blurred poster stays).
 
+#### The reveal stack — four layers, each a fallback for the next
+
+Every entrance on a Daylight surface resolves through these, in order. The rules
+live in `island.css` under "Scroll reveal".
+
+| Layer | Condition | Behaviour |
+|---|---|---|
+| 0 | no JavaScript | the finished frame; content visible and readable |
+| 1 | JavaScript on | the one-shot entrance — React adds `.is-in` |
+| 2 | `@supports (animation-timeline: view())` | `.is-scrub` — the same rise, scrubbed to scroll |
+| 3 | `prefers-reduced-motion: reduce` | overrides all three: finished frame, no animation |
+
+**Layer 0 is a rule, not an optimisation.** A hidden start frame (`opacity: 0`, a
+`translateY(110%)` mask, `scaleY(0)`) belongs inside `@media (scripting: enabled)`
+whenever the visible frame depends on a class React adds. Put it on the base rule
+and a visitor without JavaScript — or a crawler — gets a permanently blank
+section. A browser too old to know the `scripting` feature drops the block and
+shows the content unanimated, which is the correct direction to fail.
+
+**Layer 2 can never be the only path.** Firefox stable still keeps
+`animation-timeline` behind `layout.css.scroll-driven-animations.enabled`
+(FF 152, 2026-06), and this repo's browserslist still resolves iOS Safari 18,
+Chrome 109 and Chrome 112. The `@supports` gate is load-bearing. Scrub
+**artifacts only** — charts, ledgers, card grids, matrices — never body text:
+scrubbing a paragraph's opacity against scroll leaves it half-legible for as long
+as the reader sits mid-range. The range is `entry 5% cover 12%`, and the end must
+stay cover-relative: `entry` is measured against the element's own height, so an
+entry-relative end makes a tall block take a full screen of scrolling to finish
+one fade while a short card finishes in a fraction of that.
+
+The Layer 1 trigger is `src/hooks/useReveal.ts` — **one** hook, threshold 0.08,
+rootMargin `0px 0px -80px 0px`. `Reveal.tsx` wraps it and adds the `scrub`
+opt-in; the features chapters call it directly. Do not add a second trigger: two
+of them disagreeing (0.05/-50px vs 0.08/-80px) is what made identical cards on
+one page enter at different scroll positions.
+
 ### Layout (Daylight)
 
 - Content column: `.rw-dl-col` — max-width 1200px, 48px side padding (28px ≤1040px,
   18px ≤680px). Bands: `.rw-dl-band` 96px vertical (56px ≤680px); `.is-paper` bands are
   white with hairline top/bottom borders.
+- **Band rhythm.** Padding is symmetric, so the gap a reader sees is the SUM of one
+  band's bottom and the next band's top. Three values, and no fourth:
+
+  | Class | Padding | Reads as |
+  |---|---|---|
+  | `.rw-dl-band` | 96px (56px ≤680px) | the page's normal beat — 192px between two |
+  | `.is-tight` | 64px (40px ≤680px) | two sections that belong together — 128px between two |
+  | `.is-open` | 128px **top only** (76px ≤680px) | a new run starts — 192px after a tight band |
+
+  `.is-open` sets the top alone so it composes with `.is-tight` on the band that
+  opens a run: a wide approach in, the run's own tighter beat out. `/features`
+  uses this to group its nine chapters into the three groups its own index
+  already names. A page wanting a fourth value wants a different section, not a
+  different number.
+- **Section intros.** `.rw-dl-intro` is 80px (48px ≤680px); `.is-tight` is 56px
+  (36px ≤680px), for an intro sitting directly above a bordered artifact — a
+  matrix, an accordion. Page CSS must not add a private `margin-bottom` override;
+  three of them had accumulated at 80/56/48 before this scale existed.
+- **Never scope a bare-element reset above class specificity.** A page scope must
+  be written `:where(.page p) { margin: 0 }`, never `.page p { margin: 0 }`. The
+  latter scores 0,1,1 and silently out-specifies every 0,1,0 class rule on the
+  page — including ones in `island.css`, so the same shared component renders
+  differently per page. `how-it-works.css` shipped that way and lost eleven
+  margins to it, the footer blurb among them.
 - Island: max-width 1440px, **`overflow: clip`** (never `hidden` — hidden would make
   the island a scroll container and break the sticky nav).
 - Nav: sticky pill, `top: 14px`, inside the island as its first child.
@@ -277,7 +337,7 @@ outline (`--rw-ink2` outline on the forest pill).
 | Stars | `rw-dl-stars` (+ `.off`) | ink glyphs; wrap with an `aria-label="N out of 5 stars"` |
 | FAQ | `rw-dl-faq*` | hairline rows, 28px `+` disc rotates 45° when open; button + panel keep `aria-expanded`/`aria-controls` |
 | CTA band | `rw-dl-cta` | dark ink full-bleed band, 7/5 grid: copy + text links left, `.rw-dl-cta-panel` right |
-| Reveal | `rw-dl-rv` → `.is-in` | the scroll-reveal primitive |
+| Reveal | `rw-dl-rv` → `.is-in` (+ `.is-scrub`) | the scroll-reveal primitive — see "The reveal stack" |
 | Fine print | `rw-dl-fine` | 13px mute — every illustrative figure carries one |
 
 Page CSS (`how-it-works.css`, `features.css`, `pricing.css`) carries only each page's

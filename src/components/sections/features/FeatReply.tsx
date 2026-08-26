@@ -4,7 +4,7 @@ import { useState, type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { ReviewStars } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const AI_REPLIES = {
   before: {
@@ -37,7 +37,7 @@ export function FeatReply({ innerRef }: { innerRef: RefObject<HTMLElement | null
   const r = AI_REPLIES[tab];
 
   return (
-    <section ref={innerRef} id="f-reply" aria-label="Reply: the drafting agent" className="rw-dl-band">
+    <section ref={innerRef} id="f-reply" aria-label="Reply: the drafting agent" className="rw-dl-band is-tight is-open">
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">
           <FeatIntro

@@ -3,7 +3,7 @@
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const VERDICT_ROWS = [
   { time: 'Mon 10:41', excerpt: '"Thank you so much! We\'re thrilled…"', verdict: 'pass' as const },
@@ -21,7 +21,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
       ref={innerRef}
       id="f-watchdogs"
       aria-label="Judge and Governor: oversight"
-      className="rw-dl-band is-paper"
+      className="rw-dl-band is-paper is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">

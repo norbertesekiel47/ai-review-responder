@@ -1,33 +1,36 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
+import { useReveal } from '@/hooks/useReveal';
 
-/** Scroll reveal on the shared `.rw-dl-rv` primitive (island.css). */
-export function Reveal({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || seen) return;
-    const r = el.getBoundingClientRect();
-    if (r.top < window.innerHeight && r.bottom > 0) {
-      const id = window.setTimeout(() => setSeen(true), delay);
-      return () => window.clearTimeout(id);
-    }
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          window.setTimeout(() => setSeen(true), delay);
-          io.disconnect();
-        }
-      },
-      { threshold: 0.05, rootMargin: '0px 0px -50px 0px' }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [delay, seen]);
+/**
+ * Scroll reveal on the shared `.rw-dl-rv` primitive (island.css).
+ *
+ * The trigger lives in `useReveal` — this component owns only the wrapper
+ * element and the scroll-linked opt-in.
+ */
+export function Reveal({
+  children,
+  delay = 0,
+  scrub = false,
+}: {
+  children: ReactNode;
+  /** Stagger, in ms, applied after the element crosses the trigger line. */
+  delay?: number;
+  /**
+   * Opt into the scroll-linked entrance (island.css Layer 2). Where
+   * `animation-timeline` is unsupported the class is inert and the one-shot
+   * entrance below runs instead, so this is always safe to set.
+   *
+   * Leave it off for text: scrubbing a paragraph's opacity against scroll
+   * makes it unreadable mid-range. It earns its place on artifacts that are
+   * already visual — charts, ledgers, card grids.
+   */
+  scrub?: boolean;
+}) {
+  const [ref, seen] = useReveal<HTMLDivElement>({ delay });
   return (
-    <div ref={ref} className={`rw-dl-rv ${seen ? 'is-in' : ''}`}>
+    <div ref={ref} className={`rw-dl-rv ${scrub ? 'is-scrub ' : ''}${seen ? 'is-in' : ''}`}>
       {children}
     </div>
   );

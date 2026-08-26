@@ -57,11 +57,15 @@
 .rw-hero-line { display: block; overflow: hidden; }
 .rw-hero-line span {
   display: block;
-  transform: translateY(110%);
-  opacity: 0;
   transition: transform 0.9s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.6s;
 }
-.feat-hero.is-in .rw-hero-line span { transform: none; opacity: 1; }
+/* Layer 0 (the stack is documented in island.css): `.is-in` only ever arrives
+   from React, so the hidden start frame is armed by script presence. Without
+   it the hero would be permanently invisible to a JS-off visitor. */
+@media (scripting: enabled) {
+  .rw-hero-line span { transform: translateY(110%); opacity: 0; }
+  .feat-hero.is-in .rw-hero-line span { transform: none; opacity: 1; }
+}
 .rw-hero-line:nth-child(2) span { transition-delay: 0.1s; }
 .rw-hero-line:nth-child(3) span { transition-delay: 0.2s; }
 .rw-hero-line:nth-child(4) span { transition-delay: 0.3s; }
@@ -75,14 +79,19 @@
 }
 .feat-hero-links { margin-top: 32px; }
 .feat-fade {
-  opacity: 0;
-  transform: translateY(14px);
   transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.feat-hero.is-in .feat-fade { opacity: 1; transform: none; }
+@media (scripting: enabled) {
+  .feat-fade { opacity: 0; transform: translateY(14px); }
+  .feat-hero.is-in .feat-fade { opacity: 1; transform: none; }
+}
 .feat-hero.is-in .feat-fade.d1 { transition-delay: 0.55s; }
 .feat-hero.is-in .feat-fade.d2 { transition-delay: 0.7s; }
-.feat-hero.is-in .feat-fade.d3 { transition-delay: 1.4s; }
+/* d3 is the "illustrative targets" fine print under the stat stack. It sat at
+   1.4s — half a second after the last stat card had finished, long enough to
+   read as a second, unrelated event. 0.95s lands it just behind the third
+   card, which is the line it belongs to. */
+.feat-hero.is-in .feat-fade.d3 { transition-delay: 0.95s; }
 
 /* Stat cards (the /how-it-works stat card, stacked): left bar wipes in, cards
    stagger top → bottom on --m-delay, numbers count up in step. */
@@ -98,12 +107,9 @@
   gap: 20px;
   position: relative;
   overflow: hidden;
-  opacity: 0;
-  transform: translateY(16px);
   transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) var(--m-delay, 0ms),
     transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) var(--m-delay, 0ms);
 }
-.feat-hero.is-in .feat-stat { opacity: 1; transform: none; }
 .feat-stat::before {
   content: '';
   position: absolute;
@@ -111,10 +117,14 @@
   width: 10px;
   background: var(--bar);
   transform-origin: top;
-  transform: scaleY(0);
   transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) calc(var(--m-delay, 0ms) + 200ms);
 }
-.feat-hero.is-in .feat-stat::before { transform: none; }
+@media (scripting: enabled) {
+  .feat-stat { opacity: 0; transform: translateY(16px); }
+  .feat-hero.is-in .feat-stat { opacity: 1; transform: none; }
+  .feat-stat::before { transform: scaleY(0); }
+  .feat-hero.is-in .feat-stat::before { transform: none; }
+}
 .feat-stat-n { font-size: 48px; line-height: 1; white-space: nowrap; }
 .feat-stat-n small { font-size: 20px; color: var(--rw-ink2-mute); margin-left: 4px; }
 .feat-stat-d {
@@ -158,7 +168,9 @@
 .feat-mq-text { color: var(--rw-ink2); }
 
 /* ---------- Index (the ledger: a row per group, a cell per chapter) ---------- */
-.feat-toc { padding: 56px 0; }
+/* The index's tighter band now comes from the shared `.rw-dl-band.is-tight`
+   (64px), set on the element in FeaturesContent.tsx — the private 56px was the
+   last band padding on this page sitting outside the scale. */
 .feat-toc-head {
   display: flex;
   align-items: center;
@@ -200,14 +212,17 @@
   font-family: var(--rw-font-body);
   font-weight: 400;
   color: var(--rw-ink2);
-  opacity: 0;
-  transform: translateY(8px);
   transition: opacity 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) var(--chip-delay, 0ms),
     transform 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) var(--chip-delay, 0ms),
     background 0.2s;
 }
 .feat-idx-cell:last-child { border-right: 0; }
-.feat-idx-cell.in { opacity: 1; transform: none; }
+/* Layer 0: these cells are jump BUTTONS. A JS-off visitor cannot use them, but
+   they must still read as the page's index rather than vanish. */
+@media (scripting: enabled) {
+  .feat-idx-cell { opacity: 0; transform: translateY(8px); }
+  .feat-idx-cell.in { opacity: 1; transform: none; }
+}
 .feat-idx-cell:hover { background: var(--rw-bone); }
 .feat-idx-cell:active { background: var(--rw-bone); }
 .feat-idx-cell:focus-visible { outline: 2px solid var(--rw-forest); outline-offset: -4px; border-radius: 4px; }
@@ -255,6 +270,12 @@
   margin-top: 20px;
   max-width: 48ch;
 }
+/* The chapter grid has THREE arrangements and every chapter names the one it
+   uses. `.is-split` was the odd one out: four chapters carried the class and no
+   rule ever defined it, so it silently inherited `.feat-ch` above and only
+   worked by accident. Spelling it out costs one duplicated declaration and
+   makes the trio — split / flip / wide — readable from either side. */
+.feat-ch.is-split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
 /* Artifact-left chapters: the text column moves right; DOM order (header,
    text, artifact) is unchanged, so reading order and the phone stack hold. */
 .feat-ch.is-flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
@@ -417,8 +438,13 @@
   border-radius: 4px 4px 0 0;
   background: var(--rw-sage-bar);
   position: relative;
-  transform: scaleY(0);
   transform-origin: bottom;
+}
+/* Layer 0: the grow-up animation is gated on `.rw-dl-rv.is-in`, so a flattened
+   start frame outside `scripting: enabled` would leave a JS-off visitor an
+   empty chart frame with axis labels and no bars. */
+@media (scripting: enabled) {
+  .rw-voice-bar { transform: scaleY(0); }
 }
 .rw-voice-bar.is-goal { background: var(--rw-forest); }
 .rw-dl-rv.is-in .rw-voice-bar {
@@ -550,13 +576,39 @@
 .feat-comp-meta { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 2px; }
 .feat-comp-up { width: 16px; height: 16px; color: var(--rw-forest); }
 
+/* ---------- Scroll-linked chapter artifacts (island.css Layer 2) ----------
+   The nine chapters build their reveal from `useReveal` directly rather than
+   the `Reveal` component, so they opt in here instead of via a `scrub` prop.
+   ARTIFACTS ONLY: `.feat-ch-tx` is deliberately excluded, because scrubbing a
+   paragraph's opacity against scroll position leaves it half-legible for as
+   long as the reader sits mid-range. Charts, ledgers and card grids have no
+   such problem — they read as "assembling", which is the point.
+
+   Everything here is inert unless `animation-timeline` exists; the one-shot
+   `.is-in` entrance stays the baseline. Keyframes + rationale: island.css. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .feat-ch-ar.rw-dl-rv {
+      opacity: 1;
+      transform: none;
+      transition: none;
+      animation: rw-dl-scrub-in linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 12%;
+    }
+  }
+}
+
 /* ---------- CTA delta ---------- */
 .feat-cta-pill { width: 100%; justify-content: center; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1040px) {
   .feat-hero-col { grid-template-columns: 1fr; gap: 40px; padding-top: 64px; padding-bottom: 56px; }
+  /* `.is-split` is listed because it is now a real rule (0,2,0) and would
+     otherwise out-specify a bare `.feat-ch` collapse and stay two columns. */
   .feat-ch,
+  .feat-ch.is-split,
   .feat-ch.is-flip { grid-template-columns: 1fr; row-gap: 32px; }
   .feat-ch-tx,
   .feat-ch.is-flip .feat-ch-tx,

@@ -335,7 +335,7 @@ export function HowItWorksContent({
               <p>Six parts. Each one has a single job, and two of them only ever say no.</p>
             </div>
           </Reveal>
-          <Reveal>
+          <Reveal scrub>
             <div className="hiw-hood">
               {HOOD.map((node) => (
                 <div key={node.title} style={{ ['--bar' as string]: node.bar }}>
@@ -346,7 +346,7 @@ export function HowItWorksContent({
               ))}
             </div>
           </Reveal>
-          <Reveal delay={120}>
+          <Reveal delay={120} scrub>
             <div className="hiw-guarantees">
               {GUARANTEES.map((g) => (
                 <div key={g.title} className="hiw-guarantee">
@@ -363,7 +363,7 @@ export function HowItWorksContent({
       <section className="rw-dl-band hiw-faq-band" aria-labelledby="hiw-faq-h">
         <div className="rw-dl-col">
           <Reveal>
-            <div className="rw-dl-intro hiw-faq-intro">
+            <div className="rw-dl-intro is-tight">
               <h2 className="rw-dl-h2" id="hiw-faq-h">What owners ask first.</h2>
             </div>
           </Reveal>

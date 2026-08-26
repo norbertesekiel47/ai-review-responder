@@ -4,7 +4,7 @@ import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { ReviewStars } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 // Illustrative scorecard for an unreleased feature ("Coming soon" / preview).
 // Competitors are anonymized placeholders, not real businesses.
@@ -23,7 +23,7 @@ export function RoadmapBand({ innerRef }: { innerRef?: RefObject<HTMLElement | n
       ref={innerRef}
       id="f-roadmap"
       aria-label="What the agent takes on next"
-      className="rw-dl-band is-paper"
+      className="rw-dl-band is-paper is-open"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-split">

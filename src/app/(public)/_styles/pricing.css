@@ -58,11 +58,15 @@
 .pr-h1 .ln { display: block; overflow: hidden; }
 .pr-h1 .ln span {
   display: block;
-  transform: translateY(110%);
-  opacity: 0;
   transition: transform 0.9s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.6s;
 }
-.pr-hero.is-in .pr-h1 .ln span { transform: none; opacity: 1; }
+/* Layer 0 (island.css documents the stack): `.is-in` only ever arrives from
+   React, so the hidden start frame is armed by script presence. Without it the
+   hero h1 and lede would be permanently invisible to a JS-off visitor. */
+@media (scripting: enabled) {
+  .pr-h1 .ln span { transform: translateY(110%); opacity: 0; }
+  .pr-hero.is-in .pr-h1 .ln span { transform: none; opacity: 1; }
+}
 .pr-h1 .ln:nth-child(2) span { transition-delay: 0.1s; }
 .pr-h1 .ln:nth-child(3) span { transition-delay: 0.2s; }
 .pr-lede {
@@ -74,11 +78,12 @@
 }
 .pr-hero-links { margin-top: 32px; }
 .pr-fade {
-  opacity: 0;
-  transform: translateY(14px);
   transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.pr-hero.is-in .pr-fade { opacity: 1; transform: none; }
+@media (scripting: enabled) {
+  .pr-fade { opacity: 0; transform: translateY(14px); }
+  .pr-hero.is-in .pr-fade { opacity: 1; transform: none; }
+}
 .pr-hero.is-in .pr-fade.d1 { transition-delay: 0.45s; }
 .pr-hero.is-in .pr-fade.d2 { transition-delay: 0.6s; }
 .pr-hero.is-in .pr-fade.d3 { transition-delay: 0.75s; }
@@ -106,7 +111,11 @@
 .pr-gate-s { font-size: 14px; line-height: 1.5; color: var(--rw-ink2-soft); margin-top: 6px; max-width: 38ch; }
 
 /* ---------- Plans (two dossier cards under a ledger rule) ---------- */
-.pr-plans-band { padding-bottom: 112px; }
+/* This band shipped with a bottom padding and no top, so the ledger rule and
+   the plan cards butted straight against the hero's 88px. 48px restores an
+   approach without re-opening the hero's own padding, which the gate artifact
+   on the right is vertically balanced against. */
+.pr-plans-band { padding-top: 48px; padding-bottom: 112px; }
 .pr-ledger-hd {
   display: flex;
   align-items: center;
@@ -239,7 +248,8 @@
 .pr-guarantee svg { width: 16px; height: 16px; color: var(--rw-forest); flex: none; }
 
 /* ---------- Compare (paper band; the matrix as a ledger) ---------- */
-.pr-compare .rw-dl-intro { margin-bottom: 56px; }
+/* The intro's 56px now comes from the shared `.rw-dl-intro.is-tight`, set on
+   the element in PricingContent.tsx. */
 .pr-matrix {
   max-width: 960px;
   margin: 0 auto;

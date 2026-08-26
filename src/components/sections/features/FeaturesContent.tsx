@@ -14,7 +14,7 @@ import {
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 import { ReviewStars } from './FeatPrimitives';
 import { FeatReply } from './FeatReply';
 import { FeatGuardian } from './FeatGuardian';
@@ -168,7 +168,7 @@ function HeroSection({
 function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
   const [tocRef, tocSeen] = useReveal<HTMLDivElement>();
   return (
-    <section id="feat-index" aria-label="Feature index" className="rw-dl-band is-paper feat-toc">
+    <section id="feat-index" aria-label="Feature index" className="rw-dl-band is-paper is-tight feat-toc">
       <div className="rw-dl-col">
         <div className="feat-toc-head">
           <span>Index</span>

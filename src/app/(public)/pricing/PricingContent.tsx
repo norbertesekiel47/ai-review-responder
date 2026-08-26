@@ -403,12 +403,12 @@ function ComparisonMatrix({
     <section className="rw-dl-band is-paper pr-compare" aria-labelledby="pr-cmp-h">
       <div className="rw-dl-col">
         <Reveal>
-          <div className="rw-dl-intro">
+          <div className="rw-dl-intro is-tight">
             <h2 className="rw-dl-h2" id="pr-cmp-h">Compare the control boundary</h2>
             <p>The agent team is the same. The authority you grant it is different.</p>
           </div>
         </Reveal>
-        <Reveal delay={120}>
+        <Reveal delay={120} scrub>
           <section className="pr-matrix" aria-label="Plan comparison">
             <div className="pr-matrix-grid">
               <div className="pr-matrix-row hdr-row">

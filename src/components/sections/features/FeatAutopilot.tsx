@@ -4,7 +4,7 @@ import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { FeatReceipt } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 // The owner's Autopilot settings as the queued post's receipt strip.
 const AUTOPILOT_SETTINGS = [
@@ -22,7 +22,7 @@ export function FeatAutopilot({ innerRef }: { innerRef: RefObject<HTMLElement | 
       ref={innerRef}
       id="f-autopilot"
       aria-label="Autopilot: within your rules"
-      className="rw-dl-band"
+      className="rw-dl-band is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
