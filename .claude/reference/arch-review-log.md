@@ -6,10 +6,21 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 5** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by the merge lines here. **This is the
-≥ 5 threshold**: the next pass is due, and scheduling it is the owner's call. Full artifacts:
-`docs/reviews/PATHFINDER-2026-08-24/`.
+**Merges since last architecture pass: 8** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. **This is past
+the ≥ 5 threshold**: the next pass is overdue, and scheduling it is the owner's
+call. Full artifacts: `docs/reviews/PATHFINDER-2026-08-24/`.
+
+> **Corrected 2026-08-26 from a stale 5, by counting the lines as the rule
+> below requires.** The bullet list held 7 entries while the number said 5, and
+> #967 makes 8. The two missed merges are the same defect this file has now
+> recorded five times. **A NEW variant showed up here and is worth naming: some
+> recent single-PR merges recorded themselves as a ROW IN THE BOTTOM TABLE and
+> added no bullet** (#963/#966 via PR #964, #974, #976, and #967 itself did
+> both). `ci:merge-ledger` accepts either, because it only checks that *a* line
+> was added — so the audit passes while the counter drifts. Either the bullet
+> list or the table has to be the counter, and the next pass should pick one;
+> until it does, count BOTH and expect the number to be low.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
 > **THREE concurrent PRs each incremented this in their own PR, and each
@@ -24,6 +35,25 @@ Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 > — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-26 — `fix-967-post-purge-global-optout` (#975): the Solicitation
+  lane's unmatched-attribution arm. A suppression-bearing Resend event whose
+  `solicitation_outreach` row is gone now writes the recipient's GLOBAL opt-out
+  from the SIGNED payload with `accountId: null` and acks, instead of throwing
+  into a retry that could never succeed. Full detail in the table row at the
+  bottom of this file. **Three notes for the next pass, none of them about the
+  fix itself:** (a) the change removed these events from
+  `checkFailedInboundEvents`' `status='failed'` set — **silently retiring an
+  operator pager, which no gate can detect** and which only the step-7 review
+  caught; the replacement is a `captureMessage` at the source, and the general
+  rule is now in lab-notes. (b) The `reclassify` WARN fired at 211 vs 90
+  estimated production lines while the work had NOT sprawled — 6 of 6 declared
+  files, one seam, ~64 executable lines, 55% of the additions comment in a file
+  already 55% comment. **The trigger measures a proxy that this repo's comment
+  density defeats**; consider splitting the estimate into executable vs comment,
+  or the next honest small change will trip it too. (c) `ci:merge-ledger`
+  accepts a line in EITHER this bullet list or the bottom table, which is how
+  the counter above drifted — see the correction note.
 
 - 2026-08-25 — `feat-landing-mobile-carousel`: phone card rails for landing
   sections 2–5 (owner-directed). New shared `carousel.tsx`/`carousel.css`:
