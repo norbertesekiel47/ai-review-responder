@@ -4,7 +4,7 @@ import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { FeatSteps, ReviewStars, type FeatStep } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const APPROVAL_STEPS: readonly FeatStep[] = [
   { n: '01', title: 'New review lands', sub: 'Google tells us within seconds', t: '0:00', final: false },
@@ -22,7 +22,7 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       ref={innerRef}
       id="f-gate"
       aria-label="The gate: Copilot approval"
-      className="rw-dl-band is-paper"
+      className="rw-dl-band is-paper is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">

@@ -10,11 +10,13 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type ReactNode,
   type RefObject,
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
+import { HeroWash } from '@/components/ui/HeroWash';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 import { ReviewStars } from './FeatPrimitives';
 import { FeatReply } from './FeatReply';
 import { FeatGuardian } from './FeatGuardian';
@@ -82,10 +84,14 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number;
   { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "Made my Monday"' },
 ];
 
-// The marquee track is doubled so the -50% translate loops seamlessly.
+// The marquee track is doubled so the -50% translate loops seamlessly. The
+// second copy exists only to make the wrap invisible, so it is marked as a
+// duplicate: the marquee is deliberately IN the accessibility tree (each chip
+// says "Sample review"), and without this a screen reader read all nine samples
+// twice over.
 const MARQUEE_TRACK = [
-  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}` })),
-  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}` })),
+  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}`, dup: false })),
+  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}`, dup: true })),
 ];
 
 function HeroSection({
@@ -96,7 +102,8 @@ function HeroSection({
   values: readonly [number, number, number];
 }) {
   return (
-    <section className={cn('feat-hero', heroIn && 'is-in')} aria-labelledby="feat-h1">
+    <section className={cn('feat-hero rw-dl-wash-host', heroIn && 'is-in')} aria-labelledby="feat-h1">
+      <HeroWash />
       <div className="rw-dl-col feat-hero-col">
         <div>
           <p className="feat-eyebrow feat-fade">Features · Your agent team</p>
@@ -108,8 +115,8 @@ function HeroSection({
             ))}
           </h1>
           <p className="feat-lede feat-fade d1">
-            RepWorth is an AI agent team, not another dashboard. Reply drafts every response,
-            Guardian triages the bad ones, Insights reports on Mondays, and two watchdogs, the
+            RepWorth runs a team of AI agents on your Google reviews. Reply drafts every response,
+            Guardian triages the bad ones, and Insights reports on Mondays. Two watchdogs, the
             Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
             approve every reply on Copilot, or let policy-cleared replies post themselves on
             Autopilot.
@@ -149,8 +156,8 @@ function HeroSection({
       {/* Hero review marquee */}
       <div className="rw-feat-marquee-mask" aria-hidden={false}>
         <div className="rw-feat-marquee-track">
-          {MARQUEE_TRACK.map(({ r, k }) => (
-            <div key={k} className="feat-mq-chip">
+          {MARQUEE_TRACK.map(({ r, k, dup }) => (
+            <div key={k} className="feat-mq-chip" aria-hidden={dup || undefined}>
               <span className="feat-mq-lang">{r.lang}</span>
               <ReviewStars rating={r.ratingValue} glyphs={r.stars} />
               <span className="feat-mq-text">{r.text}</span>
@@ -168,10 +175,10 @@ function HeroSection({
 function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
   const [tocRef, tocSeen] = useReveal<HTMLDivElement>();
   return (
-    <section id="feat-index" aria-label="Feature index" className="rw-dl-band is-paper feat-toc">
+    <section id="feat-index" aria-label="Feature index" className="rw-dl-band is-paper is-tight feat-toc">
       <div className="rw-dl-col">
         <div className="feat-toc-head">
-          <span>Index</span>
+          <h2 className="feat-toc-name">Index</h2>
           <span className="feat-toc-rule" aria-hidden="true" />
           <span>3 agents · 2 watchdogs · 2 modes</span>
         </div>
@@ -200,6 +207,49 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
         </div>
       </div>
     </section>
+  );
+}
+
+// One of the three chapter groups the index already names, with a header that
+// pins while its three chapters scroll past and hands off to the next group.
+//
+// Why this and not the /how-it-works stacked deck: that deck needs near-uniform
+// card heights (its six steps span 481-538px, a 1.12x spread), one surface, and
+// one card shape. These nine chapters span 419-987px (2.36x), alternate
+// paper/bone, and use three arrangements — and 09 Results is taller than the
+// viewport, so it could never hold a pin. Stacking also reads as "ordered
+// stages of one thing", which is /how-it-works. This page is a catalogue, so
+// its sticky device says where you are rather than what comes next.
+//
+// The bar repeats `.feat-ch-grp`, which every chapter header row inside it
+// already carries, so it is aria-hidden: screen readers get the group per
+// chapter and do not need it a fourth time.
+function ChapterGroup({ group, children }: { group: string; children: ReactNode }) {
+  // Chapters come from FEATURES so the bar cannot drift from the index.
+  const chapters = FEATURES.filter((f) => f.group === group);
+  return (
+    <div className="feat-grp">
+      <div className="feat-grp-hd" aria-hidden="true">
+        <div className="rw-dl-col feat-grp-row">
+          <span className="feat-grp-name">{group}</span>
+          <span className="feat-grp-rule" />
+          <span>{chapters.map((f) => f.n).join(' · ')}</span>
+        </div>
+        {/* One segment per chapter, in that chapter's bar colour, filling in
+            turn as you scroll the group — the /how-it-works step ribbon, scoped
+            to a group instead of the whole stack. */}
+        <div className="feat-grp-ribbon">
+          {chapters.map((f) => (
+            <span key={f.id} style={{ ['--bar' as string]: f.bar }}>
+              <i />
+            </span>
+          ))}
+        </div>
+      </div>
+      {/* The timeline source: NOT sticky, so its view progress tracks scroll.
+          `.feat-grp-hd` is pinned and would freeze. */}
+      <div className="feat-grp-body">{children}</div>
+    </div>
   );
 }
 
@@ -299,15 +349,21 @@ export function FeaturesContent({
       <HeroSection heroIn={heroIn} values={[m1, m2, m3]} />
       <FeatureIndex onJump={scrollTo} />
 
-      <FeatReply innerRef={refs['f-reply']} />
-      <FeatGuardian innerRef={refs['f-guardian']} />
-      <FeatInsights innerRef={refs['f-insights']} />
-      <FeatGate innerRef={refs['f-gate']} />
-      <FeatAutopilot innerRef={refs['f-autopilot']} />
-      <FeatWatchdogs innerRef={refs['f-watchdogs']} />
-      <FeatLang innerRef={refs['f-lang']} />
-      <FeatVoice innerRef={refs['f-voice']} />
-      <FeatRoi innerRef={refs['f-roi']} />
+      <ChapterGroup group="Your agent team">
+        <FeatReply innerRef={refs['f-reply']} />
+        <FeatGuardian innerRef={refs['f-guardian']} />
+        <FeatInsights innerRef={refs['f-insights']} />
+      </ChapterGroup>
+      <ChapterGroup group="Care and control">
+        <FeatGate innerRef={refs['f-gate']} />
+        <FeatAutopilot innerRef={refs['f-autopilot']} />
+        <FeatWatchdogs innerRef={refs['f-watchdogs']} />
+      </ChapterGroup>
+      <ChapterGroup group="Craft and proof">
+        <FeatLang innerRef={refs['f-lang']} />
+        <FeatVoice innerRef={refs['f-voice']} />
+        <FeatRoi innerRef={refs['f-roi']} />
+      </ChapterGroup>
       <RoadmapBand />
 
       <FeaturesCta comingSoon={comingSoon} signupCtaLabel={selfServeEnabled ? signupCtaLabel : null} />

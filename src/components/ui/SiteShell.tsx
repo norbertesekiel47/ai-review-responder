@@ -45,6 +45,13 @@ export function SiteShell({
       {overlay}
       <div className="rw-island-wrap">
         <div className="rw-island">
+          {/* Hides page content in the strip above the nav pill, which is
+              transparent and — being a 9999px capsule — leaves wedge gaps at
+              its corners. A separate element rather than a background on the
+              nav, because the nav is a stacking context: painted there it
+              would also cover the hero wash. Zero net flow height; see
+              `.rw-nav-occluder` in island.css. */}
+          <div className="rw-nav-occluder" aria-hidden="true" />
           {/* Header / main / footer are siblings so each keeps its landmark role
               (a <footer>/<header> nested inside <main> is NOT a landmark). The
               skip link in (public)/layout.tsx targets #main-content. */}

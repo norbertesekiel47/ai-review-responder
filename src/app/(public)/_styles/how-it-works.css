@@ -29,71 +29,48 @@
   margin: 0;
   text-wrap: balance;
 }
-.hiw-page p { margin: 0; }
+/* Zero-specificity reset (`:where`), so a class rule like `.hiw-lede { margin-top }`
+   is not out-specified by the page scope — the same fix features.css and
+   pricing.css already carry, and the last page still missing it.
+
+   `.hiw-page p` scored 0,1,1 and beat every 0,1,0 class rule on this page, so
+   `.hiw-lede`'s 32px, `.hiw-mail-meta`'s 20px, `.rw-dl-fine`'s 14px (×3) and
+   `.hiw-step-s`'s 14px (×6) all computed to zero. It reached the shared chrome
+   too: `.rw-foot-blurb` rendered at 14px on /features and 0px here, from one
+   component. The reset still wins over the UA sheet at zero specificity. */
+:where(.hiw-page p) { margin: 0; }
 .hiw-page section h2 { scroll-margin-top: 120px; }
 
-/* ---------- Hero (wash slides under the sticky nav pill) ---------- */
-.hiw-hero {
-  position: relative;
-  overflow: hidden;
-  margin-top: -92px;
-  padding-top: 92px;
-}
-.hiw-wash {
-  position: absolute;
-  inset: 0 0 -80px 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.hiw-wash video,
-.hiw-wash img {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 120%;
-  height: 120%;
-  object-fit: cover;
-  transform: translate(-50%, -50%);
-  filter: blur(26px) saturate(1.45) contrast(1.06);
-  animation: hiw-wash-drift 40s ease-in-out infinite alternate;
-}
-.hiw-wash video { display: none; }
-.hiw-wash video.is-on { display: block; }
-.hiw-wash img.is-hidden { opacity: 0; transition: opacity 1.2s; }
-@keyframes hiw-wash-drift {
-  from { transform: translate(-50%, -50%) scale(1); }
-  to { transform: translate(-48%, -52%) scale(1.08); }
-}
-.hiw-wash::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(246, 246, 242, 0) 0%,
-    rgba(246, 246, 242, 0.18) 50%,
-    var(--rw-bone) 80%,
-    var(--rw-bone) 100%
-  );
-}
+/* ---------- Hero ----------
+   The wash and its host contract (`position: relative`, `overflow: hidden`, the
+   -92px slide under the nav pill) are shared now: `.rw-dl-wash` and
+   `.rw-dl-wash-host` in island.css, since /features and /pricing carry the same
+   wash. This page's hero keeps only its own layout below. */
 .hiw-hero-col {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: 104px;
   align-items: center;
-  padding-top: 128px;
+  /* 112px matches /features and /pricing — the three heroes had drifted to
+     128/112/112 with no reason recorded. The 184px bottom is NOT drift: the
+     stat cards below pull up by -80px, so the effective gap is ~104px. */
+  padding-top: 112px;
   padding-bottom: 184px;
 }
 .hiw-h1 { font-size: clamp(44px, 4.2vw, 64px); line-height: 1.04; letter-spacing: 0; }
 .hiw-h1 .ln { display: block; overflow: hidden; }
 .hiw-h1 .ln span {
   display: block;
-  transform: translateY(110%);
-  opacity: 0;
   transition: transform 0.9s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.6s;
 }
-.hiw-hero.is-in .hiw-h1 .ln span { transform: none; opacity: 1; }
+/* Layer 0 (the stack is documented in island.css): `.is-in` only ever arrives
+   from React, so the hidden start frame is armed by script presence. Without
+   it the hero would be permanently invisible to a JS-off visitor. */
+@media (scripting: enabled) {
+  .hiw-h1 .ln span { transform: translateY(110%); opacity: 0; }
+  .hiw-hero.is-in .hiw-h1 .ln span { transform: none; opacity: 1; }
+}
 .hiw-h1 .ln:nth-child(2) span { transition-delay: 0.1s; }
 .hiw-h1 .ln:nth-child(3) span { transition-delay: 0.2s; }
 .hiw-h1 .ln:nth-child(4) span { transition-delay: 0.3s; }
@@ -107,16 +84,183 @@
 .hiw-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 36px; align-items: center; }
 .hiw-ctas .rw-dl-txtlink { margin-left: 10px; }
 .hiw-fade {
-  opacity: 0;
-  transform: translateY(14px);
   transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.hiw-hero.is-in .hiw-fade { opacity: 1; transform: none; }
+@media (scripting: enabled) {
+  .hiw-fade { opacity: 0; transform: translateY(14px); }
+  .hiw-hero.is-in .hiw-fade { opacity: 1; transform: none; }
+}
 .hiw-hero.is-in .hiw-fade.d1 { transition-delay: 0.45s; }
 .hiw-hero.is-in .hiw-fade.d2 { transition-delay: 0.6s; }
 .hiw-hero.is-in .hiw-fade.d3 { transition-delay: 0.75s; }
-.hiw-mail-subj { font-size: 18px; line-height: 1.35; margin-bottom: 6px; }
-.hiw-mail-meta { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 20px; }
+/* ---------- Hero flow artifact ----------
+   The h1 as one object: a review in at the top, the gate as the dark pivot
+   across the middle, the public reply out at the bottom, one rail through all
+   three. It replaced a sample inbox card that showed a single moment and
+   neither of the two things the headline promises.
+
+   This is the one element inside the island that carries a shadow. The founder
+   asked for the artifact to be rethought rather than reskinned, and it now
+   floats on the hero wash instead of sitting on bone — paper-on-hairline has
+   nothing to separate it from a blurred colour field. It does not license
+   shadows elsewhere: everywhere else, paper + hairline is still the depth
+   model. */
+.hiw-flow {
+  position: relative;
+  margin: 0;
+  background: var(--rw-paper);
+  border: 1px solid var(--rw-line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 22px 48px -28px rgba(21, 25, 26, 0.42);
+}
+/* The rail. One line from the first node to the last; the gate band is opaque
+   and paints over its middle, which is exactly the interruption the headline
+   describes. */
+/* left: 28px puts the 1px rail on the node centres — 22px stage padding + the
+   node's 1px margin + half of its 11px width. */
+.hiw-flow::before {
+  content: '';
+  position: absolute;
+  left: 28px;
+  top: 74px;
+  bottom: 64px;
+  width: 1px;
+  background: var(--rw-line);
+}
+.hiw-flow-cap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 22px;
+  border-bottom: 1px solid var(--rw-line);
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+.hiw-flow-cap-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rw-forest);
+  flex: none;
+}
+.hiw-flow-cap-tail { margin-left: auto; white-space: nowrap; }
+
+.hiw-flow-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 8px;
+  padding: 20px 22px;
+}
+.hiw-flow-node {
+  grid-column: 1;
+  width: 11px;
+  height: 11px;
+  margin-left: 1px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--bar);
+  border: 1px solid var(--rw-line);
+  /* Lifts the node off the rail it sits on. */
+  box-shadow: 0 0 0 4px var(--rw-paper);
+}
+.hiw-flow-k {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+.hiw-flow-panel {
+  grid-column: 2;
+  background: var(--rw-bone);
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.hiw-flow-panel.is-live { background: var(--rw-paper); border-color: var(--rw-line-2); }
+.hiw-flow-stars { font-size: 13px; color: var(--rw-ink2); letter-spacing: 1px; }
+.hiw-flow-quote { font-size: 15px; line-height: 1.5; margin-top: 8px; }
+.hiw-flow-who { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 10px; }
+.hiw-flow-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--rw-ink2-soft);
+}
+.hiw-flow-tick {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--rw-forest);
+  color: #fff;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.hiw-flow-tick svg { width: 9px; height: 9px; }
+
+/* The pivot: the one dark surface, because it is the one place the owner
+   decides anything. Full-bleed so it reads as a band cutting the card, not as
+   another panel inside it. */
+.hiw-flow-gate {
+  position: relative;
+  background: var(--rw-ink2);
+  color: #fff;
+  padding: 16px 22px 18px;
+}
+.hiw-flow-gate-k {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  margin-bottom: 10px;
+}
+.hiw-flow-gate-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.hiw-flow-gate-rows li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+.hiw-flow-gate-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bar);
+  flex: none;
+  align-self: center;
+}
+.hiw-flow-gate-plan { color: #fff; white-space: nowrap; }
+.hiw-flow-gate-rule {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  align-self: center;
+}
+.hiw-flow-gate-v { color: rgba(255, 255, 255, 0.78); white-space: nowrap; }
+
+/* The artifact assembles in the order it describes: the rail draws down, the
+   gate band closes across it, then the reply's owner tick lands. Delays run on
+   from the card's own entrance (`.hiw-fade.d3`, 0.75s), so it reads as one
+   continuous move rather than two.
+
+   Inside `scripting: enabled` for Layer 0 — the start frames are hidden and
+   only `.is-in` reveals them, so without script this would be a card with no
+   rail and no gate. */
+.hiw-flow::before { transform-origin: top; }
+.hiw-flow-gate { transition: clip-path 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) 1.15s; }
+.hiw-flow-tick { transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) 1.6s; }
+@media (scripting: enabled) {
+  .hiw-flow::before {
+    transform: scaleY(0);
+    transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.95s;
+  }
+  .hiw-hero.is-in .hiw-flow::before { transform: none; }
+  .hiw-flow-gate { clip-path: inset(0 100% 0 0); }
+  .hiw-hero.is-in .hiw-flow-gate { clip-path: inset(0); }
+  .hiw-flow-tick { transform: scale(0); }
+  .hiw-hero.is-in .hiw-flow-tick { transform: none; }
+}
 
 /* ---------- Stat cards ---------- */
 .hiw-stats-band { padding-bottom: 24px; }
@@ -140,11 +284,12 @@
   gap: 18px;
   position: relative;
   overflow: hidden;
-  opacity: 0;
-  transform: translateY(16px);
   transition: opacity 0.7s cubic-bezier(0.22, 0.61, 0.36, 1), transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.hiw-stat.is-in { opacity: 1; transform: none; }
+@media (scripting: enabled) {
+  .hiw-stat { opacity: 0; transform: translateY(16px); }
+  .hiw-stat.is-in { opacity: 1; transform: none; }
+}
 .hiw-stat::before {
   content: '';
   position: absolute;
@@ -153,11 +298,13 @@
   bottom: 0;
   width: 10px;
   background: var(--bar);
-  transform: scaleY(0);
   transform-origin: top;
   transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.2s;
 }
-.hiw-stat.is-in::before { transform: none; }
+@media (scripting: enabled) {
+  .hiw-stat::before { transform: scaleY(0); }
+  .hiw-stat.is-in::before { transform: none; }
+}
 .hiw-stat-n { font-size: 48px; line-height: 1; }
 .hiw-stat-n small { font-size: 20px; color: var(--rw-ink2-mute); margin-left: 4px; }
 .hiw-stat-d { font-size: 15px; line-height: 1.4; color: var(--rw-ink2-soft); max-width: 20ch; }
@@ -202,6 +349,47 @@
   overflow: hidden;
 }
 .hiw-step::before { content: ''; display: block; height: 8px; background: var(--bar); }
+
+/* ---------- The ribbon builds as you scroll (island.css Layer 2) ----------
+   The six 8px bars already form a flush ribbon as the steps stack. Scroll-
+   linking makes each one fill left→right in turn, so the ribbon reads as
+   progress through the pipeline rather than as six static caps.
+
+   The timeline CANNOT come from the step itself. A view progress timeline is
+   measured from the subject's position in the scrollport, and a pinned sticky
+   element does not move in the scrollport — so `animation-timeline: view()` on
+   `.hiw-step` freezes the moment the card pins. Measured: step 1 held a
+   constant fill across 2,900px of scrolling, the entire time it was pinned.
+
+   So the timeline comes from `.hiw-stack`, which is NOT sticky and does track
+   scroll. `timeline-scope` on the band publishes the name to the steps, and
+   each step animates over its own sixth of the stack's `contain` range —
+   `contain` because the stack (3242px) is far taller than the scrollport, so
+   that range is exactly its scroll-through.
+
+   Nothing here applies without `animation-timeline`, so the bars stay solid on
+   Firefox stable and iOS Safari 18, and under reduced motion. */
+@keyframes hiw-bar-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hiw-steps-band { timeline-scope: --hiw-stack; }
+    .hiw-stack { view-timeline-name: --hiw-stack; }
+    .hiw-step::before {
+      transform-origin: left;
+      animation: hiw-bar-fill linear both;
+      animation-timeline: --hiw-stack;
+    }
+    .hiw-step:nth-child(1)::before { animation-range: contain 0% contain 16.667%; }
+    .hiw-step:nth-child(2)::before { animation-range: contain 16.667% contain 33.333%; }
+    .hiw-step:nth-child(3)::before { animation-range: contain 33.333% contain 50%; }
+    .hiw-step:nth-child(4)::before { animation-range: contain 50% contain 66.667%; }
+    .hiw-step:nth-child(5)::before { animation-range: contain 66.667% contain 83.333%; }
+    .hiw-step:nth-child(6)::before { animation-range: contain 83.333% contain 100%; }
+  }
+}
 .hiw-step-hd {
   display: flex;
   align-items: center;
@@ -294,10 +482,14 @@
 
 /* Judge verdict dot scale-in */
 .hiw-verdict .rw-dl-rec-dot {
-  transform: scale(0);
   transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) 0.6s;
 }
-.rw-dl-rv.is-in .hiw-verdict .rw-dl-rec-dot { transform: none; }
+/* Layer 0: the dot IS the verdict. Without script it must be present, not a
+   gap where the Judge's answer should be. */
+@media (scripting: enabled) {
+  .hiw-verdict .rw-dl-rec-dot { transform: scale(0); }
+  .rw-dl-rv.is-in .hiw-verdict .rw-dl-rec-dot { transform: none; }
+}
 
 /* ---------- Pipeline panel ---------- */
 .hiw-hood {
@@ -348,7 +540,8 @@
 .hiw-guar-d { font-size: 15px; color: var(--rw-ink2-soft); margin-top: 10px; line-height: 1.5; }
 
 /* ---------- FAQ + CTA page deltas ---------- */
-.hiw-faq-intro { margin-bottom: 48px; }
+/* The FAQ intro's tighter margin now comes from the shared
+   `.rw-dl-intro.is-tight`, set on the element in HowItWorksContent.tsx. */
 .hiw-cta-pill { width: 100%; justify-content: center; }
 .rw-pill.is-disabled { opacity: 0.6; cursor: default; }
 
@@ -360,12 +553,27 @@
   .hiw-ov > div:nth-child(3) { border-right: 0; }
   .hiw-ov > div:nth-child(n + 4) { border-top: 1px solid var(--rw-line); }
   .hiw-step { position: static; }
+  /* Below this width the steps are plain stacked cards, not a deck, so there is
+     no ribbon for the fill to build — and the six even slices of the stack's
+     scroll range no longer line up with cards of very different heights. Solid
+     bars. (Later in the file than the `@supports` block on purpose: same
+     specificity, so source order is what wins.) */
+  .hiw-step::before { animation: none; transform: none; }
   .hiw-step-bd { grid-template-columns: 1fr; }
   .hiw-step-ar { border-left: 0; border-top: 1px solid var(--rw-line); }
   .hiw-hood { grid-template-columns: 1fr; }
   .hiw-guarantees { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
+  /* The gate row is two `nowrap` labels either side of a flexing rule. Below
+     this width the rule squeezes to nothing and the value crowds the card
+     edge, so the value drops to its own line and the rule goes. Same for the
+     caption's tail. */
+  .hiw-flow-gate-rows li { flex-wrap: wrap; row-gap: 2px; }
+  .hiw-flow-gate-rule { display: none; }
+  .hiw-flow-gate-v { flex-basis: 100%; padding-left: 18px; white-space: normal; }
+  .hiw-flow-cap { flex-wrap: wrap; row-gap: 2px; }
+  .hiw-flow-cap-tail { margin-left: 18px; }
   .hiw-stats { grid-template-columns: 1fr; }
   .hiw-ov { grid-template-columns: 1fr 1fr; }
   .hiw-ov > div:nth-child(odd) { border-right: 1px solid var(--rw-line); }
@@ -383,8 +591,11 @@
     transition: none !important;
   }
   .hiw-stat::before { transform: none !important; transition: none !important; }
-  .hiw-wash video,
-  .hiw-wash img { animation: none; }
+  /* The wash's own reduced-motion stop lives with it in island.css. */
   .hiw-feed-row.is-new { animation: none; }
   .hiw-verdict .rw-dl-rec-dot { transform: none !important; transition: none !important; }
+  /* The hero artifact lands assembled: rail drawn, gate closed, tick in. */
+  .hiw-flow::before,
+  .hiw-flow-tick { transform: none !important; transition: none !important; }
+  .hiw-flow-gate { clip-path: none !important; transition: none !important; }
 }

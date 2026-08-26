@@ -4,7 +4,7 @@ import { type CSSProperties, type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { FeatReceipt } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 // The brief's headline counts (sample week).
 const BRIEF_COUNTS = [
@@ -37,7 +37,7 @@ export function FeatInsights({ innerRef }: { innerRef: RefObject<HTMLElement | n
       ref={innerRef}
       id="f-insights"
       aria-label="Insights: the weekly brief"
-      className="rw-dl-band"
+      className="rw-dl-band is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">

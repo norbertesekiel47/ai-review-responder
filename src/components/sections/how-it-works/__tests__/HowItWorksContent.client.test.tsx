@@ -4,8 +4,11 @@ import { act, render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Mutable so the two reveal branches can each be exercised. `vi.hoisted` is
+// required: `vi.mock` factories run before ordinary module-scope `let`s exist.
+const motion = vi.hoisted(() => ({ reduced: true }));
 vi.mock('@/hooks/usePrefersReducedMotion', () => ({
-  usePrefersReducedMotion: () => true,
+  usePrefersReducedMotion: () => motion.reduced,
 }));
 vi.mock('@/components/ui/SiteShell', () => ({
   SiteShell: ({ children, overlay }: { children?: ReactNode; overlay?: ReactNode }) => (
@@ -72,6 +75,7 @@ function offscreenRect(): DOMRect {
 beforeEach(() => {
   vi.useFakeTimers();
   observerInstances.length = 0;
+  motion.reduced = true;
   vi.stubGlobal('IntersectionObserver', ControlledIntersectionObserver);
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(offscreenRect());
 });
@@ -84,6 +88,7 @@ afterEach(() => {
 
 describe('HowItWorksContent Reveal effects', () => {
   it('reveals the delayed section after intersection and disconnects observers on transition and cleanup', () => {
+    motion.reduced = false;
     const { container, unmount } = render(<HowItWorksContent />);
     const guarantees = container.querySelector('.hiw-guarantees');
     expect(guarantees).not.toBeNull();
@@ -95,8 +100,12 @@ describe('HowItWorksContent Reveal effects', () => {
       observer.observe.mock.calls.some(([target]) => target === delayedReveal),
     );
     expect(revealObserver).toBeDefined();
-    expect(revealObserver!.thresholds).toEqual([0.05]);
-    expect(revealObserver!.rootMargin).toBe('0px 0px -50px 0px');
+    // The unified trigger. `Reveal` used to observe at 0.05 / -50px while the
+    // features chapters observed at 0.08 / -80px, so two identical-looking
+    // cards on one page entered at different scroll positions. One pair now,
+    // owned by src/hooks/useReveal.ts.
+    expect(revealObserver!.thresholds).toEqual([0.08]);
+    expect(revealObserver!.rootMargin).toBe('0px 0px -80px 0px');
 
     act(() => revealObserver!.intersect(delayedReveal!));
     expect(revealObserver!.disconnect).toHaveBeenCalledTimes(1);
@@ -110,6 +119,29 @@ describe('HowItWorksContent Reveal effects', () => {
     // `seen` changes, so React cleans up the observer-owning effect before
     // running its no-op seen=true pass.
     expect(revealObserver!.disconnect).toHaveBeenCalledTimes(2);
+
+    unmount();
+  });
+
+  it('skips the observer entirely under reduced motion and lands on the final frame', () => {
+    // `Reveal` used to ignore the preference and run the entrance regardless —
+    // the one reveal path on these pages that did. It now short-circuits like
+    // every other, which is what DESIGN.md has always claimed.
+    motion.reduced = true;
+    const { container, unmount } = render(<HowItWorksContent />);
+    const delayedReveal = container.querySelector('.hiw-guarantees')!.parentElement;
+    expect(delayedReveal).toHaveClass('rw-dl-rv');
+
+    const revealObserver = observerInstances.find((observer) =>
+      observer.observe.mock.calls.some(([target]) => target === delayedReveal),
+    );
+    expect(revealObserver).toBeUndefined();
+
+    // Deferred one tick to avoid a synchronous setState in-effect; the 120ms
+    // stagger is deliberately NOT applied — a delay nobody sees is just a wait.
+    expect(delayedReveal).not.toHaveClass('is-in');
+    act(() => vi.advanceTimersByTime(0));
+    expect(delayedReveal).toHaveClass('is-in');
 
     unmount();
   });
