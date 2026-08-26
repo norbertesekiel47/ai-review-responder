@@ -1680,14 +1680,20 @@
    move from mute to soft — the scrim alone cannot carry 62% ink.
 
    Weighted to the left so the wash stays vivid behind the hero artifact on the
-   right: gone by 70%. Starts at 92px so the strip beside the nav pill keeps the
-   wash at full strength. Paints above the wash (same z-index, later in DOM) and
+   right: gone by 70%. Paints above the wash (same z-index, later in DOM) and
    below the hero content (z-index 3). Literal rgba rather than the token
-   because the stops need alpha, as the wash's own fade already does. */
+   because the stops need alpha, as the wash's own fade already does.
+
+   `inset: 0`, NOT `inset: 92px 0 0 0`. Insetting the top to spare the strip
+   beside the nav pill left the wash unveiled from the island's top edge down
+   to the pill's bottom, then lightened it abruptly — a hard horizontal seam
+   that the island's 48px corner radius cut into a saturated wedge in the
+   top-left. The strip gains nothing from being unveiled: the scrim is
+   horizontal, so the right-hand side stays vivid at every height anyway. */
 .rw-dl-wash-host::after {
   content: '';
   position: absolute;
-  inset: 92px 0 0 0;
+  inset: 0;
   z-index: 2;
   pointer-events: none;
   background: linear-gradient(
