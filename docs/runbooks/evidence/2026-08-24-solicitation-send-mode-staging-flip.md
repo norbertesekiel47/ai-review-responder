@@ -69,7 +69,7 @@ NOT the goal for those rows.
 | Postmark DMARC registration | `feedback.staging.repworth.net` → `re+c4itw8rihpd@dmarc.postmarkapp.com` | none | **keep** (staging digest sink) | Postmark record deletion via its private token (held off-repo) | n/a — kept |
 | Resend domain | `feedback.staging.repworth.net` (us-east-1, custom return path `bounce`) | none | **keep** (staging Sending identity) | `DELETE /domains/{id}` with team key | n/a — kept |
 | Credential file: full-access Resend key | `scratchpad/resend.key` (session scratchpad, off-repo) | none | **delete at teardown** | `rm`; user may also revoke the key in Resend | [x] deleted 2026-08-26 07:3x UTC |
-| Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [x] file deleted 2026-08-26 07:3x UTC; token revocation = owner action, pending |
+| Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [x] file deleted 2026-08-26 07:3x UTC; [x] token revoked by owner (confirmed 2026-08-26, addendum below) |
 | Cloudflare DNS records ×4 (zone `repworth.net`, id `59b9cc47…`) | TXT `resend._domainkey.feedback.staging`, MX `bounce.feedback.staging`, TXT `bounce.feedback.staging`, TXT `_dmarc.feedback.staging` | none | **keep** (staging Sending identity) | delete records by id via zone DNS API/console | n/a — kept |
 | Cloudflare DNS: Zoho inbound MX ×3 + verification TXT on `feedback.staging` | MX `feedback.staging` → mx/mx2/mx3.zoho.com; TXT `feedback.staging` (zoho-verification) | none | **keep** (§4 inbound routing) | delete records by id via zone DNS API/console | n/a — kept |
 | Zoho org: domain `feedback.staging.repworth.net` + aliases `reviews@`, `unsubscribe@` | Zoho Mail admin, org of `repworth.net` | none | **keep** (§4 monitored mailboxes → norbert.esekiel@repworth.net) | remove domain/aliases in Zoho admin | n/a — kept |
@@ -803,3 +803,16 @@ teardown ledger. Credential files deleted 07:3x UTC; Cloudflare token
 revocation is the owner's remaining teardown action.
 
 *(post-verdict addenda only below this line)*
+
+### Addendum 2026-08-26 — teardown complete; #966 closed
+
+- **Cloudflare DNS token revoked by the owner** (confirmed 2026-08-26). The
+  teardown ledger's last open action is done; nothing from this campaign's
+  credential set remains live.
+- **#966 closed manually.** PR #964's "Closes #963 and #966" only auto-closed
+  #963 — GitHub parses one closing-keyword pair per reference, and "and #966"
+  is not one. The fix was already merged and proven live by this campaign's
+  04:09 one-click ledger write; the issue was open on syntax alone.
+- The env-vars registry rows for both lane flags were corrected the same day —
+  they still claimed "the flag exists in no environment yet", which this
+  campaign falsified. The registry now records ON-in-staging / prod-unset.
