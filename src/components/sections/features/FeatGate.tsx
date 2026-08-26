@@ -22,7 +22,7 @@ export function FeatGate({ innerRef }: { innerRef: RefObject<HTMLElement | null>
       ref={innerRef}
       id="f-gate"
       aria-label="The gate: Copilot approval"
-      className="rw-dl-band is-paper is-tight is-open"
+      className="rw-dl-band is-paper is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">

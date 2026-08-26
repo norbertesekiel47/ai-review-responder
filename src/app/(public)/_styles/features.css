@@ -230,6 +230,52 @@
 .feat-idx-l { font-size: 20px; margin-top: 18px; }
 .feat-idx-s { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 4px; }
 
+/* ---------- Chapter groups (the sticky group bar) ----------
+   One bar per group, pinned while its three chapters scroll past, handing off
+   to the next group's bar. It reuses the ledger-head vocabulary already on this
+   page (`.feat-toc-head`): label · hairline rule · tail.
+
+   It pins at `top: 0` with 92px of padding above its row, NOT at `top: 92px`.
+   Flush-under-the-pill was tried and looks broken: `.rw-navwrap` is
+   transparent, so content scrolls through the full-width strip above the pill,
+   and because the pill is a 9999px-radius capsule its rounded corners leave
+   four wedge-shaped gaps that glyphs show through. Starting the bar at 0 makes
+   one opaque bone header zone with the pill floating on it — which is what the
+   top of the page already looks like. The nav's z-index (50) beats this bar's
+   (3), so the pill always draws over it.
+
+   The 92px is flow height at each group's natural position, ~276px over the
+   page. That is the price of the clean header zone, and it doubles as the act
+   break that `.is-open` used to provide — which is why the three group-opening
+   chapters are plain `.is-tight`.
+
+   Bone, because the bar crosses both band surfaces: over a bone band it reads
+   as the canvas, over a paper band as the same paper↔bone junction every band
+   boundary already makes. Opaque is not optional — a transparent bar would let
+   chapter text scroll through the label. */
+.feat-grp { position: relative; }
+.feat-grp-hd {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-top: 92px;
+  background: var(--rw-bone);
+  border-bottom: 1px solid var(--rw-line);
+}
+.feat-grp-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 13px;
+  padding-bottom: 13px;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+.feat-grp-rule { flex: 1; height: 1px; background: var(--rw-line); }
+/* The bar carries the group now, so the per-chapter tail would say it twice on
+   screen. The roadmap sits outside a group and keeps its own. */
+.feat-grp .feat-ch-grp { display: none; }
+
 /* ---------- Chapter grid (dossier header row + text beside / above the artifact) ---------- */
 .feat-intro-tick {
   display: inline-block;
@@ -623,6 +669,13 @@
   .feat-roi-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
+  /* The group bar costs 138px of permanent chrome on a phone (92px to clear the
+     nav, plus its row) — about 17% of the viewport. It is not worth that here:
+     the chapters collapse to one narrow column, so a chapter header row is
+     never far away. The bar goes, and the per-chapter group tail it replaced
+     comes back. */
+  .feat-grp-hd { display: none; }
+  .feat-grp .feat-ch-grp { display: block; }
   /* The masked lines are blocks; at the 44px floor "Nothing goes public" is
      ~385px and splits on a 354px phone column (it still grazes the edge at
      38px). 36px keeps every line whole at 390px; 9.2vw reaches the 44px

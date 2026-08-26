@@ -211,7 +211,8 @@ its existing `shadow-lg`/`shadow-xl` recipes.
 | Hero entrance | staged: masked h1 lines rise (0.9s, +0.1s per line), lede/CTAs/card fade up (delays .45/.6/.75s) |
 | Scroll reveal | `.rw-dl-rv` → `.is-in`: opacity + 12px rise, 0.6/0.7s |
 | Stat cards | stagger left→right (+280ms), left bar wipes in (scaleY), numbers count up 1.4s |
-| Sticky stack | each `.hiw-step` pins at `--top: 116 + i·8px`; the 8px colour bars form a flush ribbon |
+| Sticky stack | each `.hiw-step` pins at `--top: 116 + i·8px`; the 8px colour bars form a flush ribbon that fills in turn as you scroll (Layer 2) |
+| Group bar | `/features` pins one bar per chapter group; it hands off to the next group's bar |
 | Pills | hover: translateY(-1px); arrow disc slides 2px |
 | Loops | marquee drift, wash drift, pulse dot, typewriter caret |
 
@@ -248,6 +249,15 @@ stay cover-relative: `entry` is measured against the element's own height, so an
 entry-relative end makes a tall block take a full screen of scrolling to finish
 one fade while a short card finishes in a fraction of that.
 
+**Never take a view timeline from a `position: sticky` element.** View progress
+is measured from the subject's position in the scrollport, and a pinned element
+does not move in the scrollport — so the timeline freezes the instant it pins.
+Measured on the `/how-it-works` stack: a bar driven by `view()` on its own
+`.hiw-step` held one constant value across 2,900px of scrolling, the whole time
+the card was pinned. Take the timeline from the nearest ancestor that does
+scroll, publish it with `timeline-scope`, and give each subject its slice with
+`animation-range` — that is exactly what the step ribbon does, off `.hiw-stack`.
+
 The Layer 1 trigger is `src/hooks/useReveal.ts` — **one** hook, threshold 0.08,
 rootMargin `0px 0px -80px 0px`. `Reveal.tsx` wraps it and adds the `scrub`
 opt-in; the features chapters call it directly. Do not add a second trigger: two
@@ -277,6 +287,15 @@ one page enter at different scroll positions.
   (36px ≤680px), for an intro sitting directly above a bordered artifact — a
   matrix, an accordion. Page CSS must not add a private `margin-bottom` override;
   three of them had accumulated at 80/56/48 before this scale existed.
+- **Sticky chrome must clear the nav pill, and the pill is a capsule.** Anything
+  that pins under `SiteNav` pins at `top: 0` with 92px of padding above its own
+  row — not at `top: 92px`. `.rw-navwrap` is transparent, so content scrolls
+  through the full-width strip above the pill, and the pill's 9999px radius
+  leaves four wedge-shaped corner gaps that glyphs show through. The padded
+  version makes one opaque header zone with the pill floating on it. The nav's
+  z-index is 50; sticky page chrome sits at 3. `/features`' `.feat-grp-hd` is
+  the worked example, and it is hidden below 680px, where 138px of permanent
+  chrome is not worth the phone viewport.
 - **Never scope a bare-element reset above class specificity.** A page scope must
   be written `:where(.page p) { margin: 0 }`, never `.page p { margin: 0 }`. The
   latter scores 0,1,1 and silently out-specifies every 0,1,0 class rule on the

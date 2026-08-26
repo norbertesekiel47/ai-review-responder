@@ -222,6 +222,47 @@
   overflow: hidden;
 }
 .hiw-step::before { content: ''; display: block; height: 8px; background: var(--bar); }
+
+/* ---------- The ribbon builds as you scroll (island.css Layer 2) ----------
+   The six 8px bars already form a flush ribbon as the steps stack. Scroll-
+   linking makes each one fill left→right in turn, so the ribbon reads as
+   progress through the pipeline rather than as six static caps.
+
+   The timeline CANNOT come from the step itself. A view progress timeline is
+   measured from the subject's position in the scrollport, and a pinned sticky
+   element does not move in the scrollport — so `animation-timeline: view()` on
+   `.hiw-step` freezes the moment the card pins. Measured: step 1 held a
+   constant fill across 2,900px of scrolling, the entire time it was pinned.
+
+   So the timeline comes from `.hiw-stack`, which is NOT sticky and does track
+   scroll. `timeline-scope` on the band publishes the name to the steps, and
+   each step animates over its own sixth of the stack's `contain` range —
+   `contain` because the stack (3242px) is far taller than the scrollport, so
+   that range is exactly its scroll-through.
+
+   Nothing here applies without `animation-timeline`, so the bars stay solid on
+   Firefox stable and iOS Safari 18, and under reduced motion. */
+@keyframes hiw-bar-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hiw-steps-band { timeline-scope: --hiw-stack; }
+    .hiw-stack { view-timeline-name: --hiw-stack; }
+    .hiw-step::before {
+      transform-origin: left;
+      animation: hiw-bar-fill linear both;
+      animation-timeline: --hiw-stack;
+    }
+    .hiw-step:nth-child(1)::before { animation-range: contain 0% contain 16.667%; }
+    .hiw-step:nth-child(2)::before { animation-range: contain 16.667% contain 33.333%; }
+    .hiw-step:nth-child(3)::before { animation-range: contain 33.333% contain 50%; }
+    .hiw-step:nth-child(4)::before { animation-range: contain 50% contain 66.667%; }
+    .hiw-step:nth-child(5)::before { animation-range: contain 66.667% contain 83.333%; }
+    .hiw-step:nth-child(6)::before { animation-range: contain 83.333% contain 100%; }
+  }
+}
 .hiw-step-hd {
   display: flex;
   align-items: center;
@@ -385,6 +426,12 @@
   .hiw-ov > div:nth-child(3) { border-right: 0; }
   .hiw-ov > div:nth-child(n + 4) { border-top: 1px solid var(--rw-line); }
   .hiw-step { position: static; }
+  /* Below this width the steps are plain stacked cards, not a deck, so there is
+     no ribbon for the fill to build — and the six even slices of the stack's
+     scroll range no longer line up with cards of very different heights. Solid
+     bars. (Later in the file than the `@supports` block on purpose: same
+     specificity, so source order is what wins.) */
+  .hiw-step::before { animation: none; transform: none; }
   .hiw-step-bd { grid-template-columns: 1fr; }
   .hiw-step-ar { border-left: 0; border-top: 1px solid var(--rw-line); }
   .hiw-hood { grid-template-columns: 1fr; }

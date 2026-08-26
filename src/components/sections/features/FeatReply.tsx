@@ -37,7 +37,7 @@ export function FeatReply({ innerRef }: { innerRef: RefObject<HTMLElement | null
   const r = AI_REPLIES[tab];
 
   return (
-    <section ref={innerRef} id="f-reply" aria-label="Reply: the drafting agent" className="rw-dl-band is-tight is-open">
+    <section ref={innerRef} id="f-reply" aria-label="Reply: the drafting agent" className="rw-dl-band is-tight">
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">
           <FeatIntro

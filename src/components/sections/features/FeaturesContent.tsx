@@ -10,6 +10,7 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type ReactNode,
   type RefObject,
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
@@ -203,6 +204,37 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
   );
 }
 
+// One of the three chapter groups the index already names, with a header that
+// pins while its three chapters scroll past and hands off to the next group.
+//
+// Why this and not the /how-it-works stacked deck: that deck needs near-uniform
+// card heights (its six steps span 481-538px, a 1.12x spread), one surface, and
+// one card shape. These nine chapters span 419-987px (2.36x), alternate
+// paper/bone, and use three arrangements — and 09 Results is taller than the
+// viewport, so it could never hold a pin. Stacking also reads as "ordered
+// stages of one thing", which is /how-it-works. This page is a catalogue, so
+// its sticky device says where you are rather than what comes next.
+//
+// The bar repeats `.feat-ch-grp`, which every chapter header row inside it
+// already carries, so it is aria-hidden: screen readers get the group per
+// chapter and do not need it a fourth time.
+function ChapterGroup({ group, children }: { group: string; children: ReactNode }) {
+  // Numbers come from FEATURES so the bar cannot drift from the index.
+  const range = FEATURES.filter((f) => f.group === group).map((f) => f.n).join(' · ');
+  return (
+    <div className="feat-grp">
+      <div className="feat-grp-hd" aria-hidden="true">
+        <div className="rw-dl-col feat-grp-row">
+          <span>{group}</span>
+          <span className="feat-grp-rule" />
+          <span>{range}</span>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // CTA — the dark ink band. Three honest postures: coming soon (no door),
 // self-serve (the /signup door), or the waitlist form.
 function FeaturesCta({
@@ -299,15 +331,21 @@ export function FeaturesContent({
       <HeroSection heroIn={heroIn} values={[m1, m2, m3]} />
       <FeatureIndex onJump={scrollTo} />
 
-      <FeatReply innerRef={refs['f-reply']} />
-      <FeatGuardian innerRef={refs['f-guardian']} />
-      <FeatInsights innerRef={refs['f-insights']} />
-      <FeatGate innerRef={refs['f-gate']} />
-      <FeatAutopilot innerRef={refs['f-autopilot']} />
-      <FeatWatchdogs innerRef={refs['f-watchdogs']} />
-      <FeatLang innerRef={refs['f-lang']} />
-      <FeatVoice innerRef={refs['f-voice']} />
-      <FeatRoi innerRef={refs['f-roi']} />
+      <ChapterGroup group="Your agent team">
+        <FeatReply innerRef={refs['f-reply']} />
+        <FeatGuardian innerRef={refs['f-guardian']} />
+        <FeatInsights innerRef={refs['f-insights']} />
+      </ChapterGroup>
+      <ChapterGroup group="Care and control">
+        <FeatGate innerRef={refs['f-gate']} />
+        <FeatAutopilot innerRef={refs['f-autopilot']} />
+        <FeatWatchdogs innerRef={refs['f-watchdogs']} />
+      </ChapterGroup>
+      <ChapterGroup group="Craft and proof">
+        <FeatLang innerRef={refs['f-lang']} />
+        <FeatVoice innerRef={refs['f-voice']} />
+        <FeatRoi innerRef={refs['f-roi']} />
+      </ChapterGroup>
       <RoadmapBand />
 
       <FeaturesCta comingSoon={comingSoon} signupCtaLabel={selfServeEnabled ? signupCtaLabel : null} />

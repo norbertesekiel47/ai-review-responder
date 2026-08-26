@@ -19,7 +19,7 @@ const FEATURE_LANGS = [
 export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
   return (
-    <section ref={innerRef} id="f-lang" aria-label="Multilingual support" className="rw-dl-band is-tight is-open">
+    <section ref={innerRef} id="f-lang" aria-label="Multilingual support" className="rw-dl-band is-tight">
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
           <FeatIntro
