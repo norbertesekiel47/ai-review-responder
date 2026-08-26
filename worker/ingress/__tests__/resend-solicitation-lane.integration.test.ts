@@ -248,6 +248,69 @@ async function readLedger(handle?: string): Promise<LedgerRow[]> {
       `;
 }
 
+/**
+ * Every row the #967 fallback could have written, found the only way it CAN be
+ * found: `account_id IS NULL`. `readLedger()` with no handle filters on this
+ * suite's account, so it is blind to exactly these rows by construction — the
+ * purge contract requires them to carry no account provenance.
+ *
+ * Deliberately UNSCOPED, resting on TWO conditions — name both, because only
+ * one is obvious. Concurrently: this suite holds the cross-process live-DB
+ * advisory lock, so no other writer is live. Sequentially: `fileParallelism:
+ * false` (vitest.config.ts) means no sibling suite is mid-run either, and this
+ * suite's own `afterEach` sweeps `account_id IS NULL` unscoped so nothing
+ * accumulates across cases. If either condition ever changes, a sibling that
+ * leaks a null-account global row — the shape `suppressions-service.ts` writes
+ * for `admin_manual` — turns these cases red. That is the intended failure:
+ * a leaked row in a no-expiry ledger should be loud, not hidden by a LIKE.
+ */
+async function readUnattributedLedger(): Promise<LedgerRow[]> {
+  return sql()<LedgerRow[]>`
+    SELECT scope, source, channel, normalized_handle, account_id,
+           suppressed_at::text AS suppressed_at
+      FROM solicitation_suppressions
+     WHERE account_id IS NULL
+     ORDER BY suppressed_at
+  `;
+}
+
+/**
+ * The Error a call threw, narrowed.
+ *
+ * `rejects.toThrow` can assert what a message CONTAINS but not what it must
+ * NOT — and these messages land in `inbound_events.error_message` and in the
+ * logs, so the redaction rule needs the object itself.
+ */
+async function captureThrow(work: Promise<unknown>): Promise<Error> {
+  const outcome = await work.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  if (!(outcome instanceof Error)) {
+    throw new Error(`expected the lane to throw an Error, got ${String(outcome)}`);
+  }
+  return outcome;
+}
+
+/**
+ * The account purge's cascade, reproduced at the step that matters (#967).
+ *
+ * Deleting the contact removes its asks and its Outreach rows through the
+ * composite FKs migration 088 declares, which is exactly what
+ * `purge-stages.ts` triggers when it deletes `contact_csv_uploads`. After this,
+ * `loadAttribution`'s join has nothing left to find — the state a bounce
+ * arriving after the purge actually meets.
+ */
+async function purgeContactChain(seeded: SeededOutreach): Promise<void> {
+  await sql()`DELETE FROM solicitation_contacts WHERE id = ${seeded.contactId}::uuid`;
+  const survivors = await sql()<{ id: string }[]>`
+    SELECT id FROM solicitation_outreach WHERE id = ${seeded.outreachId}::uuid
+  `;
+  if (survivors.length > 0) {
+    throw new Error('purge fixture did not cascade the outreach row away — the FK assumption moved');
+  }
+}
+
 // ── console capture ───────────────────────────────────────────────────────
 //
 // createWorkerLogger emits one JSON object per line: info → console.log,
@@ -386,13 +449,20 @@ describeWithDb(
       // A Suppression ledger row has no expiry and no ordinary delete path, so a
       // leaked one is a permanent record — take the analytics rows
       // recordSuppression wrote in the same transaction with it.
+      // `account_id IS NULL` is the #967 fallback's rows — the purge contract
+      // forbids them any account provenance, so an account-scoped sweep alone
+      // would leak them permanently.
       const ledger = await db<{ id: string }[]>`
-        SELECT id FROM solicitation_suppressions WHERE account_id = ${accountId()}::uuid
+        SELECT id FROM solicitation_suppressions
+         WHERE account_id = ${accountId()}::uuid OR account_id IS NULL
       `;
       for (const row of ledger) {
         await db`DELETE FROM analytics_events WHERE event_key = ${`solicitation_suppressed_${row.id}`}`;
       }
-      await db`DELETE FROM solicitation_suppressions WHERE account_id = ${accountId()}::uuid`;
+      await db`
+        DELETE FROM solicitation_suppressions
+         WHERE account_id = ${accountId()}::uuid OR account_id IS NULL
+      `;
       await db`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
       await db`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
       await db`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
@@ -410,7 +480,10 @@ describeWithDb(
     afterAll(async () => {
       try {
         if (db) {
-          await db`DELETE FROM solicitation_suppressions WHERE account_id = ${accountId()}::uuid`;
+          await db`
+            DELETE FROM solicitation_suppressions
+             WHERE account_id = ${accountId()}::uuid OR account_id IS NULL
+          `;
           await db`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
           if (tenant) await cleanupTenantAccount(db, tenant);
         }
@@ -833,7 +906,7 @@ describeWithDb(
       expect(row?.normalized_handle).toBe(contact?.email);
     });
 
-    it('the solicitation lane never normalizes the provider-echoed recipient address', async () => {
+    it('the solicitation lane never normalizes the provider-echoed recipient address when it has its own contact row', async () => {
       const seeded = await seedOutreach({ providerMessageId: 'msg_echoed_recipient' });
       const echoed = '  SOMEONE.Else+tag@Example.TEST ';
 
@@ -845,11 +918,189 @@ describeWithDb(
       // Normalization happened ONCE, at CSV ingest. Re-deriving a handle from
       // provider-echoed text would mint a second key for the same person and let
       // a later send sail past the §1.2 lookup.
+      //
+      // NARROWED BY #967, not retired: the fallback below DOES normalize the
+      // echo, but only where there is no contact row left to disagree with it.
+      // While attribution exists the stored handle wins outright and the
+      // payload is never read — which is what this case pins.
       const ledger = await readLedger();
       expect(ledger).toHaveLength(1);
       expect(ledger[0]?.normalized_handle).toBe(seeded.handle);
       expect(await readLedger('someone.else+tag@example.test')).toHaveLength(0);
       expect(await readLedger(echoed.trim())).toHaveLength(0);
+      expect(await readUnattributedLedger()).toHaveLength(0);
+    });
+
+    // ── unattributed suppression: the post-purge global opt-out (#967) ─────
+    //
+    // The purge's suppression contract (purge-stages.ts) promises a global
+    // opt-out survives an account purge. It could not, for the one recipient
+    // class whose contact row the purge deletes. These cases are that promise.
+
+    it('an unattributed suppression-bearing event writes a global suppression row from the signed payload recipient and acks', async () => {
+      const seeded = await seedOutreach({ providerMessageId: 'msg_purged_bounce' });
+      await purgeContactChain(seeded);
+
+      // The echo arrives in the PROVIDER's casing and padding, not ours. Feed
+      // it that way: normalizing through the one owner (`normalizeEmail`) is
+      // what makes the written key match the §1.2 lookup, and a fallback that
+      // merely checked plausibility would store `CUSTOMER-…@EXAMPLE.TEST` —
+      // an opt-out `suppressionMatchSql` could never find.
+      const echoed = `  ${seeded.handle.toUpperCase()} `;
+
+      // Acks: resolving rather than throwing IS the 200. A throw here is the
+      // old 503-and-retry, which is what left the opt-out unwritten.
+      await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_purged_bounce', {
+        to: [echoed],
+        bounce: { type: 'Permanent' },
+      });
+
+      const rows = await readLedger(seeded.handle);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.scope).toBe('global');
+      expect(rows[0]?.channel).toBe('email');
+      expect(rows[0]?.source).toBe('bounce_permanent');
+      expect(rows[0]?.normalized_handle).toBe(seeded.handle);
+      // The un-normalized form is not a second key.
+      expect(await readLedger(echoed.trim())).toHaveLength(0);
+    });
+
+    it('the payload-recipient fallback writes the global suppression row with a null account id', async () => {
+      const seeded = await seedOutreach({ providerMessageId: 'msg_purged_complaint' });
+      await purgeContactChain(seeded);
+
+      await handleSolicitationResendEvent(sql(), 'email.complained', 'msg_purged_complaint', {
+        to: [seeded.handle],
+      });
+
+      // The purge contract's exact wording: a global row written after the
+      // purge boundary MUST carry a null account id, so it is retained without
+      // re-introducing the account provenance the purge just removed.
+      const rows = await readLedger(seeded.handle);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.account_id).toBeNull();
+      expect(rows[0]?.scope).toBe('global');
+    });
+
+    it('a repeat unattributed suppression-bearing event for the same recipient writes at most one ledger row', async () => {
+      const seeded = await seedOutreach({ providerMessageId: 'msg_purged_repeat_a' });
+      await purgeContactChain(seeded);
+
+      // Two DIFFERENT provider message ids for the same person: the ingress
+      // dedup key cannot help here, so first-write-wins in the ledger is the
+      // only thing standing between a redelivery and a duplicate row.
+      await handleSolicitationResendEvent(sql(), 'email.complained', 'msg_purged_repeat_a', {
+        to: [seeded.handle],
+      });
+      await handleSolicitationResendEvent(sql(), 'email.suppressed', 'msg_purged_repeat_b', {
+        to: [seeded.handle],
+      });
+
+      const rows = await readLedger(seeded.handle);
+      expect(rows).toHaveLength(1);
+      // The FIRST source stands. A later event does not restate the reason.
+      expect(rows[0]?.source).toBe('complaint');
+    });
+
+    it('an unattributed suppression-bearing event with no recipient address in the payload throws', async () => {
+      await expect(
+        handleSolicitationResendEvent(sql(), 'email.complained', 'msg_no_recipient', {}),
+      ).rejects.toThrow(/carried 0 recipient entries/);
+
+      expect(await readUnattributedLedger()).toHaveLength(0);
+    });
+
+    it('an unattributed suppression-bearing event carrying more than one recipient address throws', async () => {
+      const first = 'multi-one@example.test';
+      const second = 'multi-two@example.test';
+
+      // A global row blocks that person for EVERY tenant, so the lane refuses
+      // to guess which of two addresses opted out rather than suppressing both.
+      const failure = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.suppressed', 'msg_multi_recipient', {
+          to: [first, second],
+        }),
+      );
+
+      expect(failure.message).toMatch(/carried 2 recipient entries/);
+      // The message lands in inbound_events.error_message and in the logs.
+      expect(failure.message).not.toContain(first);
+      expect(failure.message).not.toContain(second);
+
+      // A member that is not a usable string must be COUNTED, not filtered
+      // away. Dropping it first would read the payload as "exactly one
+      // recipient" and suppress whichever address happened to survive — the
+      // guess this case exists to forbid.
+      const mixed = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.suppressed', 'msg_mixed_recipient', {
+          to: [first, { address: second }],
+        }),
+      );
+      expect(mixed.message).toMatch(/carried 2 recipient entries/);
+
+      expect(await readUnattributedLedger()).toHaveLength(0);
+    });
+
+    it('an unattributed suppression-bearing event whose recipient address is unparseable throws', async () => {
+      const junk = 'not an address at all';
+
+      const failure = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.complained', 'msg_unparseable_recipient', {
+          to: [junk],
+        }),
+      );
+
+      expect(failure.message).toMatch(/unparseable recipient address/);
+      expect(failure.message).not.toContain(junk);
+      // Refused rather than stored raw: the §1.2 lookup compares against
+      // normalized handles, so a raw key would be an opt-out honoured nowhere.
+      expect(await readUnattributedLedger()).toHaveLength(0);
+    });
+
+    it('an unattributed soft bounce still warns and acks without writing a ledger row', async () => {
+      const seeded = await seedOutreach({ providerMessageId: 'msg_purged_soft' });
+      await purgeContactChain(seeded);
+      const capture = captureConsole();
+
+      try {
+        await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_purged_soft', {
+          to: [seeded.handle],
+          bounce: { type: 'Transient' },
+        });
+      } finally {
+        capture.restore();
+      }
+
+      // §3.2: a soft or ambiguous bounce NEVER suppresses. #967 widened the
+      // permanent arm only.
+      expect(await readLedger(seeded.handle)).toHaveLength(0);
+      expect(await readUnattributedLedger()).toHaveLength(0);
+      expect(capture.warns.join('\n')).toContain('matched no outreach row — nothing written');
+    });
+
+    it('the payload-recipient fallback never logs the recipient address', async () => {
+      const seeded = await seedOutreach({ providerMessageId: 'msg_purged_redaction' });
+      await purgeContactChain(seeded);
+      const capture = captureConsole();
+
+      try {
+        await handleSolicitationResendEvent(sql(), 'email.complained', 'msg_purged_redaction', {
+          to: [seeded.handle],
+        });
+      } finally {
+        capture.restore();
+      }
+
+      // The write happened — this case is about what the log says, not whether
+      // the lane worked.
+      expect(await readLedger(seeded.handle)).toHaveLength(1);
+
+      const logged = capture.lines.join('\n');
+      expect(logged).toContain('global opt-out written from the signed payload');
+      expect(logged).not.toContain(seeded.handle);
+      // The local part alone is still the person: assert it separately, or a
+      // line carrying only `customer-<uuid>` would pass.
+      expect(logged).not.toContain(seeded.handle.split('@')[0]);
     });
 
     // ── the transaction boundary ──────────────────────────────────────────
@@ -905,8 +1156,11 @@ describeWithDb(
 
     it('a failed solicitation event returns 503 so Resend retries', async () => {
       const svixId = `msg_503_${randomUUID()}`;
-      // A complaint whose provider id matches nothing is suppression-bearing, so
-      // the lane throws rather than acking — the #630 commit window.
+      // A complaint whose provider id matches nothing AND whose payload carries
+      // no recipient. Since #967 an unmatched suppression-bearing event acks by
+      // writing the opt-out from the payload, so a malformed payload is the one
+      // remaining way this lane fails — and it must still 503 rather than
+      // silently dropping an opt-out it could not read.
       const body = {
         type: 'email.complained',
         data: {
@@ -925,6 +1179,35 @@ describeWithDb(
         SELECT status FROM inbound_events WHERE external_event_key = ${svixId}
       `;
       expect(event?.status).toBe('failed');
+    });
+
+    it('an acked unattributed suppression event marks its inbound event processed', async () => {
+      const svixId = `msg_ack_${randomUUID()}`;
+      const orphaned = 'ack-processed@example.test';
+      const body = {
+        type: 'email.complained',
+        data: {
+          email_id: `provider_${randomUUID()}`,
+          to: [orphaned],
+          tags: [{ name: 'lane', value: 'solicitation' }],
+        },
+      };
+      const { reply, captured } = makeReply();
+
+      await handleResendWebhook(signedRequest(body, svixId), reply);
+
+      // The ACK side of the 503 twin above, and the only case that proves the
+      // two retention claims #967 rests on. `ArchivalPoller` sweeps
+      // `status='processed'` rows after 30 days and NOTHING sweeps `'failed'`
+      // ones — so this row's status is precisely what bounds the recipient
+      // address the ack leaves behind in `inbound_events.payload`. It is also
+      // what takes the event out of `checkFailedInboundEvents`' alert set.
+      expect(captured.status).toBe(200);
+      const [event] = await sql()<{ status: string }[]>`
+        SELECT status FROM inbound_events WHERE external_event_key = ${svixId}
+      `;
+      expect(event?.status).toBe('processed');
+      expect(await readLedger(orphaned)).toHaveLength(1);
     });
 
     it('a duplicate solicitation webhook writes no second suppression row', async () => {
@@ -1007,23 +1290,36 @@ describeWithDb(
 
     // ── plan review round 1: F1, F2, F3, F8 ───────────────────────────────
 
-    it('the solicitation lane retries rather than acknowledging an unmatched suppression-bearing event', async () => {
-      // No outreach row carries this provider id yet — the #630 commit window,
-      // where provider_message_id is persisted only after Resend responds.
+    it('the solicitation lane acks an unmatched suppression-bearing event only after writing the global opt-out', async () => {
+      // The F1/F2/F3/F8 pin, re-anchored by #967. No outreach row carries this
+      // provider id — either the #630 commit window, where provider_message_id
+      // is persisted only after Resend responds, or a purge that removed the
+      // row for good. The lane used to retry; a retry cannot help the second
+      // case, so it now writes the opt-out from the signed payload and acks.
+      const orphaned = 'never-committed@example.test';
       await expect(
-        handleSolicitationResendEvent(sql(), 'email.complained', 'msg_never_committed', {}),
-      ).rejects.toThrow(/unmatched/i);
-
-      // A soft bounce in the same state is ack-able, not retryable: nothing
-      // compliance-relevant is lost by dropping it.
-      await expect(
-        handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_never_committed', {
-          bounce: { type: 'Temporary' },
+        handleSolicitationResendEvent(sql(), 'email.complained', 'msg_never_committed', {
+          to: [orphaned],
         }),
       ).resolves.toBeUndefined();
 
-      // The retry is bounded for free by the existing 300s stale-svix-timestamp
-      // window, so a genuinely-unknown id is 401'd rather than retrying forever.
+      const written = await readLedger(orphaned);
+      expect(written).toHaveLength(1);
+      expect(written[0]?.scope).toBe('global');
+      expect(written[0]?.account_id).toBeNull();
+
+      // A soft bounce in the same state still acks and still writes NOTHING —
+      // #967 widened the permanent arm only, and §3.2 is unchanged.
+      await expect(
+        handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_never_committed_soft', {
+          to: [orphaned],
+          bounce: { type: 'Temporary' },
+        }),
+      ).resolves.toBeUndefined();
+      expect(await readLedger(orphaned)).toHaveLength(1);
+
+      // Nothing is attributed to this account on either path: the fallback row
+      // carries no account provenance at all.
       expect(await readLedger()).toHaveLength(0);
     });
 
@@ -1066,8 +1362,10 @@ describeWithDb(
       await holder;
 
       // The row the lane was attributing to is gone by the time its lock is
-      // granted, and a complaint is suppression-bearing — so it retries rather
-      // than writing a ledger row with no artifact behind it.
+      // granted. This payload carries no recipient, so #967's fallback has
+      // nothing to write from and refuses — the lane never invents a handle to
+      // put a ledger row behind. (Given a recipient it WOULD write the global
+      // row here; that path is pinned in the #967 section above.)
       await expect(handler).rejects.toThrow();
       expect(await readLedger()).toHaveLength(0);
       const [remaining] = await sql()<{ count: number }[]>`
