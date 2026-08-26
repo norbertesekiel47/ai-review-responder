@@ -636,4 +636,39 @@ candidates. Therefore the remaining arms run in this order:
   `solicitation_policy_rows=1` (unsuspended). All `decideAutoApproval`
   conditions now pass. Teardown rows appended to the ledger.
 
+### Batch B — Autopilot arm PROVEN; drip complete (03:17–03:50 UTC, Aug 26)
+
+- CSV B uploaded ~03:17 UTC; batch `01a03c12-a2d2…` built 03:17:33 with
+  NINE asks: the upload MERGED contacts (4 surviving A3 contacts + 6 CSV
+  rows − 1 email-overlap dedup). **#965's erased-history failure did NOT
+  manifest on this upload — all 4 A3 outreach rows survive**, including
+  the attributed row and the bounce-arm row. The A→A2→A3 cascades hit
+  identical normalized handle sets; tonight's overlap was ONE email
+  (`reviews@`), and even that contact was UPDATED in place (renamed
+  "Alex Rivera"→"Norbert Esekiel"), not replaced. #965's precise trigger
+  conditions need the design work — named input to the #620 brief.
+- Restraint observed live: all four re-contacted A3 identities withheld
+  at BUILD (`over_contacted`/suppression precedence — ADR 0020's cohort
+  cost, first live observation); the 5 fresh contacts rendered.
+- **Auto lane**: `decideAutoApproval` passed on the D-8 seed;
+  `approval_method='auto_policy'` recorded 03:17:54 (21 s post-build);
+  veto notice sent; `veto_window_granted` step 03:18:34;
+  `veto_deadline_at` 03:47:58 (the 30-min policy window).
+- **Window held exactly**: first queue 03:48:34.8 — 36 s AFTER the
+  deadline, on the next poller tick. Rate bound held: 2/tick
+  (03:48:34 pair, 03:49:34 pair, 03:50:34 single).
+- All 5 rows `sent`; batch settled `send_closed_at` 03:50:39; Send batch
+  parent `completed` (`exhausted` disposition); `send_batch_closed` step.
+- **Unproven path 5 CLOSED.**
+- **Missed this batch, rescheduled to a small batch C**: the mid-flight
+  halt and the B3.4 dispatch-withhold. The owner was away during the
+  window (no `dw-arm@` suppression, no halt click), and the session's
+  drip watcher returned a false "not started" for the whole run.
+  Process note: all three background psql watchers this session failed
+  SILENTLY (empty results swallowed by `2>/dev/null`) — for the rest of
+  the campaign, state is verified by direct DB reads only.
+- Ambiguous pair armed: A3-`reviews@` (renamed contact) + B-`norbert-b@`,
+  both `sent`/unbounced/unattributed; bounce-race check GREEN 04:06;
+  owner cued to post the second-account review.
+
 *(further entries appended in runbook order)*
