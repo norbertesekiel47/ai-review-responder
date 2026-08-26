@@ -46,6 +46,13 @@ continue: the handoff doc's claims are hints; git state is the truth.
    - Staleness: is `.feature/gate-status.json` missing, red, or older than
      HEAD? Does `state.json`'s `lastGreenGateSha` match HEAD? Say so now —
      don't leave it for the Stop hook to catch later.
+   - Stale commit refs in the handoff: every SHA the handoff doc cites must
+     still resolve (`git cat-file -e <sha>^{commit}`), and any `HEAD is
+     <sha>` claim must equal `git rev-parse HEAD`. Run it mechanically —
+     `python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py
+     docs/superpowers/plans/<branch>-handoff.md --repo .` — which also
+     re-resolves the doc's `path:line` citations against current HEAD. A
+     resumed session that trusts a stale ref reconciles against fiction.
    - Main drift: `git rev-list --count HEAD..origin/main`. A branch far
      behind main rots — flag it and propose a rebase/merge before new work.
 4. **Bootstrap state, in this order** (skip files that don't exist yet):
