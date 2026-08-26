@@ -138,6 +138,12 @@
   text-align: right;
   max-width: 18ch;
 }
+/* Soft, not the shared `.rw-dl-fine` mute. This is the ONE piece of 13px copy
+   on these heroes that sits on the RIGHT, where the legibility scrim has faded
+   to zero, so it reads straight off the wash. Composited measurement gave
+   4.28:1 at 62% ink, just under the 4.5 floor; 74% clears it. Every other
+   `.rw-dl-fine` sits on bone and stays mute. */
+.feat-hero-stats .rw-dl-fine { color: var(--rw-ink2-soft); }
 
 /* Hero review marquee */
 .rw-feat-marquee-mask {
