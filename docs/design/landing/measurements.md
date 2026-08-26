@@ -82,6 +82,8 @@ src/components/sections/landing/
   LandingExperience.tsx        composition root + section map + nav
   landing-experience.css       nav, .rw-lp-glass, shared tokens, the pause control
   agent-flip-card.tsx / .css   shared flip card (sections 3 + 4)
+  carousel.tsx / .css          phone card rail (sections 2-5, ≤767px only);
+                               .css MUST be imported after every section file
   ambient-motion.tsx           WCAG 2.2.2 pause control + AmbientVideo
   reveal.tsx                   shared arrival fade (motion/react, opacity, ≤200ms)
   hero/       {HeroSection.tsx, hero.css, hero-copy.ts}
@@ -97,7 +99,7 @@ src/components/sections/landing/
 src/hooks/useMediaQuery.ts
 src/app/(public)/page.tsx      passes primaryCtaHref/Label + selfServeEnabled
 src/app/layout.tsx             Plus Jakarta weights 200/300
-src/__tests__/focus-visible-marketing.test.ts   14 asserted focus rings
+src/__tests__/focus-visible-marketing.test.ts   18 asserted focus rings
 
 (`scroll/` — SectionTransition, ChapterRail, SmoothScroll, section-map,
 scroll-experience.css — was deleted 2026-08-16. See §2, "Scroll".)
@@ -366,6 +368,36 @@ figure in `cta.css` was for the old ring-and-label and is superseded. Until this
 hero and closing actions were a hairline ring with a 12px tracked-caps label, and the nav
 carried a pill only with self-serve on. **These three are the only gold-filled elements on
 the page** — a fourth would spend the accent.
+
+**Sections 2-5 are carousels below 767px, and the breakpoint has one owner: `carousel.css`.**
+Five rails: the fleet's two tiers, the persona grid, the watchtower grid, and the committed
+grid. Stacked, those four sections ran **6,891px at 390px wide**, measured — over eight
+screens of cards to pass to reach the next argument. The rails bring them to **4,010px**.
+Four values are load-bearing. (a) The rail restyles the container each section ALREADY
+renders (`.rw-lp-personas-list`, `.rw-lp-watch-grid`, `.rw-lp-fleet-tier`,
+`.rw-lp-future-grid`); a wrapper would become the desktop grid item and every desktop rule
+would have to be re-pointed at it. (b) `.rw-lp-carousel[data-carousel='true']` is 0,2,0 to
+match `.rw-lp-fleet-tier[data-tier='watchdog']`, and carousel.css is imported **after** every
+section file — move that import up and the fleet's watchdog tier stays a stacked column.
+(c) `justify-content: flex-start` is required, not a default: the fleet tier centres its row,
+and a centred flex line that overflows splits the overflow across both sides, where
+`scrollLeft` cannot reach it — the first card sat 394px off the left edge while the rail
+still reported `scrollLeft: 0`. (d) `opacity: 1 !important` / `transform: none !important` on
+the slides: `Staged` gates each card on 30% of ITSELF being in view, a peeking card shows
+~15%, so the peek — the only thing that says the row continues — was invisible. Motion writes
+those as inline styles, which is the one case `!important` exists for. Slide measures are per
+section: personas and committed `min(78vw, 19rem)` (personas is 3:4, so width IS height —
+405px against a full-width card's 456px), watchtower `min(88vw, 24rem)` (the row form's 15rem
+floor was measured at 342px wide; narrower re-opens the clipping bug), fleet
+`min(80vw, 17rem)`. The committed rail also raises `--rw-lp-carousel-pad` to 1.25rem: its
+glow wash sits at `inset: -0.875rem` and the rail's `overflow-y: hidden` would shear 14px off
+it. **The 767px breakpoint is deliberately NOT the fleet's 900px one**: 900 is where the
+constellation stops being readable, 767 is where the stack gets too long. The dots render
+only when the slides actually run wider than the track — at 767px the fleet's two watchdog
+cards already fit, and a control that does nothing when pressed is worse than no control.
+That test measures the SLIDES (`first.left` to `last.right`), never `scrollWidth`: the
+committed card's glow bleed put 570 into `scrollWidth` against a 556 client width, and the
+desktop 2x2 rendered a hidden dot row it had no use for.
 
 **Labels are one style: `--rw-lp-label-*` (mono, 12px, 0.04em, uppercase).** The five
 section eyebrows, the persona column note, and the watchdog and future tier labels all

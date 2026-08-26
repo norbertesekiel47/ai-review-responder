@@ -387,3 +387,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- phone carousel ----------
+   Below 767px the 2x2 becomes a scroll-snap rail (../carousel.css owns the
+   rail mechanics; this sets only the two values that are this section's).
+   `grid-template-columns` above goes inert there — the rail switches the box
+   to `display: flex`.
+
+   The card is content-sized, so the slide width buys line count rather than
+   height: 78vw is 304px at 390px wide, which keeps the longest body (Solicitor)
+   to the same wrap it has in the desktop 2x2.
+
+   1.25rem of vertical padding, not the rail's 0.5rem default: the glow wash
+   (`.rw-lp-future-card::before`) sits at `inset: -0.875rem`, and the rail's
+   `overflow-y: hidden` would shear 14px off the top and bottom of it. Only a
+   pointer device at this width ever lights the glow, but it is the same pool
+   of light either way — clip it and the card reads as cut off. */
+@media (max-width: 767px) {
+  .rw-lp-future-grid {
+    --rw-lp-carousel-slide: min(78vw, 19rem);
+    --rw-lp-carousel-pad: 1.25rem;
+  }
+}

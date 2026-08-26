@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { MARKETING_LINKS } from '@/components/ui/marketing-links';
 import { AgentFlipCard } from '../agent-flip-card';
+import { CarouselDots, useCarousel } from '../carousel';
 import { Staged, StagedLine } from '../staged';
 import {
   PIPELINE_LINK_LABEL,
@@ -33,8 +34,13 @@ import {
  * statement panel enters as staged lines — it is the page's strongest trust
  * claim, and it now performs its own interruption instead of merely sitting
  * in one.
+ *
+ * 2026-08-25 (phone carousel): below 767px the grid becomes a scroll-snap rail
+ * with a teal indicator. The row form and its 15rem height floor are unchanged
+ * — the rail only stops the two rows stacking. See ../carousel.tsx.
  */
 export function WatchdogsSection() {
+  const carousel = useCarousel();
   return (
     <section className="rw-lp-watch" aria-labelledby="rw-lp-watch-heading">
       <div className="rw-lp-watch-inner">
@@ -70,7 +76,7 @@ export function WatchdogsSection() {
           <p className="rw-lp-watch-tier-label">{TIER_LABEL}</p>
         </Staged>
 
-        <div className="rw-lp-watch-grid">
+        <div className="rw-lp-watch-grid rw-lp-carousel" {...carousel.track}>
           {WATCHDOGS.map((watchdog, index) => (
             <Staged key={watchdog.id} beat={5 + index}>
               <AgentFlipCard
@@ -87,6 +93,19 @@ export function WatchdogsSection() {
             </Staged>
           ))}
         </div>
+
+        {/* Teal, not gold: the indicator belongs to the oversight layer, and a
+            gold bar under these two cards would read as the acting layer's.
+            Rendered only once the rail has somewhere to scroll. */}
+        {carousel.overflowing ? (
+          <CarouselDots
+            count={WATCHDOGS.length}
+            active={carousel.active}
+            onSelect={carousel.goTo}
+            label={TIER_LABEL}
+            tone="teal"
+          />
+        ) : null}
 
         {/* The whole pipeline lives on /how-it-works — the landing page links
             to it rather than retelling it (see watchdogs-copy.ts). Gold, not

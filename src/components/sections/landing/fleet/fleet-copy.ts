@@ -98,6 +98,15 @@ export const LEAD_IN =
   'The two above supervise the ones below. Nothing posts on its own unless they are watching.';
 
 /**
+ * Accessible names for the two phone carousels (the constellation is abandoned
+ * below 900px — see FleetSection). They are screen-reader-only labels, not
+ * visible copy: the diagram states the same relation visually on desktop, and
+ * a sighted phone reader gets it from the section lead above.
+ */
+export const WATCHDOG_RAIL_LABEL = 'The supervising agents';
+export const PERSONA_RAIL_LABEL = 'The acting agents';
+
+/**
  * Replaces the reference design's pulsing "LIVE" status pill. That indicator
  * implied a real-time system readout this page does not have; inventing one is
  * the fabricated-proof case the brand's anti-slop rules prohibit. This states a
