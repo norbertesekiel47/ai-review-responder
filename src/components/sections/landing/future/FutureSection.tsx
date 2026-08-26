@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { m } from 'motion/react';
 import { useEffect, useRef } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { CarouselDots, useCarousel } from '../carousel';
 import { Staged } from '../staged';
 import {
   CARD_TAG,
@@ -38,6 +39,12 @@ import {
  *   - `Staged` wrappers inside the committed column pass `rise={0}`;
  *   - the LEFT column may rise (its wrappers are never card ancestors).
  * Reintroduce a transform above a card and the glow stops tracking.
+ *
+ * 2026-08-25 (phone carousel): below 767px the 2x2 becomes a scroll-snap rail.
+ * It is safe under the rule above — `overflow` does NOT create a containing
+ * block for a fixed background (transform, filter, perspective, will-change
+ * and contain do), and the rail adds no element above a card. On touch the
+ * glow is unlit anyway: its coordinates only move on `pointermove`.
  */
 
 function FutureCard({ agent, index }: { agent: FutureAgent; index: number }) {
@@ -83,6 +90,7 @@ function FutureCard({ agent, index }: { agent: FutureAgent; index: number }) {
 export function FutureSection() {
   const sectionRef = useRef<HTMLElement | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const carousel = useCarousel();
 
   /**
    * Pointer-tracked spotlight.
@@ -175,12 +183,25 @@ export function FutureSection() {
             </Staged>
 
             {/* No wrapper on the grid: each card is its own opacity-only
-                entrance, so no animated element is ever a card's ancestor. */}
-            <ul className="rw-lp-future-grid">
+                entrance, so no animated element is ever a card's ancestor.
+                The carousel keeps that promise — it restyles THIS element
+                below 767px and adds nothing above a card. */}
+            <ul className="rw-lp-future-grid rw-lp-carousel" {...carousel.track}>
               {COMMITTED.map((agent, index) => (
                 <FutureCard key={agent.id} agent={agent} index={index} />
               ))}
             </ul>
+
+            {/* Gold, the section's own accent. Rendered only once the rail has
+                somewhere to scroll, so the desktop 2x2 gains no row. */}
+            {carousel.overflowing ? (
+              <CarouselDots
+                count={COMMITTED.length}
+                active={carousel.active}
+                onSelect={carousel.goTo}
+                label={COMMITTED_LABEL}
+              />
+            ) : null}
           </div>
         </div>
       </div>

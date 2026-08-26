@@ -294,6 +294,21 @@
   }
 }
 
+/* ---------- phone carousel ----------
+   Below 767px the grid becomes a scroll-snap rail (../carousel.css owns the
+   mechanics; this only sets the card measure).
+
+   88vw, wider than the other two rails: this card is a ROW — avatar beside
+   name and tagline — and its back is the copy the 15rem height floor was
+   measured against (the Governor's body needs 240px at 342px wide). A narrower
+   slide re-opens the clipping bug the row form exists to remove. At 390px this
+   is 343px, which is what the stacked card already had. */
+@media (max-width: 767px) {
+  .rw-lp-watch-grid {
+    --rw-lp-carousel-slide: min(88vw, 24rem);
+  }
+}
+
 .rw-lp-watch-grid .rw-lp-flip-back {
   gap: 0.625rem;
   padding: clamp(1rem, 2.6vh, 1.5rem) clamp(1.125rem, 2.2vw, 2rem);

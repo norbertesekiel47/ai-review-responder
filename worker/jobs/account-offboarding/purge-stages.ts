@@ -7,6 +7,7 @@ import {
   unresolvedApplicableTeardownProviders,
 } from '../../../src/lib/account-offboarding/provider-disposition';
 import { enqueueOffboardingPurged } from '../../../src/lib/account-offboarding/analytics';
+import { PURGE_TOMBSTONE_SENTINELS as SENTINELS } from '../../../src/lib/account-offboarding/purge-sentinels';
 import { enqueueAccountOffboardingEmail } from '../../../src/lib/account-offboarding/outbox';
 import { acquireSolicitationBatchLock } from '../../../src/lib/solicitation/batch-builder';
 import { acquireCsvIngestLock } from '../../../src/lib/solicitation/ingest';
@@ -393,9 +394,35 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
     `;
     // Agent run spine (migration 071): per-account attribution rows whose
     // subject/detail ids reference the reviews/responses deleted above.
-    // Outcomes first (their agent_run_id FK is ON DELETE SET NULL — deleting
-    // runs first would only orphan them), then runs; agent_run_steps needs no
-    // explicit DELETE because its agent_runs FK is ON DELETE CASCADE.
+    // agent_run_steps needs no explicit DELETE because its agent_runs FK is ON
+    // DELETE CASCADE.
+    //
+    // WHAT IS PINNED, AND BY WHAT. The two DELETEs below are constrained
+    // differently, and an earlier version of this comment conflated them.
+    //
+    // 1. The outcomes DELETE must EXIST, but its order relative to the runs
+    //    DELETE is NOT load-bearing. agent_outcomes.account_id cascades from
+    //    accounts (071:69) and this purge tombstones the accounts row rather
+    //    than deleting it, so the cascade never fires and the explicit DELETE
+    //    is required. It is scoped by account_id, NOT by agent_run_id — so
+    //    deleting runs first would merely NULL agent_run_id (071:71, ON DELETE
+    //    SET NULL) and this statement would still remove every row. The old
+    //    claim that "deleting runs first would only orphan them" was false.
+    //
+    // 2. The agent_runs DELETE must stay BELOW the per-business lock loop
+    //    above (acquireCsvIngestLock / acquireSolicitationBatchLock). THAT is
+    //    the real ordering constraint, and it is a lock constraint, not an FK
+    //    one: this statement takes row locks on agent_runs, and the lock order
+    //    src/lib/solicitation/approval.ts, outreach.ts and batch-builder.ts all
+    //    depend on is advisory batch lock -> solicitation_batches row ->
+    //    agent_runs. Hoisting this DELETE above that loop inverts the order
+    //    into an ABBA deadlock against the solicitation lane. Documenting it
+    //    only on approval.ts's side left a reviewer free to satisfy every
+    //    comment in THIS file and still break it.
+    //
+    // Not claimed: that those advisory locks serialize every agent_outcomes
+    // writer. They are per-business csv_ingest / solicitation_batch locks; the
+    // Reply, Guardian and Insights personas write outcomes without taking them.
     await tx`
       DELETE FROM agent_outcomes
       WHERE account_id = ${row.account_id}::uuid
@@ -648,8 +675,8 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     // react-doctor-disable-next-line react-doctor/async-parallel
     await tx`
       UPDATE users
-      SET name = 'Deleted user',
-          email = 'deleted-' || id::text || '@repworth.invalid',
+      SET name = ${SENTINELS.userName},
+          email = ${SENTINELS.emailPrefix} || id::text || ${SENTINELS.emailSuffix},
           phone = NULL,
           auth_id = NULL,
           updated_at = NOW()
@@ -657,22 +684,22 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     `;
     await tx`
       UPDATE businesses
-      SET name = 'Deleted location',
+      SET name = ${SENTINELS.businessName},
           category = NULL,
           google_place_id = NULL,
           google_maps_url = NULL,
-          tone = 'professional and friendly',
+          tone = ${SENTINELS.tone},
           products_services = NULL,
           staff_names = NULL,
           highlight_facts = NULL,
           avoid_facts = NULL,
           sample_responses = NULL,
-          owner_name = 'Deleted owner',
-          owner_email = 'deleted-' || id::text || '@repworth.invalid',
+          owner_name = ${SENTINELS.ownerName},
+          owner_email = ${SENTINELS.emailPrefix} || id::text || ${SENTINELS.emailSuffix},
           owner_phone = NULL,
           stripe_customer_id = NULL,
           stripe_subscription_id = NULL,
-          tracked_keywords = '[]'::jsonb,
+          tracked_keywords = ${tx.json(SENTINELS.trackedKeywords)},
           google_place_address = NULL,
           google_place_lat = NULL,
           google_place_lng = NULL,
@@ -696,10 +723,10 @@ export async function runParentTombstonePurgeStage(sql: postgres.Sql, row: Accou
     `;
     await tx`
       UPDATE accounts
-      SET display_name = 'Deleted account',
+      SET display_name = ${SENTINELS.accountName},
           stripe_customer_id = NULL,
           stripe_subscription_id = NULL,
-          flags = '{}'::jsonb,
+          flags = ${tx.json(SENTINELS.accountFlags)},
           updated_at = NOW()
       WHERE id = ${row.account_id}::uuid
     `;
@@ -794,8 +821,23 @@ export async function finalizePurgeInTransaction(
     // in and verification completes BEFORE the transition to 'purged'. A global
     // row written after the boundary MUST carry accountId: null, so it is
     // retained without re-introducing the account provenance the purge just
-    // removed. Unreachable today (recordSuppression has zero production callers,
-    // G6); #644/#645/#627 own honouring it when they land the first ones.
+    // removed.
+    //
+    // LIVE. This is no longer a contract waiting for its first caller: every
+    // suppression write goes through recordSuppression
+    // (src/lib/solicitation/suppression.ts), which is in production use, and
+    // the rule binds all of them. Deliberately not enumerated — a
+    // hand-maintained caller census here is what went stale last time.
+    //
+    // KNOWN GAP (#967): one recipient class cannot honour this rule today. The
+    // Resend lane resolves the recipient by joining our own
+    // solicitation_contacts row (loadAttribution,
+    // worker/ingress/resend/solicitation-lane.ts), and this purge deletes it.
+    // A suppression-bearing event arriving after the purge therefore has no
+    // attribution, and the recipient's GLOBAL opt-out — the one thing this
+    // contract preserves — is never written. It fails into inbound_events for
+    // replay instead. Closing it is a design decision, not a patch: reading the
+    // address off the provider payload contradicts a tested invariant.
     const [retained] = await tx<{ retained_count: number }[]>`
       SELECT COUNT(*)::int AS retained_count
       FROM solicitation_suppressions

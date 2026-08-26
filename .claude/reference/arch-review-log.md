@@ -6,8 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by the merge lines here. Full artifacts:
+**Merges since last architecture pass: 5** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. **This is the
+≥ 5 threshold**: the next pass is due, and scheduling it is the owner's call. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -23,6 +24,115 @@ Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 > — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-25 — `feat-landing-mobile-carousel`: phone card rails for landing
+  sections 2–5 (owner-directed). New shared `carousel.tsx`/`carousel.css`:
+  below 767px the fleet's two tiers, the persona grid, the watchtower grid and
+  the committed grid become CSS scroll-snap rails with a dot indicator. The
+  four sections went 6,891px → 4,010px at 390px wide, measured. **Desktop is
+  untouched by construction** — the rail restyles the container each section
+  ALREADY renders rather than adding a wrapper, so no desktop rule moves.
+  Four notes for the next pass: (a) the rail selector is 0,2,0 to tie with
+  `.rw-lp-fleet-tier[data-tier='watchdog']` and `carousel.css` must stay the
+  LAST landing CSS import — a load-bearing ORDER dependency, the second in this
+  file after `agent-flip-card.css`'s, and neither is mechanically guarded;
+  (b) the slides carry `opacity/transform: !important` because `Staged` gates
+  each card on 30% of ITSELF being in view and a peeking card shows ~15% —
+  motion writes those inline, so `!important` is the only reach; (c) the dots'
+  overflow test measures the SLIDES, never `scrollWidth`, after the committed
+  card's `inset: -0.875rem` glow put 570 into `scrollWidth` against a 556
+  client width and rendered a hidden dot row into the desktop DOM; (d) adding
+  the CSS import pulled `LandingExperience.tsx` into the fallow gate's scope
+  and exposed `LandingChrome` at 0% coverage (CRAP 56) — fixed with a real
+  test, not a suppression, but it is worth noting that a ONE-LINE import edit
+  is enough to surface an inherited complexity finding as a PR blocker.
+  4 new files, 13 modified; focus test 17 → 18 controls; landing
+  measurements.md + directory.md updated.
+
+- 2026-08-25 — `fix/887-adr-citations`: the no-internal-id posture on the
+  Requests surface was cited to **ADR 0012** in four places. ADR 0012 is the
+  sentiment-blind withhold enum and says nothing about internal ids; the real
+  provenance is the #629 round-2 review, finding F10. A false citation is worse
+  than none — it sends the reader to an authority that does not support the
+  rule, and the honest conclusion from there is that the rule is unsupported.
+  `halt/route.ts` and `approve/route.ts` now cite F10 directly and state that
+  they ARE the precedent `regenerate`/`withdraw` cite, so the four route
+  comments stop forming a circular reference. Two notes for the next pass:
+  (a) the issue named TWO sites and a filename grep found **four** — the extras
+  are `approval-routes.test.ts:398` and `docs/directory.md:130`, the latter
+  being the interesting one because it conflated two DIFFERENT rules under one
+  citation (no star rating, genuinely ADR 0012; no internal id, F10), and the
+  half that was right is precisely what made the half that was wrong look
+  sound; (b) nothing mechanically ties a comment's ADR reference to that ADR's
+  subject, so this class is invisible until someone follows a citation.
+  Comment and docs only — no behaviour change, no test change.
+
+- 2026-08-25 — `fix/892-purge-sentinels`: the account purge's tombstone writer
+  and its verifier agreed because two humans typed the same strings twice each
+  — the 2026-08-18 pass's W7. New `src/lib/account-offboarding/purge-sentinels.ts`
+  owns them; both sides compose their own predicate from shared VALUES, keeping
+  the writer's `=` and the verifier's `IS DISTINCT FROM` visible at the call
+  sites. No shared SQL fragment builder (it would need an `Sql` param and hide
+  that asymmetry), and the `SET` clause and `OR`-chain stay two lists.
+  **Four notes for the next pass, three of them corrections to the issue:**
+  (a) the issue tallies SEVEN duplicated pairs; there are **eight** —
+  `accounts.flags = '{}'::jsonb` is absent from its table while its own count
+  discussion names `flags` as a restored default. Eight pairs, nine members
+  (the email is one pair in two fragments). (b) the operator standardisation
+  covers **nine** sentinel comparisons, eight converting — including the two
+  `NOT LIKE` sites, which carry no `%`, `_` or backslash and were therefore
+  equality checks written as pattern matches. The rule is not stylistic: this
+  gate is fail-closed and its predicates sit in an `OR`-chain, where a
+  three-valued predicate reads as "not a violation" and OPENS the gate, so `<>`
+  made correctness depend on today's `NOT NULL` constraints. (c) the issue
+  names two places stating the count wrongly; there are **four** — plus
+  `purge-verification.ts`'s `archived_at` comment ("the only NON-residue
+  predicate"; it is the only PRESENCE check) and `directory.md`'s claim to
+  cover "every column the tombstone `UPDATE` writes", which is false because
+  `updated_at` is written and deliberately unverified. (d) **the counts are now
+  PINNED** — 28 predicates and their 5/1/22 split in `purge-verification.test.ts`,
+  29 writer assignments in `PurgeWorker.test.ts`, both mutation-verified. This
+  issue exists because 27 rotted unpinned, and the first cut of the fix
+  replaced it with four fresh unpinned numbers; lab-notes "An exact count
+  written into a comment is a maintenance trap" caught it in review.
+  Runtime coverage cannot catch a missed operator conversion — every column but
+  `tone` is `NOT NULL`, so both operators behave identically against a live
+  database — so the two new properties read the SQL the module EMITS, not its
+  source text. Prerequisite: the suite's `mockSql` was a bare `vi.fn`, so
+  introducing `exec.json` crashed 8 tests before they could fail informatively.
+
+- 2026-08-25 — `fix/895-truth-tripwires`: five independent fixes from the
+  2026-08-18 pass's H6 bundle — (a) the admin batch panel read
+  `HALT_REASON_LABELS[haltReason]` unguarded, and #917's `platform_halt` made
+  the **Halt reason** union six-wide, so a browser cached behind that deploy
+  rendered `Stopped <date> — undefined`; (c) the purge's suppression contract
+  still claimed `recordSuppression` had zero production callers; (d) the
+  agent-spine delete comment; (e) `recordFailure`'s log omitted `business_id`
+  where its four siblings carry it; (f) `auth-island.css` redeclared 8 Island
+  colours and 2 brand fonts, the fonts already diverged — this pass's own X10
+  finding. (b) shipped in #920/#900 and was not touched.
+  **Three notes for the next pass, all about the issue text being wrong:**
+  (i) #895(d) is wrong TWICE. Its "moving `agent_runs` earlier inverts an order
+  three other files depend on" is over-broad — `runContentPurgeStage` takes both
+  per-business advisory locks ~110 lines ABOVE the delete, so any position after
+  the loop preserves `advisory → batches row → agent_runs`. AND the rationale
+  already in the file — "deleting runs first would only orphan them" — is
+  FALSE: the outcomes delete is scoped by `account_id`, not `agent_run_id`, so
+  runs-first would merely NULL the FK (071:71) and still remove every row.
+  `PurgeWorker.test.ts` pinned that non-constraint with an index comparison
+  while the REAL constraint went unguarded; the assertion is now
+  lock-before-runs and the mock returns a business row so the loop executes.
+  (ii) #895(c)'s "Resend retries forever" is refuted by the lane's own
+  docstring — `verifySignature` 401s every attempt past the 300s window before
+  lane dispatch. The real residual is that a post-purge bounce cannot write the
+  global row to the **Suppression ledger**, because `loadAttribution` reads the
+  **Normalized handle** from our own contact row and the purge deletes it.
+  Filed as **#967** (go-live blocker) rather than patched: the obvious fix
+  contradicts a tested invariant that the lane never normalizes the
+  provider-echoed recipient. (iii) the contract now points at
+  `recordSuppression` as the one chokepoint instead of enumerating four call
+  sites — a hand-maintained census is the drift that went stale here.
+  9 files; four new assertions, each mutation-verified RED before trusting it.
 
 - 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
   (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance

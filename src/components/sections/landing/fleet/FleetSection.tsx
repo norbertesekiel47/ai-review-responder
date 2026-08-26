@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
+import { CarouselDots, useCarousel } from '../carousel';
 import { Staged } from '../staged';
 import { VideoLightbox } from './VideoLightbox';
 import {
@@ -17,7 +18,9 @@ import {
   HEADING_LEAD,
   LEAD_IN,
   NEXT_TAG,
+  PERSONA_RAIL_LABEL,
   PERSONAS,
+  WATCHDOG_RAIL_LABEL,
   WATCHDOGS,
   type FleetAgent,
 } from './fleet-copy';
@@ -53,7 +56,11 @@ import {
  *
  * Below 900px the constellation is abandoned entirely for a stacked list — a
  * six-node radial diagram is illegible at phone widths, and faking it with a
- * squashed SVG is worse than not drawing it.
+ * squashed SVG is worse than not drawing it. Below 767px each tier goes one
+ * step further and becomes its own scroll-snap carousel (2026-08-25): stacked,
+ * the six nodes plus the video ran the section past three phone screens. The
+ * two breakpoints are deliberately different — 900px is where the DIAGRAM
+ * stops working, 767px is where the STACK gets too long.
  */
 
 interface FleetSectionProps {
@@ -218,6 +225,73 @@ function AgentCard({
       </header>
       <p className="rw-lp-fleet-node-role">{agent.role}</p>
     </m.article>
+  );
+}
+
+/**
+ * One tier of the constellation — and, below 767px, one carousel.
+ *
+ * The tier div is the SAME element in both layouts: on desktop it is the flex
+ * row the wires are measured against, on a phone `carousel.css` restyles it
+ * into a scroll-snap rail. Both dot rows are GOLD, including the watchdogs':
+ * the teal `--rw-lp-watch-accent-rgb` is declared on `.rw-lp-watch` and does
+ * not resolve here, and this section's whole diagram is gold anyway. Teal
+ * belongs to the watchdogs SECTION, not to the fleet's oversight row.
+ */
+function FleetTier({
+  tier,
+  agents,
+  label,
+  baseDelay,
+  armed,
+  registerRef,
+  onHot,
+}: {
+  tier: 'watchdog' | 'persona';
+  agents: readonly FleetAgent[];
+  /** Screen-reader name for the carousel. Not visible copy. */
+  label: string;
+  /** Seconds before the first card in this tier fades in. */
+  baseDelay: number;
+  armed: boolean;
+  registerRef: (id: string, el: HTMLElement | null) => void;
+  onHot: (id: string | null) => void;
+}) {
+  const carousel = useCarousel();
+  return (
+    <>
+      <div
+        className="rw-lp-fleet-tier rw-lp-carousel"
+        data-tier={tier}
+        {...carousel.track}
+      >
+        {agents.map((agent, index) => (
+          <AgentCard
+            key={agent.id}
+            agent={agent}
+            tier={tier}
+            entranceDelay={baseDelay + index * 0.11}
+            armed={armed}
+            registerRef={registerRef}
+            onHot={onHot}
+          />
+        ))}
+      </div>
+
+      {/* A sibling, not a child of the tier — it must not become a slide. Its
+          grid `order` is set in fleet.css beside the tier's own, and the
+          selector there is `tier + dots`, so this must stay the tier's NEXT
+          sibling. Rendered only once the rail has somewhere to scroll: the two
+          watchdog cards already fit at 767px. */}
+      {carousel.overflowing ? (
+        <CarouselDots
+          count={agents.length}
+          active={carousel.active}
+          onSelect={carousel.goTo}
+          label={label}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -395,19 +469,15 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
             hotId={hotId}
           />
 
-          <div className="rw-lp-fleet-tier" data-tier="watchdog">
-            {WATCHDOGS.map((agent, index) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                tier="watchdog"
-                entranceDelay={index * 0.11}
-                armed={armed}
-                registerRef={registerRef}
-                onHot={setHotId}
-              />
-            ))}
-          </div>
+          <FleetTier
+            tier="watchdog"
+            agents={WATCHDOGS}
+            label={WATCHDOG_RAIL_LABEL}
+            baseDelay={0}
+            armed={armed}
+            registerRef={registerRef}
+            onHot={setHotId}
+          />
 
           <FleetCentre
             videoSrc={videoSrc}
@@ -418,19 +488,15 @@ export function FleetSection({ videoSrc, videoPoster, videoTitle }: FleetSection
             onOpen={() => setPlayerOpen(true)}
           />
 
-          <div className="rw-lp-fleet-tier" data-tier="persona">
-            {PERSONAS.map((agent, index) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                tier="persona"
-                entranceDelay={0.35 + index * 0.11}
-                armed={armed}
-                registerRef={registerRef}
-                onHot={setHotId}
-              />
-            ))}
-          </div>
+          <FleetTier
+            tier="persona"
+            agents={PERSONAS}
+            label={PERSONA_RAIL_LABEL}
+            baseDelay={0.35}
+            armed={armed}
+            registerRef={registerRef}
+            onHot={setHotId}
+          />
 
           {/* Sits BELOW the personas, not under the media card: the gap between
               the card and the persona tier is where the wires fan out, and text
