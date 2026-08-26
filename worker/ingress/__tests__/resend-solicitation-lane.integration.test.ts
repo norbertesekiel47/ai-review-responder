@@ -1159,6 +1159,10 @@ describeWithDb(
       expect(all).not.toContain('victim@example.test');
       expect(all).not.toContain('reached_daily_quota');
       expect(all).toContain('"has_reason":true');
+      // #895(e): the failure log was the one attribution block in this file
+      // that omitted business_id, so a multi-location account's failures could
+      // not be told apart by location. The four sibling blocks all carry it.
+      expect(all).toContain(`"business_id":"${businessId}"`);
 
       const row = await readOutreach(seeded.outreachId);
       expect(row.provider_error).toContain('victim@example.test');

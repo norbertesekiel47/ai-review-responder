@@ -61,6 +61,20 @@ const HALT_REASON_LABELS: Record<HaltReason, string> = {
   platform_halt: 'Send window elapsed under a platform halt',
 };
 
+/** The read model ASSERTS `halt_reason` against its CHECK rather than
+ *  re-validating it, so a value from outside the union is possible in
+ *  principle — most concretely a browser cached behind the deploy that widened
+ *  `HaltReason` (`platform_halt`, #917). It must read as a stop with an
+ *  unrecognised cause, never as the literal `undefined`. Same shape as
+ *  `ApprovalPanel.haltedBody`. */
+const UNKNOWN_HALT_REASON_LABEL = 'reason not recognised by this page — reload';
+
+function haltReasonLabel(reason: HaltReason): string {
+  return Object.hasOwn(HALT_REASON_LABELS, reason)
+    ? HALT_REASON_LABELS[reason]
+    : UNKNOWN_HALT_REASON_LABEL;
+}
+
 /**
  * Why the latch refuses, per **Batch state** — `null` for every state it
  * accepts. TOTAL over `BatchState` for the same reason `HALT_REASON_LABELS`
@@ -340,7 +354,7 @@ export function SolicitationBatchPanel({
             <dt className="text-gray-500">Stopped</dt>
             <dd className="text-gray-900">
               {formatAdminDateTime(summary.haltedAt)}
-              {summary.haltReason && ` — ${HALT_REASON_LABELS[summary.haltReason]}`}
+              {summary.haltReason && ` — ${haltReasonLabel(summary.haltReason)}`}
             </dd>
           </div>
         )}

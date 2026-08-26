@@ -219,10 +219,17 @@ export type RecordSuppressionInput =
  * Properties NEVER include the Normalized handle (§9.4/§9.5).
  */
 // G6: this is the single owner of the byte-for-byte ON CONFLICT predicates for
-// both partial unique indexes. It ships ahead of its production callers (#644
-// redemption, #645 manual paths, #627 webhook sources) so the predicates are
-// proven against the real indexes the moment they are created, not three
-// tickets later. Its consumer today is suppression.integration.test.ts.
+// both partial unique indexes, and the single chokepoint every suppression
+// write passes through. It once shipped ahead of its production callers; those
+// callers have since landed and it is now live in production on the redemption,
+// manual-admin and webhook paths. Deliberately not enumerated here — a
+// hand-maintained caller census is the drift this comment used to carry. `rg
+// recordSuppression` yields the current list.
+//
+// Being the one chokepoint is what makes the purge's suppression contract
+// enforceable in a single place: see
+// worker/jobs/account-offboarding/purge-stages.ts, which states the boundary
+// rule every caller of this function must honour.
 export async function recordSuppression(
   tx: TransactionSql,
   input: RecordSuppressionInput,
