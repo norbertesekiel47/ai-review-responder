@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   cssDeclarations,
+  cssFilesUnder,
   cssVarReferences,
   declarationsBySelector,
   stripCssComments,
@@ -22,6 +23,12 @@ const TOKENS = 'src/app/(authenticated)/_styles/tokens.css';
 const THEME = 'src/app/(authenticated)/_styles/theme.css';
 const CONSOLE_SCOPED = 'src/app/(authenticated)/_styles/console.css';
 const CONSOLE_SCOPE = '.rw-console';
+// Auth (#895f). This directory sat outside every token guard, and its
+// auth-island.css had already drifted: it re-declared the eight Island colours
+// (matching) and both brand fonts (NOT matching — the named fallbacks were
+// gone). Walked dynamically, like the Landing guard, so a new CSS file added
+// here is covered the day it lands rather than the day someone remembers.
+const AUTH_DIR = 'src/components/auth';
 
 // A DECLARATION (`  --rw-x: …`) at line start — never a usage (`var(--rw-x)`) or
 // a mention inside a comment.
@@ -333,6 +340,25 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
     expect(rootLayout).toContain('className="skip-link" href="#main-content"');
     expect(rootLayout).toContain('<main className="main" id="main-content">');
     expect(read('src/components/dashboard/timeline/TimelineContent.tsx')).not.toContain('<main');
+  });
+
+  it('finds CSS under the auth directory at all, so the guard below cannot pass vacuously', () => {
+    // A walk over an empty or mis-pathed directory asserts nothing while
+    // reporting green. Pin the census first.
+    expect(cssFilesUnder(AUTH_DIR).length).toBeGreaterThan(0);
+  });
+
+  it.each(cssFilesUnder(AUTH_DIR))('%s re-declares no Island colour or brand font', (file) => {
+    const css = read(file);
+
+    for (const token of [...ISLAND_COLOR_TOKENS, ...BRAND_FONT_TOKENS]) {
+      expect(
+        declares(css, token),
+        `${token} is re-declared in ${file}. ${GLOBALS} owns it and the root `
+          + 'layout imports it, so this scope already inherits it — a second declaration '
+          + 'is free to drift, and the two font stacks here already had.',
+      ).toBe(false);
+    }
   });
 
   it('keeps legacy cool-gray and blue focus literals out of authenticated UI sources', () => {

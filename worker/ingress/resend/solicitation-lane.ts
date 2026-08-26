@@ -457,6 +457,7 @@ async function recordFailure(sql: Sql, emailId: string, data: unknown): Promise<
     msg: 'solicitation send failure recorded',
     outreach_id: committed.attribution.id,
     account_id: committed.attribution.account_id,
+    business_id: committed.attribution.business_id,
     // Reason is provider-controlled text — stored, never logged.
     has_reason: reason !== 'unknown',
   });

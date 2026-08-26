@@ -35,6 +35,11 @@ const ACCOUNT_ID = '00000000-0000-7000-8000-000000000001';
 const OFFBOARDING_ID = '00000000-0000-7000-8000-000000000002';
 const OUTBOX_ID = '00000000-0000-7000-8000-000000000003';
 const AUTH_USER_ID = 'auth-user-1';
+// One location under the account, so runContentPurgeStage's per-business
+// advisory-lock loop actually executes. Referenced from inside vi.hoisted's
+// execute(), which is only CALLED after module init — same pattern as
+// OFFBOARDING_ID above.
+const BUSINESS_ID = '00000000-0000-7000-8000-000000000005';
 
 const {
   calls,
@@ -91,6 +96,18 @@ const {
 
     if (text.includes('FROM job_outbox') && text.includes('FOR UPDATE')) {
       return [{ id: OUTBOX_ID }];
+    }
+
+    // The per-business advisory-lock loop in runContentPurgeStage. Returning a
+    // row is what makes the loop EXECUTE, which is what lets the lock-order
+    // assertion below see the pg_advisory_xact_lock calls at all. Matched on
+    // ORDER BY id so the many `... IN (SELECT id FROM businesses ...)`
+    // subqueries elsewhere in the purge keep returning [].
+    if (
+      text.includes('SELECT id FROM businesses WHERE account_id =')
+      && text.includes('ORDER BY id')
+    ) {
+      return [{ id: BUSINESS_ID }];
     }
 
     if (text.includes('AS retained_count') && text.includes('FROM solicitation_suppressions')) {
@@ -364,7 +381,7 @@ describe('AccountOffboarding PurgeWorker', () => {
     expect(calls[consentDeleteIndex]?.scope).toBe('tx');
     // Agent run spine tables are hard_delete/must_be_absent (accounts rows are
     // retained de-identified, so their ON DELETE CASCADE never fires) — the
-    // purge must delete outcomes then runs explicitly; agent_run_steps cascades
+    // purge must delete outcomes and runs explicitly; agent_run_steps cascades
     // via its agent_runs FK, so no explicit steps DELETE may appear.
     const agentOutcomesDelete = calls.find((call) => call.text.includes('DELETE FROM agent_outcomes'));
     expect(agentOutcomesDelete?.text).toContain('account_id =');
@@ -372,9 +389,28 @@ describe('AccountOffboarding PurgeWorker', () => {
     const agentRunsDelete = calls.find((call) => call.text.includes('DELETE FROM agent_runs'));
     expect(agentRunsDelete?.text).toContain('account_id =');
     expect(agentRunsDelete?.scope).toBe('tx');
-    expect(calls.findIndex((call) => call.text.includes('DELETE FROM agent_outcomes')))
-      .toBeLessThan(calls.findIndex((call) => call.text.includes('DELETE FROM agent_runs')));
     expect(sqlText).not.toContain('DELETE FROM agent_run_steps');
+
+    // The order that IS load-bearing, and it is a LOCK order, not an FK one.
+    // agent_runs row locks must be taken after the per-business advisory locks,
+    // because approval.ts/outreach.ts/batch-builder.ts all take
+    // batch-lock -> solicitation_batches row -> agent_runs. Hoisting this
+    // DELETE above the lock loop is an ABBA deadlock against the solicitation
+    // lane.
+    const advisoryLockIndexes = calls
+      .map((call, index) => ({ call, index }))
+      .filter(({ call }) => call.text.includes('pg_advisory_xact_lock'))
+      .map(({ index }) => index);
+    expect(advisoryLockIndexes.length).toBeGreaterThanOrEqual(2);
+    const agentRunsDeleteIndex = calls.findIndex((call) => call.text.includes('DELETE FROM agent_runs'));
+    expect(agentRunsDeleteIndex).toBeGreaterThan(Math.max(...advisoryLockIndexes));
+
+    // Deliberately NOT asserted: outcomes-before-runs. That order is not
+    // load-bearing — the outcomes DELETE is scoped by account_id, not
+    // agent_run_id, so deleting runs first would merely NULL the FK
+    // (071:71, ON DELETE SET NULL) and this statement would still remove every
+    // row. A test that pins it claims a constraint the code does not have.
+
     // Guardian escalations (migration 073) are hard_delete/must_be_absent and
     // review_id has NO cascade — the escalations DELETE must run before the
     // reviews DELETE or the purge dies on an FK violation. The reviews delete
