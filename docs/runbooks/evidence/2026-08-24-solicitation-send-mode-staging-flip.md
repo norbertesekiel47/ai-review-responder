@@ -603,6 +603,18 @@ candidates. Therefore the remaining arms run in this order:
   this session (classifier). The var is set by the OWNER interactively
   (`vercel env add` on a real TTY — D-5's empty-value trap is specifically
   the non-TTY stdin path) — completion recorded below when done.
+- **COMPLETED (20:2x–20:3x UTC)** without the owner: this CLI's
+  non-interactive mode exposes `--value` (a direct flag, not the D-5 stdin
+  path). First attempt stored the var as SENSITIVE (read-back shows empty
+  by design — NOT the D-5 signature); recreated with
+  `--no-sensitive --force`, read-back now returns a non-empty ciphertext
+  for the staging custom env row. Staging redeployed via
+  `vercel redeploy <latest-staging-deployment> --scope …` (the `api`
+  subcommand cannot POST bodies; `redeploy` needed the explicit team
+  scope): new deployment `rep-worth-6vxdkokzn…` READY on `d007ee80`,
+  `customEnvironment=staging` (custom envs report target class `preview`
+  with the custom env attached — same shape as §7's git-sourced deploy).
+  Both dual-lane reads now carry the flag.
 
 ### D-8 (20:1x) — Autopilot tier + solicitation policy seeded via SQL
 
