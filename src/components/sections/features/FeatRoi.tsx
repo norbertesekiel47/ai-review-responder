@@ -3,7 +3,7 @@
 import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const ROI_TILES = [
   { label: 'Response rate', before: '12%', after: '96', afterUnit: '%', bar: 'var(--rw-teal-bar)' },
@@ -16,7 +16,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
   const [gridRef, gridSeen] = useReveal<HTMLDivElement>();
 
   return (
-    <section ref={innerRef} id="f-roi" aria-label="Results dashboard" className="rw-dl-band">
+    <section ref={innerRef} id="f-roi" aria-label="Results dashboard" className="rw-dl-band is-tight">
       <div className="rw-dl-col">
         <div className="feat-ch is-wide">
           <FeatIntro
@@ -27,9 +27,8 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             title="Numbers to show your accountant."
             lede={
               <>
-                Response rate before and after. Your average rating over time. Where you sit on the
-                local map for the search terms we track for you. Estimated time saved. The kind of
-                numbers that justify the line item.
+                Response rate before and after. Your average rating over time. Estimated time saved.
+                Where you sit on the local map for the search terms we track for you.
                 <span className="feat-roi-note"> Sample dashboard with illustrative numbers. Yours shows your own.</span>
               </>
             }

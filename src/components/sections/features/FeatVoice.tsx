@@ -3,7 +3,7 @@
 import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const VOICE_BARS = [
   { h: 85, d: '80ms' },
@@ -20,7 +20,7 @@ const VOICE_BARS = [
 export function FeatVoice({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [chartRef, chartSeen] = useReveal<HTMLDivElement>();
   return (
-    <section ref={innerRef} id="f-voice" aria-label="Voice learning" className="rw-dl-band is-paper">
+    <section ref={innerRef} id="f-voice" aria-label="Voice learning" className="rw-dl-band is-paper is-tight">
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">
           <FeatIntro

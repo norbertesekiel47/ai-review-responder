@@ -83,10 +83,21 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('How do I connect my Google reviews?');
     expect(html).toContain('100 most recent reviews from the past 12 months'); // consented import window
     expect(html).toContain('safety-checked'); // Autopilot mock chip
-    // The hero's email mock is labelled a sample and carries ONE action
-    // (Daylight Gallery II decision 5 — the real approval email has one button).
-    expect(html).toContain('aria-label="Sample approval email"');
-    expect(html).toContain('Sample · owner@brightlinen.com · Inbox');
+    // The hero artifact is labelled a sample, and mocks no email.
+    //
+    // Daylight Gallery II decision 5 constrained the hero's email mock to ONE
+    // action, because the real approval email has one button. That mock was
+    // replaced (2026-08-26) — the hero now shows the pipeline the h1 promises,
+    // review → gate → public reply, instead of an inbox. There is no email left
+    // to misrepresent, so the decision's subject is gone rather than overruled,
+    // and its concern is asserted directly: the artifact says "sample", and the
+    // inbox framing this same truth pass already flagged ("replies post via
+    // GBP, not from an email") is absent.
+    expect(html).toContain('Sample · one review, end to end');
+    expect(html).not.toContain('owner@brightlinen.com');
+    // The approval-PAGE mock in step 04 is a different surface and keeps its
+    // three controls; decision 5 never governed it.
+    expect(html).toContain('Your approval page · no login');
   });
 
   it('swaps the waitlist form for the /signup CTA when self-serve is on', () => {

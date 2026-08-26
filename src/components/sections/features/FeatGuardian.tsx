@@ -4,7 +4,7 @@ import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { FeatSteps, type FeatStep } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const GUARDIAN_STEPS: readonly FeatStep[] = [
   { n: '01', title: '1★ review lands', sub: 'Guardian reads it before anything is drafted', t: '0:00', final: false },
@@ -22,7 +22,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
       ref={innerRef}
       id="f-guardian"
       aria-label="Guardian: negative-review triage"
-      className="rw-dl-band is-paper"
+      className="rw-dl-band is-paper is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
@@ -31,7 +31,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
             kicker="Guardian · reviews of 3★ or less"
             bar="var(--rw-blush-bar)"
             group="Your agent team"
-            title="Bad reviews get read first, not just answered."
+            title="Bad reviews get read before anyone answers."
             lede={
               <>
                 Guardian reads every review that isn&apos;t clearly positive and grades its severity

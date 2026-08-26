@@ -51,7 +51,10 @@ export function SiteFooter() {
         </div>
         {FOOTER_COLUMNS.map((column) => (
           <nav key={column.heading} aria-label={column.heading}>
-            <h4 className="rw-foot-h">{column.heading}</h4>
+            {/* h3, not h4: pages put their sections at h2, so h4 skipped a level
+                and broke the outline on every surface this footer renders on.
+                `.rw-foot-h` styles by class, so nothing moves. */}
+            <h3 className="rw-foot-h">{column.heading}</h3>
             <ul className="rw-foot-list">
               {column.links.map((link) => (
                 <li key={link.href}>

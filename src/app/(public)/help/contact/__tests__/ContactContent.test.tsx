@@ -42,8 +42,16 @@ describe('ContactContent', () => {
 
   it('has exactly one h1 (no heading-level skips)', () => {
     const html = renderToStaticMarkup(createElement(ContactContent));
-    expect(html.match(/<h1/g)?.length).toBe(1);
-    // Channel + panel headings are all h2; no h3 jump under the single h1.
-    expect(html).not.toContain('<h3');
+    const levels = [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+    expect(levels.filter((level) => level === 1)).toHaveLength(1);
+    // Checks the actual rule: a heading may go one level deeper than the last,
+    // never more. This replaced a `not.toContain('<h3')` proxy, which stood in
+    // for "no skips" while the footer used h4 — so it forbade the h3 that
+    // REMOVES the h2 -> h4 skip, i.e. it defended the bug.
+    const skips = levels.flatMap((level, i) => {
+      const previous = levels[i - 1];
+      return previous !== undefined && level > previous + 1 ? [`h${previous} → h${level}`] : [];
+    });
+    expect(skips).toEqual([]);
   });
 });

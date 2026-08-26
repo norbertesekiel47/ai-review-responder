@@ -106,13 +106,22 @@ describe('PricingContent', () => {
   it('states the shipped agent-team and autonomy boundary precisely', () => {
     const html = renderPricing();
 
+    // The CLAIMS are the contract, not the wording. Reworded 2026-08-26 in a
+    // copy pass; each line below asserts the same boundary it always did.
+    //
+    // 'unflagged' went because this project's own truth pass had already ruled
+    // it an internal word on /how-it-works ("→ 'pass our safety checks'"), and
+    // that decision had never been applied here. Same for naming the internal
+    // components as "gates".
     expect(html).toContain('Reply drafts personalized responses');
     expect(html).toContain('Guardian holds negative and flagged reviews');
-    expect(html).toContain('Insights files your weekly review brief');
-    expect(html).toContain('Owner approval required before every public response');
-    expect(html).toContain('Only 4–5★ unflagged replies may post automatically');
-    expect(html).toContain('Moderation, judge, and governor gates must all pass');
+    expect(html).toContain('Insights sends you a weekly review brief');
+    expect(html).toContain('You approve every reply before it posts');
+    expect(html).toContain('Only 4–5★ replies that pass our safety checks may post automatically');
+    expect(html).toContain('Safety checks, the Judge, and the Governor must all clear it');
     expect(html).toContain('Negative and flagged reviews are never auto-posted');
+    // The internal vocabulary stays out, on this page as on /how-it-works.
+    expect(html).not.toContain('unflagged');
   });
 
   it('labels the comparison region, self-labels each value cell for the stacked phone layout, and keeps the site footer present', () => {

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/ui/cn';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 /**
  * Chapter header for the nine feature chapters (Daylight Gallery II, premium

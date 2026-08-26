@@ -3,7 +3,7 @@
 import type { RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const VERDICT_ROWS = [
   { time: 'Mon 10:41', excerpt: '"Thank you so much! We\'re thrilled…"', verdict: 'pass' as const },
@@ -21,7 +21,7 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
       ref={innerRef}
       id="f-watchdogs"
       aria-label="Judge and Governor: oversight"
-      className="rw-dl-band is-paper"
+      className="rw-dl-band is-paper is-tight"
     >
       <div className="rw-dl-col">
         <div className="feat-ch is-flip">
@@ -30,8 +30,8 @@ export function FeatWatchdogs({ innerRef }: { innerRef: RefObject<HTMLElement | 
             kicker="Judge & Governor · oversight"
             bar="var(--rw-ink2)"
             group="Care and control"
-            title="Autonomy that is watched, always."
-            lede="Every reply that posts without your tap is reviewed by the Judge: a separate AI safety check, with its own rulebook, on 100% of Autopilot's public replies. If the Judge is unavailable, auto-posting stops on its own. And if a reply is flagged, or edits and vetoes pile up over a week, the Governor pauses Autopilot for your whole account, emails you, and RepWorth support switches it back on after a review."
+            title="Two watchdogs check every reply that posts itself."
+            lede="The Judge reviews every reply that posts without your tap, all 100% of them. It is a separate AI safety check with its own rulebook. If the Judge is unavailable, auto-posting stops on its own. The Governor watches the pattern instead. If a reply is flagged, or edits and vetoes pile up over a week, the Governor pauses Autopilot for your whole account and emails you. RepWorth support switches it back on after a review."
           />
 
           <div ref={ledgerRef} className={cn('feat-ch-ar rw-dl-rv', ledgerSeen && 'is-in')}>

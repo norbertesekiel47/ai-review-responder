@@ -4,7 +4,7 @@ import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { ReviewStars } from './FeatPrimitives';
-import { useReveal } from './useReveal';
+import { useReveal } from '@/hooks/useReveal';
 
 const FEATURE_LANGS = [
   { code: 'ES', name: 'Español' },
@@ -19,7 +19,7 @@ const FEATURE_LANGS = [
 export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null> }) {
   const [cardRef, cardSeen] = useReveal<HTMLDivElement>();
   return (
-    <section ref={innerRef} id="f-lang" aria-label="Multilingual support" className="rw-dl-band">
+    <section ref={innerRef} id="f-lang" aria-label="Multilingual support" className="rw-dl-band is-tight">
       <div className="rw-dl-col">
         <div className="feat-ch is-split">
           <FeatIntro
@@ -28,7 +28,7 @@ export function FeatLang({ innerRef }: { innerRef: RefObject<HTMLElement | null>
             bar="var(--rw-sage-bar)"
             group="Craft and proof"
             title="Multilingual, automatically."
-            lede="RepWorth detects the language of every review and responds in the same language. No setup, no toggles. Your customers feel heard in their own words."
+            lede="RepWorth detects the language of every review and responds in the same language. No setup, no toggles."
           >
             <div className="rw-dl-chips feat-lang-chips">
               {FEATURE_LANGS.map((l) => (
