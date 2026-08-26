@@ -1065,27 +1065,37 @@
    ======================================================================== */
 
 /* ---------- Nav (sticky white pill inside the island) ---------- */
-/* `top: 0` with 28px of padding, not `top: 14px` with 14px — the pill lands in
-   exactly the same place either way (0+28 = 14+14), but the sticky BOX now
-   starts at the viewport edge instead of 14px down, so it can occlude. Without
-   that, page content scrolls visibly through the strip above the pill. */
+/* Occlusion is `.rw-nav-occluder`'s job, not this element's — see below. This
+   stays transparent so the hero wash reads through behind the pill. */
 .rw-navwrap {
   position: sticky;
-  top: 0;
+  top: 14px;
   z-index: 50;
-  padding: 28px 0 0;
+  padding: 14px 0 0;
   font-family: var(--rw-font-body);
   font-weight: 400;
   color: var(--rw-ink2);
   font-variant-numeric: tabular-nums;
 }
-/* The occluder itself, scoped to `.rw-island-wrap` — SiteShell's wrapper, and
-   only SiteShell's, so it reaches every bone-island Daylight page and no
-   classic-register surface. (`.rw-island` alone would also catch the auth
-   island, which is white and renders no nav inside it.) Bone matches the island
-   canvas, so at rest it is invisible; over a paper band it reads as the same
-   paper↔bone junction every band boundary makes. */
-.rw-island-wrap .rw-navwrap { background: var(--rw-bone); }
+/* The occluder is its OWN element, a sibling before the nav — not a background
+   on `.rw-navwrap`. It has to be, because `position: sticky` makes the nav a
+   stacking context: anything painted inside it paints with the pill, so a
+   background there sits above the hero wash and covers it with a flat bone
+   strip. As a separate layer it can sit at z-index 1, under the wash (2) and
+   under the pill (50), while ordinary content — no z-index — stays below it.
+
+   `height` + the matching negative `margin-bottom` give it zero net flow
+   height, so it occludes without pushing the nav down. SiteShell renders it as
+   the island's first child; the classic register never gets one. */
+.rw-nav-occluder {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 92px;
+  margin-bottom: -92px;
+  background: var(--rw-bone);
+  pointer-events: none;
+}
 .rw-nav-col {
   max-width: 1200px;
   margin: 0 auto;
@@ -1596,6 +1606,76 @@
 .rw-dl-cta-more a:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 2px; }
 .rw-dl-cta-panel { border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px; padding: 24px; }
 .rw-dl-cta .rw-dl-fine { color: rgba(255, 255, 255, 0.62); margin-top: 12px; }
+
+/* ---------- Hero wash (Daylight Gallery II) ----------
+   The blurred loop behind the marketing heroes. It was `/how-it-works` only;
+   extended to `/features` and `/pricing` on 2026-08-26.
+
+   z-index 2 is the whole trick. `.rw-nav-occluder` sits at 1 and the nav pill
+   at 50, so the wash slides UP behind the pill (via the host's `-92px` margin)
+   and paints OVER the occluder, while ordinary page content — no z-index, so
+   below 1 — stays hidden behind it. Drop this z-index and the occluder covers
+   the wash with a flat bone strip under the nav. */
+.rw-dl-wash {
+  position: absolute;
+  inset: 0 0 -80px 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+.rw-dl-wash video,
+.rw-dl-wash img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 120%;
+  object-fit: cover;
+  transform: translate(-50%, -50%);
+  filter: blur(26px) saturate(1.45) contrast(1.06);
+  animation: rw-dl-wash-drift 40s ease-in-out infinite alternate;
+}
+.rw-dl-wash video { display: none; }
+.rw-dl-wash video.is-on { display: block; }
+.rw-dl-wash img.is-hidden { opacity: 0; transition: opacity 1.2s; }
+@keyframes rw-dl-wash-drift {
+  from { transform: translate(-50%, -50%) scale(1); }
+  to { transform: translate(-48%, -52%) scale(1.08); }
+}
+/* Fades to bone before the hero ends, so the wash never becomes a page-wide
+   atmospheric field. */
+.rw-dl-wash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(246, 246, 242, 0) 0%,
+    rgba(246, 246, 242, 0.18) 50%,
+    var(--rw-bone) 80%,
+    var(--rw-bone) 100%
+  );
+}
+/* The host hero's half of the contract: slide up behind the nav, clip the
+   overflow, and give the absolutely-positioned wash something to anchor to. */
+.rw-dl-wash-host {
+  position: relative;
+  overflow: hidden;
+  margin-top: -92px;
+  padding-top: 92px;
+}
+/* Everything else in the hero sits ABOVE the wash. Required, not cosmetic: the
+   wash carries z-index 2 to clear the occluder, and the hero's own content has
+   no z-index, so without this the wash would paint over the h1. The full stack
+   is occluder 1 → wash 2 → hero content 3 → nav pill 50. */
+.rw-dl-wash-host > :not(.rw-dl-wash) {
+  position: relative;
+  z-index: 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-dl-wash video,
+  .rw-dl-wash img { animation: none; }
+}
 
 /* ---------- Scroll reveal — four layers, each a fallback for the next ----------
 

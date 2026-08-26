@@ -41,50 +41,11 @@
 :where(.hiw-page p) { margin: 0; }
 .hiw-page section h2 { scroll-margin-top: 120px; }
 
-/* ---------- Hero (wash slides under the sticky nav pill) ---------- */
-.hiw-hero {
-  position: relative;
-  overflow: hidden;
-  margin-top: -92px;
-  padding-top: 92px;
-}
-.hiw-wash {
-  position: absolute;
-  inset: 0 0 -80px 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.hiw-wash video,
-.hiw-wash img {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 120%;
-  height: 120%;
-  object-fit: cover;
-  transform: translate(-50%, -50%);
-  filter: blur(26px) saturate(1.45) contrast(1.06);
-  animation: hiw-wash-drift 40s ease-in-out infinite alternate;
-}
-.hiw-wash video { display: none; }
-.hiw-wash video.is-on { display: block; }
-.hiw-wash img.is-hidden { opacity: 0; transition: opacity 1.2s; }
-@keyframes hiw-wash-drift {
-  from { transform: translate(-50%, -50%) scale(1); }
-  to { transform: translate(-48%, -52%) scale(1.08); }
-}
-.hiw-wash::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(246, 246, 242, 0) 0%,
-    rgba(246, 246, 242, 0.18) 50%,
-    var(--rw-bone) 80%,
-    var(--rw-bone) 100%
-  );
-}
+/* ---------- Hero ----------
+   The wash and its host contract (`position: relative`, `overflow: hidden`, the
+   -92px slide under the nav pill) are shared now: `.rw-dl-wash` and
+   `.rw-dl-wash-host` in island.css, since /features and /pricing carry the same
+   wash. This page's hero keeps only its own layout below. */
 .hiw-hero-col {
   position: relative;
   display: grid;
@@ -455,8 +416,7 @@
     transition: none !important;
   }
   .hiw-stat::before { transform: none !important; transition: none !important; }
-  .hiw-wash video,
-  .hiw-wash img { animation: none; }
+  /* The wash's own reduced-motion stop lives with it in island.css. */
   .hiw-feed-row.is-new { animation: none; }
   .hiw-verdict .rw-dl-rec-dot { transform: none !important; transition: none !important; }
 }

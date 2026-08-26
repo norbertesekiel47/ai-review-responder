@@ -48,9 +48,10 @@ describe('ContactContent', () => {
     // never more. This replaced a `not.toContain('<h3')` proxy, which stood in
     // for "no skips" while the footer used h4 — so it forbade the h3 that
     // REMOVES the h2 -> h4 skip, i.e. it defended the bug.
-    const skips = levels.flatMap((level, i) =>
-      i > 0 && level > levels[i - 1] + 1 ? [`h${levels[i - 1]} → h${level}`] : [],
-    );
+    const skips = levels.flatMap((level, i) => {
+      const previous = levels[i - 1];
+      return previous !== undefined && level > previous + 1 ? [`h${previous} → h${level}`] : [];
+    });
     expect(skips).toEqual([]);
   });
 });

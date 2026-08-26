@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
+import { HeroWash } from '@/components/ui/HeroWash';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { useReveal } from '@/hooks/useReveal';
 import { ReviewStars } from './FeatPrimitives';
@@ -101,7 +102,8 @@ function HeroSection({
   values: readonly [number, number, number];
 }) {
   return (
-    <section className={cn('feat-hero', heroIn && 'is-in')} aria-labelledby="feat-h1">
+    <section className={cn('feat-hero rw-dl-wash-host', heroIn && 'is-in')} aria-labelledby="feat-h1">
+      <HeroWash />
       <div className="rw-dl-col feat-hero-col">
         <div>
           <p className="feat-eyebrow feat-fade">Features · Your agent team</p>

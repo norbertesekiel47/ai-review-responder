@@ -6,7 +6,7 @@ import { SiteShell } from '@/components/ui/SiteShell';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { Reveal } from '@/components/ui/Reveal';
-import { HeroWash } from './HeroWash';
+import { HeroWash } from '@/components/ui/HeroWash';
 import { StatCards } from './StatCards';
 import { WatchArtifact } from './WatchArtifact';
 import { TriageArtifact } from './TriageArtifact';
@@ -190,7 +190,7 @@ export function HowItWorksContent({
   return (
     <SiteShell scope="hiw-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled}>
       {/* Hero — blurred wash fading to bone before the hero ends */}
-      <section className={`hiw-hero ${heroIn ? 'is-in' : ''}`} aria-labelledby="hiw-h1">
+      <section className={`hiw-hero rw-dl-wash-host ${heroIn ? "is-in" : ""}`} aria-labelledby="hiw-h1">
         <HeroWash />
         <div className="rw-dl-col hiw-hero-col">
           <div>

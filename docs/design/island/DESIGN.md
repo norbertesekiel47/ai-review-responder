@@ -287,18 +287,18 @@ one page enter at different scroll positions.
   (36px ≤680px), for an intro sitting directly above a bordered artifact — a
   matrix, an accordion. Page CSS must not add a private `margin-bottom` override;
   three of them had accumulated at 80/56/48 before this scale existed.
-- **Sticky chrome pins at `top: 92px`, the nav pill's bottom edge.** The nav
-  occludes the zone above it: `.rw-navwrap` pins at `top: 0` with 28px of
-  padding (the pill still lands at 28–92, since 0+28 = 14+14), and
-  `.rw-island-wrap .rw-navwrap` paints it bone. Both halves are load-bearing —
-  without the box starting at 0 there is nothing to paint, and without the
-  paint, content scrolls through the strip above the pill AND through the four
-  wedge gaps its 9999px radius leaves at the corners. The scope is
-  `.rw-island-wrap` because that is SiteShell's and only SiteShell's; `.rw-island`
-  alone would also catch the auth island, which is white. The nav's z-index is
-  50, sticky page chrome sits at 3. `/features`' `.feat-grp-hd` is the worked
-  example, hidden below 680px where 138px of permanent chrome is not worth the
-  phone viewport.
+- **Sticky chrome pins at `top: 92px`, the nav pill's bottom edge.** The strip
+  above the pill is covered by `.rw-nav-occluder`, a zero-flow-height sticky
+  element SiteShell renders as the island's first child. It must be its OWN
+  element, never a background on `.rw-navwrap`: `position: sticky` makes the nav
+  a stacking context, so anything painted inside it paints with the pill — above
+  the hero wash, which it would then hide behind a flat bone strip. As a
+  separate layer it sits at z-index 1, under the wash (2) and the pill (50),
+  while ordinary content has no z-index and stays below it. Without the
+  occluder, content shows through that strip and through the four wedge gaps the
+  pill's 9999px radius leaves at its corners. `/features`' `.feat-grp-hd` is the
+  worked example of page chrome pinning under it (z-index 3), hidden below 680px
+  where 138px of permanent chrome is not worth the phone viewport.
 - **Align cards to each other with subgrid, never with reserved heights.** Two
   `min-height` guesses used to align the pricing cards; each was sized for the
   tallest flag posture, so the common posture carried ~77px of dead space per
@@ -396,14 +396,24 @@ rebrand.
 
 ### The hero wash (approved exception)
 
-The `/how-it-works` hero carries a blurred "wash" video loop
-(`public/video/hero-wash-loop.mp4`, poster
+**All three marketing heroes** — `/how-it-works`, `/features`, `/pricing` — carry a
+blurred "wash" video loop (`public/video/hero-wash-loop.mp4`, poster
 `public/images/hero-wash-poster.jpg`; source stills in
-`docs/design/daylight-ii/media/` — paid Higgsfield renders, do NOT regenerate). It is
-an approved, deliberate exception to the no-atmosphere rule, confined to the hero and
-fading to bone before the hero ends. The still is the poster and reduced-motion
-fallback; the video fades in on `canplay` and replays on `visibilitychange`
-(`HeroWash.tsx`).
+`docs/design/daylight-ii/media/` — paid Higgsfield renders, do NOT regenerate;
+reuse the one asset on all three). It is an approved, deliberate exception to the
+no-atmosphere rule, confined to the hero and fading to bone before the hero ends.
+It was `/how-it-works` only until the founder extended it on 2026-08-26. The still
+is the poster and reduced-motion fallback; the video fades in on `canplay` and
+replays on `visibilitychange` (`src/components/ui/HeroWash.tsx`).
+
+A hero opts in with two things: render `<HeroWash />` as its first child, and add
+`.rw-dl-wash-host` — the `-92px` margin-top / `92px` padding-top pair that slides
+the wash up behind the nav, plus `position: relative` and `overflow: hidden`.
+
+**The z-order is load-bearing:** `.rw-nav-occluder` 1 → `.rw-dl-wash` 2 → hero
+content 3 → nav pill 50. Change any one and something breaks visibly — at 1 the
+occluder covers the wash with a flat bone strip under the nav; without 3 the wash
+paints over the hero's own h1.
 
 ## Do's and Don'ts
 
@@ -433,7 +443,7 @@ Before designing or finalizing any page, section, or component, check:
 
 ### Banned generic AI patterns
 
-- No purple/blue AI gradients, neon cyan, random color glows, black-glass panels, orb/blob/bokeh backgrounds, atmospheric gradient fields, or decorative light leaks. (The `/how-it-works` hero wash is the single approved exception — see above.)
+- No purple/blue AI gradients, neon cyan, random color glows, black-glass panels, orb/blob/bokeh backgrounds, atmospheric gradient fields, or decorative light leaks. (The hero wash on the three marketing pages is the one approved exception — see above. It is confined to a hero and fades to bone before that hero ends; anywhere else, this rule holds.)
 - No generic "AI startup" hero sections with oversized claims, abstract backgrounds, and vague dashboard cards.
 - No fake chat bubbles, fake analytics widgets, fake avatars, fake testimonials, fake logos, fake customer names, or fake metrics unless supplied by the product context.
 - No stock-like synthetic people, generic robot/brain/sparkle imagery, decorative network graphs, or meaningless "insight" panels.

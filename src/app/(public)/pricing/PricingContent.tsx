@@ -6,6 +6,7 @@ import { LeadIntakeForm } from '@/components/sections/lead-intake/LeadIntakeForm
 import type { LeadPlanInterest } from '@/components/sections/lead-intake/LeadIntakeForm';
 import { Reveal } from '@/components/ui/Reveal';
 import { SiteShell } from '@/components/ui/SiteShell';
+import { HeroWash } from '@/components/ui/HeroWash';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import type {
   PlanPresentationViewModel,
@@ -305,7 +306,8 @@ function PlanCard({
 // and the CSS transition delays stage the entrance.
 function PricingHero({ heroIn }: { heroIn: boolean }) {
   return (
-    <section className={`pr-hero ${heroIn ? 'is-in' : ''}`} aria-labelledby="pr-h1">
+    <section className={`pr-hero rw-dl-wash-host ${heroIn ? 'is-in' : ''}`} aria-labelledby="pr-h1">
+      <HeroWash />
       <div className="rw-dl-col pr-hero-col">
         <div>
           <p className="pr-eyebrow pr-fade">Pricing</p>
