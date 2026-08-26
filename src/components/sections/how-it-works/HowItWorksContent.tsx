@@ -35,7 +35,7 @@ const STEPS = [
     tick: 'T + 0:00',
     kicker: 'Watch',
     title: "We watch your reviews so you don't have to.",
-    sub: 'Google tells us within seconds when a new review lands (through our review partner). We also double-check every 5 minutes as a backup. We never draft the same review twice, and new reviews go straight to drafting.',
+    sub: 'Through our review partner, Google tells us within seconds when a new review lands. We also double-check every 5 minutes as a backup. We never draft the same review twice, and new reviews go straight to drafting.',
     bullets: [
       'Hears about new reviews within seconds, with a backup check every 5 minutes',
       'Multi-location supported on Copilot and Autopilot (extra locations billed per location)',
@@ -77,7 +77,7 @@ const STEPS = [
     tick: 'T + 0:20',
     kicker: 'The Gate',
     title: 'Copilot asks you. Autopilot asks your policy.',
-    sub: 'This is the fork. On Copilot, every draft comes to you by email with one tap to approve, edit, or regenerate. On Autopilot, 4–5★ replies that pass the safety checks and fit your settings post after a 15- or 30-minute veto window; one tap stops them. Negative reviews are never auto-posted.',
+    sub: 'On Copilot, every draft comes to you by email with one tap to approve, edit, or regenerate. On Autopilot, 4–5★ replies that pass the safety checks and fit your settings post after a 15- or 30-minute veto window, and one tap stops them. Negative reviews are never auto-posted.',
     bullets: [
       'One-tap approve, straight from your inbox',
       'Autopilot posts only for the star ratings you allow (5★ only, or 4–5★) and up to your daily limit',
@@ -105,7 +105,7 @@ const STEPS = [
     tick: 'T + 1:47',
     kicker: 'Judge',
     title: 'Every auto-post gets a second opinion.',
-    sub: 'After any reply posts without your tap, the Judge, a separate AI check with its own rulebook, grades it against a fixed safety rubric: no unauthorized promises, no personal details, no made-up facts about your business, no hostile tone. The Governor watches the results and pauses Autopilot for your whole account if trust slips; you get an email, and support switches it back on after a review.',
+    sub: 'After any reply posts without your tap, the Judge grades it. The Judge is a separate AI check with its own rulebook, and it applies a fixed safety rubric: no unauthorized promises, no personal details, no made-up facts about your business, no hostile tone. The Governor watches those results. If trust slips it pauses Autopilot for your whole account and emails you, and support switches it back on after a review.',
     bullets: [
       '100% of auto-posted replies are reviewed',
       'The Governor can pause Autopilot for your whole account',
@@ -316,7 +316,7 @@ export function HowItWorksContent({
           <Reveal>
             <div className="rw-dl-intro">
               <h2 className="rw-dl-h2" id="hiw-hood-h">The pipeline, end to end.</h2>
-              <p>Six parts. Each one has a single job, and two of them only ever say no.</p>
+              <p>Six parts, each with one job. Guardian and the Judge never post anything themselves.</p>
             </div>
           </Reveal>
           <Reveal scrub>

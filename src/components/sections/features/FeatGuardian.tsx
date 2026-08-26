@@ -31,7 +31,7 @@ export function FeatGuardian({ innerRef }: { innerRef: RefObject<HTMLElement | n
             kicker="Guardian · reviews of 3★ or less"
             bar="var(--rw-blush-bar)"
             group="Your agent team"
-            title="Bad reviews get read first, not just answered."
+            title="Bad reviews get read before anyone answers."
             lede={
               <>
                 Guardian reads every review that isn&apos;t clearly positive and grades its severity

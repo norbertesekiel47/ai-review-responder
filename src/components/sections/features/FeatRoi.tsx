@@ -27,9 +27,8 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             title="Numbers to show your accountant."
             lede={
               <>
-                Response rate before and after. Your average rating over time. Where you sit on the
-                local map for the search terms we track for you. Estimated time saved. The kind of
-                numbers that justify the line item.
+                Response rate before and after. Your average rating over time. Estimated time saved.
+                Where you sit on the local map for the search terms we track for you.
                 <span className="feat-roi-note"> Sample dashboard with illustrative numbers. Yours shows your own.</span>
               </>
             }

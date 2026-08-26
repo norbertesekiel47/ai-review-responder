@@ -31,9 +31,9 @@ const PLANS: readonly PlanCopy[] = [
     tag: 'The agent team prepares every public action for your approval.',
     features: [
       'Reply drafts personalized responses in your business voice',
-      'Guardian holds negative and flagged reviews for owner attention',
-      'Insights files your weekly review brief',
-      'Owner approval required before every public response',
+      'Guardian holds negative and flagged reviews for you to see first',
+      'Insights sends you a weekly review brief',
+      'You approve every reply before it posts',
       'Negative reviews are never auto-posted',
     ],
   },
@@ -41,12 +41,12 @@ const PLANS: readonly PlanCopy[] = [
     tier: 'autopilot',
     n: '02',
     name: 'Autopilot',
-    tag: 'The same agent team may act inside the rules you set.',
+    tag: 'The same agent team can act inside the rules you set.',
     features: [
       'Everything in Copilot',
-      'Only 4–5★ unflagged replies may post automatically',
+      'Only 4–5★ replies that pass our safety checks may post automatically',
       'Owner-set policy and veto window remain in control',
-      'Moderation, judge, and governor gates must all pass',
+      'Safety checks, the Judge, and the Governor must all clear it',
       'Negative and flagged reviews are never auto-posted',
     ],
   },
@@ -67,15 +67,15 @@ const MATRIX: readonly MatrixRow[] = [
   { section: 'Agent team' },
   { label: 'Reply drafts personalized responses', values: [true, true] },
   { label: 'Guardian holds negative and flagged reviews', values: [true, true] },
-  { label: 'Insights files a weekly brief', values: [true, true] },
+  { label: 'Insights sends a weekly brief', values: [true, true] },
   { section: 'Public actions' },
-  { label: 'Owner approval required', values: ['Every response', 'Outside policy'] },
-  { label: 'Eligible automatic posting', values: [false, '4–5★, unflagged only'] },
+  { label: 'You approve before it posts', values: ['Every reply', 'Outside your policy'] },
+  { label: 'Eligible automatic posting', values: [false, '4–5★, safety-checked only'] },
   { label: 'Negative reviews auto-posted', values: [false, false] },
   { section: 'Safety controls' },
   { label: 'Owner-set policy and veto window', values: ['Approval context', true] },
-  { label: 'Moderation protects every draft', values: [true, true] },
-  { label: 'Judge and governor required for eligible autonomy', values: [false, true] },
+  { label: 'Safety check on every draft', values: [true, true] },
+  { label: 'Judge and Governor watch anything that posts itself', values: [false, true] },
   { section: 'Locations' },
   { label: 'Included locations', values: ['1', '1'] },
 ];
@@ -97,7 +97,7 @@ const BASE_FAQS: readonly FaqItem[] = [
   },
   {
     q: 'What can Autopilot post without approval?',
-    a: 'Only 4–5★ unflagged replies that fit your owner-set policy may post after the veto window and after moderation, judge, and governor safeguards pass. Negative reviews are never auto-posted.',
+    a: 'Only 4–5★ replies that pass our safety checks and fit the policy you set may post, and only after the veto window closes. Negative reviews are never auto-posted.',
   },
   {
     q: 'Is there a contract?',
@@ -124,13 +124,13 @@ const GATE_ROWS = [
     tier: 'copilot' as const,
     name: 'Copilot',
     stop: 'Waits for your tap',
-    sub: 'Owner approval before every public response.',
+    sub: 'You approve every reply before it posts.',
   },
   {
     tier: 'autopilot' as const,
     name: 'Autopilot',
     stop: 'Posts after the veto window',
-    sub: 'Only 4–5★ unflagged replies, and only once moderation, judge, and governor all pass.',
+    sub: 'Only 4–5★ replies that pass our safety checks, and only after the veto window closes.',
   },
 ];
 
@@ -319,7 +319,7 @@ function PricingHero({ heroIn }: { heroIn: boolean }) {
             ))}
           </h1>
           <p className="pr-lede pr-fade d1">
-            Two monthly plans. One included location. Clear control over every public action.
+            Two monthly plans. One location included. You decide what can post without your tap.
           </p>
           <div className="pr-hero-links pr-fade d2">
             <Link href="/how-it-works" className="rw-dl-txtlink">
@@ -406,8 +406,8 @@ function ComparisonMatrix({
       <div className="rw-dl-col">
         <Reveal>
           <div className="rw-dl-intro is-tight">
-            <h2 className="rw-dl-h2" id="pr-cmp-h">Compare the control boundary</h2>
-            <p>The agent team is the same. The authority you grant it is different.</p>
+            <h2 className="rw-dl-h2" id="pr-cmp-h">What each plan can do on its own</h2>
+            <p>The agent team is the same on both plans. What it can do without asking you is different.</p>
           </div>
         </Reveal>
         <Reveal delay={120} scrub>

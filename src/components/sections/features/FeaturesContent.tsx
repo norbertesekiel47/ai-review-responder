@@ -115,8 +115,8 @@ function HeroSection({
             ))}
           </h1>
           <p className="feat-lede feat-fade d1">
-            RepWorth is an AI agent team, not another dashboard. Reply drafts every response,
-            Guardian triages the bad ones, Insights reports on Mondays, and two watchdogs, the
+            RepWorth runs a team of AI agents on your Google reviews. Reply drafts every response,
+            Guardian triages the bad ones, and Insights reports on Mondays. Two watchdogs, the
             Judge and the Governor, oversee anything that posts on its own. You pick the autonomy:
             approve every reply on Copilot, or let policy-cleared replies post themselves on
             Autopilot.
