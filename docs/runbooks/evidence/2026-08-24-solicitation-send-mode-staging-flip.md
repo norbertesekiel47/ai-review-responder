@@ -68,8 +68,8 @@ NOT the goal for those rows.
 |---|---|---|---|---|---|
 | Postmark DMARC registration | `feedback.staging.repworth.net` → `re+c4itw8rihpd@dmarc.postmarkapp.com` | none | **keep** (staging digest sink) | Postmark record deletion via its private token (held off-repo) | n/a — kept |
 | Resend domain | `feedback.staging.repworth.net` (us-east-1, custom return path `bounce`) | none | **keep** (staging Sending identity) | `DELETE /domains/{id}` with team key | n/a — kept |
-| Credential file: full-access Resend key | `scratchpad/resend.key` (session scratchpad, off-repo) | none | **delete at teardown** | `rm`; user may also revoke the key in Resend | [ ] |
-| Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [ ] |
+| Credential file: full-access Resend key | `scratchpad/resend.key` (session scratchpad, off-repo) | none | **delete at teardown** | `rm`; user may also revoke the key in Resend | [x] deleted 2026-08-26 07:3x UTC |
+| Credential file: Cloudflare DNS token | `scratchpad/cloudflare.token` (session scratchpad, off-repo) | none | **delete at teardown; user revokes token** | `rm` + revoke at dash.cloudflare.com | [x] file deleted 2026-08-26 07:3x UTC; token revocation = owner action, pending |
 | Cloudflare DNS records ×4 (zone `repworth.net`, id `59b9cc47…`) | TXT `resend._domainkey.feedback.staging`, MX `bounce.feedback.staging`, TXT `bounce.feedback.staging`, TXT `_dmarc.feedback.staging` | none | **keep** (staging Sending identity) | delete records by id via zone DNS API/console | n/a — kept |
 | Cloudflare DNS: Zoho inbound MX ×3 + verification TXT on `feedback.staging` | MX `feedback.staging` → mx/mx2/mx3.zoho.com; TXT `feedback.staging` (zoho-verification) | none | **keep** (§4 inbound routing) | delete records by id via zone DNS API/console | n/a — kept |
 | Zoho org: domain `feedback.staging.repworth.net` + aliases `reviews@`, `unsubscribe@` | Zoho Mail admin, org of `repworth.net` | none | **keep** (§4 monitored mailboxes → norbert.esekiel@repworth.net) | remove domain/aliases in Zoho admin | n/a — kept |
@@ -734,4 +734,72 @@ candidates. Therefore the remaining arms run in this order:
   facing changed. The "do not reset staging to main" rule was about
   RESETS; a forward merge is the normal integration-anchor motion.
 
-*(further entries appended in runbook order)*
+### Bounce stamp PROVEN live (07:23 UTC)
+
+- SES gave up on A3's bounce-arm mail after ~14 h of NXDOMAIN retries:
+  `email.bounced` webhook received 07:23:04.254 (`inbound_events`
+  `processed`), and the Solicitation lane wrote `bounced_at`
+  07:23:04.313 + `bounce_kind='soft'` on the A3 row — 59 ms
+  webhook-to-stamp. The row was alive to receive it because batch B's
+  upload cascaded nothing (see the batch B entry). Honest note: SES
+  classified the NXDOMAIN exhaustion as a SOFT bounce, not hard —
+  recorded as observed.
+- **Path 11 disposition, final**: stamp half PROVEN live;
+  unsubscribed-stays-eligible PROVEN live (attribution entry); the
+  candidate-query EXCLUSION half closes as test-covered
+  (`src/lib/solicitation/attribution.ts:231-232`,
+  `attribution.integration.test.ts:609`) per the recorded owner-visible
+  disposition. **Path 11 CLOSED.**
+- Timing datum for the ambiguous race: `norbert-b@` (sent 03:48) bounces
+  ≈ 17:48 UTC on the same ~14 h clock — the ambiguous pair stays valid
+  until then.
+
+### Ambiguous arm — CLOSED as a documented gap, with an upgrade clause (07:3x UTC)
+
+- The owner's second-account review ("Norbert Esekiel") was posted
+  ~04:1x but is NOT publicly visible (verified logged-out) — Google's
+  new-account review filter, outside this system's control. The DB-side
+  specimen is fully staged and verified: TWO `sent`, unbounced,
+  unattributed rows whose contact names match the reviewer
+  (A3-`reviews@`, renamed contact + B-`norbert-b@`); the matcher's
+  `ambiguous` logic is integration-covered, and M4's design records the
+  abstention as log-only either way. Owner call: close as a documented
+  gap rather than hold the campaign on Google's clock.
+- **Upgrade clause**: if Google publishes the review BEFORE
+  `norbert-b@`'s bounce (~17:48 UTC), live ingest will run attribution,
+  the two-candidate abstention will log `ambiguous`, and this entry
+  upgrades to PROVEN by appended addendum. If it publishes AFTER the
+  bounce, expect a **single-match FALSE attribution to the
+  A3-`reviews@` row** — pre-recorded here so a later reader does not
+  misread it as a matcher defect: it is the known consequence of the
+  bounce exclusion collapsing the pair, on a shadow metric that is
+  never billed. **Path 9 CLOSED (documented gap).**
+
+### VERDICT
+
+**PASS.** Every unproven path is closed:
+
+| # | Path | Disposition |
+|---|---|---|
+| 1 | §1–§3 domain verified | ✅ proven |
+| 2 | §4 mailboxes routed | ✅ proven |
+| 3 | §6 seed gate (auth + one-click) | ✅ proven (auth 17:22 Aug 25; one-click 04:09 Aug 26); placement recorded (Gmail Promotions); D-7 coverage gap documented |
+| 4 | Copilot drip E2E | ✅ proven (batch A3) |
+| 5 | Autopilot drip E2E | ✅ proven (batch B) |
+| 6 | Mid-flight halt | ✅ proven (batch C) |
+| 7 | Unsubscribe → ledger, page from ledger read | ✅ proven |
+| 8 | Attribution clean match | ✅ proven (`full_name`, 4 columns + outcome) |
+| 9 | Ambiguous | 📄 documented gap (Google filter) + upgrade clause |
+| 10 | no_candidates | 📄 documented gap (owner call) |
+| 11 | Bounce/complaint exclusion + unsubscribed-eligible | ✅ stamp + eligibility proven; exclusion predicate test-covered |
+| 12 | B3.4 cap-slot burn | ✅ proven with the answer (dispatch-gate burns, render-time does not) |
+
+Issues: **#963 fixed**, **#966 fixed** (both on PR #964, validated live by
+this campaign); **#965 open** — design decision, named input to #620
+alongside the B3.4 answer and D-7. Deviations D-1…D-8 all resolved and
+recorded. End state: staging lane ON (both flags), `JUDGE_ENABLED=true`,
+cap **50** (ramp stage 1), sending identity + fixtures kept per the
+teardown ledger. Credential files deleted 07:3x UTC; Cloudflare token
+revocation is the owner's remaining teardown action.
+
+*(post-verdict addenda only below this line)*

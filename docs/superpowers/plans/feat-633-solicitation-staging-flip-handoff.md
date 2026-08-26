@@ -13,8 +13,14 @@ State lives on disk; this doc points, it does not restate.
 
 ## Phase
 
-Campaign is **mid-flight**, not blocked. §1–§4 and §7 complete; §6 partly
-complete; the Copilot arm is proven end-to-end.
+**CAMPAIGN COMPLETE — VERDICT: PASS** (2026-08-26 07:3x UTC). Every
+unproven path closed (9 proven live, 2 documented gaps, 1 mixed — see the
+evidence doc's VERDICT table). Remaining is the SHIP step only:
+1. PR #964 (the #963+#966 fixes) merges to `main` — owner approval.
+2. This docs branch opens its own PR to `main`.
+3. Owner revokes the Cloudflare DNS token (last teardown row).
+4. Ambiguous upgrade clause: if Google publishes the held review before
+   ~17:48 UTC Aug 26, append the PROVEN addendum per the evidence entry.
 
 ## Live staging state (leave it alone unless resuming)
 
