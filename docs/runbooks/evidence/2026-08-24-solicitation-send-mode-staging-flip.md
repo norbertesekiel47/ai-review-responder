@@ -694,4 +694,29 @@ candidates. Therefore the remaining arms run in this order:
 - **Unproven path 3's one-click half CLOSED** — #966's fix is proven on
   staging end-to-end (advertised endpoint → worker ingress → ledger).
 
+### Batch C — mid-flight halt + B3.4 dispatch-withhold PROVEN (06:53–07:26 UTC)
+
+- CSV C (5 fresh no-MX contacts) uploaded ~06:53; batch `01a03cd8-ae3d…`
+  built 06:53:52 — 14 asks (9 prior identities withheld by restraint,
+  5 rendered). Second `auto_policy` approval 06:54:10; veto notice;
+  deadline 07:24:17 — the 30-min window held again (tick 1 ≈ 07:24:5x).
+- **B3.4 setup**: admin manual suppression of `c-dw@no-mx.staging.…`
+  entered 06:58:17 via `/admin/suppressions` (`scope=global`,
+  `source='admin_manual'` — the §4 servicing path, exercised live) —
+  AFTER the row rendered, BEFORE dispatch.
+- Tick 1 released rows 1–2: `c-dw@` **queued, then withheld/`suppressed`
+  by the dispatch-gate consent recheck — `queued_at` SET**. The B3.4
+  specimen, with its answer: a dispatch-gate withhold BURNS a released
+  cap slot; a render-time withhold (batch A, `queued_at` NULL) burns
+  none. Both sides observed; named input to the #620 cap-counting
+  decision. `c-1@` `sent` (6th platform send of the UTC day, cap 10).
+- **Mid-flight halt**: owner clicked "Stop this batch" 07:25:53 —
+  `halt_reason='owner_halt'`, `halted_by` recorded; `c-2`/`c-3`/`c-4`
+  cancelled `owner_halt` (never queued); the SENT row untouched ("no
+  further sends", not undo). `closeBatchIfSettled` ran inside the latch
+  transaction: `send_closed_at` = `halted_at` to the microsecond; parent
+  run `cancelled` with `batch_halted` + `send_batch_closed` steps at the
+  same instant.
+- **Unproven paths 6 AND 12 CLOSED.**
+
 *(further entries appended in runbook order)*
