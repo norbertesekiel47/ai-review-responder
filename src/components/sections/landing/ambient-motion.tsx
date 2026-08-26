@@ -16,9 +16,10 @@ import {
  * obeys it.
  *
  * ── Why this exists (WCAG 2.2.2, Level A) ─────────────────────────────────
- * Eight clips auto-start and loop indefinitely on this page: the hero
- * backdrop, the CTA backdrop, and six agent avatars. Two CSS animations do
- * the same (the fleet's pulse and flow). 2.2.2
+ * Nine clips auto-start and loop indefinitely on this page: the hero
+ * backdrop, the CTA backdrop, six agent avatars, and the problem section's
+ * reputation diagram (2026-08-24). Three CSS animations do the same (the
+ * fleet's pulse and flow, and the tiers gauge halo's breathing). 2.2.2
  * requires that any motion which starts automatically and runs for more than
  * five seconds can be paused, and every one of these runs forever.
  *
@@ -29,8 +30,8 @@ import {
  * a control on the page, and this is it.
  *
  * ── Why one control instead of per-video controls ─────────────────────────
- * Native `controls` on eight decorative background clips would put eight
- * chrome bars over the composition and add eight tab stops to reach a control
+ * Native `controls` on nine decorative background clips would put nine
+ * chrome bars over the composition and add nine tab stops to reach a control
  * nobody wants. One toggle satisfies 2.2.2 for all of them, is a single tab
  * stop, and is the only honest affordance for a video the visitor cannot see
  * the edges of.

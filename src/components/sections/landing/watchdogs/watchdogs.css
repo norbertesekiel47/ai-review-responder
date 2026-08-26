@@ -14,8 +14,14 @@
 .rw-lp-watch {
   --rw-lp-watch-text: #f4f2ec;
   --rw-lp-watch-muted: rgb(var(--rw-lp-text-rgb) / 0.66);
-  /* Lifted from --rw-teal (#97b3ae) for AA on this ground. */
-  --rw-lp-watch-accent: #a9c6c0;
+  /* The teal as bare channels. This graduated from "one literal, one alpha"
+     to a carried colour in the 2026-08-24 watchtower pass — the wash, the
+     rule plate, the back cast and the media rim all ride it now, so it gets
+     the same channel-token treatment as the page's three colours. */
+  --rw-lp-watch-accent-rgb: 169 198 192;
+  /* Lifted from --rw-teal (#97b3ae) for AA on this ground; derived from the
+     channels so the two forms cannot drift. `rgb(169 198 192)` IS #a9c6c0. */
+  --rw-lp-watch-accent: rgb(var(--rw-lp-watch-accent-rgb));
 
   position: relative;
   display: flex;
@@ -24,7 +30,11 @@
      the viewport (2026-08-16; docs/design/landing/measurements.md §2). */
   padding: var(--rw-lp-section-gap, 6rem) 0;
   background:
-    radial-gradient(ellipse 70% 55% at 50% 0%, rgba(169, 198, 192, 0.07), transparent 70%),
+    radial-gradient(
+      ellipse 70% 55% at 50% 0%,
+      rgb(var(--rw-lp-watch-accent-rgb) / 0.07),
+      transparent 70%
+    ),
     #17251f;
 }
 
@@ -79,7 +89,8 @@
   max-width: 46rem;
   font-family: var(--rw-font-display);
   font-weight: 400;
-  font-size: clamp(0.875rem, 1.05vw, 1rem);
+  /* The shared lead scale (2026-08-24 header-grammar pass). */
+  font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
   line-height: 1.6;
   color: var(--rw-lp-watch-muted);
 }
@@ -111,11 +122,21 @@
   color: var(--rw-lp-watch-text);
 }
 
+/* The quote's halves are staged `m.span` beats; a transform is ignored on a
+   plain inline box, so they set as inline-blocks. */
+.rw-lp-watch-statement-quote > span {
+  display: inline-block;
+}
+
 .rw-lp-watch-statement-accent {
   color: var(--rw-lp-watch-accent);
 }
 
+/* A block span since the 2026-08-24 staged entrance (the note is an
+   `m.span` beat inside the figcaption) — block so the margin and measure
+   still apply. */
 .rw-lp-watch-statement-note {
+  display: block;
   margin: clamp(0.625rem, 1.8vh, 1.25rem) auto 0;
   max-width: 34rem;
   font-family: var(--rw-font-display);
@@ -200,25 +221,39 @@
   height: clamp(15rem, 26vh, 16rem);
 }
 
-/* A 2x2 grid rather than a flex row, so the existing DOM works unchanged: the
-   avatar spans both rows in column 1, name and tagline stack in column 2. A
-   flex row would need a wrapper element around the two text nodes. */
+/* A 3-column grid rather than a flex row, so the existing DOM works
+   unchanged: the avatar spans both rows in column 1, name and tagline stack
+   in column 2, and the rule plate spans both rows in column 3 — filling the
+   void the two-column row form used to carry (the 2026-08-24 watchtower
+   pass). A flex row would need wrapper elements. */
 .rw-lp-watch-grid .rw-lp-flip-front {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: min-content min-content;
   align-content: center;
-  column-gap: clamp(1rem, 1.6vw, 1.5rem);
+  column-gap: clamp(1rem, 1.8vw, 1.75rem);
   row-gap: 0.4375rem;
-  padding: clamp(1rem, 2.6vh, 1.5rem);
+  padding: clamp(1rem, 2.6vh, 1.5rem) clamp(1.125rem, 2.2vw, 1.75rem);
 }
 
+/* The avatar stage, sized so the state change actually READS — the Judge's
+   iris and the Governor's latch are the section's whole imagery ("watchdogs
+   only change state"), and at the old 4.5-9rem they were a thumbnail. The
+   card's 15rem height floor (the 390px clipping case) is untouched: 10.5rem
+   max + padding stays inside it. */
 .rw-lp-watch-grid .rw-lp-flip-media {
   grid-column: 1;
   grid-row: 1 / span 2;
   align-self: center;
-  width: clamp(4.5rem, 17vh, 9rem);
+  /* 19vh/9.5rem, not the first cut's 21vh/10.5rem: with the rule plate in
+     column 3, the larger stage squeezed the tagline to four lines. This keeps
+     the iris readable and gives the middle column its measure back. */
+  width: clamp(5.5rem, 19vh, 9.5rem);
   margin-bottom: 0;
+  /* A cool rim seats the stage in the oversight temperature. */
+  box-shadow:
+    0 0 0 1px rgb(var(--rw-lp-watch-accent-rgb) / 0.22),
+    0 0 28px rgb(var(--rw-lp-watch-accent-rgb) / 0.08);
 }
 
 .rw-lp-watch-grid .rw-lp-flip-name-line {
@@ -235,9 +270,66 @@
   padding: 0;
 }
 
+/* The stamped rule plate: the governing rule, readable before any flip. Mono
+   (the page's label voice — a rule is system text, not prose), teal ring,
+   right-anchored where the row form had dead width. Hidden below 560px: at
+   one-column phone widths the front is name + tagline again and the rule
+   stays on the back, where it always was. */
+.rw-lp-watch-grid .rw-lp-flip-rule {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  max-width: 9.5rem;
+  padding: 0.625rem 0.875rem;
+  text-align: center;
+  color: rgb(var(--rw-lp-watch-accent-rgb) / 0.9);
+  border: 1px solid rgb(var(--rw-lp-watch-accent-rgb) / 0.32);
+  border-radius: 0.625rem;
+  background: rgb(var(--rw-lp-watch-accent-rgb) / 0.06);
+}
+
+@media (max-width: 560px) {
+  .rw-lp-watch-grid .rw-lp-flip-rule {
+    display: none;
+  }
+}
+
+/* ---------- phone carousel ----------
+   Below 767px the grid becomes a scroll-snap rail (../carousel.css owns the
+   mechanics; this only sets the card measure).
+
+   88vw, wider than the other two rails: this card is a ROW — avatar beside
+   name and tagline — and its back is the copy the 15rem height floor was
+   measured against (the Governor's body needs 240px at 342px wide). A narrower
+   slide re-opens the clipping bug the row form exists to remove. At 390px this
+   is 343px, which is what the stacked card already had. */
+@media (max-width: 767px) {
+  .rw-lp-watch-grid {
+    --rw-lp-carousel-slide: min(88vw, 24rem);
+  }
+}
+
 .rw-lp-watch-grid .rw-lp-flip-back {
   gap: 0.625rem;
   padding: clamp(1rem, 2.6vh, 1.5rem) clamp(1.125rem, 2.2vw, 2rem);
+  /* The oversight cast: the back answers the personas' warm glass in teal. */
+  background-image: linear-gradient(
+    180deg,
+    rgb(var(--rw-lp-watch-accent-rgb) / 0.06),
+    rgb(var(--rw-lp-watch-accent-rgb) / 0.02)
+  );
+}
+
+/* Hover deepens the cast — gated to hover-capable fine pointers like every
+   hover arm on the flip card (sticky tap-hover would latch it on touch). */
+@media (hover: hover) and (pointer: fine) {
+  .rw-lp-watch-grid .rw-lp-flip:hover .rw-lp-flip-back {
+    background-image: linear-gradient(
+      180deg,
+      rgb(var(--rw-lp-watch-accent-rgb) / 0.1),
+      rgb(var(--rw-lp-watch-accent-rgb) / 0.03)
+    );
+  }
 }
 
 /* ---------- the door to /how-it-works ----------

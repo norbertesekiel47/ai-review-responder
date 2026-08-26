@@ -253,6 +253,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let leadId: string | null = null;
 
   try {
+    // `owner_leads` is not in `scripts/ci/tenant-tables.ts`, so
+    // `ci:tenant-scope` is silent on this statement — deliberately: this is
+    // pre-signup marketing intake, and no account exists yet to scope by.
+    // Do not join a tenant table to fake a scope.
     const savedRows = await sql`
       INSERT INTO owner_leads (
         name,

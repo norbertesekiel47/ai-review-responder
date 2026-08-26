@@ -138,3 +138,18 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- phone carousel ----------
+   Below 767px the list is a scroll-snap rail (../carousel.css owns the rail
+   mechanics; this only sets the card measure). `grid-template-columns` above
+   goes inert there because the rail switches the box to `display: flex`.
+
+   19rem, not the full column: the card is `aspect-ratio: 3/4`, so width IS
+   height here. 19rem caps it at 405px tall on a 390px phone, against the 456px
+   a full-width card cost. The 78vw term is what leaves the next card's edge
+   showing — the peek is the only thing that says the row continues. */
+@media (max-width: 767px) {
+  .rw-lp-personas-list {
+    --rw-lp-carousel-slide: min(78vw, 19rem);
+  }
+}

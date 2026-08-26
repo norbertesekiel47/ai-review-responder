@@ -18,6 +18,18 @@
  * never the punchline. The problem is that the JOB was never staffed — not
  * that the owner falls short. No fabricated statistics; the section argues,
  * it does not count.
+ *
+ * ── The diagram (owner direction, 2026-08-24 v0.2) ────────────────────────
+ * The section carries one decorative diagram beside the essay: the customer-
+ * side view of a reputation — a café orbited by what a customer finds
+ * (stars, a review, a reply, and one dark card: the silence). Binding rules
+ * for any replacement asset: it illustrates the PROBLEM only — no product,
+ * no agents, no CRT characters, no readable text, and no fabricated review
+ * content (abstract glyphs only). It is `aria-hidden`; the copy carries the
+ * meaning.
+ *
+ * Copy was trimmed 2026-08-24 (owner direction, v0.2 course-correct): same
+ * claims, fewer words — the diagram now carries part of the picture.
  */
 
 export const EYEBROW = 'The problem';
@@ -29,8 +41,8 @@ export const HEADING_ACCENT = 'Tending it is a job.';
 export const HEADING_PLAIN = `${HEADING_LEAD} ${HEADING_ACCENT}`;
 
 export const BODY_PARAGRAPHS: readonly string[] = [
-  'Before anyone calls, books, or walks in, they look you up. What they find — ratings, reviews, replies, silences — is your reputation, and it is working for you or against you around the clock.',
-  'Tending it is real work: watch what is being said, judge what is at stake, answer in the business’s voice, and keep the tone right on the worst day. In most small businesses that job was never staffed. It was simply added to the owner’s.',
+  'Before anyone calls, books, or walks in, they look you up. Ratings, reviews, replies, silences — all of it is your reputation, working for or against you around the clock.',
+  'Tending it is real work: watch what is said, judge what is at stake, answer in the business’s voice, keep the tone right on the worst day. That job was never staffed. It was added to the owner’s.',
 ] as const;
 
 /** The pivot into "Meet the fleet". Existence claim only. */

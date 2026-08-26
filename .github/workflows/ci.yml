@@ -175,6 +175,8 @@ jobs:
         run: pnpm ci:analytics-events
       - name: Run static policy audit
         run: pnpm ci:static-policy
+      - name: Run env-registry audit
+        run: pnpm ci:env-registry
       - name: Run response-status audit
         run: pnpm ci:response-status
       - name: Run admin AAL2 mutation gate audit

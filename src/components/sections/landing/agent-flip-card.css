@@ -134,7 +134,25 @@
   color: #a9c6c0;
 }
 
-.rw-lp-flip-tag {
+/* The front rule plate (optional — only rendered when `frontRule` is passed;
+   the watchdog rows are its one consumer today). Base type only here; the
+   consuming section owns its placement in the card's layout. */
+.rw-lp-flip-rule {
+  font-family: var(--rw-lp-label-font);
+  font-weight: 400;
+  font-size: 0.6875rem;
+  letter-spacing: var(--rw-lp-label-tracking);
+  text-transform: uppercase;
+  color: rgb(var(--rw-lp-text-rgb) / 0.72);
+}
+
+/* The roadmap tag pill — ONE owner for both wearers ("Coming" on a flip
+   card, "Next" on a fleet node). This file is the shared-component sheet and
+   loads before fleet.css, so the grouped rule reaches both; fleet.css
+   deliberately declares no copy (the pair drifted as byte-identical
+   duplicates until #959's fallow gate flagged the clone). */
+.rw-lp-flip-tag,
+.rw-lp-fleet-tag {
   padding: 0.1875rem 0.5rem;
   font-family: var(--rw-font-display);
   font-weight: 500;

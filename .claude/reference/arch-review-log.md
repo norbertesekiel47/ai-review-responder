@@ -6,8 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by the merge lines here. Full artifacts:
+**Merges since last architecture pass: 5** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. **This is the
+≥ 5 threshold**: the next pass is due, and scheduling it is the owner's call. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -23,6 +24,130 @@ Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 > — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-25 — `feat-landing-mobile-carousel`: phone card rails for landing
+  sections 2–5 (owner-directed). New shared `carousel.tsx`/`carousel.css`:
+  below 767px the fleet's two tiers, the persona grid, the watchtower grid and
+  the committed grid become CSS scroll-snap rails with a dot indicator. The
+  four sections went 6,891px → 4,010px at 390px wide, measured. **Desktop is
+  untouched by construction** — the rail restyles the container each section
+  ALREADY renders rather than adding a wrapper, so no desktop rule moves.
+  Four notes for the next pass: (a) the rail selector is 0,2,0 to tie with
+  `.rw-lp-fleet-tier[data-tier='watchdog']` and `carousel.css` must stay the
+  LAST landing CSS import — a load-bearing ORDER dependency, the second in this
+  file after `agent-flip-card.css`'s, and neither is mechanically guarded;
+  (b) the slides carry `opacity/transform: !important` because `Staged` gates
+  each card on 30% of ITSELF being in view and a peeking card shows ~15% —
+  motion writes those inline, so `!important` is the only reach; (c) the dots'
+  overflow test measures the SLIDES, never `scrollWidth`, after the committed
+  card's `inset: -0.875rem` glow put 570 into `scrollWidth` against a 556
+  client width and rendered a hidden dot row into the desktop DOM; (d) adding
+  the CSS import pulled `LandingExperience.tsx` into the fallow gate's scope
+  and exposed `LandingChrome` at 0% coverage (CRAP 56) — fixed with a real
+  test, not a suppression, but it is worth noting that a ONE-LINE import edit
+  is enough to surface an inherited complexity finding as a PR blocker.
+  4 new files, 13 modified; focus test 17 → 18 controls; landing
+  measurements.md + directory.md updated.
+
+- 2026-08-25 — `fix/887-adr-citations`: the no-internal-id posture on the
+  Requests surface was cited to **ADR 0012** in four places. ADR 0012 is the
+  sentiment-blind withhold enum and says nothing about internal ids; the real
+  provenance is the #629 round-2 review, finding F10. A false citation is worse
+  than none — it sends the reader to an authority that does not support the
+  rule, and the honest conclusion from there is that the rule is unsupported.
+  `halt/route.ts` and `approve/route.ts` now cite F10 directly and state that
+  they ARE the precedent `regenerate`/`withdraw` cite, so the four route
+  comments stop forming a circular reference. Two notes for the next pass:
+  (a) the issue named TWO sites and a filename grep found **four** — the extras
+  are `approval-routes.test.ts:398` and `docs/directory.md:130`, the latter
+  being the interesting one because it conflated two DIFFERENT rules under one
+  citation (no star rating, genuinely ADR 0012; no internal id, F10), and the
+  half that was right is precisely what made the half that was wrong look
+  sound; (b) nothing mechanically ties a comment's ADR reference to that ADR's
+  subject, so this class is invisible until someone follows a citation.
+  Comment and docs only — no behaviour change, no test change.
+
+- 2026-08-25 — `fix/892-purge-sentinels`: the account purge's tombstone writer
+  and its verifier agreed because two humans typed the same strings twice each
+  — the 2026-08-18 pass's W7. New `src/lib/account-offboarding/purge-sentinels.ts`
+  owns them; both sides compose their own predicate from shared VALUES, keeping
+  the writer's `=` and the verifier's `IS DISTINCT FROM` visible at the call
+  sites. No shared SQL fragment builder (it would need an `Sql` param and hide
+  that asymmetry), and the `SET` clause and `OR`-chain stay two lists.
+  **Four notes for the next pass, three of them corrections to the issue:**
+  (a) the issue tallies SEVEN duplicated pairs; there are **eight** —
+  `accounts.flags = '{}'::jsonb` is absent from its table while its own count
+  discussion names `flags` as a restored default. Eight pairs, nine members
+  (the email is one pair in two fragments). (b) the operator standardisation
+  covers **nine** sentinel comparisons, eight converting — including the two
+  `NOT LIKE` sites, which carry no `%`, `_` or backslash and were therefore
+  equality checks written as pattern matches. The rule is not stylistic: this
+  gate is fail-closed and its predicates sit in an `OR`-chain, where a
+  three-valued predicate reads as "not a violation" and OPENS the gate, so `<>`
+  made correctness depend on today's `NOT NULL` constraints. (c) the issue
+  names two places stating the count wrongly; there are **four** — plus
+  `purge-verification.ts`'s `archived_at` comment ("the only NON-residue
+  predicate"; it is the only PRESENCE check) and `directory.md`'s claim to
+  cover "every column the tombstone `UPDATE` writes", which is false because
+  `updated_at` is written and deliberately unverified. (d) **the counts are now
+  PINNED** — 28 predicates and their 5/1/22 split in `purge-verification.test.ts`,
+  29 writer assignments in `PurgeWorker.test.ts`, both mutation-verified. This
+  issue exists because 27 rotted unpinned, and the first cut of the fix
+  replaced it with four fresh unpinned numbers; lab-notes "An exact count
+  written into a comment is a maintenance trap" caught it in review.
+  Runtime coverage cannot catch a missed operator conversion — every column but
+  `tone` is `NOT NULL`, so both operators behave identically against a live
+  database — so the two new properties read the SQL the module EMITS, not its
+  source text. Prerequisite: the suite's `mockSql` was a bare `vi.fn`, so
+  introducing `exec.json` crashed 8 tests before they could fail informatively.
+
+- 2026-08-25 — `fix/895-truth-tripwires`: five independent fixes from the
+  2026-08-18 pass's H6 bundle — (a) the admin batch panel read
+  `HALT_REASON_LABELS[haltReason]` unguarded, and #917's `platform_halt` made
+  the **Halt reason** union six-wide, so a browser cached behind that deploy
+  rendered `Stopped <date> — undefined`; (c) the purge's suppression contract
+  still claimed `recordSuppression` had zero production callers; (d) the
+  agent-spine delete comment; (e) `recordFailure`'s log omitted `business_id`
+  where its four siblings carry it; (f) `auth-island.css` redeclared 8 Island
+  colours and 2 brand fonts, the fonts already diverged — this pass's own X10
+  finding. (b) shipped in #920/#900 and was not touched.
+  **Three notes for the next pass, all about the issue text being wrong:**
+  (i) #895(d) is wrong TWICE. Its "moving `agent_runs` earlier inverts an order
+  three other files depend on" is over-broad — `runContentPurgeStage` takes both
+  per-business advisory locks ~110 lines ABOVE the delete, so any position after
+  the loop preserves `advisory → batches row → agent_runs`. AND the rationale
+  already in the file — "deleting runs first would only orphan them" — is
+  FALSE: the outcomes delete is scoped by `account_id`, not `agent_run_id`, so
+  runs-first would merely NULL the FK (071:71) and still remove every row.
+  `PurgeWorker.test.ts` pinned that non-constraint with an index comparison
+  while the REAL constraint went unguarded; the assertion is now
+  lock-before-runs and the mock returns a business row so the loop executes.
+  (ii) #895(c)'s "Resend retries forever" is refuted by the lane's own
+  docstring — `verifySignature` 401s every attempt past the 300s window before
+  lane dispatch. The real residual is that a post-purge bounce cannot write the
+  global row to the **Suppression ledger**, because `loadAttribution` reads the
+  **Normalized handle** from our own contact row and the purge deletes it.
+  Filed as **#967** (go-live blocker) rather than patched: the obvious fix
+  contradicts a tested invariant that the lane never normalizes the
+  provider-echoed recipient. (iii) the contract now points at
+  `recordSuppression` as the one chokepoint instead of enumerating four call
+  sites — a hand-maintained census is the drift that went stale here.
+  9 files; four new assertions, each mutation-verified RED before trusting it.
+
+- 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
+  (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance
+  grammar page-wide — motion-driven finite beats, pause-rule-immune,
+  `initial:false` reduced motion); fleet assembles on arrival (wire draw-in via
+  motion `pathLength`, measured elements enter opacity-only) with hover
+  wire-highlighting; watchdog rows gain an avatar stage + front rule plate
+  (`frontRule` on the shared flip card, teal graduates to a channel token);
+  tiers dial is now a circular OPERABLE gauge (v4 — two `aria-pressed`
+  buttons, sprung needle via endpoint math after a CSS-rotate-on-SVG origin
+  bug); problem section pairs a trimmed essay with a generated ambient diagram
+  clip (clip count 8 → 9); future cards open with a generated off-CRT still.
+  One header grammar (prose left / instruments centered, shared scales). 19
+  production files + `staged.tsx` + 2 asset folders; focus test 14 → 16
+  controls; landing DESIGN.md/measurements.md rewritten for all of it.
 
 - 2026-08-24 — `fix-flip-card-touch-latch` (#955): landing flip-card input fix.
   The agent card's `:hover` flip arm is gated to `(hover: hover) and (pointer:
@@ -1215,3 +1340,9 @@ in the workflow as a required precondition. Two further findings:
 | 2026-08-15 | 6 merges ≥ 5 threshold (#793, #805, #821, #827, #831, #833 — the portal-audit spec #827→#831→#833 weighed together as its #827 entry asked) | Pathfinder pass, **windowed not repo-wide** (owner's call): 6 features + 1 seam charted — F1 admin business console, F2 owner dashboard portal, F3 owner settings, F4 Channel actor seam, F5 onboarding funnel, F6 Checkout attempt, S1 auth gate seam. **671 nodes / 3,908 lines**, every node `file:line`-cited. 8 within-feature + 6 cross-feature duplication findings, 4 enforcement-surface findings, 1 invariant violation, 15 guard-integrity instances, 10 process items adjudicated. Artifacts: `docs/reviews/PATHFINDER-2026-08-15/00-06` | **Headline: the prior pass's prescriptions were ALL executed — H1–H6, a first for this log — and the code held its shape again** (health 77 B → 77 B, maintainability 92.2 → 92.2, duplication **1.3% → 1.1%**, 0 churn hotspots across 6 merges, 3 of them structural refactors). **The pass's largest finding is test-integrity, not architecture: 15 guards pass for the wrong reason** (`06-guard-integrity.md`), each confirmed by mutation against the full 862-file/11,340-test suite; **5 sit on invariant #3's auto-policy gate chain** sharing ONE root cause (the suite pins every gate collaborator to ALLOW and never overrides), incl. the judge verdict — which CLAUDE.md calls a posting precondition. Orchestrator independently reproduced A1. Two (`ResponsePublisherWorker.test.ts:239`,`:250`) are worse than untested: their titles claim the coverage. One (E3, `business-summary.ts:235`) is a live correctness bug on regression — it feeds `approval_rate`, hence every churn score. **40 of ~55 mutations correctly killed**; the auto-approval matrix pins all 11 block reasons (product of prior handoff H3). **Mirror class claimed, then REFUTED on same-day execution:** the pass asserted live-DB-only pins were inert in CI; H6's census found CI's `test` job has run the live-DB lane since #244 (91 suites measured) — the observations held, the conclusion misread the local `test:integration` list as CI's coverage. H6's real yield: that CI gate was **unpinned** (four YAML lines un-gate 92 suites, CI stays green) — now pinned in `ci-audit-wiring.test.ts`. **Enforcement:** #831's structural→configuration MFA conversion re-opened as asked — `ci:admin-aal2`'s floor is FILE-scoped not verb-scoped, **an unused import satisfies its allow rule**, and it does not cover admin pages at all (`requireAdminPage`'s `aal2` defaults false, 8/16 opt in); `MFA_ENFORCEMENT_ENABLED` is Off so per-route binding is the only live AAL2 layer. Residual risk bounded honestly as **availability, not escalation** (proxy prefix + `requireRole` backstop); the dangerous variant is admin mutations moving off `/api/admin`. CLAUDE.md's "an aliased import would still clear it" **corrected** — a same-file alias TRIPS the deny rule; the real evasion needs a renaming re-export (→ H3). **Duplication:** #833 and #831 each built a correct owner and stopped one file short — `HealthBadge` exists twice with **different type safety** (shared = compile error on a new level, private copy at `BusinessDetailClient.tsx:33` = silently green), churn math doubled, trial eligibility spelled twice **and disagreeing**, `onboarded_by`'s primary-scoped subquery spelled 3× (one **unscoped** — latent not live, guarded by a precondition two modules away). **Doc-truth:** `onboarded_by` has **6 read sites / 5 meanings** vs CLAUDE.md's "three"; "Health presentation has ONE owner" is false as written. **Invariant #9b collapse** found at `useLocationVoiceForm.ts:196` (flag dropped from the mode check). **Process:** sweep-miss mechanization CLOSED (last 3 increments written by the skill); **new class — PR #803, uncounted, deleted the `/feature` skill's entire step 8** (667→207 lines), the surface the fallow preflight, the staging-reconcile fix and the arch-log increment all targeted; the increment survived only because #823 had relocated it days earlier. Phase rewind still live at 7 occurrences — and `transition-state.mjs` LOOKS like the fix but is bypassed AND its matrix permits the rewind anyway. `reclassify`/specs still open (WARN, not FAIL). "Prescribed fix outside legal surface" split into TWO classes with different answers (7a validate spec locations vs import bans; 7b out-of-surface fixes ship as ISSUES, not log notes — the evidence being that notes failed 4× before #823). Audit census: 10 AST / 7 text. 6 handoffs H1–H6. |
 | 2026-08-18 | 8 counted merges ≥ 5 threshold — **measured as 11 by the counter's own rule**, across a 32-commit window (the solicitation send lane #657/#651/#652/#629/#858/#859/#860/#865/#872 + #665/#662; the uncounted three-tier design system #843–#846; the uncounted CI/tooling surface #847–#850/#854/#867) | Pathfinder pass, **windowed** (owner's call): 9 features charted — F1 approval lane, F2 Requests surface, F3 admin console, F4 email lane, F5 unsubscribe, F6 design system, F7 marketing, F8 CI enforcement, F9 purge verifier. Two extra axes: guard-integrity (42 mutations) and process. Artifacts `docs/reviews/PATHFINDER-2026-08-18/00-06` | **Headline: the code held its shape a FOURTH time — health 77 B → 77 B, maintainability 92.2 → 92.2, duplication 1.1% → 1.1%, 0 churn hotspots, high-complexity functions 153 → 122 — and three of this pass's own findings would have been WRONG if reasoned instead of measured.** (1) **F8 refuted the fix the pass was about to prescribe**: adding the four missing tables to `TENANT_TABLES` produces **63 red lines and 0 security fixes** (measured by copying the audit and running `--no-allowlist`); the real gap is the **bridge vocabulary** — `localScopedBindings:942` knows 3 shapes, `users` needs a 4th (`accounts.owner_user_id = users.id`, inbound FK on the parent) and a 5th. H5 is therefore three ORDERED steps. (2) **F3's boundary was wrong**: the import closure of its two halves intersects in **zero domain modules**, and the trust models diverge at the read layer (the Send panel page runs at plain admin, `aal2` defaults false; suppressions passes `aal2:true`) — SPLIT. (3) **W4 refuted "five verbs share a body"**: the repetition is silhouette, three already-extracted lines. **Guard integrity: H1's fixes HELD** — 14 of 15 prior findings genuinely pinned, 0 regressed, the five on invariant #3's gate chain closed; of 26 new-guard mutations **25 killed, 1 survived** — `latchHalt`'s `halted_at IS NULL` CAS (`approval.ts:479`), credited by three tests that never reach it because both arms refuse at the caller's state guard first. **Duplication:** the cancellable set has **SIX** spellings (the log said two) and `CONTEXT.md:75`'s own "a THIRD caller is the signal to extract" trigger has fired; `batchDidClose` is spelled 4× in 2 forms and that split already falsified `ApprovalPanel.tsx:562-563`; the purge writer and verifier share **seven** hand-typed sentinel literals. **New bug found (X9):** `suppressions-service.ts:72` runs a 2-wide `Promise.all` on the singleton `sql` against `DB_POOL_MAX=3`, contradicting `admission.ts:26-31` by name, missed because four fan-out pins enumerate their subjects. **Meta-class (X10):** four independent guards whose scope is an ENUMERATION — `ci:tenant-scope`, `ci:admin-aal2`, `design-scope-purity` (hence `auth-island.css:5-15`, Island palette redeclared outside every watched directory **with the fonts already diverged**), and the fan-out pins. **F9:** the OR-chain is **28** predicates, not 27; `tracked_keywords:144` uses `<>` where the identical column class at `:120` uses `IS DISTINCT FROM`. **P6, found by this pass ON this pass:** the Stop hook demanded the orphaned import left by a live mutation be fixed — and the obvious fix permanently deletes an invariant-#3 posting precondition. **Follow-up rate for the window: ZERO** — no product merge shipped a defect a later PR had to repair; residual risk has moved entirely to composition (staging-only) and to the apparatus itself, which has no layer that reviews it. 7 handoffs H1–H7. |
 | 2026-08-22 | 7 counted merges ≥ 5 threshold across a 17-merge window after `54e4d374` (the solicitation send lane #901/#904/#912/#920/#925/#926 + the Daylight Gallery II rebrand #905); the counter itself read **3** and was hand-corrected to 7 in #929 the same evening | Pathfinder pass, **windowed** (owner's call): 8 features charted — F1 release cycle, F2 dispatch, F3 send breaker, F4 halt latch, F5 marketing chrome, F6 Gallery II section pages, F7 watch-mode postal gate, F8 tenant-scope allowlist. Plus a guard-integrity axis (**12 mutations, none skipped**) and a process axis. Artifacts `docs/reviews/PATHFINDER-2026-08-22/00-08` | **Headline: the code held its shape a FIFTH time — 77 B, duplication 1.1%, high-complexity functions 122 → 119, 0 churn hotspots across +7,177 LOC — and the pass's own priority hypothesis was REFUTED by measurement.** Guard 5 (`readSendBreaker`'s fail-closed throw), flagged in the brief as the likely highest-severity finding, is pinned **three** ways. **The real finding inverts the shape of the lane:** the send lane's DECISION logic is well pinned (gate order survives two independent swaps, governor order caught by a four-round differential, the outbox status contract caught by a CI audit) while its **concurrency and integrity spine is not** — the A4 bytes-identity check and BOTH send-path CAS predicates survived deletion with the whole lane green, and a whole-repo grep of `src` + `worker` returns **zero** test-file references for `bytes_changed_under_gate`, `cas_lost` and `in_flight_elsewhere`. Severity order 6 > 2b > 2a. **X18: `canonicalBatchId`'s bug is reproduced** — `settleGenerationExhaustion` binds one id `::uuid` and raw-TEXT in ONE transaction, locking the batch and missing its send parent, while `closeBatchIfSettled` forty lines later lowercases internally and finds it; the canonicaliser exists because this already shipped once. **DO-NOT-UNIFY:** the send-parent QUERY is legitimately two functions (*ACTIVE parent* vs *LATEST parent*) — unify the canonicalisation only. **Process (P1): the counter was wrong for the FOURTH consecutive pass and this log's own recurrence line said THIRD**; four merges were missed in one window (#901, #905, #925, #926), #905 being 51 production files with no row at all. **P2:** #895(b) was delivered by #920 and the source cites the issue by number while the tracker still shows it open. **P6 from the prior pass recurred:** the Stop hook demanded the orphaned import a live mutation left behind be fixed — and it exists in TWO hook copies, not one. Backlog delivered as ONE ranked list of 15 items. |
+| 2026-08-24 | #888 fix (single PR, not a pass) | `scripts/blast-radius.sh` + new `scripts/blast-radius-importers.ts` + subprocess/unit tests under `scripts/ci/__tests__/` | Replaced the blast-radius substring grep with TypeScript-AST specifier matching (tsconfig-alias/relative/`.js`-suffix/`index` resolution against the changed set as strings, so deleted and renamed targets keep their importers), NUL-delimited rename-aware git plumbing feeding both rename paths, and atomic same-directory report writes that preserve the previous report on matcher failure. Review tooling only — no production code path touched. |
+| 2026-08-24 | #877 fix (single PR, not a pass) | `scripts/test-db-setup.sh` (single-session driver), `scripts/ci/rls-audit.ts`, `.github/actions/test-db/action.yml`, `live-db-lock.ts` key export, `verify-gate.sh` header, tests under `scripts/ci/__tests__/` | Closed the cross-process provisioning race behind the #865 rls-audit false-FAIL: provisioning now holds the existing `repworth_live_db_integration` advisory lock exclusively IN the psql session that performs its DDL (one driver, `RESET ALL` after every include — migration 103's session-level `search_path` made per-file psql load-bearing), `ci:rls-audit`'s live check holds the shared form and validates a `test_meta.provision` content-hash marker (one actionable line instead of 20+ phantom failures), and CI's test-db composite action delegates to the same script so the recipe has one owner. Bounded guarantee; the full lane-level protocol is ticketed as #958. |
+| 2026-08-24 | #918 fix (single PR, not a pass) | new `scripts/ci/env-registry-audit.ts` + `ci:env-registry` wiring (package.json, ci.yml lint, lefthook), §2 of `docs/eservices-variables.md` normalized to one-var-per-row and backfilled, `env-vars.md` slash cells split + 1 flag row added, CLAUDE.md env-var row names both owners | The env-registry house rule gets teeth: three declared-var lanes (config z.object schemas with registered-spread resolution, readFlag call sites resolved through import bindings incl. aliases/namespaces with non-call references failing, raw process.env reads with fail-closed dynamic-key resolution incl. the missing-env probe shape) checked against name-cell-only registry rows — 184 vars incl. 29 flags, zero exceptions, format guards keep the normalization from regressing. |
+| 2026-08-25 | #963 fix (single PR, not a pass — found live by #633's staging flip) | `src/lib/solicitation/ask-compliance-lint.ts` (+`'google'` in `PROVENANCE_ALLOWLIST`, `ASK_LINT_VERSION` → `ask_lint_2026-08-25.1`), golden regenerated, regression test added | The send lane was deterministically inert: `ask-prompt-policy` instructs the model to ask for a "Google review" while class 6's provenance rule refused the un-allowlisted mid-sentence token — every real ask withheld `unverifiable_fact` (4/4 on the first live generation, staging batch `01a0399f-175d…`). One-token allowlist widening: the prompt itself asserts the platform, so the model echoing it is prompt-asserted, not model-invented. Lesson recorded: the lint's fixtures never used the product's own core vocabulary. |
+| 2026-08-25 | #966 fix (same PR as #963 — both found live by #633's staging flip) | `src/lib/solicitation/dispatch.ts` (+`buildUnsubscribeOneClickUrl`, second mint), `src/lib/messaging/messaging-adapter.ts` (+`unsubscribeOneClickUrl` on `OutboundMessage`), `src/lib/messaging/email-adapter.ts` (header reads the machine url), 3 test fixtures + 2 regression assertions | RFC 8058's `List-Unsubscribe` HTTPS member advertised the Next.js `/u/<token>` HUMAN page, whose POST renders the confirm button and writes nothing — so every provider-automated one-click (Gmail chip, Yahoo, Apple Mail) was a silent 200 no-op while the footer link and mailto worked. Proven on staging three ways (page POST → no ledger row; `/api/u` → row; worker ingress → row + idempotent re-POST). The header now carries `${WORKER_PUBLIC_URL}/ingress/unsubscribe/<token>` (invariant #6: a mail provider is not a browser); `OutboundMessage`'s own docstring already SAID "the Railway ingress form" — the mint had drifted from the spec. The adapter's fail-closed test asserted on the footer url, which is how the wrong endpoint shipped; it now asserts on the machine url, and a new dispatch assertion pins that the machine url never enters the body. |
+| 2026-08-24 | #894 fix (single PR, not a pass — executes Pathfinder H5's three ordered steps) | `scripts/ci/tenant-scope-audit.ts` (bridge-binding class), `tenant-scope-allowlist.ts` (−24 entries, baseline 393→369), `tenant-tables.ts` (+`REVIEWED_NOT_TENANT_SCOPED`), `tenant-tables.integration.test.ts` (inverted completeness), 11 Step-1 convention comments incl. the `pending-count.ts` pull-forward | Step 1: the false "audit requires this join" claim corrected; the batch-view convention applied at every `flagged_responses`/`users`/`owner_leads` production site. Step 2: `users` retained as a BRIDGE binding (never a finding) with an `auth_id` anchor and three shapes — the MEASURED primary `accounts.id = users.account_id` (24/25 allowlist entries), the issue's 4th (`owner_user_id`) and generalized 5th (sibling-through-account); measured with `--no-allowlist` before/after (355→331 findings), the 24 newly-proven `supabase-auth-id` entries deleted, the 1 correlated-subquery holdout kept. Step 3: every live `public` table must sit in exactly one of `TENANT_TABLES` or the reviewed list (8 entries, reasons stated; keyed on coverage, not column presence — `solicitation_send_breaker` proves why). |

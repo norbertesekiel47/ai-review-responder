@@ -1,10 +1,13 @@
 /* ==========================================================================
-   The problem — section 6.
+   The problem — kinetic essay + the reputation diagram (v0.2, 2026-08-24).
 
-   The page's one purely typographic section: no glass, no cards, no media.
-   It sits between two heavy visual beats (hero film above, fleet diagram
-   below), so its job is contrast — an essay opening at the page's lightest
-   display weight. Nothing here is interactive.
+   The essay owns the LEFT column; the RIGHT carries the section's one
+   visual — the ambient café diagram (see problem-copy.ts for the asset's
+   binding rules). Grid AREAS run the show: on two columns the diagram spans
+   beside both the copy and the pivot; on one column it slots between them,
+   so the pivot stays the section's exit at every width. Choreography lives
+   in ProblemSection.tsx (motion-driven beats — the hero-entrance pattern);
+   this file owns only the static frame those beats land in.
    ========================================================================== */
 
 .rw-lp-problem {
@@ -26,11 +29,33 @@
   max-width: var(--rw-lp-inner-max, 75rem);
   margin: 0 auto;
   padding: 0 var(--rw-lp-gutter, clamp(1.5rem, 4vw, 4rem));
+
+  display: grid;
+  grid-template-areas:
+    'copy'
+    'figure'
+    'pivot';
+  row-gap: clamp(1.75rem, 4vh, 2.5rem);
+}
+
+@media (min-width: 960px) {
+  .rw-lp-problem-inner {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-areas:
+      'copy figure'
+      'pivot figure';
+    column-gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: center;
+  }
+}
+
+.rw-lp-problem-copy {
+  grid-area: copy;
 }
 
 /* The label role — `--rw-lp-label-*`, owned by `.rw-lp`. */
 .rw-lp-problem-eyebrow {
-  margin: 0 0 0.875rem;
+  margin: 0 0 1rem;
   font-family: var(--rw-lp-label-font);
   font-weight: 400;
   font-size: var(--rw-lp-label-size);
@@ -39,24 +64,29 @@
   color: var(--rw-lp-accent, #dcc489);
 }
 
+/* Still a step above the shared section scale — prose carries this section's
+   left half, so the type keeps extra weight; the diagram balances it. The
+   stated exception to the 2026-08-24 header-grammar rule. */
 .rw-lp-problem-heading {
   margin: 0;
-  max-width: 46rem;
+  max-width: 40rem;
   font-family: var(--rw-font-display);
   font-weight: 200;
   /* Height-aware like the other section headings: the `vh` term keeps display
-     type proportionate on short laptops (measurements.md §2). Larger than the
-     sibling headings on purpose — prose is all this section has. */
-  font-size: clamp(2rem, min(4.4vw, 5.6vh), 3.5rem);
+     type proportionate on short laptops (measurements.md §2). */
+  font-size: clamp(2rem, min(3.8vw, 5.6vh), 3.25rem);
   line-height: 1.06;
   letter-spacing: -0.025em;
   color: var(--rw-lp-text, #f4f2ec);
 }
 
-.rw-lp-problem-heading-accent {
-  /* Its own line, like the hero's hand-broken pair — inline, the accent
-     phrase wraps mid-thought ("Every silence / is, too.") at 1440. */
+/* Each staged line is a block so the pair reads as two hand-broken lines —
+   the hero's treatment. The spans are `m.span` beats (see ProblemSection). */
+.rw-lp-problem-heading-line {
   display: block;
+}
+
+.rw-lp-problem-heading-accent {
   color: var(--rw-lp-accent, #dcc489);
 }
 
@@ -65,27 +95,89 @@
   flex-direction: column;
   gap: 1.125rem;
   margin-top: 1.75rem;
-  max-width: 38rem;
+  max-width: 34rem;
 }
 
 .rw-lp-problem-body p {
   margin: 0;
   font-size: clamp(0.9375rem, 1.1vw, 1.0625rem);
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--rw-lp-problem-muted);
   text-wrap: pretty;
 }
 
-/* The exit line — hands the reader to the fleet section directly below. */
+/* ---------- the diagram ----------
+   Decorative, aria-hidden, pause-governed (AmbientVideo). One hairline edge
+   and a soft gold ambience seat it on the ink — no glass, no card chrome:
+   the object floats the way the fleet's centre does, not boxed like a
+   screenshot. The white literal is a specular edge (DESIGN.md →
+   "Deliberate literals"). */
+
+.rw-lp-problem-figure-slot {
+  grid-area: figure;
+}
+
+.rw-lp-problem-figure {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 1.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--rw-lp-ink, #14201c);
+  box-shadow: 0 0 90px rgb(var(--rw-lp-accent-rgb) / 0.1);
+}
+
+.rw-lp-problem-figure-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---------- the finale ----------
+   A gold rule draws in (scaleX beat in ProblemSection — a transform on this
+   span only, never on an ancestor), then the pivot lands on it. The rule is
+   a gradient that dies out to the right, so it reads as drawn, not ruled. */
+
+.rw-lp-problem-pivot-block {
+  grid-area: pivot;
+}
+
+.rw-lp-problem-pivot-rule {
+  display: block;
+  width: min(100%, 40rem);
+  height: 1px;
+  margin-bottom: 1.375rem;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--rw-lp-accent-rgb) / 0.65) 0%,
+    rgb(var(--rw-lp-accent-rgb) / 0.2) 60%,
+    transparent 100%
+  );
+}
+
+/* Larger than the body: this is the section's destination, and it hands the
+   reader to the fleet diagram directly below. */
 .rw-lp-problem-pivot {
-  margin: 2.25rem 0 0;
+  margin: 0;
   font-family: var(--rw-font-display);
-  font-weight: 300;
-  font-size: clamp(1.25rem, 1.8vw, 1.625rem);
-  line-height: 1.3;
+  font-weight: 200;
+  font-size: clamp(1.5rem, 2.4vw, 2.125rem);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--rw-lp-text, #f4f2ec);
 }
 
 .rw-lp-problem-pivot-accent {
   color: var(--rw-lp-accent, #dcc489);
+}
+
+/* The pivot's halves are staged `m.span` beats; a transform is ignored on a
+   plain inline box, so they set as inline-blocks. */
+.rw-lp-problem-pivot > span {
+  display: inline-block;
 }

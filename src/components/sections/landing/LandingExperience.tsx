@@ -26,6 +26,11 @@ import './personas/personas.css';
 import './problem/problem.css';
 import './tiers/tiers.css';
 import './watchdogs/watchdogs.css';
+/* MUST stay after every section stylesheet. The phone rail rules tie on
+   specificity with `.rw-lp-fleet-tier[data-tier='watchdog']`, so order is what
+   settles it — move this import up and that tier stays a stacked column while
+   the other two become carousels. */
+import './carousel.css';
 import './landing-experience.css';
 
 /**

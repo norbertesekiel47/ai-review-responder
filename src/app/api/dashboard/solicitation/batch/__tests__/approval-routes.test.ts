@@ -393,10 +393,12 @@ describe('POST /api/dashboard/solicitation/batch/halt', () => {
     });
   });
 
-  // Round-2 standards finding F10: both routes serialised the domain union, so
+  // #629 round-2 finding F10: both routes serialised the domain union, so
   // `close.parentRunId` — an internal agent_runs UUID — reached the browser
-  // against ADR 0012's no-internal-id posture on this surface. The routes now
-  // project to an explicit wire shape. Asserted on the SETTLED arm, because
+  // against the no-internal-id posture on this surface. That posture is F10's
+  // own, not ADR 0012's — 0012 is the sentiment-blind withhold enum and says
+  // nothing about internal ids. The routes now project to an explicit wire
+  // shape. Asserted on the SETTLED arm, because
   // that is the only arm the leaking fields exist on.
   it('never ships the internal run id or spine vocabulary to the browser', async () => {
     mockHaltBatch.mockResolvedValue({

@@ -1,8 +1,11 @@
 'use client';
 
+import Image from 'next/image';
+import { m } from 'motion/react';
 import { useEffect, useRef } from 'react';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
-import { Reveal } from '../reveal';
+import { CarouselDots, useCarousel } from '../carousel';
+import { Staged } from '../staged';
 import {
   CARD_TAG,
   CLOSING_ACCENT,
@@ -19,41 +22,75 @@ import {
 } from './future-copy';
 
 /**
- * Where RepWorth is going.
+ * Where RepWorth is going — "screens not yet on" (2026-08-24 revamp).
  *
- * Two columns: the argument on the left (heading, lead, and the closing line
- * that reframes the roadmap), the committed work on the right as a 2x2 of
- * static cards. The split exists because the single-column version left
- * roughly a third of the row empty at 16:9 while the card bodies were wrapping
- * to four lines.
+ * Two columns: the argument on the left, the committed work on the right as a
+ * 2x2 of static cards. Each card now opens with a dark CRT screen — the same
+ * set the shipped agents live in, not yet powered — so the closing line's
+ * claim ("every new agent joins the same supervised fleet") is what the eye
+ * sees before a word is read. The honesty machinery is untouched and still
+ * triple-redundant: the tier disclaimer, the dashed card edge, and the
+ * `Planned` tag beside every name. An OFF screen cannot read as shipped.
  *
- * Only committed direction appears here — the exploring tier was cut. The rule
- * that survives is that a card must never make an unbuilt thing look shipped,
- * which is carried by three things at once: the tier disclaimer, the dashed
- * card edge, and the `Planned` tag on every card. Until 2026-08-16 these were
- * flip cards and the body — where every future-tense "will" lives — was
- * hidden behind the flip; a roadmap does not need a reveal, so the body is now
- * simply on the card. See future-copy.ts.
+ * ── Motion rules for THIS section (stricter than the page's) ──────────────
+ * The card glow is `background-attachment: fixed`; a transformed ANCESTOR
+ * silently downgrades it to `scroll`. Therefore:
+ *   - the cards enter by OPACITY ONLY (`m.li` with no transform values);
+ *   - `Staged` wrappers inside the committed column pass `rise={0}`;
+ *   - the LEFT column may rise (its wrappers are never card ancestors).
+ * Reintroduce a transform above a card and the glow stops tracking.
+ *
+ * 2026-08-25 (phone carousel): below 767px the 2x2 becomes a scroll-snap rail.
+ * It is safe under the rule above — `overflow` does NOT create a containing
+ * block for a fixed background (transform, filter, perspective, will-change
+ * and contain do), and the rail adds no element above a card. On touch the
+ * glow is unlit anyway: its coordinates only move on `pointermove`.
  */
 
-function FutureCard({ agent }: { agent: FutureAgent }) {
+function FutureCard({ agent, index }: { agent: FutureAgent; index: number }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
   return (
-    <li className="rw-lp-future-card">
-      {/* Static: tag, name, body, all visible. Not a button — there is nothing
-          to toggle any more, and a card that is not interactive must not look
-          or read as one. */}
+    /* Opacity only — see the section comment. `initial={false}` renders the
+       final frame under reduced motion on the same element type. */
+    <m.li
+      className="rw-lp-future-card"
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
+      whileInView={{ opacity: 1 }}
+      viewport={{ once: true, amount: 0.3 }}
+      transition={
+        prefersReducedMotion
+          ? { duration: 0 }
+          : { duration: 0.65, ease: 'easeOut', delay: 0.22 + index * 0.11 }
+      }
+    >
       <div className="rw-lp-future-card-face">
+        {/* The unpowered set: the SAME CRT the shipped agents live in, its
+            screen dead — generated from the agent stills' world (2026-08-24;
+            asset rules in future-copy.ts). Decorative: the tag, name and body
+            carry all the information, so the wrapper is aria-hidden. All four
+            cards share one still on purpose — four identical unpowered units,
+            waiting to be switched on. */}
+        <span className="rw-lp-future-card-screen" aria-hidden="true">
+          <Image
+            src="/future/off-crt.jpg"
+            alt=""
+            fill
+            sizes="(max-width: 640px) 90vw, 18rem"
+            className="rw-lp-future-card-screen-still"
+          />
+        </span>
         <span className="rw-lp-future-card-tag">{CARD_TAG}</span>
         <h4 className="rw-lp-future-card-name">{agent.name}</h4>
         <p className="rw-lp-future-card-body">{agent.body}</p>
       </div>
-    </li>
+    </m.li>
   );
 }
 
 export function FutureSection() {
   const sectionRef = useRef<HTMLElement | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const carousel = useCarousel();
 
   /**
    * Pointer-tracked spotlight.
@@ -76,8 +113,8 @@ export function FutureSection() {
    *
    * `background-attachment: fixed` also needs NO transformed ancestor. Nothing
    * above this section carries one since the scroll-linked section transforms
-   * were removed (2026-08-16); if a transform is ever reintroduced above it,
-   * the glow silently downgrades to `scroll` and stops tracking the cursor.
+   * were removed (2026-08-16); the 2026-08-24 staged beats keep that promise —
+   * every wrapper above a card animates opacity only.
    */
   useEffect(() => {
     if (prefersReducedMotion) return;
@@ -113,7 +150,7 @@ export function FutureSection() {
       <div className="rw-lp-future-inner">
         <div className="rw-lp-future-layout">
           <div className="rw-lp-future-argument">
-            <Reveal>
+            <Staged beat={0}>
               <header className="rw-lp-future-intro">
                 <p className="rw-lp-future-eyebrow">{EYEBROW}</p>
                 <h2 className="rw-lp-future-heading" id="rw-lp-future-heading">
@@ -122,9 +159,9 @@ export function FutureSection() {
                 </h2>
                 <p className="rw-lp-future-lead">{LEAD_IN}</p>
               </header>
-            </Reveal>
+            </Staged>
 
-            <Reveal index={1}>
+            <Staged beat={2}>
               <figure className="rw-lp-future-closing">
                 <blockquote className="rw-lp-future-closing-quote">
                   {CLOSING_LEAD}{' '}
@@ -132,24 +169,39 @@ export function FutureSection() {
                   {CLOSING_TAIL}
                 </blockquote>
               </figure>
-            </Reveal>
+            </Staged>
           </div>
 
           <div className="rw-lp-future-committed">
-            <Reveal index={1}>
+            {/* rise={0}: this wrapper is above the grid in the same column —
+                never risk a transform near the glow's ancestry. */}
+            <Staged beat={1} rise={0}>
               <div className="rw-lp-future-tier-head">
                 <h3 className="rw-lp-future-tier-label">{COMMITTED_LABEL}</h3>
                 <p className="rw-lp-future-tier-note">{COMMITTED_NOTE}</p>
               </div>
-            </Reveal>
+            </Staged>
 
-            <Reveal index={2}>
-              <ul className="rw-lp-future-grid">
-                {COMMITTED.map((agent) => (
-                  <FutureCard key={agent.id} agent={agent} />
-                ))}
-              </ul>
-            </Reveal>
+            {/* No wrapper on the grid: each card is its own opacity-only
+                entrance, so no animated element is ever a card's ancestor.
+                The carousel keeps that promise — it restyles THIS element
+                below 767px and adds nothing above a card. */}
+            <ul className="rw-lp-future-grid rw-lp-carousel" {...carousel.track}>
+              {COMMITTED.map((agent, index) => (
+                <FutureCard key={agent.id} agent={agent} index={index} />
+              ))}
+            </ul>
+
+            {/* Gold, the section's own accent. Rendered only once the rail has
+                somewhere to scroll, so the desktop 2x2 gains no row. */}
+            {carousel.overflowing ? (
+              <CarouselDots
+                count={COMMITTED.length}
+                active={carousel.active}
+                onSelect={carousel.goTo}
+                label={COMMITTED_LABEL}
+              />
+            ) : null}
           </div>
         </div>
       </div>

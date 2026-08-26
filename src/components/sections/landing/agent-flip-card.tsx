@@ -57,6 +57,73 @@ export interface AgentFlipCardProps {
   statusTag?: string;
   /** `watchdog` switches the card to the cooler oversight palette. */
   tier?: 'persona' | 'watchdog';
+  /** Optional rule plate shown on the FRONT face (2026-08-24 watchtower
+   *  rows): the governing rule, stamped where the row form had a void. The
+   *  back's chip stays the full statement; this is the front's summary of
+   *  it, so the card argues its rule before it is ever flipped. */
+  frontRule?: string;
+}
+
+/**
+ * The front face's avatar stage. `aria-hidden` on the WRAPPER, not on the
+ * video, so it covers the reduced-motion branch (a still <Image>) with the
+ * same declaration. The avatar carries no information the card does not
+ * already state in text — the name and the duties are both real content
+ * beside it — so it is decoration, and a screen reader should not stop here.
+ */
+function FlipAvatar({ videoSrc, posterSrc }: { videoSrc: string; posterSrc: string }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  return (
+    <span className="rw-lp-flip-media" aria-hidden="true">
+      {prefersReducedMotion ? (
+        <Image
+          src={posterSrc}
+          alt=""
+          fill
+          sizes="(max-width: 560px) 100vw, (max-width: 1100px) 50vw, 25vw"
+          className="rw-lp-flip-video"
+        />
+      ) : (
+        <AmbientVideo
+          className="rw-lp-flip-video"
+          src={videoSrc}
+          poster={posterSrc}
+          preload="none"
+          tabIndex={-1}
+        />
+      )}
+    </span>
+  );
+}
+
+/** The front face: avatar stage, name line (with the roadmap tag when the
+ *  agent is unshipped), tagline, and the optional stamped rule plate. */
+function FlipFront({
+  name,
+  tagline,
+  videoSrc,
+  posterSrc,
+  status,
+  statusTag,
+  frontRule,
+}: Pick<
+  AgentFlipCardProps,
+  'name' | 'tagline' | 'videoSrc' | 'posterSrc' | 'status' | 'statusTag' | 'frontRule'
+>) {
+  return (
+    <span className="rw-lp-flip-face rw-lp-flip-front rw-lp-glass">
+      <FlipAvatar videoSrc={videoSrc} posterSrc={posterSrc} />
+
+      <span className="rw-lp-flip-name-line">
+        <span className="rw-lp-flip-name">{name}</span>
+        {status === 'next' && statusTag ? (
+          <span className="rw-lp-flip-tag">{statusTag}</span>
+        ) : null}
+      </span>
+      <span className="rw-lp-flip-tagline">{tagline}</span>
+      {frontRule ? <span className="rw-lp-flip-rule">{frontRule}</span> : null}
+    </span>
+  );
 }
 
 export function AgentFlipCard({
@@ -70,8 +137,8 @@ export function AgentFlipCard({
   status = 'live',
   statusTag,
   tier = 'persona',
+  frontRule,
 }: AgentFlipCardProps) {
-  const prefersReducedMotion = usePrefersReducedMotion();
   // Mirrors the CSS hover gate. On hover-capable fine pointers the hover /
   // focus arms own the flip, and a click must NOT latch `data-flipped` — the
   // card would stay flipped after the pointer left. `false` during SSR is the
@@ -92,40 +159,15 @@ export function AgentFlipCard({
       onClick={canHover ? undefined : toggle}
     >
       <span className="rw-lp-flip-inner">
-        <span className="rw-lp-flip-face rw-lp-flip-front rw-lp-glass">
-          {/* `aria-hidden` on the WRAPPER, not on the video, so it covers the
-              reduced-motion branch (a still <Image>) with the same declaration.
-              The avatar carries no information the card does not already state
-              in text — the name and the duties are both real content beside it
-              — so it is decoration, and a screen reader should not stop here. */}
-          <span className="rw-lp-flip-media" aria-hidden="true">
-            {prefersReducedMotion ? (
-              <Image
-                src={posterSrc}
-                alt=""
-                fill
-                sizes="(max-width: 560px) 100vw, (max-width: 1100px) 50vw, 25vw"
-                className="rw-lp-flip-video"
-              />
-            ) : (
-              <AmbientVideo
-                className="rw-lp-flip-video"
-                src={videoSrc}
-                poster={posterSrc}
-                preload="none"
-                tabIndex={-1}
-              />
-            )}
-          </span>
-
-          <span className="rw-lp-flip-name-line">
-            <span className="rw-lp-flip-name">{name}</span>
-            {status === 'next' && statusTag ? (
-              <span className="rw-lp-flip-tag">{statusTag}</span>
-            ) : null}
-          </span>
-          <span className="rw-lp-flip-tagline">{tagline}</span>
-        </span>
+        <FlipFront
+          name={name}
+          tagline={tagline}
+          videoSrc={videoSrc}
+          posterSrc={posterSrc}
+          status={status}
+          statusTag={statusTag}
+          frontRule={frontRule}
+        />
 
         <span className="rw-lp-flip-face rw-lp-flip-back rw-lp-glass">
           <span className="rw-lp-flip-back-name">{name}</span>

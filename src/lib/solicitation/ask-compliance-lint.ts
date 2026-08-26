@@ -38,7 +38,7 @@ import type { AskInterpolationInputs } from './ask-prompt-policy';
  * matching logic changes (RESTRAINT_POLICY_VERSION pattern) — a verdict must
  * stay reproducible under the version that produced it.
  */
-export const ASK_LINT_VERSION = 'ask_lint_2026-07-31.4';
+export const ASK_LINT_VERSION = 'ask_lint_2026-08-25.1';
 
 /**
  * The union of everything that can block a render, so `blocked_reason` has one
@@ -514,6 +514,12 @@ const PROVENANCE_ALLOWLIST: ReadonlySet<string> = new Set([
   'sent',
   'unsubscribe',
   'leave',
+  // Prompt vocabulary (#963): ask-prompt-policy itself instructs "leave a
+  // Google review", so the model echoing the platform name is prompt-asserted,
+  // not model-invented. Without this entry every real ask was withheld
+  // unverifiable_fact — found by #633's staging flip, the first live
+  // generation this lane ever ran.
+  'google',
 ]);
 
 /**

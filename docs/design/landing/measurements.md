@@ -20,7 +20,21 @@ the page retelling the pipeline. Three motions were added back under an explicit
 override of part of the Linear pass: the bookends' scroll-linked push-in/settle, the
 hero's five-beat arrival, and the tiers thumb's breathing. New §2 entries below carry
 the measurements ("Bookend cinema", "The zoom layer", "Hero entrance"); the focus test
-now asserts **14** rings.
+asserted **14** rings at that point (superseded below).
+
+**2026-08-24 (later) — the sections revamp (owner-directed, PR pending).** Sections
+2–7 elevated in place: `Staged`/`StagedLine` beats page-wide (the hero-entrance
+grammar shared — motion-driven, finite, pause-rule-immune), the fleet assembles on
+arrival with hover wire-highlighting, the watchdog rows carry a larger avatar stage +
+a front rule plate (`frontRule` on the shared flip card), the autonomy dial became a
+circular OPERABLE gauge (v4 — two `aria-pressed` mode buttons, sprung needle), the
+problem section pairs a trimmed left-column essay with a generated ambient diagram
+clip (looping-clip count 8 → 9), and the future cards open with a generated off-CRT
+still. One header grammar: prose left, instruments centered, shared heading + lead
+scales (the problem heading is the stated exception). The focus test now asserts
+**16** landing controls across 15 rows (the dial's two buttons share one). New §2
+entries below: "Staged beats", "Fleet assembly", "The dial's needle", "Problem grid
+areas", "Watchdog front grid".
 
 **2026-08-16 — the Linear pass (findings 2, 4, 7, 8 of the RepWorth-vs-Linear teardown).**
 Four things changed, and several measurements in §2 changed with them: (a) the primary
@@ -68,6 +82,8 @@ src/components/sections/landing/
   LandingExperience.tsx        composition root + section map + nav
   landing-experience.css       nav, .rw-lp-glass, shared tokens, the pause control
   agent-flip-card.tsx / .css   shared flip card (sections 3 + 4)
+  carousel.tsx / .css          phone card rail (sections 2-5, ≤767px only);
+                               .css MUST be imported after every section file
   ambient-motion.tsx           WCAG 2.2.2 pause control + AmbientVideo
   reveal.tsx                   shared arrival fade (motion/react, opacity, ≤200ms)
   hero/       {HeroSection.tsx, hero.css, hero-copy.ts}
@@ -83,7 +99,7 @@ src/components/sections/landing/
 src/hooks/useMediaQuery.ts
 src/app/(public)/page.tsx      passes primaryCtaHref/Label + selfServeEnabled
 src/app/layout.tsx             Plus Jakarta weights 200/300
-src/__tests__/focus-visible-marketing.test.ts   14 asserted focus rings
+src/__tests__/focus-visible-marketing.test.ts   18 asserted focus rings
 
 (`scroll/` — SectionTransition, ChapterRail, SmoothScroll, section-map,
 scroll-experience.css — was deleted 2026-08-16. See §2, "Scroll".)
@@ -245,10 +261,51 @@ them mid-flight; the y-drift sits on the hero's own children, never on an ancest
 the future glow.
 
 **Three infinite CSS animations exist — the fleet's pulse and flow, and the tiers
-thumb's breathing; re-count before editing the pause-rule comment.** The tiers thumb's
-breathing joined 2026-08-24; the universal `animation-play-state` rule covered it with
-zero changes, which is the rule working as designed. It also carries its own
-`prefers-reduced-motion` disable.
+gauge halo's breathing; re-count before editing the pause-rule comment.** The tiers
+breathing joined 2026-08-24 (on the straight track's thumb; the v4 circular dial moved
+it to the hub's halo, opacity instead of box-shadow — SVG circles have no box-shadow);
+the universal `animation-play-state` rule covered both incarnations with zero changes,
+which is the rule working as designed. Every OTHER motion added in the sections revamp
+is motion-driven and finite (staged beats, wire draw-in, needle travel) precisely so
+the pause rule — CSS keyframes only — can never strand it mid-flight.
+
+**Staged beats — same-element reduced motion, and the future-section rule.**
+`staged.tsx` renders ONE element type in both branches (`initial={false}` under
+reduced motion) — the `SectionTransition` observer trap, §2 below, is why. `rise={0}`
+writes NO transform at all and is MANDATORY for any `Staged` wrapping a
+`.rw-lp-future-card` or an ancestor of one; the future cards themselves enter as
+opacity-only `m.li` fades. Staged inline halves (`StagedLine` in a heading, quote or
+pivot) need `display: inline-block` at the call site — a transform is silently ignored
+on a plain inline box.
+
+**Fleet assembly — measured elements enter by OPACITY ONLY.** The nodes and the media
+card are measured for the wire endpoints; `getBoundingClientRect` INCLUDES transforms,
+and the ResizeObserver re-fires only on size change — so an entrance transform bakes a
+mid-flight position into the wires permanently. The wire draw-in is motion
+`pathLength` on the LIVE wires only: the dashed NEXT connector keeps its stylesheet
+dash geometry (`3 9` in user units) and fades in instead — a `pathLength`-normalised
+dash array would turn its dashes solid.
+
+**The dial's needle swings via sprung endpoint math, never a CSS rotate.** The first
+v4 cut rotated an SVG line with a motion `rotate`; the rotation pivoted around the
+line's own box centre (SVG transform-origin resolution is unreliable across engines)
+and the needle detached from the hub. `useSpring` on the angle + `useTransform` to
+x2/y2 attributes pins the pivot to the hub exactly. Copilot rest is fraction 0.12 of
+the sweep (the v2 thumb's resting value), Autopilot mirrors at 0.88.
+
+**Problem grid areas keep the pivot the exit at every width.** `'copy figure' /
+'pivot figure'` on two columns, `copy / figure / pivot` on one — the diagram slots
+BETWEEN body and pivot on phones without touching the DOM order. The clip is a 10s
+ping-pong loop (5s forward + reverse, 720×720, 108KB) because the source generation
+cannot be trusted to close its own loop — and generation used a start frame only (the
+"pin both ends and the model barely moves" trap, §3).
+
+**Watchdog front grid is 3 columns since the revamp** (`auto minmax(0,1fr) auto`):
+avatar spans both rows in column 1 at `clamp(5.5rem, 19vh, 9.5rem)` — 21vh/10.5rem
+squeezed the tagline to four lines — and the rule plate sits in column 3 at
+`max-width: 9.5rem`, hidden below 560px (one-column fronts return to name + tagline;
+the rule stays on the back). The card's 15rem height floor is untouched and still
+load-bearing.
 
 **Personas — the gold wash (`0.055` at 12% 0%) is measured like the watchdogs' teal one.**
 Its peak lifts the ground to rgb(31,41,34); the 0.55 column-note measures 5.10:1 there
@@ -312,6 +369,36 @@ hero and closing actions were a hairline ring with a 12px tracked-caps label, an
 carried a pill only with self-serve on. **These three are the only gold-filled elements on
 the page** — a fourth would spend the accent.
 
+**Sections 2-5 are carousels below 767px, and the breakpoint has one owner: `carousel.css`.**
+Five rails: the fleet's two tiers, the persona grid, the watchtower grid, and the committed
+grid. Stacked, those four sections ran **6,891px at 390px wide**, measured — over eight
+screens of cards to pass to reach the next argument. The rails bring them to **4,010px**.
+Four values are load-bearing. (a) The rail restyles the container each section ALREADY
+renders (`.rw-lp-personas-list`, `.rw-lp-watch-grid`, `.rw-lp-fleet-tier`,
+`.rw-lp-future-grid`); a wrapper would become the desktop grid item and every desktop rule
+would have to be re-pointed at it. (b) `.rw-lp-carousel[data-carousel='true']` is 0,2,0 to
+match `.rw-lp-fleet-tier[data-tier='watchdog']`, and carousel.css is imported **after** every
+section file — move that import up and the fleet's watchdog tier stays a stacked column.
+(c) `justify-content: flex-start` is required, not a default: the fleet tier centres its row,
+and a centred flex line that overflows splits the overflow across both sides, where
+`scrollLeft` cannot reach it — the first card sat 394px off the left edge while the rail
+still reported `scrollLeft: 0`. (d) `opacity: 1 !important` / `transform: none !important` on
+the slides: `Staged` gates each card on 30% of ITSELF being in view, a peeking card shows
+~15%, so the peek — the only thing that says the row continues — was invisible. Motion writes
+those as inline styles, which is the one case `!important` exists for. Slide measures are per
+section: personas and committed `min(78vw, 19rem)` (personas is 3:4, so width IS height —
+405px against a full-width card's 456px), watchtower `min(88vw, 24rem)` (the row form's 15rem
+floor was measured at 342px wide; narrower re-opens the clipping bug), fleet
+`min(80vw, 17rem)`. The committed rail also raises `--rw-lp-carousel-pad` to 1.25rem: its
+glow wash sits at `inset: -0.875rem` and the rail's `overflow-y: hidden` would shear 14px off
+it. **The 767px breakpoint is deliberately NOT the fleet's 900px one**: 900 is where the
+constellation stops being readable, 767 is where the stack gets too long. The dots render
+only when the slides actually run wider than the track — at 767px the fleet's two watchdog
+cards already fit, and a control that does nothing when pressed is worse than no control.
+That test measures the SLIDES (`first.left` to `last.right`), never `scrollWidth`: the
+committed card's glow bleed put 570 into `scrollWidth` against a 556 client width, and the
+desktop 2x2 rendered a hidden dot row it had no use for.
+
 **Labels are one style: `--rw-lp-label-*` (mono, 12px, 0.04em, uppercase).** The five
 section eyebrows, the persona column note, and the watchdog and future tier labels all
 consume it. Their alphas were NOT changed (0.55 on the notes/tier labels, measured
@@ -329,6 +416,8 @@ contrast figures is now a floor, not a measurement.
 | `heroVideo-{1600,960}.mp4` + poster | 977K/316K/120K from a 23MB master |
 | `ctaVideo-{1600,960}.mp4` + poster | 515K/204K/115K from `hero3reverseVideo.mp4` (27MB) |
 | `repworth-explainer.mp4` + poster | 25MB, 2m26s, narrated. **Remuxed `+faststart`** — the moov atom was at the end, so playback would have blocked on the full 25MB download. Fetches 0 bytes until clicked. **Still has no captions** (probed 2026-08-04: video + audio streams only, and frames at 20s/75s carry no burned-in text). |
+| `problem/problem-diagram.{mp4,jpg}` | 108K/24K. The reputation diagram (2026-08-24): café + orbiting review artifacts, generated (Higgsfield, nano-banana still → seedance clip, agent still as style ref), 720×720, 10s seamless ping-pong loop, audio stripped, `+faststart`. Asset rules: `problem/problem-copy.ts`. |
+| `future/off-crt.jpg` | 13K. The unpowered set on the future cards (2026-08-24), generated against the same style ref. One still, shared by all four cards on purpose. |
 
 **The masters are no longer in the repo.** `heroVideo.mp4` (23M), `hero2Video.mp4` (30M),
 `hero3Video.mp4` (20M), `landing-hero.mp4` (13M) and `hero3reverseVideo.mp4` (27M, the CTA
@@ -374,9 +463,10 @@ on a paused video without waiting repaints nothing — 24 "different" frames cam
 identical), screenshot the **tight glyph band** from `Range.getClientRects()` rather than the
 block box, and take the brightest pixel. That is what found the hero accent at 2.89:1.
 
-`focus-visible-marketing.test.ts` asserts a ring on **14** landing controls. Adding an
-interactive element means adding it there. Landing rings use `--rw-lp-accent`; the Island's
-`--rw-teal-strong` is near-invisible on this ink.
+`focus-visible-marketing.test.ts` asserts a ring on **16** landing controls across 15
+rows (the dial's two mode buttons share one). Adding an interactive element means
+adding it there. Landing rings use `--rw-lp-accent`; the Island's `--rw-teal-strong`
+is near-invisible on this ink.
 
 ---
 

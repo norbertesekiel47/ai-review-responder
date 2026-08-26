@@ -1,20 +1,19 @@
 /* ==========================================================================
-   Copilot vs Autopilot — section 8 (v2 — the dial-track).
+   Copilot vs Autopilot — section 8 (v4 — the circular dial).
 
-   The dial IS the layout: one horizontal travel line spans the section, the
-   two modes are positions at its ends, and the gold thumb rests on the
-   Copilot side. Detents between the end stops make the argument the heading
-   states — a range, not a toggle. The track is decorative and static (see
-   TiersSection.tsx). No glass, no cards.
+   The dial IS the layout, and it is OPERABLE (see TiersSection.tsx): a
+   semicircular machined gauge sits between the two modes, the mode names are
+   buttons, and pressing one swings the gold needle to that side while the
+   fill measures how much autonomy has been granted. Detents along the arc
+   keep the "range, not toggle" argument. No glass, no cards; nothing here is
+   gold-FILLED in the pill sense (the three pills stay the whole set — the
+   needle, fill and hub are instrument marks, and the buttons are hairline
+   pills).
    ========================================================================== */
 
 .rw-lp-tiers {
   --rw-lp-tiers-muted: rgb(var(--rw-lp-text-rgb) / 0.62);
   --rw-lp-tiers-rule: rgb(var(--rw-lp-text-rgb) / 0.22);
-  /* The thumb's resting position along the travel. Left of the first inner
-     detent: clearly ON the Copilot side, clearly not at the end stop —
-     the dial has already been set, gently. */
-  --rw-lp-tiers-thumb-x: 12%;
 
   display: flex;
   flex-direction: column;
@@ -38,12 +37,12 @@
 }
 
 .rw-lp-tiers-intro {
-  max-width: 40rem;
+  max-width: 42rem;
   text-align: center;
 }
 
 .rw-lp-tiers-eyebrow {
-  margin: 0 0 0.625rem;
+  margin: 0 0 1rem;
   font-family: var(--rw-lp-label-font);
   font-weight: 400;
   font-size: var(--rw-lp-label-size);
@@ -52,11 +51,14 @@
   color: var(--rw-lp-accent, #dcc489);
 }
 
+/* The shared section-heading scale (the fleet/personas/watchdogs clamp) —
+   part of the 2026-08-24 header-grammar pass: one scale for every section
+   heading except the problem essay's stated exception. */
 .rw-lp-tiers-heading {
   margin: 0;
   font-family: var(--rw-font-display);
   font-weight: 200;
-  font-size: clamp(1.625rem, min(3.2vw, 4.9vh), 2.75rem);
+  font-size: clamp(1.75rem, min(4.4vw, 5.2vh), 3rem);
   line-height: 1.06;
   letter-spacing: -0.025em;
   color: var(--rw-lp-text, #f4f2ec);
@@ -74,126 +76,195 @@
   text-wrap: pretty;
 }
 
-/* ---------- the dial-track ---------- */
+/* ---------- the instrument panel ----------
+   Three columns from 721px: the two modes flank the gauge and read TOWARD
+   it, so the whole band composes as one instrument rather than a diagram
+   with captions. */
 
 .rw-lp-tiers-dialplate-reveal {
   width: 100%;
 }
 
 .rw-lp-tiers-dialplate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(1.5rem, 4vw, 3.25rem);
   width: 100%;
-  max-width: 60rem;
+  max-width: 66rem;
   margin: clamp(2.25rem, 5vw, 3.5rem) auto 0;
 }
 
-.rw-lp-tiers-track {
-  position: relative;
-  height: 1rem;
+.rw-lp-tiers-instrument {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: center;
 }
 
-/* The travel line. Slightly gold-warmed toward the left — the set end. */
-.rw-lp-tiers-track::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    rgb(var(--rw-lp-accent-rgb) / 0.55) 0%,
-    var(--rw-lp-tiers-rule) 45%,
-    var(--rw-lp-tiers-rule) 100%
-  );
+.rw-lp-tiers-gauge {
+  width: clamp(13rem, 24vw, 17.5rem);
+  height: auto;
+  overflow: visible;
 }
 
-.rw-lp-tiers-detent {
-  position: relative;
-  z-index: 1;
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 50%;
-  background: rgb(var(--rw-lp-text-rgb) / 0.4);
+/* The machined groove: a 1px-ish specular lip under a recessed channel. The
+   lip's white is a genuine specular highlight, not a tokenable text shade
+   (DESIGN.md → "Deliberate literals"). */
+.rw-lp-tiers-gauge-lip {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 9;
+  stroke-linecap: round;
 }
 
-/* End stops are ticks, not dots: the travel ends here. */
-.rw-lp-tiers-detent[data-end='true'] {
-  width: 1px;
-  height: 0.75rem;
-  border-radius: 0;
-  background: rgb(var(--rw-lp-text-rgb) / 0.5);
+.rw-lp-tiers-gauge-groove {
+  fill: none;
+  stroke: rgb(var(--rw-lp-ink-rgb) / 0.85);
+  stroke-width: 6.5;
+  stroke-linecap: round;
 }
 
-.rw-lp-tiers-thumb {
-  position: absolute;
-  z-index: 2;
-  left: var(--rw-lp-tiers-thumb-x);
-  top: 50%;
-  width: 0.875rem;
-  height: 0.875rem;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: var(--rw-lp-accent, #dcc489);
-  /* A soft halo seats the thumb on the line without a shadow stack. The
-     breathing (box-shadow spread 6px -> 9px, 4.5s — the fleet pulse's cadence)
-     is the section's one sign of life: the dial is set, not inert. Infinite,
-     so the universal pause rule in landing-experience.css covers it without
-     enumeration; skipped under reduced motion below. box-shadow, not a
-     transform: the thumb's translate(-50%, -50%) is positional, and a scale
-     keyframe would have to restate it to avoid clobbering it. */
-  box-shadow: 0 0 0 6px rgb(var(--rw-lp-accent-rgb) / 0.14);
+/* The travelled portion — strokeDashoffset is motion-animated from
+   TiersSection (0.88 at Copilot, 0.12 at Autopilot), so the gold literally
+   measures how much autonomy has been granted. */
+.rw-lp-tiers-gauge-fill {
+  fill: none;
+  stroke: rgb(var(--rw-lp-accent-rgb) / 0.45);
+  stroke-width: 6.5;
+  stroke-linecap: round;
+}
+
+.rw-lp-tiers-gauge-detent {
+  fill: rgb(var(--rw-lp-text-rgb) / 0.35);
+}
+
+/* End stops are radial ticks: the travel ends here. */
+.rw-lp-tiers-gauge-tick {
+  stroke: rgb(var(--rw-lp-text-rgb) / 0.5);
+  stroke-width: 1.5;
+}
+
+.rw-lp-tiers-gauge-needle {
+  stroke: var(--rw-lp-accent, #dcc489);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.rw-lp-tiers-gauge-tail {
+  stroke: rgb(var(--rw-lp-accent-rgb) / 0.45);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* The hub's breathing halo — the section's one idle sign of life: the dial
+   is set, not inert. Infinite CSS, so the universal pause rule covers it
+   without enumeration; skipped under reduced motion below. Opacity, not a
+   transform: the needle group's rotation owns this subtree's transforms. */
+.rw-lp-tiers-gauge-halo {
+  fill: rgb(var(--rw-lp-accent-rgb) / 0.14);
   animation: rw-lp-tiers-breathe 4.5s ease-in-out infinite;
+}
+
+.rw-lp-tiers-gauge-hub {
+  stroke: rgb(var(--rw-lp-accent-rgb) / 0.9);
+  stroke-width: 1;
 }
 
 @keyframes rw-lp-tiers-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 6px rgb(var(--rw-lp-accent-rgb) / 0.14);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 9px rgb(var(--rw-lp-accent-rgb) / 0.1);
+    opacity: 0.55;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rw-lp-tiers-thumb {
+  .rw-lp-tiers-gauge-halo {
     animation: none;
   }
 }
 
-/* ---------- the two modes, anchored at the ends ---------- */
+/* ---------- the two modes, flanking the instrument ---------- */
 
 .rw-lp-tiers-modes {
-  display: flex;
-  justify-content: space-between;
-  gap: clamp(2rem, 6vw, 5rem);
-  margin-top: 1.75rem;
+  display: contents;
 }
 
 .rw-lp-tiers-mode {
   max-width: 24rem;
+  transition: opacity 300ms ease;
 }
 
-/* The right-end mode reads toward its end stop. */
-.rw-lp-tiers-mode[data-tier='autopilot'] {
+/* The dial's emphasis follows the needle: the un-selected mode steps back.
+   0.55 keeps it clearly readable — this is emphasis, not disclosure; both
+   texts are always legible and always in the accessibility tree. */
+.rw-lp-tiers-mode[data-active='false'] {
+  opacity: 0.55;
+}
+
+/* Both modes read TOWARD the gauge; source order (Copilot first) plus grid
+   placement puts Copilot left of the instrument, Autopilot right. */
+.rw-lp-tiers-mode[data-tier='copilot'] {
+  order: -1;
   text-align: right;
+  justify-self: end;
+}
+
+.rw-lp-tiers-mode[data-tier='autopilot'] {
+  text-align: left;
+  justify-self: start;
 }
 
 .rw-lp-tiers-mode-name {
   margin: 0;
+}
+
+/* The dial's handle for keyboard and touch: the mode name as a hairline
+   pill. NOT gold-filled — the three gold pills (nav, hero, closing band)
+   stay the whole set; selection is carried by text + border colour plus the
+   needle's position and aria-pressed. */
+.rw-lp-tiers-mode-button {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.4375rem 0.9375rem;
+  border: 1px solid rgb(var(--rw-lp-text-rgb) / 0.2);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
   font-family: var(--rw-lp-label-font);
   font-weight: 400;
   font-size: var(--rw-lp-label-size);
   letter-spacing: var(--rw-lp-label-tracking);
   text-transform: uppercase;
-  color: rgb(var(--rw-lp-accent-rgb) / 0.85);
+  color: rgb(var(--rw-lp-text-rgb) / 0.66);
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.rw-lp-tiers-mode-button:hover {
+  color: var(--rw-lp-text, #f4f2ec);
+  border-color: rgb(var(--rw-lp-text-rgb) / 0.4);
+}
+
+.rw-lp-tiers-mode[data-active='true'] .rw-lp-tiers-mode-button {
+  color: var(--rw-lp-accent, #dcc489);
+  border-color: rgb(var(--rw-lp-accent-rgb) / 0.55);
+  background: rgb(var(--rw-lp-accent-rgb) / 0.08);
+}
+
+/* Asserted by src/__tests__/focus-visible-marketing.test.ts (bare token, no
+   fallback — the test matches the declaration byte-for-byte). */
+.rw-lp-tiers-mode-button:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 3px;
 }
 
 .rw-lp-tiers-mode-claim {
-  margin: 0.75rem 0 0;
+  margin: 0.875rem 0 0;
   font-family: var(--rw-font-display);
   font-weight: 300;
   font-size: clamp(1.25rem, 1.8vw, 1.625rem);
@@ -226,18 +297,24 @@
 }
 
 /* ---------- stacked below 720px ----------
-   The travel rotates: a short vertical line beside the stacked modes keeps
-   the range argument without asking a phone to render a 60rem diagram. */
+   The gauge stays (it is compact enough for a phone), centred above the
+   stacked modes; the modes hang from a short vertical travel line and the
+   ACTIVE mode's node takes the gold. The buttons still operate. */
 
 @media (max-width: 720px) {
-  .rw-lp-tiers-track {
-    display: none;
+  .rw-lp-tiers-dialplate {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+
+  .rw-lp-tiers-gauge {
+    width: clamp(11rem, 52vw, 14rem);
   }
 
   .rw-lp-tiers-modes {
+    display: flex;
     flex-direction: column;
     gap: 1.75rem;
-    margin-top: 0.5rem;
     position: relative;
     /* The vertical travel line the stacked modes hang from. */
     padding-left: 1.375rem;
@@ -258,11 +335,18 @@
     );
   }
 
-  .rw-lp-tiers-mode[data-tier='autopilot'] {
+  .rw-lp-tiers-mode[data-tier='copilot'] {
+    order: 0;
     text-align: left;
+    justify-self: stretch;
   }
 
-  /* Node per mode on the vertical travel; the Copilot node is the thumb. */
+  .rw-lp-tiers-mode[data-tier='autopilot'] {
+    text-align: left;
+    justify-self: stretch;
+  }
+
+  /* Node per mode on the vertical travel; the ACTIVE node is the thumb. */
   .rw-lp-tiers-mode {
     position: relative;
   }
@@ -277,9 +361,10 @@
     transform: translateX(0.1875rem);
     border-radius: 50%;
     background: rgb(var(--rw-lp-text-rgb) / 0.4);
+    transition: background-color 300ms ease, box-shadow 300ms ease;
   }
 
-  .rw-lp-tiers-mode[data-tier='copilot']::before {
+  .rw-lp-tiers-mode[data-active='true']::before {
     background: var(--rw-lp-accent, #dcc489);
     box-shadow: 0 0 0 4px rgb(var(--rw-lp-accent-rgb) / 0.14);
   }

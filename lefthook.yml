@@ -25,6 +25,8 @@ pre-push:
       run: pnpm ci:analytics-events
     static-policy:
       run: pnpm ci:static-policy
+    env-registry:
+      run: pnpm ci:env-registry
     response-status:
       run: pnpm ci:response-status
     admin-aal2:
