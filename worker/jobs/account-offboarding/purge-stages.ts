@@ -829,15 +829,19 @@ export async function finalizePurgeInTransaction(
     // the rule binds all of them. Deliberately not enumerated — a
     // hand-maintained caller census here is what went stale last time.
     //
-    // KNOWN GAP (#967): one recipient class cannot honour this rule today. The
-    // Resend lane resolves the recipient by joining our own
+    // CLOSED (#967). The one recipient class that could not honour this rule
+    // now does. The Resend lane resolves the recipient by joining our own
     // solicitation_contacts row (loadAttribution,
-    // worker/ingress/resend/solicitation-lane.ts), and this purge deletes it.
-    // A suppression-bearing event arriving after the purge therefore has no
-    // attribution, and the recipient's GLOBAL opt-out — the one thing this
-    // contract preserves — is never written. It fails into inbound_events for
-    // replay instead. Closing it is a design decision, not a patch: reading the
-    // address off the provider payload contradicts a tested invariant.
+    // worker/ingress/resend/solicitation-lane.ts), and this purge deletes it —
+    // so a suppression-bearing event arriving after the purge had no
+    // attribution and the recipient's GLOBAL opt-out was never written. That
+    // lane now falls back to the SIGNED payload's recipient and writes the row
+    // with accountId: null, which is this contract's boundary rule stated
+    // exactly (see suppressWithoutAttribution). Two consequences for anyone
+    // reading the retained count below: such a row is NOT counted here, because
+    // it carries no account_id to count it by, and it lands AFTER this
+    // transaction anyway. The receipt's number is what the purge itself
+    // retained, never a running total of what this handle will ever accrue.
     const [retained] = await tx<{ retained_count: number }[]>`
       SELECT COUNT(*)::int AS retained_count
       FROM solicitation_suppressions

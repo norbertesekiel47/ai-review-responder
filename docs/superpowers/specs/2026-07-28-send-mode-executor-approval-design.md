@@ -559,7 +559,7 @@ tx2 (short): CAS sending → sent|failed  +  child run terminal  +  outcome
 
 | Lane | Window | Anchor |
 |---|---|---|
-| auto (`auto_policy`) | **60 minutes** | **first confirmed-delivered veto notice** |
+| auto (`auto_policy`) | **60 minutes** | **first confirmed-delivered veto notice** — see the amendment below: the shipped anchor is `MIN(sent_at)` with `failed_at IS NULL`, not `delivered_at` |
 | owner | **15 minutes** | `approved_at` |
 
 Different lengths because the window does a different job in each. The auto
@@ -577,6 +577,18 @@ Ported exactly:
 > delivered, not at approval. No delivered notice ⇒ the releaser never
 > releases.** The batch sits until its 72h send window expires and terminalizes
 > `cancelled`. No email is sent.
+
+**Amendment (owner-approved at build, recorded 2026-08-26).** "Confirmed
+delivered" above reads as `delivered_at`; the shipped anchor is
+`MIN(notification_deliveries.sent_at)` over rows with `failed_at IS NULL`
+(`anchorVetoDeadlines`, `src/lib/solicitation/auto-approval.ts`) — provider
+acceptance not known to have failed at anchor time, evaluated once, because
+Telegram returns no delivery receipt and a `delivered_at` anchor would leave a
+Telegram-only owner's batch permanently unanchored. This is the Reply lane's
+shipped semantic (`worker/jobs/publisher/veto-window-gate.ts`), so both lanes
+still agree; the `failed_at` arm is what keeps a provider-accepted-then-bounced
+notice from starting a clock the owner never saw. Fail-closed is unchanged: no
+qualifying notice ⇒ no anchor ⇒ no release, ever.
 
 Without it, a broken notification channel turns the Autopilot lane into silent
 unreviewed sends — exactly what invariant #3 and the map's "never a silent
