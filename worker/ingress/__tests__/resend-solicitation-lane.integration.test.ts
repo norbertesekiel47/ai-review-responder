@@ -254,9 +254,15 @@ async function readLedger(handle?: string): Promise<LedgerRow[]> {
  * suite's account, so it is blind to exactly these rows by construction — the
  * purge contract requires them to carry no account provenance.
  *
- * Deliberately UNSCOPED. The suite holds the cross-process live-DB advisory
- * lock, so no concurrent writer exists, and a row left behind by an earlier run
- * should fail a case loudly rather than hide inside a LIKE pattern.
+ * Deliberately UNSCOPED, resting on TWO conditions — name both, because only
+ * one is obvious. Concurrently: this suite holds the cross-process live-DB
+ * advisory lock, so no other writer is live. Sequentially: `fileParallelism:
+ * false` (vitest.config.ts) means no sibling suite is mid-run either, and this
+ * suite's own `afterEach` sweeps `account_id IS NULL` unscoped so nothing
+ * accumulates across cases. If either condition ever changes, a sibling that
+ * leaks a null-account global row — the shape `suppressions-service.ts` writes
+ * for `admin_manual` — turns these cases red. That is the intended failure:
+ * a leaked row in a no-expiry ledger should be loud, not hidden by a LIKE.
  */
 async function readUnattributedLedger(): Promise<LedgerRow[]> {
   return sql()<LedgerRow[]>`
@@ -268,15 +274,6 @@ async function readUnattributedLedger(): Promise<LedgerRow[]> {
   `;
 }
 
-/**
- * The account purge's cascade, reproduced at the step that matters (#967).
- *
- * Deleting the contact removes its asks and its Outreach rows through the
- * composite FKs migration 088 declares, which is exactly what
- * `purge-stages.ts` triggers when it deletes `contact_csv_uploads`. After this,
- * `loadAttribution`'s join has nothing left to find — the state a bounce
- * arriving after the purge actually meets.
- */
 /**
  * The Error a call threw, narrowed.
  *
@@ -295,6 +292,15 @@ async function captureThrow(work: Promise<unknown>): Promise<Error> {
   return outcome;
 }
 
+/**
+ * The account purge's cascade, reproduced at the step that matters (#967).
+ *
+ * Deleting the contact removes its asks and its Outreach rows through the
+ * composite FKs migration 088 declares, which is exactly what
+ * `purge-stages.ts` triggers when it deletes `contact_csv_uploads`. After this,
+ * `loadAttribution`'s join has nothing left to find — the state a bounce
+ * arriving after the purge actually meets.
+ */
 async function purgeContactChain(seeded: SeededOutreach): Promise<void> {
   await sql()`DELETE FROM solicitation_contacts WHERE id = ${seeded.contactId}::uuid`;
   const survivors = await sql()<{ id: string }[]>`
@@ -935,10 +941,17 @@ describeWithDb(
       const seeded = await seedOutreach({ providerMessageId: 'msg_purged_bounce' });
       await purgeContactChain(seeded);
 
+      // The echo arrives in the PROVIDER's casing and padding, not ours. Feed
+      // it that way: normalizing through the one owner (`normalizeEmail`) is
+      // what makes the written key match the §1.2 lookup, and a fallback that
+      // merely checked plausibility would store `CUSTOMER-…@EXAMPLE.TEST` —
+      // an opt-out `suppressionMatchSql` could never find.
+      const echoed = `  ${seeded.handle.toUpperCase()} `;
+
       // Acks: resolving rather than throwing IS the 200. A throw here is the
       // old 503-and-retry, which is what left the opt-out unwritten.
       await handleSolicitationResendEvent(sql(), 'email.bounced', 'msg_purged_bounce', {
-        to: [seeded.handle],
+        to: [echoed],
         bounce: { type: 'Permanent' },
       });
 
@@ -948,6 +961,8 @@ describeWithDb(
       expect(rows[0]?.channel).toBe('email');
       expect(rows[0]?.source).toBe('bounce_permanent');
       expect(rows[0]?.normalized_handle).toBe(seeded.handle);
+      // The un-normalized form is not a second key.
+      expect(await readLedger(echoed.trim())).toHaveLength(0);
     });
 
     it('the payload-recipient fallback writes the global suppression row with a null account id', async () => {
@@ -990,7 +1005,7 @@ describeWithDb(
     it('an unattributed suppression-bearing event with no recipient address in the payload throws', async () => {
       await expect(
         handleSolicitationResendEvent(sql(), 'email.complained', 'msg_no_recipient', {}),
-      ).rejects.toThrow(/carried 0 recipient addresses/);
+      ).rejects.toThrow(/carried 0 recipient entries/);
 
       expect(await readUnattributedLedger()).toHaveLength(0);
     });
@@ -1007,10 +1022,22 @@ describeWithDb(
         }),
       );
 
-      expect(failure.message).toMatch(/carried 2 recipient addresses/);
+      expect(failure.message).toMatch(/carried 2 recipient entries/);
       // The message lands in inbound_events.error_message and in the logs.
       expect(failure.message).not.toContain(first);
       expect(failure.message).not.toContain(second);
+
+      // A member that is not a usable string must be COUNTED, not filtered
+      // away. Dropping it first would read the payload as "exactly one
+      // recipient" and suppress whichever address happened to survive — the
+      // guess this case exists to forbid.
+      const mixed = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.suppressed', 'msg_mixed_recipient', {
+          to: [first, { address: second }],
+        }),
+      );
+      expect(mixed.message).toMatch(/carried 2 recipient entries/);
+
       expect(await readUnattributedLedger()).toHaveLength(0);
     });
 
@@ -1152,6 +1179,35 @@ describeWithDb(
         SELECT status FROM inbound_events WHERE external_event_key = ${svixId}
       `;
       expect(event?.status).toBe('failed');
+    });
+
+    it('an acked unattributed suppression event marks its inbound event processed', async () => {
+      const svixId = `msg_ack_${randomUUID()}`;
+      const orphaned = 'ack-processed@example.test';
+      const body = {
+        type: 'email.complained',
+        data: {
+          email_id: `provider_${randomUUID()}`,
+          to: [orphaned],
+          tags: [{ name: 'lane', value: 'solicitation' }],
+        },
+      };
+      const { reply, captured } = makeReply();
+
+      await handleResendWebhook(signedRequest(body, svixId), reply);
+
+      // The ACK side of the 503 twin above, and the only case that proves the
+      // two retention claims #967 rests on. `ArchivalPoller` sweeps
+      // `status='processed'` rows after 30 days and NOTHING sweeps `'failed'`
+      // ones — so this row's status is precisely what bounds the recipient
+      // address the ack leaves behind in `inbound_events.payload`. It is also
+      // what takes the event out of `checkFailedInboundEvents`' alert set.
+      expect(captured.status).toBe(200);
+      const [event] = await sql()<{ status: string }[]>`
+        SELECT status FROM inbound_events WHERE external_event_key = ${svixId}
+      `;
+      expect(event?.status).toBe('processed');
+      expect(await readLedger(orphaned)).toHaveLength(1);
     });
 
     it('a duplicate solicitation webhook writes no second suppression row', async () => {

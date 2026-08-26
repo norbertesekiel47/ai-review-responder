@@ -584,11 +584,20 @@ delivered" above reads as `delivered_at`; the shipped anchor is
 (`anchorVetoDeadlines`, `src/lib/solicitation/auto-approval.ts`) — provider
 acceptance not known to have failed at anchor time, evaluated once, because
 Telegram returns no delivery receipt and a `delivered_at` anchor would leave a
-Telegram-only owner's batch permanently unanchored. This is the Reply lane's
-shipped semantic (`worker/jobs/publisher/veto-window-gate.ts`), so both lanes
-still agree; the `failed_at` arm is what keeps a provider-accepted-then-bounced
-notice from starting a clock the owner never saw. Fail-closed is unchanged: no
-qualifying notice ⇒ no anchor ⇒ no release, ever.
+Telegram-only owner's batch permanently unanchored.
+
+The two lanes agree on the **anchor column** and NOT on the guard, so state the
+split rather than blurring it. `MIN(sent_at)`, never `delivered_at`, is the
+Reply lane's shipped semantic too
+(`worker/jobs/publisher/veto-window-gate.ts`). The `failed_at IS NULL` arm is
+**solicitation-only** — that gate has no such predicate — and it exists because
+this lane's stakes differ: acceptance alone is not evidence the owner was told,
+and an email-only owner whose one notice hard-bounced must not have their veto
+clock started by it before 25 real customers are mailed. Whether the Reply lane
+should adopt it is an open question this amendment does not decide.
+
+Fail-closed is unchanged in both lanes: no qualifying notice ⇒ no anchor ⇒ no
+release, ever.
 
 Without it, a broken notification channel turns the Autopilot lane into silent
 unreviewed sends — exactly what invariant #3 and the map's "never a silent

@@ -70,8 +70,8 @@
   "dependencies_added": [],
   "rollback_plan": "Revert the commit. There is no schema change, no migration, and no feature flag, so the lane returns to throw-on-unmatched immediately. Global ledger rows already written stay: they are correct opt-outs and the ledger has no expiry by design.",
   "observability": [
-    "A new structured log line from the fallback path carrying event type and ledger source but never the recipient address. A sustained rate means outreach rows are disappearing under live sends — the #965 class — so this line is also the detector for that open investigation.",
-    "checkFailedInboundEvents (worker/background/pollers/health-alert/checks.ts) stops firing for resend suppression-bearing events; a continued alert means the fallback did not engage.",
+    "A Sentry warning `solicitation_suppression_without_attribution` from the fallback path, tagged feature/event/source and carrying event type and ledger source but never the recipient address. CORRECTED after the step-7 review: this was originally specified as a log line only, which was wrong — acking removes these events from checkFailedInboundEvents' status='failed' set, so the change retired a pager and a log nothing subscribes to does not replace one. A sustained rate means outreach rows are disappearing under live sends (the #965 class), so this alert is that open investigation's detector.",
+    "checkFailedInboundEvents (worker/background/pollers/health-alert/checks.ts) stops firing for resend suppression-bearing events — intended, and the reason the Sentry signal above is mandatory rather than nice-to-have. A continued alert means the fallback did not engage.",
     "solicitation_suppressed analytics events (recordSuppression, §9.4) with scope='global' and a null account id are the durable proof the purge promise held."
   ],
   "open_questions": []

@@ -20,6 +20,7 @@
 // replaced a 503-and-retry; see suppressWithoutAttribution for what that trade
 // costs and why it was taken.
 
+import { captureMessage } from '@sentry/node';
 import type { Sql, TransactionSql } from 'postgres';
 import { LANE_TAG_NAME, SOLICITATION_LANE_TAG_VALUE } from '../../../src/lib/messaging/lane-tag';
 import {
@@ -139,17 +140,21 @@ type UnmatchedPolicy =
   | { kind: 'ignore' }
   | { kind: 'suppress'; source: SuppressionSourceToRecord };
 
-/** `to` as Resend sends it (array) and as older shapes send it (string) — the
- *  same defensive read `extractBounceType` uses. A blank entry is not an
- *  address. */
-function readRecipients(data: unknown): string[] {
+/**
+ * `to` as Resend sends it (array) and as older shapes send it (string) — the
+ * same defensive read `extractBounceType` uses.
+ *
+ * RETURNS THE ENTRIES UNFILTERED, deliberately. Dropping the members that are
+ * not usable strings BEFORE the cardinality check would read
+ * `to: ['a@x.test', {…}]` as "exactly one recipient" and suppress the survivor
+ * — the caller's whole job is to refuse a payload it does not recognise, and a
+ * filter would hand it a shape it recognises by construction.
+ */
+function readRecipients(data: unknown): unknown[] {
   if (!isRecord(data)) return [];
   const to = data.to;
-  if (typeof to === 'string') return to.trim().length > 0 ? [to] : [];
-  if (!Array.isArray(to)) return [];
-  return to.filter(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0,
-  );
+  if (Array.isArray(to)) return to;
+  return to === undefined || to === null ? [] : [to];
 }
 
 /**
@@ -180,10 +185,14 @@ function extractSoleRecipient(data: unknown, emailId: string, event: string): st
   const recipients = readRecipients(data);
   if (recipients.length !== 1) {
     throw new Error(
-      `unattributed ${event} carried ${recipients.length} recipient addresses, expected exactly 1: ${emailId}`,
+      `unattributed ${event} carried ${recipients.length} recipient entries, expected exactly 1: ${emailId}`,
     );
   }
-  const handle = normalizeEmail(recipients[0]!);
+  const only = recipients[0];
+  if (typeof only !== 'string') {
+    throw new Error(`unattributed ${event} carried a non-string recipient entry: ${emailId}`);
+  }
+  const handle = normalizeEmail(only);
   if (handle === null) {
     throw new Error(`unattributed ${event} carried an unparseable recipient address: ${emailId}`);
   }
@@ -218,8 +227,8 @@ function extractSoleRecipient(data: unknown, emailId: string, event: string): st
  * raw payload under `ArchivalPoller`'s existing 30-day sweep — a `failed` row
  * is never swept, so the old path retained a recipient address forever.
  *
- * WARN, not log: a sustained rate here means outreach rows are disappearing
- * under live sends, which is #965's still-unexplained loss.
+ * Writes and returns; it does NOT log. Reporting is post-commit, for the same
+ * reason every other outcome in this file is — see reportUnattributedSuppression.
  */
 async function suppressWithoutAttribution(
   tx: TransactionSql,
@@ -227,7 +236,7 @@ async function suppressWithoutAttribution(
   event: string,
   data: unknown,
   source: SuppressionSourceToRecord,
-): Promise<void> {
+): Promise<UnattributedSuppressed> {
   const handle = extractSoleRecipient(data, emailId, event);
   const written = await recordSuppression(tx, {
     scope: 'global',
@@ -236,15 +245,62 @@ async function suppressWithoutAttribution(
     accountId: null,
     source,
   });
+  return { kind: 'unattributed', source, suppressionWritten: written !== null };
+}
 
-  logger.warn({
-    msg: 'solicitation webhook matched no outreach row — global opt-out written from the signed payload',
+/**
+ * POST-COMMIT, and it raises a real Sentry issue (#967 review, finding 1).
+ *
+ * WHY SENTRY AND NOT JUST A LOG. Before this change an unattributed
+ * suppression-bearing event left `inbound_events.status='failed'`, which
+ * `checkFailedInboundEvents` (worker/background/pollers/health-alert/checks.ts)
+ * pages on. Acking removes these events from that set — so the ack silently
+ * retired an operator signal, and a structured log line nothing subscribes to
+ * does not replace a pager. This restores one at the source.
+ *
+ * WHAT A SUSTAINED RATE MEANS. Attribution can only be missing three ways: the
+ * seconds-wide #630 commit race, an account purge, or a send whose terminal CAS
+ * lost. None of those is routine traffic. A run of them means Outreach rows are
+ * disappearing under live sends — which is #965's still-unexplained staging
+ * loss, still open, still a prod-flip blocker. This alert is that ticket's
+ * detector, and it must page rather than accumulate in a log nobody reads.
+ *
+ * BEST-EFFORT, in its own try/catch. The ledger row is already committed; an
+ * observability failure must never turn a completed opt-out into a 503 that
+ * Resend retries (repworth.md: never let observability poison the success
+ * path). Precedent and call shape: worker/ingress/stripe/subscription-updated.ts.
+ *
+ * NEVER THE HANDLE — not in the message, not in a tag, not in `extra`.
+ */
+function reportUnattributedSuppression(
+  emailId: string,
+  event: string,
+  outcome: UnattributedSuppressed,
+): void {
+  const context = {
     event,
     provider_message_id: emailId,
-    source,
-    // Never the handle. `false` means an equal-or-earlier opt-out already won
-    // first-write-wins, which is the ledger agreeing with itself.
-    ledger_row_written: written !== null,
+    source: outcome.source,
+    // `false` means an equal-or-earlier opt-out already won first-write-wins,
+    // which is the ledger agreeing with itself.
+    ledger_row_written: outcome.suppressionWritten,
+  };
+  try {
+    captureMessage('solicitation_suppression_without_attribution', {
+      level: 'warning',
+      tags: {
+        feature: 'solicitation_lane',
+        event,
+        source: outcome.source,
+      },
+      extra: context,
+    });
+  } catch {
+    // Observability is best-effort after the committed ledger write.
+  }
+  logger.warn({
+    msg: 'solicitation webhook matched no outreach row — global opt-out written from the signed payload',
+    ...context,
   });
 }
 
@@ -282,11 +338,12 @@ export async function handleSolicitationResendEvent(
  * attribution, its FOR UPDATE lock, the outreach UPDATE and the optional ledger
  * write are one commit or none.
  *
- * `onMissing` decides what an unmatched id means for THIS event.
+ * `unmatched` decides what an unmatched id means for THIS event.
  * `apply` returns the ledger source to record, or null to record none.
  *
- * RETURNS a Committed value only on a COMMITTED write, and null when the id was
- * unmatched. That return value is what makes post-commit logging possible.
+ * RETURNS a three-way LaneOutcome, always describing a COMMITTED state. That
+ * return value is what makes post-commit reporting possible — for the
+ * unattributed arm as much as the attributed one (#967 review, finding 2).
  *
  * The value flows out as the callback's RETURN, never through a closure variable.
  * A `let committed` assigned only inside the callback does not build: TypeScript's
@@ -298,9 +355,32 @@ export async function handleSolicitationResendEvent(
  * one caller needs it, and it needs it badly — see recordProviderSuppressed.
  */
 interface Committed {
+  kind: 'attributed';
   attribution: OutreachAttribution;
   suppressionWritten: boolean;
 }
+
+/**
+ * The unmatched-but-suppressed outcome (#967), carried OUT of the transaction
+ * rather than logged inside it.
+ *
+ * Same reason `Committed` exists: a log line emitted inside `sql.begin` can
+ * claim `ledger_row_written: true` for a row a failing COMMIT then discarded,
+ * and this file's other four paths all report after the commit. It carries no
+ * handle, so there is nothing here an outer log could leak.
+ */
+interface UnattributedSuppressed {
+  kind: 'unattributed';
+  source: SuppressionSourceToRecord;
+  suppressionWritten: boolean;
+}
+
+/** Unmatched and NOT suppression-bearing: `warnUnmatched` already said so. */
+interface Ignored {
+  kind: 'ignored';
+}
+
+type LaneOutcome = Committed | UnattributedSuppressed | Ignored;
 
 /**
  * The three ledger sources this lane can write, BOUND to the canonical union
@@ -324,23 +404,25 @@ async function withAttribution(
     tx: TransactionSql,
     attribution: OutreachAttribution,
   ) => Promise<SuppressionSourceToRecord | null>,
-): Promise<Committed | null> {
+): Promise<LaneOutcome> {
   // postgres.js resolves sql.begin with the callback's return value. The callback's
   // return type is annotated explicitly because UnwrapPromiseArray makes the
   // inference awkward — annotate, never cast.
-  return await sql.begin(async (tx): Promise<Committed | null> => {
+  return await sql.begin(async (tx): Promise<LaneOutcome> => {
     const attribution = await loadAttribution(tx, emailId);
     if (!attribution) {
-      // `null` still means "no attribution; the policy has already handled it"
-      // — warned, or written the global row from the payload (#967). Only a
-      // malformed payload throws now, rolling this back into a 503.
-      if (unmatched.kind === 'ignore') warnUnmatched(emailId, event);
-      else await suppressWithoutAttribution(tx, emailId, event, data, unmatched.source);
-      return null;
+      // The policy decides: warn-and-ack, or write the global row from the
+      // payload (#967). Only a malformed payload throws now, rolling this
+      // whole transaction back into a 503.
+      if (unmatched.kind === 'ignore') {
+        warnUnmatched(emailId, event);
+        return { kind: 'ignored' };
+      }
+      return await suppressWithoutAttribution(tx, emailId, event, data, unmatched.source);
     }
 
     const source = await apply(tx, attribution);
-    if (!source) return { attribution, suppressionWritten: false };
+    if (!source) return { kind: 'attributed', attribution, suppressionWritten: false };
 
     // Returns the new row id, or null when an existing row won (first-write-wins).
     const written = await recordSuppression(tx, {
@@ -351,7 +433,7 @@ async function withAttribution(
       source,
     });
 
-    return { attribution, suppressionWritten: written !== null };
+    return { kind: 'attributed', attribution, suppressionWritten: written !== null };
   });
 }
 
@@ -455,7 +537,11 @@ async function recordBounce(sql: Sql, emailId: string, data: unknown): Promise<v
     },
   );
 
-  if (!committed) return; // unmatched — onMissing already warned or threw
+  if (committed.kind === 'ignored') return; // warnUnmatched already said so
+  if (committed.kind === 'unattributed') {
+    reportUnattributedSuppression(emailId, 'email.bounced', committed);
+    return;
+  }
   logger.log({
     msg: 'solicitation bounce recorded',
     outreach_id: committed.attribution.id,
@@ -488,7 +574,11 @@ async function recordComplaint(sql: Sql, emailId: string, data: unknown): Promis
     },
   );
 
-  if (!committed) return;
+  if (committed.kind === 'ignored') return;
+  if (committed.kind === 'unattributed') {
+    reportUnattributedSuppression(emailId, 'email.complained', committed);
+    return;
+  }
   logger.log({
     msg: 'solicitation complaint recorded',
     outreach_id: committed.attribution.id,
@@ -508,7 +598,15 @@ async function recordProviderSuppressed(sql: Sql, emailId: string, data: unknown
     async () => 'provider_suppressed',
   );
 
-  if (!committed) return;
+  if (committed.kind === 'ignored') return;
+  if (committed.kind === 'unattributed') {
+    // The §6.2 divergence warn below is deliberately NOT reached here. It
+    // claims Resend's list has diverged from OURS for a recipient we can name;
+    // with no attribution there is no "ours" to compare against, and
+    // reportUnattributedSuppression already raises the signal that matters.
+    reportUnattributedSuppression(emailId, 'email.suppressed', committed);
+    return;
+  }
 
   // The loud warn is CONDITIONAL on having actually written a ledger row.
   //
@@ -561,7 +659,9 @@ async function recordFailure(sql: Sql, emailId: string, data: unknown): Promise<
     },
   );
 
-  if (!committed) return;
+  // `email.failed` carries the 'ignore' policy, so 'unattributed' is
+  // unreachable — narrow it out rather than inventing a branch for it.
+  if (committed.kind !== 'attributed') return;
   logger.log({
     msg: 'solicitation send failure recorded',
     outreach_id: committed.attribution.id,
