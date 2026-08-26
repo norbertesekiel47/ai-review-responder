@@ -101,10 +101,11 @@ export const POST = withSameOrigin()(
       // union. `ApproveBatchResult.close` carries `parentRunId` — an internal
       // `agent_runs` UUID — plus the spine's `disposition`/`parentStatus`
       // vocabulary and raw status counts, none of which the browser reads and
-      // none of which belongs on the Requests surface (ADR 0012: no internal id
-      // is ever rendered there). Whitelisting also means a field added to the
-      // domain union later cannot silently start shipping: it has to be named
-      // here first.
+      // none of which belongs on the Requests surface: no internal id is ever
+      // rendered there (#629 round-2 finding F10 — this route and `halt` ARE
+      // that precedent, which `regenerate` and `withdraw` cite in turn).
+      // Whitelisting also means a field added to the domain union later cannot
+      // silently start shipping: it has to be named here first.
       const wire = toWire(result);
 
       switch (result.status) {

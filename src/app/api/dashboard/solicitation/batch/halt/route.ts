@@ -24,7 +24,9 @@ export const dynamic = 'force-dynamic';
  * `HaltBatchResult.close` carries `parentRunId` — an internal `agent_runs`
  * UUID — plus the spine's `disposition`/`parentStatus` vocabulary and raw
  * status counts. None of it is read by the panel and none of it belongs on the
- * Requests surface (ADR 0012: no internal id is ever rendered there).
+ * Requests surface: no internal id is ever rendered there (#629 round-2 finding
+ * F10 — this route and `approve` ARE that precedent, which `regenerate` and
+ * `withdraw` cite in turn).
  * Whitelisting also means a field added to the domain union later cannot start
  * shipping by accident — it has to be named here first.
  */

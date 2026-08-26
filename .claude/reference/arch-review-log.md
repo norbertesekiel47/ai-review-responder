@@ -49,6 +49,24 @@ Merges since the 2026-08-24 pass:
   4 new files, 13 modified; focus test 17 → 18 controls; landing
   measurements.md + directory.md updated.
 
+- 2026-08-25 — `fix/887-adr-citations`: the no-internal-id posture on the
+  Requests surface was cited to **ADR 0012** in four places. ADR 0012 is the
+  sentiment-blind withhold enum and says nothing about internal ids; the real
+  provenance is the #629 round-2 review, finding F10. A false citation is worse
+  than none — it sends the reader to an authority that does not support the
+  rule, and the honest conclusion from there is that the rule is unsupported.
+  `halt/route.ts` and `approve/route.ts` now cite F10 directly and state that
+  they ARE the precedent `regenerate`/`withdraw` cite, so the four route
+  comments stop forming a circular reference. Two notes for the next pass:
+  (a) the issue named TWO sites and a filename grep found **four** — the extras
+  are `approval-routes.test.ts:398` and `docs/directory.md:130`, the latter
+  being the interesting one because it conflated two DIFFERENT rules under one
+  citation (no star rating, genuinely ADR 0012; no internal id, F10), and the
+  half that was right is precisely what made the half that was wrong look
+  sound; (b) nothing mechanically ties a comment's ADR reference to that ADR's
+  subject, so this class is invisible until someone follows a citation.
+  Comment and docs only — no behaviour change, no test change.
+
 - 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
   (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance
   grammar page-wide — motion-driven finite beats, pause-rule-immune,
