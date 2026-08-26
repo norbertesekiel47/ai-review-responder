@@ -67,6 +67,40 @@ Merges since the 2026-08-24 pass:
   subject, so this class is invisible until someone follows a citation.
   Comment and docs only — no behaviour change, no test change.
 
+- 2026-08-25 — `fix/892-purge-sentinels`: the account purge's tombstone writer
+  and its verifier agreed because two humans typed the same strings twice each
+  — the 2026-08-18 pass's W7. New `src/lib/account-offboarding/purge-sentinels.ts`
+  owns them; both sides compose their own predicate from shared VALUES, keeping
+  the writer's `=` and the verifier's `IS DISTINCT FROM` visible at the call
+  sites. No shared SQL fragment builder (it would need an `Sql` param and hide
+  that asymmetry), and the `SET` clause and `OR`-chain stay two lists.
+  **Four notes for the next pass, three of them corrections to the issue:**
+  (a) the issue tallies SEVEN duplicated pairs; there are **eight** —
+  `accounts.flags = '{}'::jsonb` is absent from its table while its own count
+  discussion names `flags` as a restored default. Eight pairs, nine members
+  (the email is one pair in two fragments). (b) the operator standardisation
+  covers **nine** sentinel comparisons, eight converting — including the two
+  `NOT LIKE` sites, which carry no `%`, `_` or backslash and were therefore
+  equality checks written as pattern matches. The rule is not stylistic: this
+  gate is fail-closed and its predicates sit in an `OR`-chain, where a
+  three-valued predicate reads as "not a violation" and OPENS the gate, so `<>`
+  made correctness depend on today's `NOT NULL` constraints. (c) the issue
+  names two places stating the count wrongly; there are **four** — plus
+  `purge-verification.ts`'s `archived_at` comment ("the only NON-residue
+  predicate"; it is the only PRESENCE check) and `directory.md`'s claim to
+  cover "every column the tombstone `UPDATE` writes", which is false because
+  `updated_at` is written and deliberately unverified. (d) **the counts are now
+  PINNED** — 28 predicates and their 5/1/22 split in `purge-verification.test.ts`,
+  29 writer assignments in `PurgeWorker.test.ts`, both mutation-verified. This
+  issue exists because 27 rotted unpinned, and the first cut of the fix
+  replaced it with four fresh unpinned numbers; lab-notes "An exact count
+  written into a comment is a maintenance trap" caught it in review.
+  Runtime coverage cannot catch a missed operator conversion — every column but
+  `tone` is `NOT NULL`, so both operators behave identically against a live
+  database — so the two new properties read the SQL the module EMITS, not its
+  source text. Prerequisite: the suite's `mockSql` was a bare `vi.fn`, so
+  introducing `exec.json` crashed 8 tests before they could fail informatively.
+
 - 2026-08-25 — `fix/895-truth-tripwires`: five independent fixes from the
   2026-08-18 pass's H6 bundle — (a) the admin batch panel read
   `HALT_REASON_LABELS[haltReason]` unguarded, and #917's `platform_halt` made
