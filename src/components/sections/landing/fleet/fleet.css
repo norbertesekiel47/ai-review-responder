@@ -643,6 +643,41 @@
   }
 }
 
+/* ---------- phone carousels ----------
+   Below 767px each tier stops stacking and becomes its own scroll-snap rail
+   (../carousel.css owns the rail mechanics). Two rails, not one: the tiers are
+   separate elements on the grid, and merging them would need the DOM change
+   that the whole "desktop is untouched" approach exists to avoid — it would
+   also lose the oversight-over-action split the section is drawing.
+
+   17rem, the narrowest of the three rails: these are short text cards, not the
+   aspect-locked flip cards, so width buys nothing but a shorter role line. */
+
+@media (max-width: 767px) {
+  .rw-lp-fleet-tier {
+    --rw-lp-carousel-slide: min(80vw, 17rem);
+  }
+
+  /* Each dot row takes its tier's own order, so it lands directly under it.
+     Equal `order` falls back to DOM order, and the dots are the tier's next
+     sibling — which is also what this selector matches on. Without these the
+     rows default to `order: 0` and both float above the video. */
+  .rw-lp-fleet-tier[data-tier='persona'] + .rw-lp-carousel-dots {
+    order: 2;
+  }
+
+  .rw-lp-fleet-tier[data-tier='watchdog'] + .rw-lp-carousel-dots {
+    order: 3;
+  }
+
+  /* The stage is `justify-items: center`, which would size a dot row to its
+     content and centre it — correct already, but the margin below has to come
+     off the stage's own gap rather than double it. */
+  .rw-lp-fleet-stage > .rw-lp-carousel-dots {
+    margin-top: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rw-lp-fleet-wire,
   .rw-lp-fleet-wire-flow {

@@ -6,8 +6,9 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 4** — reset to 0 by the **2026-08-24
-pass** (entry below), then incremented by the merge lines here. Full artifacts:
+**Merges since last architecture pass: 5** — reset to 0 by the **2026-08-24
+pass** (entry below), then incremented by the merge lines here. **This is the
+≥ 5 threshold**: the next pass is due, and scheduling it is the owner's call. Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-24/`.
 Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 
@@ -23,6 +24,30 @@ Prior passes: `PATHFINDER-2026-08-22/`, `-08-18/`, `-08-15/`, `-08-10/`.
 > — the lines are the only source that cannot drift.
 
 Merges since the 2026-08-24 pass:
+
+- 2026-08-25 — `feat-landing-mobile-carousel`: phone card rails for landing
+  sections 2–5 (owner-directed). New shared `carousel.tsx`/`carousel.css`:
+  below 767px the fleet's two tiers, the persona grid, the watchtower grid and
+  the committed grid become CSS scroll-snap rails with a dot indicator. The
+  four sections went 6,891px → 4,010px at 390px wide, measured. **Desktop is
+  untouched by construction** — the rail restyles the container each section
+  ALREADY renders rather than adding a wrapper, so no desktop rule moves.
+  Four notes for the next pass: (a) the rail selector is 0,2,0 to tie with
+  `.rw-lp-fleet-tier[data-tier='watchdog']` and `carousel.css` must stay the
+  LAST landing CSS import — a load-bearing ORDER dependency, the second in this
+  file after `agent-flip-card.css`'s, and neither is mechanically guarded;
+  (b) the slides carry `opacity/transform: !important` because `Staged` gates
+  each card on 30% of ITSELF being in view and a peeking card shows ~15% —
+  motion writes those inline, so `!important` is the only reach; (c) the dots'
+  overflow test measures the SLIDES, never `scrollWidth`, after the committed
+  card's `inset: -0.875rem` glow put 570 into `scrollWidth` against a 556
+  client width and rendered a hidden dot row into the desktop DOM; (d) adding
+  the CSS import pulled `LandingExperience.tsx` into the fallow gate's scope
+  and exposed `LandingChrome` at 0% coverage (CRAP 56) — fixed with a real
+  test, not a suppression, but it is worth noting that a ONE-LINE import edit
+  is enough to surface an inherited complexity finding as a PR blocker.
+  4 new files, 13 modified; focus test 17 → 18 controls; landing
+  measurements.md + directory.md updated.
 
 - 2026-08-24 — `feat-landing-sections-revamp`: landing sections 2–7 revamp
   (owner-directed). New shared `Staged`/`StagedLine` primitive (hero-entrance
