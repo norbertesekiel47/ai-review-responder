@@ -219,18 +219,30 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
 // already carries, so it is aria-hidden: screen readers get the group per
 // chapter and do not need it a fourth time.
 function ChapterGroup({ group, children }: { group: string; children: ReactNode }) {
-  // Numbers come from FEATURES so the bar cannot drift from the index.
-  const range = FEATURES.filter((f) => f.group === group).map((f) => f.n).join(' · ');
+  // Chapters come from FEATURES so the bar cannot drift from the index.
+  const chapters = FEATURES.filter((f) => f.group === group);
   return (
     <div className="feat-grp">
       <div className="feat-grp-hd" aria-hidden="true">
         <div className="rw-dl-col feat-grp-row">
-          <span>{group}</span>
+          <span className="feat-grp-name">{group}</span>
           <span className="feat-grp-rule" />
-          <span>{range}</span>
+          <span>{chapters.map((f) => f.n).join(' · ')}</span>
+        </div>
+        {/* One segment per chapter, in that chapter's bar colour, filling in
+            turn as you scroll the group — the /how-it-works step ribbon, scoped
+            to a group instead of the whole stack. */}
+        <div className="feat-grp-ribbon">
+          {chapters.map((f) => (
+            <span key={f.id} style={{ ['--bar' as string]: f.bar }}>
+              <i />
+            </span>
+          ))}
         </div>
       </div>
-      {children}
+      {/* The timeline source: NOT sticky, so its view progress tracks scroll.
+          `.feat-grp-hd` is pinned and would freeze. */}
+      <div className="feat-grp-body">{children}</div>
     </div>
   );
 }

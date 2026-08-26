@@ -212,7 +212,7 @@ its existing `shadow-lg`/`shadow-xl` recipes.
 | Scroll reveal | `.rw-dl-rv` → `.is-in`: opacity + 12px rise, 0.6/0.7s |
 | Stat cards | stagger left→right (+280ms), left bar wipes in (scaleY), numbers count up 1.4s |
 | Sticky stack | each `.hiw-step` pins at `--top: 116 + i·8px`; the 8px colour bars form a flush ribbon that fills in turn as you scroll (Layer 2) |
-| Group bar | `/features` pins one bar per chapter group; it hands off to the next group's bar |
+| Group bar | `/features` pins one bar per chapter group; an 8px ribbon carries one segment per chapter, in that chapter's bar colour, filling in turn (Layer 2); hands off to the next group |
 | Pills | hover: translateY(-1px); arrow disc slides 2px |
 | Loops | marquee drift, wash drift, pulse dot, typewriter caret |
 

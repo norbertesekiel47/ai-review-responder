@@ -260,21 +260,77 @@
   z-index: 3;
   padding-top: 92px;
   background: var(--rw-bone);
-  border-bottom: 1px solid var(--rw-line);
 }
 .feat-grp-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 16px;
-  padding-top: 13px;
-  padding-bottom: 13px;
+  padding-top: 14px;
+  padding-bottom: 14px;
   font-size: 13px;
   color: var(--rw-ink2-mute);
 }
+/* Hierarchy by size, never weight — the group name is the loudest thing on the
+   bar at 20px ink; the chapter numbers stay 13px mute. */
+.feat-grp-name { font-size: 20px; color: var(--rw-ink2); }
 .feat-grp-rule { flex: 1; height: 1px; background: var(--rw-line); }
+
+/* The group ribbon — one segment per chapter, in that chapter's bar colour,
+   filling in turn as you scroll the group. It is the /how-it-works step ribbon
+   scoped to a group, and it is what makes the bar read as a place in the page
+   rather than a caption. It replaces the header's plain `border-bottom`: unfilled
+   the track IS a hairline, just 8px of one, so the un-enhanced state is the
+   design rather than a degradation.
+
+   Bar accents stay bar accents here — 8px, no text, no broad fill. */
+.feat-grp-ribbon { display: flex; gap: 2px; height: 8px; }
+.feat-grp-ribbon > span {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--rw-line);
+}
+.feat-grp-ribbon > span > i {
+  position: absolute;
+  inset: 0;
+  background: var(--bar);
+  transform-origin: left;
+}
 /* The bar carries the group now, so the per-chapter tail would say it twice on
    screen. The roadmap sits outside a group and keeps its own. */
 .feat-grp .feat-ch-grp { display: none; }
+
+/* Scroll-linked ribbon fill (island.css Layer 2).
+   The timeline comes from `.feat-grp-body`, NOT from `.feat-grp-hd`: a view
+   progress timeline is measured from the subject's position in the scrollport,
+   and a pinned sticky element does not move there, so a timeline taken off the
+   header would freeze the moment it pinned. `timeline-scope` on `.feat-grp`
+   keeps each group's timeline private to that group, so all three resolve
+   independently under one name.
+
+   `contain` is the right range because a group's body (~1800px+) is far taller
+   than the scrollport, making that range exactly its scroll-through. Each
+   segment takes its own third.
+
+   Without `animation-timeline`, or under reduced motion, the fills stay solid
+   and the ribbon is three static colour blocks. */
+@keyframes feat-grp-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .feat-grp { timeline-scope: --feat-grp; }
+    .feat-grp-body { view-timeline-name: --feat-grp; }
+    .feat-grp-ribbon > span > i {
+      animation: feat-grp-fill linear both;
+      animation-timeline: --feat-grp;
+    }
+    .feat-grp-ribbon > span:nth-child(1) > i { animation-range: contain 0% contain 33.333%; }
+    .feat-grp-ribbon > span:nth-child(2) > i { animation-range: contain 33.333% contain 66.667%; }
+    .feat-grp-ribbon > span:nth-child(3) > i { animation-range: contain 66.667% contain 100%; }
+  }
+}
 
 /* ---------- Chapter grid (dossier header row + text beside / above the artifact) ---------- */
 .feat-intro-tick {
