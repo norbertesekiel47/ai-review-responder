@@ -92,6 +92,38 @@ email shares the Resend provider with the product.
   thresholds, never a recipient address or message body. Trip latency is bounded
   by one `HEALTH_ALERT_POLL_INTERVAL_MS` (§5), and the re-page cadence by rule
   5's frequency window.
+- [ ] **Unattributed solicitation suppression (#967)** — issues tagged
+  `feature:solicitation_lane` at level `warning`, title
+  `solicitation_suppression_without_attribution`, emitted by
+  `reportUnattributedSuppression` (`worker/ingress/resend/solicitation-lane.ts`).
+  **This rule is not optional garnish — it is the whole replacement for a pager
+  that #967 removed.** Before #967 an unmatched suppression-bearing Resend event
+  threw, leaving `inbound_events.status='failed'`, which
+  `checkFailedInboundEvents` pages on. #967 made that path **ack**, which is
+  correct for the opt-out and for payload retention, but it also takes the event
+  out of that alert set. With no rule here the capture lands in Sentry and pages
+  nobody — the exact defect #967's review caught in the first draft, reproduced
+  one layer out.
+  **Use an event-FREQUENCY condition, not "a new issue is created"** — same
+  reasoning as the two bullets above, and it bites harder here. The capture
+  title is a **constant string**, so every occurrence across every account,
+  every event type and both suppression sources groups into ONE issue; a
+  first-seen rule fires once, ever. The signal is **a sustained rate**, because
+  attribution can only go missing three ways and the benign one is expected:
+  the seconds-wide window where #630 has committed a send but not yet its
+  `provider_message_id`. Isolated events are that race and are noise. Suggested:
+  _The issue is seen more than 3 times in one hour_ — matching rules 4 and 5.
+  **What repetition means:** Outreach rows are disappearing under live sends,
+  which is **#965**, still open and still an unexplained staging data loss. This
+  rule is that investigation's production detector. The other two causes are
+  benign-by-design (an account purge, whose whole point is that the global
+  opt-out still lands) or already-logged (a send whose terminal CAS lost).
+  **Response:** do not silence it. Compare `solicitation_outreach` row counts
+  against `solicitation_asks` for the affected businesses and take it to #965.
+  Detail is aggregate-only — the capture carries `event`, `source` and
+  `ledger_row_written`, and **never** the recipient address, by design.
+  Keyed on `feature:solicitation_lane`, which is unique to this capture across
+  the whole codebase, so the rule is narrow by construction like rule 5.
 
 ## 1a. Billing-reconcile drift routing (CONFIG-1)
 
@@ -149,17 +181,30 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 3 | `stripe-reconcile-drift → discord` | `feature` equals `stripe_reconciliation` | issue is **first seen** | `error` + `warning` |
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
 | 5 | `solicitation-send-breaker → discord` | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
+| 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
 
-_Then_ action for all five: **Send a notification to the Discord integration** →
+_Then_ action for all six: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
 
-**Rules 4 and 5 are the odd ones, and the difference is not cosmetic.** Rules
-1–3 fire on a new issue. Rules 4 and 5 must not. Each capture title is a
+**Rules 4, 5 and 6 are the odd ones, and the difference is not cosmetic.** Rules
+1–3 fire on a new issue. Rules 4, 5 and 6 must not. Each capture title is a
 **constant string**, so every occurrence groups into ONE Sentry issue — for rule
 4, both **Import offer** event names across every location and both lanes; for
-rule 5, every re-page of one open breaker trip. A first-seen trigger fires once,
-ever, and then stays silent through exactly the repetition that is the signal.
-See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
+rule 5, every re-page of one open breaker trip; for rule 6, every unattributed
+suppression across every account, event type and source. A first-seen trigger
+fires once, ever, and then stays silent through exactly the repetition that is
+the signal. See #697 and `.claude/reference/lab-notes.md` (2026-08-08).
+
+**Rule 6 is a REPLACEMENT, not an addition (#967).** The other five add
+coverage; this one restores coverage that #967 deliberately removed. That ticket
+made an unmatched suppression-bearing Resend event ack instead of throw — right
+for the recipient's opt-out and right for payload retention, but it takes the
+event out of `inbound_events.status='failed'`, which is what
+`checkFailedInboundEvents` (rule 1) pages on. **Until rule 6 exists the capture
+lands in Sentry and pages nobody.** Its benign cause — the seconds-wide window
+before #630 commits `provider_message_id` — is why the trigger is frequency and
+not first-seen; its alarming cause is #965, an unexplained loss of Outreach rows
+that is still open. §1's bullet carries the response procedure.
 
 **Rule 5 does not replace rule 1, and the overlap is intended (#907).** The
 breaker finding carries `subsystem:health_alert` like every other
@@ -176,11 +221,11 @@ when the trip opens and roughly one per hour after that — Sentry's default act
 interval is 60 minutes per issue, so a 5-minute poll interval does not mean a
 5-minute page.
 
-**Step 6 — the dead-man switch.** (Numbered 6, not 5, since #907 added a fifth
-rule — the step number and the rule number must not collide.) The cron monitor is
-NOT an alert rule; it is configured in §4 of this runbook (slug
-`health-alert-poller`, auto-created on first check-in). Do §4 after the five
-rules above.
+**Step 7 — the dead-man switch.** (Numbered 7, not 6, since #967 added a sixth
+rule — the step number and the rule number must not collide. It was 6 while
+#907's rule 5 was the last one.) The cron monitor is NOT an alert rule; it is
+configured in §4 of this runbook (slug `health-alert-poller`, auto-created on
+first check-in). Do §4 after the six rules above.
 
 **Verify, do not assume.** Each rule is unproven until you have seen it deliver.
 §4's acceptance drills are how — do not tick a §1 box on the strength of a saved
@@ -316,6 +361,23 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   rule 5 exists to close, so this drill fails on a count, not on an absence.
   Clear it through `/admin/solicitation` when done — the breaker never
   self-clears.
+- [ ] **Unattributed suppression (#967, rule 6)** — POST **four** svix-signed
+  `email.complained` payloads to the staging worker's `/ingress/resend` within
+  one hour, each carrying the `lane: solicitation` tag, an `email_id` that
+  matches no `solicitation_outreach` row, and a `to` address. Expect **200** on
+  each, and **one** Discord notification once the fourth crosses the
+  "more than 3 in one hour" threshold. Fewer than four must produce **nothing**
+  — a notification on the first is a first-seen rule wearing a frequency
+  label, which is the failure rule 6 exists to avoid.
+  **Reuse ONE fake recipient across all four.** Every request captures, but
+  first-write-wins means only the first writes a ledger row, so the drill
+  leaves a single row instead of four. That matters: the Suppression ledger has
+  **no expiry and no ordinary delete path** by design, and the admin
+  **Correction path** is a compliance surface, not a cleanup tool. Use an
+  obviously fictional address and leave the row.
+  The `email_id` must differ per request — a repeated `svix-id` is deduped by
+  `claimInboundEvent` and a repeated `provider_message_id` is not what varies
+  here. Working probe shape: `docs/reviews/fix-967-post-purge-global-optout/staging-smoke.md`.
 - [ ] **Killed worker** — stop the worker process; expect the external `/ready`
   check to page.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
