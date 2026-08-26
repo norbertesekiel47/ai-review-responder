@@ -671,4 +671,27 @@ candidates. Therefore the remaining arms run in this order:
   both `sent`/unbounced/unattributed; bounce-race check GREEN 04:06;
   owner cued to post the second-account review.
 
+### #966 one-click proof — the FIXED header endpoint writes the ledger (04:08–04:10 UTC)
+
+- No batch-B mail reached a real inbox (`reviews@` withheld by restraint;
+  the rest no-MX), so the header URL was RECONSTRUCTED instead of read
+  from a delivered copy — validity chain: Resend's sent-content API
+  returns the mail's HTML, whose footer carries the raw token
+  (`/u/<token>`); `dispatch.ts:1781-1782` (at `d007ee80`, the deployed
+  SHA) mints BOTH URLs from that ONE `minted.rawToken`, the header half
+  via `buildUnsubscribeOneClickUrl` = `${WORKER_PUBLIC_URL}
+  /ingress/unsubscribe/<token>`; adapter tests pin that URL into the
+  `List-Unsubscribe` header. (Resend's API exposes no header fields —
+  recorded as the reason a delivered-copy read was impossible.)
+- RFC 8058 POST (`Content-Type: application/x-www-form-urlencoded`,
+  body `List-Unsubscribe=One-Click`) to the reconstructed URL →
+  HTTP 200 `{"received":true}`; Suppression ledger row 04:09:56:
+  `norbert-b@no-mx.staging.repworth.net`, `channel=email`,
+  `scope=global`, **`source='unsubscribe_one_click'`** — the distinct
+  one-click source attribution, vs `unsubscribe_link` on the two 17:4x/
+  17:50 human-path rows. Suppressing this handle cannot affect the
+  ambiguous arm: unsubscribed-stays-eligible is the locked, proven rule.
+- **Unproven path 3's one-click half CLOSED** — #966's fix is proven on
+  staging end-to-end (advertised endpoint → worker ingress → ledger).
+
 *(further entries appended in runbook order)*
