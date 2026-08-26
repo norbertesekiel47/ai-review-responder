@@ -1667,10 +1667,41 @@
 /* Everything else in the hero sits ABOVE the wash. Required, not cosmetic: the
    wash carries z-index 2 to clear the occluder, and the hero's own content has
    no z-index, so without this the wash would paint over the h1. The full stack
-   is occluder 1 → wash 2 → hero content 3 → nav pill 50. */
+   is occluder 1 → wash 2 → scrim 2 → hero content 3 → nav pill 50. */
 .rw-dl-wash-host > :not(.rw-dl-wash) {
   position: relative;
   z-index: 3;
+}
+
+/* Legibility scrim over the hero's text column. Measured, not taste: sampling
+   the wash where the copy actually sits, the darkest patch gave 2.04:1 for
+   13px mute text and 2.32:1 for the 18px lede, against an AA floor of 4.5.
+   Even a flat 0.8 veil only lifts mute to 4.34, which is why the eyebrows also
+   move from mute to soft — the scrim alone cannot carry 62% ink.
+
+   Weighted to the left so the wash stays vivid behind the hero artifact on the
+   right: gone by 70%. Starts at 92px so the strip beside the nav pill keeps the
+   wash at full strength. Paints above the wash (same z-index, later in DOM) and
+   below the hero content (z-index 3). Literal rgba rather than the token
+   because the stops need alpha, as the wash's own fade already does. */
+.rw-dl-wash-host::after {
+  content: '';
+  position: absolute;
+  inset: 92px 0 0 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(246, 246, 242, 0.68) 0%,
+    rgba(246, 246, 242, 0.66) 34%,
+    rgba(246, 246, 242, 0.34) 54%,
+    rgba(246, 246, 242, 0) 70%
+  );
+}
+@media (max-width: 1040px) {
+  /* One column here, so the copy spans the full width and a side-weighted
+     scrim would leave its right half unveiled. Flat instead. */
+  .rw-dl-wash-host::after { background: rgba(246, 246, 242, 0.68); }
 }
 @media (prefers-reduced-motion: reduce) {
   .rw-dl-wash video,

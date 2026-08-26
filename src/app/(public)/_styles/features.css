@@ -52,7 +52,10 @@
   padding-top: 112px;
   padding-bottom: 72px;
 }
-.feat-eyebrow { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 22px; }
+/* Soft, not mute: at 13px over the wash, 62% ink measured 2.04:1 on the
+   darkest patch and only reaches 4.34 even under a flat 0.8 veil. 74% clears
+   AA with the scrim in place. */
+.feat-eyebrow { font-size: 13px; color: var(--rw-ink2-soft); margin-bottom: 22px; }
 .feat-h1 { font-size: clamp(44px, 4.2vw, 64px); line-height: 1.04; letter-spacing: 0; }
 .rw-hero-line { display: block; overflow: hidden; }
 .rw-hero-line span {

@@ -7,6 +7,7 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { Reveal } from '@/components/ui/Reveal';
 import { HeroWash } from '@/components/ui/HeroWash';
+import { HeroFlowArtifact } from './HeroFlowArtifact';
 import { StatCards } from './StatCards';
 import { WatchArtifact } from './WatchArtifact';
 import { TriageArtifact } from './TriageArtifact';
@@ -220,26 +221,9 @@ export function HowItWorksContent({
               </Link>
             </div>
           </div>
-          <article className="rw-dl-card hiw-fade d3" aria-label="Sample approval email">
-            <div className="rw-dl-cap">
-              <span className="rw-dl-cap-dot" />
-              <span>Sample · owner@brightlinen.com · Inbox</span>
-              <span className="rw-dl-cap-tail">10:42 AM</span>
-            </div>
-            <h2 className="hiw-mail-subj">New 5★ review from Sarah L., ready to approve</h2>
-            <p className="hiw-mail-meta">Bright Linen Dry Cleaning · Google · 1 hour ago</p>
-            <div className="rw-dl-reply">
-              <div className="rw-dl-reply-lbl">Suggested reply · in your voice</div>
-              <p>
-                Sarah, thank you. That&apos;s genuinely wonderful to hear. We take punctuality
-                seriously because we know your schedule doesn&apos;t wait for ours. See you again
-                soon.
-              </p>
-            </div>
-            <div className="rw-dl-acts">
-              <span className="rw-dl-btn">Approve and post</span>
-            </div>
-          </article>
+          <div className="hiw-fade d3">
+            <HeroFlowArtifact />
+          </div>
         </div>
       </section>
 

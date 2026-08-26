@@ -93,8 +93,174 @@
 .hiw-hero.is-in .hiw-fade.d1 { transition-delay: 0.45s; }
 .hiw-hero.is-in .hiw-fade.d2 { transition-delay: 0.6s; }
 .hiw-hero.is-in .hiw-fade.d3 { transition-delay: 0.75s; }
-.hiw-mail-subj { font-size: 18px; line-height: 1.35; margin-bottom: 6px; }
-.hiw-mail-meta { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 20px; }
+/* ---------- Hero flow artifact ----------
+   The h1 as one object: a review in at the top, the gate as the dark pivot
+   across the middle, the public reply out at the bottom, one rail through all
+   three. It replaced a sample inbox card that showed a single moment and
+   neither of the two things the headline promises.
+
+   This is the one element inside the island that carries a shadow. The founder
+   asked for the artifact to be rethought rather than reskinned, and it now
+   floats on the hero wash instead of sitting on bone — paper-on-hairline has
+   nothing to separate it from a blurred colour field. It does not license
+   shadows elsewhere: everywhere else, paper + hairline is still the depth
+   model. */
+.hiw-flow {
+  position: relative;
+  margin: 0;
+  background: var(--rw-paper);
+  border: 1px solid var(--rw-line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 22px 48px -28px rgba(21, 25, 26, 0.42);
+}
+/* The rail. One line from the first node to the last; the gate band is opaque
+   and paints over its middle, which is exactly the interruption the headline
+   describes. */
+/* left: 28px puts the 1px rail on the node centres — 22px stage padding + the
+   node's 1px margin + half of its 11px width. */
+.hiw-flow::before {
+  content: '';
+  position: absolute;
+  left: 28px;
+  top: 74px;
+  bottom: 64px;
+  width: 1px;
+  background: var(--rw-line);
+}
+.hiw-flow-cap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 22px;
+  border-bottom: 1px solid var(--rw-line);
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+.hiw-flow-cap-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rw-forest);
+  flex: none;
+}
+.hiw-flow-cap-tail { margin-left: auto; white-space: nowrap; }
+
+.hiw-flow-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 8px;
+  padding: 20px 22px;
+}
+.hiw-flow-node {
+  grid-column: 1;
+  width: 11px;
+  height: 11px;
+  margin-left: 1px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--bar);
+  border: 1px solid var(--rw-line);
+  /* Lifts the node off the rail it sits on. */
+  box-shadow: 0 0 0 4px var(--rw-paper);
+}
+.hiw-flow-k {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--rw-ink2-mute);
+}
+.hiw-flow-panel {
+  grid-column: 2;
+  background: var(--rw-bone);
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.hiw-flow-panel.is-live { background: var(--rw-paper); border-color: var(--rw-line-2); }
+.hiw-flow-stars { font-size: 13px; color: var(--rw-ink2); letter-spacing: 1px; }
+.hiw-flow-quote { font-size: 15px; line-height: 1.5; margin-top: 8px; }
+.hiw-flow-who { font-size: 13px; color: var(--rw-ink2-mute); margin-top: 10px; }
+.hiw-flow-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--rw-ink2-soft);
+}
+.hiw-flow-tick {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--rw-forest);
+  color: #fff;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.hiw-flow-tick svg { width: 9px; height: 9px; }
+
+/* The pivot: the one dark surface, because it is the one place the owner
+   decides anything. Full-bleed so it reads as a band cutting the card, not as
+   another panel inside it. */
+.hiw-flow-gate {
+  position: relative;
+  background: var(--rw-ink2);
+  color: #fff;
+  padding: 16px 22px 18px;
+}
+.hiw-flow-gate-k {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  margin-bottom: 10px;
+}
+.hiw-flow-gate-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.hiw-flow-gate-rows li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+.hiw-flow-gate-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bar);
+  flex: none;
+  align-self: center;
+}
+.hiw-flow-gate-plan { color: #fff; white-space: nowrap; }
+.hiw-flow-gate-rule {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  align-self: center;
+}
+.hiw-flow-gate-v { color: rgba(255, 255, 255, 0.78); white-space: nowrap; }
+
+/* The artifact assembles in the order it describes: the rail draws down, the
+   gate band closes across it, then the reply's owner tick lands. Delays run on
+   from the card's own entrance (`.hiw-fade.d3`, 0.75s), so it reads as one
+   continuous move rather than two.
+
+   Inside `scripting: enabled` for Layer 0 — the start frames are hidden and
+   only `.is-in` reveals them, so without script this would be a card with no
+   rail and no gate. */
+.hiw-flow::before { transform-origin: top; }
+.hiw-flow-gate { transition: clip-path 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) 1.15s; }
+.hiw-flow-tick { transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) 1.6s; }
+@media (scripting: enabled) {
+  .hiw-flow::before {
+    transform: scaleY(0);
+    transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.95s;
+  }
+  .hiw-hero.is-in .hiw-flow::before { transform: none; }
+  .hiw-flow-gate { clip-path: inset(0 100% 0 0); }
+  .hiw-hero.is-in .hiw-flow-gate { clip-path: inset(0); }
+  .hiw-flow-tick { transform: scale(0); }
+  .hiw-hero.is-in .hiw-flow-tick { transform: none; }
+}
 
 /* ---------- Stat cards ---------- */
 .hiw-stats-band { padding-bottom: 24px; }
@@ -399,6 +565,15 @@
   .hiw-guarantees { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
+  /* The gate row is two `nowrap` labels either side of a flexing rule. Below
+     this width the rule squeezes to nothing and the value crowds the card
+     edge, so the value drops to its own line and the rule goes. Same for the
+     caption's tail. */
+  .hiw-flow-gate-rows li { flex-wrap: wrap; row-gap: 2px; }
+  .hiw-flow-gate-rule { display: none; }
+  .hiw-flow-gate-v { flex-basis: 100%; padding-left: 18px; white-space: normal; }
+  .hiw-flow-cap { flex-wrap: wrap; row-gap: 2px; }
+  .hiw-flow-cap-tail { margin-left: 18px; }
   .hiw-stats { grid-template-columns: 1fr; }
   .hiw-ov { grid-template-columns: 1fr 1fr; }
   .hiw-ov > div:nth-child(odd) { border-right: 1px solid var(--rw-line); }
@@ -419,4 +594,8 @@
   /* The wash's own reduced-motion stop lives with it in island.css. */
   .hiw-feed-row.is-new { animation: none; }
   .hiw-verdict .rw-dl-rec-dot { transform: none !important; transition: none !important; }
+  /* The hero artifact lands assembled: rail drawn, gate closed, tick in. */
+  .hiw-flow::before,
+  .hiw-flow-tick { transform: none !important; transition: none !important; }
+  .hiw-flow-gate { clip-path: none !important; transition: none !important; }
 }

@@ -53,7 +53,8 @@
   padding-top: 112px;
   padding-bottom: 88px;
 }
-.pr-eyebrow { font-size: 13px; color: var(--rw-ink2-mute); margin-bottom: 22px; }
+/* Soft, not mute — see the note on `.feat-eyebrow`; same measurement. */
+.pr-eyebrow { font-size: 13px; color: var(--rw-ink2-soft); margin-bottom: 22px; }
 .pr-h1 { font-size: clamp(44px, 4.2vw, 64px); line-height: 1.04; letter-spacing: 0; }
 .pr-h1 .ln { display: block; overflow: hidden; }
 .pr-h1 .ln span {
