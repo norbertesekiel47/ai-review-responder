@@ -50,7 +50,8 @@
     "worker/ingress/__tests__/resend-solicitation-lane.integration.test.ts",
     "worker/jobs/account-offboarding/purge-stages.ts",
     "CONTEXT.md",
-    "docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md"
+    "docs/superpowers/specs/2026-07-28-send-mode-executor-approval-design.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "an unattributed suppression-bearing event writes a global suppression row from the signed payload recipient and acks",
@@ -64,8 +65,8 @@
     "the payload-recipient fallback never logs the recipient address"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "90",
-  "estimated_test_lines": "190",
+  "estimated_prod_lines": "211 (corrected 2026-08-26 after the gate's reclassify row; the original 90 was wrong twice over — it under-modelled this file's comment density, 78 of the lane's 142 added lines being comment in a file already 55% comment, and it counted no line for the CONTEXT.md and D9 doc edits the intake itself names. Executable production code added is ~64 lines. Owner reviewed the measurement and kept the SMALL PATH: 5 of 5 declared files, one seam, zero new abstractions — no sprawl for the trigger to catch)",
+  "estimated_test_lines": "278 (corrected 2026-08-26; the original 190 never crossed its own 2x threshold)",
   "dependencies_added": [],
   "rollback_plan": "Revert the commit. There is no schema change, no migration, and no feature flag, so the lane returns to throw-on-unmatched immediately. Global ledger rows already written stay: they are correct opt-outs and the ledger has no expiry by design.",
   "observability": [

@@ -277,6 +277,24 @@ async function readUnattributedLedger(): Promise<LedgerRow[]> {
  * `loadAttribution`'s join has nothing left to find — the state a bounce
  * arriving after the purge actually meets.
  */
+/**
+ * The Error a call threw, narrowed.
+ *
+ * `rejects.toThrow` can assert what a message CONTAINS but not what it must
+ * NOT — and these messages land in `inbound_events.error_message` and in the
+ * logs, so the redaction rule needs the object itself.
+ */
+async function captureThrow(work: Promise<unknown>): Promise<Error> {
+  const outcome = await work.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  if (!(outcome instanceof Error)) {
+    throw new Error(`expected the lane to throw an Error, got ${String(outcome)}`);
+  }
+  return outcome;
+}
+
 async function purgeContactChain(seeded: SeededOutreach): Promise<void> {
   await sql()`DELETE FROM solicitation_contacts WHERE id = ${seeded.contactId}::uuid`;
   const survivors = await sql()<{ id: string }[]>`
@@ -983,14 +1001,12 @@ describeWithDb(
 
       // A global row blocks that person for EVERY tenant, so the lane refuses
       // to guess which of two addresses opted out rather than suppressing both.
-      const failure = await handleSolicitationResendEvent(
-        sql(),
-        'email.suppressed',
-        'msg_multi_recipient',
-        { to: [first, second] },
-      ).catch((error: unknown) => error as Error);
+      const failure = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.suppressed', 'msg_multi_recipient', {
+          to: [first, second],
+        }),
+      );
 
-      expect(failure).toBeInstanceOf(Error);
       expect(failure.message).toMatch(/carried 2 recipient addresses/);
       // The message lands in inbound_events.error_message and in the logs.
       expect(failure.message).not.toContain(first);
@@ -1001,14 +1017,12 @@ describeWithDb(
     it('an unattributed suppression-bearing event whose recipient address is unparseable throws', async () => {
       const junk = 'not an address at all';
 
-      const failure = await handleSolicitationResendEvent(
-        sql(),
-        'email.complained',
-        'msg_unparseable_recipient',
-        { to: [junk] },
-      ).catch((error: unknown) => error as Error);
+      const failure = await captureThrow(
+        handleSolicitationResendEvent(sql(), 'email.complained', 'msg_unparseable_recipient', {
+          to: [junk],
+        }),
+      );
 
-      expect(failure).toBeInstanceOf(Error);
       expect(failure.message).toMatch(/unparseable recipient address/);
       expect(failure.message).not.toContain(junk);
       // Refused rather than stored raw: the §1.2 lookup compares against
