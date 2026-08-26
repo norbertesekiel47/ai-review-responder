@@ -287,15 +287,31 @@ one page enter at different scroll positions.
   (36px ≤680px), for an intro sitting directly above a bordered artifact — a
   matrix, an accordion. Page CSS must not add a private `margin-bottom` override;
   three of them had accumulated at 80/56/48 before this scale existed.
-- **Sticky chrome must clear the nav pill, and the pill is a capsule.** Anything
-  that pins under `SiteNav` pins at `top: 0` with 92px of padding above its own
-  row — not at `top: 92px`. `.rw-navwrap` is transparent, so content scrolls
-  through the full-width strip above the pill, and the pill's 9999px radius
-  leaves four wedge-shaped corner gaps that glyphs show through. The padded
-  version makes one opaque header zone with the pill floating on it. The nav's
-  z-index is 50; sticky page chrome sits at 3. `/features`' `.feat-grp-hd` is
-  the worked example, and it is hidden below 680px, where 138px of permanent
-  chrome is not worth the phone viewport.
+- **Sticky chrome pins at `top: 92px`, the nav pill's bottom edge.** The nav
+  occludes the zone above it: `.rw-navwrap` pins at `top: 0` with 28px of
+  padding (the pill still lands at 28–92, since 0+28 = 14+14), and
+  `.rw-island-wrap .rw-navwrap` paints it bone. Both halves are load-bearing —
+  without the box starting at 0 there is nothing to paint, and without the
+  paint, content scrolls through the strip above the pill AND through the four
+  wedge gaps its 9999px radius leaves at the corners. The scope is
+  `.rw-island-wrap` because that is SiteShell's and only SiteShell's; `.rw-island`
+  alone would also catch the auth island, which is white. The nav's z-index is
+  50, sticky page chrome sits at 3. `/features`' `.feat-grp-hd` is the worked
+  example, hidden below 680px where 138px of permanent chrome is not worth the
+  phone viewport.
+- **Align cards to each other with subgrid, never with reserved heights.** Two
+  `min-height` guesses used to align the pricing cards; each was sized for the
+  tallest flag posture, so the common posture carried ~77px of dead space per
+  card and a taller-than-expected posture would still have broken the alignment
+  they existed to protect. `.pr-plans` now declares the rows and both cards
+  subgrid them. Row-subgrid containers take **horizontal padding only** —
+  vertical padding insets the first and last tracks and breaks the alignment.
+- **The ledger head** — label, flexing hairline rule, right-aligned tail — is
+  the shared shape for a section's own header: `.feat-toc-head` (index),
+  `.feat-grp-row` (group bar), `.pr-ledger-hd` (plans). The label leads at 20px
+  ink and the tail stays 13px mute. Where a section has one, that label is the
+  section's real `<h2>` — do not pair it with an `sr-only` heading saying
+  something else.
 - **Never scope a bare-element reset above class specificity.** A page scope must
   be written `:where(.page p) { margin: 0 }`, never `.page p { margin: 0 }`. The
   latter scores 0,1,1 and silently out-specifies every 0,1,0 class rule on the

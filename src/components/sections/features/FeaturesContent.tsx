@@ -83,10 +83,14 @@ const MARQUEE_REVIEWS: Array<{ lang: string; stars: string; ratingValue: number;
   { lang: 'EN', stars: '★★★★☆', ratingValue: 4, text: 'Sample review · "Made my Monday"' },
 ];
 
-// The marquee track is doubled so the -50% translate loops seamlessly.
+// The marquee track is doubled so the -50% translate loops seamlessly. The
+// second copy exists only to make the wrap invisible, so it is marked as a
+// duplicate: the marquee is deliberately IN the accessibility tree (each chip
+// says "Sample review"), and without this a screen reader read all nine samples
+// twice over.
 const MARQUEE_TRACK = [
-  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}` })),
-  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}` })),
+  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `a-${r.text}`, dup: false })),
+  ...MARQUEE_REVIEWS.map((r) => ({ r, k: `b-${r.text}`, dup: true })),
 ];
 
 function HeroSection({
@@ -150,8 +154,8 @@ function HeroSection({
       {/* Hero review marquee */}
       <div className="rw-feat-marquee-mask" aria-hidden={false}>
         <div className="rw-feat-marquee-track">
-          {MARQUEE_TRACK.map(({ r, k }) => (
-            <div key={k} className="feat-mq-chip">
+          {MARQUEE_TRACK.map(({ r, k, dup }) => (
+            <div key={k} className="feat-mq-chip" aria-hidden={dup || undefined}>
               <span className="feat-mq-lang">{r.lang}</span>
               <ReviewStars rating={r.ratingValue} glyphs={r.stars} />
               <span className="feat-mq-text">{r.text}</span>
@@ -172,7 +176,7 @@ function FeatureIndex({ onJump }: { onJump: (id: ChapterId) => void }) {
     <section id="feat-index" aria-label="Feature index" className="rw-dl-band is-paper is-tight feat-toc">
       <div className="rw-dl-col">
         <div className="feat-toc-head">
-          <span>Index</span>
+          <h2 className="feat-toc-name">Index</h2>
           <span className="feat-toc-rule" aria-hidden="true" />
           <span>3 agents · 2 watchdogs · 2 modes</span>
         </div>

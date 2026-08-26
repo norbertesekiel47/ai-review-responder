@@ -596,10 +596,13 @@ export function PricingContent({
       {/* Plans — two dossier cards under a ledger rule */}
       <section className="pr-plans-band" aria-labelledby="pr-plans-h">
         <div className="rw-dl-col">
-          <h2 className="sr-only" id="pr-plans-h">Plans</h2>
           <Reveal>
+            {/* The visible ledger label IS the section heading now. It used to
+                sit beside an `sr-only` h2 reading "Plans", so the outline and
+                the page said different things and the visible label carried no
+                weight at all. */}
             <div className="pr-ledger-hd">
-              <span>Two plans · billed monthly</span>
+              <h2 className="pr-ledger-name" id="pr-plans-h">Two plans · billed monthly</h2>
               <span className="pr-ledger-rule" aria-hidden="true" />
               <span>All prices in USD</span>
             </div>

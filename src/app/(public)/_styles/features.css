@@ -171,14 +171,18 @@
 /* The index's tighter band now comes from the shared `.rw-dl-band.is-tight`
    (64px), set on the element in FeaturesContent.tsx — the private 56px was the
    last band padding on this page sitting outside the scale. */
+/* The ledger head shape, shared by three places on these pages: this index,
+   the group bar (`.feat-grp-row`), and pricing's plans header
+   (`.pr-ledger-hd`). Label leads at 20px ink, rule flexes, tail 13px mute. */
 .feat-toc-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 16px;
   font-size: 13px;
   color: var(--rw-ink2-mute);
   margin-bottom: 24px;
 }
+.feat-toc-name { font-size: 20px; color: var(--rw-ink2); }
 .feat-toc-rule { flex: 1; height: 1px; background: var(--rw-line); }
 .feat-idx {
   border: 1px solid var(--rw-line);
@@ -235,19 +239,15 @@
    to the next group's bar. It reuses the ledger-head vocabulary already on this
    page (`.feat-toc-head`): label · hairline rule · tail.
 
-   It pins at `top: 0` with 92px of padding above its row, NOT at `top: 92px`.
-   Flush-under-the-pill was tried and looks broken: `.rw-navwrap` is
-   transparent, so content scrolls through the full-width strip above the pill,
-   and because the pill is a 9999px-radius capsule its rounded corners leave
-   four wedge-shaped gaps that glyphs show through. Starting the bar at 0 makes
-   one opaque bone header zone with the pill floating on it — which is what the
-   top of the page already looks like. The nav's z-index (50) beats this bar's
-   (3), so the pill always draws over it.
+   It pins flush at `top: 92px`, the nav pill's bottom edge. This bar used to
+   carry its own 92px occluder because `.rw-navwrap` was transparent and content
+   scrolled through the strip above the pill and through the wedge gaps its
+   9999px radius leaves at the corners. `.rw-navwrap` now occludes that zone
+   itself (island.css), so the 92px of flow height per group — ~276px over the
+   page — is no longer being spent here.
 
-   The 92px is flow height at each group's natural position, ~276px over the
-   page. That is the price of the clean header zone, and it doubles as the act
-   break that `.is-open` used to provide — which is why the three group-opening
-   chapters are plain `.is-tight`.
+   The three group-opening chapters stay plain `.is-tight`: the bar is still
+   the act break, so `.is-open` on top of it would double the gesture.
 
    Bone, because the bar crosses both band surfaces: over a bone band it reads
    as the canvas, over a paper band as the same paper↔bone junction every band
@@ -256,9 +256,8 @@
 .feat-grp { position: relative; }
 .feat-grp-hd {
   position: sticky;
-  top: 0;
+  top: 92px;
   z-index: 3;
-  padding-top: 92px;
   background: var(--rw-bone);
 }
 .feat-grp-row {

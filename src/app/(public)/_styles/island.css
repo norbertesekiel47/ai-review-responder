@@ -1065,16 +1065,27 @@
    ======================================================================== */
 
 /* ---------- Nav (sticky white pill inside the island) ---------- */
+/* `top: 0` with 28px of padding, not `top: 14px` with 14px — the pill lands in
+   exactly the same place either way (0+28 = 14+14), but the sticky BOX now
+   starts at the viewport edge instead of 14px down, so it can occlude. Without
+   that, page content scrolls visibly through the strip above the pill. */
 .rw-navwrap {
   position: sticky;
-  top: 14px;
+  top: 0;
   z-index: 50;
-  padding: 14px 0 0;
+  padding: 28px 0 0;
   font-family: var(--rw-font-body);
   font-weight: 400;
   color: var(--rw-ink2);
   font-variant-numeric: tabular-nums;
 }
+/* The occluder itself, scoped to `.rw-island-wrap` — SiteShell's wrapper, and
+   only SiteShell's, so it reaches every bone-island Daylight page and no
+   classic-register surface. (`.rw-island` alone would also catch the auth
+   island, which is white and renders no nav inside it.) Bone matches the island
+   canvas, so at rest it is invisible; over a paper band it reads as the same
+   paper↔bone junction every band boundary makes. */
+.rw-island-wrap .rw-navwrap { background: var(--rw-bone); }
 .rw-nav-col {
   max-width: 1200px;
   margin: 0 auto;
