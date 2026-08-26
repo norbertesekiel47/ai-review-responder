@@ -613,6 +613,7 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
   it('substitutes the review-link placeholder only in the outbound message and never sends the stored placeholder', async () => {
     // ── Half 1: the substitution itself, over the REAL stored bytes ──────────
     const unsubscribeUrl = `${APP_URL}/u/nonce.mac`;
+    const unsubscribeOneClickUrl = 'https://worker.test/ingress/unsubscribe/nonce.mac';
     const message = assembleOutboundMessage({
       outreachId: OUTREACH_ID,
       accountId: ACCOUNT_ID,
@@ -624,6 +625,7 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
       subject: STORED_SUBJECT,
       storedBody: STORED_BODY,
       unsubscribeUrl,
+      unsubscribeOneClickUrl,
       reviewLink: EXPECTED_REVIEW_LINK,
     });
 
@@ -643,6 +645,14 @@ describe('dispatchOutreach — gate ordering and provider isolation', () => {
     // §7.1's multipart rule and §7.2's "conspicuous" opt-out.
     expect(message.bodyHtml).toContain(`<a href="${unsubscribeUrl}">`);
     expect(message.unsubscribeUrl).toBe(unsubscribeUrl);
+
+    // #966: the MACHINE endpoint travels beside the message for the
+    // List-Unsubscribe header and NEVER enters the body — a recipient reads a
+    // page, a mail client POSTs an endpoint.
+    expect(message.unsubscribeOneClickUrl).toBe(unsubscribeOneClickUrl);
+    for (const part of [message.bodyText, message.bodyHtml, message.subject]) {
+      expect(part).not.toContain(unsubscribeOneClickUrl);
+    }
 
     // The **Owner approval** contract: substituting BACK reproduces the stored
     // bytes exactly, so the two placeholder swaps are demonstrably the ONLY

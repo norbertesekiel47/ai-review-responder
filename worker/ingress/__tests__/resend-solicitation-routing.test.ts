@@ -298,6 +298,8 @@ describe('handleResendWebhook — solicitation lane routing', () => {
         bodyHtml: '<p>Would you mind leaving a review?</p>',
         bodyText: 'Would you mind leaving a review?',
         unsubscribeUrl: 'https://worker.test.repworth.net/u/tok_657_roundtrip',
+        unsubscribeOneClickUrl:
+          'https://worker.test.repworth.net/ingress/unsubscribe/tok_657_roundtrip',
       };
     }
 

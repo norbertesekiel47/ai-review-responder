@@ -53,7 +53,7 @@ function input(overrides: Partial<AskLintInput> = {}): AskLintInput {
 
 describe('module contract', () => {
   it('pins the version and the eight-member block-reason vocabulary', () => {
-    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-07-31.4');
+    expect(ASK_LINT_VERSION).toBe('ask_lint_2026-08-25.1');
     expect(ASK_BLOCK_REASONS).toEqual([
       'incentive_language',
       'review_steering',
@@ -423,6 +423,18 @@ describe('class 5 — deceptive_subject (AMEND B5 union)', () => {
 });
 
 describe('class 6 — unverifiable_fact (provenance)', () => {
+  it('exempts mid-sentence "Google" — the prompt asserts the platform (#963)', () => {
+    const verdict = lintAsk(
+      input({
+        body: assembled(
+          'Hi Dana — would you leave us a quick review on Google? It only takes a minute.',
+        ),
+      }),
+    );
+    expect(verdict.blockedReason).toBeNull();
+    expect(verdict.matches).toEqual([]);
+  });
+
   it('blocks a lowercase invented-history claim (codex round-3 regression)', () => {
     const verdict = lintAsk(
       input({

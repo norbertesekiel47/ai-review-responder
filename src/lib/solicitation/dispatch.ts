@@ -793,6 +793,34 @@ function buildUnsubscribeUrl(rawToken: string): string {
   return `${appUrl.replace(/\/+$/, '')}/u/${encodeURIComponent(rawToken)}`;
 }
 
+/**
+ * The MACHINE opt-out URL — RFC 8058's one-click POST target, and a DIFFERENT
+ * endpoint from the human page above (#966).
+ *
+ * The two cannot be one URL. A mail client POSTs the `List-Unsubscribe` HTTPS
+ * member with no interaction, so that member must hit a handler that WRITES the
+ * suppression; the `/u/<token>` page is a Next.js page whose POST renders the
+ * confirm button and writes nothing, so advertising it makes every provider
+ * one-click a silent 200 no-op. Found live at #633's staging flip, where the
+ * header pointed at the page and the ledger stayed empty.
+ *
+ * The ingress form is also the invariant-#6 home for third-party-facing
+ * traffic: a mail provider is not a browser.
+ *
+ * FAIL CLOSED, same rule as the page URL: no resolvable machine endpoint means
+ * an advertised header we cannot honour, which is worse than a mailto-only
+ * header (`getEmailHeaders` degrades to exactly that when this is absent).
+ */
+function buildUnsubscribeOneClickUrl(rawToken: string): string {
+  const workerUrl = getWorkerConfig().WORKER_PUBLIC_URL?.trim();
+  if (!workerUrl) {
+    throw new Error(
+      'WORKER_PUBLIC_URL is unset — a solicitation ask cannot carry a one-click unsubscribe endpoint',
+    );
+  }
+  return `${workerUrl.replace(/\/+$/, '')}/ingress/unsubscribe/${encodeURIComponent(rawToken)}`;
+}
+
 /** The mint's result. The raw token exists ONLY here and downstream in memory. */
 interface MintedUnsubscribeToken {
   rawToken: string;
@@ -872,7 +900,11 @@ export interface OutboundMessageInput {
   subject: string;
   /** The STORED bytes, exactly as the owner approved them. */
   storedBody: string;
+  /** Footer URL — the human `/u/<token>` page. Substituted into the body. */
   unsubscribeUrl: string;
+  /** Header URL — the machine ingress endpoint. NEVER substituted into the
+   *  body; the recipient reads a page, a mail client POSTs an endpoint (#966). */
+  unsubscribeOneClickUrl: string;
   reviewLink: string;
 }
 
@@ -947,10 +979,12 @@ export function assembleOutboundMessage(input: OutboundMessageInput): OutboundMe
     subject: input.subject,
     bodyHtml,
     bodyText,
-    // The same URL the footer carries, handed over separately because the
-    // adapter also feeds it to the RFC 8058 List-Unsubscribe header. Two
-    // consumers, one mint.
+    // TWO consumers, TWO mints (#966). The footer URL is the human page and is
+    // already substituted into the body above; the one-click URL is the machine
+    // ingress endpoint and reaches the wire ONLY as the List-Unsubscribe
+    // header. Collapsing them ships a header that no-ops.
     unsubscribeUrl: input.unsubscribeUrl,
+    unsubscribeOneClickUrl: input.unsubscribeOneClickUrl,
   };
 }
 
@@ -1745,6 +1779,7 @@ async function runDispatchTx(
     subject: outreach.rendered_subject,
     storedBody: outreach.rendered_body,
     unsubscribeUrl: buildUnsubscribeUrl(minted.rawToken),
+    unsubscribeOneClickUrl: buildUnsubscribeOneClickUrl(minted.rawToken),
     reviewLink,
   });
 

@@ -22,7 +22,7 @@ import type { Vertical } from './restraint-policy';
  * SOLICITATION_ASK_PROMPT_BASE changes so the render row's prompt version
  * reflects the change (PROMPT_VERSION pattern).
  */
-export const SOLICITATION_ASK_PROMPT_VERSION = '2026-07-30.1';
+export const SOLICITATION_ASK_PROMPT_VERSION = '2026-08-25.1';
 
 /**
  * The ENTIRE system prompt for the `solicitation_ask` task (spec §1.3) —
@@ -39,6 +39,11 @@ export const SOLICITATION_ASK_PROMPT_BASE = [
   '',
   'Rules you must always follow:',
   '- State no fact that is not present in the supplied fields.',
+  // #963 staging finding: the model habitually wrote Title-Case subjects and
+  // the §2.4 provenance arm reads every capitalized mid-sentence token as an
+  // invented fact — 4/4 asks withheld. Style instruction, not a lint change:
+  // weakening the subject's provenance coverage is a spec-owner decision.
+  '- Write the subject in sentence case: capitalize only the first word and names taken from the supplied fields.',
   '- Never offer, mention, or imply any discount, freebie, gift, entry, or other consideration.',
   '- Never propose review wording, keywords, star counts, or talking points.',
   '- Never make the request conditional on how the visit went.',

@@ -1,5 +1,5 @@
 {
-  "version": "ask_lint_2026-07-31.4",
+  "version": "ask_lint_2026-08-25.1",
   "blockReasons": [
     "incentive_language",
     "review_steering",
@@ -303,6 +303,7 @@
         "december",
         "february",
         "friday",
+        "google",
         "hello",
         "hey",
         "hi",

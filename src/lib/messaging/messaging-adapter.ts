@@ -41,8 +41,12 @@ export interface OutboundMessage {
   bodyHtml: string;
   /** Plain-text alternative. Always present — HTML-only is a spam signal (§7.1). */
   bodyText: string;
-  /** Per-ask one-click unsubscribe URL — the Railway ingress form (§7.3). */
+  /** Per-ask HUMAN opt-out URL — the `/u/<token>` page, carried in the footer. */
   unsubscribeUrl: string;
+  /** Per-ask MACHINE opt-out URL — the Railway ingress form (§7.3), and the
+   *  only member RFC 8058's one-click POST may advertise. Separate from the
+   *  footer URL because a POST to the page writes nothing (#966). */
+  unsubscribeOneClickUrl: string;
 }
 
 export interface MessagingAdapter {

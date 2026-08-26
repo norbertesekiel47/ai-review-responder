@@ -17,6 +17,11 @@ process.env.NEXT_PUBLIC_APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 process.env.REDIS_QUEUE_URL =
   process.env.REDIS_QUEUE_URL ?? 'redis://localhost:6379/1';
+// #966: buildUnsubscribeOneClickUrl fails closed without a worker origin, so
+// every dispatch suite needs one. Suites that assert the fail-closed throw
+// delete the var in-test, same as the NEXT_PUBLIC_APP_URL pattern above.
+process.env.WORKER_PUBLIC_URL =
+  process.env.WORKER_PUBLIC_URL ?? 'http://localhost:3001';
 
 // Extend jest-dom matchers (toBeInTheDocument, etc.) for jsdom-environment tests.
 // The import is a no-op in node-environment tests because the global `document`
