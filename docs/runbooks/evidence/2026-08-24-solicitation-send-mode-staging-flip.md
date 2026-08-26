@@ -719,4 +719,19 @@ candidates. Therefore the remaining arms run in this order:
   same instant.
 - **Unproven paths 6 AND 12 CLOSED.**
 
+### Cap ramp — stage 1 (07:28–07:29 UTC)
+
+- §6 fully green as of the one-click proof, so the D-2-recorded owner
+  decision applies: `SOLICITATION_PLATFORM_DAILY_CAP` 10 → **50**
+  (ramp stage 1, runbook §5) via the `flag-flip` skill (env-vars entry
+  re-read; Railway-only dial, fails closed to 0). Deployment `6e7c210c`
+  SUCCESS, boot clean 07:29:26 — the boot assertion accepted the value.
+- **Baseline moved again (recorded, not a deviation)**: the redeploy
+  built from `bbf07d55` — the staging branch advanced under the campaign
+  with unrelated parallel work (#892 purge sentinels, #895, #968 landing
+  carousel). Verified: `d007ee80` (this campaign's #963+#966 fixes) is an
+  ancestor of `bbf07d55` — the fixes ride along; nothing solicitation-
+  facing changed. The "do not reset staging to main" rule was about
+  RESETS; a forward merge is the normal integration-anchor motion.
+
 *(further entries appended in runbook order)*
