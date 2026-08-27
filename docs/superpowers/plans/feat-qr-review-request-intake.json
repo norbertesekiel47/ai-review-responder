@@ -54,6 +54,7 @@
   "allowed_edit_surface": [
     "supabase/migrations/115_qr_scan_analytics_event.sql",
     ".claude/reference/migrations-log.md",
+    ".claude/reference/arch-review-log.md",
     "CONTEXT.md",
     "src/lib/analytics/events.ts",
     "src/lib/analytics/__tests__/**",

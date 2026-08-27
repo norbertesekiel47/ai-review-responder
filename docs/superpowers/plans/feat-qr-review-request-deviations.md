@@ -107,3 +107,38 @@
   the `IconName` union in `@/components/dashboard/shell/Icon` (it exists;
   also used by the Locations entry — icon reuse is the file's precedent,
   e.g. 'chart' and 'shield' each appear twice).
+
+- [2026-08-26] AMENDMENT #4 (auto-approved category — 1 file inside the
+  already-covered `.claude/reference/` tree) + gate-fix round 1: the first
+  `--review` gate ran RED on exactly two rows. (a) `lint`: the plan's own
+  print-page code block used a `../../PrintButton` parent-traversal import,
+  which the repo's lint restricts → aliased to
+  `@/app/(authenticated)/settings/review-qr/PrintButton`. (b)
+  `merge-ledger`: every production PR must add its row to
+  `.claude/reference/arch-review-log.md`, a structural requirement of the
+  audit that no intake draft anticipated → file added to the surface, row
+  added (counter increment deliberately left to step 8, per the audit's own
+  text). Everything else was green on the first run — including
+  `feature-surface` (now that the declared files exist), `promised-tests`
+  (18/18) and `diff-coverage`.
+
+## Step 6 read-back verdicts (orchestrator, 2026-08-26, pre-review)
+
+- ACCEPT — Codex R3 record, AMENDMENTS #1/#2/#3, test retitle, edge-case
+  correction, tests_to_add additions (5+3): all plan-time records, all
+  owner-visible, decisions stand.
+- ACCEPT — Task 1 optional-chaining (11 sites): typecheck-forced extension
+  of the codex-R3 fix; assertion semantics unchanged.
+- ACCEPT — Task 1 count note: prose off-by-one; 18/18 titles all land.
+- ACCEPT — Task 1 integration seeding (helper + plain UPDATEs, suite-local
+  SchemaRequirement): DML-only, the no-run-time-DDL convention holds; the
+  assert-not-migrate posture is exactly the live-DB convention.
+- ACCEPT — Task 4 ALLOWLIST_BASELINE 369→370: mechanically required by the
+  file's own growth gate; one statement-granular entry sufficed.
+- ACCEPT (superseded in part) — the Codex R1 REJECTIONS entry: M17–M19 and
+  M20 were REVERSED in round 2 on real evidence (see AMENDMENT #3); the
+  remaining rejections (HEAD test, feature-surface, harness skills) stand.
+- ACCEPT — Task 6 `<section>` root (nested `<main>` is invalid HTML),
+  TopBar house props (the plan's own parenthetical authorized it), icon
+  confirmation.
+- RE-PLAN — none. No entry invalidates a locked intake decision.

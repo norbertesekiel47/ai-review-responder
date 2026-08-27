@@ -10,7 +10,7 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { getOwnerReviewQrLocations } from '@/lib/locations/review-qr';
-import { PrintButton } from '../../PrintButton';
+import { PrintButton } from '@/app/(authenticated)/settings/review-qr/PrintButton';
 
 const PRINT_CSS = `
 .review-qr-sheet {
