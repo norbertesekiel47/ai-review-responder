@@ -1336,6 +1336,12 @@ staging ride, per the user-global CLAUDE.md § Design work rule.
 
 Against the staging URL, with a staging location's business UUID `<id>`:
 
+0. Publish and VERIFY an ENFORCING GET/HEAD rate-limit rule covering `/q/*`
+   per `docs/runbooks/vercel-waf-rate-limiting.md` — BEFORE any printed QR
+   is exposed; verify on staging with a curl burst (expect 429s past the
+   threshold). The route writes a durable analytics row per scan; /q/* is
+   outside the runbook's current enforcing coverage (adversarial R1 A2,
+   accepted as an ops gate).
 1. `curl -sI https://<staging>/q/<id>` → `302`, `location:` is the Google
    write-review URL, `cache-control: no-store`.
 2. `curl -sI -X HEAD https://<staging>/q/<ID-UPPERCASED>` → same `302`

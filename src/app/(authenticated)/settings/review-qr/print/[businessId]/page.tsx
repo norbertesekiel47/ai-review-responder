@@ -9,7 +9,7 @@
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
-import { getOwnerReviewQrLocations } from '@/lib/locations/review-qr';
+import { getOwnerReviewQrLocation } from '@/lib/locations/review-qr';
 import { PrintButton } from '@/app/(authenticated)/settings/review-qr/PrintButton';
 
 const PRINT_CSS = `
@@ -68,12 +68,12 @@ export default async function ReviewQrPrintPage({
 }) {
   const { businessId } = await params;
   const access = await requireOwnerAccess(sql);
-  const locations = await getOwnerReviewQrLocations(
+  const location = await getOwnerReviewQrLocation(
     sql,
     access.accountId,
+    businessId,
     process.env.NEXT_PUBLIC_APP_URL ?? '',
   );
-  const location = locations.find((entry) => entry.businessId === businessId);
   if (!location || location.qrDataUrl === null) notFound();
   return (
     <section className="review-qr-sheet">

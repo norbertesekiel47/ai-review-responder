@@ -47,11 +47,13 @@ describe('ReviewQrClient', () => {
     expect(screen.getAllByRole('link', { name: /print/i })).toHaveLength(1);
   });
 
-  it('shows one empty-state sentence pointing at Locations settings when there are no locations', () => {
+  it('shows one empty-state sentence pointing at the dashboard when there are no locations', () => {
+    // Never /settings/locations — that route 404s when the multi-location
+    // flag is off (adversarial R1 spec appendix).
     render(<ReviewQrClient locations={[]} />);
-    expect(screen.getByRole('link', { name: /locations/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
       'href',
-      '/settings/locations',
+      '/dashboard',
     );
     expect(screen.queryByRole('link', { name: /download png/i })).toBeNull();
   });

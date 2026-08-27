@@ -4,9 +4,7 @@
 // non-archived location. Eligible locations get the QR preview, the encoded
 // QR-redirect link, a PNG download, and a print-view link; ineligible ones
 // (non-canonical Google Place ID) get the explanatory card and no actions.
-// Console system: SettingsShell + .set-section primitives from settings.css;
-// the few layout styles are inline with var(--rw-*) tokens because this
-// task's file surface does not include the stylesheet.
+// Console system: SettingsShell + .set-section primitives from settings.css.
 
 import Link from 'next/link';
 import { SettingsShell } from '@/components/dashboard/settings/SettingsShell';
@@ -22,10 +20,13 @@ export function ReviewQrClient({ locations }: Props) {
     return (
       <SettingsShell>
         <div className="set-section">
+          {/* Links the dashboard, not /settings/locations — that route 404s
+              when the multi-location flag is off (adversarial R1 spec
+              appendix): no owner may ever get a dead link. */}
           <p className="settings-body-copy">
-            Add a location in{' '}
-            <Link href="/settings/locations" style={{ color: 'var(--rw-accent-700)', fontWeight: 600 }}>
-              Locations settings
+            Add a location from your{' '}
+            <Link href="/dashboard" style={{ color: 'var(--rw-accent-700)', fontWeight: 600 }}>
+              dashboard
             </Link>{' '}
             to get its review QR code.
           </p>

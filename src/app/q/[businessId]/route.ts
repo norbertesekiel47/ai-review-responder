@@ -8,13 +8,16 @@
 // redirect is possible. Every refusal renders the scanner-facing unavailable
 // page (200, no-store) with one reason-coded log line — never an error leak.
 //
-// UI-only per invariant #1: one short DB read + best-effort analytics insert
-// + redirect. The insert deliberately runs AFTER resolve, in its own
-// try/catch: a scan must reach Google even when analytics is down (the
+// UI-only per invariant #1: one short DB read + redirect, with the
+// best-effort analytics insert deferred via `after()`: the 302 returns
+// FIRST, and the guarded insert runs post-response, so a stalled insert can
+// no longer delay a scanner (adversarial R1 A1 — the old code awaited the
+// insert on the critical path). The try/catch stays INSIDE the after
+// callback: a failed insert is reported, never thrown (the
 // best-effort-after-primary-side-effect gotcha).
 
 import { randomUUID } from 'node:crypto';
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db/server';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
 import { makeAnalyticsEventKey } from '@/lib/analytics/events';
@@ -70,21 +73,23 @@ export async function GET(
     return unavailablePage();
   }
 
-  try {
-    await enqueueAnalyticsEvent(sql, {
-      eventName: 'qr_scan_redirected',
-      eventKey: makeAnalyticsEventKey('qr_scan_redirected', [businessId, randomUUID()]),
-      distinctId: resolution.accountId,
-      accountId: resolution.accountId,
-      businessId,
-      // Duplicated INTO properties on purpose: AnalyticsDispatchPoller
-      // forwards only the properties JSON (plus $insert_id) to PostHog —
-      // the DB columns never reach it (codex R1 M3/M4).
-      properties: { account_id: resolution.accountId, business_id: businessId },
-    });
-  } catch (err) {
-    reportCaughtError('q/[businessId] GET analytics', err, { businessId });
-  }
+  after(async () => {
+    try {
+      await enqueueAnalyticsEvent(sql, {
+        eventName: 'qr_scan_redirected',
+        eventKey: makeAnalyticsEventKey('qr_scan_redirected', [businessId, randomUUID()]),
+        distinctId: resolution.accountId,
+        accountId: resolution.accountId,
+        businessId,
+        // Duplicated INTO properties on purpose: AnalyticsDispatchPoller
+        // forwards only the properties JSON (plus $insert_id) to PostHog —
+        // the DB columns never reach it (codex R1 M3/M4).
+        properties: { account_id: resolution.accountId, business_id: businessId },
+      });
+    } catch (err) {
+      reportCaughtError('q/[businessId] GET analytics', err, { businessId });
+    }
+  });
 
   return new NextResponse(null, {
     status: 302,

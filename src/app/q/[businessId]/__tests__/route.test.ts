@@ -14,15 +14,39 @@ const { db } = vi.hoisted(() => {
     rowsPerCall: [] as unknown[][],
     calls: [] as { text: string; values: unknown[] }[],
     failOnCall: -1,
+    stallOnCall: -1,
   };
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const index = state.calls.length;
     state.calls.push({ text: strings.join('?'), values });
     if (index === state.failOnCall) throw new Error('insert failed');
+    if (index === state.stallOnCall) return new Promise<unknown[]>(() => {}); // never settles
     return state.rowsPerCall[index] ?? [];
   };
   return { db: { state, sql: Object.assign(fn, { json: (v: unknown) => v }) } };
 });
+
+// Partial mock of next/server: everything real EXCEPT `after`, which queues
+// its callback instead of scheduling post-response work (there is no
+// response lifecycle under vitest). flushAfter() below drains the queue —
+// tests asserting on the analytics insert flush first; the stalled-insert
+// regression test deliberately does NOT.
+const { afterQueue } = vi.hoisted(() => ({
+  afterQueue: [] as Array<() => void | Promise<void>>,
+}));
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>();
+  return {
+    ...actual,
+    after: (task: () => void | Promise<void>) => {
+      afterQueue.push(task);
+    },
+  };
+});
+
+async function flushAfter(): Promise<void> {
+  for (const task of afterQueue.splice(0)) await task();
+}
 
 vi.mock('@/lib/db/server', () => ({ sql: db.sql }));
 vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError: vi.fn() }));
@@ -57,6 +81,8 @@ beforeEach(() => {
   db.state.rowsPerCall = [];
   db.state.calls = [];
   db.state.failOnCall = -1;
+  db.state.stallOnCall = -1;
+  afterQueue.length = 0;
   loggerFake.log.mockClear();
   vi.mocked(reportCaughtError).mockClear();
 });
@@ -110,14 +136,30 @@ describe('GET /q/[businessId]', () => {
     db.state.rowsPerCall = [[liveRow()]];
     db.state.failOnCall = 1; // the INSERT
     const res = await call(BUSINESS_UUID);
+    await flushAfter(); // run the deferred (failing) insert — the 302 stands
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(WRITE_REVIEW_URL);
+  });
+
+  it('returns the 302 before a stalled analytics insert resolves', async () => {
+    // Adversarial R1 A1: the old code AWAITED the insert on the critical
+    // path, so a stalled INSERT delayed or killed the redirect. Under
+    // after() the GET resolves with only the resolve SELECT issued; the
+    // never-settling call 1 would hang this test if the await came back.
+    db.state.rowsPerCall = [[liveRow()]];
+    db.state.stallOnCall = 1; // the INSERT never settles
+    const res = await call(BUSINESS_UUID);
+    // Deliberately NO flushAfter() here.
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(WRITE_REVIEW_URL);
+    expect(db.state.calls).toHaveLength(1); // the resolve SELECT only, so far
   });
 
   it('records a qr_scan_redirected analytics event on a successful redirect', async () => {
     db.state.rowsPerCall = [[liveRow()]];
     const res = await call(BUSINESS_UUID);
     expect(res.status).toBe(302);
+    await flushAfter();
     expect(db.state.calls).toHaveLength(2);
     // Optional chaining: index access stays possibly-undefined under
     // noUncheckedIndexedAccess (codex R3 #1).
@@ -152,6 +194,7 @@ describe('GET /q/[businessId]', () => {
       db.state.rowsPerCall = [[liveRow()]];
       db.state.calls = [];
       await call(BUSINESS_UUID);
+      await flushAfter();
       const insert = db.state.calls[1];
       const key = insert?.values.find(
         (value) => typeof value === 'string' && value.startsWith('qr_scan_redirected:'),
@@ -167,6 +210,7 @@ describe('GET /q/[businessId]', () => {
     // JSON (plus $insert_id) to PostHog — the DB columns never reach it.
     db.state.rowsPerCall = [[liveRow()]];
     await call(BUSINESS_UUID);
+    await flushAfter();
     const insert = db.state.calls[1];
     const properties = insert?.values.find(
       (value) => typeof value === 'object' && value !== null && !(value instanceof Date),
@@ -181,6 +225,7 @@ describe('GET /q/[businessId]', () => {
     db.state.rowsPerCall = [[liveRow({ google_place_id: null })]];
     const res = await call(BUSINESS_UUID);
     expect(res.status).toBe(200);
+    await flushAfter(); // nothing was deferred on a refusal
     expect(db.state.calls).toHaveLength(1); // the resolve SELECT only — no INSERT
   });
 
@@ -224,6 +269,7 @@ describe('GET /q/[businessId]', () => {
     db.state.rowsPerCall = [[liveRow()]];
     db.state.failOnCall = 1;
     await call(BUSINESS_UUID);
+    await flushAfter();
     expect(reportCaughtError).toHaveBeenCalledTimes(1);
   });
 });

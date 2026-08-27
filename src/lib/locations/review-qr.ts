@@ -14,12 +14,19 @@
 //
 // v1 counts every successful resolve as a scan — HEAD requests and link
 // prefetchers included (accepted noise, intake edge case).
+//
+// Scale ceiling (adversarial R1 A3): the list loader generates one 2048px
+// PNG per location, ~130ms each, sequentially. Location counts are
+// quota-bounded today (accounts.locations_included), so the settings list
+// stays server-rendered; an on-demand QR asset endpoint is the named escape
+// if quotas grow. Single-location callers (the print view) use
+// getOwnerReviewQrLocation and generate exactly one QR.
 
 import QRCode from 'qrcode';
 import type { Sql } from 'postgres';
 import { isPlaceId } from '@/lib/reviews/url-parser';
 import { subscriptionAllowsQrRedirect } from '@/lib/shared/subscription-status';
-import { getLocationsForAccount, getQrRedirectRow } from './repo';
+import { getLocationsForAccount, getQrRedirectRow, type LocationRow } from './repo';
 
 const GOOGLE_WRITE_REVIEW_URL_PREFIX =
   'https://search.google.com/local/writereview?placeid=';
@@ -91,26 +98,59 @@ export async function getOwnerReviewQrLocations(
   accountId: string,
   appUrl: string,
 ): Promise<OwnerReviewQrLocation[]> {
-  const base = appUrl.replace(/\/+$/, '');
-  if (base === '') {
-    throw new Error('review-qr: appUrl is required to build QR target URLs');
-  }
+  const base = requireQrBase(appUrl);
   const rows = await getLocationsForAccount(sql, accountId);
   const locations: OwnerReviewQrLocation[] = [];
   // Sequential on purpose: ci:pool-fanout forbids Promise combinators over
   // src/lib/locations, and N is small.
   for (const row of rows) {
-    const qrTargetUrl = `${base}/q/${row.id}`;
-    const eligible = buildWriteReviewUrl(row.google_place_id) !== null;
-    locations.push({
-      businessId: row.id,
-      displayName: row.display_label ?? row.name,
-      qrTargetUrl,
-      qrDataUrl: eligible
-        ? await QRCode.toDataURL(qrTargetUrl, { margin: 1, width: QR_PNG_WIDTH })
-        : null,
-      ineligibleReason: eligible ? null : 'bad_place_id',
-    });
+    locations.push(await toOwnerReviewQrLocation(row, base));
   }
   return locations;
+}
+
+/**
+ * ONE location of ONE account, with its QR — the print view's loader
+ * (adversarial R1 A3a: the list loader would generate a QR per location to
+ * render one). Account scope stays structural: the lookup happens INSIDE
+ * the caller's account-scoped list, so a foreign businessId is null, never
+ * data. Exactly one QR is generated, for the found row.
+ */
+export async function getOwnerReviewQrLocation(
+  sql: Sql,
+  accountId: string,
+  businessId: string,
+  appUrl: string,
+): Promise<OwnerReviewQrLocation | null> {
+  const base = requireQrBase(appUrl);
+  const rows = await getLocationsForAccount(sql, accountId);
+  const row = rows.find((entry) => entry.id === businessId);
+  if (!row) return null;
+  return toOwnerReviewQrLocation(row, base);
+}
+
+/** Shared appUrl guard: a QR encoding a relative URL is a config defect. */
+function requireQrBase(appUrl: string): string {
+  const base = appUrl.replace(/\/+$/, '');
+  if (base === '') {
+    throw new Error('review-qr: appUrl is required to build QR target URLs');
+  }
+  return base;
+}
+
+async function toOwnerReviewQrLocation(
+  row: LocationRow,
+  base: string,
+): Promise<OwnerReviewQrLocation> {
+  const qrTargetUrl = `${base}/q/${row.id}`;
+  const eligible = buildWriteReviewUrl(row.google_place_id) !== null;
+  return {
+    businessId: row.id,
+    displayName: row.display_label ?? row.name,
+    qrTargetUrl,
+    qrDataUrl: eligible
+      ? await QRCode.toDataURL(qrTargetUrl, { margin: 1, width: QR_PNG_WIDTH })
+      : null,
+    ineligibleReason: eligible ? null : 'bad_place_id',
+  };
 }

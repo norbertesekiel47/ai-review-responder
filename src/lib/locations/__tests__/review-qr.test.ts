@@ -8,6 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import QRCode from 'qrcode';
 import {
   buildWriteReviewUrl,
+  getOwnerReviewQrLocation,
   getOwnerReviewQrLocations,
   resolveQrRedirect,
 } from '../review-qr';
@@ -178,6 +179,75 @@ describe('getOwnerReviewQrLocations', () => {
   it('throws when appUrl is empty — a QR encoding a relative URL is a config defect', async () => {
     const { sql } = fakeSql([[]]);
     await expect(getOwnerReviewQrLocations(sql, ACCOUNT_UUID, '')).rejects.toThrow(/appUrl/);
+  });
+});
+
+describe('getOwnerReviewQrLocation', () => {
+  // The print view's single-location loader (adversarial R1 A3a): one row
+  // mapped, ONE QR generated — never one per account location.
+  const ACME_ROW = {
+    id: BUSINESS_UUID,
+    name: 'Acme',
+    display_label: null,
+    google_place_id: CANONICAL_PLACE_ID,
+  };
+  const DOWNTOWN_ROW = {
+    id: ACCOUNT_UUID,
+    name: 'Acme Two',
+    display_label: 'Downtown',
+    google_place_id: HEX_CID,
+  };
+
+  it('returns the one mapped location and generates exactly one QR', async () => {
+    const toDataURL = vi.spyOn(QRCode, 'toDataURL');
+    try {
+      const { sql } = fakeSql([[ACME_ROW, DOWNTOWN_ROW]]);
+      const location = await getOwnerReviewQrLocation(
+        sql,
+        ACCOUNT_UUID,
+        BUSINESS_UUID,
+        'https://app.example.com/',
+      );
+      expect(location).toMatchObject({
+        businessId: BUSINESS_UUID,
+        displayName: 'Acme',
+        qrTargetUrl: `https://app.example.com/q/${BUSINESS_UUID}`,
+        ineligibleReason: null,
+      });
+      expect(location?.qrDataUrl).toMatch(/^data:image\/png/);
+      expect(toDataURL).toHaveBeenCalledTimes(1);
+      // objectContaining: qrcode normalizes the options object IN PLACE
+      // (adds color:{}), so the spy's recorded args gain keys post-call.
+      expect(toDataURL).toHaveBeenCalledWith(
+        `https://app.example.com/q/${BUSINESS_UUID}`,
+        expect.objectContaining({ margin: 1, width: 2048 }),
+      );
+    } finally {
+      toDataURL.mockRestore();
+    }
+  });
+
+  it('returns null for an unknown or foreign businessId', async () => {
+    // Account scope is structural: a foreign businessId is simply absent
+    // from the caller's account-scoped list.
+    const { sql } = fakeSql([[ACME_ROW]]);
+    expect(
+      await getOwnerReviewQrLocation(
+        sql,
+        ACCOUNT_UUID,
+        '019db8c1-c3f4-7668-b353-2b8b718ec605',
+        'https://app.example.com',
+      ),
+    ).toBeNull();
+  });
+
+  it('scopes the one query by the caller account id', async () => {
+    const { sql, calls } = fakeSql([[ACME_ROW]]);
+    await getOwnerReviewQrLocation(sql, ACCOUNT_UUID, BUSINESS_UUID, 'https://app.example.com');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.text).toContain('account_id');
+    expect(calls[0]?.values).toContain(ACCOUNT_UUID);
+    expect(calls[0]?.text).toContain('archived_at IS NULL');
   });
 });
 
