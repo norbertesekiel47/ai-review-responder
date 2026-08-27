@@ -53,6 +53,30 @@
   entry, eligible-only download/print actions, PrintButton single
   window.print call. Authored test-first inside Task 6 (they need that
   task's component files), not in the Task 1 eval commit.
+- [2026-08-26] Task 1 (eval) LOCAL deviation — noUncheckedIndexedAccess in
+  the plan's verbatim test blocks: the plan applied optional chaining only in
+  the QR-encoding test (codex R3 #1), but tsconfig enables the flag globally
+  and test files are typechecked, so the blocks' other index accesses
+  (`calls[0].text`, route-test `insert.text/.values`, `locations[0].qrDataUrl`)
+  were TS18048/TS2532 errors that no later task would fix. Extended the
+  plan's own optional-chaining treatment to those 11 sites (assertion
+  semantics unchanged — `expect(undefined)` still fails the matcher). After
+  the fix, `tsc --noEmit` shows ONLY the six expected eval errors: 3×TS2307
+  (`../review-qr` ×2, `../route`) + 3×TS2305/TS2339 (missing export
+  `subscriptionAllowsQrRedirect`) — all resolved by Tasks 3–5.
+- [2026-08-26] Task 1 count note: the plan's "fifteen in this task's files"
+  is an off-by-one in prose — 14 intake titles land in Task 1's four files;
+  "qr_scan_redirected is never client-enqueueable" lands in Task 2's
+  `events.test.ts` (per Task 2 Step 2b and Task 1's binding Files list),
+  and 3 UI titles in Task 6. 14 + 1 + 3 = 18. No title is missing.
+- [2026-08-26] Task 1 integration-suite note: `seedLocation` models no
+  `google_place_id`/`archived_at`/deprecated-`subscription_status`
+  overrides ("match their real signatures, do not invent overrides"), so
+  the suite seeds via the helper and sets those columns with plain UPDATEs
+  (DML — the no-run-time-DDL convention is untouched). `assertSchemaReady`
+  gets a suite-local `SchemaRequirement` over the base/multi-location
+  columns the module reads — no schema-ready.ts export exists for them and
+  creating one would touch a file outside Task 1's Files list.
 - [2026-08-26] Codex R1 REJECTIONS (recorded with reasoning, full table in
   the plan's review appendix): framework-level HEAD test (Next.js implements
   HEAD via GET; staging smoke covers it), UI component tests M17–M19 (no
