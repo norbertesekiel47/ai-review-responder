@@ -38,6 +38,7 @@ session's work, deliberately not absorbed into this branch).
 | `src/lib/analytics/events.ts` (modify) | Register `qr_scan_redirected` (server-only, NOT client-enqueueable) |
 | `src/lib/shared/subscription-status.ts` (modify) | New predicate `subscriptionAllowsQrRedirect` |
 | `src/lib/locations/review-qr.ts` (create) | Deep module: `buildWriteReviewUrl`, `resolveQrRedirect`, `getOwnerReviewQrLocations` |
+| `src/lib/locations/repo.ts` (modify) | New reader `getQrRedirectRow` — repo.ts owns every location query (codex R3 #7) |
 | `src/app/q/[businessId]/route.ts` (create) | Public QR redirect route (thin orchestrator) |
 | `src/app/(authenticated)/settings/review-qr/page.tsx` (create) | Settings section server component |
 | `src/app/(authenticated)/settings/review-qr/ReviewQrClient.tsx` (create) | Cards: preview, PNG download, print link |
@@ -101,7 +102,7 @@ describe('subscriptionAllowsQrRedirect', () => {
 `src/lib/locations/__tests__/review-qr.test.ts`:
 
 ```ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildWriteReviewUrl,
   getOwnerReviewQrLocations,
@@ -287,12 +288,14 @@ describe('QR encoding parameters', () => {
     const { sql } = fakeSql([
       [{ id: BUSINESS_UUID, name: 'Acme', display_label: null, google_place_id: CANONICAL_PLACE_ID }],
     ]);
-    const [location] = await getOwnerReviewQrLocations(sql, ACCOUNT_UUID, 'https://app.example.com');
+    const locations = await getOwnerReviewQrLocations(sql, ACCOUNT_UUID, 'https://app.example.com');
     const expected = await QRCode.toDataURL(`https://app.example.com/q/${BUSINESS_UUID}`, {
       margin: 1,
       width: 2048,
     });
-    expect(location.qrDataUrl).toBe(expected);
+    // Index access stays possibly-undefined under noUncheckedIndexedAccess
+    // (codex R3 #1) — optional chaining keeps the assertion type-clean.
+    expect(locations[0]?.qrDataUrl).toBe(expected);
   });
 });
 ```
@@ -795,6 +798,8 @@ git commit -m "feat(qr): subscriptionAllowsQrRedirect gate predicate"
 
 **Files:**
 - Create: `src/lib/locations/review-qr.ts`
+- Modify: `src/lib/locations/repo.ts` (new reader `getQrRedirectRow` + header Exports line)
+- Modify: `scripts/ci/tenant-scope-allowlist.ts` (one statement-granular `pre-auth-token` entry)
 - Modify: `docs/directory.md` (§ `src/lib/locations/` — one row, same PR rule)
 
 - [ ] **Step 1: Implement the module**
@@ -849,26 +854,16 @@ export type QrRedirectResolution =
 /**
  * Resolve one QR scan. Refusal order: not_found → archived → subscription →
  * bad_place_id (most-specific first). Pure result, no side effects — the
- * route owns the 302, the page, the log line and the analytics insert.
+ * route owns the 302, the page, the log line and the analytics insert. The
+ * read itself lives in repo.ts (getQrRedirectRow) — that module owns every
+ * location query, and the tenant-scope allowlist is STATEMENT-granular, so
+ * placing it there exempts nothing else (codex R3 #7).
  */
 export async function resolveQrRedirect(
   sql: Sql,
   businessId: string,
 ): Promise<QrRedirectResolution> {
-  const [row] = await sql<
-    {
-      google_place_id: string | null;
-      archived_at: Date | null;
-      account_id: string;
-      subscription_status: string;
-    }[]
-  >`
-    SELECT b.google_place_id, b.archived_at, b.account_id, a.subscription_status
-    FROM businesses b
-    JOIN accounts a ON a.id = b.account_id
-    WHERE b.id = ${businessId}
-    LIMIT 1
-  `;
+  const row = await getQrRedirectRow(sql, businessId);
   if (!row) return { kind: 'unavailable', reason: 'not_found' };
   if (row.archived_at !== null) return { kind: 'unavailable', reason: 'archived' };
   if (!subscriptionAllowsQrRedirect(row.subscription_status)) {
@@ -927,8 +922,8 @@ export async function getOwnerReviewQrLocations(
 }
 ```
 
-(Add `import { getLocationsForAccount } from './repo';` to the module's
-imports. `getLocationsForAccount` already filters `archived_at IS NULL`,
+(Add `import { getLocationsForAccount, getQrRedirectRow } from './repo';` to
+the module's imports. `getLocationsForAccount` already filters `archived_at IS NULL`,
 scopes by `account_id`, and orders `is_primary DESC, created_at ASC` —
 `src/lib/locations/repo.ts:63-85`. The module-test text assertions on
 `account_id`/`archived_at` keep working because the repo's REAL query runs
@@ -950,28 +945,51 @@ rows:
 
 - [ ] **Step 4: Audits that police this directory**
 
-First add the allowlist entry (owner-approved amendment #2): in
-`scripts/ci/tenant-scope-allowlist.ts`, one entry for
-`src/lib/locations/review-qr.ts` with category `'pre-auth-token'` — match the
-file's existing entry shape exactly, justification: "public QR redirect
-resolves a printed opaque business UUID before any tenant scope is knowable;
-returns no tenant data".
+**The resolver read lives in repo.ts (codex R3 #7 — my R2 file-granularity
+claim was wrong: the allowlist is keyed by file + table + normalized SQL, so
+one entry exempts ONE statement, nothing else).** Add to
+`src/lib/locations/repo.ts` (amendment #3 file), honoring its "every
+location query lives here" header:
 
-**Why `resolveQrRedirect`'s query stays HERE and not in repo.ts (codex R2
-finding 15, resolved deliberately):** repo.ts's header forbids ad-hoc
-location SQL, but the tenant-scope allowlist is FILE-granular — moving this
-deliberately-unscoped pre-auth read into repo.ts would force an allowlist
-entry on repo.ts itself and exempt its five account-scoped readers from the
-audit. Narrow allowlisting wins over single-file ownership for a
-cross-cutting pre-auth read. Record the exception where the rule lives — add
-to repo.ts's header comment (amendment #3 file):
+```ts
+export interface QrRedirectRow {
+  google_place_id: string | null;
+  archived_at: Date | null;
+  account_id: string;
+  subscription_status: string;
+}
 
+/**
+ * Pre-auth read for the public QR redirect (CONTEXT.md "QR redirect"): by
+ * business UUID, JOINs accounts for the AUTHORITATIVE subscription status,
+ * deliberately UNSCOPED — the scanner is anonymous and tenant scope is
+ * unknowable before this read. Allowlisted statement-granular in
+ * scripts/ci/tenant-scope-allowlist.ts (category 'pre-auth-token').
+ */
+export async function getQrRedirectRow(
+  sql: Sql,
+  businessId: string,
+): Promise<QrRedirectRow | null> {
+  const [row] = await sql<QrRedirectRow[]>`
+    SELECT b.google_place_id, b.archived_at, b.account_id, a.subscription_status
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
+    LIMIT 1
+  `;
+  return row ?? null;
+}
 ```
-// Documented exception: review-qr.ts resolveQrRedirect — the public QR
-// redirect's pre-auth read (by business UUID, JOINs accounts, deliberately
-// unscoped). It lives outside this module so the tenant-scope allowlist
-// entry stays on that single-purpose file instead of exempting this one.
-```
+
+Also update repo.ts's header Exports list with the new function (match its
+one-line-per-export shape).
+
+Then add the allowlist entry: in `scripts/ci/tenant-scope-allowlist.ts`, one
+statement-granular entry for `src/lib/locations/repo.ts` /
+`getQrRedirectRow`'s query, category `'pre-auth-token'` — match the file's
+existing entry shape exactly, justification: "public QR redirect resolves a
+printed opaque business UUID before any tenant scope is knowable; returns no
+tenant data".
 
 Run: `pnpm ci:directory-map && pnpm ci:pool-fanout && pnpm ci:db-imports && pnpm ci:tenant-scope`
 Expected: all PASS. Any OTHER file the tenant-scope audit flags is a real
@@ -1384,3 +1402,22 @@ staging-smoke item (now step 2 of the checklist, not an unit test); the
 roadmap authority stays a prose reference (deliberately-uncommitted parent
 checkout work, not this branch's to absorb); the harness-skill citation
 (skills live in the session registry, not on-disk — codex cannot see them).
+
+### Codex round 3 (final verification; VERDICT: REVISE on 3 of 8; log `.feature/logs/codex-plan-r3.log`)
+
+VERIFIED: refusal matrix (#2), 115 live ADMIT (#4), staging smoke (#5),
+Task 6 component tests + verbatim titles (#6), amendment #3 in both intake
+copies, byte-identical (#8).
+
+STILL-OPEN at verdict time, ALL ACCEPTED and fixed in this revision — each
+proven by codex running real tooling: (#1) `const [location]` fails
+`noUncheckedIndexedAccess` → optional chaining; (#3) the module test's
+vitest import lacked `vi` → added; (#7) my R2 claim that the tenant-scope
+allowlist is file-granular was WRONG (it keys on file + table + normalized
+SQL) → the resolver read moves into repo.ts as `getQrRedirectRow`, honoring
+its every-location-query-lives-here header, with a statement-granular
+allowlist entry.
+
+Round cap reached (3). Per the /feature protocol the loop ends here: the
+three accepted fixes are applied above, and the OWNER's sign-off substitutes
+for a codex APPROVED verdict.

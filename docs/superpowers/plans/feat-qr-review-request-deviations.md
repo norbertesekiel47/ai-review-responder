@@ -1,5 +1,11 @@
 # feat-qr-review-request — deviations
 
+- [2026-08-26] Codex R3 (final round, REVISE on 3/8): all three accepted —
+  two mechanical TS fixes, plus a real correction: my R2 "file-granular
+  allowlist" rationale was factually wrong (statement-granular in reality),
+  so `getQrRedirectRow` moved INTO repo.ts per its ownership header. Round
+  cap reached; owner sign-off substitutes for APPROVED per protocol.
+
 - [2026-08-26] AMENDMENT #1 (narrowing, auto-approved per step 2 rule): removed
   `src/app/api/locations/review-qr/**` from `allowed_edit_surface`. The owner
   PNG endpoint is not built at all — the settings page server-renders QR data
