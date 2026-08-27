@@ -8,6 +8,7 @@
 //   getActiveLocationCount(accountId) — count non-archived locations
 //   getLocationsForAccount(accountId) — ordered list (primary first, then created_at)
 //   getLocationById(locationId) — single location lookup
+//   getQrRedirectRow(businessId) — pre-auth read for the public QR redirect
 //
 // Validation contract: indirectly covers location query assertions in
 // VAL-LOC-001 through VAL-LOC-012 (quota checks depend on accurate counts).
@@ -175,5 +176,35 @@ export async function getLocationById(
     WHERE id = ${locationId}::uuid
   `;
 
+  return row ?? null;
+}
+
+// ── getQrRedirectRow ───────────────────────────────────────────────────────
+
+export interface QrRedirectRow {
+  google_place_id: string | null;
+  archived_at: Date | null;
+  account_id: string;
+  subscription_status: string;
+}
+
+/**
+ * Pre-auth read for the public QR redirect (CONTEXT.md "QR redirect"): by
+ * business UUID, JOINs accounts for the AUTHORITATIVE subscription status,
+ * deliberately UNSCOPED — the scanner is anonymous and tenant scope is
+ * unknowable before this read. Allowlisted statement-granular in
+ * scripts/ci/tenant-scope-allowlist.ts (category 'pre-auth-token').
+ */
+export async function getQrRedirectRow(
+  sql: Sql,
+  businessId: string,
+): Promise<QrRedirectRow | null> {
+  const [row] = await sql<QrRedirectRow[]>`
+    SELECT b.google_place_id, b.archived_at, b.account_id, a.subscription_status
+    FROM businesses b
+    JOIN accounts a ON a.id = b.account_id
+    WHERE b.id = ${businessId}
+    LIMIT 1
+  `;
   return row ?? null;
 }
