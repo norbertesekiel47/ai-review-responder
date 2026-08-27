@@ -63,11 +63,39 @@ never needs the prior transcript.
 - Parent checkout has uncommitted `docs/roadmap/` from another session —
   never absorb it into this branch.
 
+## Execution + review state (updated after step 7 round 1)
+
+- Owner signed off post-round-3 (substitutes for codex APPROVED). All six
+  tasks executed by subagents and committed; first-task enforcement spot
+  check PASSED. Amendment #4 (auto-approved): `arch-review-log.md` into the
+  surface — the merge-ledger audit demands its row on every production PR.
+- Gate: GREEN at `89c39348` (32 rows incl. promised-tests 18/18,
+  diff-coverage, build; `.feature/logs/gate-review-2.out`). Phase
+  `gate_green` recorded. Gate round 1 had failed on two rows (parent-
+  traversal import from the plan's own code block; missing merge-ledger
+  row) — both fixed in `89c39348`.
+- Step 6 read-back: all deviations ACCEPT, verdicts logged in the file.
+- Step 7 round 1 (branchReviewRounds=1): three axes, reports in
+  `docs/reviews/feat-qr-review-request/`. Spec & correctness: NO FINDINGS
+  (all invariants + 18/18 titles verified). Standards: 4 findings — S3
+  accepted (= adversarial A3a), S4 accepted (comment), S1/S2 rejected with
+  reasoning (follow-up candidates: one-owner write-review builder in
+  url-parser.ts; shared unavailable-page shell). Adversarial (codex
+  companion): needs-attention — A1 accepted (analytics via Next `after()`),
+  A2 accepted AS OPS GATE (enforcing /q/* WAF rule = mandatory step-8 item
+  0; in-code limiter stays a non-goal), A3a accepted / A3b rejected
+  (documented scale bound). Triage: `adversarial-round1.md`.
+- Fix round 1 subagent dispatched (after()-deferred analytics + stalled-
+  insert regression test, single-location print loader, comment deletion,
+  dead-link empty state, step-8 checklist item 0).
+
 ## Next step
 
-On codex `VERDICT: APPROVED` (or owner call after round 3):
-`bash scripts/feature-state.sh set-phase plan_approved`, then step 4 —
-`subagent-driven-development`, Task 1 ALONE first (enforcement spot check:
-diff `git status --porcelain` against `allowed_edit_surface` after it lands),
-then Task 2 ∥ Task 3, then Task 4, then Task 5 ∥ Task 6. Gate (step 5) only
-after every subagent has returned; record the SHA the gate ran at.
+When the fix subagent returns: re-run `scripts/verify-gate.sh --review`
+(HEAD moved), then round 2 = ONE verification-only agent over the
+standards+adversarial fixes (spec had no findings), then
+`bash scripts/feature-state.sh set-phase reviewed`, commit reports, and
+step 8 HIGH lane: push branch → land on `staging` → migration 115 to
+staging Supabase FIRST → staging smoke checklist (item 0 = WAF rule) +
+390/1440 screenshots → PR to `main` → CI green → PAUSE for owner merge
+approval → prod migration in lockstep at promotion.
