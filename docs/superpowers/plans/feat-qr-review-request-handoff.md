@@ -27,14 +27,20 @@ never needs the prior transcript.
 
 ## Plan-review state (RISK=high gate)
 
-- Prevalidation: PASS (2 citations, 3 fixtures, 0 stale).
-- Codex round 1: session id `01a0413c-6e7b-73c1-b3d8-9179f84d4b1c`.
-  First run hit the 10-min foreground cap mid-investigation; resumed in
-  background → verdict log `.feature/logs/codex-plan-r1b.log` (first-run log:
-  `.feature/logs/codex-plan-r1.log`). Verdict: PENDING at the time of this
-  writing — read the r1b log tail for `VERDICT:`.
-- Round cap: 3 (counter `planReviewRounds` in `.feature/state.json`, already
-  at 1). Rounds 2-3 are verification-only deltas to the SAME codex session.
+- Codex session id (all rounds): `01a0413c-6e7b-73c1-b3d8-9179f84d4b1c`.
+  Round-1 note: `codex exec` global flags go BEFORE the `resume` subcommand;
+  a first attempt hit the 10-min foreground cap — resume in BACKGROUND.
+- Round 1: VERDICT REVISE (logs `.feature/logs/codex-plan-r1.log` +
+  `-r1b.log`). Disposition table lives in the plan's Review appendix;
+  12 accepted (folded into tasks), 5 rejected with reasoning, one
+  false-positive citation claim. Owner approved amendment #2
+  (tenant-scope-allowlist + analytics events doc into the surface) and the
+  pending_payment edge-case correction is in the deviations file.
+- Round 2 (verification-only, same session): dispatched after the R1
+  revision commit; prevalidation PASS. Log:
+  `.feature/logs/codex-plan-r2.log` — read its tail for `VERDICT:`.
+- Round cap: 3 (`planReviewRounds` in `.feature/state.json`, at 2). Round 3
+  would be the last verification round; after that, owner call.
 
 ## Environment facts a resumed session needs
 
