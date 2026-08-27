@@ -41,6 +41,9 @@ describe('analytics events', () => {
       // the DB CHECK by migration 106 and emitted post-commit by
       // src/lib/payments/plan-activation.ts.
       'checkout_coupon_decision',
+      // feat-qr-review-request — one successful QR redirect, registered in the
+      // DB CHECK by migration 115 and emitted by src/app/q/[businessId]/route.ts.
+      'qr_scan_redirected',
     ]);
   });
 
@@ -85,6 +88,10 @@ describe('analytics events', () => {
     ]) {
       expect(isClientEnqueueableEventName(name)).toBe(false);
     }
+  });
+
+  it('qr_scan_redirected is never client-enqueueable', () => {
+    expect(isClientEnqueueableEventName('qr_scan_redirected')).toBe(false);
   });
 
   it('creates deterministic idempotency keys', () => {

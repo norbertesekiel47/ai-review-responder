@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **114** — next migration is **115**
+Current head: **115** — next migration is **116**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -2490,6 +2490,12 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **115** — `qr_scan_analytics_event`: widens the `analytics_events`
+  `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
+  CONTEXT.md "QR redirect"). Constraint-only on the 106 pattern — no
+  SchemaRequirement, no assertSchemaReady entry, no retention-policy row.
+  **LOCAL-ONLY.**
 
 - **114** — `solicitation_attribution`: the **Attributed review** columns on
   `solicitation_outreach` plus three indexes (#632, map #617; spec

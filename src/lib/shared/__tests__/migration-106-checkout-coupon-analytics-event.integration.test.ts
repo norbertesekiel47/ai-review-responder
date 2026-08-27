@@ -8,18 +8,10 @@
 // subset does NOT prove rejection — a CHECK carrying extra DB-only names
 // satisfies both text assertions while admitting a name nothing registered.
 //
-// 106 is now the LATEST migration that replaces analytics_events_event_name_
-// check, so it TAKES OVER the live ANALYTICS_EVENT_NAMES drift guard from 102's
-// suite — the same handoff 094 made to 097 and 097 made to 102. That handoff is
-// not optional bookkeeping: 097's own re-pin comment predicted this exact
-// failure ("keeping the live guard here would fail the moment [the next
-// migration] registers a [new] name"), and leaving it in 102 is precisely what
-// went red when `checkout_coupon_decision` was registered.
-//
-// Why the guard matters at all: a name the app can emit and the DB would reject
-// rolls back the emitting transaction in production, and `ci:analytics-events`
-// cannot catch it because it only compares the TS allowlist against
-// docs/analytics/events.md — it never reads the database.
+// 106 HELD the live ANALYTICS_EVENT_NAMES drift guard while it was the latest
+// migration replacing analytics_events_event_name_check. 115 is now the latest,
+// so 115's suite owns that guard and this file keeps only the historical pin —
+// the same handoff 097 made to 102 and 102 made to 106.
 //
 // Live-DB conventions (`ci:live-db-suites`): named `*.integration.test.ts`,
 // gated by describeWithDb, and it NEVER applies migration SQL — the one write it
@@ -30,7 +22,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
-import { ANALYTICS_EVENT_NAMES } from '@/lib/analytics/events';
 
 const MIGRATION_106 = 'supabase/migrations/106_checkout_coupon_analytics_event.sql';
 const MIGRATION_102 = 'supabase/migrations/102_import_consent_analytics_events.sql';
@@ -92,14 +83,47 @@ describe('migration 106 - checkout coupon analytics event', () => {
     expect(current.slice(previous.length)).toEqual([...NEW_EVENT_NAMES]);
   });
 
-  it('migration 106 keeps every ANALYTICS_EVENT_NAMES entry in the re-added CHECK list (drift-guard)', () => {
-    // Handed off from 102's suite: the LATEST constraint-replacing migration
-    // owns this guard. Subset (not toEqual) in this direction — the CHECK may
-    // lead the TS allowlist while a name is being introduced, but a name the
-    // app can emit and the DB would reject is what fails here.
-    const namesInCheck = new Set(eventNamesInCheck(executableSql(MIGRATION_106)));
-    const missingFromCheck = ANALYTICS_EVENT_NAMES.filter((name) => !namesInCheck.has(name));
-    expect(missingFromCheck).toEqual([]);
+  it('migration 106 pins its own historical event-name list', () => {
+    // RE-PINNED for feat-qr-review-request. 106 held the live
+    // ANALYTICS_EVENT_NAMES drift guard while it was the LATEST
+    // constraint-replacing migration; 115 is now, so 115's suite owns it — the
+    // same handoff 097 made to 102 and 102 made to 106, and stated in 106's own
+    // migrations-log entry.
+    //
+    // Left behind is the assertion only THIS file can make: 106's list is
+    // history, immutable, and equal to these 26 names in this order. Keeping the
+    // live guard here instead would fail the moment 115 registers a 27th name —
+    // for a constraint that has been in the database since the day it shipped.
+    // That is exactly what happened: registering `qr_scan_redirected` turned
+    // this suite red until the handoff was made.
+    expect(eventNamesInCheck(executableSql(MIGRATION_106))).toEqual([
+      'signup_started',
+      'email_verified',
+      'sample_demo_started',
+      'sample_demo_to_signup',
+      'gbp_connect_started',
+      'gbp_connect_failed',
+      'gbp_connected',
+      'first_review_ingested',
+      'first_response_drafted',
+      'activation_completed',
+      'offboarding_started',
+      'offboarding_reactivated',
+      'offboarding_teardown_completed',
+      'offboarding_purged',
+      'trial_started',
+      'trial_converted',
+      'trial_payment_failed',
+      'trial_cancelled',
+      'competitor_rival_picked',
+      'solicitation_consent_recorded',
+      'solicitation_consent_upgraded',
+      'solicitation_suppressed',
+      'solicitation_suppressed_at_dispatch',
+      'import_offer_created',
+      'import_decision_recorded',
+      'checkout_coupon_decision',
+    ]);
   });
 });
 

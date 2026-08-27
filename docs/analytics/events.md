@@ -306,3 +306,14 @@ CSV content.
 - **Required properties:** `decision` (`applied` | `skipped:not_invited` | `skipped:env_unset`), `reason` (`applied` | `not_invited` | `env_unset`), `coupon_applied` (boolean)
 - **Optional properties:** none
 - **Privacy notes:** IDs, the closed decision/reason enums, and one boolean. The raw Stripe Coupon ID is deliberately **absent** — an operator reading this event needs the decision, and the id is already on the attempt row. It appears in exactly one place, the invalid-coupon error message, where naming it is the actionable content.
+
+### `qr_scan_redirected`
+- **Status:** live
+- **Description:** One successful **QR redirect** (CONTEXT.md): a customer scanned a location's **Review QR** and was 302-redirected to that location's Google write-review page. Counted AFTER the resolve gates pass (existence, not archived, `subscriptionAllowsQrRedirect`, canonical place id) and never on a refusal — an unavailable-page serve emits nothing (it is a log line, not a metric). v1 counts every successful resolve, HEAD requests and prefetchers included (accepted noise, intake edge case). The name is registered in the `analytics_events.event_name` CHECK by **migration 115** — the DB CHECK, not the TS allowlist, is what admits the name.
+- **Owner:** `GET /q/[businessId]` (`src/app/q/[businessId]/route.ts`), best-effort AFTER resolve, own `try`/`catch` (`reportCaughtError`, then swallow) — a scan must reach Google even when analytics is down.
+- **Source:** server-side (durable; **not** client-postable — a client-postable variant would let anyone forge scan metrics).
+- **Distinct ID:** account ID (the scanner is anonymous; the event belongs to the account whose code was scanned).
+- **Event key:** `qr_scan_redirected:<business_id>:<randomUUID>` — deliberately random per scan: every scan is a distinct fact, and a deterministic key would dedupe on `ON CONFLICT (event_key) DO NOTHING` and silently undercount repeat scans.
+- **Required properties:** `account_id`, `business_id` — duplicated INTO properties because `AnalyticsDispatchPoller` forwards only the properties JSON (plus `$insert_id`) to PostHog; the DB columns never reach it.
+- **Optional properties:** none
+- **Privacy notes:** IDs only — no scanner identity exists (nothing is collected from the scanner), no user agent, no IP.
