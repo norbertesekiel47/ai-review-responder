@@ -72,9 +72,11 @@ const ACCOUNT_UUID = '019db8c1-c3f4-7668-b353-2b8b718ec604';
 - Create: `src/lib/locations/__tests__/review-qr.integration.test.ts`
 - Create: `src/app/q/[businessId]/__tests__/route.test.ts`
 
-All ten `tests_to_add` titles land VERBATIM (the gate's `promised-tests` row
-checks byte-for-byte). Everything fails or is `.todo` until its
-implementation task lands.
+Every intake `tests_to_add` title lands VERBATIM (18 after the R2 additions;
+the gate's `promised-tests` row checks byte-for-byte) — fifteen in this
+task's files, three UI titles authored test-first inside Task 6 (they need
+that task's components to exist as files). Everything fails or is `.todo`
+until its implementation task lands.
 
 - [ ] **Step 1: Extend the subscription-status test**
 
@@ -215,6 +217,24 @@ describe('resolveQrRedirect', () => {
     expect(calls[0].text).toContain('a.subscription_status');
     expect(calls[0].text).toContain('JOIN accounts a');
   });
+
+  it('gates through subscriptionAllowsQrRedirect, never a raw comparison', async () => {
+    // Invariant #11 made mechanical (codex R2 on M9): a re-spelled
+    // status === 'active' || … would pass every membership test above.
+    // Requires a PASSTHROUGH mock at the top of this test file (a local TS
+    // module with named exports — this shape typechecks, unlike the
+    // rejected qrcode variant):
+    //
+    //   vi.mock('@/lib/shared/subscription-status', async (importOriginal) => {
+    //     const actual = await importOriginal<typeof import('@/lib/shared/subscription-status')>();
+    //     return { ...actual, subscriptionAllowsQrRedirect: vi.fn(actual.subscriptionAllowsQrRedirect) };
+    //   });
+    //   import { subscriptionAllowsQrRedirect } from '@/lib/shared/subscription-status';
+    const { sql } = fakeSql([[resolveRow()]]);
+    vi.mocked(subscriptionAllowsQrRedirect).mockClear();
+    await resolveQrRedirect(sql, BUSINESS_UUID);
+    expect(subscriptionAllowsQrRedirect).toHaveBeenCalledWith('active');
+  });
 });
 
 describe('getOwnerReviewQrLocations', () => {
@@ -254,28 +274,25 @@ describe('getOwnerReviewQrLocations', () => {
   });
 });
 
-// Codex R1 M16: prove the ENCODED PAYLOAD and print size without a QR-decoder
-// dependency — a PASSTHROUGH mock at the qrcode module boundary: real data
-// URLs still render (the assertions above stay honest) while every call is
-// inspectable. This vi.mock goes at the TOP of the test file, and the file's
-// vitest import becomes `{ describe, it, expect, vi }`:
-//
-//   vi.mock('qrcode', async (importOriginal) => {
-//     const actual = await importOriginal<typeof import('qrcode')>();
-//     return { default: { ...actual.default, toDataURL: vi.fn(actual.default.toDataURL) } };
-//   });
-//   import QRCode from 'qrcode';
+// Codex R1 M16 / R2 fix: prove the ENCODED PAYLOAD and print size with NO
+// mock at all — QR encoding and PNG serialization are deterministic for a
+// fixed input + options, so generate the EXPECTED data URL independently
+// with the same library and compare byte-for-byte. (The R1 passthrough mock
+// failed typecheck: `typeof import('qrcode')` has no `default` under
+// @types/qrcode — codex R2 ran tsc and proved it.) Add
+// `import QRCode from 'qrcode';` to the test file's imports.
 
 describe('QR encoding parameters', () => {
   it('encodes the /q/<businessId> URL at print width', async () => {
     const { sql } = fakeSql([
       [{ id: BUSINESS_UUID, name: 'Acme', display_label: null, google_place_id: CANONICAL_PLACE_ID }],
     ]);
-    await getOwnerReviewQrLocations(sql, ACCOUNT_UUID, 'https://app.example.com');
-    expect(QRCode.toDataURL).toHaveBeenCalledWith(
-      `https://app.example.com/q/${BUSINESS_UUID}`,
-      { margin: 1, width: 2048 },
-    );
+    const [location] = await getOwnerReviewQrLocations(sql, ACCOUNT_UUID, 'https://app.example.com');
+    const expected = await QRCode.toDataURL(`https://app.example.com/q/${BUSINESS_UUID}`, {
+      margin: 1,
+      width: 2048,
+    });
+    expect(location.qrDataUrl).toBe(expected);
   });
 });
 ```
@@ -473,6 +490,7 @@ describe('GET /q/[businessId]', () => {
       [liveRow({ subscription_status: 'cancelled' }), 'subscription'],
       [liveRow({ archived_at: new Date('2026-08-01T00:00:00Z') }), 'archived'],
       [liveRow({ google_place_id: HEX_CID }), 'bad_place_id'],
+      [liveRow({ google_place_id: null }), 'bad_place_id'],
     ];
     for (const [row, reason] of refusals) {
       db.state.rowsPerCall = [row === null ? [] : [row]];
@@ -486,7 +504,17 @@ describe('GET /q/[businessId]', () => {
         expect.objectContaining({ reason }),
       );
     }
-    expect(new Set(bodies).size).toBe(1); // byte-identical across refusals
+    // The malformed-id leg refuses BEFORE the DB and must be
+    // indistinguishable from every other refusal (codex R2).
+    loggerFake.log.mockClear();
+    const malformed = await call('not-a-uuid');
+    expect(malformed.headers.get('cache-control')).toBe('no-store');
+    bodies.push(await malformed.text());
+    expect(loggerFake.log).toHaveBeenCalledWith(
+      'qr_redirect_unavailable',
+      expect.objectContaining({ reason: 'bad_id' }),
+    );
+    expect(new Set(bodies).size).toBe(1); // byte-identical across ALL refusals
   });
 
   it('reports the analytics failure when the insert throws', async () => {
@@ -663,8 +691,10 @@ one live rejection), with: `MIGRATION_115 = 'supabase/migrations/115_qr_scan_ana
 suite carries the superset assertion (106's full list is a prefix of 115's),
 the "admits qr_scan_redirected" assertion, the lock_timeout and idempotent
 constraint-swap assertions, the ANALYTICS_EVENT_NAMES drift-guard (subset
-direction), and the live rejection (an INSERT with an unregistered name is
-refused by the CHECK).
+direction), and TWO live assertions (codex R2 on M3): the rejection (an
+INSERT with an unregistered name is refused by the CHECK) and the ADMIT (an
+INSERT with `qr_scan_redirected` succeeds — then delete the row) — together
+they prove the constraint is live AND admits the name the route will insert.
 
 Then DEMOTE the 106 suite exactly the way the 102 suite was demoted when 106
 took over (diff the two files and mirror the change): 106 stops holding the
@@ -925,9 +955,23 @@ First add the allowlist entry (owner-approved amendment #2): in
 `src/lib/locations/review-qr.ts` with category `'pre-auth-token'` — match the
 file's existing entry shape exactly, justification: "public QR redirect
 resolves a printed opaque business UUID before any tenant scope is knowable;
-returns no tenant data". `resolveQrRedirect` deliberately keeps its own
-by-UUID query (it is NOT an owner read — reusing repo.ts here would force an
-account id the scanner does not have).
+returns no tenant data".
+
+**Why `resolveQrRedirect`'s query stays HERE and not in repo.ts (codex R2
+finding 15, resolved deliberately):** repo.ts's header forbids ad-hoc
+location SQL, but the tenant-scope allowlist is FILE-granular — moving this
+deliberately-unscoped pre-auth read into repo.ts would force an allowlist
+entry on repo.ts itself and exempt its five account-scoped readers from the
+audit. Narrow allowlisting wins over single-file ownership for a
+cross-cutting pre-auth read. Record the exception where the rule lives — add
+to repo.ts's header comment (amendment #3 file):
+
+```
+// Documented exception: review-qr.ts resolveQrRedirect — the public QR
+// redirect's pre-auth read (by business UUID, JOINs accounts, deliberately
+// unscoped). It lives outside this module so the tenant-scope allowlist
+// entry stays on that single-purpose file instead of exempting this one.
+```
 
 Run: `pnpm ci:directory-map && pnpm ci:pool-fanout && pnpm ci:db-imports && pnpm ci:tenant-scope`
 Expected: all PASS. Any OTHER file the tenant-scope audit flags is a real
@@ -936,7 +980,7 @@ defect — fix the query, never widen the allowlist.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/locations/review-qr.ts scripts/ci/tenant-scope-allowlist.ts docs/directory.md
+git add src/lib/locations/review-qr.ts src/lib/locations/repo.ts scripts/ci/tenant-scope-allowlist.ts docs/directory.md
 git commit -m "feat(qr): review-qr domain module"
 ```
 
@@ -1053,7 +1097,8 @@ belongs to).
 - [ ] **Step 2: Run the eval tests**
 
 Run: `pnpm vitest run "src/app/q/[businessId]/__tests__/route.test.ts"`
-Expected: PASS — all 8, including the five verbatim intake titles.
+Expected: PASS — the full route suite, including every verbatim intake title
+it carries.
 
 - [ ] **Step 3: Boundary + policy audits**
 
@@ -1076,7 +1121,10 @@ git commit -m "feat(qr): public /q/[businessId] QR redirect route"
 - Create: `src/app/(authenticated)/settings/review-qr/ReviewQrClient.tsx`
 - Create: `src/app/(authenticated)/settings/review-qr/print/[businessId]/page.tsx`
 - Create: `src/app/(authenticated)/settings/review-qr/PrintButton.tsx`
+- Create: `src/app/(authenticated)/settings/review-qr/__tests__/ReviewQrClient.test.tsx`
+- Create: `src/app/(authenticated)/settings/review-qr/__tests__/PrintButton.test.tsx`
 - Modify: `src/components/dashboard/settings/SettingsSidebar.tsx:8-39`
+- Modify: `src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx`
 
 **The implementing agent MUST invoke the `repworth-brand-design` skill before
 writing any TSX** — this is Console-system UI; token/layout rules come from
@@ -1190,16 +1238,62 @@ Locations:
 (`icon` must be an existing `IconName` — confirm `'location'` against
 `@/components/dashboard/shell/Icon` and pick the closest if it differs.)
 
+- [ ] **Step 4b: Component tests (house standard — codex R2 reversed the
+  R1 rejection: `ChannelsClient.test.tsx` / `ProfileClient.test.tsx` are the
+  precedents)**
+
+`__tests__/ReviewQrClient.test.tsx`, modeled on
+`src/app/(authenticated)/settings/channels/__tests__/ChannelsClient.test.tsx`
+(same render harness and query style). Required titles VERBATIM:
+
+```ts
+it('offers download and print only for eligible locations', () => {
+  // Render with one eligible location (qrDataUrl set) and one ineligible
+  // (qrDataUrl null, ineligibleReason 'bad_place_id').
+  // Eligible card: an <a> with download === `review-qr-${businessId}.png`
+  // and href === the data URL, plus a print link to
+  // `/settings/review-qr/print/${businessId}`.
+  // Ineligible card: the explanatory copy, NO download anchor, NO print
+  // link, NO <img>.
+});
+```
+
+`__tests__/PrintButton.test.tsx`:
+
+```ts
+it('PrintButton invokes window.print once', () => {
+  // vi.spyOn(window, 'print').mockImplementation(() => {});
+  // render + click → expect(window.print).toHaveBeenCalledTimes(1).
+});
+```
+
+Extend `src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx`
+(it already asserts rendered settings links — follow its existing assertion
+shape) with, VERBATIM:
+
+```ts
+it('renders a Review QR entry in the settings navigation', () => {
+  // Assert a link labeled 'Review QR' with href '/settings/review-qr'
+  // renders, using the file's existing render + query helpers.
+});
+```
+
+These three titles are in the intake's `tests_to_add` — the gate's
+`promised-tests` row checks them byte-for-byte. Author them as FAILING tests
+in Task 1 order? No — they depend on components this task creates; author
+them in THIS task, test-first within the task (write test, see it fail,
+implement, see it pass).
+
 - [ ] **Step 5: Build + verify**
 
-Run: `pnpm typecheck && pnpm build`
+Run: `pnpm typecheck && pnpm vitest run "src/app/(authenticated)/settings/review-qr" src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx && pnpm build`
 Expected: PASS. (SURFACE includes ui, so the gate runs `pnpm build` anyway —
 this catches it early.)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add "src/app/(authenticated)/settings/review-qr" src/components/dashboard/settings/SettingsSidebar.tsx
+git add "src/app/(authenticated)/settings/review-qr" src/components/dashboard/settings/SettingsSidebar.tsx src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx
 git commit -m "feat(qr): Review QR settings section + print view"
 ```
 
@@ -1219,6 +1313,25 @@ gate provisions the test DB itself). Final pre-review run:
 `scripts/verify-gate.sh --review`. Screenshots (390px/1440px) of
 `/settings/review-qr` and the print view are produced during the step-8
 staging ride, per the user-global CLAUDE.md § Design work rule.
+
+### Step-8 staging smoke (RISK=high lane; specified here per codex R2 M15)
+
+Against the staging URL, with a staging location's business UUID `<id>`:
+
+1. `curl -sI https://<staging>/q/<id>` → `302`, `location:` is the Google
+   write-review URL, `cache-control: no-store`.
+2. `curl -sI -X HEAD https://<staging>/q/<ID-UPPERCASED>` → same `302`
+   headers, empty body — this is the framework-level HEAD + uppercase-UUID
+   proof unit tests cannot give.
+3. `curl -sI https://<staging>/q/00000000-0000-7000-8000-000000000000` →
+   `200` (unavailable page), `cache-control: no-store`.
+4. Staging Supabase: `SELECT count(*) FROM analytics_events WHERE event_name
+   = 'qr_scan_redirected' AND business_id = '<id>'` increased by the number
+   of 302s served (HEAD included).
+5. Scan the downloaded PNG with a phone camera → lands on the Google
+   write-review page for that location.
+6. Screenshots of `/settings/review-qr` + print view at 390px and 1440px →
+   `docs/reviews/feat-qr-review-request/` (before the merge-approval pause).
 
 ## Review appendix
 
@@ -1245,3 +1358,29 @@ test — the sidebar renders entries unconditionally; a constant cannot
 regress. `feature-surface` RED — fails BY DESIGN until the surface's files
 exist (#867). "Missing skills" citation — `subagent-driven-development` /
 `executing-plans` are harness skills, present in this session's registry.
+
+### Codex round 2 (verification-only; VERDICT: REVISE; log `.feature/logs/codex-plan-r2.log`)
+
+Confirmed fix-introduced defects, all folded in: the qrcode passthrough mock
+failed typecheck (codex ran tsc) → replaced with a no-mock deterministic
+data-URL comparison; the refusal matrix omitted `bad_id` and null-place →
+both legs added; stale "ten/8" counts fixed.
+
+R1 rejections REVERSED on codex's evidence (my verification confirmed all
+three): M17–M19 — settings client-component tests ARE house standard
+(`ChannelsClient.test.tsx`, `ProfileClient.test.tsx`) → `ReviewQrClient` +
+`PrintButton` tests added to Task 6; M20 — `SettingsSidebar.test.tsx` exists
+→ extended with the Review QR entry; both under amendment #3 (repo.ts header
++ sidebar test file, auto-approved category, deviations log). R2 #15
+(repo.ts ownership): resolved as a DOCUMENTED EXCEPTION — the tenant-scope
+allowlist is file-granular, and moving the unscoped pre-auth read into
+repo.ts would exempt its five scoped readers from the audit; exception
+recorded in repo.ts's header. R2 #9 → predicate-call passthrough-mock test
+added. R2 #3/M15 → live ADMIT assertion added to the 115 suite; staging
+smoke now specified as a numbered checklist under Verification.
+
+REJECTIONS STANDING after R2: framework HEAD/uppercase behavior stays a
+staging-smoke item (now step 2 of the checklist, not an unit test); the
+roadmap authority stays a prose reference (deliberately-uncommitted parent
+checkout work, not this branch's to absorb); the harness-skill citation
+(skills live in the session registry, not on-disk — codex cannot see them).

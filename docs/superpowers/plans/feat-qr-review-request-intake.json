@@ -66,6 +66,8 @@
     "src/components/dashboard/settings/SettingsSidebar.tsx",
     "scripts/ci/tenant-scope-allowlist.ts",
     "docs/analytics/events.md",
+    "src/lib/locations/repo.ts",
+    "src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx",
     "docs/directory.md"
   ],
   "tests_to_add": [
@@ -83,7 +85,10 @@
     "excludes another account's locations and the caller's archived locations",
     "reads the subscription gate from accounts.subscription_status, not the deprecated businesses column",
     "qr_scan_redirected is never client-enqueueable",
-    "ships account_id and business_id in the analytics event properties"
+    "ships account_id and business_id in the analytics event properties",
+    "renders a Review QR entry in the settings navigation",
+    "offers download and print only for eligible locations",
+    "PrintButton invokes window.print once"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 550,

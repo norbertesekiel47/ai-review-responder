@@ -33,6 +33,20 @@
   findings): distinct event keys per scan; live tenant-exclusion; live
   authoritative-column gate; never client-enqueueable; ids shipped in event
   properties. Recorded as deviations-file entries per the #643 rule.
+- [2026-08-26] AMENDMENT #3 (auto-approved category — 2 files inside
+  directory trees the surface already covers): `src/lib/locations/repo.ts`
+  (header gains the documented exception for the pre-auth QR read) and
+  `src/components/dashboard/settings/__tests__/SettingsSidebar.test.tsx`
+  (extended with the Review QR nav assertion). Driven by codex R2 reversing
+  two of my R1 rejections — its evidence was verified real (settings
+  component tests ARE house standard; the sidebar test exists). Amendment
+  count now 3 (one narrowing, one owner-signed widening, one auto-approved
+  category); the step-5 reclassify disposition in the AMENDMENT #2 entry
+  covers all three — all plan-time, all owner-visible, lane already `high`.
+- [2026-08-26] `tests_to_add` ADDITIONS (3 UI titles, codex R2): sidebar nav
+  entry, eligible-only download/print actions, PrintButton single
+  window.print call. Authored test-first inside Task 6 (they need that
+  task's component files), not in the Task 1 eval commit.
 - [2026-08-26] Codex R1 REJECTIONS (recorded with reasoning, full table in
   the plan's review appendix): framework-level HEAD test (Next.js implements
   HEAD via GET; staging smoke covers it), UI component tests M17–M19 (no

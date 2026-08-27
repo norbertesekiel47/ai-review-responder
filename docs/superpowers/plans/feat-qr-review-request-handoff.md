@@ -36,11 +36,18 @@ never needs the prior transcript.
   false-positive citation claim. Owner approved amendment #2
   (tenant-scope-allowlist + analytics events doc into the surface) and the
   pending_payment edge-case correction is in the deviations file.
-- Round 2 (verification-only, same session): dispatched after the R1
-  revision commit; prevalidation PASS. Log:
-  `.feature/logs/codex-plan-r2.log` — read its tail for `VERDICT:`.
-- Round cap: 3 (`planReviewRounds` in `.feature/state.json`, at 2). Round 3
-  would be the last verification round; after that, owner call.
+- Round 2: VERDICT REVISE (log `.feature/logs/codex-plan-r2.log`) — one
+  confirmed compile error (qrcode mock), one matrix gap, and it REVERSED two
+  of my R1 rejections with evidence I verified as real (settings component
+  tests are house standard; SettingsSidebar.test.tsx exists). Full
+  disposition: plan Review appendix § "Codex round 2". Amendment #3
+  (auto-approved category): repo.ts header + sidebar test file. Intake now:
+  17 surface entries, 18 test titles.
+- Round 3 (FINAL, same session): dispatched after the R2 revision commit;
+  prevalidation PASS. Log: `.feature/logs/codex-plan-r3.log`. Round cap
+  reached (`planReviewRounds` = 3): on APPROVED → `set-phase plan_approved`
+  + step 4; on REVISE → STOP looping, take the disagreement to the owner
+  with both positions.
 
 ## Environment facts a resumed session needs
 
