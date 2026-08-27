@@ -77,6 +77,13 @@
   gets a suite-local `SchemaRequirement` over the base/multi-location
   columns the module reads — no schema-ready.ts export exists for them and
   creating one would touch a file outside Task 1's Files list.
+- [2026-08-26] Task 4 LOCAL deviation — `ALLOWLIST_BASELINE` bump: the plan's
+  Step 4 names only the new allowlist ENTRY, but the file enforces an
+  exact-match growth gate (`ALLOWLIST_BASELINE`), so adding the entry
+  mechanically requires 369 → 370 plus the file's conventional dated history
+  comment. Bumped in the same commit; `ci:tenant-scope` passes at 370. One
+  entry sufficed — the audit attributes the JOIN statement to `businesses`
+  only, so no second `accounts` entry was needed.
 - [2026-08-26] Codex R1 REJECTIONS (recorded with reasoning, full table in
   the plan's review appendix): framework-level HEAD test (Next.js implements
   HEAD via GET; staging smoke covers it), UI component tests M17–M19 (no
