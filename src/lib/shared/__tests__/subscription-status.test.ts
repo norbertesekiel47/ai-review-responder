@@ -9,6 +9,7 @@ import {
   type SubscriptionStatusValue,
   isSubscriptionStatus,
   subscriptionAllowsDashboardRead,
+  subscriptionAllowsQrRedirect,
   subscriptionGrantsFullAccess,
 } from '../subscription-status';
 
@@ -106,5 +107,16 @@ describe('isSubscriptionStatus', () => {
       const _typed: SubscriptionStatusValue = value;
       expect(_typed).toBe('active');
     }
+  });
+});
+
+describe('subscriptionAllowsQrRedirect', () => {
+  it('subscriptionAllowsQrRedirect admits active, trialing and past_due only', () => {
+    expect(subscriptionAllowsQrRedirect(SubscriptionStatus.ACTIVE)).toBe(true);
+    expect(subscriptionAllowsQrRedirect(SubscriptionStatus.TRIALING)).toBe(true);
+    expect(subscriptionAllowsQrRedirect(SubscriptionStatus.PAST_DUE)).toBe(true);
+    expect(subscriptionAllowsQrRedirect(SubscriptionStatus.PENDING_PAYMENT)).toBe(false);
+    expect(subscriptionAllowsQrRedirect(SubscriptionStatus.CANCELLED)).toBe(false);
+    expect(subscriptionAllowsQrRedirect('nonsense')).toBe(false);
   });
 });
