@@ -39,7 +39,7 @@
     "Malformed or unknown businessId in the URL: unavailable page, no DB error leak",
     "Analytics insert failure: redirect still 302s; failure is logged",
     "Offboarding purge deleted the business row: unavailable page",
-    "pending_payment account: owner can see and print the QR from settings, but the live redirect serves the unavailable page until the subscription activates",
+    "pending_payment account: requireOwnerAccess redirects the owner to /onboarding/pay (the standard settings posture, codex R1 correction) \u2014 the QR becomes printable after activation; the live redirect stays independently gated by subscriptionAllowsQrRedirect",
     "HEAD requests and link prefetchers count as scans in v1 \u2014 accepted noise, documented in the module header"
   ],
   "existing_patterns_to_follow": [
@@ -64,6 +64,8 @@
     "src/app/q/**",
     "src/app/(authenticated)/settings/review-qr/**",
     "src/components/dashboard/settings/SettingsSidebar.tsx",
+    "scripts/ci/tenant-scope-allowlist.ts",
+    "docs/analytics/events.md",
     "docs/directory.md"
   ],
   "tests_to_add": [
@@ -76,7 +78,12 @@
     "records a qr_scan_redirected analytics event on a successful redirect",
     "returns only the caller's account locations from getOwnerReviewQrLocations",
     "subscriptionAllowsQrRedirect admits active, trialing and past_due only",
-    "refuses to build a review link for a non-canonical place id"
+    "refuses to build a review link for a non-canonical place id",
+    "two scans of the same QR produce distinct analytics event keys",
+    "excludes another account's locations and the caller's archived locations",
+    "reads the subscription gate from accounts.subscription_status, not the deprecated businesses column",
+    "qr_scan_redirected is never client-enqueueable",
+    "ships account_id and business_id in the analytics event properties"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 550,

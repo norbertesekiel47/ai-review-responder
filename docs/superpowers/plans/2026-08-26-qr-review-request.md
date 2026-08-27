@@ -44,8 +44,10 @@ session's work, deliberately not absorbed into this branch).
 | `src/app/(authenticated)/settings/review-qr/print/[businessId]/page.tsx` (create) | Print view server component |
 | `src/app/(authenticated)/settings/review-qr/PrintButton.tsx` (create) | `window.print()` client button |
 | `src/components/dashboard/settings/SettingsSidebar.tsx` (modify) | Nav entry |
+| `docs/analytics/events.md` (modify) | `qr_scan_redirected` row (`ci:analytics-events` reads this doc) |
+| `scripts/ci/tenant-scope-allowlist.ts` (modify) | One `pre-auth-token` entry for the redirect resolver (amendment #2) |
 | `docs/directory.md` (modify) | Row for `src/lib/locations/review-qr.ts` |
-| Tests | `src/lib/shared/__tests__/subscription-status.test.ts` (modify), `src/lib/locations/__tests__/review-qr.test.ts` (create), `src/app/q/[businessId]/__tests__/route.test.ts` (create) |
+| Tests | `src/lib/shared/__tests__/subscription-status.test.ts` (modify), `src/lib/analytics/__tests__/events.test.ts` (modify), `src/lib/locations/__tests__/review-qr.test.ts` + `review-qr.integration.test.ts` (create), `src/app/q/[businessId]/__tests__/route.test.ts` (create), `src/lib/shared/__tests__/migration-115-qr-scan-analytics-event.integration.test.ts` (create) + `migration-106-…integration.test.ts` (modify, drift-guard handover) |
 
 Blocking edges: Task 1 first (eval). Task 2 ∥ Task 3 (disjoint). Task 4 needs
 Task 3. Task 5 needs Tasks 2+4. Task 6 needs Task 4. Tasks 5 ∥ 6 (disjoint
@@ -67,6 +69,7 @@ const ACCOUNT_UUID = '019db8c1-c3f4-7668-b353-2b8b718ec604';
 **Files:**
 - Modify: `src/lib/shared/__tests__/subscription-status.test.ts`
 - Create: `src/lib/locations/__tests__/review-qr.test.ts`
+- Create: `src/lib/locations/__tests__/review-qr.integration.test.ts`
 - Create: `src/app/q/[businessId]/__tests__/route.test.ts`
 
 All ten `tests_to_add` titles land VERBATIM (the gate's `promised-tests` row
@@ -187,6 +190,31 @@ describe('resolveQrRedirect', () => {
       reason: 'bad_place_id',
     });
   });
+
+  it('returns bad_place_id for a missing google_place_id', async () => {
+    const { sql } = fakeSql([[resolveRow({ google_place_id: null })]]);
+    expect(await resolveQrRedirect(sql, BUSINESS_UUID)).toEqual({
+      kind: 'unavailable',
+      reason: 'bad_place_id',
+    });
+  });
+
+  it('admits trialing and past_due through the named predicate', async () => {
+    for (const status of ['trialing', 'past_due']) {
+      const { sql } = fakeSql([[resolveRow({ subscription_status: status })]]);
+      const result = await resolveQrRedirect(sql, BUSINESS_UUID);
+      expect(result.kind).toBe('redirect');
+    }
+  });
+
+  it('reads the subscription from the accounts JOIN, not the deprecated businesses column', async () => {
+    // Text-level guard (codex R1 M5); the LIVE proof is in
+    // review-qr.integration.test.ts, where the two columns diverge.
+    const { sql, calls } = fakeSql([[resolveRow()]]);
+    await resolveQrRedirect(sql, BUSINESS_UUID);
+    expect(calls[0].text).toContain('a.subscription_status');
+    expect(calls[0].text).toContain('JOIN accounts a');
+  });
 });
 
 describe('getOwnerReviewQrLocations', () => {
@@ -225,6 +253,31 @@ describe('getOwnerReviewQrLocations', () => {
     await expect(getOwnerReviewQrLocations(sql, ACCOUNT_UUID, '')).rejects.toThrow(/appUrl/);
   });
 });
+
+// Codex R1 M16: prove the ENCODED PAYLOAD and print size without a QR-decoder
+// dependency — a PASSTHROUGH mock at the qrcode module boundary: real data
+// URLs still render (the assertions above stay honest) while every call is
+// inspectable. This vi.mock goes at the TOP of the test file, and the file's
+// vitest import becomes `{ describe, it, expect, vi }`:
+//
+//   vi.mock('qrcode', async (importOriginal) => {
+//     const actual = await importOriginal<typeof import('qrcode')>();
+//     return { default: { ...actual.default, toDataURL: vi.fn(actual.default.toDataURL) } };
+//   });
+//   import QRCode from 'qrcode';
+
+describe('QR encoding parameters', () => {
+  it('encodes the /q/<businessId> URL at print width', async () => {
+    const { sql } = fakeSql([
+      [{ id: BUSINESS_UUID, name: 'Acme', display_label: null, google_place_id: CANONICAL_PLACE_ID }],
+    ]);
+    await getOwnerReviewQrLocations(sql, ACCOUNT_UUID, 'https://app.example.com');
+    expect(QRCode.toDataURL).toHaveBeenCalledWith(
+      `https://app.example.com/q/${BUSINESS_UUID}`,
+      { margin: 1, width: 2048 },
+    );
+  });
+});
 ```
 
 - [ ] **Step 3: Create the route test**
@@ -256,7 +309,11 @@ const { db } = vi.hoisted(() => {
 vi.mock('@/lib/db/server', () => ({ sql: db.sql }));
 vi.mock('@/lib/shared/report-caught-error', () => ({ reportCaughtError: vi.fn() }));
 
+const { loggerFake } = vi.hoisted(() => ({ loggerFake: { log: vi.fn() } }));
+vi.mock('@/lib/shared/logger', () => ({ createWorkerLogger: () => loggerFake }));
+
 import { GET } from '../route';
+import { reportCaughtError } from '@/lib/shared/report-caught-error';
 
 const BUSINESS_UUID = '019db8c1-c3f4-7668-b353-2b8b718ec603';
 const ACCOUNT_UUID = '019db8c1-c3f4-7668-b353-2b8b718ec604';
@@ -282,6 +339,8 @@ beforeEach(() => {
   db.state.rowsPerCall = [];
   db.state.calls = [];
   db.state.failOnCall = -1;
+  loggerFake.log.mockClear();
+  vi.mocked(reportCaughtError).mockClear();
 });
 
 describe('GET /q/[businessId]', () => {
@@ -356,19 +415,136 @@ describe('GET /q/[businessId]', () => {
       /^https:\/\/search\.google\.com\/local\/writereview\?placeid=/,
     );
   });
+
+  it('redirects trialing and past_due subscriptions and an uppercase UUID', async () => {
+    for (const status of ['trialing', 'past_due']) {
+      db.state.rowsPerCall = [[liveRow({ subscription_status: status })]];
+      db.state.calls = [];
+      expect((await call(BUSINESS_UUID.toUpperCase())).status).toBe(302);
+    }
+  });
+
+  it('two scans of the same QR produce distinct analytics event keys', async () => {
+    // Codex R1 M7: a deterministic per-business key would dedupe on
+    // ON CONFLICT (event_key) and silently UNDERCOUNT repeat scans.
+    const keys: string[] = [];
+    for (let scan = 0; scan < 2; scan += 1) {
+      db.state.rowsPerCall = [[liveRow()]];
+      db.state.calls = [];
+      await call(BUSINESS_UUID);
+      const insert = db.state.calls[1];
+      const key = insert.values.find(
+        (value) => typeof value === 'string' && value.startsWith('qr_scan_redirected:'),
+      );
+      expect(key).toBeDefined();
+      keys.push(key as string);
+    }
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('ships account_id and business_id in the analytics event properties', async () => {
+    // Codex R1 M3/M4: AnalyticsDispatchPoller forwards ONLY the properties
+    // JSON (plus $insert_id) to PostHog — the DB columns never reach it.
+    db.state.rowsPerCall = [[liveRow()]];
+    await call(BUSINESS_UUID);
+    const insert = db.state.calls[1];
+    const properties = insert.values.find(
+      (value) => typeof value === 'object' && value !== null && !(value instanceof Date),
+    ) as Record<string, unknown>;
+    expect(properties).toMatchObject({
+      account_id: ACCOUNT_UUID,
+      business_id: BUSINESS_UUID,
+    });
+  });
+
+  it('returns unavailable for a missing google_place_id without recording analytics', async () => {
+    db.state.rowsPerCall = [[liveRow({ google_place_id: null })]];
+    const res = await call(BUSINESS_UUID);
+    expect(res.status).toBe(200);
+    expect(db.state.calls).toHaveLength(1); // the resolve SELECT only — no INSERT
+  });
+
+  it('serves one identical no-store unavailable page for every refusal, reason-coded in the log only', async () => {
+    // Codex R1 M11–M13: the page must not leak WHICH refusal fired (that
+    // distinction belongs to the log line), and every response is no-store.
+    const bodies: string[] = [];
+    const refusals: Array<[Record<string, unknown> | null, string]> = [
+      [null, 'not_found'],
+      [liveRow({ subscription_status: 'cancelled' }), 'subscription'],
+      [liveRow({ archived_at: new Date('2026-08-01T00:00:00Z') }), 'archived'],
+      [liveRow({ google_place_id: HEX_CID }), 'bad_place_id'],
+    ];
+    for (const [row, reason] of refusals) {
+      db.state.rowsPerCall = [row === null ? [] : [row]];
+      db.state.calls = [];
+      loggerFake.log.mockClear();
+      const res = await call(BUSINESS_UUID);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      bodies.push(await res.text());
+      expect(loggerFake.log).toHaveBeenCalledWith(
+        'qr_redirect_unavailable',
+        expect.objectContaining({ reason }),
+      );
+    }
+    expect(new Set(bodies).size).toBe(1); // byte-identical across refusals
+  });
+
+  it('reports the analytics failure when the insert throws', async () => {
+    db.state.rowsPerCall = [[liveRow()]];
+    db.state.failOnCall = 1;
+    await call(BUSINESS_UUID);
+    expect(reportCaughtError).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+- [ ] **Step 3b: Create the live-DB eval suite**
+
+`src/lib/locations/__tests__/review-qr.integration.test.ts` — codex R1 M5/M6:
+a mocked `sql` tag can prove the template was interpolated; only a live DB
+proves the exclusion predicate and the authoritative-column JOIN. Copy the
+HARNESS verbatim from `add-location-tx.integration.test.ts` (the
+`describeWithDb` gate, `assertSchemaReady`, teardown) and the seed helpers
+from `src/lib/shared/__tests__/live-db-tenant.ts` (`seedTenantAccount`,
+`seedLocation`, `cleanupTenantAccount`, `cleanupLocation` — match their real
+signatures, do not invent overrides). Live-DB conventions apply: suite named
+`*.integration.test.ts`, NO run-time DDL, self-skips without
+`TEST_DATABASE_POOL_URL`. The two test bodies:
+
+```ts
+it("excludes another account's locations and the caller's archived locations", async () => {
+  // Seed: account A with one eligible location (canonical place id) and one
+  // ARCHIVED location; account B with one eligible location.
+  // Assert: getOwnerReviewQrLocations(db, accountA.id, 'https://app.example.com')
+  // returns EXACTLY the one eligible A location — B's location and the
+  // archived one are absent, and the returned qrTargetUrl ends with the A
+  // location's id.
+});
+
+it('reads the subscription gate from accounts.subscription_status, not the deprecated businesses column', async () => {
+  // Seed: account C with accounts.subscription_status = 'cancelled' whose
+  // location row carries the DEPRECATED businesses.subscription_status =
+  // 'active' and a canonical google_place_id.
+  // Assert: resolveQrRedirect(db, location.id) → { kind: 'unavailable',
+  // reason: 'subscription' }.
+  // Then flip: accounts.subscription_status = 'active', deprecated column
+  // 'cancelled' → resolveQrRedirect returns kind 'redirect'.
+  // Only accounts.subscription_status may decide.
 });
 ```
 
 - [ ] **Step 4: Run and confirm every new test FAILS**
 
-Run: `pnpm vitest run src/lib/shared/__tests__/subscription-status.test.ts src/lib/locations/__tests__/review-qr.test.ts "src/app/q/[businessId]/__tests__/route.test.ts"`
+Run: `pnpm vitest run src/lib/shared/__tests__/subscription-status.test.ts src/lib/locations/__tests__/review-qr.test.ts src/lib/locations/__tests__/review-qr.integration.test.ts "src/app/q/[businessId]/__tests__/route.test.ts"`
 Expected: FAIL — unresolved imports (`../review-qr`, `../route`) and missing
-export `subscriptionAllowsQrRedirect`.
+export `subscriptionAllowsQrRedirect`. (The integration suite fails at
+import too; once the module exists it self-skips without
+`TEST_DATABASE_POOL_URL` and runs in the gate's live lane.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/shared/__tests__/subscription-status.test.ts "src/lib/locations/__tests__/review-qr.test.ts" "src/app/q/[businessId]/__tests__/route.test.ts"
+git add src/lib/shared/__tests__/subscription-status.test.ts "src/lib/locations/__tests__/review-qr.test.ts" "src/lib/locations/__tests__/review-qr.integration.test.ts" "src/app/q/[businessId]/__tests__/route.test.ts"
 git commit -m "test(qr): eval suite for Review QR + QR redirect (failing)"
 ```
 
@@ -379,10 +555,19 @@ git commit -m "test(qr): eval suite for Review QR + QR redirect (failing)"
 **Files:**
 - Create: `supabase/migrations/115_qr_scan_analytics_event.sql`
 - Modify: `src/lib/analytics/events.ts:4-31`
+- Modify: `docs/analytics/events.md` (new event row — `ci:analytics-events`
+  compares the registry to THIS document, codex R1 finding 2)
+- Modify: `src/lib/analytics/__tests__/events.test.ts` (exact-list assertion
+  at line 12 + the never-client-enqueueable test)
+- Create: `src/lib/shared/__tests__/migration-115-qr-scan-analytics-event.integration.test.ts`
+- Modify: `src/lib/shared/__tests__/migration-106-checkout-coupon-analytics-event.integration.test.ts`
+  (drift-guard handover)
 - Modify: `.claude/reference/migrations-log.md` (head line + new entry)
 
-The `ci:analytics-events` audit requires the registry and the latest CHECK
-migration to move together — one commit.
+Everything above moves in ONE commit — the audit, the exact-list test, and
+the drift guard each fail on a partial landing. The `new-migration` skill
+checklist was applied at plan time (constraint-only: no UUIDv7/RLS/retention
+decisions apply; `lock_timeout` set; verify-by-introspection at promotion).
 
 - [ ] **Step 1: Write the migration**
 
@@ -453,6 +638,58 @@ Do NOT touch `CLIENT_ENQUEUEABLE_EVENT_NAMES` — a scan count is a durable
 server-side fact; a client-postable variant would let anyone forge scan
 metrics.
 
+- [ ] **Step 2b: Update the registry tests + add the client-enqueueable guard**
+
+In `src/lib/analytics/__tests__/events.test.ts`: append
+`'qr_scan_redirected'` to the exact-list `toEqual` assertion (line 12), and
+add:
+
+```ts
+it('qr_scan_redirected is never client-enqueueable', () => {
+  expect(isClientEnqueueableEventName('qr_scan_redirected')).toBe(false);
+});
+```
+
+(`isClientEnqueueableEventName` is already exported; extend the file's
+existing import.)
+
+- [ ] **Step 2c: Move the live drift guard 106 → 115**
+
+Create
+`src/lib/shared/__tests__/migration-115-qr-scan-analytics-event.integration.test.ts`
+modeled STRUCTURALLY on the 106 suite (same five text-shape assertions + the
+one live rejection), with: `MIGRATION_115 = 'supabase/migrations/115_qr_scan_analytics_event.sql'`,
+`previous` = migration 106, `NEW_EVENT_NAMES = ['qr_scan_redirected']`. The
+suite carries the superset assertion (106's full list is a prefix of 115's),
+the "admits qr_scan_redirected" assertion, the lock_timeout and idempotent
+constraint-swap assertions, the ANALYTICS_EVENT_NAMES drift-guard (subset
+direction), and the live rejection (an INSERT with an unregistered name is
+refused by the CHECK).
+
+Then DEMOTE the 106 suite exactly the way the 102 suite was demoted when 106
+took over (diff the two files and mirror the change): 106 stops holding the
+LIVE `ANALYTICS_EVENT_NAMES` drift guard — its remaining assertions pin the
+frozen historical list. Update its header comment the way 102's header
+records the handover.
+
+- [ ] **Step 2d: Document the event**
+
+Append to `docs/analytics/events.md`, following the `checkout_coupon_decision`
+row shape exactly:
+
+```md
+### `qr_scan_redirected`
+- **Status:** live
+- **Description:** One successful **QR redirect** (CONTEXT.md): a customer scanned a location's **Review QR** and was 302-redirected to that location's Google write-review page. Counted AFTER the resolve gates pass (existence, not archived, `subscriptionAllowsQrRedirect`, canonical place id) and never on a refusal — an unavailable-page serve emits nothing (it is a log line, not a metric). v1 counts every successful resolve, HEAD requests and prefetchers included (accepted noise, intake edge case). The name is registered in the `analytics_events.event_name` CHECK by **migration 115** — the DB CHECK, not the TS allowlist, is what admits the name.
+- **Owner:** `GET /q/[businessId]` (`src/app/q/[businessId]/route.ts`), best-effort AFTER resolve, own `try`/`catch` (`reportCaughtError`, then swallow) — a scan must reach Google even when analytics is down.
+- **Source:** server-side (durable; **not** client-postable — a client-postable variant would let anyone forge scan metrics).
+- **Distinct ID:** account ID (the scanner is anonymous; the event belongs to the account whose code was scanned).
+- **Event key:** `qr_scan_redirected:<business_id>:<randomUUID>` — deliberately random per scan: every scan is a distinct fact, and a deterministic key would dedupe on `ON CONFLICT (event_key) DO NOTHING` and silently undercount repeat scans.
+- **Required properties:** `account_id`, `business_id` — duplicated INTO properties because `AnalyticsDispatchPoller` forwards only the properties JSON (plus `$insert_id`) to PostHog; the DB columns never reach it.
+- **Optional properties:** none
+- **Privacy notes:** IDs only — no scanner identity exists (nothing is collected from the scanner), no user agent, no IP.
+```
+
 - [ ] **Step 3: Migrations-log bookkeeping**
 
 In `.claude/reference/migrations-log.md`: change line 4 to
@@ -473,13 +710,13 @@ lockstep; verify by reading the constraint back from
 
 - [ ] **Step 4: Provision + audit**
 
-Run: `pnpm test:db:setup && pnpm ci:analytics-events`
-Expected: setup applies through 115; audit PASS.
+Run: `pnpm test:db:setup && pnpm ci:analytics-events && pnpm vitest run src/lib/analytics/__tests__/events.test.ts src/lib/shared/__tests__/migration-115-qr-scan-analytics-event.integration.test.ts src/lib/shared/__tests__/migration-106-checkout-coupon-analytics-event.integration.test.ts`
+Expected: setup applies through 115; audit PASS; all three suites PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/115_qr_scan_analytics_event.sql src/lib/analytics/events.ts .claude/reference/migrations-log.md
+git add supabase/migrations/115_qr_scan_analytics_event.sql src/lib/analytics/events.ts src/lib/analytics/__tests__/events.test.ts docs/analytics/events.md src/lib/shared/__tests__/migration-115-qr-scan-analytics-event.integration.test.ts src/lib/shared/__tests__/migration-106-checkout-coupon-analytics-event.integration.test.ts .claude/reference/migrations-log.md
 git commit -m "feat(qr): migration 115 + qr_scan_redirected event registration"
 ```
 
@@ -625,8 +862,10 @@ export interface OwnerReviewQrLocation {
 
 /**
  * Every non-archived location of ONE account, with its QR (or the reason it
- * has none). appUrl is passed in by the composition root — this module never
- * reads env (invariant #15 posture).
+ * has none). Reads through repo.ts's getLocationsForAccount — that module
+ * owns location reads (codex R1 finding 15); re-spelling its query here
+ * would be a second owner. appUrl is passed in by the composition root —
+ * this module never reads env (invariant #15 posture).
  */
 export async function getOwnerReviewQrLocations(
   sql: Sql,
@@ -637,20 +876,7 @@ export async function getOwnerReviewQrLocations(
   if (base === '') {
     throw new Error('review-qr: appUrl is required to build QR target URLs');
   }
-  const rows = await sql<
-    {
-      id: string;
-      name: string;
-      display_label: string | null;
-      google_place_id: string | null;
-    }[]
-  >`
-    SELECT id, name, display_label, google_place_id
-    FROM businesses
-    WHERE account_id = ${accountId}
-      AND archived_at IS NULL
-    ORDER BY is_primary DESC, created_at ASC
-  `;
+  const rows = await getLocationsForAccount(sql, accountId);
   const locations: OwnerReviewQrLocation[] = [];
   // Sequential on purpose: ci:pool-fanout forbids Promise combinators over
   // src/lib/locations, and N is small.
@@ -671,6 +897,13 @@ export async function getOwnerReviewQrLocations(
 }
 ```
 
+(Add `import { getLocationsForAccount } from './repo';` to the module's
+imports. `getLocationsForAccount` already filters `archived_at IS NULL`,
+scopes by `account_id`, and orders `is_primary DESC, created_at ASC` —
+`src/lib/locations/repo.ts:63-85`. The module-test text assertions on
+`account_id`/`archived_at` keep working because the repo's REAL query runs
+against the fake tag.)
+
 - [ ] **Step 2: Run the eval tests**
 
 Run: `pnpm vitest run src/lib/locations/__tests__/review-qr.test.ts`
@@ -687,17 +920,23 @@ rows:
 
 - [ ] **Step 4: Audits that police this directory**
 
+First add the allowlist entry (owner-approved amendment #2): in
+`scripts/ci/tenant-scope-allowlist.ts`, one entry for
+`src/lib/locations/review-qr.ts` with category `'pre-auth-token'` — match the
+file's existing entry shape exactly, justification: "public QR redirect
+resolves a printed opaque business UUID before any tenant scope is knowable;
+returns no tenant data". `resolveQrRedirect` deliberately keeps its own
+by-UUID query (it is NOT an owner read — reusing repo.ts here would force an
+account id the scanner does not have).
+
 Run: `pnpm ci:directory-map && pnpm ci:pool-fanout && pnpm ci:db-imports && pnpm ci:tenant-scope`
-Expected: all PASS. If `ci:tenant-scope` flags `resolveQrRedirect`'s
-by-UUID cross-account read, add the allowlist entry its output names with the
-justification "public QR redirect surface — resolves a printed opaque UUID,
-returns no tenant data" (the margin-service precedent); record the allowlist
-touch in the deviations file.
+Expected: all PASS. Any OTHER file the tenant-scope audit flags is a real
+defect — fix the query, never widen the allowlist.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/locations/review-qr.ts docs/directory.md
+git add src/lib/locations/review-qr.ts scripts/ci/tenant-scope-allowlist.ts docs/directory.md
 git commit -m "feat(qr): review-qr domain module"
 ```
 
@@ -790,6 +1029,10 @@ export async function GET(
       distinctId: resolution.accountId,
       accountId: resolution.accountId,
       businessId,
+      // Duplicated INTO properties on purpose: AnalyticsDispatchPoller
+      // forwards only the properties JSON (plus $insert_id) to PostHog —
+      // the DB columns never reach it (codex R1 M3/M4).
+      properties: { account_id: resolution.accountId, business_id: businessId },
     });
   } catch (err) {
     reportCaughtError('q/[businessId] GET analytics', err, { businessId });
@@ -850,6 +1093,10 @@ client component).
 // Review QR settings section (CONTEXT.md "Review QR"): one card per
 // non-archived location. Deliberately NOT behind shouldShowLocationsSettings
 // — single-location owners are the launch majority and get their QR here.
+// requireOwnerAccess redirects pending_payment owners to /onboarding/pay —
+// the STANDARD settings posture (intake edge case corrected in codex R1);
+// the customer-facing redirect is gated independently by
+// subscriptionAllowsQrRedirect.
 
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
@@ -971,8 +1218,30 @@ env var/flag, no rate limiting on the route, no worker changes.
 gate provisions the test DB itself). Final pre-review run:
 `scripts/verify-gate.sh --review`. Screenshots (390px/1440px) of
 `/settings/review-qr` and the print view are produced during the step-8
-staging ride, per the design acceptance rule.
+staging ride, per the user-global CLAUDE.md § Design work rule.
 
 ## Review appendix
 
-(filled by step 3 review rounds)
+### Codex round 1 (VERDICT: REVISE; the codex session id is recorded in
+`docs/superpowers/plans/feat-qr-review-request-handoff.md`)
+
+Full log: `.feature/logs/codex-plan-r1.log` + `-r1b.log`. Disposition:
+
+ACCEPTED (all folded into the tasks above): F1 pending_payment settings
+redirect (edge case corrected); F2 `docs/analytics/events.md` row; F3
+registry-test updates + 106→115 drift-guard handover; F4 ids duplicated into
+event properties; F5+F6 live integration suite (authoritative column +
+tenant exclusion); F7 distinct-keys test; F8 client-enqueueable guard; F9
+trialing/past_due + null-place-id tests; F10 identical no-store page +
+reason-coded log + reportCaughtError assertions; F12 qrcode passthrough-mock
+encode test; F15 reuse `getLocationsForAccount`; F16 allowlist entry made an
+owner-approved surface amendment; F17 new-migration skill noted.
+
+REJECTED (with reasoning): M15 framework-level HEAD test — Next.js derives
+HEAD from GET; covered by the staging smoke, not unit-testable without a
+server harness. M17–M19 UI component tests — no house precedent for
+page-component tests; build + staging screenshots cover. M20 nav-visibility
+test — the sidebar renders entries unconditionally; a constant cannot
+regress. `feature-surface` RED — fails BY DESIGN until the surface's files
+exist (#867). "Missing skills" citation — `subagent-driven-development` /
+`executing-plans` are harness skills, present in this session's registry.

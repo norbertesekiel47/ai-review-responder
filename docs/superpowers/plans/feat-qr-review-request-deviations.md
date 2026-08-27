@@ -13,3 +13,32 @@
   dropped, scoping is enforced by the module query (`WHERE account_id = …`)
   plus `requireOwnerAccess` on the settings pages. Recorded for owner
   visibility at step 6 read-back.
+- [2026-08-26] AMENDMENT #2 (owner-approved via sign-off question): added
+  `scripts/ci/tenant-scope-allowlist.ts` + `docs/analytics/events.md` to
+  `allowed_edit_surface`. Codex R1: (a) the public QR redirect's by-UUID
+  lookup needs one allowlist entry (category `pre-auth-token` — the audit's
+  own designed escape); (b) `ci:analytics-events` compares the registry to
+  `docs/analytics/events.md`, so the new event needs its doc row in the same
+  PR. Amendment budget now at 2 — the step-5 `reclassify` WARN will fire by
+  rule; disposition: both amendments are additive one-file scope, owner-signed,
+  lane stays `high` (already the heaviest non-epic lane).
+- [2026-08-26] Intake edge-case CORRECTION (codex R1 finding 1, verified at
+  `src/lib/auth/require-owner-access.ts:81`): `requireOwnerAccess` redirects
+  `pending_payment` owners to `/onboarding/pay` on EVERY settings page. The
+  intake line "pending_payment owners can see and print" was my invention at
+  grill time, not an owner decision; corrected to the standard settings
+  posture. The redirect-side gate (`subscriptionAllowsQrRedirect`) is
+  unchanged.
+- [2026-08-26] `tests_to_add` ADDITIONS (5 titles, codex R1 accepted
+  findings): distinct event keys per scan; live tenant-exclusion; live
+  authoritative-column gate; never client-enqueueable; ids shipped in event
+  properties. Recorded as deviations-file entries per the #643 rule.
+- [2026-08-26] Codex R1 REJECTIONS (recorded with reasoning, full table in
+  the plan's review appendix): framework-level HEAD test (Next.js implements
+  HEAD via GET; staging smoke covers it), UI component tests M17–M19 (no
+  house precedent for page-component tests; build + staging screenshots
+  cover), nav-visibility test M20 (the sidebar renders entries
+  unconditionally — a constant cannot regress), the `feature-surface` RED
+  complaint (fails by design until the surface's files exist), and the
+  "missing skills" citation (subagent-driven-development / executing-plans
+  are harness skills, verified present in this session).
