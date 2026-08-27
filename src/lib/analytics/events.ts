@@ -28,6 +28,7 @@ export const ANALYTICS_EVENT_NAMES = [
   'import_offer_created',
   'import_decision_recorded',
   'checkout_coupon_decision',
+  'qr_scan_redirected',
 ] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];

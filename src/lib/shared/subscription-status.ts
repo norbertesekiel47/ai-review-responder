@@ -73,3 +73,19 @@ export function subscriptionAllowsDashboardRead(status: string): boolean {
     status === SubscriptionStatus.PAST_DUE
   );
 }
+
+/**
+ * Whether a scan of a location's Review QR may 302 to Google (CONTEXT.md
+ * "QR redirect"). `past_due` deliberately stays live so a card failure never
+ * kills a printed counter code mid-grace; `pending_payment` and `cancelled`
+ * render the scanner-facing unavailable page. Same membership as
+ * `subscriptionAllowsDashboardRead` TODAY, deliberately a separate name —
+ * the owner's dashboard entitlement and a customer-facing printed code have
+ * no reason to move together (owner decision 2026-08-26).
+ */
+export function subscriptionAllowsQrRedirect(status: string): boolean {
+  return (
+    subscriptionGrantsFullAccess(status) ||
+    status === SubscriptionStatus.PAST_DUE
+  );
+}

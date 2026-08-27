@@ -29,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Account',
     items: [
       { label: 'Locations', href: '/settings/locations', icon: 'location' },
+      { label: 'Review QR', href: '/settings/review-qr', icon: 'location' },
       { label: 'Profile', href: '/settings/profile', icon: 'home' },
       { label: 'Billing', href: '/settings/billing', icon: 'chart' },
       { label: 'Security', href: '/settings/security', icon: 'shield' },

@@ -212,7 +212,16 @@ export interface TenantScopeAllowlistEntry {
 //     outer row, the BATCH_EXPIRED_SWEEP_SCAN shape) — and the granted-window
 //     read-back from the send parent's latest `batch_approved` step
 //     (`agent_run_steps` has no tenant columns at all).
-export const ALLOWLIST_BASELINE = 369;
+//   - 2026-08-26 (369 → 370): feat-qr-review-request Task 4's QR redirect
+//     resolver (`getQrRedirectRow`, `src/lib/locations/repo.ts`). A printed
+//     Review QR encodes only an opaque business UUID, so the public
+//     /q/[businessId] route must resolve the row (and the AUTHORITATIVE
+//     accounts.subscription_status via JOIN) before any tenant scope is
+//     knowable — the approval-token shape, category 'pre-auth-token'. ONE
+//     statement, statement-granular; every owner-facing read in the feature
+//     goes through getLocationsForAccount, which binds account_id and needs
+//     no entry.
+export const ALLOWLIST_BASELINE = 370;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -860,6 +869,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "SELECT id, account_id, name, display_label, is_primary, archived_at, google_place_id, google_place_address, created_at FROM businesses WHERE id = ${locationId}::uuid",
     category: 'tenant-root-lookup',
     reason: "Authenticated flow uses business/location id as the lookup key after owner scope has been established.",
+  },
+  {
+    file: "src/lib/locations/repo.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT b.google_place_id, b.archived_at, b.account_id, a.subscription_status FROM businesses b JOIN accounts a ON a.id = b.account_id WHERE b.id = ${businessId} LIMIT 1",
+    category: 'pre-auth-token',
+    reason: "public QR redirect resolves a printed opaque business UUID before any tenant scope is knowable; returns no tenant data",
   },
   {
     file: "worker/background/pollers/health-alert/checks.ts",
