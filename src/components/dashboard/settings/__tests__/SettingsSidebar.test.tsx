@@ -22,6 +22,14 @@ describe('SettingsSidebar', () => {
     }
   });
 
+  it('renders a Review QR entry in the settings navigation', () => {
+    render(<SettingsSidebar />);
+    expect(screen.getByRole('link', { name: /review qr/i })).toHaveAttribute(
+      'href',
+      '/settings/review-qr',
+    );
+  });
+
   it('marks Brand Voice active on /settings/voice', () => {
     render(<SettingsSidebar />);
     expect(screen.getByRole('link', { name: /brand voice/i })).toHaveAttribute('aria-current', 'page');
