@@ -93,3 +93,17 @@
   complaint (fails by design until the surface's files exist), and the
   "missing skills" citation (subagent-driven-development / executing-plans
   are harness skills, verified present in this session).
+- [2026-08-26] Task 6 LOCAL deviation — print page root is `<section>`, not
+  the plan's `<main>`: the authenticated shell already renders
+  `<main id="main-content">` around every settings child, and a nested
+  second `<main>` is invalid HTML. Same children, same structure otherwise.
+- [2026-08-26] Task 6 LOCAL deviation — TopBar props: the plan's code block
+  says `<TopBar title="Review QR" />`, but its own parenthetical says to
+  check TopBar's actual props against the channels page and match them.
+  Every sibling settings page passes `title` + `subtitle` +
+  `rightLink={{ href: '/dashboard', label: 'Back to dashboard' }}`, so
+  Review QR does too (house shape wins over the minimal block).
+- [2026-08-26] Task 6 note — sidebar `icon: 'location'` confirmed against
+  the `IconName` union in `@/components/dashboard/shell/Icon` (it exists;
+  also used by the Locations entry — icon reuse is the file's precedent,
+  e.g. 'chart' and 'shield' each appear twice).
