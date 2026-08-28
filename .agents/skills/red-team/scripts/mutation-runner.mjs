@@ -138,13 +138,41 @@ export function assertLocalDatabaseUrl(value) {
   return true;
 }
 
-/** `ps -Ao pid=,command=` rows that look like a server or watcher on this tree. */
-export function findWatchers(psOutput) {
+/**
+ * `ps -Ao pid=,command=` rows that look like a server or watcher on this tree.
+ *
+ * `ignorePids` excludes THIS process and its ancestors, and it is not an
+ * optimisation. Measured on a real machine: the shell that invoked the check was
+ * itself reported, because its command line embedded a script containing the
+ * literal text `next dev`. That is the same self-match that makes a grep-based
+ * guard block its own documentation. Everything else still matches on substring,
+ * deliberately — a false positive here refuses a run, which is the safe
+ * direction; a false negative mutates code under a live hot-reloader.
+ */
+export function findWatchers(psOutput, ignorePids = new Set()) {
   return psOutput
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+    .filter((line) => {
+      const pid = Number(line.split(/\s+/)[0]);
+      return !(Number.isFinite(pid) && ignorePids.has(pid));
+    })
     .filter((line) => WATCHER_PATTERNS.some((pattern) => pattern.test(line)));
+}
+
+/** This process and every ancestor, so the checker never reports itself. */
+export function selfAncestry(startPid = process.pid) {
+  const pids = new Set();
+  let pid = startPid;
+  for (let depth = 0; depth < 32 && pid > 1; depth += 1) {
+    pids.add(pid);
+    const result = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' });
+    const parent = Number((result.stdout ?? '').trim());
+    if (!Number.isFinite(parent) || parent <= 1 || pids.has(parent)) break;
+    pid = parent;
+  }
+  return pids;
 }
 
 /**
@@ -388,7 +416,10 @@ function cmdWatchers(parsed) {
   const output = typeof parsed['ps-source'] === 'string'
     ? readFileSync(resolve(parsed['ps-source']), 'utf8')
     : (spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).stdout ?? '');
-  const matches = findWatchers(output);
+  const matches = findWatchers(
+    output,
+    typeof parsed['ps-source'] === 'string' ? new Set() : selfAncestry(),
+  );
   if (matches.length === 0) {
     console.log('watchers: none — no dev server, watch worker, or E2E server is serving this worktree');
     return 0;

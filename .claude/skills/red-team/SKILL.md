@@ -263,10 +263,11 @@ path without a registry. Run the checker once with no report to be told the
 exact path it expects.
 
 `findings.md` is the human report. `findings.json` is `schema: 1`, strict — any
-unknown field fails:
+unknown field fails and any missing one fails, so this table is EXHAUSTIVE:
 
 | Field | Meaning |
 |---|---|
+| `schema` | always `1` |
 | `mode` | `feature` or `standalone` |
 | `run_id` | `<mode>-<slug>`, derived, never chosen |
 | `branch` | the branch, or `null` on a detached standalone run |
@@ -274,6 +275,7 @@ unknown field fails:
 | `intake_sha256` | SHA-256 of `.feature/intake.json`, or `null` |
 | `risk` | `normal` or `high`, normalized from the intake |
 | `round` | 1 or 2 |
+| `generated_at` | ISO timestamp of the pass |
 | `inventory` | EVERY candidate, one row each |
 | `findings` | severity, `file:line`, and exactly ONE disposition |
 | `authorizations` | the resolvable target of every authorization reference |

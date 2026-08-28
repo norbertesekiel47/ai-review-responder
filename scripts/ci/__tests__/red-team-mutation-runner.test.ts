@@ -224,6 +224,22 @@ describe('the watcher precondition', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('ABORT');
   });
+
+  // Measured on a real machine: the SHELL that invoked the check was reported,
+  // because its own command line embedded a script containing "next dev". Same
+  // self-match that makes a grep-based guard block its own documentation.
+  it('never reports the checking process or its own ancestry', () => {
+    const marker = 'RTSELFMATCH';
+    // The shell's argv contains both the watcher token and the marker, so a
+    // self-match would surface the marker in the refusal.
+    const result = spawnSync(
+      '/bin/bash',
+      ['-c', `: "next dev ${marker}"; node ${RUNNER} watchers`],
+      { cwd: repo, encoding: 'utf8', env: GIT_FREE_ENV },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    expect(output).not.toContain(marker);
+  });
 });
 
 describe('the journal and the finalizer', () => {
