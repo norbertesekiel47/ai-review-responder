@@ -1,8 +1,10 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
@@ -76,12 +78,18 @@ export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Pro
           </>
         ) : (
           <div className="aggregate-empty">
-            <div className="aggregate-empty-emoji">📈</div>
-            <div className="aggregate-empty-title">No analytics yet</div>
+            <div className="empty-emoji" aria-hidden="true">
+              <Icon name="trend" size={28} />
+            </div>
+            <div className="aggregate-empty-title">Your charts are warming up</div>
             <div className="aggregate-empty-sub">
               Once reviews start coming in, you&apos;ll see your reputation trend, review
               volume, and local search ranking here.
             </div>
+            <Link href="/dashboard/reviews" className="empty-link">
+              <Icon name="inbox" size={13} aria-hidden="true" />
+              Go to Reviews
+            </Link>
           </div>
         )}
       </div>

@@ -211,7 +211,7 @@ describe('AnalyticsContent', () => {
       refresh: vi.fn(),
     });
     render(<AnalyticsContent />);
-    expect(screen.getByText(/no analytics yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/your charts are warming up/i)).toBeInTheDocument();
     // The KPI strip stays inside the populated branch, so it should not appear here.
     expect(screen.queryByText('Average rating')).not.toBeInTheDocument();
   });

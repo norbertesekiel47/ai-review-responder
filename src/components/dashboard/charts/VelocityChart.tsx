@@ -12,7 +12,7 @@ import {
   CHART_FONT_BODY,
   CHART_GRID_STROKE,
 } from '@/components/dashboard/charts/chart-tokens';
-import { ChartTooltip } from '@/components/dashboard/charts/ChartTooltip';
+import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
@@ -28,6 +28,15 @@ export interface VelocityDatum {
 
 const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
+
+/**
+ * Change vs the previous week's count, from the plotted data. The first week
+ * has no prior, so no delta renders.
+ */
+function countDeltaLabel(data: ReadonlyArray<VelocityDatum>, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  return weekOverWeekDeltaLabel(data[index]!.count - data[index - 1]!.count, String);
+}
 
 /** Weekly bars + smoothed trend line + avg reference, on the measured-viewBox contract. */
 export function VelocityChart({ data }: { data: VelocityDatum[] }) {
@@ -205,6 +214,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           y={yScale(hoveredDatum.count)}
           title={`Week of ${hoveredDatum.label || `#${hover.index + 1}`}`}
           value={`${hoveredDatum.count} reviews`}
+          delta={countDeltaLabel(data, hover.index)}
           containerWidth={width}
         />
       )}

@@ -154,7 +154,7 @@
   --rw-success-border: #BBF7D0;
   --rw-success-shadow: rgba(22, 101, 52, 0.32);
 
-  --rw-yellow-100: #FEF9C3;  /* badge: pending_approval */
+  --rw-yellow-100: #FEF9C3;  /* badge: wait states (reply held, medium escalation) */
   --rw-yellow-800: #854D0E;
 
   --rw-warning-bg:            #FFFBEB;

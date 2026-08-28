@@ -66,20 +66,25 @@ export function ReviewFeedCard({
   });
 
   return (
-    <div className="card">
-      <div className="card-h2-row">
-        <h2>Reviews</h2>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: 'var(--rw-app-text-muted)' }}>{pendingCount} awaiting your approval</span>
+    <section className="reviews-queue">
+      <div className="queue-head">
+        <h2 className="queue-title">Waiting on you</h2>
+        <span className={`queue-count${pendingCount > 0 ? ' has-pending' : ''}`}>
+          {pendingCount} awaiting your approval
+        </span>
       </div>
 
       {isClockPending ? (
         <ScheduledClockPendingState />
       ) : visibleReviews.length === 0 ? (
         <div className="empty-caught-up">
-          <div className="empty-emoji" aria-hidden="true"><Icon name="check" size={40} /></div>
+          <div className="empty-emoji" aria-hidden="true"><Icon name="check" size={28} /></div>
           <div className="empty-title">All caught up!</div>
           <div className="empty-sub">{emptyText}</div>
+          <Link href="/dashboard/reviews/history" className="empty-link">
+            <Icon name="history" size={13} aria-hidden="true" />
+            See all reviews
+          </Link>
         </div>
       ) : (
         <div className="review-list">
@@ -95,14 +100,14 @@ export function ReviewFeedCard({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
 function ScheduledClockPendingState() {
   return (
     <output className="empty-caught-up" aria-live="polite">
-      <div className="empty-emoji" aria-hidden="true"><Icon name="clock" size={40} /></div>
+      <div className="empty-emoji" aria-hidden="true"><Icon name="clock" size={28} /></div>
       <div className="empty-title">Checking scheduled posts…</div>
       <div className="empty-sub">Confirming the latest posting window.</div>
     </output>

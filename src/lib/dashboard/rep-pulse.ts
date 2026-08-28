@@ -18,8 +18,8 @@ import type { ReputationSummary } from '@/lib/dashboard/types';
  * same windowed deltas the hero band shows.
  */
 
-export const REP_PULSE_RATING_WEIGHT = 70;
-export const REP_PULSE_RESPONSE_WEIGHT = 30;
+const REP_PULSE_RATING_WEIGHT = 70;
+const REP_PULSE_RESPONSE_WEIGHT = 30;
 
 export type RepPulseBand = 'strong' | 'solid' | 'building' | 'low';
 

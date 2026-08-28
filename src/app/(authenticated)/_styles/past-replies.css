@@ -15,15 +15,17 @@
 /* The routed Reviews sub-nav (.reviews-subnav / .reviews-showing) is shared
    across both Reviews tabs and lives in console.css, not here. */
 
-/* Filter bar */
+/* Filter bar — sticky under the topbar, so it earns bounded backdrop blur. */
 .pr-toolbar {
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  background: var(--rw-white);
-  border: 1px solid var(--rw-app-border);
-  border-radius: 12px;
+  background: var(--rw-floating-surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-core);
   padding: 10px 12px;
   box-shadow: var(--rw-shadow-sm);
   position: sticky;
@@ -88,11 +90,14 @@
 }
 @media (max-width: 900px) { .pr-stats { grid-template-columns: repeat(2, 1fr); } }
 .pr-stat {
-  background: var(--rw-white);
-  border: 1px solid var(--rw-app-border);
-  border-radius: 10px;
-  padding: 12px 14px;
+  background: var(--rw-card);
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-lg);
+  box-shadow: var(--rw-shadow-sm);
+  padding: 14px 16px;
+  transition: transform 200ms var(--rw-ease), box-shadow 200ms var(--rw-ease);
 }
+.pr-stat:hover { transform: translateY(-2px); box-shadow: var(--rw-shadow); }
 .pr-stat-label {
   font-size: 11px;
   color: var(--rw-app-text-muted);
@@ -119,57 +124,27 @@
   margin: 8px 4px 4px;
 }
 .pr-section-title {
+  font: var(--rw-app-h2);
   font-family: var(--rw-font-display);
-  font-weight: 700;
-  font-size: 16px;
   letter-spacing: -0.01em;
 }
 .pr-section-count {
-  font-size: 12px;
-  color: var(--rw-app-text-muted);
-  font-weight: 500;
-}
-
-/* Historical upgrade banner */
-.pr-upgrade {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--rw-warning-soft), var(--rw-warning-border));
-  border: 1px solid color-mix(in srgb, var(--rw-warning-icon) 20%, transparent);
-}
-.pr-upgrade-icon {
-  width: 36px; height: 36px;
-  border-radius: 10px;
-  background: var(--rw-card);
-  color: var(--rw-warning-icon);
-  display: grid; place-items: center;
-  flex: 0 0 36px;
-}
-.pr-upgrade-text { flex: 1; }
-.pr-upgrade-title { font-weight: 700; color: var(--rw-warning-fg-strong); font-size: 14px; }
-.pr-upgrade-sub { font-size: 12px; color: var(--rw-warning-fg); margin-top: 2px; line-height: 1.45; }
-.pr-upgrade-cta {
-  background: var(--rw-warning-fg-strong);
-  color: var(--rw-warning-soft);
-  border: none;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-tray);
+  color: var(--rw-app-text-muted);
+  font-size: 11.5px;
   font-weight: 600;
-  cursor: pointer;
-  font-family: var(--rw-font-body);
-  transition: background-color 140ms var(--rw-ease), transform 140ms var(--rw-ease);
+  white-space: nowrap;
 }
-.pr-upgrade-cta:hover { background: var(--rw-warning-action-hover); transform: translateY(-1px); }
 
-/* Reply card */
+/* Reply card — one flat Harbor card; the two panes split it with a hairline. */
 .pr-card {
   background: var(--rw-card);
-  border: 1px solid var(--rw-app-border);
-  border-radius: 16px;
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-card);
   box-shadow: var(--rw-shadow-sm);
   overflow: hidden;
   animation: fadeUp 360ms var(--rw-ease) both;
@@ -198,7 +173,7 @@
   .pr-side-review { border-right: none; border-bottom: 1px solid var(--rw-app-border-soft); }
 }
 .pr-side-reply {
-  background: linear-gradient(180deg, var(--rw-control-surface) 0%, var(--rw-recess) 100%);
+  background: var(--rw-recess);
 }
 .pr-side-eyebrow {
   display: flex;
@@ -210,7 +185,7 @@
   letter-spacing: 0.07em;
   color: var(--rw-app-text-muted);
 }
-.pr-side-eyebrow.reply { color: var(--rw-teal); }
+.pr-side-eyebrow.reply { color: var(--rw-sage-deep); }
 .pr-meta {
   display: flex;
   align-items: center;
@@ -259,9 +234,9 @@
   text-align: center;
   padding: 48px 24px;
   gap: 12px;
-  background: var(--rw-white);
-  border: 1px dashed var(--rw-app-border);
-  border-radius: 16px;
+  background: var(--rw-card);
+  border: 1px dashed var(--rw-hair-2);
+  border-radius: var(--rw-radius-card);
 }
 .pr-empty-icon {
   width: 56px; height: 56px;
@@ -388,8 +363,8 @@
 
 /* ── Reviews list row states (#678) ──────────────────────────────────────── */
 /* One block per state the card switches on: generate / generating / draft_ready
-   / held, plus the Regenerate counter. Warm Editorial Console tokens only — the
-   sage accent ramp is the actionable colour here, blush stays reserved for the
+   / held, plus the Regenerate counter. Harbor Console tokens only — the
+   teal accent ramp is the actionable colour here, coral stays reserved for the
    recovery/attention state above. */
 
 /* Shared one-line affordance row (Generate button, status, cross-link). */
@@ -450,12 +425,12 @@
   .pr-gen-dot { animation: none; }
   .pr-gen-dot { opacity: 0.8; }
   .pr-card:hover,
-  .pr-upgrade-cta:hover,
+  .pr-stat:hover,
   .pr-generate-btn:hover { transform: none; }
   .pr-search,
   .pr-chip,
-  .pr-upgrade-cta,
   .pr-card,
+  .pr-stat,
   .pr-pager-btn,
   .pr-generate-btn,
   .pr-edit-btn,
@@ -470,6 +445,8 @@
   .pr-generate-btn,
   .pr-edit-btn,
   .pr-gen-primary,
+  .pr-recovery-btn,
+  .pr-draft-link,
   .pr-search button { min-height: 44px; min-width: 44px; }
 }
 
@@ -479,10 +456,10 @@
   flex-direction: column;
   gap: 8px;
   margin-top: 6px;
-  padding: 11px 12px;
-  border-radius: 12px;
-  background: var(--rw-recess);
-  border: 1px solid var(--rw-app-border-soft);
+  padding: 12px 14px;
+  border-radius: var(--rw-radius-core);
+  background: var(--rw-white);
+  border: 1px solid var(--rw-hair);
 }
 .pr-gen-draft {
   margin: 0;
@@ -519,9 +496,9 @@
   width: 100%;
   resize: vertical;
   padding: 9px 10px;
-  border-radius: 10px;
+  border-radius: var(--rw-radius-md);
   border: 1px solid var(--rw-app-border);
-  background: var(--rw-white);
+  background: var(--rw-recess);
   color: var(--rw-app-text);
   font-size: 13px;
   line-height: 1.55;

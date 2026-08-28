@@ -127,8 +127,8 @@ to review ratings. Every row is declared in
 | Posted badge bg | `#DCFCE7` | `--rw-green-100` | badge: posted |
 | Posted badge text | `#166534` | `--rw-green-800` | badge: posted |
 | Success surface | `#F0FDF4` | `--rw-success-bg` | success panel |
-| Pending badge bg | `#FEF9C3` | `--rw-yellow-100` | badge: pending_approval |
-| Pending badge text | `#854D0E` | `--rw-yellow-800` | badge: pending_approval |
+| Wait badge bg | `#FEF9C3` | `--rw-yellow-100` | badge: wait states (reply held, medium escalation) |
+| Wait badge text | `#854D0E` | `--rw-yellow-800` | badge: wait states (reply held, medium escalation) |
 | Warning surface | `#FFFBEB` | `--rw-warning-bg` | warning panel |
 | Warning text | `#92400E` | `--rw-warning-fg` | warning copy |
 | Info surface | `#EFF6FF` | `--rw-info-bg` | info panel |

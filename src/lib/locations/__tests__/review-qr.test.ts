@@ -259,7 +259,11 @@ describe('getOwnerReviewQrLocation', () => {
 // @types/qrcode — codex R2 ran tsc and proved it.)
 
 describe('QR encoding parameters', () => {
-  it('encodes the /q/<businessId> URL at print width', async () => {
+  // 15s, not the 5s default: this test encodes the 2048px print PNG TWICE
+  // (once in the module, once for the independent expected value), and under
+  // CI's V8-coverage instrumentation that pair has twice overrun 5s on the
+  // shared runner (PR #988, 2026-08-28). The work is legitimate, not hung.
+  it('encodes the /q/<businessId> URL at print width', { timeout: 15_000 }, async () => {
     const { sql } = fakeSql([
       [{ id: BUSINESS_UUID, name: 'Acme', display_label: null, google_place_id: CANONICAL_PLACE_ID }],
     ]);
