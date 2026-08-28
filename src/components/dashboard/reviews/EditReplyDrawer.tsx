@@ -3,10 +3,10 @@
 // Right-side slide-out drawer for the edit-existing-reply flow. This is the
 // composing shell: it wires useEditReplyDraft (the state machine + every API
 // call) and useFocusTrap (focus capture / Tab-trap / Esc / restore), then
-// renders the review snapshot, the current Google reply, and the per-state
-// panel for state.kind. The state machine, its DrawerState variants, and the
-// API contract are documented in ./edit-reply/useEditReplyDraft.ts; the panels
-// live in ./edit-reply/*.
+// renders the review snapshot, the current Google reply, and — via
+// DrawerStateBody below — the per-state panel for state.kind. The state
+// machine, its DrawerState variants, and the API contract are documented in
+// ./edit-reply/useEditReplyDraft.ts; the stateful panels live in ./edit-reply/*.
 
 'use client';
 
@@ -44,6 +44,20 @@ interface EditReplyDrawerProps {
     failedResponseId: string;
     failedPostingError: string | null;
   } | null;
+}
+
+// The hook keeps DrawerState private on purpose (2026-08-13); the body
+// component derives the state/actions types instead of re-exporting them.
+type DraftMachine = ReturnType<typeof useEditReplyDraft>;
+
+/** Close-button tooltip for the three states that block closing. */
+function closeBlockedTitle(stateKind: DraftMachine['state']['kind']): string | undefined {
+  if (stateKind === 'creating_draft') return 'Wait — finishing your draft request…';
+  if (stateKind === 'regenerating') return 'Wait — generating your draft. This usually takes 5–15 seconds.';
+  if (stateKind === 'regenerate_poll_error') {
+    return 'The worker is still running. Resume polling or wait — close is disabled while a draft may still arrive.';
+  }
+  return undefined;
 }
 
 export function EditReplyDrawer({
@@ -120,15 +134,7 @@ export function EditReplyDrawer({
                 ? 'Close (disabled while draft is being created)'
                 : 'Close'
             }
-            title={
-              state.kind === 'creating_draft'
-                ? 'Wait — finishing your draft request…'
-                : state.kind === 'regenerating'
-                  ? 'Wait — generating your draft. This usually takes 5–15 seconds.'
-                  : state.kind === 'regenerate_poll_error'
-                    ? 'The worker is still running. Resume polling or wait — close is disabled while a draft may still arrive.'
-                    : undefined
-            }
+            title={closeBlockedTitle(state.kind)}
           >
             <svg
               width="16"
@@ -177,170 +183,200 @@ export function EditReplyDrawer({
             </p>
           </section>
 
-          {/* State-specific UI */}
-          {state.kind === 'initial' && canEdit && (
-            <div className="space-y-3">
-              <div className="rounded-md px-3 py-2 text-xs" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)', color: 'var(--rw-app-text-muted)' }}>
-                {AI_DRAFT_DISCLOSURE}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={actions.startManualEdit}
-                  className="btn btn-primary"
-                >
-                  Edit manually
-                </button>
-                <button
-                  type="button"
-                  onClick={actions.startRegenerate}
-                  className="btn btn-secondary"
-                >
-                  Regenerate with AI
-                </button>
-              </div>
-            </div>
-          )}
-
-          {state.kind === 'editing' && (
-            <ManualEditor
-              initialText={state.text}
-              onCancel={() => actions.cancelDraft(state.draftResponseId)}
-              onSubmit={(text) => actions.submitManual(text, state.draftResponseId)}
-            />
-          )}
-
-          {(state.kind === 'creating_draft' || state.kind === 'regenerating') && (
-            <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
-              <div className="flex items-center gap-3">
-                <Spinner />
-                <span>Generating a fresh draft using your current brand voice…</span>
-              </div>
-            </div>
-          )}
-
-          {state.kind === 'regenerate_poll_error' && (
-            // Polling failed transiently. Outbox + worker are still running;
-            // close is blocked (Round-4 M). Resume polling re-enters
-            // 'regenerating' with the same outboxId so the polling effect
-            // reattaches and the 60s window restarts.
-            <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', boxShadow: 'inset 4px 0 0 var(--rw-blush)', background: 'var(--rw-recess)' }}>
-              <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{state.message}</p>
-              <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
-                Close is paused until the draft arrives or the worker reports failure; otherwise the
-                draft would be created in the background and block your next attempt.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={actions.resumePolling}
-                  className="btn btn-primary"
-                >
-                  Resume polling
-                </button>
-              </div>
-            </div>
-          )}
-
-          {state.kind === 'preview' && (
-            <PreviewPanel
-              text={state.text}
-              // Accept-as-is publishes the worker draft WITHOUT a PATCH so it
-              // records as 'regenerate_as_is'. "Edit further" routes to the
-              // editing state, whose submit PATCHes then publishes →
-              // 'regenerate_edited'.
-              onPublish={() => actions.publishExisting(state.draftResponseId)}
-              onEditFurther={actions.editFurther}
-              onCancel={() => actions.cancelDraft(state.draftResponseId)}
-            />
-          )}
-
-          {state.kind === 'publishing' && (
-            <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
-              <div className="flex items-center gap-3">
-                <Spinner />
-                <span>Posting to Google…</span>
-              </div>
-            </div>
-          )}
-
-          {state.kind === 'recovery' && (
-            <RecoveryPanel
-              onRetry={() => actions.retryPosting(state.failedResponseId)}
-              onRestore={() => actions.restoreOriginal(state.failedResponseId)}
-              // Restore is only valid for orphan-state failures
-              // (post_after_delete_failed_*). For delete_failed_* the live
-              // posted reply is still on Google — there's nothing to
-              // restore. /restore-original would 409 not_in_orphan_state;
-              // hide the button instead. See Round-2 M2.
-              restoreAvailable={
-                state.failedPostingError !== null &&
-                state.failedPostingError.startsWith('post_after_delete_failed_')
-              }
-            />
-          )}
-
-          {state.kind === 'review_changed' && (
-            <ReviewChangedPanel
-              currentText={state.currentText}
-              onRefresh={() => router.refresh()}
-              onClose={onClose}
-            />
-          )}
-
-          {state.kind === 'draft_conflict' && (
-            <DraftConflictPanel
-              draftText={state.existing.text}
-              isEdited={state.existing.isEdited}
-              status={state.existing.status}
-              onResume={() => actions.resumeExistingDraft(state.existing)}
-              onDiscard={() => actions.discardExistingDraft(state.existing.responseId)}
-              onClose={onClose}
-              onRefresh={() => router.refresh()}
-            />
-          )}
-
-          {state.kind === 'error' && (
-            <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
-              <p className="text-sm" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={actions.reset}
-                  className="rounded-md px-3 py-1 text-xs font-medium"
-                  style={{ border: '1px solid var(--rw-danger)', color: 'var(--rw-danger)' }}
-                >
-                  Try again
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-md px-3 py-1 text-xs font-medium hover:bg-[var(--rw-recess)]"
-                  style={{ color: 'var(--rw-app-text-muted)' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          )}
-
-          {state.kind === 'success' && (
-            <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)' }}>
-              <p className="text-sm" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="btn btn-primary"
-                >
-                  Close editor
-                </button>
-              </div>
-            </div>
-          )}
+          <DrawerStateBody
+            state={state}
+            actions={actions}
+            canEdit={canEdit}
+            onClose={onClose}
+            onRefresh={() => router.refresh()}
+          />
         </div>
       </aside>
     </dialog>
+  );
+}
+
+/**
+ * The per-state panel — one arm per DrawerState kind, nothing else. Split from
+ * the shell so the dialog/focus-trap chrome and the state dispatch each stay
+ * a readable unit (invariant #12's extraction rule applied to a component).
+ */
+function DrawerStateBody({
+  state,
+  actions,
+  canEdit,
+  onClose,
+  onRefresh,
+}: {
+  state: DraftMachine['state'];
+  actions: DraftMachine['actions'];
+  canEdit: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <>
+      {state.kind === 'initial' && canEdit && (
+        <div className="space-y-3">
+          <div className="rounded-md px-3 py-2 text-xs" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)', color: 'var(--rw-app-text-muted)' }}>
+            {AI_DRAFT_DISCLOSURE}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={actions.startManualEdit}
+              className="btn btn-primary"
+            >
+              Edit manually
+            </button>
+            <button
+              type="button"
+              onClick={actions.startRegenerate}
+              className="btn btn-secondary"
+            >
+              Regenerate with AI
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.kind === 'editing' && (
+        <ManualEditor
+          initialText={state.text}
+          onCancel={() => actions.cancelDraft(state.draftResponseId)}
+          onSubmit={(text) => actions.submitManual(text, state.draftResponseId)}
+        />
+      )}
+
+      {(state.kind === 'creating_draft' || state.kind === 'regenerating') && (
+        <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
+          <div className="flex items-center gap-3">
+            <Spinner />
+            <span>Generating a fresh draft using your current brand voice…</span>
+          </div>
+        </div>
+      )}
+
+      {state.kind === 'regenerate_poll_error' && (
+        // Polling failed transiently. Outbox + worker are still running;
+        // close is blocked (Round-4 M). Resume polling re-enters
+        // 'regenerating' with the same outboxId so the polling effect
+        // reattaches and the 60s window restarts.
+        <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', boxShadow: 'inset 4px 0 0 var(--rw-blush)', background: 'var(--rw-recess)' }}>
+          <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{state.message}</p>
+          <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
+            Close is paused until the draft arrives or the worker reports failure; otherwise the
+            draft would be created in the background and block your next attempt.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={actions.resumePolling}
+              className="btn btn-primary"
+            >
+              Resume polling
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.kind === 'preview' && (
+        <PreviewPanel
+          text={state.text}
+          // Accept-as-is publishes the worker draft WITHOUT a PATCH so it
+          // records as 'regenerate_as_is'. "Edit further" routes to the
+          // editing state, whose submit PATCHes then publishes →
+          // 'regenerate_edited'.
+          onPublish={() => actions.publishExisting(state.draftResponseId)}
+          onEditFurther={actions.editFurther}
+          onCancel={() => actions.cancelDraft(state.draftResponseId)}
+        />
+      )}
+
+      {state.kind === 'publishing' && (
+        <div className="rounded-lg p-4 text-sm" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', color: 'var(--rw-app-text-muted)' }}>
+          <div className="flex items-center gap-3">
+            <Spinner />
+            <span>Posting to Google…</span>
+          </div>
+        </div>
+      )}
+
+      {state.kind === 'recovery' && (
+        <RecoveryPanel
+          onRetry={() => actions.retryPosting(state.failedResponseId)}
+          onRestore={() => actions.restoreOriginal(state.failedResponseId)}
+          // Restore is only valid for orphan-state failures
+          // (post_after_delete_failed_*). For delete_failed_* the live
+          // posted reply is still on Google — there's nothing to
+          // restore. /restore-original would 409 not_in_orphan_state;
+          // hide the button instead. See Round-2 M2.
+          restoreAvailable={
+            state.failedPostingError !== null &&
+            state.failedPostingError.startsWith('post_after_delete_failed_')
+          }
+        />
+      )}
+
+      {state.kind === 'review_changed' && (
+        <ReviewChangedPanel
+          currentText={state.currentText}
+          onRefresh={onRefresh}
+          onClose={onClose}
+        />
+      )}
+
+      {state.kind === 'draft_conflict' && (
+        <DraftConflictPanel
+          draftText={state.existing.text}
+          isEdited={state.existing.isEdited}
+          status={state.existing.status}
+          onResume={() => actions.resumeExistingDraft(state.existing)}
+          onDiscard={() => actions.discardExistingDraft(state.existing.responseId)}
+          onClose={onClose}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {state.kind === 'error' && (
+        <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
+          <p className="text-sm" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={actions.reset}
+              className="rounded-md px-3 py-1 text-xs font-medium"
+              style={{ border: '1px solid var(--rw-danger)', color: 'var(--rw-danger)' }}
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-3 py-1 text-xs font-medium hover:bg-[var(--rw-recess)]"
+              style={{ color: 'var(--rw-app-text-muted)' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.kind === 'success' && (
+        <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)' }}>
+          <p className="text-sm" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn btn-primary"
+            >
+              Close editor
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
