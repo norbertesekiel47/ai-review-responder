@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { ReputationTrendChart, computeTrendDomain } from '@/components/dashboard/kpi/ReputationTrendChart';
+import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
+import { computeTrendDomain } from '@/components/dashboard/charts/star-trend-plot';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 
 const trendWith = (stars: Array<number | null>): ReputationSummary['trend'] =>

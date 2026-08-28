@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Console Direction Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&family=Gabarito:wght@500;600;700&family=Figtree:wght@400;500;600;700&family=Schibsted+Grotesk:wght@400;500;600;700&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    background: #EEECE7;
+    color: #2A2620;
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+    padding: 56px 32px 96px;
+  }
+  .board-head { max-width: 1240px; margin: 0 auto 48px; }
+  .board-head h1 {
+    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+    font-size: 34px; font-weight: 700; letter-spacing: -0.02em;
+  }
+  .board-head p { margin-top: 10px; font-size: 15px; color: #6E695F; max-width: 62ch; line-height: 1.55; }
+  .board-head .note { margin-top: 6px; font-size: 13px; color: #98917F; }
+
+  .dir { max-width: 1240px; margin: 0 auto 72px; }
+  .dir-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 18px; }
+  .dir-head h2 {
+    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+    font-size: 22px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .dir-head h2 span { color: #9A937F; font-weight: 500; margin-right: 10px; }
+  .dir-head .blurb { font-size: 14px; color: #6E695F; max-width: 66ch; line-height: 1.5; margin-top: 6px; }
+  .spec { display: flex; gap: 8px; flex-wrap: wrap; }
+  .spec span {
+    font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+    background: #fff; border: 1px solid rgba(60,50,30,.12); color: #4A453B;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .spec i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+
+  /* ---------- shared shell ---------- */
+  .frame { border-radius: 28px; padding: 36px; background: var(--f); overflow: hidden; }
+  .shell { display: grid; grid-template-columns: 224px 1fr; gap: 26px; }
+  .smain { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+
+  /* sidebar */
+  .snav { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 8px 10px 20px; }
+  .brand .mark {
+    width: 36px; height: 36px; border-radius: 12px; background: var(--acc);
+    display: grid; place-items: center; color: var(--acc-on); font-weight: 700;
+    font-family: var(--display); font-size: 16px;
+  }
+  .brand b { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--nav-ink); display: block; letter-spacing: -0.01em; }
+  .brand small { font-size: 12px; color: var(--nav-mut); }
+  .nav-item {
+    display: flex; align-items: center; gap: 11px; padding: 10px 13px;
+    border-radius: 13px; font-size: 13.5px; font-weight: 600; color: var(--nav-mut);
+    transition: background .18s ease, color .18s ease; cursor: default;
+  }
+  .nav-item svg { width: 17px; height: 17px; stroke-width: 1.8; }
+  .nav-item:hover { color: var(--nav-ink); background: var(--nav-hover); }
+  .nav-item.active { background: var(--nav-active); color: var(--nav-active-ink); }
+  .nav-badge {
+    margin-left: auto; font-size: 11px; font-weight: 700; min-width: 20px; height: 20px;
+    border-radius: 999px; display: grid; place-items: center; padding: 0 6px;
+    background: var(--acc); color: var(--acc-on);
+  }
+  .snav .spacer { flex: 1; min-height: 100px; }
+  .user { display: flex; align-items: center; gap: 10px; padding: 10px 10px; }
+  .user .av { width: 32px; height: 32px; border-radius: 50%; background: var(--nav-active); color: var(--nav-active-ink); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+  .user b { font-size: 13px; color: var(--nav-ink); display: block; }
+  .user small { font-size: 11.5px; color: var(--nav-mut); }
+
+  /* topbar */
+  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+  .topbar h1 { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); }
+  .topbar p { margin-top: 4px; font-size: 13.5px; color: var(--mut); }
+  .ranges { display: flex; gap: 4px; background: var(--chip-tray); padding: 4px; border-radius: 999px; }
+  .ranges button {
+    border: 0; font: 600 12.5px/1 var(--body); color: var(--mut); background: transparent;
+    padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: all .18s ease;
+  }
+  .ranges button.on { background: var(--range-on); color: var(--range-on-ink); box-shadow: 0 2px 8px rgba(20,20,20,.10); }
+
+  /* cards */
+  .card {
+    background: var(--card); border-radius: var(--r); border: 1px solid var(--hair);
+    box-shadow: var(--shadow); padding: 26px;
+    transition: transform .25s cubic-bezier(.32,.72,0,1), box-shadow .25s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-up); }
+
+  .hero-row { display: grid; grid-template-columns: 1.9fr 1fr; gap: 20px; }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mut); }
+  .conn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--good); }
+  .conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: pulse 2.4s ease-in-out infinite; }
+  .hero-top { display: flex; justify-content: space-between; align-items: center; }
+  .hero-headline {
+    font-family: var(--display); font-size: 23px; font-weight: 600; letter-spacing: -0.015em;
+    line-height: 1.28; color: var(--ink); margin: 14px 0 22px; max-width: 30ch; text-wrap: pretty;
+  }
+  .stats { display: flex; gap: 36px; flex-wrap: wrap; }
+  .stat .num {
+    font-family: var(--display); font-size: 34px; font-weight: 700; color: var(--ink);
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .stat .num small { font-size: 16px; font-weight: 600; color: var(--mut); margin-left: 2px; }
+  .stat .stars { color: var(--star); font-size: 13px; letter-spacing: 2px; margin-left: 8px; }
+  .stat .lbl { font-size: 12.5px; color: var(--mut); font-weight: 500; margin-top: 7px; }
+  .delta {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;
+    font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 999px;
+    background: var(--good-soft); color: var(--good);
+  }
+  .trend { margin-top: 24px; }
+  .trend .t-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--mut); font-weight: 600; margin-bottom: 8px; }
+  .trend svg { width: 100%; height: 84px; display: block; }
+  .grid-l { stroke: var(--hair-2); stroke-width: 1; }
+  .axis-t { font: 600 9px var(--body); fill: var(--mut); }
+  .t-line { fill: none; stroke: var(--acc-line); stroke-width: 2.5; stroke-linecap: round;
+    stroke-dasharray: 420; stroke-dashoffset: 420; animation: draw 1.4s cubic-bezier(.32,.72,0,1) .5s forwards; }
+  .t-area { fill: var(--acc-area); opacity: 0; animation: fadein .8s ease 1.4s forwards; }
+  .t-dot { fill: var(--acc-line); opacity: 0; animation: fadein .4s ease 1.7s forwards; }
+  .t-bubble { opacity: 0; animation: fadein .4s ease 1.8s forwards; }
+  .t-bubble rect { fill: var(--ink); rx: 7; }
+  .t-bubble text { font: 700 10px var(--body); fill: var(--card); }
+
+  /* score / gauge card */
+  .score { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .score h3 { font-family: var(--display); font-size: 15px; font-weight: 700; color: var(--ink); align-self: flex-start; }
+  .gauge-wrap { position: relative; margin: 16px 0 6px; }
+  .gauge { width: 158px; height: 158px; transform: rotate(-90deg); }
+  .gauge .track { fill: none; stroke: var(--gauge-track); stroke-width: 11; }
+  .gauge .val { fill: none; stroke: var(--acc); stroke-width: 11; stroke-linecap: round;
+    stroke-dasharray: 314; stroke-dashoffset: 314; animation: sweep 1.6s cubic-bezier(.32,.72,0,1) .4s forwards; }
+  .gauge-num { position: absolute; inset: 0; display: grid; place-items: center; }
+  .gauge-num b { font-family: var(--display); font-size: 40px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); display: block; line-height: 1; }
+  .gauge-num span { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--good); margin-top: 4px; display: block; }
+  .score p { font-size: 13px; color: var(--mut); line-height: 1.5; max-width: 24ch; text-wrap: pretty; }
+  .why {
+    margin-top: 14px; display: inline-flex; align-items: center; gap: 7px;
+    font: 600 12.5px/1 var(--body); color: var(--acc-strong); background: var(--acc-soft);
+    padding: 9px 14px; border-radius: 999px; cursor: pointer; border: 0;
+    transition: transform .18s ease, background .18s ease;
+  }
+  .why:hover { transform: translateY(-1px); }
+  .why svg { width: 13px; height: 13px; }
+
+  /* agents */
+  .agents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .agent { display: flex; flex-direction: column; gap: 14px; padding: 22px; }
+  .agent .a-top { display: flex; align-items: center; gap: 12px; }
+  .agent .a-icon {
+    width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center;
+    background: var(--acc-soft); color: var(--acc-strong);
+  }
+  .agent .a-icon svg { width: 19px; height: 19px; stroke-width: 1.7; }
+  .agent h3 { font-family: var(--display); font-size: 15.5px; font-weight: 700; color: var(--ink); }
+  .agent .a-role { font-size: 12px; color: var(--mut); margin-top: 2px; }
+  .agent .a-act { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--hair); padding-top: 13px; }
+  .agent .a-act b { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .agent .a-act span { font-size: 11px; color: var(--mut); }
+  .agent .on-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); margin-left: auto; animation: pulse 2.4s ease-in-out infinite; }
+
+  /* attention (the inverted panel) */
+  .attn { background: var(--dark); border-color: transparent; color: var(--dark-ink); }
+  .attn:hover { transform: translateY(-3px); }
+  .attn .at-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .attn h3 { font-family: var(--display); font-size: 16px; font-weight: 700; color: var(--dark-ink); }
+  .attn .count { font-size: 11.5px; font-weight: 700; background: var(--acc); color: var(--acc-on); border-radius: 999px; padding: 5px 11px; }
+  .attn .row { display: flex; align-items: center; gap: 14px; }
+  .attn .av { width: 38px; height: 38px; border-radius: 50%; background: var(--dark-soft); display: grid; place-items: center; font-size: 12.5px; font-weight: 700; color: var(--dark-ink); flex: none; }
+  .attn .who { font-size: 13.5px; font-weight: 700; }
+  .attn .who .st { color: var(--star); letter-spacing: 1px; margin-left: 8px; font-size: 12px; }
+  .attn .meta { font-size: 12px; color: var(--dark-mut); margin-top: 3px; }
+  .attn .quote { font-size: 12.5px; color: var(--dark-mut); font-style: italic; margin-top: 3px; }
+  .attn .open {
+    margin-left: auto; flex: none; border: 0; cursor: pointer;
+    font: 700 12.5px/1 var(--body); color: var(--acc-on); background: var(--acc);
+    padding: 11px 18px; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px;
+    transition: transform .18s ease;
+  }
+  .attn .open:hover { transform: translateY(-1px) scale(1.02); }
+  .attn .open svg { width: 13px; height: 13px; }
+
+  /* approvals strip */
+  .approve { display: flex; align-items: center; gap: 16px; padding: 20px 26px; }
+  .approve .ap-icon { width: 38px; height: 38px; border-radius: 12px; background: var(--acc-soft); color: var(--acc-strong); display: grid; place-items: center; flex: none; }
+  .approve .ap-icon svg { width: 18px; height: 18px; }
+  .approve b { font-size: 14px; color: var(--ink); }
+  .approve small { display: block; font-size: 12px; color: var(--mut); margin-top: 2px; }
+  .approve .go {
+    margin-left: auto; border: 0; cursor: pointer; font: 700 13px/1 var(--body);
+    background: var(--ink); color: var(--card); padding: 12px 20px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 8px; transition: transform .18s ease;
+  }
+  .approve .go:hover { transform: translateY(-1px) scale(1.02); }
+  .approve .go svg { width: 13px; height: 13px; }
+
+  /* entry stagger */
+  .smain > * { opacity: 0; animation: rise .7s cubic-bezier(.32,.72,0,1) forwards; }
+  .smain > *:nth-child(1) { animation-delay: .05s; }
+  .smain > *:nth-child(2) { animation-delay: .15s; }
+  .smain > *:nth-child(3) { animation-delay: .25s; }
+  .smain > *:nth-child(4) { animation-delay: .35s; }
+  .smain > *:nth-child(5) { animation-delay: .45s; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  @keyframes sweep { to { stroke-dashoffset: 41; } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fadein { to { opacity: 1; } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition: none !important; }
+    .t-line { stroke-dashoffset: 0; } .gauge .val { stroke-dashoffset: 41; }
+    .t-area, .t-dot, .t-bubble, .smain > * { opacity: 1; }
+  }
+
+  /* ============ DIRECTION 1 — Butter & Charcoal ============ */
+  .d1 {
+    --display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --body: 'Hanken Grotesk', system-ui, sans-serif;
+    --f: #F2EDE2;
+    --card: #FFFFFF;
+    --ink: #221E16; --mut: #837C6C;
+    --hair: rgba(60,50,30,.09); --hair-2: rgba(60,50,30,.10);
+    --acc: #F2BC3C; --acc-on: #33270A; --acc-soft: #FAF0D3; --acc-strong: #7A5D10;
+    --acc-line: #E0A928; --acc-area: rgba(242,188,60,.14);
+    --good: #55705F; --good-soft: #E7EFE9;
+    --star: #C08A1E;
+    --dark: #26221A; --dark-ink: #F5F0E4; --dark-mut: #B4AC9B; --dark-soft: #3A352B;
+    --nav-ink: #221E16; --nav-mut: #8B8371; --nav-hover: rgba(255,255,255,.65);
+    --nav-active: #26221A; --nav-active-ink: #F5F0E4;
+    --chip-tray: rgba(255,255,255,.7); --range-on: #26221A; --range-on-ink: #F5F0E4;
+    --gauge-track: #F0EADB;
+    --r: 22px;
+    --shadow: 0 2px 4px rgba(60,50,30,.04), 0 18px 40px -28px rgba(60,50,30,.30);
+    --shadow-up: 0 4px 8px rgba(60,50,30,.05), 0 28px 54px -30px rgba(60,50,30,.38);
+    font-family: var(--body);
+  }
+
+  /* ============ DIRECTION 2 — Harbor ============ */
+  .d2 {
+    --display: 'Gabarito', system-ui, sans-serif;
+    --body: 'Figtree', system-ui, sans-serif;
+    --f: #46606A;
+    --card: #FFFFFF;
+    --ink: #22343B; --mut: #7E8D92;
+    --hair: rgba(34,52,59,.09); --hair-2: rgba(34,52,59,.10);
+    --acc: #E8875F; --acc-on: #FFF6F0; --acc-soft: #FBE9DE; --acc-strong: #B55630;
+    --acc-line: #E8875F; --acc-area: rgba(232,135,95,.13);
+    --good: #3E6B65; --good-soft: #E2EDEA;
+    --star: #D69A3A;
+    --dark: #33505A; --dark-ink: #F0F6F5; --dark-mut: #A8BEC2; --dark-soft: #46626C;
+    --nav-ink: #F0F6F5; --nav-mut: #A9BDC2; --nav-hover: rgba(255,255,255,.09);
+    --nav-active: rgba(255,255,255,.14); --nav-active-ink: #FFFFFF;
+    --chip-tray: #EFF3F2; --range-on: #FFFFFF; --range-on-ink: #22343B;
+    --gauge-track: #EFF3F2;
+    --r: 20px;
+    --shadow: 0 1px 3px rgba(20,35,40,.05), 0 14px 30px -24px rgba(20,35,40,.25);
+    --shadow-up: 0 2px 5px rgba(20,35,40,.06), 0 24px 44px -26px rgba(20,35,40,.32);
+    font-family: var(--body);
+  }
+  .d2 .canvas { background: #FBFAF7; border-radius: 30px; padding: 30px; box-shadow: 0 40px 80px -40px rgba(10,25,30,.5); }
+  .d2 .brand .mark { background: #E8875F; }
+  .d2 .hero-card { background: linear-gradient(118deg, #C4D9D3 0%, #E9DECB 58%, #F4D8C0 100%); border: 0; }
+  .d2 .hero-card .eyebrow, .d2 .hero-card .stat .lbl { color: #4E6660; }
+  .d2 .hero-card .conn { color: #33534D; } .d2 .hero-card .conn i { background: #33534D; }
+  .d2 .hero-card .delta { background: rgba(255,255,255,.55); color: #33534D; }
+  .d2 .hero-card .grid-l { stroke: rgba(34,52,59,.12); }
+  .d2 .hero-card .t-line { stroke: #B55630; } .d2 .hero-card .t-area { fill: rgba(181,86,48,.10); }
+  .d2 .hero-card .t-dot { fill: #B55630; }
+  .d2 .hero-card .t-bubble rect { fill: #22343B; }
+
+  /* ============ DIRECTION 3 — Aurora ============ */
+  .d3 {
+    --display: 'Schibsted Grotesk', system-ui, sans-serif;
+    --body: 'Onest', system-ui, sans-serif;
+    --f: linear-gradient(126deg, #F6E9E2 0%, #EFEAF4 34%, #E7F0EA 68%, #F8F1DF 100%);
+    --card: rgba(255,255,255,.62);
+    --ink: #322E38; --mut: #837B8C;
+    --hair: rgba(255,255,255,.75); --hair-2: rgba(50,46,56,.10);
+    --acc: #6F579E; --acc-on: #F6F2FC; --acc-soft: rgba(111,87,158,.12); --acc-strong: #5C4886;
+    --acc-line: #6F579E; --acc-area: rgba(111,87,158,.10);
+    --good: #4E7263; --good-soft: rgba(78,114,99,.12);
+    --star: #C08A2E;
+    --dark: rgba(50,46,56,.92); --dark-ink: #F4F1F7; --dark-mut: #B9B2C2; --dark-soft: rgba(255,255,255,.14);
+    --nav-ink: #322E38; --nav-mut: #837B8C; --nav-hover: rgba(255,255,255,.5);
+    --nav-active: rgba(255,255,255,.75); --nav-active-ink: #322E38;
+    --chip-tray: rgba(255,255,255,.5); --range-on: #322E38; --range-on-ink: #F4F1F7;
+    --gauge-track: rgba(255,255,255,.8);
+    --r: 24px;
+    --shadow: 0 2px 6px rgba(80,60,120,.04), 0 22px 50px -32px rgba(80,60,120,.35);
+    --shadow-up: 0 4px 10px rgba(80,60,120,.06), 0 30px 60px -32px rgba(80,60,120,.45);
+    font-family: var(--body);
+  }
+  .d3 .card { backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3); }
+  .d3 .nav-item.active { box-shadow: 0 8px 20px -12px rgba(80,60,120,.4); }
+  .d3 .gauge .val { filter: drop-shadow(0 0 8px rgba(111,87,158,.45)); }
+
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    .snav { flex-direction: row; align-items: center; overflow-x: auto; }
+    .snav .spacer, .snav .user { display: none; }
+    .hero-row, .agents { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m5.6 5.6 2.8 2.8"/><path d="m15.6 15.6 2.8 2.8"/><path d="m5.6 18.4 2.8-2.8"/><path d="m15.6 8.4 2.8-2.8"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  </defs>
+</svg>
+
+<header class="board-head">
+  <h1>Console redesign — three directions</h1>
+  <p>The same dashboard, the same modules, three candidate design systems. Structure follows the rules in <code>dashboard-redesign.md</code>: small type scale, strict grid, interpretation beside the data, one distinctive form (the Rep&nbsp;Pulse gauge), and a visible next action.</p>
+  <p class="note">All numbers are sample data for comparison only. Hover the cards. Reload the page to replay the entry motion.</p>
+</header>
+
+<!-- ================= DIRECTION 1 ================= -->
+<section class="dir d1">
+  <div class="dir-head">
+    <div>
+      <h2><span>01</span>Butter &amp; Charcoal</h2>
+      <p class="blurb">Warm studio. Cream field, white cards, one charcoal panel that holds the day's action, butter accent. It keeps the brand's warmth and drops the serif quietness. Lowest risk, still a clear break from today.</p>
+    </div>
+    <div class="spec">
+      <span>Display · Bricolage Grotesque</span>
+      <span>Body · Hanken Grotesk</span>
+      <span><i style="background:#F2BC3C"></i>Butter</span>
+      <span><i style="background:#26221A"></i>Charcoal</span>
+      <span><i style="background:#F2EDE2;border:1px solid #ddd"></i>Cream field</span>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="shell">
+      <aside class="snav">
+        <div class="brand"><div class="mark">R</div><div><b>RepWorth</b><small>Cedar &amp; Stone Coffee</small></div></div>
+        <div class="nav-item active"><svg><use href="#i-home"/></svg> Dashboard</div>
+        <div class="nav-item"><svg><use href="#i-inbox"/></svg> Reviews <span class="nav-badge">3</span></div>
+        <div class="nav-item"><svg><use href="#i-send"/></svg> Requests</div>
+        <div class="nav-item"><svg><use href="#i-chart"/></svg> Analytics</div>
+        <div class="nav-item"><svg><use href="#i-cog"/></svg> Settings</div>
+        <div class="spacer"></div>
+        <div class="user"><div class="av">AO</div><div><b>Amara Okafor</b><small>amara@cedarstone.co</small></div></div>
+      </aside>
+      <main class="smain">
+        <div class="topbar">
+          <div><h1>Good morning, Amara</h1><p>All quiet. Three drafts wait for your approval.</p></div>
+          <div class="ranges"><button>7d</button><button class="on">30d</button><button>90d</button></div>
+        </div>
+        <div class="hero-row">
+          <div class="card hero-card">
+            <div class="hero-top"><span class="eyebrow">Reputation · last 30 days</span><span class="conn"><i></i>Google connected</span></div>
+            <p class="hero-headline">Rating held at 4.6 while every review got an answer inside a day.</p>
+            <div class="stats">
+              <div class="stat"><span class="num">4.6<span class="stars">★★★★★</span></span><div class="lbl">Average rating</div><span class="delta">↑ +0.2</span></div>
+              <div class="stat"><span class="num">92<small>%</small></span><div class="lbl">Response rate</div><span class="delta">↑ +6 pts</span></div>
+              <div class="stat"><span class="num">14<small>hrs</small></span><div class="lbl">Time saved</div><span class="delta">↑ +3 hrs</span></div>
+            </div>
+            <div class="trend">
+              <div class="t-head"><span>Rating trend</span><span>Aug 1 – Aug 28</span></div>
+              <svg viewBox="0 0 560 84" role="img" aria-label="Rating trend, 30 days, rising from 4.3 to 4.6">
+                <line class="grid-l" x1="0" y1="14" x2="560" y2="14"/><line class="grid-l" x1="0" y1="42" x2="560" y2="42"/><line class="grid-l" x1="0" y1="70" x2="560" y2="70"/>
+                <text class="axis-t" x="548" y="11">5.0</text><text class="axis-t" x="548" y="39">4.5</text><text class="axis-t" x="548" y="67">4.0</text>
+                <path class="t-area" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22 L520,84 L0,84 Z"/>
+                <path class="t-line" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22"/>
+                <circle class="t-dot" cx="520" cy="22" r="4"/>
+                <g class="t-bubble"><rect x="488" y="0" width="38" height="17" rx="7"/><text x="507" y="12" text-anchor="middle">4.6</text></g>
+              </svg>
+            </div>
+          </div>
+          <div class="card score">
+            <h3>Rep Pulse</h3>
+            <div class="gauge-wrap">
+              <svg class="gauge" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" cx="60" cy="60" r="50"/></svg>
+              <div class="gauge-num"><div><b>87</b><span>Strong</span></div></div>
+            </div>
+            <p>Up 4 points this month. Faster replies did most of the work.</p>
+            <button class="why"><svg><use href="#i-spark"/></svg> Why did it change?</button>
+          </div>
+        </div>
+        <div class="agents">
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-pen"/></svg></div><div><h3>Reply</h3><div class="a-role">Publishes approved replies</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>12 replies posted</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-shield"/></svg></div><div><h3>Guardian</h3><div class="a-role">Flags reviews that need you</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>2 reviews escalated</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-bulb"/></svg></div><div><h3>Insights</h3><div class="a-role">Delivers your weekly reports</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>4 reports sent</b><span>Last 30 days</span></div>
+          </div>
+        </div>
+        <div class="card attn">
+          <div class="at-head"><h3>Needs your attention</h3><span class="count">1 review</span></div>
+          <div class="row">
+            <div class="av">DM</div>
+            <div>
+              <div class="who">Dana M. <span class="st">★★☆☆☆</span></div>
+              <div class="meta">Escalated by Guardian · 2 hours ago</div>
+              <div class="quote">“Waited 25 minutes for a flat white…”</div>
+            </div>
+            <button class="open">Open review <svg><use href="#i-arrow"/></svg></button>
+          </div>
+        </div>
+        <div class="card approve">
+          <div class="ap-icon"><svg><use href="#i-check"/></svg></div>
+          <div><b>3 drafts wait for your approval.</b><small>Nothing posts until you say so.</small></div>
+          <button class="go">Review &amp; approve <svg><use href="#i-arrow"/></svg></button>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DIRECTION 2 ================= -->
+<section class="dir d2">
+  <div class="dir-head">
+    <div>
+      <h2><span>02</span>Harbor</h2>
+      <p class="blurb">The console floats as one bright canvas on a deep sea-teal field, like the Circle reference. Peach-gradient hero, coral accent, light nav on the dark field. This re-anchors the Console to the public site's teal family.</p>
+    </div>
+    <div class="spec">
+      <span>Display · Gabarito</span>
+      <span>Body · Figtree</span>
+      <span><i style="background:#E8875F"></i>Coral</span>
+      <span><i style="background:#46606A"></i>Sea-teal field</span>
+      <span><i style="background:linear-gradient(118deg,#C4D9D3,#F4D8C0)"></i>Hero gradient</span>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="shell">
+      <aside class="snav">
+        <div class="brand"><div class="mark">R</div><div><b>RepWorth</b><small>Cedar &amp; Stone Coffee</small></div></div>
+        <div class="nav-item active"><svg><use href="#i-home"/></svg> Dashboard</div>
+        <div class="nav-item"><svg><use href="#i-inbox"/></svg> Reviews <span class="nav-badge">3</span></div>
+        <div class="nav-item"><svg><use href="#i-send"/></svg> Requests</div>
+        <div class="nav-item"><svg><use href="#i-chart"/></svg> Analytics</div>
+        <div class="nav-item"><svg><use href="#i-cog"/></svg> Settings</div>
+        <div class="spacer"></div>
+        <div class="user"><div class="av">AO</div><div><b>Amara Okafor</b><small>amara@cedarstone.co</small></div></div>
+      </aside>
+      <div class="canvas">
+      <main class="smain">
+        <div class="topbar">
+          <div><h1>Good morning, Amara</h1><p>All quiet. Three drafts wait for your approval.</p></div>
+          <div class="ranges"><button>7d</button><button class="on">30d</button><button>90d</button></div>
+        </div>
+        <div class="hero-row">
+          <div class="card hero-card">
+            <div class="hero-top"><span class="eyebrow">Reputation · last 30 days</span><span class="conn"><i></i>Google connected</span></div>
+            <p class="hero-headline">Rating held at 4.6 while every review got an answer inside a day.</p>
+            <div class="stats">
+              <div class="stat"><span class="num">4.6<span class="stars">★★★★★</span></span><div class="lbl">Average rating</div><span class="delta">↑ +0.2</span></div>
+              <div class="stat"><span class="num">92<small>%</small></span><div class="lbl">Response rate</div><span class="delta">↑ +6 pts</span></div>
+              <div class="stat"><span class="num">14<small>hrs</small></span><div class="lbl">Time saved</div><span class="delta">↑ +3 hrs</span></div>
+            </div>
+            <div class="trend">
+              <div class="t-head"><span>Rating trend</span><span>Aug 1 – Aug 28</span></div>
+              <svg viewBox="0 0 560 84" role="img" aria-label="Rating trend, 30 days, rising from 4.3 to 4.6">
+                <line class="grid-l" x1="0" y1="14" x2="560" y2="14"/><line class="grid-l" x1="0" y1="42" x2="560" y2="42"/><line class="grid-l" x1="0" y1="70" x2="560" y2="70"/>
+                <text class="axis-t" x="548" y="11">5.0</text><text class="axis-t" x="548" y="39">4.5</text><text class="axis-t" x="548" y="67">4.0</text>
+                <path class="t-area" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22 L520,84 L0,84 Z"/>
+                <path class="t-line" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22"/>
+                <circle class="t-dot" cx="520" cy="22" r="4"/>
+                <g class="t-bubble"><rect x="488" y="0" width="38" height="17" rx="7"/><text x="507" y="12" text-anchor="middle">4.6</text></g>
+              </svg>
+            </div>
+          </div>
+          <div class="card score">
+            <h3>Rep Pulse</h3>
+            <div class="gauge-wrap">
+              <svg class="gauge" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" cx="60" cy="60" r="50"/></svg>
+              <div class="gauge-num"><div><b>87</b><span>Strong</span></div></div>
+            </div>
+            <p>Up 4 points this month. Faster replies did most of the work.</p>
+            <button class="why"><svg><use href="#i-spark"/></svg> Why did it change?</button>
+          </div>
+        </div>
+        <div class="agents">
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-pen"/></svg></div><div><h3>Reply</h3><div class="a-role">Publishes approved replies</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>12 replies posted</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-shield"/></svg></div><div><h3>Guardian</h3><div class="a-role">Flags reviews that need you</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>2 reviews escalated</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-bulb"/></svg></div><div><h3>Insights</h3><div class="a-role">Delivers your weekly reports</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>4 reports sent</b><span>Last 30 days</span></div>
+          </div>
+        </div>
+        <div class="card attn">
+          <div class="at-head"><h3>Needs your attention</h3><span class="count">1 review</span></div>
+          <div class="row">
+            <div class="av">DM</div>
+            <div>
+              <div class="who">Dana M. <span class="st">★★☆☆☆</span></div>
+              <div class="meta">Escalated by Guardian · 2 hours ago</div>
+              <div class="quote">“Waited 25 minutes for a flat white…”</div>
+            </div>
+            <button class="open">Open review <svg><use href="#i-arrow"/></svg></button>
+          </div>
+        </div>
+        <div class="card approve">
+          <div class="ap-icon"><svg><use href="#i-check"/></svg></div>
+          <div><b>3 drafts wait for your approval.</b><small>Nothing posts until you say so.</small></div>
+          <button class="go">Review &amp; approve <svg><use href="#i-arrow"/></svg></button>
+        </div>
+      </main>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DIRECTION 3 ================= -->
+<section class="dir d3">
+  <div class="dir-head">
+    <div>
+      <h2><span>03</span>Aurora</h2>
+      <p class="blurb">Frosted glass over a warm pastel aurora, like the Core Medicine reference but without the purple-blue AI clichés. Iris accent reuses the existing Insights violet. The most spectacular option, and the one with the highest "generic AI glass" risk — it needs the most discipline.</p>
+    </div>
+    <div class="spec">
+      <span>Display · Schibsted Grotesk</span>
+      <span>Body · Onest</span>
+      <span><i style="background:#6F579E"></i>Iris</span>
+      <span><i style="background:linear-gradient(126deg,#F6E9E2,#EFEAF4,#E7F0EA)"></i>Aurora field</span>
+      <span>Glass cards</span>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="shell">
+      <aside class="snav">
+        <div class="brand"><div class="mark">R</div><div><b>RepWorth</b><small>Cedar &amp; Stone Coffee</small></div></div>
+        <div class="nav-item active"><svg><use href="#i-home"/></svg> Dashboard</div>
+        <div class="nav-item"><svg><use href="#i-inbox"/></svg> Reviews <span class="nav-badge">3</span></div>
+        <div class="nav-item"><svg><use href="#i-send"/></svg> Requests</div>
+        <div class="nav-item"><svg><use href="#i-chart"/></svg> Analytics</div>
+        <div class="nav-item"><svg><use href="#i-cog"/></svg> Settings</div>
+        <div class="spacer"></div>
+        <div class="user"><div class="av">AO</div><div><b>Amara Okafor</b><small>amara@cedarstone.co</small></div></div>
+      </aside>
+      <main class="smain">
+        <div class="topbar">
+          <div><h1>Good morning, Amara</h1><p>All quiet. Three drafts wait for your approval.</p></div>
+          <div class="ranges"><button>7d</button><button class="on">30d</button><button>90d</button></div>
+        </div>
+        <div class="hero-row">
+          <div class="card hero-card">
+            <div class="hero-top"><span class="eyebrow">Reputation · last 30 days</span><span class="conn"><i></i>Google connected</span></div>
+            <p class="hero-headline">Rating held at 4.6 while every review got an answer inside a day.</p>
+            <div class="stats">
+              <div class="stat"><span class="num">4.6<span class="stars">★★★★★</span></span><div class="lbl">Average rating</div><span class="delta">↑ +0.2</span></div>
+              <div class="stat"><span class="num">92<small>%</small></span><div class="lbl">Response rate</div><span class="delta">↑ +6 pts</span></div>
+              <div class="stat"><span class="num">14<small>hrs</small></span><div class="lbl">Time saved</div><span class="delta">↑ +3 hrs</span></div>
+            </div>
+            <div class="trend">
+              <div class="t-head"><span>Rating trend</span><span>Aug 1 – Aug 28</span></div>
+              <svg viewBox="0 0 560 84" role="img" aria-label="Rating trend, 30 days, rising from 4.3 to 4.6">
+                <line class="grid-l" x1="0" y1="14" x2="560" y2="14"/><line class="grid-l" x1="0" y1="42" x2="560" y2="42"/><line class="grid-l" x1="0" y1="70" x2="560" y2="70"/>
+                <text class="axis-t" x="548" y="11">5.0</text><text class="axis-t" x="548" y="39">4.5</text><text class="axis-t" x="548" y="67">4.0</text>
+                <path class="t-area" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22 L520,84 L0,84 Z"/>
+                <path class="t-line" d="M0,58 C60,54 100,48 160,50 S260,38 330,40 S440,24 520,22"/>
+                <circle class="t-dot" cx="520" cy="22" r="4"/>
+                <g class="t-bubble"><rect x="488" y="0" width="38" height="17" rx="7"/><text x="507" y="12" text-anchor="middle">4.6</text></g>
+              </svg>
+            </div>
+          </div>
+          <div class="card score">
+            <h3>Rep Pulse</h3>
+            <div class="gauge-wrap">
+              <svg class="gauge" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" cx="60" cy="60" r="50"/></svg>
+              <div class="gauge-num"><div><b>87</b><span>Strong</span></div></div>
+            </div>
+            <p>Up 4 points this month. Faster replies did most of the work.</p>
+            <button class="why"><svg><use href="#i-spark"/></svg> Why did it change?</button>
+          </div>
+        </div>
+        <div class="agents">
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-pen"/></svg></div><div><h3>Reply</h3><div class="a-role">Publishes approved replies</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>12 replies posted</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-shield"/></svg></div><div><h3>Guardian</h3><div class="a-role">Flags reviews that need you</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>2 reviews escalated</b><span>Last 30 days</span></div>
+          </div>
+          <div class="card agent">
+            <div class="a-top"><div class="a-icon"><svg><use href="#i-bulb"/></svg></div><div><h3>Insights</h3><div class="a-role">Delivers your weekly reports</div></div><span class="on-dot"></span></div>
+            <div class="a-act"><b>4 reports sent</b><span>Last 30 days</span></div>
+          </div>
+        </div>
+        <div class="card attn">
+          <div class="at-head"><h3>Needs your attention</h3><span class="count">1 review</span></div>
+          <div class="row">
+            <div class="av">DM</div>
+            <div>
+              <div class="who">Dana M. <span class="st">★★☆☆☆</span></div>
+              <div class="meta">Escalated by Guardian · 2 hours ago</div>
+              <div class="quote">“Waited 25 minutes for a flat white…”</div>
+            </div>
+            <button class="open">Open review <svg><use href="#i-arrow"/></svg></button>
+          </div>
+        </div>
+        <div class="card approve">
+          <div class="ap-icon"><svg><use href="#i-check"/></svg></div>
+          <div><b>3 drafts wait for your approval.</b><small>Nothing posts until you say so.</small></div>
+          <button class="go">Review &amp; approve <svg><use href="#i-arrow"/></svg></button>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

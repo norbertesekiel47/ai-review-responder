@@ -149,7 +149,9 @@ export function Sidebar({
       </div>
 
       {signOutError && (
-        <p style={{ fontSize: 12, color: 'var(--rw-danger)', marginTop: 4 }}>Sign out failed</p>
+        // On the deep Harbor field the terracotta danger token falls below AA;
+        // the words carry the failure, the light ink keeps it readable.
+        <p style={{ fontSize: 12, color: 'var(--rw-nav-ink)', marginTop: 4 }}>Sign out failed</p>
       )}
       <button
         type="button"

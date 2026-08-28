@@ -24,24 +24,22 @@ import {
 import './_styles/tokens.css';
 import './_styles/console.css';
 
-// Warm Editorial: Young Serif is display-only (single weight 400) — page titles,
-// stat numerals, section/card headings. DM Sans carries all body/UI text.
+// Harbor: Gabarito is the display face (variable 400–900) — page titles, stat
+// numerals, section/card headings. Figtree carries all body/UI text.
 //
 // Self-hosted for the same reason as the root layout — see the comment in
 // src/app/layout.tsx. This second call site is why fixing only the root layout
 // would NOT have fixed the build failure: any next/font/google import anywhere
-// re-introduces the compile-time fetch. `../fonts/dm-sans-latin.woff2` is the
-// same file the root layout uses; Next emits it once and both layouts share it.
-const youngSerif = localFont({
-  src: '../fonts/young-serif-latin.woff2',
-  weight: '400',
+// re-introduces the compile-time fetch.
+const gabarito = localFont({
+  src: '../fonts/gabarito-latin.woff2',
+  weight: '400 900',
   variable: '--rw-font-display',
   display: 'swap',
-  adjustFontFallback: 'Times New Roman',
 });
-const dmSans = localFont({
-  src: '../fonts/dm-sans-latin.woff2',
-  weight: '400 700',
+const figtree = localFont({
+  src: '../fonts/figtree-latin.woff2',
+  weight: '300 900',
   variable: '--rw-font-body',
   display: 'swap',
 });
@@ -116,7 +114,7 @@ export default async function AuthenticatedLayout({
       }
 
       return (
-        <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+        <div className={`rw-console ${gabarito.variable} ${figtree.variable}`}>
           <div className="rw-grain" aria-hidden="true" />
           <AuthenticatedProviders
             locations={[]}
@@ -187,7 +185,7 @@ export default async function AuthenticatedLayout({
   const solicitationEnabled = solicitationWatchEnabled();
 
   return (
-    <div className={`rw-console ${youngSerif.variable} ${dmSans.variable}`}>
+    <div className={`rw-console ${gabarito.variable} ${figtree.variable}`}>
       <div className="rw-grain" aria-hidden="true" />
       <AuthenticatedProviders
         locations={locationInfos}

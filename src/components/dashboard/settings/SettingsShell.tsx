@@ -31,8 +31,7 @@ export function SettingsShell({ children, saveBar, savedFlash, saveError }: Prop
           <span className="save-bar-text">
             <strong>
               {saveBar.dirtyCount} unsaved {saveBar.dirtyCount === 1 ? 'change' : 'changes'}
-            </strong>{' '}
-            · Discard or save below
+            </strong>
           </span>
           <div className="save-bar-spacer" />
           <button type="button" className="btn btn-secondary" onClick={saveBar.onDiscard} disabled={saveBar.saving}>
@@ -43,7 +42,6 @@ export function SettingsShell({ children, saveBar, savedFlash, saveError }: Prop
             className="btn btn-primary"
             onClick={saveBar.onSave}
             disabled={saveBar.saving}
-            style={{ background: 'var(--rw-accent-600)' }}
           >
             {saveBar.saving ? (
               'Saving…'

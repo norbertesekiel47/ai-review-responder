@@ -1,10 +1,11 @@
 /* ==========================================================================
-   RepWorth Console (Warm Editorial) — design tokens
+   RepWorth Console (Harbor) — design tokens
    ==========================================================================
-   SINGLE SOURCE OF TRUTH for the APP / DASHBOARD ("Console") palette: the warm
-   editorial owner surface (Young Serif display + DM Sans, espresso ink, sage /
-   blush / terracotta / gold / violet). Loads only inside the authenticated
-   `.rw-console` shell.
+   SINGLE SOURCE OF TRUTH for the APP / DASHBOARD ("Console") palette: the
+   Harbor owner surface (Gabarito display + Figtree body). One bright warm-white
+   canvas floats on a deep sea-teal field; deep teal is the action accent, coral
+   carries attention, terracotta stays danger, violet stays Insights, gold stays
+   review ratings. Loads only inside the authenticated `.rw-console` shell.
 
    SCOPE — every token below is declared on `.rw-console`, not `:root`. A stale
    chunk surviving a client navigation can no longer leak Console values onto
@@ -21,12 +22,19 @@
    in their DOM position and therefore still inherit these custom properties.
    Guard: src/__tests__/design-token-single-source.test.ts.
 
+   NAME STABILITY — the 2026-08 Harbor redesign changed token VALUES, not token
+   NAMES. The old Warm Editorial names (`--rw-sage-*`, `--rw-blush-*`,
+   `--rw-tray`, …) stay, so every component and the theme.css utility export
+   keep working; the role a name carries is what its section comment says, not
+   what the word once meant. New Harbor-only names (`--rw-field-deep`,
+   `--rw-hero-grad`, `--rw-deep-panel`, …) are additive.
+
    This file does NOT own the MARKETING / PUBLIC ("Island") palette. Those tokens
    (--rw-sage, --rw-teal, --rw-teal-strong, --rw-peach, --rw-pink, --rw-beige,
    --rw-cream, --rw-ink, --rw-ink-soft, status, fonts) live in src/app/globals.css,
    which loads on every route, so the app inherits them by fall-through. Do NOT
    re-declare Island colors here; that reintroduces the --rw-sage collision
-   (#D2E0D3 on public vs #97B3AE in-app, decided only by CSS load order).
+   (#D2E0D3 on public vs an app value, decided only by CSS load order).
 
    Nor does it own the brand FONT FAMILIES (--rw-font-display/-body/-serif/-mono)
    — same reason, same owner. See the Type section below for the two places the
@@ -47,64 +55,93 @@
      Consumed by the Console surface; globals.css doesn't declare these, so they
      live here. Island colors (--rw-sage/teal/peach/cream/ink/…) are NOT
      re-declared — the app inherits them by fall-through from globals.css. */
-  --rw-star:  #9A691D;        /* review star glyph — warm gold, 4.68:1 on card */
+  --rw-star:  #9A691D;        /* review star glyph — accessible warm gold, 4.76:1 on card */
   --rw-white: #FFFFFF;        /* opaque white surface */
   --rw-text:  var(--rw-ink);  /* generic text → Island --rw-ink (globals.css) = #2a2a2a */
 
-  /* ---------- Console palette (Warm Editorial) ----------
-     Young Serif display + DM Sans. Full Style Reference:
+  /* ---------- Console palette (Harbor) ----------
+     Gabarito display + Figtree body. Full Style Reference:
      docs/design/console/DESIGN.md */
-  --rw-app-bg:          #FDFBF7;  /* warm off-white field */
-  --rw-app-field:       radial-gradient(140% 120% at 12% -8%, #ffffff 0%, #fdfbf7 46%, #f6f1e9 100%);
-  --rw-app-surface:     #FFFDF9;  /* card core */
-  --rw-tray:            #F4EEE4;  /* double-bezel outer tray */
-  --rw-card:            #FFFDF9;  /* double-bezel inner core */
-  --rw-recess:          #F7F3EC;  /* recessed panels — inputs, AI-reply */
-  --rw-app-border:      rgba(80, 60, 40, 0.10);
-  --rw-app-border-soft: rgba(80, 60, 40, 0.06);
-  --rw-hair:            rgba(80, 60, 40, 0.08);
-  --rw-hair-2:          rgba(80, 60, 40, 0.14);
-  --rw-app-text:        #2A2118;  /* espresso ink */
-  --rw-app-text-muted:  #6B5E50;  /* warm muted */
-  --rw-app-text-soft:   #716457;  /* secondary text, AA on Console surfaces */
-  --rw-app-text-hover:  #3D3122;
-  --rw-on-accent:       #FFFDF9;  /* light text on dark semantic fills */
-  --rw-on-dark-muted:   #D8CFC4;  /* secondary text on espresso overlays */
-  --rw-overlay:         rgba(42, 33, 24, 0.48);
-  --rw-field-glass:     rgba(253, 251, 247, 0.82);
-  --rw-floating-surface: rgba(255, 253, 249, 0.95);
-  --rw-focus:           #557069;  /* keyboard focus, 5.29:1 on app surface */
-  --rw-focus-ring:      rgba(85, 112, 105, 0.20);
-  --rw-control-hover:   #F3EFE8;
-  --rw-control-surface: #F8F4ED;
+  --rw-app-bg:          #FBFAF7;  /* warm-white canvas the console floats as */
+  --rw-app-field:       radial-gradient(120% 100% at 15% -10%, #ffffff 0%, #fbfaf7 48%, #f3f2ec 100%);
+  --rw-app-surface:     #FFFFFF;  /* card surface */
+  --rw-tray:            #EFF3F2;  /* cool mist — quiet fills, gauge track, neutral chips */
+  --rw-card:            #FFFFFF;  /* card surface (alias kept for consumers) */
+  --rw-recess:          #F4F6F4;  /* recessed panels — inputs, AI-reply, quiet sub-cards */
+  --rw-app-border:      rgba(34, 52, 59, 0.10);
+  --rw-app-border-soft: rgba(34, 52, 59, 0.06);
+  --rw-hair:            rgba(34, 52, 59, 0.08);
+  --rw-hair-2:          rgba(34, 52, 59, 0.14);
+  --rw-app-text:        #22343B;  /* harbor ink — deep slate-teal */
+  --rw-app-text-muted:  #5C6B72;  /* muted slate */
+  --rw-app-text-soft:   #566771;  /* secondary text, AA on Console surfaces */
+  --rw-app-text-hover:  #16252B;
+  --rw-on-accent:       #FFFFFF;  /* light text on dark semantic fills */
+  --rw-on-dark-muted:   #B6C9CD;  /* secondary text on harbor-ink / deep-panel fills */
+  --rw-overlay:         rgba(20, 32, 38, 0.50);
+  --rw-field-glass:     rgba(251, 250, 247, 0.85);
+  --rw-floating-surface: rgba(255, 255, 255, 0.95);
+  --rw-focus:           #3E6B65;  /* keyboard focus, 6.01:1 on app surface */
+  --rw-focus-ring:      rgba(62, 107, 101, 0.22);
+  --rw-control-hover:   #EDF1EF;
+  --rw-control-surface: #F2F5F3;
 
-  /* Warm Editorial accents. The bare sage base is the Island --rw-sage in
-     globals.css; the Console surface uses only the -deep / -soft / -line family. */
-  --rw-sage-deep:       #527069;  /* accessible text/icon sage, 5.33:1 on card */
-  --rw-sage-soft:       rgba(151, 179, 174, 0.16);
-  --rw-sage-line:       rgba(151, 179, 174, 0.34);
-  --rw-blush:           #F2C3B9;
-  --rw-blush-deep:      #934D3F;  /* accessible on blush-soft, 5.45:1 */
-  --rw-blush-soft:      #FBEDE9;
+  /* ---------- Harbor shell (the deep sea-teal field + floating canvas) ----------
+     The authenticated shell paints this field behind everything; the sidebar
+     lives ON the field (light ink), and `.main` is the floating canvas. */
+  --rw-field-deep:      #46606A;  /* the sea-teal field */
+  --rw-field-deep-grad: linear-gradient(160deg, #4A6570 0%, #46606A 55%, #3E565F 100%);
+  --rw-nav-ink:         #F0F5F4;  /* primary text on the field, 6.07:1 */
+  --rw-nav-ink-muted:   #CFD9DB;  /* secondary text on the field, 4.65:1 */
+  --rw-nav-hover:       rgba(255, 255, 255, 0.08);
+  --rw-nav-active:      rgba(255, 255, 255, 0.14);
+  --rw-canvas-shadow:   0 30px 70px -38px rgba(10, 25, 30, 0.55);
+
+  /* Deep panel — the one inverted card on the dashboard (Needs attention). */
+  --rw-deep-panel:      #33505A;
+  --rw-deep-panel-soft: rgba(255, 255, 255, 0.12);
+
+  /* Hero gradient — the reputation hero card's peach-teal wash. Ink pair is
+     AA on the gradient's lightest stop (6.26:1 / 4.58:1). */
+  --rw-hero-grad:       linear-gradient(118deg, #C6DAD4 0%, #EADFCC 55%, #F4D9C2 100%);
+  --rw-hero-ink:        #33534D;
+  --rw-hero-ink-soft:   #4E6660;
+  --rw-hero-chip:       rgba(255, 255, 255, 0.55);
+  --rw-hero-line:       rgba(51, 83, 77, 0.18);  /* hero-ink hairline on the gradient */
+  --rw-hero-line-soft:  rgba(51, 83, 77, 0.14);  /* mini-trend gridlines */
+
+  /* Harbor accents. The bare sage base is the Island --rw-sage in globals.css;
+     the Console surface uses only the -deep / -soft / -line family, which now
+     carries the Harbor deep-teal action accent. */
+  --rw-sage-deep:       #3E6B65;  /* accessible action teal, 6.01:1 on card */
+  --rw-sage-soft:       rgba(127, 168, 161, 0.16);
+  --rw-sage-line:       rgba(127, 168, 161, 0.36);
+  /* Coral attention family (kept under the historical -blush names). */
+  --rw-blush:           #F1B79E;  /* coral peach — attention, owner intervention */
+  --rw-blush-deep:      #A64E28;  /* accessible on blush-soft, 4.76:1 */
+  --rw-blush-soft:      #FBE9DE;
+  /* Decorative coral — large shapes only (gauge sweep, hero marks), never text. */
+  --rw-coral:           #E8875F;
+  --rw-coral-deep:      #B0522A;  /* accessible coral for text/icons, 5.14:1 on card */
   --rw-danger:          #A64033;  /* terracotta, 5.11:1 on danger wash */
   --rw-danger-soft:     #F7E6E2;  /* danger wash */
-  --rw-violet:          #6F579E;  /* Insights provenance, 5.85:1 on card */
+  --rw-violet:          #6F579E;  /* Insights provenance, 5.94:1 on card */
   --rw-violet-soft:     #EFEAF6;
 
   /* App layout — sidebar width. The sticky save-bar's `left` offset derives
      from this token so the two can never drift (M6). */
   --rw-sidebar-width:   240px;
 
-  /* Primary accent (Warm Editorial SAGE). Renamed from the misleading --rw-blue-*
-     in the design-token-utilities PR (audit #3) — the values were always sage,
-     never blue. Consumed via var(--rw-accent-*) in console.css + components. */
-  --rw-accent-600:   #527069;  /* primary accent — active nav, links, CTAs */
-  --rw-accent-700:   #527069;  /* hover */
-  --rw-accent-500:   #97B3AE;  /* focus ring, accent border */
-  --rw-accent-100:   #E4ECEA;  /* accent badge bg */
-  --rw-accent-50:    rgba(151, 179, 174, 0.16);  /* accent panel bg */
-  --rw-accent-800:   #4A615C;  /* accent badge text */
-  --rw-accent-fg:    #527069;
+  /* Primary accent (Harbor DEEP TEAL). Same accent-scale names as before the
+     redesign — the values moved from Warm Editorial sage to Harbor teal.
+     Consumed via var(--rw-accent-*) in console.css + components. */
+  --rw-accent-600:   #3E6B65;  /* primary accent — active nav, links, CTAs */
+  --rw-accent-700:   #325750;  /* hover */
+  --rw-accent-500:   #7FA8A1;  /* focus ring, accent border */
+  --rw-accent-100:   #DFEAE7;  /* accent badge bg */
+  --rw-accent-50:    rgba(127, 168, 161, 0.16);  /* accent panel bg */
+  --rw-accent-800:   #2F4A46;  /* accent badge text */
+  --rw-accent-fg:    #3E6B65;
   --rw-accent:     var(--rw-accent-600);
   --rw-accent-soft: var(--rw-accent-50);
 
@@ -117,7 +154,7 @@
   --rw-success-border: #BBF7D0;
   --rw-success-shadow: rgba(22, 101, 52, 0.32);
 
-  --rw-yellow-100: #FEF9C3;  /* badge: pending_approval */
+  --rw-yellow-100: #FEF9C3;  /* badge: wait states (reply held, medium escalation) */
   --rw-yellow-800: #854D0E;
 
   --rw-warning-bg:            #FFFBEB;
@@ -136,14 +173,13 @@
   --rw-info-fg-soft: #1E40AF;
   --rw-info-link:    #1D4ED8;
 
-  /* Attention / awaiting state — brand blush #F2C3B9 (replaces the old banned
-     palette). Owner-facing: ConnectGoogleBanner reconnect banner + the
-     awaiting_manual_post status badge. */
-  --rw-attn-bg:      #FBEDEA;  /* light blush wash — banner + badge surface */
-  --rw-attn-border:  #F2C3B9;  /* brand blush */
-  --rw-attn-fg:      #2a2a2a;  /* primary text on blush (~12:1, AAA) */
-  --rw-attn-fg-soft: #5a5a5a;  /* secondary text on blush (~6:1, AA) */
-  --rw-attn-icon-bg: #F2C3B9;
+  /* Attention / awaiting state — Harbor coral peach. Owner-facing:
+     ConnectGoogleBanner reconnect banner + the awaiting_manual_post badge. */
+  --rw-attn-bg:      #FBE9DE;  /* light coral wash — banner + badge surface */
+  --rw-attn-border:  #F1B79E;  /* coral peach */
+  --rw-attn-fg:      #22343B;  /* primary text on coral wash (~12:1, AAA) */
+  --rw-attn-fg-soft: #5C6B72;  /* secondary text on coral wash */
+  --rw-attn-icon-bg: #F1B79E;
 
   /* Auto-approved provenance badge — single owner of the badge color,
      referenced by .badge-auto (review feed) and .pr-prov-auto (past replies). */
@@ -170,36 +206,26 @@
      THE FONT FAMILIES ARE BRAND-WIDE AND THIS FILE DOES NOT OWN THEM.
      --rw-font-display / --rw-font-body / --rw-font-serif / --rw-font-mono are
      declared once, in src/app/globals.css :root, which loads on every route —
-     so the Console resolves them by fall-through. This file used to re-declare
-     display/body/mono (and a --rw-font-sans alias with zero consumers); that
-     duplicate was the same cross-file collision class as --rw-sage and it is
-     gone. Guard: src/__tests__/design-scope-purity.test.ts.
+     so the Console resolves them by fall-through.
+     Guard: src/__tests__/design-scope-purity.test.ts.
 
      The Console's two overrides are elsewhere, on purpose:
        · display + body → next/font `localFont` variables bound on the SAME
          element that carries `.rw-console` ((authenticated)/layout.tsx), which
-         is what swaps display to Young Serif inside the Console only;
+         is what swaps display to Gabarito and body to Figtree inside the
+         Console only;
        · mono → a scoped `.rw-console` override in console.css.
      Style Reference: docs/design/console/DESIGN.md → Tokens — Typography.
 
-     (The nine dead --rw-mkt-* marketing type roles that sat here had zero
-     consumers anywhere in src/ and were deleted with them. A marketing type
-     scale, if it is ever wanted, belongs to the Island.)
+     WHY THE COMPOSITES RESOLVE CORRECTLY. A var() inside a custom property is
+     substituted where that property is DECLARED, not where it is used. The
+     --rw-app-h1…--rw-app-micro composites below are declared on the SAME
+     element that carries the localFont --rw-font-display / --rw-font-body
+     variables, so var(--rw-font-display) resolves to Gabarito at declaration
+     time: `font: var(--rw-app-hN)` ALONE renders Gabarito everywhere in the
+     Console.
 
-     WHAT THE `.rw-console` SCOPE CHANGED HERE (PR 3a). A var() inside a custom
-     property is substituted where that property is DECLARED, not where it is
-     used. The --rw-app-h1…--rw-app-micro composites below are now declared on
-     the SAME element that carries the localFont --rw-font-display /
-     --rw-font-body variables, so var(--rw-font-display) resolves to Young Serif
-     at declaration time: `font: var(--rw-app-hN)` ALONE now renders Young Serif
-     everywhere in the Console. While these sat on :root it substituted the
-     ROOT display family (Plus Jakarta) instead, which is why every
-     `font: var(--rw-app-hN)` site in console.css is followed by an explicit
-     `font-family: var(--rw-font-display)`. Those follow-up lines are now
-     redundant. They are harmless — same face either way — and were deliberately
-     left in place rather than swept in this PR.
-
-     App scale — tight, admin utility. */
+     App scale — tight, small steps (20 → 18 → 16 → 14 → 12). */
   --rw-app-h1:       700 1.5rem/1.2 var(--rw-font-display);    /* 24px page title */
   --rw-app-h2:       600 1.125rem/1.3 var(--rw-font-display);  /* 18px section */
   --rw-app-h3:       600 1rem/1.3 var(--rw-font-display);
@@ -213,19 +239,20 @@
   --rw-radius-sm:  0.375rem; /* 6px — app buttons/inputs */
   --rw-radius-md:  0.5rem;   /* 8px — app cards */
   --rw-radius-lg:  0.75rem;  /* 12px — app stat tiles */
-  --rw-radius-card: 1.25rem; /* 20px — Warm Editorial double-bezel outer */
-  --rw-radius-core: 0.875rem;/* 14px — inner core (concentric) */
+  --rw-radius-card: 1.25rem; /* 20px — Harbor card */
+  --rw-radius-core: 0.875rem;/* 14px — inner panels inside a card */
+  --rw-radius-canvas: 1.75rem; /* 28px — the floating console canvas */
   --rw-radius-xl:  1rem;     /* 16px — marketing cards */
   --rw-radius-2xl: 1.5rem;   /* 24px — marketing mockup frame */
   --rw-radius-3xl: 3rem;     /* 48px — THE ISLAND corner */
   --rw-radius-pill: 9999px;  /* pill buttons, dot nav, badges */
 
   /* ---------- Elevation ---------- */
-  /* App shadows: warm, diffused (never harsh black) for the Console redesign. */
-  --rw-shadow-sm:  0 1px 2px rgba(80, 60, 40, 0.05), 0 8px 20px -16px rgba(80, 60, 40, 0.18);
-  --rw-shadow:     0 1px 2px rgba(80, 60, 40, 0.05), 0 14px 30px -22px rgba(80, 60, 40, 0.22);
-  --rw-shadow-lg:  0 1px 2px rgba(80, 60, 40, 0.05), 0 24px 46px -30px rgba(80, 60, 40, 0.30);
-  --rw-shadow-pop: 0 18px 40px -18px rgba(80, 60, 40, 0.34);
+  /* App shadows: cool, diffused slate (never harsh black). */
+  --rw-shadow-sm:  0 1px 2px rgba(20, 35, 40, 0.04), 0 8px 20px -16px rgba(20, 35, 40, 0.16);
+  --rw-shadow:     0 1px 2px rgba(20, 35, 40, 0.04), 0 14px 30px -22px rgba(20, 35, 40, 0.20);
+  --rw-shadow-lg:  0 2px 4px rgba(20, 35, 40, 0.04), 0 24px 46px -30px rgba(20, 35, 40, 0.28);
+  --rw-shadow-pop: 0 18px 40px -18px rgba(20, 35, 40, 0.30);
   --rw-inset-hi:   inset 0 1px 0 rgba(255, 255, 255, 0.7);
   /* Marketing — the island is shadow-2xl, cards are shadow-xl, features shadow-lg */
   --rw-shadow-xl:  0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -247,9 +274,4 @@
   --rw-sp-12: 3rem;    --rw-sp-16: 4rem;   --rw-sp-20: 5rem;
 }
 
-/* This file is VALUES ONLY. The `.rw-app` element-style block that used to sit
-   here (`.rw-app h1/h2/h3/label/.stat/.muted/code`) was deleted in PR 3a: the
-   class was applied nowhere in src/ — `console.css` styles the real Console
-   elements (`.page-title` and friends) and the shell class is `.rw-console`.
-   The --rw-app-* composite TOKENS are a different thing and stay; console.css
-   consumes them. */
+/* This file is VALUES ONLY. console.css owns the scoped element styles. */

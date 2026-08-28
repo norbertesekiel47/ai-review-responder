@@ -33,17 +33,20 @@ Island-palette surface, just more utilitarian.
   metrics / avatars / testimonials / logos, or hype copy ("unlock", "supercharge",
   "seamless").
 
-**Console (Warm Editorial)**
+**Console (Harbor)**
 
-- Use `.rw-console` tokens only (`--rw-app-*`, `--rw-tray` / `--rw-card` / `--rw-recess`,
-  `--rw-accent-*` / `--rw-sage-deep`, `--rw-blush*`, `--rw-danger`, `--rw-violet`,
-  `--rw-star`). Never re-declare an Island color or font token here.
-- Major cards are the **double-bezel**: tray + core + inset highlight, concentric radii.
-  Don't stack an extra border, shadow, and glow to manufacture depth.
-- Young Serif is display-only and **single weight** — never synthesize bold; hierarchy
-  comes from size, placement, and the DM Sans functional scale.
+- Use `.rw-console` tokens only (`--rw-app-*`, `--rw-field-deep` / `--rw-nav-*`,
+  `--rw-tray` / `--rw-card` / `--rw-recess`, `--rw-accent-*` / `--rw-sage-deep`,
+  `--rw-blush*` / `--rw-coral*`, `--rw-danger`, `--rw-violet`, `--rw-star`,
+  `--rw-hero-*` / `--rw-deep-panel*`). Never re-declare an Island color or font token here.
+- Cards are **flat Harbor cards**: white fill + hairline + 20px radius + cool shadow.
+  Exactly three special surfaces exist, one instance each — the gradient hero, the
+  Rep Pulse gauge card, the inverted deep panel. Never add a second of any.
+- Display is Gabarito (600/700 only), body is Figtree; hierarchy from the small-step
+  scale (24→18→16→14→12), not from bigger type.
 - Semantic color always keeps a text, icon, shape, or positional cue. `--rw-star` is for
-  rating stars only. No fabricated trends.
+  rating stars only; `--rw-coral` is decorative-only (never text). No fabricated
+  trends — Rep Pulse shows a dash without a baseline.
 
 **Landing (`/` only)**
 

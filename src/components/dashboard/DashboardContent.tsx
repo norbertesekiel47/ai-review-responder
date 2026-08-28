@@ -20,6 +20,7 @@ import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { DashboardSkeleton } from '@/components/dashboard/shell/DashboardSkeleton';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
+import { RepPulseCard } from '@/components/dashboard/kpi/RepPulseCard';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard';
 import { AgentTeamStrip } from '@/components/dashboard/AgentTeamStrip';
@@ -255,15 +256,15 @@ function DashboardOperationalContent() {
   };
 
   const activeSubtitle = business.name
-    ? `Welcome back — here's what's new for ${business.name}.`
-    : "Welcome back — here's what's new.";
+    ? `Here's what's new for ${business.name}.`
+    : "Here's what's new.";
   const subtitle = pastDueData
     ? 'Payment overdue — please update your payment method'
     : activeSubtitle;
 
   return (
     <>
-      <TopBar title="Dashboard" subtitle={subtitle} showLive refresh={refresh} />
+      <TopBar title={timeGreeting()} subtitle={subtitle} showLive refresh={refresh} />
       <div className="content">
         {activeData.trialEndsAt && (
           <div className="section-enter section-enter-1">
@@ -325,14 +326,16 @@ function DashboardOperationalContent() {
             readOnly={pastDueData?.isReadOnly ?? false}
           />
         )}
-        {/* Zone 1 — reputation hero band */}
-        <div className="section-enter section-enter-2">
+        {/* Zone 1 — hero row: reputation hero + Rep Pulse gauge */}
+        <div className="section-enter section-enter-2 hero-row">
           <ReputationHeroBand
             summary={reputation}
             lifetimeReviewsHandled={valueSummary.totalReviewsHandled}
             lifetimeTimeSavedMinutes={valueSummary.totalTimeSavedMinutes}
             connected={zernioConnection.status === 'active'}
+            miniTrend
           />
+          <RepPulseCard summary={reputation} />
         </div>
         <div className="section-enter section-enter-3">
           <AgentTeamStrip scope={currentScope} />
@@ -350,6 +353,14 @@ function DashboardOperationalContent() {
       </div>
     </>
   );
+}
+
+/** Time-of-day greeting for the dashboard top bar (Harbor). Local clock only. */
+function timeGreeting(now = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 async function fetchAccountOffboardingStatus(): Promise<OffboardingStatusResponse> {

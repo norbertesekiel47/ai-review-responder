@@ -1,6 +1,11 @@
+'use client';
+
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
+import { computeHeroHeadline } from '@/components/dashboard/kpi/hero-headline';
+import { starTrendPoints, starTrendPlot } from '@/components/dashboard/charts/star-trend-plot';
+import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 
 interface Props {
   summary: ReputationSummary;
@@ -9,6 +14,10 @@ interface Props {
   lifetimeTimeSavedMinutes: number;
   /** Whether Google is connected (drives the header pill). */
   connected: boolean;
+  /** Compact 8-week trend inside the hero. Glance dashboard only — the
+   *  analytics page renders the full ReputationTrendChart beside this band,
+   *  and the same series twice on one screen is noise. */
+  miniTrend?: boolean;
 }
 
 function DeltaArrow({ up }: { up: boolean }) {
@@ -53,14 +62,73 @@ function formatHours(minutes: number): string {
   return (Math.round(hours * 10) / 10).toString();
 }
 
+// Mini-trend plot geometry (real pixels; viewBox width = measured width).
+const MINI_H = 72;
+const MINI_TOP = 8;
+const MINI_BOTTOM = 62;
+const MINI_LEFT = 4;
+const MINI_RIGHT = 34; // room for the star labels on the right edge
+
+/**
+ * Compact 8-week star-equivalent trend inside the hero — the same REAL series
+ * the analytics page charts (never synthesized). Hidden entirely below two
+ * plotted weeks: a one-point "trend" is not evidence.
+ */
+function HeroMiniTrend({ trend }: { trend: ReputationSummary['trend'] }) {
+  const { ref, width } = useMeasuredSvg();
+
+  const points = starTrendPoints(trend);
+
+  if (points.length < 2) return null;
+
+  const { x, y, path, gridStars } = starTrendPlot(points, trend.length, width, {
+    top: MINI_TOP,
+    bottom: MINI_BOTTOM,
+    left: MINI_LEFT,
+    right: MINI_RIGHT,
+  });
+
+  const last = points[points.length - 1]!;
+  const first = points[0]!;
+
+  return (
+    <div className="rep-mini-trend">
+      <div className="rep-mini-trend-head">
+        <span>Reputation trend</span>
+        <span>star-equivalent · last 8 weeks</span>
+      </div>
+      <div ref={ref}>
+        <svg
+          viewBox={`0 0 ${width} ${MINI_H}`}
+          role="img"
+          aria-label={`Reputation trend across ${points.length} weeks: from ${first.star.toFixed(1)} to ${last.star.toFixed(1)} star-equivalent`}
+        >
+          {gridStars.map((star) => (
+            <g key={star}>
+              <line className="mini-grid" x1={MINI_LEFT} x2={width - MINI_RIGHT} y1={y(star)} y2={y(star)} />
+              <text className="mini-axis" x={width - MINI_RIGHT + 6} y={y(star) + 3}>
+                {star.toFixed(1)}
+              </text>
+            </g>
+          ))}
+          <path className="mini-line" d={path} pathLength={1} />
+          <circle className="mini-dot" cx={x(last.index)} cy={y(last.star)} r={3.5} />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export function ReputationHeroBand({
   summary,
   lifetimeReviewsHandled,
   lifetimeTimeSavedMinutes,
   connected,
+  miniTrend = false,
 }: Props) {
   const { averageStar, responseRate, timeSavedMinutes, isRamping } = summary;
   const lifetimeHours = Math.round(lifetimeTimeSavedMinutes / 60);
+  const headline = computeHeroHeadline(summary);
 
   return (
     <div className={`card rep-hero${isRamping ? ' ramping' : ''}`}>
@@ -72,6 +140,8 @@ export function ReputationHeroBand({
           </span>
         )}
       </div>
+
+      <p className="rep-headline">{headline}</p>
 
       <div className="rep-stats">
         <div className="rep-stat anchor">
@@ -109,6 +179,8 @@ export function ReputationHeroBand({
           />
         </div>
       </div>
+
+      {miniTrend && !isRamping && <HeroMiniTrend trend={summary.trend} />}
 
       <p className="rep-period-context">{RESPONSE_RATE_PERIOD_CONTEXT}</p>
 
