@@ -87,6 +87,8 @@ docs/**/*.zip
 !.agents/skills/onboarding-demo-cost-guard/**
 !.agents/skills/outbox-pattern/
 !.agents/skills/outbox-pattern/**
+!.agents/skills/queue-run/
+!.agents/skills/queue-run/**
 !.agents/skills/react-doctor/
 !.agents/skills/react-doctor/**
 !.agents/skills/red-team/
