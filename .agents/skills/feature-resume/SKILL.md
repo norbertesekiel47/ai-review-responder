@@ -65,6 +65,17 @@ A missing, red, or stale fingerprint means verification is incomplete even if
 the repository gate file says green. Do not repair that by rewriting state;
 rerun the verified gate at the appropriate phase.
 
+**Revalidate the red-team sidecar before trusting a `reviewed` phase.** A phase
+recorded by an earlier session is a claim, not evidence, and a run that reached
+`reviewed` before section 6.5 existed carries no adversarial pass at all:
+
+```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/red-team-status.mjs
+```
+
+A non-zero exit means the `reviewed` state is not trustworthy. Treat the run as
+sitting at section 6.5 and take NO external action until the check passes.
+
 Surface before editing:
 
 - unexpected dirty or untracked files
@@ -93,8 +104,10 @@ Do not reread every workflow section. Dispatch from reconciled state:
 | `executing`, implementation complete | run `verified-gate.sh --review` |
 | green current fingerprint, reviews incomplete | run the required review axes |
 | accepted review fixes pending | transition to `executing`, fix, and reverify |
-| green current fingerprint, triage complete | transition to `reviewed` |
-| `reviewed` | report review-ready and wait for explicit external authority |
+| green current fingerprint, triage complete | run section 6.5, which owns the `reviewed` transition |
+| green current fingerprint, triage complete, no red-team sidecar | run section 6.5 |
+| `reviewed`, red-team status check passes | report review-ready and wait for explicit external authority |
+| `reviewed`, red-team status check FAILS | return to section 6.5; the phase is not trustworthy |
 | `shipped` | verify the external outcome before proposing cleanup |
 
 Use the guarded transition wrapper for manual phase changes, and repair the

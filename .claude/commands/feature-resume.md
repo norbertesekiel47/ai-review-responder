@@ -55,6 +55,14 @@ continue: the handoff doc's claims are hints; git state is the truth.
      resumed session that trusts a stale ref reconciles against fiction.
    - Main drift: `git rev-list --count HEAD..origin/main`. A branch far
      behind main rots — flag it and propose a rebase/merge before new work.
+   - **A `reviewed` phase is a claim, not evidence — revalidate the red-team
+     sidecar before trusting it or taking ANY external action:**
+     `cd <worktree-root> && node .agents/skills/feature/scripts/red-team-status.mjs`.
+     A non-zero exit means the sidecar is absent, self-inconsistent, or stale
+     against HEAD (a fix commit landed after the pass), or that a high-risk
+     open P1 has no recorded authorization. A run that reached `reviewed`
+     before step 7.5 existed has no adversarial pass at all. In every one of
+     those cases the branch is at step 7.5, not step 8 — say so and go there.
 4. **Bootstrap state, in this order** (skip files that don't exist yet):
    - `docs/superpowers/plans/<branch>-handoff.md` — current step + pointers
    - `.feature/intake.json` — the locked scope contract (drift detector)

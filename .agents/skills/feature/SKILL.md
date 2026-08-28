@@ -259,15 +259,54 @@ node .agents/skills/feature/scripts/review-log.mjs triage --id F1 --verdict ACCE
 node .agents/skills/feature/scripts/review-log.mjs round-end --verdict REVISE
 ```
 
-Transition to `reviewed` only while the fingerprint is current, and only when
-no finding is untriaged:
+Close the review step only when no finding is untriaged. The `reviewed`
+transition does NOT happen here — it belongs to section 6.5:
 
 ```bash
 node .agents/skills/feature/scripts/review-log.mjs render
 node .agents/skills/feature/scripts/gate-fingerprint.mjs check
 node .agents/skills/feature/scripts/progress.mjs step review done
+```
+
+### 6.5 Red-team the finished change
+
+Section 6 asks whether the change is right. This section tries to prove it is
+wrong, and it owns the `reviewed` transition so no run can reach review-ready
+without an adversarial pass.
+
+Run the `red-team` skill in a fresh subagent. It is a VERIFIER, not a reviewer:
+its mutations of production files are the one narrow exception to "never let a
+reviewer edit", because they are journaled, finalizer-guarded, and can never
+reach a commit. Read `.agents/skills/red-team/SKILL.md` for the protocol.
+
+Order matters — the report commit moves `HEAD`, so it precedes the final gate:
+
+1. Verify the preconditions: clean tree, no process watching the worktree, no
+   stranded dotenv backup.
+2. Run the pass on committed `HEAD`.
+3. Run the finalizer YOURSELF, from the root context, so a failed subagent
+   cannot strand a mutation:
+
+```bash
+node .agents/skills/red-team/scripts/mutation-runner.mjs finalize
+```
+
+4. **PAUSE for authorization before the report commit.** Listing `commit` in
+   `required_approvals` does not grant it — read
+   [shipping-boundaries.md](references/shipping-boundaries.md). Obtain a
+   separately recorded explicit authorization, then commit only
+   `docs/reviews/red-team/<slug>/findings.md` and `findings.json`.
+5. Re-run the wrapper gate last, so the fingerprint regenerates over the
+   committed report, then transition. The transition itself re-runs the status
+   check, so a stale or self-inconsistent sidecar fails the phase change:
+
+```bash
+bash .agents/skills/feature/scripts/verified-gate.sh --review
 node .agents/skills/feature/scripts/transition-state.mjs reviewed
 ```
+
+A `P0` finding blocks and returns to section 4. A high-risk `OPEN_P1` requires
+the user's adjudication and is enforced, not advised. Two rounds maximum.
 
 ### 7. Stop at review-ready
 

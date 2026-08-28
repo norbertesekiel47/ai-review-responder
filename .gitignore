@@ -89,6 +89,8 @@ docs/**/*.zip
 !.agents/skills/outbox-pattern/**
 !.agents/skills/react-doctor/
 !.agents/skills/react-doctor/**
+!.agents/skills/red-team/
+!.agents/skills/red-team/**
 !.agents/skills/repworth-brand-design/
 !.agents/skills/repworth-brand-design/**
 !.agents/skills/runbook/
