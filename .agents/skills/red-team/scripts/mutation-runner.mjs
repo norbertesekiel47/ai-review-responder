@@ -173,9 +173,11 @@ export function journalPathFor(root) {
   return join(root, '.feature', 'red-team-journal.json');
 }
 
-export function emptyJournal() {
+/** `round` defaults to 0: a journal that exists but has had no round opened yet. */
+export function emptyJournal(round = 0) {
   return {
     version: 1,
+    round,
     runs: 0,
     mutations: [],
     dotenv: { open: false, files: [] },
@@ -299,8 +301,8 @@ export async function reapGroup(supervisor) {
 
 function usage(message) {
   console.error('usage: mutation-runner.mjs <command> [options]');
-  console.error('  commands: env | watchers | escape-test-name | assert-one-test | mutate |');
-  console.error('            run | reap | finalize | dotenv-swap | dotenv-restore | status');
+  console.error('  commands: round-start | env | watchers | escape-test-name | assert-one-test |');
+  console.error('            mutate | run | reap | finalize | dotenv-swap | dotenv-restore | status');
   if (message) console.error(`  ${message}`);
   process.exit(2);
 }
@@ -333,6 +335,45 @@ function commandEnv(root, parsed) {
     testDatabaseUrl: typeof parsed['test-db'] === 'string' ? parsed['test-db'] : null,
     mockExternalApis: typeof parsed['mock-external'] === 'string' ? parsed['mock-external'] : 'true',
   });
+}
+
+/**
+ * Open a round: verify the journal is closed, then reset the run budget.
+ *
+ * The budget is "30 runs per ROUND", and the journal outlives a round — so
+ * without this the second round would inherit the first round's counter and hit
+ * the cap having executed nothing. Refusing to open over an unclean journal is
+ * the same check in the other direction: a round must never start on top of an
+ * unrestored mutation or an open dotenv swap.
+ */
+function cmdRoundStart(root) {
+  const journal = readJournal(root);
+  const blockers = [];
+  if (journal.dotenv?.open === true) blockers.push('the dotenv swap is still open');
+  for (const entry of journal.mutations ?? []) {
+    if (entry.state !== 'restored') {
+      blockers.push(`mutation of ${entry.path} is journaled '${entry.state}', not 'restored'`);
+    }
+  }
+  for (const supervisor of journal.supervisors ?? []) {
+    if (supervisor.active === true) {
+      blockers.push(`supervisor pgid ${supervisor.pgid} is still journaled active`);
+    }
+  }
+  if (blockers.length > 0) {
+    console.error('round-start: REFUSED — the previous round did not finalize');
+    for (const blocker of blockers) console.error(`  ${blocker}`);
+    console.error('  Run `finalize` and resolve any abort before opening a new round.');
+    return 1;
+  }
+  const round = (journal.round ?? 0) + 1;
+  if (round > 2) {
+    console.error(`round-start: REFUSED — round ${round} exceeds the hard cap of 2`);
+    return 1;
+  }
+  writeJournal(root, emptyJournal(round));
+  console.log(`round-start: round ${round} open, ${MAX_RUNS_PER_ROUND} mutation runs available`);
+  return 0;
 }
 
 function cmdEnv(root, parsed) {
@@ -664,6 +705,7 @@ async function main(argv) {
   const root = repoRoot();
 
   switch (command) {
+    case 'round-start': return cmdRoundStart(root);
     case 'env': return cmdEnv(root, parsed);
     case 'watchers': return cmdWatchers(parsed);
     case 'escape-test-name': {

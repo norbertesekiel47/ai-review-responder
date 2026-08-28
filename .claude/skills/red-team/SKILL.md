@@ -56,8 +56,12 @@ Stop and report rather than proceed if any of these is false:
 2. No process is serving or watching this worktree. Hot reload can execute a
    mutation under that process's unscrubbed environment:
    `node .agents/skills/red-team/scripts/mutation-runner.mjs watchers`
-3. No `.env*.red-team-backup` file exists and the journal reports no open swap:
-   `node .agents/skills/red-team/scripts/mutation-runner.mjs status`
+3. The journal is closed and a round is open. One command answers both, because
+   a round must never start on top of an unrestored mutation or an open dotenv
+   swap:
+   `node .agents/skills/red-team/scripts/mutation-runner.mjs round-start`
+   It refuses over an unclean journal, resets the per-round run budget, and
+   refuses a third round outright.
 
 ## Step 1 — pin the diff
 
@@ -173,9 +177,11 @@ No Stryker, no new dependency. Per candidate test case:
 6. **Restore and verify** — see The finalizer.
 
 **Budget, hard.** At most 2 mutations per test, 120s per run, 30 mutation runs
-per round. The runner refuses run 31. Any in-scope candidate you did not execute
-gets outcome `skipped-budget`, which forces `INCOMPLETE_BUDGET`. A partial run
-can never report `CLEAR`.
+per round. The runner refuses run 31. The counter is per ROUND and the journal
+outlives a round, so `round-start` is what resets it — round 2 opened without it
+would arrive already exhausted. Any in-scope candidate you did not execute gets
+outcome `skipped-budget`, which forces `INCOMPLETE_BUDGET`. A partial run can
+never report `CLEAR`.
 
 Live-DB candidates use the existing lock protocol and are still bounded by the
 same budget.

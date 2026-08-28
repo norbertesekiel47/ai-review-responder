@@ -413,14 +413,53 @@ describe('the paused supervisor', () => {
 });
 
 describe('the mutation budget', () => {
+  function exhausted() {
+    write('.feature/red-team-journal.json', JSON.stringify({
+      version: 1, round: 1, runs: 30, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
+    }, null, 2));
+  }
+
   it('refuses a run past the 30-per-round cap and names the resulting status', () => {
-    const recorded = {
-      version: 1, runs: 30, mutations: [], dotenv: { open: false, files: [] }, supervisors: [],
-    };
-    write('.feature/red-team-journal.json', JSON.stringify(recorded, null, 2));
+    exhausted();
     const result = run('run', ...HOME_FLAG(), '--', '/usr/bin/true');
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('budget exhausted');
     expect(result.stderr).toContain('INCOMPLETE_BUDGET');
+  });
+
+  // The budget is per ROUND, and the journal outlives a round. Without a reset
+  // the second round would open already exhausted, having executed nothing.
+  it('resets the counter when a new round opens', () => {
+    exhausted();
+    const opened = run('round-start');
+    expect(opened.status).toBe(0);
+    expect(opened.stdout).toContain('round 2 open');
+    expect(journal().runs).toBe(0);
+    expect(run('run', ...HOME_FLAG(), '--', '/usr/bin/true').status).toBe(0);
+  });
+
+  it('refuses to open a round over an unrestored mutation', () => {
+    write('mutant.ts', 'export const allow = (n: number) => true;\n');
+    run('mutate', '--file', 'src/gate.ts', '--mutant', join(repo, 'mutant.ts'));
+    const result = run('round-start');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('did not finalize');
+    expect(read('src/gate.ts')).toContain('=> true');
+  });
+
+  it('refuses to open a round over an open dotenv swap', () => {
+    write('.env.local', 'A=1\n');
+    run('dotenv-swap');
+    expect(run('round-start').stderr).toContain('dotenv swap is still open');
+  });
+
+  // Two rounds is the hard cap the loop protocol states; the runner enforces it
+  // rather than trusting the caller to count.
+  it('refuses to open a third round', () => {
+    expect(run('round-start').status).toBe(0);
+    expect(run('round-start').status).toBe(0);
+    const third = run('round-start');
+    expect(third.status).toBe(1);
+    expect(third.stderr).toContain('hard cap of 2');
   });
 });
