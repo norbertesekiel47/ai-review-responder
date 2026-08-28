@@ -102,10 +102,15 @@ we want — one rule set covers prod **and** staging.
 
 ---
 
-## Component 3 — per-path enforcing rules (ENFORCE NOW) — ✅ LIVE (published 2026-06-09)
+## Component 3 — per-path enforcing rules (ENFORCE NOW) — ✅ LIVE (published 2026-06-09; 3c published 2026-08-27)
+
+> ⚠️ **`vercel firewall rules add` only STAGES a rule — it is NOT live until
+> `vercel firewall publish --yes`.** This stalled the 2026-08-27 publish of 3c
+> twice: the rule showed in `rules ls` but blocked nothing until published.
 
 Live rule IDs: `rule_signup_per_ip_enforce_UMAAj8` (3a),
-`rule_onboarding_start_per_ip_enforce_GxpRCA` (3b).
+`rule_onboarding_start_per_ip_enforce_GxpRCA` (3b),
+`rule_qr_redirect_per_ip_enforce_<fill from vercel firewall rules ls>` (3c).
 
 Mirrors the existing app limits at the edge (app: signup 5/hour/IP strict,
 onboarding-start 10/hour/auth-id strict). The per-IP/min WAF limits are
@@ -137,7 +142,27 @@ vercel firewall rules add "onboarding-start-per-ip-enforce" \
   --rate-limit-keys ip \
   --rate-limit-action rate_limit \
   --yes
+
+# 3c. /q/* (public QR redirect) — 30 requests / 60s per IP → 429, ANY method
+vercel firewall rules add "qr-redirect-per-ip-enforce" \
+  --condition '{"type":"path","op":"pre","value":"/q/"}' \
+  --action rate_limit \
+  --rate-limit-window 60 \
+  --rate-limit-requests 30 \
+  --rate-limit-keys ip \
+  --rate-limit-action rate_limit \
+  --yes
 ```
+
+**3c — why it exists (published + burst-verified 2026-08-27):** the public QR
+redirect writes one durable `analytics_events` row per anonymous scan, so an
+unthrottled `/q/*` flood is a database-write amplifier — feat-qr-review-request
+adversarial review finding A2, accepted as an ops gate; `/q/*` sat outside this
+runbook's enforcing coverage until this rule. No method condition (a redirect
+answers GET, but any method reaches the route) and, per the "Environment
+scoping" section above, **no environment condition** — project-scoped, so it
+covers prod and the staging custom env alike. Burst-verified 2026-08-27 with a
+40-request burst against `repworth.net/q/…`: exactly 30×404 then 10×429.
 
 ---
 

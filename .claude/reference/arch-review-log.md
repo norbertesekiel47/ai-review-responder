@@ -6,8 +6,8 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 0** — reset by the **2026-08-26 pass**
-(entry at the bottom of this file). Full artifacts:
+**Merges since last architecture pass: 1** — last reset to 0 by the
+**2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
 > ## The counting rule is under repair — do NOT hand-count this file until H7 lands
