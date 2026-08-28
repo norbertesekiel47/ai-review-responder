@@ -19,14 +19,20 @@ const PROJECT_SKILLS = [
   'new-migration',
   'onboarding-demo-cost-guard',
   'outbox-pattern',
+  'queue-run',
   'react-doctor',
   'red-team',
   'repworth-brand-design',
   'runbook',
   'verify-spec',
 ] as const;
+// Skills whose two lanes are DELIBERATELY different files: feature and
+// feature-resume (the Claude side lives in .claude/commands/), and queue-run
+// (the Codex lane cannot execute unattended — its variant classifies and
+// writes memos only). Everything else must stay byte-identical.
+const LANE_DIVERGENT_SKILLS = new Set(['feature', 'feature-resume', 'queue-run']);
 const SHARED_CLAUDE_SKILLS = PROJECT_SKILLS.filter(
-  (skill) => skill !== 'feature' && skill !== 'feature-resume',
+  (skill) => !LANE_DIVERGENT_SKILLS.has(skill),
 );
 const HOOK_SCRIPTS = [
   'bash-write-guard.sh',

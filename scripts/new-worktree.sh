@@ -19,6 +19,9 @@
 #      checkout of an existing local/remote branch).
 #   2. copies the gitignored .env*.local files (not tracked, so they don't ride
 #      along with the checkout) — perms preserved (.env.staging.local is 0600).
+#      Skip with SKIP_ENV_COPY=1 when the caller provides its own env (the
+#      /queue-run controller generates a credential-free test env INSTEAD, and
+#      must do so BEFORE any install so lifecycle scripts never see secrets).
 #   3. pnpm install in the worktree (skip with SKIP_INSTALL=1).
 #
 # This is for the "several branches in progress, run one stack at a time" flow.
@@ -68,14 +71,18 @@ else
 fi
 
 # --- carry over gitignored local env (matches .gitignore's .env*.local) ------
-copied=0
-for f in "$REPO_ROOT"/.env*.local; do
-  [[ -e "$f" ]] || continue          # no nullglob: skip the literal pattern
-  cp -p "$f" "$WT_PATH/"
-  info "copied $(basename "$f")"
-  copied=$((copied + 1))
-done
-[[ "$copied" -eq 0 ]] && info "no .env*.local files found to copy — set env another way if the stack needs it."
+if [[ "${SKIP_ENV_COPY:-0}" == "1" ]]; then
+  info "SKIP_ENV_COPY=1 — not copying .env*.local (caller provides its own env)."
+else
+  copied=0
+  for f in "$REPO_ROOT"/.env*.local; do
+    [[ -e "$f" ]] || continue          # no nullglob: skip the literal pattern
+    cp -p "$f" "$WT_PATH/"
+    info "copied $(basename "$f")"
+    copied=$((copied + 1))
+  done
+  [[ "$copied" -eq 0 ]] && info "no .env*.local files found to copy — set env another way if the stack needs it."
+fi
 
 # --- install deps (own node_modules = trustworthy local CI) ------------------
 if [[ "${SKIP_INSTALL:-0}" == "1" ]]; then
