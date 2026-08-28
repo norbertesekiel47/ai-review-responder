@@ -77,8 +77,10 @@ export function SettingsSidebar() {
         </select>
       </div>
 
-      {/* Desktop: grouped vertical list */}
+      {/* Desktop: grouped vertical list, led by the rail's own heading so the
+          column reads as an intentional pane beside the page TopBar. */}
       <div className="settings-sidebar-groups">
+        <div className="settings-sidebar-title">Settings</div>
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="settings-nav-group">
             <div className="settings-nav-group-label">{group.label}</div>

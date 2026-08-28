@@ -86,17 +86,26 @@ export function EditReplyDrawer({
       <button
         type="button"
         aria-label="Close drawer"
-        className="flex-1 bg-black/30"
+        className="flex-1"
+        style={{ background: 'var(--rw-overlay)' }}
         onClick={tryClose}
       />
 
-      {/* Panel */}
-      <aside ref={panelRef} tabIndex={-1} className="flex h-full w-full max-w-xl flex-col overflow-y-auto shadow-2xl" style={{ background: 'var(--rw-card)' }}>
+      {/* Panel — a floating Harbor surface: rounded leading edge + pop shadow. */}
+      <aside
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex h-full w-full max-w-xl flex-col overflow-y-auto"
+        style={{
+          background: 'var(--rw-card)',
+          borderRadius: 'var(--rw-radius-card) 0 0 var(--rw-radius-card)',
+          boxShadow: 'var(--rw-shadow-pop)',
+        }}
+      >
         <header className="sticky top-0 z-10 flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--rw-hair)', background: 'var(--rw-card)' }}>
           <h2
             id="edit-reply-drawer-title"
-            className="text-lg font-semibold"
-            style={{ color: 'var(--rw-app-text)' }}
+            style={{ font: 'var(--rw-app-h2)', letterSpacing: '-0.01em', color: 'var(--rw-app-text)', margin: 0 }}
           >
             Edit reply
           </h2>
@@ -121,13 +130,24 @@ export function EditReplyDrawer({
                     : undefined
             }
           >
-            ✕
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </header>
 
         <div className="flex-1 space-y-5 px-6 py-5">
           {/* Review snapshot — always shown */}
-          <section className="rounded-lg p-3" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)' }}>
+          <section className="p-3" style={{ border: '1px solid var(--rw-hair)', background: 'var(--rw-recess)', borderRadius: 'var(--rw-radius-core)' }}>
             <div className="mb-1 text-xs uppercase tracking-wider" style={{ color: 'var(--rw-sage-deep)' }}>
               Customer review
             </div>
@@ -152,7 +172,7 @@ export function EditReplyDrawer({
             <div className="mb-1 text-xs uppercase tracking-wider" style={{ color: 'var(--rw-sage-deep)' }}>
               Current Google reply
             </div>
-            <p className="rounded-md p-3 text-sm" style={{ background: 'var(--rw-recess)', color: 'var(--rw-app-text)' }}>
+            <p className="p-3 text-sm" style={{ background: 'var(--rw-recess)', color: 'var(--rw-app-text)', borderRadius: 'var(--rw-radius-core)' }}>
               {(row.approved_text ?? '') || <em style={{ color: 'var(--rw-app-text-muted)' }}>(empty)</em>}
             </p>
           </section>

@@ -10,7 +10,7 @@
   font-family: var(--rw-font-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Young Serif is single-weight (400); never synthesize faux-bold on headings. */
+  /* Display weights are real (variable fonts); never synthesize faux styles. */
   font-synthesis-weight: none;
   /* Scoped override of the brand mono, kept so the Console keeps its system-mono
      rendering; an override inside `.rw-console` is the sanctioned mechanism (see
@@ -217,7 +217,7 @@
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: var(--rw-teal);
+  background: var(--rw-accent-500);
   flex-shrink: 0;
 }
 .loc-picker-item--cta {
@@ -477,17 +477,18 @@
 .textarea {
   width: 100%;
   padding: 9px 12px;
-  border: 1px solid var(--rw-app-border);
+  border: 1px solid var(--rw-hair);
   border-radius: 8px;
-  background: var(--rw-white);
+  background: var(--rw-recess);
   color: var(--rw-app-text);
   font-family: var(--rw-font-body);
   font-size: 14px;
   resize: vertical;
-  transition: border-color 160ms var(--rw-ease), box-shadow 160ms var(--rw-ease);
+  transition: background-color 160ms var(--rw-ease), border-color 160ms var(--rw-ease), box-shadow 160ms var(--rw-ease);
 }
 .input:focus,
 .textarea:focus {
+  background: var(--rw-white);
   border-color: var(--rw-focus);
   box-shadow: 0 0 0 3px var(--rw-focus-ring);
   outline: none;
@@ -496,6 +497,7 @@
 .textarea:disabled,
 .input.locked {
   background: var(--rw-recess);
+  border-color: transparent;
   color: var(--rw-app-text-muted);
   cursor: not-allowed;
 }
@@ -620,6 +622,9 @@
 }
 .reviews-subnav .tabs { margin-bottom: 0; }
 .reviews-showing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   color: var(--rw-app-text-muted);
   white-space: nowrap;
@@ -977,7 +982,7 @@
   .timeline-error__retry { transition: none; }
 }
 
-/* ---------- Film-grain overlay (Warm Editorial paper warmth) ----------
+/* ---------- Film-grain overlay (Harbor whisper grain) ----------
    Fixed, pointer-events-none, whisper-faint. z-index:1 sits above the static
    card field but below sticky chrome (topbar z40) and modals (z100), so it
    never grains interactive surfaces. */
@@ -1261,15 +1266,49 @@
 }
 .tab.active .tab-badge { background: var(--rw-red-600); }
 
+/* The queue is a flat section on the canvas — each review is its own Harbor
+   card, never a card nested inside another card (One Card Rule). */
+.reviews-queue { display: flex; flex-direction: column; }
+.queue-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.queue-title {
+  font: var(--rw-app-h2);
+  font-family: var(--rw-font-display);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.queue-count {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-tray);
+  color: var(--rw-app-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Coral = attention: the pill warms up only while drafts actually wait. */
+.queue-count.has-pending {
+  background: var(--rw-blush-soft);
+  color: var(--rw-blush-deep);
+}
 .review-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .review {
   border: 1px solid var(--rw-hair);
   border-radius: var(--rw-radius-card);
-  padding: 16px 18px;
+  padding: 18px 20px;
   background: var(--rw-card);
   box-shadow: var(--rw-shadow-sm);
   transition: border-color 200ms var(--rw-ease), box-shadow 200ms var(--rw-ease);
@@ -1279,13 +1318,15 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* Pending = the owner-intervention state, so it carries the coral attention
+   family (never the warning golds — gold stays review ratings + wait states). */
 .review.pending {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--rw-warning-bg) 40%, transparent) 0%, var(--rw-card) 100%);
-  border-color: var(--rw-warning-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rw-blush-soft) 55%, transparent) 0%, var(--rw-card) 72%);
+  border-color: var(--rw-blush);
 }
 .review.pending:hover {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-warning-border-strong) 20%, transparent);
-  border-color: var(--rw-warning-border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rw-blush) 25%, transparent);
+  border-color: var(--rw-blush);
 }
 .review-head {
   display: flex; align-items: center; gap: 10px;
@@ -1305,7 +1346,9 @@
   border-radius: 9999px;
   font-family: var(--rw-font-body);
 }
-.badge-pending { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
+/* pending = coral (attention), posted = teal-green, auto = violet — the chip
+   triad from the Style Reference. The warning golds stay for wait states. */
+.badge-pending { background: var(--rw-blush-soft); color: var(--rw-blush-deep); }
 .badge-posted { background: var(--rw-green-100); color: var(--rw-green-800); }
 .badge-awaiting { background: var(--rw-attn-bg); color: var(--rw-attn-fg); }
 .badge-edited { background: var(--rw-accent-100); color: var(--rw-accent-800); }
@@ -1318,7 +1361,7 @@
 .escalation-badge { white-space: nowrap; }
 .escalation-badge--high { background: var(--rw-danger-soft); color: var(--rw-danger); }
 .escalation-badge--medium { background: var(--rw-yellow-100); color: var(--rw-yellow-800); }
-.escalation-badge--low { background: var(--rw-cream); color: var(--rw-app-text-muted); }
+.escalation-badge--low { background: var(--rw-tray); color: var(--rw-app-text-muted); }
 .scheduled-post-chip {
   display: inline-flex;
   align-items: center;
@@ -1349,14 +1392,18 @@
   color: var(--rw-app-text-muted);
   text-wrap: pretty;
 }
+/* The draft panel — the decision object on a pending card. An inner panel
+   (radius-core), teal-washed so the agent's draft reads as agent work. */
 .draft-block {
-  margin-top: 12px;
-  padding: 13px 15px;
+  margin-top: 14px;
+  padding: 15px 17px;
   background: var(--rw-sage-soft);
   border: 1px solid var(--rw-sage-line);
-  border-radius: var(--rw-radius-sm);
+  border-radius: var(--rw-radius-core);
   position: relative;
 }
+/* Recessed inputs invert on washed panels: the edit field stays white here. */
+.draft-block .textarea { background: var(--rw-white); }
 .draft-eyebrow {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px;
@@ -1395,7 +1442,7 @@
   font-family: var(--rw-font-body);
 }
 .btn:active { transform: scale(0.975); }
-/* Primary action (Approve & post) — espresso ink, the Warm Editorial anchor */
+/* Primary action (Approve & post) — harbor-ink fill, the strongest owner action */
 .btn-primary { background: var(--rw-app-text); color: var(--rw-on-accent); box-shadow: 0 12px 26px -14px rgba(42,33,24,0.55); }
 .btn-primary:hover { background: var(--rw-app-text-hover); }
 .btn-secondary { background: var(--rw-card); color: var(--rw-app-text); border-color: var(--rw-hair-2); }
@@ -1454,16 +1501,28 @@
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
+/* Empty queue = designed content, not an absence: a calm teal card stating
+   the good news, what happens next, and a doorway to the full Reviews list. */
 .empty-caught-up {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 40px 16px;
+  padding: 44px 24px 40px;
   gap: 12px;
+  background: var(--rw-card);
+  border: 1px solid var(--rw-hair);
+  border-radius: var(--rw-radius-card);
+  box-shadow: var(--rw-shadow-sm);
 }
 .empty-emoji {
-  font-size: 48px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--rw-sage-soft);
+  color: var(--rw-sage-deep);
+  display: grid;
+  place-items: center;
   animation: float 3s ease-in-out infinite;
 }
 @keyframes float {
@@ -1478,9 +1537,26 @@
 }
 .empty-sub {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--rw-app-text-muted);
-  max-width: 320px;
+  max-width: 360px;
 }
+.empty-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding: 8px 15px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-accent-100);
+  color: var(--rw-accent-800);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 160ms var(--rw-ease);
+}
+.empty-link:hover { background: var(--rw-accent-50); }
+.empty-link svg { width: 13px; height: 13px; }
 
 /* ---------- Error boundary state ---------- */
 .error-state {
@@ -1593,7 +1669,10 @@
   grid-template-columns: 34px 1fr 28px;
   align-items: center;
   gap: 12px;
+  transition: opacity 160ms var(--rw-ease);
 }
+/* Bar-chart hover convention: isolate the hovered row by dimming the rest. */
+.rating-rows:hover .rating-row:not(:hover) { opacity: 0.45; }
 .rating-row-label {
   display: inline-flex;
   align-items: center;
@@ -1644,12 +1723,12 @@
 
 /* ---------- Analytics headline-first chart cards ---------- */
 /* Each chart leads with a deterministic plain-English takeaway; the chart below
-   is evidence, not the message (design spec 2026-06-19). */
+   is evidence, not the message (design spec 2026-06-19). Headline sits on the
+   Harbor small-step scale (18px display), never a size of its own. */
 .chart-headline-block { margin-bottom: 16px; }
 .chart-headline {
   display: flex; align-items: baseline; gap: 8px;
-  font-family: var(--rw-font-display);
-  font-size: 19px; font-weight: 600; line-height: 1.25;
+  font: var(--rw-app-h2);
   letter-spacing: -0.01em;
   color: var(--rw-app-text);
 }
@@ -1967,7 +2046,7 @@
 /* Shared chart hover chrome (charts/ChartTooltip + crosshair). */
 .chart-tip {
   position: absolute;
-  width: 96px;
+  width: 116px;
   padding: 6px 8px;
   border-radius: 8px;
   background: var(--rw-app-text);
@@ -1981,6 +2060,9 @@
 }
 .chart-tip-title { font-size: 9px; font-weight: 500; color: var(--rw-on-dark-muted); font-family: var(--rw-font-body); }
 .chart-tip-value { font-size: 14px; font-weight: 700; color: var(--rw-card); font-family: var(--rw-font-display); }
+/* Week-over-week change bubble under the value — arrow + sign carry the
+   direction (Evidence Color Rule), so one muted color serves all three. */
+.chart-tip-delta { font-size: 10px; font-weight: 600; color: var(--rw-on-dark-muted); font-family: var(--rw-font-body); text-align: center; }
 .chart-crosshair { stroke: var(--rw-sage-deep); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.5; pointer-events: none; }
 
 /* ---------- Mobile bottom tab bar ---------- */
@@ -2309,6 +2391,8 @@
   .period-tab,
   .tab,
   .btn,
+  .rating-row,
+  .empty-link,
   .loc-kpi-card { transition: none; }
 
   .loc-kpi-card:hover { transform: none; }
@@ -2323,6 +2407,7 @@
   .btn,
   .collapsed-toggle,
   .signout-btn,
+  .empty-link,
   .mtab { min-height: 44px; }
 
   .collapsed-toggle { min-width: 44px; }

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { Icon } from '@/components/dashboard/shell/Icon';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { loadPastRepliesPageView } from '@/lib/past-replies/load-replies';
@@ -48,7 +49,8 @@ export default async function PastRepliesPage({
             business_id-scoped). In aggregate scope this shows the current/primary
             location only; switch it via the sidebar LocationPicker. */}
         <span className="reviews-showing" title="Switch locations from the picker in the sidebar.">
-          Showing: <strong>{view.locationDisplayName}</strong> <span aria-hidden="true">▾</span>
+          Showing: <strong>{view.locationDisplayName}</strong>
+          <Icon name="chevron-down" size={12} aria-hidden="true" />
         </span>
       </div>
       <PastRepliesClient

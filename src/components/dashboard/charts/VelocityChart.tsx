@@ -29,6 +29,17 @@ export interface VelocityDatum {
 const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
 
+/**
+ * Change vs the previous week's count — derived from the plotted data, never
+ * invented. The first week has no prior, so no delta renders.
+ */
+function countDeltaLabel(data: ReadonlyArray<VelocityDatum>, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  const diff = data[index]!.count - data[index - 1]!.count;
+  if (diff === 0) return '→ no change';
+  return `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff)} vs prior week`;
+}
+
 /** Weekly bars + smoothed trend line + avg reference, on the measured-viewBox contract. */
 export function VelocityChart({ data }: { data: VelocityDatum[] }) {
   const { ref, width } = useMeasuredSvg();
@@ -205,6 +216,7 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
           y={yScale(hoveredDatum.count)}
           title={`Week of ${hoveredDatum.label || `#${hover.index + 1}`}`}
           value={`${hoveredDatum.count} reviews`}
+          delta={countDeltaLabel(data, hover.index)}
           containerWidth={width}
         />
       )}
