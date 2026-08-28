@@ -14,6 +14,17 @@ interface ChartTooltipProps {
   containerWidth: number;
 }
 
+/**
+ * The delta line's one grammar, shared by every chart that feeds `delta`:
+ * arrow + magnitude + "vs prior week", or the flat form. `fmt` renders the
+ * magnitude in the chart's own unit ("0.2★", "2"). Callers pass the change
+ * vs the previous PLOTTED point — derived, never invented.
+ */
+export function weekOverWeekDeltaLabel(diff: number, fmt: (n: number) => string): string {
+  if (diff === 0) return '→ no change';
+  return `${diff > 0 ? '↑' : '↓'} ${fmt(Math.abs(diff))} vs prior week`;
+}
+
 // Must stay in sync with .chart-tip { width: 116px } in console.css.
 const TIP_W = 116;
 const TIP_LIFT = 52;

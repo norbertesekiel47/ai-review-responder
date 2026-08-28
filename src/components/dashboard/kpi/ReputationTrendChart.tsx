@@ -6,7 +6,7 @@ import { LazyMotion, domAnimation, m } from 'motion/react';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { ChartHeadlineBanner } from '@/components/dashboard/kpi/ChartHeadlineBanner';
 import { computeTrendHeadline } from '@/components/dashboard/kpi/chart-headlines';
-import { ChartTooltip } from '@/components/dashboard/charts/ChartTooltip';
+import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
 import { chartTransition, DOT_SPRING, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
@@ -74,8 +74,8 @@ function weekLabel(weekStartIso: string): string {
 }
 
 /**
- * Change vs the previous PLOTTED week, from the same points the line draws —
- * derived, never invented. First point has no prior, so no delta renders.
+ * Change vs the previous PLOTTED week, from the same points the line draws.
+ * First point has no prior, so no delta renders.
  */
 function starDeltaLabel(
   points: ReadonlyArray<{ index: number; star: number }>,
@@ -83,9 +83,7 @@ function starDeltaLabel(
 ): string | undefined {
   const pos = points.findIndex((p) => p.index === hovered.index);
   if (pos <= 0) return undefined;
-  const diff = hovered.star - points[pos - 1]!.star;
-  if (diff === 0) return '→ no change';
-  return `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff).toFixed(1)}★ vs prior week`;
+  return weekOverWeekDeltaLabel(hovered.star - points[pos - 1]!.star, (n) => `${n.toFixed(1)}★`);
 }
 
 export function ReputationTrendChart({ trend }: Props) {

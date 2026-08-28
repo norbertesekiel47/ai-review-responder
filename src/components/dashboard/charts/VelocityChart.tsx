@@ -12,7 +12,7 @@ import {
   CHART_FONT_BODY,
   CHART_GRID_STROKE,
 } from '@/components/dashboard/charts/chart-tokens';
-import { ChartTooltip } from '@/components/dashboard/charts/ChartTooltip';
+import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition, LINE_REVEAL } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 import { useNearestDatum } from '@/components/dashboard/charts/useNearestDatum';
@@ -30,14 +30,12 @@ const PAD = VELOCITY_PAD;
 const H = VELOCITY_H;
 
 /**
- * Change vs the previous week's count — derived from the plotted data, never
- * invented. The first week has no prior, so no delta renders.
+ * Change vs the previous week's count, from the plotted data. The first week
+ * has no prior, so no delta renders.
  */
 function countDeltaLabel(data: ReadonlyArray<VelocityDatum>, index: number): string | undefined {
   if (index <= 0) return undefined;
-  const diff = data[index]!.count - data[index - 1]!.count;
-  if (diff === 0) return '→ no change';
-  return `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff)} vs prior week`;
+  return weekOverWeekDeltaLabel(data[index]!.count - data[index - 1]!.count, String);
 }
 
 /** Weekly bars + smoothed trend line + avg reference, on the measured-viewBox contract. */

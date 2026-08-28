@@ -1081,7 +1081,9 @@
   border-radius: 10px;
   border: 1px solid;
   margin-bottom: 14px;
-  animation: slideIn 0.3s ease;
+  /* slideDown is the banner-entry keyframes below; the old `slideIn` name
+     resolved to nothing, so this animation had silently never run. */
+  animation: slideDown 300ms var(--rw-ease);
 }
 .sub-status-banner--cancelled {
   border-color: var(--rw-danger);
@@ -1254,18 +1256,6 @@
 }
 .tab:hover { color: var(--rw-app-text); }
 .tab.active { background: var(--rw-white); color: var(--rw-app-text); box-shadow: var(--rw-shadow-sm); }
-.tab .tab-badge {
-  background: var(--rw-red-600);
-  color: var(--rw-white);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 9999px;
-  min-width: 16px;
-  text-align: center;
-}
-.tab.active .tab-badge { background: var(--rw-red-600); }
-
 /* The queue is a flat section on the canvas — each review is its own Harbor
    card, never a card nested inside another card (One Card Rule). */
 .reviews-queue { display: flex; flex-direction: column; }
@@ -1420,11 +1410,6 @@
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--rw-app-text);
-}
-.draft-actions {
-  display: flex; gap: 8px;
-  margin-top: 12px;
-  flex-wrap: wrap;
 }
 .btn {
   display: inline-flex;
@@ -2156,32 +2141,6 @@
   }
 }
 
-/* ---------- Toast ---------- */
-.toast-wrap {
-  position: fixed;
-  bottom: 24px; right: 24px;
-  z-index: 100;
-  display: flex; flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-}
-.toast {
-  background: var(--rw-app-text);
-  color: var(--rw-white);
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: var(--rw-shadow-lg);
-  animation: toastIn 280ms var(--rw-ease) both;
-  display: flex; align-items: center; gap: 8px;
-  pointer-events: auto;
-}
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 /* ---------- Section entry animations ---------- */
 .section-enter {
   animation: sectionUp 520ms var(--rw-ease) both;
@@ -2267,7 +2226,8 @@
   color: var(--rw-app-text);
   line-height: 1.2;
 }
-.loc-kpi-card-stats {
+.loc-kpi-card-stats,
+.loc-kpi-card-handled {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2277,13 +2237,6 @@
 .stat-pending {
   color: var(--rw-warning-fg);
   font-weight: 600;
-}
-.loc-kpi-card-handled {
-  font-size: 11px;
-  color: var(--rw-app-text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* VAL-DASH-028: Billing-pending pill on KPI strip card */
@@ -2335,12 +2288,6 @@
   gap: 20px;
   animation: rw-skeleton-pulse 1.4s ease-in-out infinite;
 }
-.skeleton-line {
-  height: 16px;
-  background: var(--rw-control-surface);
-  border-radius: 6px;
-  width: 100%;
-}
 .skeleton-card {
   background: var(--rw-control-surface);
   border-radius: var(--rw-radius-md);
@@ -2369,7 +2316,6 @@
   .posted-resp,
   .empty-emoji,
   .aggregate-empty-emoji,
-  .toast,
   .section-enter,
   .dashboard-skeleton,
   .settings-skeleton__row > div { animation: none; }
