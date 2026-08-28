@@ -1,12 +1,10 @@
 'use client';
 
-import { scaleLinear } from 'd3-scale';
-import { line as d3Line, curveMonotoneX } from 'd3-shape';
 import type { ReputationSummary } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 import { computeHeroHeadline } from '@/components/dashboard/kpi/hero-headline';
-import { computeTrendDomain } from '@/components/dashboard/kpi/ReputationTrendChart';
+import { starTrendPoints, starTrendPlot } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 
 interface Props {
@@ -79,25 +77,19 @@ const MINI_RIGHT = 34; // room for the star labels on the right edge
 function HeroMiniTrend({ trend }: { trend: ReputationSummary['trend'] }) {
   const { ref, width } = useMeasuredSvg();
 
-  const points = trend
-    .map((week, index) => ({ index, star: week.starEquivalent }))
-    .filter((p): p is { index: number; star: number } => p.star != null);
+  const points = starTrendPoints(trend);
 
   if (points.length < 2) return null;
 
-  const domain = computeTrendDomain(points.map((p) => p.star));
-  const y = scaleLinear().domain([domain.min, domain.max]).range([MINI_BOTTOM, MINI_TOP]).clamp(true);
-  const x = scaleLinear().domain([0, trend.length - 1]).range([MINI_LEFT, width - MINI_RIGHT]);
-
-  const path =
-    d3Line<{ index: number; star: number }>()
-      .x((p) => x(p.index))
-      .y((p) => y(p.star))
-      .curve(curveMonotoneX)(points) ?? '';
+  const { x, y, path, gridStars } = starTrendPlot(points, trend.length, width, {
+    top: MINI_TOP,
+    bottom: MINI_BOTTOM,
+    left: MINI_LEFT,
+    right: MINI_RIGHT,
+  });
 
   const last = points[points.length - 1]!;
   const first = points[0]!;
-  const gridStars = [domain.max, (domain.min + domain.max) / 2, domain.min];
 
   return (
     <div className="rep-mini-trend">

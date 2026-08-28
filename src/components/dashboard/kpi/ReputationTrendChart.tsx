@@ -1,9 +1,8 @@
 'use client';
 
-import { scaleLinear } from 'd3-scale';
-import { line as d3Line, curveMonotoneX } from 'd3-shape';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import type { ReputationSummary } from '@/lib/dashboard/types';
+import { starTrendPoints, starTrendPlot, type StarPoint } from '@/components/dashboard/charts/star-trend-plot';
 import { ChartHeadlineBanner } from '@/components/dashboard/kpi/ChartHeadlineBanner';
 import { computeTrendHeadline } from '@/components/dashboard/kpi/chart-headlines';
 import { ChartTooltip, weekOverWeekDeltaLabel } from '@/components/dashboard/charts/ChartTooltip';
@@ -18,47 +17,14 @@ interface Props {
 
 // Plot geometry (real pixels — the viewBox equals the measured wrapper width
 // per the useMeasuredSvg contract). The Y-axis domain is computed from the
-// data (see computeTrendDomain) rather than pinned to 1–5, so movement inside
-// the real 4.x band is visible instead of flattened.
+// data (computeTrendDomain in charts/star-trend-plot.ts) rather than pinned
+// to 1–5, so movement inside the real 4.x band is visible instead of
+// flattened.
 const H = 200;
 const LEFT = 34;
 const RIGHT = 12;
 const TOP = 16;
 const BOTTOM = 174; // H − 26 for x labels
-
-/** Smallest star span the axis will ever show, so a flat-ish trend still reads. */
-const MIN_DOMAIN_SPAN = 0.6;
-
-/**
- * Y-axis domain zoomed to the data: [min−0.2, max+0.2] clamped to [1,5] with a
- * minimum span of ~0.6. A 4.3→4.8 run fills the axis instead of hugging the top
- * of a fixed 1–5 chart. Empty input falls back to the full 1–5 range.
- */
-export function computeTrendDomain(stars: number[]): { min: number; max: number } {
-  if (stars.length === 0) return { min: 1, max: 5 };
-
-  let min = Math.max(1, Math.min(...stars) - 0.2);
-  let max = Math.min(5, Math.max(...stars) + 0.2);
-
-  if (max - min < MIN_DOMAIN_SPAN) {
-    const mid = (min + max) / 2;
-    min = mid - MIN_DOMAIN_SPAN / 2;
-    max = mid + MIN_DOMAIN_SPAN / 2;
-    // Shift the window back inside [1,5] if expanding pushed it past an edge.
-    if (min < 1) {
-      max += 1 - min;
-      min = 1;
-    }
-    if (max > 5) {
-      min -= max - 5;
-      max = 5;
-    }
-    min = Math.max(1, min);
-    max = Math.min(5, max);
-  }
-
-  return { min, max };
-}
 
 /**
  * `weekStartIso` is a calendar DAY, which JS parses as UTC midnight — formatting
@@ -78,8 +44,8 @@ function weekLabel(weekStartIso: string): string {
  * First point has no prior, so no delta renders.
  */
 function starDeltaLabel(
-  points: ReadonlyArray<{ index: number; star: number }>,
-  hovered: { index: number; star: number },
+  points: ReadonlyArray<StarPoint>,
+  hovered: StarPoint,
 ): string | undefined {
   const pos = points.findIndex((p) => p.index === hovered.index);
   if (pos <= 0) return undefined;
@@ -90,33 +56,19 @@ export function ReputationTrendChart({ trend }: Props) {
   const { ref, width } = useMeasuredSvg();
   const reduced = usePrefersReducedMotion();
 
-  const points = trend
-    .map((week, index) => ({ index, star: week.starEquivalent }))
-    .filter((p): p is { index: number; star: number } => p.star != null);
-
-  const domain = computeTrendDomain(points.map((p) => p.star));
+  const points = starTrendPoints(trend);
   const headline = computeTrendHeadline(trend);
-
-  const y = scaleLinear().domain([domain.min, domain.max]).range([BOTTOM, TOP]).clamp(true);
-  // A lone week maps to the plot center (domain [-1,1] puts index 0 at the
-  // midpoint), matching the pre-migration centering behavior for single points.
-  const x = scaleLinear()
-    .domain(trend.length > 1 ? [0, trend.length - 1] : [-1, 1])
-    .range([LEFT, width - RIGHT]);
-
-  const path =
-    d3Line<{ index: number; star: number }>()
-      .x((p) => x(p.index))
-      .y((p) => y(p.star))
-      .curve(curveMonotoneX)(points) ?? '';
+  const { x, y, path, gridStars } = starTrendPlot(points, trend.length, width, {
+    top: TOP,
+    bottom: BOTTOM,
+    left: LEFT,
+    right: RIGHT,
+  });
 
   const hover = useNearestDatum(points.map((p) => x(p.index)));
   const hovered = hover.index != null ? points[hover.index] : undefined;
   const last = points[points.length - 1];
   const focus = hovered ?? last;
-
-  // Three gridlines spanning the zoomed domain (top / mid / bottom).
-  const gridStars = [domain.max, (domain.min + domain.max) / 2, domain.min];
 
   return (
     <div className="card rep-trend">
