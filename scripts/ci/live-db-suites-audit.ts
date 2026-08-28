@@ -96,6 +96,13 @@ const NOT_LIVE_DB = new Set([
   'src/__tests__/helpers/describe-with-db.test.ts',
   'scripts/ci/__tests__/live-db-suites-audit.test.ts',
   'src/__tests__/ci-audit-wiring.test.ts',
+  // Same class as `ci-audit-wiring.test.ts`, one step further out: it asserts
+  // that the red-team mutation runner's ENVIRONMENT ALLOWLIST passes
+  // `TEST_DATABASE_POOL_URL` through and refuses a non-local host. The variable
+  // is the subject of the assertion, never a connection — the suite opens no
+  // database at all, so serializing it would cost the `integration` project a
+  // file for nothing.
+  'scripts/ci/__tests__/red-team-mutation-runner.test.ts',
 ]);
 
 /**

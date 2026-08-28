@@ -20,6 +20,7 @@ const PROJECT_SKILLS = [
   'onboarding-demo-cost-guard',
   'outbox-pattern',
   'react-doctor',
+  'red-team',
   'repworth-brand-design',
   'runbook',
   'verify-spec',

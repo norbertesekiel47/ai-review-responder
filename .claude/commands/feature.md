@@ -547,10 +547,63 @@ as one-liners in the report file (so a resumed session inherits triage
 state). **COMMIT the review reports + triage verdicts on the branch** —
 uncommitted reports vanish with the worktree at cleanup (two merged
 worktrees were found holding the only copy of their step 7 reports).
-Re-run step 5. When triage completes, run
-`bash scripts/feature-state.sh set-phase reviewed`.
+Re-run step 5. When triage completes, go to step 7.5 — **the phase does NOT
+move to `reviewed` here.** It used to, which is exactly how a branch could
+reach SHIP with no adversarial pass; the transition now lives at the end of
+step 7.5, after evidence that cannot be produced from memory.
+
+## 7.5 RED TEAM — disprove "done", then set the phase
+
+Steps 5–7 ask "is this right?". This step asks "can I prove it is wrong?" —
+and it owns the `reviewed` transition, so the phase can never claim reviewed
+without it.
+
+Invoke the `red-team` skill on this branch in a FRESH subagent. It receives
+the locked intake, the pinned fork/merge-base/head SHAs, and the claimed
+evidence — never my reasoning or the implementer's. It hand-mutation-tests
+the changed test surface, flags fragile assertions, re-resolves every doc
+`path:line` claim against HEAD, hunts missed sibling cases, and checks
+operational completeness. Read `SKILL.md` for the full protocol; the parts
+that bind THIS step are below.
+
+**Order is load-bearing — the report commit moves HEAD, so it happens
+BEFORE the final gate, not after:**
+
+1. Preconditions: clean tree, no watcher on the worktree, no stranded dotenv
+   backup. Any failure stops the step; never mutate around it.
+2. The pass runs on committed HEAD.
+3. **Finalizer, always** — the ORCHESTRATOR runs it, not the subagent, so a
+   dead subagent cannot strand a mutation:
+   `node .agents/skills/red-team/scripts/mutation-runner.mjs finalize`.
+   It aborts rather than overwrite content it did not write.
+4. Write and COMMIT `docs/reviews/red-team/<slug>/findings.{md,json}`,
+   touching nothing else.
+5. Re-run the final gate LAST: `bash scripts/verify-gate.sh --review`.
+6. `node .agents/skills/feature/scripts/red-team-status.mjs` — it recomputes
+   the status from the inventory rather than trusting it, and fails on stale
+   evidence, an amended intake, an unrestored mutation, or a high-risk open
+   P1 with no recorded authorization.
+7. Only now: `bash scripts/feature-state.sh set-phase reviewed`.
+
+**Findings bind this session.** A P0 blocks the PR and comes to me. A P1 on
+RISK = normal is yours to adjudicate; a P1 on RISK = high is mine. Fixing a
+finding sends you back to step 5, and red-team runs again — **hard cap of 2
+rounds**, where round 2 may only report new findings inside the fix hunks and
+their direct callers.
+
+**A rejected finding is never a silent skip**: one-line verdict plus
+`file:line` evidence in `findings.md`, mirrored in the JSON disposition, and
+listed in a "Red-team findings rejected" section of the PR description.
 
 ## 8. SHIP — lane-dependent
+
+**Before any external action, in both lanes**: re-run
+`node .agents/skills/feature/scripts/red-team-status.mjs`. It is the same
+command step 7.5 ran, and it is cheap — but the commits between then and now
+(a staging ride, a fix, a rebase) are exactly what makes step 7.5's evidence
+stale. Open the PR with `gh pr create --draft` (draft PRs run no CI), then
+run the checker once more before `gh pr ready`, since the PR body is the
+first place the rejected-findings section becomes visible.
 
 **If RISK = high** (worker / webhook / migration / billing / auth):
 1. Ride staging first: land the branch on `staging` (push → full stack

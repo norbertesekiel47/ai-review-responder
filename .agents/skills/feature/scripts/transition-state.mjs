@@ -45,10 +45,18 @@ if (!allowed[currentPhase]?.has(nextPhase)) {
   process.exit(1);
 }
 
+// `reviewed` is the phase that authorizes an external action, so both proofs
+// are checked here rather than trusted from conversation: the gate fingerprint
+// (the gate matches this exact worktree) and the red-team sidecar (a current,
+// self-consistent adversarial pass with no open P0). Either check exits
+// non-zero and takes the transition with it.
 if (nextPhase === 'reviewed') {
   execFileSync('node', [
     join(root, '.agents/skills/feature/scripts/gate-fingerprint.mjs'),
     'check',
+  ], { cwd: root, stdio: 'inherit' });
+  execFileSync('node', [
+    join(root, '.agents/skills/feature/scripts/red-team-status.mjs'),
   ], { cwd: root, stdio: 'inherit' });
 }
 

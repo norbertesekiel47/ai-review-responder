@@ -59,11 +59,19 @@ const PRODUCTION_ROOTS = ['src/', 'worker/', 'supabase/'] as const;
  * path, except `scripts/feature-*.sh`, which is the one glob — the `/feature`
  * workflow's scripts are added and renamed as the workflow changes shape, and
  * enumerating them is how one would be missed.
+ *
+ * `.claude/commands/` was added 2026-08-27, closing a gap this file's own
+ * docstring described for a year: the header cites #803's deletion from
+ * "`/feature`'s step 8", and step 8 lives in `.claude/commands/feature.md`,
+ * which nothing above covered. The 2026-08-26 insights row in the arch log
+ * recorded the omission and deferred the fix as an explicit follow-up. A PR
+ * editing only `feature.md` used to leave no trace at all.
  */
 export const GOVERNANCE_PATHS = [
   '.agents/skills/',
   '.claude/skills/',
   '.claude/hooks/',
+  '.claude/commands/',
   '.codex/hooks/',
   '.github/workflows/',
   'scripts/ci/',

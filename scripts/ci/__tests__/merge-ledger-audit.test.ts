@@ -54,6 +54,7 @@ describe('the governance surface', () => {
     '.agents/skills/feature/SKILL.md',
     '.claude/skills/new-migration/SKILL.md',
     '.claude/hooks/typecheck-on-stop.sh',
+    '.claude/commands/feature.md',
     '.codex/hooks/typecheck-on-stop.sh',
     '.github/workflows/ci.yml',
     'scripts/ci/merge-ledger-audit.ts',
@@ -97,6 +98,7 @@ describe('the governance surface', () => {
       '.agents/skills/',
       '.claude/skills/',
       '.claude/hooks/',
+      '.claude/commands/',
       '.codex/hooks/',
       '.github/workflows/',
       'scripts/ci/',
@@ -130,6 +132,26 @@ describe('the finding', () => {
     });
     expect(finding).toContain('1 production file(s)');
     expect(finding).toContain(LEDGER_PATH);
+  });
+
+  // The gap this file's own header described and the 2026-08-26 arch-log row
+  // deferred: `/feature`'s step 8 lives in `.claude/commands/feature.md`, and
+  // before that prefix was added a PR rewriting it left no trace anywhere.
+  it('classifies a feature.md-only diff as governance and demands a ledger line', () => {
+    const { production, governance } = classifyDiff(['.claude/commands/feature.md']);
+    expect(production).toEqual([]);
+    expect(governance).toEqual(['.claude/commands/feature.md']);
+
+    const finding = evaluateFinding({
+      changed: ['.claude/commands/feature.md'],
+      ledgerLinesAdded: 0,
+    });
+    expect(finding).toContain('1 governance file(s)');
+    expect(finding).toContain('.claude/commands/feature.md');
+    expect(evaluateFinding({
+      changed: ['.claude/commands/feature.md'],
+      ledgerLinesAdded: 1,
+    })).toBeNull();
   });
 
   // #803's class: no production line at all, and the enforcement surface
