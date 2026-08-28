@@ -312,6 +312,37 @@ describe('the dotenv rename-swap', () => {
     expect(read('.env.local.red-team-backup')).toContain('real-secret');
   });
 
+  // Found by exercising the real .env.local: after an abort the documented
+  // resolution is a hand `mv`, and the journal then stayed open FOREVER, failing
+  // every later transition with no escape.
+  it('closes the entry when the backup is gone and the real file is already back', () => {
+    write('.env.local', 'ZERNIO_API_KEY=real-secret\n');
+    run('dotenv-swap');
+    // What a human does after an abort: put the real file back, drop the backup.
+    write('.env.local', 'ZERNIO_API_KEY=real-secret\n');
+    rmSync(join(repo, '.env.local.red-team-backup'));
+
+    const result = run('dotenv-restore');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('restored 1 file');
+    expect(journal().dotenv.open).toBe(false);
+    expect(read('.env.local')).toBe('ZERNIO_API_KEY=real-secret\n');
+  });
+
+  // The other half of that fork, and the reason the hash is journaled: if the
+  // destination is STILL the scrubbed copy, the real content is gone. Closing
+  // the entry would bless a scrubbed dotenv as the operator's own file.
+  it('FAILS when the backup is gone and the destination is still the scrubbed copy', () => {
+    write('.env.local', 'ZERNIO_API_KEY=real-secret\n');
+    run('dotenv-swap');
+    rmSync(join(repo, '.env.local.red-team-backup'));
+
+    const result = run('dotenv-restore');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('the real file is LOST');
+    expect(journal().dotenv.open).toBe(true);
+  });
+
   it('refuses a second swap while one is open', () => {
     write('.env.local', 'A=1\n');
     run('dotenv-swap');

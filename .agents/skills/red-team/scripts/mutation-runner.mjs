@@ -599,7 +599,25 @@ function restoreDotenv(root, journal) {
     const target = resolve(root, file.path);
     const backup = resolve(root, file.backupPath);
     if (!existsSync(backup)) {
-      failures.push(`${file.backupPath} is gone — cannot restore ${file.path}`);
+      // The backup is gone. Two very different worlds, told apart by the one
+      // hash the journal DOES carry:
+      //
+      //   * the destination is NOT the scrubbed copy → someone already put the
+      //     real file back by hand (the documented resolution after an abort).
+      //     Accept it and close the entry. Without this the journal stays open
+      //     forever and every transition fails with no way out — measured, not
+      //     hypothesised.
+      //   * the destination IS still the scrubbed copy → the real content is
+      //     gone. That stays a hard failure; closing it would bless a scrubbed
+      //     dotenv as if it were the operator's own file.
+      if (existsSync(target) && sha256(readFileSync(target)) !== file.scrubbedSha256) {
+        restored.push(`${file.path} (already restored by hand)`);
+        continue;
+      }
+      failures.push(
+        `${file.backupPath} is gone and ${file.path} is still the scrubbed copy — the real `
+        + 'file is LOST; restore it from your own backup before any transition',
+      );
       continue;
     }
     if (existsSync(target)) {
