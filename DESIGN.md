@@ -34,7 +34,7 @@ stylesheet, not here.
 |---|---|---|
 | **Landing** — the unlocked world of `/`: green-black ink, one gold, one cooler teal for the watchdog tier | `.rw-lp` | [`docs/design/landing/DESIGN.md`](docs/design/landing/DESIGN.md) (+ [`measurements.md`](docs/design/landing/measurements.md)) |
 | **Island** — generous white content fields floating on sage, with warm tactile accents | `:root` | [`docs/design/island/DESIGN.md`](docs/design/island/DESIGN.md) |
-| **Console** ("Warm Editorial") — cream paper, espresso ink, concentric trays, restrained semantic color | `.rw-console` | [`docs/design/console/DESIGN.md`](docs/design/console/DESIGN.md) |
+| **Console** ("Harbor") — a warm-white canvas floating on a deep sea-teal field, flat cards, coral attention accent | `.rw-console` | [`docs/design/console/DESIGN.md`](docs/design/console/DESIGN.md) |
 
 **Which register am I in?** — by path:
 
