@@ -575,7 +575,11 @@ function main(argv) {
   if (!existsSync(join(root, sidecarPath))) {
     fail([
       `no red-team sidecar at ${sidecarPath}`,
-      'the sidecar is required unconditionally for a feature-lane run — absence is failure',
+      parsed.mode === 'feature'
+        ? 'a feature-lane run requires the sidecar UNCONDITIONALLY — absence is failure, and no '
+          + 'intake field can waive it (the intake schema is strict and closed)'
+        : 'a standalone run writes its report to that path — absence means the pass did not '
+          + 'complete, or --issue/--head do not name the run being checked',
     ]);
   }
   if (!existsSync(join(root, reportPath))) {

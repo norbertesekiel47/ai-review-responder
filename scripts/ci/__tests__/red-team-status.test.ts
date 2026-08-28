@@ -249,6 +249,22 @@ describe('absence', () => {
     expect(result.stderr).toContain('docs/reviews/red-team/');
     expect(result.stderr).toContain('absence is failure');
   });
+
+  // The remedy differs by mode, so the message must too: a feature run is
+  // missing a required artifact, a standalone run may simply have been given
+  // the wrong --issue/--head.
+  it('names the standalone remedy rather than the feature-lane rule', () => {
+    git('init', '-q', '-b', BRANCH);
+    git('config', 'user.email', 'red-team@example.test');
+    git('config', 'user.name', 'red team');
+    write('a.txt', 'a\n');
+    git('add', 'a.txt');
+    git('commit', '-qm', 'base');
+    const result = check('--mode', 'standalone', '--issue', '#5', '--head', git('rev-parse', 'HEAD'));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--issue/--head do not name the run');
+    expect(result.stderr).not.toContain('feature-lane run requires');
+  });
 });
 
 describe('a clean run', () => {
