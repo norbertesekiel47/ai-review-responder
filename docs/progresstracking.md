@@ -5302,3 +5302,43 @@ plan-shape test flaked once (planner Sort-vs-index coin flip; lab note) — clea
 rerun. Staging rode the exact tree pre-merge and was realigned to `main` post-merge
 (`reset --hard` + `--force-with-lease` per the runbook). Deviations ledger:
 `docs/superpowers/plans/631-auto-approval-lane-deviations.md` (fully closed).
+
+## 2026-08-26 — Review QR: per-location printable QR → Google write-review page (PR #982, squash `43afb2b7`)
+
+feat-qr-review-request (single PR via /feature, RISK=high — roadmap Phase 0
+pull-forward, owner decision 2026-08-26). Per-location printable QR encoding the
+RepWorth-owned **QR redirect** `/q/<businessId>`
+(`src/app/q/[businessId]/route.ts`), 302 to Google's write-review deep link. The
+destination is CONSTRUCTED from the `isPlaceId`-validated place id — no stored
+URL, no open redirect, hex CIDs refused (the `buildReviewLink` precedent). Gate =
+`subscriptionAllowsQrRedirect` (`{active, trialing, past_due}`; owner decision —
+`past_due` keeps a printed counter code alive mid-grace); every refusal (bad id,
+missing row, archived, `pending_payment`/`cancelled`, non-canonical place id)
+serves one byte-identical scanner page, reason-coded in the log only. Scan
+counting is a best-effort `qr_scan_redirected` insert AFTER resolve: random
+event key per scan (a deterministic key would dedupe on `ON CONFLICT` and
+undercount), ids duplicated into properties because `AnalyticsDispatchPoller`
+ships only the properties JSON. Owner surface: `/settings/review-qr`
+(`ReviewQrClient` + `PrintButton`) + print view
+`/settings/review-qr/print/[businessId]` + `SettingsSidebar` entry. Supporting:
+`src/lib/locations/review-qr.ts` + `getQrRedirectRow` (`repo.ts`), migration 115
+(widens the `analytics_events` `event_name` CHECK; constraint-only on the 106
+pattern), tenant-scope allowlist +1 `pre-auth-token` (baseline 370), 7 test
+files carrying the intake's 18 promised titles (2 new live-DB suites; the 106
+drift guard handed to a new 115 suite).
+
+Process: plan hardened through three Codex plan-review rounds — two orchestrator
+rejections REVERSED on Codex evidence, two Codex factual claims corrected in
+return, one orchestrator rationale (file-granular allowlist) disproven by Codex
+running the audit; full record in the plan's review appendix + deviations file
+(`docs/superpowers/plans/feat-qr-review-request-deviations.md`).
+
+Post-merge (2026-08-26/27): migration 115 promoted staging-first
+(`kubdiqdhqbhwmqfditeg` 2026-08-26) then prod (`udeyaqnvpojbwgoaxwdg`
+2026-08-27), verified by reading `pg_constraint` back on both. WAF rule 3c
+`qr-redirect-per-ip-enforce` (path prefix `/q/`, ANY method, 30 req/60s per IP →
+429) published + burst-verified 2026-08-27 (40-request burst: exactly 30×404
+then 10×429) — adversarial finding A2, accepted ops gate. Staging smoke needed
+Vercel Protection Bypass for Automation — the staging custom domain is still
+intercepted by Deployment Protection despite `all_except_custom_domains` (lab
+note 2026-08-26).

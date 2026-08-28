@@ -2495,7 +2495,13 @@ Revisit triggers:
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;
   CONTEXT.md "QR redirect"). Constraint-only on the 106 pattern — no
   SchemaRequirement, no assertSchemaReady entry, no retention-policy row.
-  **LOCAL-ONLY.**
+  Applied to **STAGING** (`kubdiqdhqbhwmqfditeg`) on **2026-08-26** and
+  **PRODUCTION** (`udeyaqnvpojbwgoaxwdg`) on **2026-08-27**, staging first.
+  Verified on both by reading `pg_constraint` back rather than trusting the
+  apply (`analytics_events_event_name_check` now contains `qr_scan_redirected`
+  on both) — never via `list_migrations`. No longer LOCAL-ONLY, so
+  `migration-immutability-guard.sh` now protects it —
+  **115 is immutable; any change is a new migration.**
 
 - **114** — `solicitation_attribution`: the **Attributed review** columns on
   `solicitation_outreach` plus three indexes (#632, map #617; spec

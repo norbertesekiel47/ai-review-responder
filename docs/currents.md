@@ -7,7 +7,39 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-24 (#631 **Auto-approval lane** — Quick summary immediately below. Prior entry: #900 Solicitation release poller.)
+Last updated: 2026-08-27 (**Review QR** — Quick summary immediately below. Prior entry: #631 Auto-approval lane.)
+
+## Quick summary — **Review QR** (2026-08-26, PR #982)
+
+**Every location can now print a QR code that sends a customer straight to that
+location's Google write-review page — through a RepWorth-owned redirect, so a
+printed code never goes stale.**
+
+The QR encodes the public **QR redirect** `/q/<businessId>`, which 302s to a
+Google write-review deep link CONSTRUCTED from the stored, `isPlaceId`-validated
+place id — no stored destination URL, no open redirect, hex CIDs refused. The
+gate is `subscriptionAllowsQrRedirect` (`{active, trialing, past_due}` —
+`past_due` deliberately keeps an already-printed counter code alive through the
+grace window); every refusal (bad id, missing row, archived location,
+`pending_payment`/`cancelled`, non-canonical place id) serves one byte-identical
+scanner page, with the reason coded in the log only. Each scan best-effort
+inserts a `qr_scan_redirected` analytics event AFTER resolve (random event key
+per scan — a deterministic key would dedupe and undercount). Owners get the code
+at `/settings/review-qr`, with a per-location printable view.
+
+The new shape:
+- `src/app/q/[businessId]/route.ts` — the public **QR redirect**
+- `src/lib/locations/review-qr.ts` (+ `getQrRedirectRow` in `repo.ts`) — resolve + refusal policy
+- `src/app/(authenticated)/settings/review-qr/` — owner surface + print view + sidebar entry
+- `subscriptionAllowsQrRedirect` (`src/lib/shared/subscription-status.ts`) ·
+  `qr_scan_redirected` (`src/lib/analytics/events.ts` + `docs/analytics/events.md`) ·
+  migration **115** (CHECK widen; staging 2026-08-26, prod 2026-08-27, lockstep) ·
+  glossary: CONTEXT.md → **Review QR**, **QR redirect**
+
+Post-merge ops (2026-08-27): WAF rule 3c `qr-redirect-per-ip-enforce` (`/q/*`,
+30 req/60s per IP → 429) published + burst-verified — the redirect writes one
+durable `analytics_events` row per anonymous scan (adversarial finding A2,
+accepted ops gate; `docs/runbooks/vercel-waf-rate-limiting.md` Component 3).
 
 ## Quick summary — #631 **Auto-approval lane** (2026-08-24, PR #950)
 
