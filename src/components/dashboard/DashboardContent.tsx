@@ -21,6 +21,7 @@ import { DashboardSkeleton } from '@/components/dashboard/shell/DashboardSkeleto
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { RepPulseCard } from '@/components/dashboard/kpi/RepPulseCard';
+import { WeeklyRecapCard } from '@/components/dashboard/kpi/WeeklyRecapCard';
 import { PendingApprovalsStrip } from '@/components/dashboard/kpi/PendingApprovalsStrip';
 import { AnalyticsLinkCard } from '@/components/dashboard/kpi/AnalyticsLinkCard';
 import { AgentTeamStrip } from '@/components/dashboard/AgentTeamStrip';
@@ -337,17 +338,23 @@ function DashboardOperationalContent() {
           />
           <RepPulseCard summary={reputation} />
         </div>
+        {/* Zone 2 — the weekly recap. Sits directly under the hero because it
+            answers the same question at a second time scale: the hero is the
+            state now, this is what the week did. Built from the same weekly
+            series the Analytics trend plots, so the two cannot disagree. */}
         <div className="section-enter section-enter-3">
+          <WeeklyRecapCard trend={reputation.trend} brief={activeData.latestBrief} />
+        </div>
+        <div className="section-enter section-enter-4">
           <AgentTeamStrip scope={currentScope} />
         </div>
         <NeedsAttentionList />
-        {/* Action strip → Reviews page. The intelligence brief lives on
-            /dashboard/analytics now, not on the glance dashboard. */}
-        <div className="section-enter section-enter-5">
+        {/* Action strip → Reviews page. */}
+        <div className="section-enter section-enter-6">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
         </div>
-        {/* Doorway to the full analytics page (charts + brief live there now). */}
-        <div className="section-enter section-enter-6">
+        {/* Doorway to the full analytics page (the full charts live there). */}
+        <div className="section-enter section-enter-7">
           <AnalyticsLinkCard />
         </div>
       </div>

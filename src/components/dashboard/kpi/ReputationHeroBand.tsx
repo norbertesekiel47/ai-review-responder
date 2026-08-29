@@ -193,7 +193,7 @@ export function ReputationHeroBand({
         ) : (
           <>
             <Icon name="check" size={15} />
-            {lifetimeReviewsHandled.toLocaleString()} replies handled for you since joining. That&apos;s about {lifetimeHours} hours back in your day.
+            {lifetimeReviewsHandled.toLocaleString()} {lifetimeReviewsHandled === 1 ? 'reply' : 'replies'} handled for you since joining. That&apos;s about {lifetimeHours} {lifetimeHours === 1 ? 'hour' : 'hours'} back in your day.
           </>
         )}
       </div>

@@ -61,7 +61,7 @@ export function NeedsAttentionList() {
 
   if (query.isError) {
     return (
-      <section className="card needs-attention section-enter section-enter-4" aria-labelledby="needs-attention-heading">
+      <section className="card needs-attention section-enter section-enter-5" aria-labelledby="needs-attention-heading">
         <h2 id="needs-attention-heading" className="card-h2">Needs attention</h2>
         <div className="agent-team-state agent-team-state--error" role="alert">
           {query.error instanceof Error ? query.error.message : 'Unable to load escalations'}
@@ -77,7 +77,7 @@ export function NeedsAttentionList() {
     : `${query.data.totalOpen} open ${query.data.totalOpen === 1 ? 'escalation' : 'escalations'}.`;
 
   return (
-    <section className="card needs-attention section-enter section-enter-4" aria-labelledby="needs-attention-heading">
+    <section className="card needs-attention section-enter section-enter-5" aria-labelledby="needs-attention-heading">
       <div className="needs-attention-head">
         <div className="needs-attention-title-icon" aria-hidden="true">
           <Icon name="shield" size={19} />

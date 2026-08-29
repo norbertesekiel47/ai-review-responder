@@ -318,8 +318,21 @@ useful than converting them to cards. All touch-capable devices, including
 hybrids, receive at least 44px interactive targets.
 
 **The Two-Second Glance Rule.** The dashboard overview contains only the
-reputation state (hero + Rep Pulse), the agent team, the exception queue, and
-clear doorways to pending work and analytics.
+reputation state (hero + Rep Pulse), **the weekly recap**, the agent team, the
+exception queue, and clear doorways to pending work and analytics.
+
+*Amended 2026-08-28 (owner-approved).* The recap joined the list because the
+screen answered "how are you doing" only at one time scale — right now — and
+never "what did this week do". The rule's purpose is unchanged: it is a
+whitelist, not a suggestion, and it exists so the overview cannot silently
+accumulate charts. Two things it still forbids, and why:
+
+- **No review content.** The reviews themselves are the Reviews page's object.
+  The overview shows the shape of the week, not the week's rows.
+- **No second copy of an Analytics chart.** The recap reads the *same* weekly
+  series the Analytics trend plots, so the two can never disagree; it is not a
+  second query, and it is not the same picture. Anything that would be the same
+  picture belongs on Analytics.
 
 ## Components
 
@@ -348,6 +361,19 @@ dashboard:
    `--rw-coral`; the formula is transparent (rating 70 / response 30,
    `src/lib/dashboard/rep-pulse.ts`) and a missing baseline shows a dash, never
    an invented number.
+
+   **"What moved it" is answered in the card, not behind a link.**
+   `.pulse-breakdown` decomposes the score into the inputs that produced it,
+   each showing the value the owner already knows and the points it earned of
+   the points it could have. The last contribution is derived by subtraction, so
+   the parts always sum to the score on screen — independently rounded parts can
+   miss the whole by a point, and numbers that do not add up read as a bug.
+
+   **While ramping, the same slot names the inputs without measuring them**
+   (`.pulse-preview`). The formula is published, so the owner can be told *what*
+   will set the score. Values and points are withheld deliberately: showing the
+   arithmetic would let the score be reconstructed, which is exactly what the
+   ramping state exists to prevent.
 3. **Deep panel** (`.needs-attention`): `--rw-deep-panel` fill with
    `--rw-nav-ink` / `--rw-on-dark-muted` text — the exception queue is the
    only inverted card, so what needs the owner is also the strongest mass.
@@ -443,6 +469,28 @@ not exist, show the value without a fabricated sparkline — the hero mini trend
 Rep Pulse gauge both render their empty state instead. Keep charts hand-rolled SVG —
 no charting library.
 
+### The weekly recap
+
+Role: the second time scale. The hero says how you are doing now; `.recap` says
+what this week did. A **flat Harbor card** — the hero above it is the screen's
+one gradient and the exception queue below is its one inverted panel, so the
+recap earns no third special surface.
+
+- **Conclusion first.** `.recap-headline` states a count as a sentence
+  (`computeWeeklyRecap`), never an adjective the data cannot back. "3 new
+  reviews this week", not "a strong week".
+- **The "why" line** (`.recap-why`) is the in-place answer to the question the
+  sparkline provokes. It is one deterministic observation about weeks the owner
+  can see in that same sparkline — a gap, a last-arrival, a peak — chosen by a
+  fixed ladder. Never a rating comparison, which the ramping state withholds.
+- **Weekly counts are bars, not a line.** A line between weekly totals implies
+  values between the weeks, and there are none. Bars grow via `scaleY`, and a
+  zero week keeps a visible track so the run reads at its true length.
+- **The Insights brief is optional enrichment**, capped at three bullets. The
+  card must be complete without it, because a new account has none.
+- The covered week is the last bucket, which is always the week still running,
+  so the range carries "so far".
+
 ### Tabs
 
 Two kinds of tab, and they are not interchangeable:
@@ -506,7 +554,16 @@ confirm actions.
 | Past-due banner | `SubscriptionStatusBanner.tsx` / `PastDueBanner` | terracotta, 7-day grace (invariant #11) |
 | All caught up | `PendingApprovalsStrip` (calm) | teal, no CTA, pending = 0 |
 | Ramping hero | `ReputationHeroBand` (compact) | current values, **no delta arrows**, baseline copy |
-| Ramping Rep Pulse | `RepPulseCard` | a dash + "appears after your first weeks", never a fake score |
+| Ramping Rep Pulse | `RepPulseCard` | a dash + "appears after your first weeks" + `.pulse-preview`, never a fake score |
+| Quiet recap week | `WeeklyRecapCard` | "No new reviews yet this week" + when the last one arrived |
+| Quiet recap run | `WeeklyRecapCard` | "No reviews in the last N weeks" — content, not an absence |
+
+**The ramping state hides two of the three special surfaces.** An account under
+`RAMPING_AGE_DAYS` (21) gets no hero mini trend and no Rep Pulse score, so a new
+owner's first three weeks look markedly emptier than the design implies. That is
+correct — neither number is trustworthy yet — but it means the empty states
+below are what a new owner actually sees, and they carry more weight than their
+frequency in a mature account suggests. Design them first, not last.
 | Regenerate limit reached | `ReviewActions.tsx` (`kind:'limit'`) | gold "heads up" + Back link, replaces the action row — **not** a red error |
 | Loading / error | skeleton + error card in `DashboardContent.tsx` | harbor tokens |
 | Settings saved | `SettingsShell` → success toast | rising edge of `savedFlash`, not a value read |

@@ -21,6 +21,16 @@ import type { ReputationSummary } from '@/lib/dashboard/types';
 const REP_PULSE_RATING_WEIGHT = 70;
 const REP_PULSE_RESPONSE_WEIGHT = 30;
 
+/**
+ * The weights, for the card that has to STATE them. Exported so the copy and
+ * the arithmetic cannot drift: the explainer shown while an account is still
+ * ramping names these numbers, and it must name the ones the formula uses.
+ */
+export const REP_PULSE_WEIGHTS = {
+  rating: REP_PULSE_RATING_WEIGHT,
+  response: REP_PULSE_RESPONSE_WEIGHT,
+} as const;
+
 export type RepPulseBand = 'strong' | 'solid' | 'building' | 'low';
 
 export interface RepPulse {
@@ -84,6 +94,69 @@ export function computeRepPulse(summary: ReputationSummary): RepPulse | null {
 
   const band = repPulseBand(score);
   return { score, band, bandLabel: BAND_LABELS[band], delta };
+}
+
+/** One input's contribution to the score, for the "what moved it" breakdown. */
+export interface RepPulseContribution {
+  /** 'Rating' / 'Replies' — the owner-facing name of the input. */
+  label: string;
+  /** The input as the owner already sees it elsewhere: '4.6 / 5', '92%'. */
+  valueLabel: string;
+  /** Points this input contributed. */
+  points: number;
+  /** The most it could have contributed. */
+  maxPoints: number;
+}
+
+/**
+ * Decompose the score into the inputs that produced it — the real answer to
+ * "what moved it?", which was previously a link to another page.
+ *
+ * The LAST contribution is derived by subtraction rather than rounded on its
+ * own. Rounding each part independently lets the parts miss the whole by a
+ * point (the score rounds the sum, not the summands), and two numbers that do
+ * not add up to the headline read as a bug, not as rounding.
+ *
+ * Returns null in exactly the cases `computeRepPulse` does, so the card can
+ * never show a breakdown of a score it is not showing.
+ */
+export function repPulseBreakdown(summary: ReputationSummary): RepPulseContribution[] | null {
+  const pulse = computeRepPulse(summary);
+  if (pulse == null) return null;
+
+  const star = summary.averageStar.current;
+  if (star == null) return null;
+  const ratingShare = clamp(star, 0, 5) / 5;
+  const responseRate = summary.responseRate.current;
+
+  // No response rate: the weights renormalize and rating carries the whole
+  // score, so there is one contribution worth 100, not two worth 70 and 30.
+  if (responseRate == null) {
+    return [
+      {
+        label: 'Rating',
+        valueLabel: `${star.toFixed(1)} / 5`,
+        points: pulse.score,
+        maxPoints: 100,
+      },
+    ];
+  }
+
+  const ratingPoints = Math.round(ratingShare * REP_PULSE_RATING_WEIGHT);
+  return [
+    {
+      label: 'Rating',
+      valueLabel: `${star.toFixed(1)} / 5`,
+      points: ratingPoints,
+      maxPoints: REP_PULSE_RATING_WEIGHT,
+    },
+    {
+      label: 'Replies',
+      valueLabel: `${Math.round(clamp(responseRate, 0, 100))}%`,
+      points: pulse.score - ratingPoints,
+      maxPoints: REP_PULSE_RESPONSE_WEIGHT,
+    },
+  ];
 }
 
 /** Deterministic one-line interpretation shown under the gauge. */
