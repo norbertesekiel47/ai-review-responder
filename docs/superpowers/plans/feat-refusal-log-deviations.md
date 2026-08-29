@@ -99,3 +99,61 @@ Pre-validation passed because it resolves the SHA, and `2f4497a9` still exists
 in the object store. Corrected to `5ab6bfee`.
 
 Verdict: **ACCEPT**.
+
+## D6 — Four things T0 found that the plan did not anticipate
+
+All four are paperwork or task-brief errors. None touches
+`allowed_edit_surface`, so none counts against the amendment budget, and none
+changes a locked decision.
+
+**D6a — there is no vitest project named `unit`.** The T0 brief's definition of
+done says
+`pnpm vitest run src/lib/refusals src/components/dashboard/restraint --project unit`.
+`vitest.config.ts` defines exactly two projects, `parallel` and `integration`;
+`--project unit` matches nothing and the run reports zero test files, which
+reads as "no tests written". The command actually run, and the one later tasks
+should use, drops the flag (both projects then run, which is what is wanted —
+`read.integration.test.ts` lives under the same path and is in the
+`integration` project):
+
+```
+REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm vitest run \
+  src/lib/refusals src/components/dashboard/restraint \
+  src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx \
+  src/app/api/dashboard/__tests__/refusals-route.test.ts
+```
+
+Result at T0: **73 tests — 3 failed, 70 todo, 0 passed.** Nothing green, so
+nothing vacuous.
+
+**D6b — the eval is 73 titles, and plan §6 still says 65.** The intake's
+`tests_to_add` array holds 73 entries (`jq '.tests_to_add | length'`). Plan §6
+T0 and the rev-2 header both say 65, and D2 above says "32 titles to 65". The
+gate reads the intake, not the plan, so 73 is the operative number; the plan's
+prose is stale. The plan's rev-3 commit (`5672a959`) also left its own H1
+reading "rev 2". Doc-only drift, recorded rather than fixed here because T0
+does not own `feat-refusal-log-plan.md`.
+
+**D6c — plan §6 T3 cannot turn "the 5 redaction tests" green.** Three of the
+five are ROUTE cases — `the refusals route serializes no flagged reason at any
+depth`, `… returns no flagged reason on an error path`, `… logs no flagged
+reason` — and the route is T5's file. T3 can green only the two read-layer
+redaction cases. The dependency edge is right (T3 → T4 → T5); only the green
+list is misattributed. Corrected allocation: T3 greens 2 redaction cases, T5
+greens 3.
+
+**D6d — the T0 brief's per-file title counts are each off by one.** It asks for
+"the 10 vocabulary/mapping titles + the 2 cancelled-arm null titles" in
+`vocabulary.test.ts`, but the eval contains exactly ONE cancelled-arm mapping
+title (`the cancelled-arm admin_halt and platform_halt outreach copies map
+explicitly to null`); the other cancelled-arm title (`getRefusalLog excludes the
+cancelled arm of solicitation_outreach entirely`) is a `getRefusalLog`
+behavioural case and was filed with the live-DB suite. It also asks for "the 13
+tab/page titles" in `RestraintContent.test.tsx` plus "the tab-bar title"
+separately; there are 12 tab/page titles and 1 tab-bar title — 13 in total
+across the two component files. Placement is cosmetic (the `promised-tests` row
+greps `src`, `worker` and `scripts` as a whole), so the split was made on
+subject: pure mapping in `vocabulary.test.ts`, anything calling `getRefusalLog`
+in the live-DB suite.
+
+Verdict: **ACCEPT** — all four are corrections to prose, not to the build.
