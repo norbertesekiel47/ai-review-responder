@@ -530,3 +530,59 @@ which is the acceptable shape; adding the marker means editing
 `schema-ready.ts`, outside T4's edit surface.
 
 Verdict: **ACCEPT** for all six.
+
+## D14 — Four things T5 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D14a — the log-redaction claim has a boundary limit the route does not own.**
+`reportCaughtError` (`src/lib/shared/report-caught-error.ts`, reached through
+`withDashboardOwnerRead`'s catch) serializes an error's `name` and `message` —
+and its `stack` on any lane that is not production-configured. So a database
+error whose MESSAGE embeds `flagged_responses.reason` puts that prose in a log
+line no matter what this route does; the only fix is a change to the shared
+sink, which is outside T5's surface and would move ~40 other routes with it.
+`the refusals route logs no flagged reason` is therefore scoped to the two
+vectors the route does own, and asserts both: the refusal PAYLOAD reaches no
+sink (the success path emits zero log lines, and the error line's `data` is
+exactly `{ accountId }`), and the postgres.js error BODY — `query`,
+`parameters`, `detail`, the fields that actually carry a row — never appears,
+which is what "never echo a DB error body" means operationally. The response
+case is unconditional by contrast: `the refusals route returns no flagged
+reason on an error path` plants the reason in the message AND the body and the
+500 is still the boundary's fixed literal.
+
+**D14b — `ci:feature-surface` cannot go green on an uncommitted file.** Its two
+inputs are `git diff --name-only <merge-base> HEAD` and `git ls-files`
+(`scripts/ci/feature-surface-audit.ts:154,169`), so a brand-new route that
+exists only in the working tree still reports as an entry matching NO file. The
+T5 definition of done reads "creating it should turn that audit green"; the
+accurate form is "committing it does". Verified: red immediately after `Write`,
+green at the T5 commit, with `src/app/api/dashboard/refusals/route.ts` the last
+unmatched entry in the whole feature.
+
+**D14c — no dashboard API route is impersonation-aware, and this one must not
+become the first.** Impersonation resolves inside `requireRole`: the session
+already IS the impersonated owner, and `IMPERSONATION_COOKIE_NAME` gates
+MUTATIONS only (`src/app/api/settings/auto-approval/route.ts:30,61` passes
+`impersonated` to a settings write, never to a read). So `the refusals route
+reads only the impersonated account` cannot be proved by a cookie branch — a
+branch there would be the defect, not the fix. It is proved behaviourally
+instead: the resolved owner's `accountId` is the only account reaching
+`getRefusalLog`, and the ADMIN's own location resolves to the same uniform
+`Business not found` 404 as any other tenant's, so the impersonated session's
+tenant boundary is the ordinary one.
+
+**D14d — the invariant-#12 source scan missed re-shaping until a mutation probe
+found it.** Two probes were run against the committed route to prove the
+redaction cases bite rather than pass vacuously. Probe 1 (echo the caught error
+into the body and `console.error` the error object) turned `… returns no
+flagged reason on an error path` and `… logs no flagged reason` red, as it
+should. Probe 2 (`log.categories.map(…)` re-shaping each entry with the
+request's `?reason=`) turned `… serializes no flagged reason at any depth` red —
+but slipped past the #12 source scan, whose forbidden list held `.filter(`,
+`.reduce(` and `.sort(` and not `.map(`. `.map(` is now on the list: re-shaping
+what the read returned is exactly the leak this route must not be able to do,
+and the body is `{ window, ...log }` or nothing.
+
+Verdict: **ACCEPT** for all four.
