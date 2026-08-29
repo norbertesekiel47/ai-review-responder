@@ -58,10 +58,14 @@ positioning, story arc, messaging guardrails — is
 **Mono:** JetBrains Mono (`--rw-font-mono`)
 
 The four families are the one genuinely brand-wide token group. `src/app/globals.css` is
-their single owner and it loads on every route. The Console re-points
-`--rw-font-display` at Young Serif on its own `.rw-console` wrapper — a single-weight
-editorial display face — so the Console reads as the Console without a second font stack.
-Landing adds the 200/300 weights of Plus Jakarta for its light editorial register.
+their single owner and it loads on every route. The Console re-points **both**
+`--rw-font-display` and `--rw-font-body` on its own `.rw-console` wrapper — to **Gabarito**
+(variable 400–900) and **Figtree** (variable 300–900) — so the Console reads as the Console
+without a second font stack. Landing adds the 200/300 weights of Plus Jakarta for its light
+editorial register.
+
+*(Corrected 2026-08-28: this paragraph named Young Serif and DM Sans, the pre-Harbor
+Console faces. The Harbor redesign replaced both in #987 and did not sweep this file.)*
 
 All faces are **self-hosted** (`localFont`). A `next/font/google` import anywhere
 re-introduces a compile-time fetch and breaks the build.

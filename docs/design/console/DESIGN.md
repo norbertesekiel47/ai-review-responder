@@ -308,7 +308,8 @@ container reaches 1140px; settings stop at 880px; focused wizards stop at
 640px. The sticky save bar's `left` offset derives from `--rw-sidebar-width` so
 the two can never drift.
 
-Below the shell breakpoint (< 960px) the sidebar becomes a fixed bottom
+Below the shell breakpoint (≤ 768px — the width every authenticated stylesheet
+actually keys on) the sidebar becomes a fixed bottom
 navigation, the canvas goes edge-to-edge (margin 0, radius 0), content
 collapses to one or two columns according to information density, the hero row
 stacks, settings tabs scroll horizontally, and safe-area insets protect bottom

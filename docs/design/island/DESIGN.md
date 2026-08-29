@@ -140,8 +140,8 @@ consume them from the one Island owner.
 | Mono | JetBrains Mono | `--rw-font-mono` |
 
 The families are brand-wide: `globals.css` is their single owner and they load on every
-route. The Console re-points `--rw-font-display` at Young Serif on its own wrapper; the
-Island value is what every other surface resolves.
+route. The Console re-points `--rw-font-display` at Gabarito, and `--rw-font-body` at
+Figtree, on its own wrapper; the Island value is what every other surface resolves.
 
 ### Daylight type rules (marketing surfaces + site chrome)
 
