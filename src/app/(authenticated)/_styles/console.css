@@ -2313,6 +2313,235 @@
   border-color: var(--rw-app-border);
 }
 
+/* ---------- Zone 2 — the weekly recap ----------
+   A flat Harbor card by rule: the hero above it is the screen's one gradient
+   and the exception queue below is its one inverted panel, so this earns no
+   third special surface. */
+/* The heading row is the shared `.card-h2-row` primitive; only the trailing
+   range needs a rule of its own. */
+.recap-range {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--rw-app-text-soft);
+  white-space: nowrap;
+}
+/* Two columns: the sentence and its numbers on the left, the eight-week shape
+   on the right. One column would leave the card's full width to a bar chart,
+   which then reads as a row of lozenges rather than as a chart. */
+.recap-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  gap: 32px;
+  align-items: center;
+}
+.recap-lede { min-width: 0; }
+
+/* The interpretation, stated before the numbers. */
+.recap-headline {
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rw-app-text);
+  margin: 0 0 14px;
+  text-wrap: pretty;
+}
+.recap-stats {
+  display: flex;
+  gap: 28px;
+}
+.recap-stat b {
+  display: block;
+  font: var(--rw-app-stat);
+  font-family: var(--rw-font-display);
+  font-size: 28px;
+  line-height: 1.05;
+  color: var(--rw-app-text);
+}
+.recap-stat span {
+  display: block;
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+  margin-top: 3px;
+}
+
+/* Weekly counts as bars, not a line: a line between weekly totals implies
+   values between the weeks, and there are none. */
+.recap-plot { min-width: 0; }
+.recap-plot-caption {
+  display: block;
+  font-size: 11px;
+  color: var(--rw-app-text-soft);
+  margin-top: 8px;
+  text-align: right;
+}
+.recap-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 72px;
+}
+.recap-bar {
+  flex: 1;
+  min-width: 0;
+  max-width: 34px;
+  height: 100%;
+  border-radius: var(--rw-radius-xs);
+  background: var(--rw-tray);
+  position: relative;
+  overflow: hidden;
+}
+/* The fill grows from the bottom via transform, never height. A zero week keeps
+   the track visible so the run reads as its full length. `--recap-fill` is a
+   unitless ratio, because the draw-on keyframe below shares this transform and
+   must not fight it — `ratingGrow` scales X and would cancel the axis. */
+.recap-bar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rw-accent-500);
+  transform: scaleY(var(--recap-fill, 0));
+  transform-origin: bottom;
+  animation: rw-recap-grow 620ms var(--rw-ease-decelerate) both;
+}
+@keyframes rw-recap-grow { from { transform: scaleY(0); } }
+.recap-bar--current::after { background: var(--rw-sage-deep); }
+
+.recap-why {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--rw-app-text-muted);
+  margin: 14px 0 0;
+  text-wrap: pretty;
+}
+.recap-brief {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+.recap-brief-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--rw-app-text-muted);
+}
+
+/* The recap's breakpoint override lives HERE, not in the shared mobile block
+   further up the file: that block precedes these rules, and an equal-specificity
+   rule that comes first never wins. */
+@media (max-width: 768px) {
+  .recap-body { grid-template-columns: 1fr; gap: 20px; }
+  .recap-bar { max-width: none; }
+  .recap-plot-caption { text-align: left; }
+  .recap-headline { font-size: 18px; }
+  .recap-stats { gap: 24px; }
+}
+
+/* ---------- Rep Pulse: what moved it ----------
+   The decomposition of the coined score, and — while ramping — the explainer
+   that replaces it. Both live inside the existing `.pulse-card`; neither adds a
+   second special surface. */
+.pulse-breakdown,
+.pulse-preview {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+/* One uppercase micro-label, three consumers. */
+.recap-brief-label,
+.pulse-breakdown-label,
+.pulse-preview-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rw-app-text-muted);
+  margin-bottom: 8px;
+}
+/* Provenance override, and it must sit AFTER the shared rule above: same
+   specificity, so source order decides. The brief is the Insights agent's, and
+   violet identifies Insights on every other surface. */
+.recap-brief-label { color: var(--rw-violet); margin-bottom: 6px; }
+.pulse-part {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 5px 0;
+}
+.pulse-part-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rw-app-text);
+}
+.pulse-part-value {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+  text-align: right;
+}
+.pulse-part-meter {
+  grid-column: 1;
+  height: 5px;
+  border-radius: var(--rw-radius-pill);
+  background: var(--rw-tray);
+  position: relative;
+  overflow: hidden;
+  align-self: center;
+}
+.pulse-part-meter::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--pulse-part-fill, 0%);
+  border-radius: inherit;
+  background: var(--rw-sage-deep);
+}
+.pulse-part-points {
+  grid-column: 2;
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--rw-app-text);
+  text-align: right;
+}
+.pulse-part-max {
+  font-family: var(--rw-font-body);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--rw-app-text-muted);
+}
+.pulse-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pulse-preview-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+.pulse-preview-list b {
+  margin-left: auto;
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+
 /* ---------- Toasts ----------
    The Console's one confirmation surface: a blocking action reports its result
    here, in BOTH arms. Bottom-centred so it clears the mobile tab bar and the
@@ -2406,6 +2635,7 @@
 .section-enter-4 { animation-delay: 220ms; }
 .section-enter-5 { animation-delay: 280ms; }
 .section-enter-6 { animation-delay: 340ms; }
+.section-enter-7 { animation-delay: 400ms; }
 @keyframes sectionUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2578,6 +2808,7 @@
   .settings-skeleton__row > div { animation: none; }
 
   /* New Harbor motion resolves straight to its final state. */
+  .recap-bar::after { animation: none; }
   .mini-line { animation: none; stroke-dashoffset: 0; }
   .mini-dot { animation: none; opacity: 1; }
   .pulse-val { animation: none; }

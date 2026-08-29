@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import type { ReputationSummary } from '@/lib/dashboard/types';
-import { computeRepPulse, repPulseNote } from '@/lib/dashboard/rep-pulse';
+import {
+  computeRepPulse,
+  repPulseBreakdown,
+  repPulseNote,
+  REP_PULSE_WEIGHTS,
+  type RepPulseContribution,
+} from '@/lib/dashboard/rep-pulse';
 
 interface Props {
   summary: ReputationSummary;
@@ -34,9 +40,29 @@ export function RepPulseCard({ summary }: Props) {
         <p className="pulse-note">
           Your Rep Pulse appears after your first weeks of reviews.
         </p>
+        {/* The empty state as content, not an absence: the formula is fixed and
+            published, so the owner can be told WHAT will set the score without
+            being shown a number the ramping rule deliberately withholds. Values
+            and points are omitted here on purpose — showing the arithmetic
+            would let the score be reconstructed. */}
+        <div className="pulse-preview">
+          <span className="pulse-preview-label">What will set it</span>
+          <ul className="pulse-preview-list">
+            <li>
+              <span>Your average rating</span>
+              <b>{REP_PULSE_WEIGHTS.rating}%</b>
+            </li>
+            <li>
+              <span>How often you reply</span>
+              <b>{REP_PULSE_WEIGHTS.response}%</b>
+            </li>
+          </ul>
+        </div>
       </section>
     );
   }
+
+  const breakdown = repPulseBreakdown(summary);
 
   const offset = GAUGE_CIRCUMFERENCE * (1 - pulse.score / 100);
 
@@ -69,15 +95,46 @@ export function RepPulseCard({ summary }: Props) {
           </div>
         </div>
       </div>
-      <p className="pulse-note">
-        {repPulseNote(pulse)} Rating carries 70%, response rate 30%.
-      </p>
+      <p className="pulse-note">{repPulseNote(pulse)}</p>
+
+      {/* "What moved it" answered in place. It used to be a link to another
+          page, which asked the owner to leave the number to understand it. */}
+      {breakdown && (
+        <div className="pulse-breakdown">
+          <span className="pulse-breakdown-label">What moved it</span>
+          {breakdown.map((part) => (
+            <PulsePart key={part.label} part={part} />
+          ))}
+        </div>
+      )}
+
       <Link href="/dashboard/analytics" className="pulse-why">
-        What moved it?
+        See the full trend
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M5 12h14M13 6l6 6-6 6" />
         </svg>
       </Link>
     </section>
+  );
+}
+
+/** One input's contribution: the value the owner already knows, then the points
+ *  it earned of the points it could have. The meter is decorative — the numbers
+ *  beside it carry the fact. */
+function PulsePart({ part }: { part: RepPulseContribution }) {
+  const filled = part.maxPoints === 0 ? 0 : (part.points / part.maxPoints) * 100;
+  return (
+    <div className="pulse-part">
+      <span className="pulse-part-label">{part.label}</span>
+      <span className="pulse-part-value">{part.valueLabel}</span>
+      <span
+        className="pulse-part-meter"
+        aria-hidden="true"
+        style={{ '--pulse-part-fill': `${filled}%` } as React.CSSProperties}
+      />
+      <span className="pulse-part-points">
+        {part.points}<span className="pulse-part-max">/{part.maxPoints}</span>
+      </span>
+    </div>
   );
 }

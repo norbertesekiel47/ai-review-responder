@@ -84,3 +84,26 @@ describe('ReputationHeroBand', () => {
     expect(screen.queryByText(/Google connected/)).not.toBeInTheDocument();
   });
 });
+
+describe('ReputationHeroBand footer grammar', () => {
+  it('says "1 reply" and "1 hour", not "1 replies" and "1 hours"', () => {
+    render(
+      <ReputationHeroBand
+        summary={{
+          averageStar: { current: 4.6, delta: 0.2, priorSampleSize: 9 },
+          responseRate: { current: 92, delta: null, priorSampleSize: 9 },
+          timeSavedMinutes: { current: 60, delta: null, priorSampleSize: 9 },
+          pendingApprovalCount: 0,
+          trend: [],
+          isRamping: false,
+        }}
+        lifetimeReviewsHandled={1}
+        lifetimeTimeSavedMinutes={60}
+        connected
+      />,
+    );
+
+    expect(screen.getByText(/1 reply handled for you since joining/)).toBeInTheDocument();
+    expect(screen.getByText(/about 1 hour back in your day/)).toBeInTheDocument();
+  });
+});
