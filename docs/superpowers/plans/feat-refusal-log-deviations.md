@@ -251,3 +251,54 @@ the same technique T0 already used for the outreach withheld arm. `WithholdReaso
 is the one that iterates a real exported array (`WITHHOLD_REASONS`).
 
 Verdict: **ACCEPT** for all five.
+
+## D10 — Four things T6 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D10a — the tab bar cannot sit in a `.reviews-subnav` row, because Reviews and
+Analytics do not share a geometry.** The T6 brief said to put it "where
+`ReviewsTabs` sits in `ReviewsContent.tsx`" — a `<div className="reviews-subnav">`
+between the TopBar and the content box. That row is `max-width: 1024px;
+margin: 0 auto` (console.css:777), the Reviews reading column. Analytics is
+full-bleed (`.content--analytics { max-width: none; padding: 18px 32px 80px }`,
+console.css:735), so on a 1440px screen a capped row would inset the tabs ~208px
+from the left edge of every card beneath them. The tab bar is therefore the
+FIRST CHILD of `.content--analytics` on all three surfaces, which inherits the
+same 32px gutter as the grid and needs no new class. A dedicated
+`.analytics-subnav` would have been the other answer and it lives in
+`_styles/console.css`, outside T6's five-file edit surface.
+
+**D10b — the shell does not call `renderDashboardStatePanel`, and could not.**
+The brief named it for the loading branch. The helper emits its own `TopBar`
+immediately followed by its own content box, so there is no seam between them
+for a tab bar; passing the tabs as its `topBarActions` slot would park route
+navigation in the TopBar's right-hand control cluster on the Restraint route
+only, next to where the period toolbar sits on the Metrics route — a tab bar
+that moves when you click a tab. `DashboardSurface` is also a closed
+`'analytics' | 'reviews'` union with no `'restraint'` member, and
+`DashboardStatePanel.tsx` is outside T6's edit surface. The page composes
+`TopBar` + `AnalyticsTabs` + the same loading scaffold BY CLASS
+(`dashboard-skeleton` / `skeleton-card-lg` / `LiveRegion`) instead — four lines
+of markup, no forked copy of the error branch, and the TopBar keeps the honest
+title "Restraint" rather than "Analytics".
+
+**D10c — CONTEXT.md calls Restraint "the third tab on `/dashboard/analytics`";
+it ships as the second of two.** `/dashboard/analytics` had no tab bar at all
+before T6 — the surface is one route with a period toolbar. The bar T6 creates
+holds `Metrics` (the existing reputation/volume/ranking grid) and `Restraint`.
+"Third" appears to have been written against a mental model of the sidebar nav,
+not of a tab bar that did not exist. The locked sentence's substance — routed at
+`/dashboard/analytics/restraint`, reachable from the analytics surface — is
+unaffected, so this is recorded rather than re-litigated; T8 can correct the
+word when it touches CONTEXT.md.
+
+**D10d — whole-tree `pnpm typecheck` and `pnpm build` are red during T6, on
+T2's file.** Three `TS1005` parse errors in `src/lib/refusals/read.ts`, which T2
+was mid-edit on while T6 ran concurrently. `next build` reports "Compiled
+successfully" and fails only at the `Running TypeScript` step, and `npx eslint`
+over T6's own two directories exits 0. Nothing in T6 imports `read.ts`. This is
+the expected cost of the parallel dispatch, not a T6 defect; the gate must be
+re-run at a HEAD where T2 has landed.
+
+Verdict: **ACCEPT** for all four.

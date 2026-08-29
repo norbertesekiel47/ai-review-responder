@@ -1,0 +1,24 @@
+/* Restraint (`/dashboard/analytics/restraint`) — the **Restraint tab**: what we
+   chose not to do in the selected window, and why. Console (Harbor) tokens only
+   (`_styles/tokens.css`); colocated with the route so the whole surface is one
+   deletable folder, matching requests.css / contacts.css.
+
+   T6 ships the route SHELL only — the routed tab bar, the TopBar, and the
+   loading branch. It imports nothing from the refusals route or from
+   `src/components/dashboard/restraint/`; T7 adds the real screen and grows this
+   file with it.
+
+   Geometry note: the tab bar is the first child of `.content--analytics`, not a
+   `.reviews-subnav`-style row. That row is capped at 1024px and centred, which
+   is right for the Reviews reading column and wrong here — the analytics canvas
+   is full-bleed with 32px gutters, so a capped row would leave the tabs inset
+   from every card below them on a wide screen. */
+
+/* The Restraint body column. One vertical rhythm for the loading branch today
+   and for the total + per-category sections T7 adds. 16px matches the
+   `.content--analytics` section gap so the two do not disagree. */
+.rst-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
