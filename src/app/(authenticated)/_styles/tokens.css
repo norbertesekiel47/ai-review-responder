@@ -16,10 +16,13 @@
    (its error.tsx boundaries render as children of the layout), so no Console
    consumer sits outside. The portal audit behind the move (spec D4): nothing
    under src/app/(authenticated)/** or src/components/dashboard/** uses
-   createPortal, and the repo has no Radix / toast dependency — the only
-   overlays are native `<dialog>` + `showModal()` (SettingsModal,
+   createPortal, and the repo has no Radix or third-party toast dependency — the
+   only overlays are native `<dialog>` + `showModal()` (SettingsModal,
    EditReplyDrawer, PastDueModal), which are promoted to the top layer but stay
    in their DOM position and therefore still inherit these custom properties.
+   The Console's own toast region and account menu are hand-rolled and render
+   in-tree for exactly this reason — a portal would move them out of the scope
+   and strip every token below.
    Guard: src/__tests__/design-token-single-source.test.ts.
 
    NAME STABILITY — the 2026-08 Harbor redesign changed token VALUES, not token

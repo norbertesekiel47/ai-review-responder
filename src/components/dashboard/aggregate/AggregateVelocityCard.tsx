@@ -10,6 +10,7 @@ import {
   CHART_GRID_STROKE,
   RANKING_COLORS,
 } from '@/components/dashboard/charts/chart-tokens';
+import { CardViewTabs } from '@/components/dashboard/charts/CardViewTabs';
 import { KpiSummary } from '@/components/dashboard/charts/KpiSummary';
 import { BAR_SPRING, BAR_STAGGER_S, chartTransition } from '@/components/dashboard/charts/motion-presets';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
@@ -27,6 +28,11 @@ import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 // here color encodes WHICH location, so a single sage would erase the signal
 // (unlike the owner-facing single-location chart).
 const STACK_COLORS = RANKING_COLORS;
+
+const VELOCITY_VIEWS = [
+  { value: 'total', label: 'Total' },
+  { value: 'stacked', label: 'By Location' },
+] as const;
 
 interface Props {
   reviewVelocity: AggregateDashboardData['reviewVelocity'];
@@ -52,40 +58,26 @@ export function AggregateVelocityCard({ reviewVelocity, perLocationVelocity }: P
         </span>
       </div>
 
-      {/* VAL-DASH-015: stacked-by-location toggle */}
-      <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--rw-recess)', borderRadius: 9999, width: 'fit-content', marginBottom: 14 }}>
-        <button
-          type="button"
-          className={`tab ${mode === 'total' ? 'active' : ''}`}
-          aria-pressed={mode === 'total'}
-          onClick={() => setMode('total')}
-          style={{ padding: '4px 12px', fontSize: 12 }}
-        >
-          Total
-        </button>
-        <button
-          type="button"
-          className={`tab ${mode === 'stacked' ? 'active' : ''}`}
-          aria-pressed={mode === 'stacked'}
-          onClick={() => setMode('stacked')}
-          style={{ padding: '4px 12px', fontSize: 12 }}
-        >
-          By Location
-        </button>
-      </div>
-
-      {mode === 'total' ? (
-        <>
-          <div style={{ display: 'flex', gap: 24, marginBottom: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <KpiSummary label="This week" value={summary.lastWeek} delta={summary.deltaPct} />
-            <KpiSummary label="Total · last weeks" value={summary.total} />
-            <KpiSummary label="Weekly avg" value={summary.avg} />
-          </div>
-          <VelocityChart data={data} />
-        </>
-      ) : (
-        <StackedVelocityChart perLocationVelocity={perLocationVelocity} />
-      )}
+      {/* VAL-DASH-015: stacked-by-location view */}
+      <CardViewTabs
+        label="Review velocity view"
+        value={mode}
+        onChange={setMode}
+        options={VELOCITY_VIEWS}
+      >
+        {mode === 'total' ? (
+          <>
+            <div style={{ display: 'flex', gap: 24, marginBottom: 6, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <KpiSummary label="This week" value={summary.lastWeek} delta={summary.deltaPct} />
+              <KpiSummary label="Total · last weeks" value={summary.total} />
+              <KpiSummary label="Weekly avg" value={summary.avg} />
+            </div>
+            <VelocityChart data={data} />
+          </>
+        ) : (
+          <StackedVelocityChart perLocationVelocity={perLocationVelocity} />
+        )}
+      </CardViewTabs>
     </div>
   );
 }

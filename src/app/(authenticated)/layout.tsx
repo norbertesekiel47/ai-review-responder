@@ -6,6 +6,8 @@ import { sql } from '@/lib/db/server';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
 import { MobileTabBar } from '@/components/dashboard/shell/MobileTabBar';
 import { PendingCountProvider } from '@/contexts/PendingCountContext';
+import { OwnerIdentityProvider } from '@/contexts/OwnerIdentityContext';
+import { ToastProvider } from '@/components/dashboard/shell/toast/ToastProvider';
 import { AuthenticatedProviders } from '@/app/(authenticated)/_components/AuthenticatedProviders';
 import { asAccountId, asLocationId } from '@/lib/shared/ids';
 import { getRequestScope } from '@/lib/auth/get-request-scope';
@@ -122,8 +124,10 @@ export default async function AuthenticatedLayout({
             multiLocationEnabled={false}
             enableLocationProvider={false}
           >
-            <a className="skip-link" href="#main-content">Skip to main content</a>
-            <main className="main" id="main-content">{children}</main>
+            <ToastProvider>
+              <a className="skip-link" href="#main-content">Skip to main content</a>
+              <main className="main" id="main-content">{children}</main>
+            </ToastProvider>
           </AuthenticatedProviders>
         </div>
       );
@@ -193,17 +197,19 @@ export default async function AuthenticatedLayout({
         multiLocationEnabled={multiLocationEnabled}
       >
         <PendingCountProvider initialCount={initialPendingCount}>
-          <a className="skip-link" href="#main-content">Skip to main content</a>
-          <div className="shell">
-            <Sidebar
-              businessName={businessName}
-              ownerName={ownerName}
-              ownerEmail={ownerEmail}
-              solicitationEnabled={solicitationEnabled}
-            />
-            <main className="main" id="main-content">{children}</main>
-          </div>
-          <MobileTabBar solicitationEnabled={solicitationEnabled} />
+          <OwnerIdentityProvider name={ownerName} email={ownerEmail}>
+            <ToastProvider>
+              <a className="skip-link" href="#main-content">Skip to main content</a>
+              <div className="shell">
+                <Sidebar
+                  businessName={businessName}
+                  solicitationEnabled={solicitationEnabled}
+                />
+                <main className="main" id="main-content">{children}</main>
+              </div>
+              <MobileTabBar solicitationEnabled={solicitationEnabled} />
+            </ToastProvider>
+          </OwnerIdentityProvider>
         </PendingCountProvider>
       </AuthenticatedProviders>
     </div>

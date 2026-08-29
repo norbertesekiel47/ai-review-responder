@@ -19,6 +19,13 @@ import { AttributedReviews, type AttributedReviewsView } from '../AttributedRevi
 
 const scope = vi.hoisted(() => ({ current: 'loc-1' }));
 
+// One case here mounts RequestsClient, whose TopBar carries the account menu
+// (the only route to sign out on mobile). That needs a router; jsdom has none.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
 vi.mock('@/contexts/LocationContext', () => ({
   useLocationScope: () => ({
     currentScope: scope.current,

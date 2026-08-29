@@ -16,6 +16,13 @@ import type { BatchView } from '@/lib/solicitation/batch-view';
 
 const scope = vi.hoisted(() => ({ current: 'loc-1' }));
 
+// RequestsClient renders TopBar, which mounts the account menu (the only route
+// to sign out on mobile). That needs a router; jsdom has no app router mounted.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
 vi.mock('@/contexts/LocationContext', () => ({
   useLocationScope: () => ({
     currentScope: scope.current,

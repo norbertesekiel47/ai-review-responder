@@ -202,7 +202,16 @@ export function VelocityChart({ data }: { data: VelocityDatum[] }) {
               cx={centerX(i)}
               cy={yScale(d.count)}
               r={hover.index === i ? 5 : 3}
-              style={{ fill: CHART_DOT_FILL, stroke: CHART_ACCENT, strokeWidth: 2, transition: 'r 160ms' }}
+              style={{
+                fill: CHART_DOT_FILL,
+                stroke: CHART_ACCENT,
+                strokeWidth: 2,
+                // Inline, so no stylesheet media query reaches it: gate the
+                // grow on the same `reduced` flag the rest of this chart uses,
+                // or it is the one Console animation that survives
+                // prefers-reduced-motion.
+                transition: reduced ? undefined : 'r 160ms',
+              }}
             />
           ))}
         </svg>

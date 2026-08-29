@@ -4,6 +4,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNod
 import Link from 'next/link';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
+import { AccountMenu } from '@/components/dashboard/shell/AccountMenu';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 interface Props {
@@ -94,6 +95,14 @@ export function TopBar({
           <LocationPicker compact singleLocationLabel={businessName} />
         </div>
       )}
+      {/* Below the shell breakpoint the sidebar is hidden, so this is the only
+          reachable account control — and the only route to sign out. A direct
+          child of `.topbar`, like the picker above it, so the mobile grid can
+          place it on the heading row. Hidden by CSS on desktop, where the
+          sidebar owns it. */}
+      <div className="topbar-acct">
+        <AccountMenu compact />
+      </div>
       {(children || showLive || rightLink) && (
         <div className="topbar-controls">
           {children && <div className="topbar-actions">{children}</div>}

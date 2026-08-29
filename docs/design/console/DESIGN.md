@@ -410,6 +410,31 @@ labels, and the same information architecture. Icons are ultra-light line
 inline SVGs (`src/components/dashboard/shell/Icon.tsx`). The pending-count
 badge is the one `--rw-coral` fill in the rail.
 
+**The rail reads top to bottom as identity → work → utility → brand:**
+
+1. **Identity, not a logo.** The most convenient spot in the shell carries the
+   account control (`AccountMenu`: avatar, owner name, `chevron-updown`) and,
+   under it, the location the numbers describe. Two identities, because the
+   owner switches between both. A logo in this slot spends the best real estate
+   on something the owner already knows.
+2. **The work group** — Dashboard, Reviews, Requests, Analytics — with status in
+   the right-hand room of the row (the pending badge).
+3. **Nested children** (`.nav-child`) appear under a parent only while that
+   section is active, indented against a rule rather than given a second icon
+   set. This is how `/dashboard/reviews/history` became reachable from the nav.
+4. **The utility dock** — Settings, Help — held at the base by
+   `.nav-section--utility`, separated by a rule, because they are rarely used.
+5. **The wordmark** sits quietly at the foot (`.sidebar-brand`).
+
+Below the shell breakpoint the sidebar is hidden entirely, so the account
+control is mirrored into the top bar as `.acct--compact` (avatar only). It is
+the only route to sign out on mobile; removing it strands the owner.
+
+The promo/upsell slot at the base of the rail is deliberately **empty**. Nothing
+honest fits there yet — a trial-status card is the natural occupant once
+`trialEndsAt` reaches the layout, and a pending-work card would duplicate the
+badge two rows above it.
+
 ### Reputation evidence (charts)
 
 Charts provide a textual summary or data table, not just graphical marks, and carry
@@ -417,6 +442,54 @@ Charts provide a textual summary or data table, not just graphical marks, and ca
 not exist, show the value without a fabricated sparkline — the hero mini trend and the
 Rep Pulse gauge both render their empty state instead. Keep charts hand-rolled SVG —
 no charting library.
+
+### Tabs
+
+Two kinds of tab, and they are not interchangeable:
+
+- **Route tabs** (`ReviewsTabs`, the settings rail) navigate between pages. They
+  are a `<nav>` with `aria-current="page"` — never `role="tab"`.
+- **View tabs** (`CardViewTabs`) swap a panel inside one card without leaving
+  the page. They are a real `role="tablist"` / `role="tab"` / `role="tabpanel"`
+  set with `aria-selected`, one tab in the tab order, and arrow/Home/End
+  movement where selection follows focus. A mutually exclusive pair rendered as
+  two `aria-pressed` buttons announces "two toggles" instead of "one of these
+  two", which is what the aggregate velocity and ranking cards used to do.
+
+Shape: the `.card-view-tabs` pill container is recessed (`--rw-recess`) because
+it sits ON a card, where `.tabs` sits on the canvas and is raised.
+
+### Action surfaces
+
+Which surface a context earns, by how much it interrupts:
+
+| Surface | Use when | Blocking |
+|---|---|---|
+| Popover menu | The context is simple and dismissible with no consequence | No |
+| Modal `<dialog>` | The context is complex but belongs to this page | Yes |
+| New page | The context is permanent or large — and it owes a back link or breadcrumb | n/a |
+| Toast | Reporting the RESULT of an action, without taking the screen | No |
+
+**Popover menus** (`useMenuPopover`) are the single owner of menu behavior:
+outside-click dismissal, Escape with focus restored to the trigger, Tab to
+close, and roving Arrow/Home/End over anything with a `menuitem` role. Two
+callers — the location switcher and the account menu. A menu that reimplements
+any of this is a bug, not a variant.
+
+### Toasts
+
+The Console's one confirmation surface, bottom-centred above the mobile tab bar
+and the settings save bar.
+
+- **Both arms ship together.** A blocking action reports success *and* failure.
+  The failure arm is the one that gets skipped, so it is not optional.
+- **Tone carries urgency, not just colour:** `success` and `info` are
+  `role="status"` / polite; `error` is `role="alert"` / assertive and stays up
+  twice as long, because it usually asks the owner to do something. Each tone
+  also carries an icon, so the outcome survives without colour.
+- A toast announces its own text. Do **not** pair one with a `LiveRegion`
+  carrying the same words — that reads it twice.
+- It renders inside `.rw-console` with no portal, so the scoped tokens resolve.
 
 ### Dialogs
 
@@ -436,6 +509,8 @@ confirm actions.
 | Ramping Rep Pulse | `RepPulseCard` | a dash + "appears after your first weeks", never a fake score |
 | Regenerate limit reached | `ReviewActions.tsx` (`kind:'limit'`) | gold "heads up" + Back link, replaces the action row — **not** a red error |
 | Loading / error | skeleton + error card in `DashboardContent.tsx` | harbor tokens |
+| Settings saved | `SettingsShell` → success toast | rising edge of `savedFlash`, not a value read |
+| Sign out failed | `AccountMenu` → error toast | the owner stays signed in; the menu reopens focus on the trigger |
 
 ## Do's and Don'ts
 
@@ -448,7 +523,7 @@ confirm actions.
 - **Do** use `any-pointer: coarse` when adapting targets for devices that can accept touch.
 - **Do** keep public Island and authenticated Console tokens single-sourced in their owning stylesheets.
 - **Do** put a visible teal focus ring on every interactive element; settings tabs keep roving-tabindex + arrow-key nav.
-- **Do** preserve the existing `LiveRegion` announcements (dashboard load, settings saved / save-error).
+- **Do** preserve the existing `LiveRegion` announcements (dashboard load, settings save-error). The settings save CONFIRMATION is announced by its toast instead — one announcer per message, never both.
 - **Do** keep touch targets ≥44px on mobile.
 
 ### Don't:
