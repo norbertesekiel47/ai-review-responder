@@ -15,16 +15,25 @@
  *
  * ONE `UNION ALL`, NOT SIX QUERIES (plan review finding 24). Each source is one
  * arm projecting an IDENTICAL safe column set, so there is one final sort, one
- * window vocabulary and one place the location predicate lives. Today the
- * statement carries three arms — S1 the held draft, S3 the revoked auto-post
- * and S5 the withheld ask — and T4 adds the other three to this same statement.
- * To add an arm: alias its root table `r`, spell
+ * window vocabulary and one place the location predicate lives. All six arms
+ * are here — S1 the held draft, S3 the revoked auto-post, S4 the autonomy
+ * suspension, S5 the withheld ask, S6 the withheld outreach and S7 the halted
+ * batch. To add an arm: alias its root table `r`, spell
  * `r.account_id = ${scope.accountId}` in the arm itself (see
  * {@link locationFilter} for why that half is not extracted), add
  * `AND ${inLocation}` as its own conjunct unless the source is account-wide,
  * project the five columns in order, and give the arm its OWN foreign-account
  * or foreign-location test — one statement means a structural assertion over
  * the combined SQL can prove nothing about any single arm (intake invariant 1).
+ *
+ * THIS MODULE IS SERVER-ONLY, and `./vocabulary.ts` deliberately is not. The
+ * vocabulary is a client-safe leaf whose every import is `import type`, so a
+ * `'use client'` component can read `REFUSAL_CATEGORY_META` for the owner
+ * labels; the audit-action key space S3 needs reaches `node:crypto` through
+ * `@/lib/approval/audit`, which Next polyfills for nobody, so it lives HERE
+ * instead — the read is the only thing that ever sees a stored audit action.
+ * A component that wants this module's `RefusalLog` shape must take it
+ * `import type`, exactly as `BatchReport.tsx` receives its `BatchView`.
  *
  * EVERY JOIN IS SCOPED ON BOTH SIDES, and the bridge is always `businesses loc`
  * pinned to the scoped account. Neither `reviews` nor `responses` carries an
@@ -52,15 +61,29 @@
 
 import type { PendingQuery, Row, Sql } from 'postgres';
 import type { DashboardReadScope } from '@/lib/agents/read';
+import {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+  type AutoPolicyAuditAction,
+} from '@/lib/approval/audit';
 import { dashboardWindowParams, type DashboardWindow } from '@/lib/kpi/types';
 import {
   ASK_WITHHELD_REFUSAL_CATEGORIES,
-  AUTO_POST_REVOKED_ACTION_CATEGORIES,
+  AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES,
+  AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
+  BATCH_HALTED_REFUSAL_CATEGORIES,
+  OUTREACH_WITHHELD_REFUSAL_CATEGORIES,
   REFUSAL_CATEGORIES,
+  RENDER_WITHHOLD_REASONS,
+  UnknownRefusalCodeError,
   refusalCategoryFor,
   type RefusalCategory,
   type RefusalSource,
 } from './vocabulary';
+import type { AutoPolicyDowngradeReason } from '../../../worker/jobs/publisher/auto-policy-downgrade';
 
 /** One thing RepWorth declined to do, dated, with nothing owner-unsafe on it. */
 export interface RefusalEntry {
@@ -115,36 +138,180 @@ const HELD_DRAFT_SOURCE = 'held_draft' satisfies RefusalSource;
 /** S3 · `approval_audit_log`. Checked against the closed union at compile time. */
 const AUTO_POST_REVOKED_SOURCE = 'auto_post_revoked' satisfies RefusalSource;
 
+/** S4 · `account_audit_log`. Checked against the closed union at compile time. */
+const AUTONOMY_SUSPENDED_SOURCE = 'autonomy_suspended' satisfies RefusalSource;
+
 /** S5 · `solicitation_asks`. Checked against the closed union at compile time. */
 const ASK_WITHHELD_SOURCE = 'ask_withheld' satisfies RefusalSource;
 
+/** S6 · `solicitation_outreach`. Checked against the closed union at compile time. */
+const OUTREACH_WITHHELD_SOURCE = 'outreach_withheld' satisfies RefusalSource;
+
+/** S7 · `solicitation_batches`. Checked against the closed union at compile time. */
+const BATCH_HALTED_SOURCE = 'batch_halted' satisfies RefusalSource;
+
+/**
+ * S4's `account_audit_log.event_type`. Spelled here because the value has no
+ * TypeScript owner — `suspension.ts:311` writes the literal and
+ * `worker/jobs/autonomy-suspended-notice/context.ts:127` reads it the same way.
+ * A wrong spelling shows up as an empty arm, which the S4 presence case catches.
+ */
+const AUTONOMY_SUSPENDED_EVENT_TYPE = 'autonomy_suspended';
+
+/**
+ * The reason→action table `DOWNGRADE_MARKERS`
+ * (`worker/jobs/publisher/auto-policy-downgrade.ts`) applies when it writes an
+ * `approval_audit_log` row, re-stated from the IMPORTED action constants rather
+ * than the literals — never re-spell a stored value. It is re-stated rather
+ * than imported because `DOWNGRADE_MARKERS` is module-private and lives in
+ * `worker/`, whose runtime graph pulls `postgres` and the outbox helpers;
+ * `__tests__/read.test.ts` PARSES the marker table out of its owner and asserts
+ * this copy equals it (deviations D8e, D11, D12a).
+ *
+ * It lives in the READ rather than in the vocabulary because reaching those
+ * constants means importing `@/lib/approval/audit` for real, and that module
+ * imports `node:crypto` — see this file's header, and `./vocabulary.ts`'s.
+ */
+export const AUTO_POST_REVOKED_ACTION_FOR_REASON = {
+  auto_approval_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  notice_undelivered: AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  judge_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  judge_unhealthy: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  autopilot_entitlement_lost: AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+  policy_suspended: AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+} as const satisfies Record<AutoPolicyDowngradeReason, AutoPolicyAuditAction>;
+
+/**
+ * Two downgrade reasons that share ONE audit action must agree on the category,
+ * or the derived map would have to pick one and misfile every refusal written
+ * under the other. Thrown for the same reason `UnknownRefusalCodeError` is: a
+ * silent pick produces a heading the owner cannot tell from a real one.
+ */
+export class ConflictingRefusalActionError extends Error {
+  constructor(
+    readonly action: string,
+    readonly reasons: readonly [string, string],
+    readonly categories: readonly [RefusalCategory | null, RefusalCategory | null],
+  ) {
+    super(
+      `Audit action '${action}' collapses reasons '${reasons[0]}' and '${reasons[1]}', `
+        + `which carry different refusal categories `
+        + `(${JSON.stringify(categories[0])} vs ${JSON.stringify(categories[1])})`,
+    );
+    this.name = 'ConflictingRefusalActionError';
+  }
+}
+
+/**
+ * Re-keys a reason-keyed category map onto the actions those reasons are stored
+ * as. DERIVED, never a second hand-written table: the reason map keeps its
+ * `satisfies Record<AutoPolicyDowngradeReason, …>` exhaustiveness guard in
+ * `./vocabulary.ts`, so a seventh downgrade reason still fails the build there
+ * rather than silently arriving here uncategorised, and the two cannot drift.
+ */
+export function deriveActionCategories<Action extends string>(
+  categoriesByReason: Readonly<Record<string, RefusalCategory | null>>,
+  actionByReason: Readonly<Record<string, Action>>,
+): Readonly<Record<Action, RefusalCategory | null>> {
+  const decided = new Map<Action, { category: RefusalCategory | null; reason: string }>();
+  for (const [reason, action] of Object.entries(actionByReason)) {
+    const category = categoriesByReason[reason];
+    if (category === undefined) {
+      throw new Error(
+        `deriveActionCategories: downgrade reason '${reason}' has no refusal category`,
+      );
+    }
+    const seen = decided.get(action);
+    if (seen !== undefined && seen.category !== category) {
+      throw new ConflictingRefusalActionError(
+        action,
+        [seen.reason, reason],
+        [seen.category, category],
+      );
+    }
+    decided.set(action, { category, reason });
+  }
+  return Object.fromEntries(
+    [...decided].map(([action, entry]) => [action, entry.category]),
+  ) as Record<Action, RefusalCategory | null>;
+}
+
+/**
+ * S3 as the database actually stores it — five actions, not six reasons. Both
+ * judge reasons carry `watchdog_unavailable` today, so the collapse is
+ * consistent; the day it is not, the derivation throws at module load rather
+ * than misfiling a refusal.
+ */
+export const AUTO_POST_REVOKED_ACTION_CATEGORIES: Readonly<
+  Record<string, RefusalCategory | null>
+> = deriveActionCategories(
+  AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
+  AUTO_POST_REVOKED_ACTION_FOR_REASON,
+);
+
+/**
+ * Every code in a lane's map that the vocabulary rules a REFUSAL. Each arm
+ * binds its own list so the SQL never has to name a code, and a `null` mapping
+ * — the recorded decision "known, not a refusal" — keeps the row out of the
+ * statement rather than out of the grouping.
+ */
+function refusalCodesOf(
+  map: Readonly<Record<string, RefusalCategory | null>>,
+): readonly string[] {
+  return Object.entries(map)
+    .filter(([, category]) => category !== null)
+    .map(([code]) => code);
+}
+
 /**
  * The five `approval_audit_log.action` values that ARE a revoked auto-post,
- * derived from the vocabulary's action-keyed map rather than re-spelled.
+ * derived from the action-keyed map above rather than re-spelled.
  *
  * FIVE, not six: `DOWNGRADE_MARKERS` collapses `judge_disabled` and
  * `judge_unhealthy` onto one action, so the reason-keyed map cannot be used to
- * filter this arm. The derivation lives in `./vocabulary.ts` and throws if two
- * collapsed reasons ever carry different categories.
+ * filter this arm.
  */
-const AUTO_POST_REVOKED_ACTIONS: readonly string[] = Object.entries(
-  AUTO_POST_REVOKED_ACTION_CATEGORIES,
-)
-  .filter(([, category]) => category !== null)
-  .map(([action]) => action);
+const AUTO_POST_REVOKED_ACTIONS = refusalCodesOf(AUTO_POST_REVOKED_ACTION_CATEGORIES);
 
 /**
- * Every S5 code the vocabulary rules a refusal, derived from the map rather
- * than re-spelled. `velocity_banked` maps to `null` there — volume shaping, not
- * a hold (`BatchReport.tsx:27`) — so it is absent from this list and the arm
- * never has to name it. A seventh `WithholdReason` arrives here automatically,
- * or fails to compile in `vocabulary.ts` first.
+ * S4's four `AutonomySuspensionTrigger` values. All four map to
+ * `autonomy_paused` today; the list is still derived, so a trigger added with
+ * an explicit `null` mapping would leave the arm rather than reach the grouping.
  */
-const ASK_WITHHELD_CODES: readonly string[] = Object.entries(
-  ASK_WITHHELD_REFUSAL_CATEGORIES,
-)
-  .filter(([, category]) => category !== null)
-  .map(([code]) => code);
+const AUTONOMY_SUSPENDED_TRIGGERS = refusalCodesOf(AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES);
+
+/**
+ * Every S5 code the vocabulary rules a refusal. `velocity_banked` maps to
+ * `null` there — volume shaping, not a hold (`BatchReport.tsx:27`) — so it is
+ * absent from this list and the arm never has to name it. A seventh
+ * `WithholdReason` arrives here automatically, or fails to compile in
+ * `vocabulary.ts` first.
+ */
+const ASK_WITHHELD_CODES = refusalCodesOf(ASK_WITHHELD_REFUSAL_CATEGORIES);
+
+/**
+ * S6's eight withheld `disposition_reason` values — the WITHHELD arm of
+ * migration 111's CHECK and nothing else. The cancelled arm is out of scope
+ * entirely (see the arm's comment), so its codes are not in this map and cannot
+ * reach this list.
+ */
+const OUTREACH_WITHHELD_CODES = refusalCodesOf(OUTREACH_WITHHELD_REFUSAL_CATEGORIES);
+
+/**
+ * The three withheld codes the RENDER lane writes, and therefore the exact set
+ * whose refusal time is `rendered_at`. Bound from the vocabulary's exported
+ * constant: a call site re-spelling the three literals forks the partition the
+ * S6 anchor turns on.
+ */
+const RENDER_WITHHOLD_CODES: readonly string[] = RENDER_WITHHOLD_REASONS;
+
+/**
+ * S7's two halt reasons that are OURS. The four owner/expiry reasons map to
+ * `null` in the vocabulary — an owner's own veto reported back as our restraint
+ * would be a lie about who decided, and a deadline is an outcome rather than a
+ * judgement — so they never reach this list.
+ */
+const BATCH_HALTED_CODES = refusalCodesOf(BATCH_HALTED_REFUSAL_CATEGORIES);
 
 /**
  * The location half of the tenant predicate, in ONE place. Every arm aliases
@@ -179,20 +346,43 @@ function locationFilter(
 }
 
 /**
+ * (lane, STORED code) → category, which is one translation wider than the
+ * vocabulary's `refusalCategoryFor`.
+ *
+ * Every lane but S3 stores the code the vocabulary is keyed by, and delegates
+ * unchanged. S3 stores an AUDIT ACTION where the vocabulary's key is the
+ * DOWNGRADE REASON, and the two do not correspond one-to-one — `DOWNGRADE_MARKERS`
+ * collapses both judge reasons onto one action — so the action key space is
+ * resolved here, from the map derived above. Same rule either way: an
+ * unrecognised code is a FAULT, not a category. A default would file an
+ * unmapped refusal under a plausible-looking heading the owner cannot tell from
+ * a real one.
+ */
+export function resolveRefusalCategory(
+  source: RefusalSource,
+  code: string | null,
+): RefusalCategory | null {
+  if (source !== AUTO_POST_REVOKED_SOURCE) return refusalCategoryFor(source, code);
+  const category = code === null ? undefined : AUTO_POST_REVOKED_ACTION_CATEGORIES[code];
+  if (category === undefined) throw new UnknownRefusalCodeError(source, code);
+  return category;
+}
+
+/**
  * Buckets the already-sorted rows by category and counts them, so `total` is
  * the sum of the group counts by construction.
  *
  * A `null` category is the vocabulary's explicit "known code, not a refusal".
  * Every arm already excludes those in SQL, so a row that still arrives means a
  * widened query rather than a fault — it is dropped, not thrown on. An
- * UNRECOGNISED code is the opposite: `refusalCategoryFor` throws, because a
- * default would file the refusal under a plausible-looking heading the owner
- * cannot tell from a real one.
+ * UNRECOGNISED code is the opposite: {@link resolveRefusalCategory} throws,
+ * because a default would file the refusal under a plausible-looking heading
+ * the owner cannot tell from a real one.
  */
 function groupEntries(rows: readonly RefusalRow[]): RefusalLog {
   const byCategory = new Map<RefusalCategory, RefusalEntry[]>();
   for (const row of rows) {
-    const category = refusalCategoryFor(row.source, row.code);
+    const category = resolveRefusalCategory(row.source, row.code);
     if (category === null) continue;
     const entries = byCategory.get(category) ?? [];
     entries.push({
@@ -303,6 +493,37 @@ export async function getRefusalLog(
 
       UNION ALL
 
+      -- S4 · Autonomy suspended: account_audit_log, event_type
+      -- 'autonomy_suspended', anchored on created_at. The code is the
+      -- AutonomySuspensionTrigger inside payload (suspension.ts:309-313).
+      --
+      -- SOURCED HERE ON PURPOSE. unsuspendAccountAutonomy sets
+      -- auto_approval_policies.suspended_at and .suspended_reason to NULL
+      -- (suspension.ts:352-354), so the policy row holds no history at all; the
+      -- audit row is the durable trace and a lifted suspension still appears.
+      --
+      -- ACCOUNT-WIDE, SO NO businesses JOIN AND NO location conjunct.
+      -- account_audit_log carries a nullable location_id the suspension writer
+      -- leaves NULL, and a suspended account default applies to every location
+      -- — so this arm belongs in every location scope. Joining it through
+      -- businesses to reach that effect would MULTIPLY one audit row by the
+      -- account's location count in aggregate scope; the eval pins exactly-once
+      -- in both scopes so a later "optimisation" cannot quietly add the join.
+      SELECT
+        r.id::text AS entry_id,
+        ${AUTONOMY_SUSPENDED_SOURCE}::text AS source,
+        r.payload->>'trigger' AS code,
+        r.created_at AS occurred_at,
+        NULL::uuid AS review_id
+      FROM account_audit_log r
+      WHERE r.account_id = ${scope.accountId}
+        AND r.event_type = ${AUTONOMY_SUSPENDED_EVENT_TYPE}
+        AND r.payload->>'trigger' = ANY(${AUTONOMY_SUSPENDED_TRIGGERS}::text[])
+        AND r.created_at >= ${windowStart}
+        AND r.created_at <= ${windowEnd}
+
+      UNION ALL
+
       -- S5 · Ask withheld at build: solicitation_asks, the withhold arm, keyed
       -- account_id + business_id, anchored on decided_at — the moment the
       -- Restraint policy ruled, written once by the batch builder.
@@ -319,6 +540,95 @@ export async function getRefusalLog(
         AND r.withheld_reason = ANY(${ASK_WITHHELD_CODES}::text[])
         AND r.decided_at >= ${windowStart}
         AND r.decided_at <= ${windowEnd}
+
+      UNION ALL
+
+      -- S6 · Outreach withheld at send: solicitation_outreach, keyed account_id
+      -- + business_id. THE WITHHELD ARM ONLY.
+      --
+      -- The cancelled arm is out of scope entirely, and that is a double-count
+      -- guard rather than a simplification: latchHalt writes a batch's halt
+      -- reason through to EVERY cancelled outreach row, so counting its
+      -- admin_halt/platform_halt copies would report one halt again per
+      -- recipient — S7 below already counts it once, at the batch.
+      --
+      -- THE ANCHOR IS REASON-DEPENDENT, because the withheld arm has TWO
+      -- writers and neither half's anchor is correct alone (plan §2 as
+      -- corrected by review round 3). ask-generation.ts INSERTs a row ALREADY
+      -- withheld at render time for the three RENDER_WITHHOLD_REASONS, where
+      -- rendered_at IS the refusal time (NOT NULL, never updated) and
+      -- agent_run_id points at the BATCH PARENT — whose started_at is the
+      -- batch's start, not this row's decision. dispatch.ts commitWithhold
+      -- (1371-1379) writes the other five and sets agent_run_id to a lazy CHILD
+      -- run in the same statement, and agent_runs.started_at (071:25) is
+      -- DEFAULT NOW() with no updater, so that stamp is durable. updated_at is
+      -- a general mutation timestamp a later write can move and survives ONLY
+      -- as the fallback for a dispatch-time withhold whose best-effort child
+      -- attach left agent_run_id NULL — an accepted residual drift (plan §2).
+      --
+      -- The anchor is computed ONCE in the LATERAL below and referenced by both
+      -- the projection and the window bounds, so the value the owner sees and
+      -- the value the window filters on cannot diverge.
+      SELECT
+        r.id::text AS entry_id,
+        ${OUTREACH_WITHHELD_SOURCE}::text AS source,
+        r.disposition_reason::text AS code,
+        anchor.occurred_at AS occurred_at,
+        NULL::uuid AS review_id
+      FROM solicitation_outreach r
+      INNER JOIN businesses loc
+              ON loc.id = r.business_id
+             AND loc.account_id = ${scope.accountId}
+      -- LEFT, not INNER: agent_run_id is nullable and its absence is the
+      -- updated_at fallback, not a reason to drop the refusal. Scoped on BOTH
+      -- tenant keys like every other join here — migration 091's composite FK
+      -- already prevents a cross-tenant match, but the every-join rule is not
+      -- conditioned on a constraint happening to exist.
+      LEFT JOIN agent_runs run
+             ON run.id = r.agent_run_id
+            AND run.account_id = ${scope.accountId}
+            AND run.business_id = loc.id
+      CROSS JOIN LATERAL (
+        SELECT CASE
+                 WHEN r.disposition_reason = ANY(${RENDER_WITHHOLD_CODES}::text[])
+                 THEN r.rendered_at
+                 ELSE COALESCE(run.started_at, r.updated_at)
+               END AS occurred_at
+      ) AS anchor
+      WHERE r.account_id = ${scope.accountId}
+        AND ${inLocation}
+        AND r.delivery_status = 'withheld'
+        AND r.disposition_reason = ANY(${OUTREACH_WITHHELD_CODES}::text[])
+        AND anchor.occurred_at >= ${windowStart}
+        AND anchor.occurred_at <= ${windowEnd}
+
+      UNION ALL
+
+      -- S7 · Batch halted by us: solicitation_batches, keyed account_id +
+      -- business_id, anchored on halted_at — 091's halt-consistency CHECK makes
+      -- halted_at and halt_reason a two-way pairing, so the stamp is present
+      -- exactly when the reason is.
+      --
+      -- TWO OF SIX REASONS. admin_halt and platform_halt are acts of OUR
+      -- restraint; owner_veto and owner_halt are the owner's own act, and
+      -- batch_expired and send_window_elapsed are clocks running out. All four
+      -- map to null in the vocabulary and never reach BATCH_HALTED_CODES.
+      --
+      -- No businesses bridge: solicitation_batches carries a COMPOSITE FK to
+      -- businesses (id, account_id) (088:129-131), so its business_id belongs
+      -- to its account_id by construction, and the arm names no child table.
+      SELECT
+        r.id::text AS entry_id,
+        ${BATCH_HALTED_SOURCE}::text AS source,
+        r.halt_reason::text AS code,
+        r.halted_at AS occurred_at,
+        NULL::uuid AS review_id
+      FROM solicitation_batches r
+      WHERE r.account_id = ${scope.accountId}
+        AND ${inLocation}
+        AND r.halt_reason = ANY(${BATCH_HALTED_CODES}::text[])
+        AND r.halted_at >= ${windowStart}
+        AND r.halted_at <= ${windowEnd}
     ) AS refusal_entries
     ORDER BY occurred_at DESC, entry_id DESC
   `;

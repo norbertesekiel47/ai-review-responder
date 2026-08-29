@@ -453,3 +453,80 @@ D11 derivation cases.
 
 Verdict: **ACCEPT** for all six. D12b is the one that carries forward: T7 must
 not import `vocabulary.ts` from a client component as things stand.
+
+## D13 — Six things T4 found that the plan did not anticipate
+
+D12b is **closed**, not carried forward: `vocabulary.ts` is now
+`import type`-only and a `'use client'` component may import
+`REFUSAL_CATEGORY_META` directly. None of the below changes a locked decision,
+and none touches `allowed_edit_surface`.
+
+**D13a — `refusalCategoryFor` could not follow the action key space out of
+`vocabulary.ts`, so the read gained ONE translation.** Moving
+`AUTO_POST_REVOKED_ACTION_CATEGORIES` into `read.ts` (the brief's §A list)
+necessarily removes the action half from the vocabulary's `CODE_MAPS` — the
+alternative is `vocabulary.ts` importing `read.ts`, which imports it back. So
+`refusalCategoryFor` now answers in ONE key space (the six downgrade REASONS,
+which is what the plan's feeder table names and what its eval case asserts) and
+`read.ts` exports `resolveRefusalCategory`, which is `refusalCategoryFor` plus
+exactly the S3 action→category step and delegates unchanged for every other
+lane. `groupEntries` calls it. D12e's "one lane, one lookup, two spellings" is
+preserved as ONE lookup with a translation in front of it, rather than two
+competing tables — and the derivation still throws
+`ConflictingRefusalActionError`, so the two spellings still cannot disagree.
+The four cases moved to `read.test.ts` with titles VERBATIM;
+`refusalCategoryFor resolves a stored auto-policy audit action` now asserts both
+halves — the read resolves what the database stores, and `refusalCategoryFor`
+beneath it still refuses to invent a category for an action it does not read.
+`AUTO_POST_REVOKED_ACTION_FOR_REASON` is exported from `read.ts` solely so its
+`DOWNGRADE_MARKERS` parse-guard can see it, which is the same reason it was
+exported before.
+
+**D13b — two `docs/directory.md` rows are now stale, and they are T8's file.**
+Row `vocabulary.ts` says `refusalCategoryFor` THROWS `UnknownRefusalCodeError`
+and counts "42 source codes: 25 to a category, 17 to explicit `null`" — both
+still true of the vocabulary, but the row should now also say the file is
+`import type`-only BY REQUIREMENT and that the S3 audit-action key space lives
+in `read.ts`. Row `read.ts` should gain the action key space, `resolveRefusalCategory`,
+and the reason-dependent S6 anchor. T4 does not own that file.
+
+**D13c — `ci:tenant-scope` proves the S6 arm through the `businesses` bridge,
+not through `r.account_id`, so D9a's `$N` hazard cannot bite it.** Driving the
+audit's exported `auditSourceText` over the real module and five in-memory
+mutations: 0 findings as written; 1 finding each for the bridge's bound
+predicate removed (`businesses`), the `agent_runs` join left unscoped
+(`agent_runs`), S7's account predicate dropped (`solicitation_batches`) and S4's
+dropped (`account_audit_log`); and **0** for S6's own account predicate dropped
+or for its location fragment inlined D9a-style — because `viaBusiness` already
+chains `r.business_id = loc.id` off the scoped bridge. A green
+`ci:tenant-scope` on this file is a real proof for four of the five, and S6's
+account scoping is proved behaviourally instead (`never returns a withheld
+outreach from another location`, which is the eval's per-arm requirement
+anyway).
+
+**D13d — the SQL code lists are DEFENCE IN DEPTH, not the only lock, and the
+exclusion cases do not distinguish them.** Widening `BATCH_HALTED_CODES` from
+the derived two to all six halt reasons left every exclusion case green:
+`groupEntries` drops a `null` category before it becomes an entry. That is the
+documented design (`read.ts` says a row that still arrives means a widened query
+rather than a fault), but it means the five exclusion cases prove the
+VOCABULARY's `null` mappings, not the arms' `= ANY(…)` filters. Recorded so a
+later reader does not mistake one for the other. Both locks are derived from the
+same map, so neither can drift on its own.
+
+**D13e — S6's anchor is computed ONCE, in a `CROSS JOIN LATERAL`.** The
+reason-dependent `CASE` is needed three times — the projection and both window
+bounds — and spelling it three times invites exactly the drift where the value
+the owner sees and the value the window filters on disagree. A `sql` fragment
+was rejected (postgres.js fragment reuse inside one template is not something to
+rely on, and D9a's substitution rule makes nested fragments a hazard near
+predicates); the LATERAL is one definition, plain SQL, and audits clean.
+
+**D13f — migration 111 has no `schema-ready.ts` marker, so `platform_halt` is
+asserted by a fixture rather than by `assertSchemaReady`.** The suite requires
+074, 088, 090, 091 and 110. A local DB behind 111 fails the two `platform_halt`
+cases loudly on 111(a)'s halt-consistency CHECK rather than returning nothing,
+which is the acceptable shape; adding the marker means editing
+`schema-ready.ts`, outside T4's edit surface.
+
+Verdict: **ACCEPT** for all six.
