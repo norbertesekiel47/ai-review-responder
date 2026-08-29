@@ -25,7 +25,7 @@ No migration. Migration 116 stays unused.
 | S3 Auto-post revoked | `approval_audit_log` (001 → 002 → 034) | `account_id` | `business_id` | `created_at` | Yes (RLS 035 §1f), never rendered |
 | S4 Autonomy suspended | `account_audit_log` (034), `event_type='autonomy_suspended'` | `account_id` | none — account-wide | `created_at` | Yes (RLS 035 §1g), never rendered |
 | S5 Ask withheld at build | `solicitation_asks` (088) | `account_id` | `business_id` | `decided_at` | Yes, on `/dashboard/requests` |
-| S6 Outreach withheld at send | `solicitation_outreach` (091 → 108 → 109 → 110 → 111), **withheld arm only** | `account_id` | `business_id` | `COALESCE(run.started_at, updated_at)` | Partly |
+| S6 Outreach withheld at send | `solicitation_outreach` (091 → 108 → 109 → 110 → 111), **withheld arm only** | `account_id` | `business_id` | reason-dependent — see below | Partly |
 | S7 Batch halted by us | `solicitation_batches` (088 → 091 → 111) | `account_id` | `business_id` | `halted_at` | Partly |
 
 Only S1 is deny-all. Everything else already has an owner SELECT policy or an
@@ -48,15 +48,38 @@ carrying the `AutonomySuspensionTrigger` in `payload`
 codebase deliberately does not machine-parse; the trigger enum is the machine
 fact.
 
-**S6 anchors on the lazy child run start, with `updated_at` as fallback.**
-`commitWithhold` (`src/lib/solicitation/dispatch.ts:1371-1379`) writes
-`delivery_status='withheld', disposition_reason=…, agent_run_id=…,
-updated_at = NOW()`. `rendered_at` predates the refusal. `updated_at` is a
-general mutation timestamp that a later write can move, so it cannot anchor a
-two-year record. `agent_runs.started_at` (071:25) is `DEFAULT NOW()` with no
-updater, and `commitWithhold` sets `agent_run_id` in the same statement — so
-the run start IS the refusal time, durably. `agent_run_id` is nullable on the
-best-effort attach path (`dispatch.ts:1284`), hence the `COALESCE`.
+**S6's anchor is reason-dependent, because the withheld arm has two writers.**
+Plan review round 3 found the single-anchor fix wrong. The arm partitions
+exactly on `RenderWithholdReason` (`src/lib/solicitation/outreach.ts:525`), an
+already-exported closed union — so the split is the truth of the data, not a
+special case:
+
+| Reason | Writer | Anchor |
+|---|---|---|
+| `moderation_high`, `render_failed`, `lint_failed` | `ask-generation.ts` INSERTs the row already withheld at render time | `rendered_at` — it IS the refusal time, `NOT NULL`, never updated |
+| `no_consent`, `suppressed`, `unsubscribed`, `no_postal_address`, `postal_address_mismatch` | `dispatch.ts` `commitWithhold` (1371-1379), which sets `agent_run_id` in the same statement | `COALESCE(run.started_at, updated_at)` |
+
+```sql
+CASE WHEN o.disposition_reason = ANY(${RENDER_WITHHOLD_REASONS})
+     THEN o.rendered_at
+     ELSE COALESCE(run.started_at, o.updated_at)
+END
+```
+
+`agent_runs.started_at` (071:25) is `DEFAULT NOW()` with no updater, so it is
+durable. `updated_at` is a general mutation timestamp a later write can move,
+and it now survives ONLY for a dispatch-time withhold whose best-effort lazy
+child attach left `agent_run_id` NULL. **That residual drift is an accepted
+limit** — the alternative is inventing a column, which the intake excludes.
+
+`rendered_at` is wrong for the dispatch half (it predates the refusal) and
+`run.started_at` is wrong for the render half (it is the batch parent's start,
+not this row's decision). Neither anchor is correct alone. That is the defect
+round 3 caught.
+
+**The `agent_runs` join is scoped on both sides.** Migration 091's composite FK
+already prevents a cross-tenant match, but the every-join invariant is not
+conditioned on a constraint happening to exist.
 
 **S6 reads the WITHHELD arm only.** The cancelled arm is out of scope entirely.
 `latchHalt` writes a batch's halt reason through to every cancelled outreach
@@ -188,7 +211,9 @@ Add S4, S6 and S7 arms.
 - **S4 is account-wide.** It appears in every location scope. Join nothing to
   `businesses` — an account-wide arm joined through locations multiplies one
   audit row by the location count. The eval pins exactly-once in both scopes.
-- **S6 is the withheld arm only**, `LEFT JOIN agent_runs` for the anchor.
+- **S6 is the withheld arm only**, with the reason-dependent anchor in §2. The
+  `LEFT JOIN agent_runs` is scoped on `account_id` and `business_id` like every
+  other join, not left to migration 091's composite FK.
 - **S7** reads `admin_halt` and `platform_halt` only.
 - **Per-arm tenant proof.** One `UNION ALL` means a structural assertion over
   the combined SQL cannot prove any single arm is scoped. Every arm gets its own
