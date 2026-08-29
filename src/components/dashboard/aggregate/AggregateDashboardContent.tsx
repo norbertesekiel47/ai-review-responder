@@ -37,7 +37,7 @@ export function AggregateDashboardContent({ data, refresh }: Props) {
   return (
     <>
       <TopBar title="Dashboard" subtitle={aggregateSubtitle(data)} showLive refresh={refresh} />
-      <div className="content">
+      <div className="content content--dash">
         <AggregatePastDueStatus data={data} />
         <AggregateKpiState data={data} empty={hasNoData} />
         <div className="section-enter section-enter-2">

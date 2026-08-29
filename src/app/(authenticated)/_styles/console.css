@@ -743,6 +743,27 @@
   .content--analytics { padding: 14px 14px 96px; }
 }
 
+/* ---------- Dashboard surface: full-bleed, tight rhythm ----------
+   Same geometry as `.content--analytics`, and for the same reason: the glance
+   dashboard is a stack of wide rows, not a reading column, so the 1140px cap
+   only bought empty gutters on a wide screen. Horizontal padding is 32px so a
+   card's left edge lands on the topbar title's left edge — the topbar is a
+   SIBLING of `.content`, not a descendant, so the two can only agree by using
+   the same number.
+
+   The 16px section gap is what separates ZONES. Rows that carry two related
+   strips share one zone via `.dash-pair` below, so the pair reads as one band
+   rather than two. */
+.content--dash {
+  max-width: none;
+  margin: 0;
+  padding: 18px 32px 72px;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .content--dash { padding: 14px 14px 96px; gap: 12px; }
+}
+
 /* ---------- Reviews surface (Needs Action + History tabs) ----------
    Both routed Reviews tabs share ONE reading-column geometry (the archive's
    1024px) so the routed tab bar stays put when switching tabs instead of
@@ -1965,16 +1986,41 @@
    Reputation landing — 4 zones (PLAN.md PR2)
    ========================================================================== */
 
+/* ---------- Dashboard density ----------
+   The glance dashboard runs one notch tighter than the shared `.card` default,
+   so a row of cards reads as one band instead of as separate slabs. Scoped to
+   `.content--dash` so Reviews / Settings keep the 24/26 they were tuned at.
+   Specificity (0,2,0) beats the bare `.card`, so this wins wherever it sits in
+   the file — but it is placed here, with the other dashboard rules, on purpose. */
+.content--dash .card { padding: 20px 22px; }
+.content--dash .card-h2,
+.content--dash .card-h2-row { margin-bottom: 12px; }
+
+/* --- The dashboard's two-column threshold ---
+   1200px, and it is shared by `.dash-pair` here and `.recap-body` further down
+   on purpose: both put a ~440px text block beside a second column, and both
+   stop working at the same width. It is NOT the shell's 768px breakpoint —
+   between 768 and 1200 the shell is still desktop (fixed sidebar, floating
+   canvas) while these two rows have already run out of room. Measured: at
+   1024px the sidebar and canvas gutters leave ~696px of content, so a half-width
+   strip is 340px and its subtitle wraps to five lines. Screenshot-verified at
+   1440 / 1280 / 1200 / 1199 / 1024 / 390.
+   Changing this number means re-checking BOTH rules. */
+
+/* A pair of related strips sharing ONE zone. */
+.dash-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+@media (max-width: 1200px) { .dash-pair { grid-template-columns: minmax(0, 1fr); } }
+
 /* Zone 1 — hero row: the gradient reputation hero + the Rep Pulse gauge */
-.hero-row { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 20px; align-items: stretch; }
-.rep-hero { padding: 26px 28px; background-color: var(--rw-card); background-image: var(--rw-hero-grad); border-color: transparent; }
+.hero-row { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.rep-hero { padding: 22px 24px; background-color: var(--rw-card); background-image: var(--rw-hero-grad); border-color: transparent; }
 .rep-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .rep-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rw-hero-ink-soft); }
 .rep-connected { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--rw-hero-ink); padding: 6px 11px; border-radius: 9999px; background: var(--rw-hero-chip); white-space: nowrap; }
 .rep-connected svg { width: 14px; height: 14px; }
 /* The interpretation line — the conclusion as a sentence, before the numbers. */
-.rep-headline { margin: 14px 0 0; font-family: var(--rw-font-display); font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; color: var(--rw-hero-ink); max-width: 32ch; text-wrap: pretty; }
-.rep-stats { display: grid; grid-template-columns: 1.25fr 1fr 1fr; margin-top: 20px; }
+.rep-headline { margin: 12px 0 0; font-family: var(--rw-font-display); font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; color: var(--rw-hero-ink); max-width: 32ch; text-wrap: pretty; }
+.rep-stats { display: grid; grid-template-columns: 1.25fr 1fr 1fr; margin-top: 16px; }
 .rep-stat { display: flex; flex-direction: column; padding-right: 24px; }
 .rep-stats .rep-stat + .rep-stat { border-left: 1px solid var(--rw-hero-line); padding-left: 26px; padding-right: 0; }
 .rep-stat-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -1982,22 +2028,22 @@
 .rep-stat-num small { font-family: var(--rw-font-body); font-size: 15px; font-weight: 600; color: var(--rw-hero-ink-soft); margin-left: 5px; }
 .rep-stat.anchor .rep-stat-num { font-size: 52px; }
 .rep-stat-label { font-size: 12.5px; font-weight: 600; color: var(--rw-hero-ink-soft); margin-top: 8px; }
-.rep-period-context { margin: 14px 0 0; font-size: 11px; line-height: 1.35; color: var(--rw-hero-ink-soft); }
+.rep-period-context { margin: 12px 0 0; font-size: 11px; line-height: 1.35; color: var(--rw-hero-ink-soft); }
 .rep-stat-stars { display: inline-flex; gap: 1px; color: var(--rw-hero-ink); font-size: 15px; }
 .rep-delta { display: inline-flex; align-items: center; gap: 5px; width: max-content; margin-top: 9px; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 9999px; }
 .rep-delta svg { width: 12px; height: 12px; }
 .rep-delta.up { color: var(--rw-hero-ink); background: var(--rw-hero-chip); }
 .rep-delta.down { color: var(--rw-blush-deep); background: var(--rw-hero-chip); }
 .rep-delta.flat { color: var(--rw-hero-ink-soft); background: var(--rw-hero-chip); }
-.rep-foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rw-hero-line); font-size: 12.5px; color: var(--rw-hero-ink-soft); }
+.rep-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rw-hero-line); font-size: 12.5px; color: var(--rw-hero-ink-soft); }
 .rep-foot svg { width: 15px; height: 15px; color: var(--rw-hero-ink); flex: none; }
 .rep-hero.ramping .rep-delta { display: none; }
 .rep-hero.ramping .rep-stat.anchor .rep-stat-num { font-size: 44px; }
 
 /* Hero mini trend — real 30-day rating history, drawn only when it exists. */
-.rep-mini-trend { margin-top: 20px; }
+.rep-mini-trend { margin-top: 16px; }
 .rep-mini-trend-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; font-weight: 600; color: var(--rw-hero-ink-soft); margin-bottom: 6px; }
-.rep-mini-trend svg { width: 100%; height: 72px; display: block; }
+.rep-mini-trend svg { width: 100%; height: 64px; display: block; }
 .mini-grid { stroke: var(--rw-hero-line-soft); stroke-width: 1; }
 .mini-axis { fill: var(--rw-hero-ink-soft); font-family: var(--rw-font-body); font-size: 9px; }
 .mini-line { fill: none; stroke: var(--rw-hero-ink); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round;
@@ -2007,7 +2053,7 @@
 @keyframes rw-fade-in { to { opacity: 1; } }
 
 /* Rep Pulse — the coined score card beside the hero. */
-.pulse-card { display: flex; flex-direction: column; padding: 24px 26px; }
+.pulse-card { display: flex; flex-direction: column; padding: 20px 22px; }
 .pulse-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .pulse-title { font: var(--rw-app-h3); margin: 0; color: var(--rw-app-text); }
 .pulse-beta { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rw-app-text-soft); background: var(--rw-tray); padding: 3px 8px; border-radius: var(--rw-radius-pill); }
@@ -2031,10 +2077,14 @@
 .pulse-empty b { display: block; font-family: var(--rw-font-display); font-weight: 700; font-size: 34px; color: var(--rw-app-text-soft); }
 
 /* Zone 2 — pending approvals strip */
-.approvals { display: flex; align-items: center; gap: 16px; padding: 18px 24px; border-radius: var(--rw-radius-card);
+.approvals { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-radius: var(--rw-radius-card);
   background: linear-gradient(180deg, var(--rw-blush-soft), var(--rw-card) 82%); border: 1px solid var(--rw-blush);
   box-shadow: var(--rw-shadow); }
 .approvals.calm { background: var(--rw-card); border-color: var(--rw-hair); }
+/* Half-width inside a `.dash-pair`: the trailing action must not be squeezed by
+   the growing text column, and both strips must agree on height. */
+.dash-pair .approvals { height: 100%; }
+.approvals > .btn { flex: none; }
 .approvals-ic { width: 44px; height: 44px; border-radius: 14px; flex: none; display: grid; place-items: center; background: var(--rw-blush-soft); color: var(--rw-blush-deep); }
 .approvals.calm .approvals-ic { background: var(--rw-sage-soft); color: var(--rw-sage-deep); }
 .approvals-ic svg { width: 22px; height: 22px; }
@@ -2043,7 +2093,14 @@
 .approvals-title strong { font-weight: 700; }
 .approvals-sub { font-size: 12.5px; color: var(--rw-app-text-muted); margin-top: 2px; }
 
-/* WS5 persona surfaces — calm activity, not vanity metrics. */
+/* WS5 persona surfaces — calm activity, not vanity metrics.
+
+   The strip carries NO card of its own. Three persona tiles inside a fourth
+   card is a card in a card: it costs ~70px of chrome and it makes the tiles
+   read as contents of a container rather than as three peers. So the heading
+   sits on the canvas and each persona is its own Harbor card — the same shape
+   `.approvals` already uses one row below. */
+.agent-team { display: block; }
 .agent-team-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .agent-team .card-h2 { margin-bottom: 2px; }
 .agent-team-head p,
@@ -2055,8 +2112,8 @@
 .agent-team-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
+  gap: 16px;
+  margin-top: 12px;
 }
 .agent-team-card {
   min-width: 0;
@@ -2064,13 +2121,14 @@
   grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px 12px;
   align-items: center;
-  padding: 16px;
+  padding: 16px 18px;
   border: 1px solid var(--rw-hair);
-  border-radius: var(--rw-radius-lg);
-  background: var(--rw-recess);
+  border-radius: var(--rw-radius-card);
+  background: var(--rw-card);
+  box-shadow: var(--rw-shadow);
   transition: transform 200ms var(--rw-ease), box-shadow 200ms var(--rw-ease);
 }
-.agent-team-card:hover { transform: translateY(-2px); box-shadow: var(--rw-shadow-sm); }
+.agent-team-card:hover { transform: translateY(-2px); box-shadow: var(--rw-shadow-lg); }
 .agent-team-icon,
 .needs-attention-title-icon {
   width: 40px;
@@ -2117,7 +2175,7 @@
 .agent-team-activity strong { color: var(--rw-app-text); font-size: 12.5px; }
 .agent-team-activity span { color: var(--rw-app-text-muted); font-size: 10.5px; white-space: nowrap; }
 .agent-team-state {
-  min-height: 92px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   color: var(--rw-app-text-muted);
@@ -2131,7 +2189,7 @@
    ground, and severity is still carried by the badge word, never color alone. */
 .needs-attention { background: var(--rw-deep-panel); border-color: transparent; }
 .needs-attention .card-h2 { color: var(--rw-nav-ink); }
-.needs-attention-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.needs-attention-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .needs-attention-head .card-h2 { margin: 0 0 2px; }
 .needs-attention-head p { color: var(--rw-on-dark-muted); }
 .needs-attention-title-icon {
@@ -2330,8 +2388,8 @@
    which then reads as a row of lozenges rather than as a chart. */
 .recap-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
-  gap: 32px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+  gap: 24px;
   align-items: center;
 }
 .recap-lede { min-width: 0; }
@@ -2344,12 +2402,12 @@
   line-height: 1.25;
   letter-spacing: -0.01em;
   color: var(--rw-app-text);
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   text-wrap: pretty;
 }
 .recap-stats {
   display: flex;
-  gap: 28px;
+  gap: 24px;
 }
 .recap-stat b {
   display: block;
@@ -2373,19 +2431,19 @@
   display: block;
   font-size: 11px;
   color: var(--rw-app-text-soft);
-  margin-top: 8px;
+  margin-top: 6px;
   text-align: right;
 }
 .recap-spark {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  height: 72px;
+  height: 60px;
 }
 .recap-bar {
   flex: 1;
   min-width: 0;
-  max-width: 34px;
+  max-width: 55px;
   height: 100%;
   border-radius: var(--rw-radius-xs);
   background: var(--rw-tray);
@@ -2414,12 +2472,12 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--rw-app-text-muted);
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   text-wrap: pretty;
 }
 .recap-brief {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--rw-app-border-soft);
 }
 .recap-brief-list {
@@ -2436,11 +2494,19 @@
 
 /* The recap's breakpoint override lives HERE, not in the shared mobile block
    further up the file: that block precedes these rules, and an equal-specificity
-   rule that comes first never wins. */
-@media (max-width: 768px) {
+   rule that comes first never wins.
+
+   It stacks at the dashboard's two-column threshold (1200px), the same number
+   `.dash-pair` uses — see the comment on that rule for why, and re-check both if
+   the number moves. The plot column is a fixed 30rem so eight bars fill it
+   exactly; below the threshold that 480px stops leaving the sentence a usable
+   column and the headline wraps one word per line. */
+@media (max-width: 1200px) {
   .recap-body { grid-template-columns: 1fr; gap: 20px; }
   .recap-bar { max-width: none; }
   .recap-plot-caption { text-align: left; }
+}
+@media (max-width: 768px) {
   .recap-headline { font-size: 18px; }
   .recap-stats { gap: 24px; }
 }
@@ -2635,7 +2701,6 @@
 .section-enter-4 { animation-delay: 220ms; }
 .section-enter-5 { animation-delay: 280ms; }
 .section-enter-6 { animation-delay: 340ms; }
-.section-enter-7 { animation-delay: 400ms; }
 @keyframes sectionUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }

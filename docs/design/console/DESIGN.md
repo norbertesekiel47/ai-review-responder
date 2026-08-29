@@ -246,8 +246,13 @@ hierarchy comes from the Figtree functional scale (500/600/700).
 | 16 | `4rem` | `--rw-sp-16` |
 | 20 | `5rem` | `--rw-sp-20` |
 
-Spacing follows a 4px base rhythm, with 16–26px inside components and 22px
-between major dashboard zones.
+Spacing follows a 4px base rhythm. Cards use 24/26px by default; the glance
+dashboard runs one notch tighter at 20/22px via `.content--dash`, and 16px
+separates major dashboard zones. Two related one-line strips may share one zone
+through `.dash-pair`. It and `.recap-body` share ONE two-column threshold —
+1200px — because both put a ~440px text block beside a second column and both
+run out of room at the same width. That is deliberately NOT the shell's 768px
+breakpoint: between the two the shell is still desktop while these rows are not.
 
 ### Border radius
 
@@ -304,8 +309,10 @@ The authenticated shell paints the sea-teal field across the viewport. The
 fixed 240px sidebar sits ON the field in light ink; `.main` floats beside it as
 one rounded canvas (`--rw-radius-canvas`, `--rw-canvas-shadow`, 12px gutter,
 `overflow: clip` so the sticky topbar keeps sticking). The dashboard content
-container reaches 1140px; settings stop at 880px; focused wizards stop at
-640px. The sticky save bar's `left` offset derives from `--rw-sidebar-width` so
+container is full-bleed with 32px horizontal padding, matching the topbar so a
+card's left edge lands on the page title's; the shared `.content` default of
+1140px still governs every other surface that does not opt out. Settings stop at
+880px; focused wizards stop at 640px. The sticky save bar's `left` offset derives from `--rw-sidebar-width` so
 the two can never drift.
 
 Below the shell breakpoint (≤ 768px — the width every authenticated stylesheet
@@ -334,6 +341,19 @@ accumulate charts. Two things it still forbids, and why:
   series the Analytics trend plots, so the two can never disagree; it is not a
   second query, and it is not the same picture. Anything that would be the same
   picture belongs on Analytics.
+
+*Arrangement, amended 2026-08-29 (owner-approved).* The whitelist is unchanged —
+the same zones, in the same order — but three of them stopped owning a full-width
+row each:
+
+- **The agent team carries no card of its own.** Three persona tiles inside a
+  fourth card is a card in a card. The heading sits on the canvas and each
+  persona is its own Harbor card, the same shape `.approvals` already uses.
+- **The two doorways share one row** (`.dash-pair`): pending approvals and the
+  analytics link are one-line strips, so stacked they were two bands carrying one
+  line each. Below 1200px they stack again.
+- The recap's chart is flush with its card's right padding, so the column gap
+  between the sentence and the chart reads as one gap rather than a hollow middle.
 
 ## Components
 
