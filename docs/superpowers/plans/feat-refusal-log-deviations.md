@@ -195,3 +195,59 @@ Verdict: **ACCEPT**.
   slip, not a plan defect. T0's filing decision was correct: `getRefusalLog
   excludes the cancelled arm of solicitation_outreach entirely` is behavioural
   and belongs in the live-DB suite.
+
+## D8 — Five things T1 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D8a — the tree is CI-red from T1 until T8, on two audits.** `ci:directory-map`
+is CI-complete for `src/lib/`, so `src/lib/refusals/vocabulary.ts` fails it the
+moment it exists ("has no row in docs/directory.md"), and `read.ts` will do the
+same at T2. `docs/directory.md` is T8's file and is not in T1's edit surface, so
+the rows cannot land here. `ci:feature-surface` is red for the same shape of
+reason: six `allowed_edit_surface` entries still match no file, and each clears
+as its task lands. **Neither is a defect and neither blocks the PR** — CI runs
+on PRs only, and both go green when T8 lands. The operational consequence is
+local: **`git push` fails the lefthook pre-push hook until T8**, so an
+intermediate push needs `--no-verify`, exactly as the audit's own message says.
+
+**D8b — `src/lib/refusals/vocabulary.ts` is the repo's first `src/` → `worker/`
+import.** Every other cross-reference in that direction is a comment. The plan
+required importing `AutoPolicyDowngradeReason` from its owner rather than
+re-spelling six literals, and the owner is
+`worker/jobs/publisher/auto-policy-downgrade.ts`. It is written `import type`, so
+it erases at build time and pulls in no worker runtime (that module imports
+`postgres` and the outbox helpers). It is ESLint-legal by design, not by luck:
+`PARENT_TRAVERSAL_BAN`'s regex carries `(?!.*/(worker|scripts)/)`, an explicit
+exemption for cross-tree imports that have no `@/` alias. Invariant #1's runtime
+ban covers `src/app/**`, `src/components/**` and `instrumentation.ts` — not
+`src/lib/**` — and is about runtime imports either way.
+
+**D8c — S1 has no code axis at all, which is stronger than the plan's wording.**
+Plan §3 Axis B says "For S1 the code stays server-side", which reads as a
+redacted lookup. There is nothing to look up: `flagged_responses.reason` is
+moderation prose that may never leave the server (intake invariant 4) and the
+row exists only for a `high`-severity flag (`.claude/CLAUDE.md` invariant #4), so
+the lane itself is the whole fact. `refusalCategoryFor('held_draft', code)`
+takes `null` and returns the fixed `HELD_DRAFT_REFUSAL_CATEGORY`; a non-null code
+on that lane throws, because it would mean a caller invented an axis.
+
+**D8d — a `review` link target is CONDITIONAL, because category and source are
+not 1:1.** The locked link table reads "held draft → the review", but
+`unsafe_content` has two feeders: S1 (a held draft, which names a review) and S6
+`moderation_high` (an outreach withhold, which names none). So the category-level
+link is the marker `{ kind: 'review' }` — "resolved per entry from the review
+that entry names" — and an entry with no review renders no link. T7 must not
+read it as "every unsafe_content row links somewhere".
+
+**D8e — three of the five source vocabularies cannot be enumerated at run time,
+so their tests parse their owner.** `satisfies Record<Enum, …>` makes an ADDED
+member a compile error but leaves nothing for a test to iterate:
+`AutoPolicyDowngradeReason` and `AutonomySuspensionTrigger` are bare type unions,
+and the batch halt list has no TS owner at all. Re-spelling their ten members in
+`vocabulary.test.ts` would fork the enum into the test that guards it, so the
+cases parse the union out of its module and the halt list out of migration 111 —
+the same technique T0 already used for the outreach withheld arm. `WithholdReason`
+is the one that iterates a real exported array (`WITHHOLD_REASONS`).
+
+Verdict: **ACCEPT** for all five.

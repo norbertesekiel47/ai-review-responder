@@ -99,16 +99,27 @@ describe('getRefusalLog source presence', () => {
 });
 
 describe('getRefusalLog S6 timestamp anchor', () => {
-  // `commitWithhold` (dispatch.ts:1371-1379) sets `agent_run_id` in the same
-  // statement, and `agent_runs.started_at` (071:25) is DEFAULT NOW() with no
-  // updater — so the lazy child run start IS the refusal time, durably.
-  // `rendered_at` predates the refusal; `updated_at` is a general mutation
-  // timestamp a later write can move, hence fallback only.
+  // THE WITHHELD ARM HAS TWO WRITERS, so the anchor is reason-dependent (plan §2
+  // as corrected by review round 3; deviations D7). `dispatch.ts` `commitWithhold`
+  // (1371-1379) writes five reasons and sets `agent_run_id` in the same statement,
+  // and `agent_runs.started_at` (071:25) is DEFAULT NOW() with no updater — so the
+  // lazy child run start IS the refusal time, durably. `ask-generation.ts` INSERTs
+  // the other three (`moderation_high`, `render_failed`, `lint_failed`) ALREADY
+  // withheld, and for those `rendered_at` IS the refusal time and is never updated.
+  // Neither anchor is correct alone: `rendered_at` predates a dispatch-time
+  // refusal, and `run.started_at` is the batch parent's start, not a render-time
+  // row's decision. `updated_at` is a general mutation timestamp a later write can
+  // move, hence fallback only.
   it.todo('getRefusalLog anchors a dispatch-time outreach refusal on its lazy child run start');
+
+  it.todo('getRefusalLog anchors a render-time outreach refusal on rendered_at');
 
   it.todo('getRefusalLog falls back to updated_at for a withheld outreach with no agent run');
 
-  it.todo('getRefusalLog does not move a withheld outreach entry when the row is mutated later');
+  // Both durable anchors are immovable. The ONE accepted residual drift is a
+  // dispatch-time withhold whose best-effort lazy-child attach left
+  // `agent_run_id` NULL and therefore falls back to `updated_at`.
+  it.todo('getRefusalLog does not move a render-time or run-anchored outreach entry when the row is mutated later');
 });
 
 describe('getRefusalLog window boundaries', () => {
