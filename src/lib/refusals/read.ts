@@ -16,14 +16,26 @@
  * ONE `UNION ALL`, NOT SIX QUERIES (plan review finding 24). Each source is one
  * arm projecting an IDENTICAL safe column set, so there is one final sort, one
  * window vocabulary and one place the location predicate lives. Today the
- * statement carries a single arm — S5, the withheld ask — and T3/T4 add the
- * other five to this same statement. To add an arm: alias its root table `r`,
- * spell `r.account_id = ${scope.accountId}` in the arm itself (see
+ * statement carries three arms — S1 the held draft, S3 the revoked auto-post
+ * and S5 the withheld ask — and T4 adds the other three to this same statement.
+ * To add an arm: alias its root table `r`, spell
+ * `r.account_id = ${scope.accountId}` in the arm itself (see
  * {@link locationFilter} for why that half is not extracted), add
  * `AND ${inLocation}` as its own conjunct unless the source is account-wide,
  * project the five columns in order, and give the arm its OWN foreign-account
  * or foreign-location test — one statement means a structural assertion over
  * the combined SQL can prove nothing about any single arm (intake invariant 1).
+ *
+ * EVERY JOIN IS SCOPED ON BOTH SIDES, and the bridge is always `businesses loc`
+ * pinned to the scoped account. Neither `reviews` nor `responses` carries an
+ * `account_id` at all, and the two audited root tables hold INDEPENDENT foreign
+ * keys rather than tenant-composite ones (migration 051:15), so a correctly
+ * scoped root row can still name a review or a response belonging to somebody
+ * else. Joining `loc.account_id = ${scope.accountId}` and then tying the child
+ * to `loc.id` closes both halves at once — the root's business must belong to
+ * the scoped account, and the child must belong to that business. The joins are
+ * INNER on purpose: a child row that is gone drops the entry rather than
+ * rendering a dangling link.
  *
  * ONE QUERY, ISSUED SEQUENTIALLY. Never fan this out across a `Promise`
  * combinator: postgres.js has no admission control and the #773 chokepoint
@@ -43,6 +55,7 @@ import type { DashboardReadScope } from '@/lib/agents/read';
 import { dashboardWindowParams, type DashboardWindow } from '@/lib/kpi/types';
 import {
   ASK_WITHHELD_REFUSAL_CATEGORIES,
+  AUTO_POST_REVOKED_ACTION_CATEGORIES,
   REFUSAL_CATEGORIES,
   refusalCategoryFor,
   type RefusalCategory,
@@ -96,8 +109,29 @@ interface RefusalRow {
   review_id: string | null;
 }
 
+/** S1 · the held draft. Checked against the closed union at compile time. */
+const HELD_DRAFT_SOURCE = 'held_draft' satisfies RefusalSource;
+
+/** S3 · `approval_audit_log`. Checked against the closed union at compile time. */
+const AUTO_POST_REVOKED_SOURCE = 'auto_post_revoked' satisfies RefusalSource;
+
 /** S5 · `solicitation_asks`. Checked against the closed union at compile time. */
 const ASK_WITHHELD_SOURCE = 'ask_withheld' satisfies RefusalSource;
+
+/**
+ * The five `approval_audit_log.action` values that ARE a revoked auto-post,
+ * derived from the vocabulary's action-keyed map rather than re-spelled.
+ *
+ * FIVE, not six: `DOWNGRADE_MARKERS` collapses `judge_disabled` and
+ * `judge_unhealthy` onto one action, so the reason-keyed map cannot be used to
+ * filter this arm. The derivation lives in `./vocabulary.ts` and throws if two
+ * collapsed reasons ever carry different categories.
+ */
+const AUTO_POST_REVOKED_ACTIONS: readonly string[] = Object.entries(
+  AUTO_POST_REVOKED_ACTION_CATEGORIES,
+)
+  .filter(([, category]) => category !== null)
+  .map(([action]) => action);
 
 /**
  * Every S5 code the vocabulary rules a refusal, derived from the map rather
@@ -209,6 +243,66 @@ export async function getRefusalLog(
   const rows = await sql<RefusalRow[]>`
     SELECT entry_id, source, code, occurred_at, review_id
     FROM (
+      -- S1 · Held draft: flagged_responses (deny-all RLS, invariant #4), keyed
+      -- account_id + business_id, anchored on created_at — the moment
+      -- moderation ruled and the send_notification enqueue was skipped.
+      --
+      -- NO code axis and NO moderation prose: the lane itself is the whole
+      -- fact, its category is the fixed HELD_DRAFT_REFUSAL_CATEGORY, and the
+      -- moderation text may never leave the server (intake invariant 4). This
+      -- table is read through the RLS-bypassing postgres role, so the two
+      -- predicates below plus the both-sides join ARE the access control.
+      SELECT
+        r.id::text AS entry_id,
+        ${HELD_DRAFT_SOURCE}::text AS source,
+        NULL::text AS code,
+        r.created_at AS occurred_at,
+        rev.id AS review_id
+      FROM flagged_responses r
+      INNER JOIN businesses loc
+              ON loc.id = r.business_id
+             AND loc.account_id = ${scope.accountId}
+      INNER JOIN reviews rev
+              ON rev.id = r.review_id
+             AND rev.business_id = loc.id
+      WHERE r.account_id = ${scope.accountId}
+        AND ${inLocation}
+        -- Plan §3: S1 feeds unsafe_content at HIGH severity. A lower-severity
+        -- admin flag is a note about a draft, not a draft we refused to send.
+        AND r.severity = 'high'
+        AND r.created_at >= ${windowStart}
+        AND r.created_at <= ${windowEnd}
+
+      UNION ALL
+
+      -- S3 · Auto-post revoked: approval_audit_log, keyed account_id +
+      -- business_id, anchored on created_at — the audit row IS the revocation.
+      --
+      -- The code axis is the stored AUDIT ACTION, not the downgrade reason, and
+      -- there are five of them because DOWNGRADE_MARKERS collapses the two
+      -- judge reasons onto one. One response downgraded twice yields two audit
+      -- rows and therefore two entries: each is a separate act of restraint.
+      SELECT
+        r.id::text AS entry_id,
+        ${AUTO_POST_REVOKED_SOURCE}::text AS source,
+        r.action::text AS code,
+        r.created_at AS occurred_at,
+        resp.review_id AS review_id
+      FROM approval_audit_log r
+      INNER JOIN businesses loc
+              ON loc.id = r.business_id
+             AND loc.account_id = ${scope.accountId}
+      INNER JOIN responses resp
+              ON resp.id = r.response_id
+             AND resp.business_id = loc.id
+      WHERE r.account_id = ${scope.accountId}
+        AND ${inLocation}
+        AND r.action = ANY(${AUTO_POST_REVOKED_ACTIONS}::text[])
+        AND r.created_at >= ${windowStart}
+        AND r.created_at <= ${windowEnd}
+
+      UNION ALL
+
       -- S5 · Ask withheld at build: solicitation_asks, the withhold arm, keyed
       -- account_id + business_id, anchored on decided_at — the moment the
       -- Restraint policy ruled, written once by the batch builder.

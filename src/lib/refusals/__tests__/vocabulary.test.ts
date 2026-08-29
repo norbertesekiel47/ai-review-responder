@@ -33,10 +33,21 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WITHHOLD_REASONS } from '@/lib/solicitation/restraint-policy';
 import {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+} from '@/lib/approval/audit';
+import {
   ASK_WITHHELD_REFUSAL_CATEGORIES,
   AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES,
+  AUTO_POST_REVOKED_ACTION_CATEGORIES,
+  AUTO_POST_REVOKED_ACTION_FOR_REASON,
   AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
   BATCH_HALTED_REFUSAL_CATEGORIES,
+  ConflictingRefusalActionError,
+  deriveActionCategories,
   BATCH_HALT_REASONS,
   OUTREACH_NON_REFUSAL_CATEGORIES,
   OUTREACH_WITHHELD_REASONS,
@@ -101,6 +112,46 @@ function batchHaltVocabulary(): readonly string[] {
   return quotedMembers(members);
 }
 
+/** The module that owns the reason→action collapse the read has to invert. */
+const DOWNGRADE_MODULE = 'worker/jobs/publisher/auto-policy-downgrade.ts';
+
+/** Every audit-action constant by NAME, so the parse below never re-spells a value. */
+const AUDIT_ACTION_BY_NAME: Readonly<Record<string, string>> = {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+};
+
+/**
+ * `DOWNGRADE_MARKERS`, read out of its owner. It is module-PRIVATE and lives in
+ * `worker/`, whose runtime graph pulls `postgres` and the outbox helpers — so a
+ * leaf mapping file cannot import it, and the copy in
+ * `AUTO_POST_REVOKED_ACTION_FOR_REASON` is proven equal here instead. Same
+ * technique as the migration-111 and bare-union cases above (D8e, D12).
+ */
+function downgradeMarkerTable(): Readonly<Record<string, string>> {
+  const body = /const DOWNGRADE_MARKERS\s*=\s*\{([\s\S]*?)\}\s*as const/.exec(
+    readRepoFile(DOWNGRADE_MODULE),
+  )?.[1];
+  if (body === undefined) {
+    throw new Error(`${DOWNGRADE_MODULE}: could not locate \`const DOWNGRADE_MARKERS\``);
+  }
+  const table: Record<string, string> = {};
+  for (const entry of body.matchAll(/^\s*([a-z_]+)\s*:\s*([A-Z][A-Z0-9_]*)\s*,/gm)) {
+    const reason = entry[1];
+    const constantName = entry[2];
+    if (reason === undefined || constantName === undefined) continue;
+    const action = AUDIT_ACTION_BY_NAME[constantName];
+    if (action === undefined) {
+      throw new Error(`${DOWNGRADE_MODULE}: '${reason}' names unknown constant ${constantName}`);
+    }
+    table[reason] = action;
+  }
+  return table;
+}
+
 /** The members of a bare exported TS union, read out of its owning module. */
 function unionMembers(relativePath: string, typeName: string): readonly string[] {
   const declaration = new RegExp(`export type ${typeName}\\s*=([^;]*);`).exec(
@@ -152,6 +203,79 @@ describe('refusal vocabulary', () => {
     );
     expect(authority.length, 'parsed no AutoPolicyDowngradeReason members').toBeGreaterThan(0);
     expectTotalMapping(AUTO_POST_REVOKED_REFUSAL_CATEGORIES, authority, 'AutoPolicyDowngradeReason');
+  });
+
+  // ── S3's second key space (T3, deviations D12) ──────────────────────────
+  //
+  // The reason-keyed map above is the exhaustiveness guard, and the DATABASE
+  // stores something else: `approval_audit_log.action` holds one of FIVE audit
+  // actions, because DOWNGRADE_MARKERS collapses `judge_disabled` and
+  // `judge_unhealthy` onto one. Without the derived action map the read could
+  // not look up what the row actually carries.
+
+  it('every AutoPolicyDowngradeReason maps to the audit action DOWNGRADE_MARKERS writes', () => {
+    const markers = downgradeMarkerTable();
+    expect(Object.keys(markers).length, `parsed no ${DOWNGRADE_MODULE} markers`).toBeGreaterThan(0);
+    // Six reasons in, five distinct actions out — the collapse itself.
+    expect(Object.keys(markers)).toHaveLength(6);
+    expect(new Set(Object.values(markers)).size).toBe(5);
+    expect({ ...AUTO_POST_REVOKED_ACTION_FOR_REASON }).toEqual({ ...markers });
+  });
+
+  it('the auto-post-revoked action map is derived from the reason map', () => {
+    const markers = downgradeMarkerTable();
+    const categoriesByAction: Readonly<Record<string, RefusalCategory | null>> =
+      AUTO_POST_REVOKED_ACTION_CATEGORIES;
+    const categoriesByReason: Readonly<Record<string, RefusalCategory | null>> =
+      AUTO_POST_REVOKED_REFUSAL_CATEGORIES;
+
+    // Keys are EXACTLY the distinct actions, not a hand-kept second list.
+    expect(Object.keys(categoriesByAction).sort()).toEqual(
+      [...new Set(Object.values(markers))].sort(),
+    );
+    // Every reason's category survives the re-key unchanged.
+    for (const [reason, action] of Object.entries(markers)) {
+      expect(categoriesByAction[action], `${action} ← ${reason}`).toBe(categoriesByReason[reason]);
+    }
+  });
+
+  it('deriveActionCategories throws when two collapsed reasons carry different categories', () => {
+    // The consistent collapse the codebase actually has: both judge reasons
+    // carry watchdog_unavailable, so one action carries it too.
+    expect(
+      deriveActionCategories(
+        { judge_disabled: 'watchdog_unavailable', judge_unhealthy: 'watchdog_unavailable' },
+        { judge_disabled: 'one_action', judge_unhealthy: 'one_action' },
+      ),
+    ).toEqual({ one_action: 'watchdog_unavailable' });
+
+    // The day they disagree, a silent pick would file every refusal written
+    // under the losing reason beneath a heading the owner cannot tell from a
+    // real one. Throw instead — the UnknownRefusalCodeError rule, one level up.
+    expect(() =>
+      deriveActionCategories(
+        { judge_disabled: 'watchdog_unavailable', judge_unhealthy: 'autonomy_paused' },
+        { judge_disabled: 'one_action', judge_unhealthy: 'one_action' },
+      ),
+    ).toThrow(ConflictingRefusalActionError);
+  });
+
+  it('refusalCategoryFor resolves a stored auto-policy audit action', () => {
+    const locked: readonly [string, RefusalCategory][] = [
+      [AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH, 'autonomy_paused'],
+      [AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED, 'watchdog_unavailable'],
+      [AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE, 'watchdog_unavailable'],
+      [AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT, 'autonomy_paused'],
+      [AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED, 'autonomy_paused'],
+    ];
+    for (const [action, category] of locked) {
+      expect(refusalCategoryFor('auto_post_revoked', action), action).toBe(category);
+    }
+
+    // An action the log does not read is still a FAULT, not a category.
+    expect(() => refusalCategoryFor('auto_post_revoked', 'auto_approved_by_policy')).toThrow(
+      UnknownRefusalCodeError,
+    );
   });
 
   it('every AutonomySuspensionTrigger maps to a RefusalCategory or explicit null', () => {

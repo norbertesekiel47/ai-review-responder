@@ -10,7 +10,9 @@
  * literal already recorded elsewhere, so identical inputs give identical
  * answers and the whole file is table-testable. The one cross-tree import
  * (`worker/jobs/publisher/auto-policy-downgrade`) is `import type` and erases
- * at build time; nothing worker-side is loaded.
+ * at build time; nothing worker-side is loaded. The ONE runtime import is
+ * `@/lib/approval/audit`, for the audit-action literals S3 reads — see the
+ * derivation below, and deviations D12 for the bundling consequence.
  *
  * THE MODEL IS `WITHHOLD_REASONS` (`src/lib/solicitation/restraint-policy.ts:45`):
  * a closed `as const` array in precedence order with the union derived from it,
@@ -32,6 +34,14 @@
  * double-count the autonomy suspension a flag triggers.
  */
 
+import {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+  type AutoPolicyAuditAction,
+} from '@/lib/approval/audit';
 import type { RenderWithholdReason } from '@/lib/solicitation/outreach';
 import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
 // Cross-tree and TYPE-ONLY on purpose: the downgrade reason's single owner is
@@ -159,6 +169,97 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
   autopilot_entitlement_lost: 'autonomy_paused',
   policy_suspended: 'autonomy_paused',
 } as const satisfies Record<AutoPolicyDowngradeReason, RefusalCategory | null>;
+
+/**
+ * S3's map above is keyed by the DOWNGRADE REASON, and the database stores
+ * something else: `approval_audit_log.action` holds an AUDIT ACTION, and there
+ * are only FIVE of those because `DOWNGRADE_MARKERS`
+ * (`worker/jobs/publisher/auto-policy-downgrade.ts`) collapses `judge_disabled`
+ * and `judge_unhealthy` onto one action. The read therefore cannot look up what
+ * the row actually carries without this second key space.
+ *
+ * The reason→action table is re-stated here from the IMPORTED action constants
+ * rather than the literals (never re-spell a stored value), because
+ * `DOWNGRADE_MARKERS` is module-private and a runtime import of that module
+ * would pull the worker's `postgres` + outbox graph into this leaf file.
+ * `vocabulary.test.ts` PARSES the marker table out of its owner and asserts this
+ * copy equals it — the same guard the migration-111 and bare-union cases use
+ * (deviations D8e, D12).
+ */
+export const AUTO_POST_REVOKED_ACTION_FOR_REASON = {
+  auto_approval_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_BY_KILL_SWITCH,
+  notice_undelivered: AUDIT_ACTION_AUTO_POLICY_REVOKED_NOTICE_UNDELIVERED,
+  judge_disabled: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  judge_unhealthy: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  autopilot_entitlement_lost: AUDIT_ACTION_AUTO_POLICY_REVOKED_TIER_ENTITLEMENT,
+  policy_suspended: AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+} as const satisfies Record<AutoPolicyDowngradeReason, AutoPolicyAuditAction>;
+
+/**
+ * Two downgrade reasons that share ONE audit action must agree on the category,
+ * or the derived map would have to pick one and misfile every refusal written
+ * under the other. Thrown for the same reason `UnknownRefusalCodeError` is: a
+ * silent pick produces a heading the owner cannot tell from a real one.
+ */
+export class ConflictingRefusalActionError extends Error {
+  constructor(
+    readonly action: string,
+    readonly reasons: readonly [string, string],
+    readonly categories: readonly [RefusalCategory | null, RefusalCategory | null],
+  ) {
+    super(
+      `Audit action '${action}' collapses reasons '${reasons[0]}' and '${reasons[1]}', `
+        + `which carry different refusal categories `
+        + `(${JSON.stringify(categories[0])} vs ${JSON.stringify(categories[1])})`,
+    );
+    this.name = 'ConflictingRefusalActionError';
+  }
+}
+
+/**
+ * Re-keys a reason-keyed category map onto the actions those reasons are stored
+ * as. DERIVED, never a second hand-written table: the reason map keeps its
+ * `satisfies Record<AutoPolicyDowngradeReason, …>` exhaustiveness guard, so a
+ * seventh downgrade reason still fails the build there rather than silently
+ * arriving here uncategorised, and the two cannot drift apart.
+ */
+export function deriveActionCategories<Action extends string>(
+  categoriesByReason: Readonly<Record<string, RefusalCategory | null>>,
+  actionByReason: Readonly<Record<string, Action>>,
+): Readonly<Record<Action, RefusalCategory | null>> {
+  const decided = new Map<Action, { category: RefusalCategory | null; reason: string }>();
+  for (const [reason, action] of Object.entries(actionByReason)) {
+    const category = categoriesByReason[reason];
+    if (category === undefined) {
+      throw new Error(
+        `deriveActionCategories: downgrade reason '${reason}' has no refusal category`,
+      );
+    }
+    const seen = decided.get(action);
+    if (seen !== undefined && seen.category !== category) {
+      throw new ConflictingRefusalActionError(
+        action,
+        [seen.reason, reason],
+        [seen.category, category],
+      );
+    }
+    decided.set(action, { category, reason });
+  }
+  return Object.fromEntries(
+    [...decided].map(([action, entry]) => [action, entry.category]),
+  ) as Record<Action, RefusalCategory | null>;
+}
+
+/**
+ * S3 as the database actually stores it — five actions, not six reasons. Both
+ * judge reasons carry `watchdog_unavailable` today, so the collapse is
+ * consistent; the day it is not, the derivation throws at module load rather
+ * than misfiling a refusal.
+ */
+export const AUTO_POST_REVOKED_ACTION_CATEGORIES = deriveActionCategories(
+  AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
+  AUTO_POST_REVOKED_ACTION_FOR_REASON,
+);
 
 /** S4 — every `AutonomySuspensionTrigger` is the same owner-facing fact: we
  *  stopped acting on your behalf. The trigger distinguishes WHO stopped us
@@ -299,7 +400,15 @@ type RefusalCodeMap = Readonly<Record<string, RefusalCategory | null>>;
  * than throw, so a widened query is a missing entry rather than a 500.
  */
 const CODE_MAPS = {
-  auto_post_revoked: AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
+  // BOTH key spaces for S3. The plan's feeder table (§3) names the six
+  // DOWNGRADE REASONS, and `vocabulary.test.ts` reads the lookup back through
+  // them; the read passes the five AUDIT ACTIONS the row actually carries. One
+  // lane, one lookup, two spellings of the same six decisions — and the action
+  // half is derived from the reason half, so they cannot disagree.
+  auto_post_revoked: {
+    ...AUTO_POST_REVOKED_REFUSAL_CATEGORIES,
+    ...AUTO_POST_REVOKED_ACTION_CATEGORIES,
+  },
   autonomy_suspended: AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES,
   ask_withheld: ASK_WITHHELD_REFUSAL_CATEGORIES,
   outreach_withheld: {

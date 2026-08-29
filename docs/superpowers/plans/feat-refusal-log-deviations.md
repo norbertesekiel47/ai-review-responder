@@ -352,3 +352,104 @@ the expected cost of the parallel dispatch, not a T6 defect; the gate must be
 re-run at a HEAD where T2 has landed.
 
 Verdict: **ACCEPT** for all four.
+
+## D11 — S3's key space is the AUDIT ACTION, not the downgrade reason
+
+The plan mapped S3 through `AUTO_POST_REVOKED_REFUSAL_CATEGORIES`, keyed by
+`AutoPolicyDowngradeReason` — **six** members. `approval_audit_log.action`
+stores an **audit action**, and there are only **five**: `DOWNGRADE_MARKERS`
+(`worker/jobs/publisher/auto-policy-downgrade.ts:25-32`) collapses
+`judge_disabled` and `judge_unhealthy` onto the single action
+`auto_policy_revoked_judge_unavailable`. The read could not look up what the
+database actually stores.
+
+**Derived, not duplicated.** `AUTO_POST_REVOKED_ACTION_CATEGORIES` is built by
+`deriveActionCategories` re-keying the reason map through the reason→action
+table, so the reason map keeps its `satisfies Record<AutoPolicyDowngradeReason,
+…>` exhaustiveness guard — a seventh downgrade reason still fails the build
+there — and the two cannot drift. Two reasons collapsing onto one action must
+agree on the category or the derivation throws
+(`ConflictingRefusalActionError`); both judge reasons carry
+`watchdog_unavailable` today, so the collapse is consistent. A silent pick would
+misfile every refusal written under the losing reason under a heading the owner
+cannot tell from a real one — the same failure a closed vocabulary exists to
+make impossible. Covered by `deriveActionCategories throws when two collapsed
+reasons carry different categories`.
+
+Verdict: **ACCEPT**.
+
+## D12 — Six things T3 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D12a — `DOWNGRADE_MARKERS` is module-PRIVATE, so D11's reason→action table
+could not be imported.** The task brief said to derive through it. It is not
+exported, its owner is outside T3's edit surface, and it lives in `worker/`
+whose runtime graph pulls `postgres` and the outbox helpers — so even an
+exported const could not be imported by a leaf mapping file. The table is
+re-stated in `vocabulary.ts` from the IMPORTED `AUDIT_ACTION_*` constants (no
+literal is re-spelled) and `vocabulary.test.ts` PARSES `DOWNGRADE_MARKERS` out
+of its owner and asserts the copy equals it, resolving constant NAMES against
+the imported values. Same technique as the migration-111 and bare-union cases
+(D8e). Six reasons in, five distinct actions out, both pinned.
+
+**D12b — `vocabulary.ts` is no longer a pure leaf, and that is a live hazard for
+T7.** Importing `@/lib/approval/audit` for the action constants pulls `uuid` and
+`node:crypto` into this module's graph. Nothing imports `vocabulary.ts` outside
+`src/lib/refusals/` today and `pnpm build` is green, but **a `'use client'`
+component that imports `REFUSAL_CATEGORY_META` would drag `node:crypto` into the
+browser bundle** — Next polyfills no `node:`-prefixed builtin. T7 should read
+the meta map in a SERVER component and pass labels down as props (or import only
+the types), exactly as `BatchReport.tsx` receives its `BatchView`. Fixing the
+seam properly means exporting `DOWNGRADE_MARKERS` (or splitting the action
+literals into their own leaf), which is another task's file.
+
+**D12c — "the tenant predicate on both sides" needs a `businesses` bridge,
+because neither `reviews` nor `responses` carries an `account_id`.** Their only
+tenant column is `business_id` (`scripts/ci/tenant-tables.ts:132`), so the
+obvious `rev.business_id = r.business_id` proves nothing to `ci:tenant-scope`:
+`directlyScoped` needs a BOUND predicate, and the chain rule (`viaBusiness`)
+needs a `businesses` binding to chain through — and `flagged_responses` is in
+`REVIEWED_NOT_TENANT_SCOPED`, so the root cannot confer scope either. Both arms
+therefore join `businesses loc ON loc.id = r.business_id AND loc.account_id =
+${scope.accountId}` and tie the child to `loc.id`. That is stronger than the
+plan's wording as well as auditable: the root's business must belong to the
+scoped account AND the child must belong to that business, so a root row
+claiming a foreign `business_id` is dropped in aggregate scope too.
+
+Proved non-vacuous rather than assumed: driving the audit's exported
+`auditSourceText` over the real module and over two in-memory mutations gives
+0 findings as written, 4 without the bridge's bound predicate
+(`businesses` ×2, `reviews`, `responses`), and 2 without the child-to-bridge tie.
+A green `ci:tenant-scope` on this file is a real proof, not silence.
+
+**D12d — a DANGLING `flagged_responses.review_id` is unrepresentable, so
+`getRefusalLog drops a flagged response whose review row is gone` cannot mean
+what it sounds like.** Migration 051:18 declares the FK `ON DELETE CASCADE`:
+deleting the review deletes the flag row. The case asserts the observable
+behaviour (the entry is gone, the sibling entry stays) and records that the
+INNER JOIN is the second lock, not the only one. The join's real work is proved
+by the cross-tenant case beside it, where the review exists and belongs to
+somebody else.
+
+**D12e — `refusalCategoryFor('auto_post_revoked', …)` answers in TWO key
+spaces.** The eval's locked feeder table (`every source code maps to its locked
+RefusalCategory`) names the six DOWNGRADE REASONS; the read passes the five
+stored ACTIONS. `CODE_MAPS.auto_post_revoked` merges both, and the action half
+is derived from the reason half, so they cannot disagree. No key collides. One
+lane, one lookup, two spellings of the same six decisions.
+
+**D12f — one eval title moved file, and three non-eval cases were added.**
+`getRefusalLog returns no draft text or review text for a held draft` moved from
+`read.test.ts` (where T0 filed it as `.todo` in a describe that can only read
+module TEXT) to `read.integration.test.ts`, where it asserts that real seeded
+moderation prose, a real draft body and a real review body do not survive the
+read — D9e's precedent, and placement is free because the `promised-tests` gate
+is a fixed-string grep. Added beyond the eval: `getRefusalLog maps a
+policy-suspended downgrade to autonomy_paused` (so the arm reads the whole
+five-action list, not the one action the other fixtures use),
+`refusalCategoryFor resolves a stored auto-policy audit action`, and the two
+D11 derivation cases.
+
+Verdict: **ACCEPT** for all six. D12b is the one that carries forward: T7 must
+not import `vocabulary.ts` from a client component as things stand.

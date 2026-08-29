@@ -77,7 +77,13 @@ describe('getRefusalLog redaction', () => {
     }
   });
 
-  it.todo('getRefusalLog returns no draft text or review text for a held draft');
+  // `getRefusalLog returns no draft text or review text for a held draft` moved
+  // to `./read.integration.test.ts` (T3). It is a BEHAVIOURAL claim about a real
+  // held draft carrying real moderation prose, a real draft body and a real
+  // review body; here it could only have re-read the module text the case above
+  // already reads. Same reasoning and the same freedom of placement as D9e —
+  // the `promised-tests` gate is a fixed-string grep over `src`, `worker` and
+  // `scripts`, not a per-file ledger.
 });
 
 describe('getRefusalLog query shape', () => {

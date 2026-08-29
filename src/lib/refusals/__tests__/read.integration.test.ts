@@ -66,7 +66,13 @@ import {
   MIGRATION_090_SOLICITATION_ASK_EVIDENCE,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
-import { getRefusalLog, type RefusalLog } from '../read';
+// The stored `approval_audit_log.action` literals, from their single owner —
+// never re-spelled here, exactly as `src/lib/refusals/vocabulary.ts` imports them.
+import {
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+  AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+} from '@/lib/approval/audit';
+import { getRefusalLog, type RefusalEntry, type RefusalLog } from '../read';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_POOL_URL;
 
@@ -78,10 +84,24 @@ let featureDatabaseLock: LiveDbLock | undefined;
 const businessId = randomUUID();
 /** A SECOND location under the SAME account — the boundary a bare `account_id = …` would wrongly pass. */
 const siblingBusinessId = randomUUID();
+/**
+ * A location under the OTHER account. The cross-tenant join cases need a real
+ * foreign review and a real foreign response for a correctly scoped root row to
+ * point at — `flagged_responses` and `approval_audit_log` carry independent FKs
+ * (051:15), so that drift is representable in the schema.
+ */
+const foreignBusinessId = randomUUID();
 
 /** The instant every case pretends is "now". Window arithmetic is derived, never guessed. */
 const NOW = new Date('2026-08-20T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Owner-unsafe strings, seeded so the redaction case asserts on ABSENCE of real
+// values rather than on a label looking right. `flagged_responses.reason` is
+// moderation prose that may never leave the server (intake invariant 4).
+const FLAG_REASON = 'MODERATION-PROSE-must-never-leave-the-server';
+const DRAFT_TEXT = 'DRAFT-TEXT-must-never-reach-the-refusal-log';
+const REVIEW_TEXT = 'REVIEW-TEXT-must-never-reach-the-refusal-log';
 
 /** The `>=` boundary `getRefusalLog` computes for a window of `windowDays` at {@link NOW}. */
 function windowStart(windowDays: number): Date {
@@ -154,6 +174,118 @@ async function seedWithheldAsk(input: {
   return askId;
 }
 
+/** One review under `business`, carrying owner-unsafe body text on purpose. */
+async function seedReview(business: string): Promise<string> {
+  const reviewId = randomUUID();
+  await sql()`
+    INSERT INTO reviews (
+      id, business_id, provider, provider_review_id, provider_review_name,
+      provider_location_name, reviewer_name, star_rating, review_text,
+      review_date, detected_at, status
+    ) VALUES (
+      ${reviewId}::uuid, ${business}::uuid, 'zernio',
+      ${`refusal-${reviewId}`}, ${`zernio://refusal/reviews/${reviewId}`},
+      'zernio://refusal/locations/1', 'Refusal Log Customer',
+      2, ${REVIEW_TEXT},
+      ${new Date(NOW.getTime() - 10 * DAY_MS).toISOString()}::timestamptz,
+      ${new Date(NOW.getTime() - 10 * DAY_MS).toISOString()}::timestamptz,
+      'pending_approval'
+    )
+  `;
+  return reviewId;
+}
+
+/**
+ * One draft reply under `business`. `pending_approval` keeps it outside
+ * `responses_approval_method_required` (068) while still carrying the
+ * `auto_policy` method a downgraded row really has.
+ */
+async function seedDraftResponse(business: string, reviewId: string): Promise<string> {
+  const responseId = randomUUID();
+  await sql()`
+    INSERT INTO responses (
+      id, review_id, business_id, response_text, original_draft_text,
+      response_language, version, status, approval_method
+    ) VALUES (
+      ${responseId}::uuid, ${reviewId}::uuid, ${business}::uuid,
+      ${DRAFT_TEXT}, ${DRAFT_TEXT}, 'en', 1, 'pending_approval', 'auto_policy'
+    )
+  `;
+  return responseId;
+}
+
+interface HeldDraftSeed {
+  flagId: string;
+  reviewId: string;
+  responseId: string;
+}
+
+/**
+ * One `high`-severity held draft, with its own review + draft reply.
+ *
+ * `created_at` is set explicitly: the suite freezes Date in JS, but the
+ * database clock keeps running, so a DEFAULT NOW() row would land outside every
+ * derived window.
+ */
+async function seedHeldDraft(input: {
+  business?: string;
+  accountId?: string;
+  /** The review the FLAG names. Defaults to this draft's own review. */
+  flaggedReviewId?: string;
+  severity?: 'high' | 'medium' | 'low';
+  createdAt: Date;
+}): Promise<HeldDraftSeed> {
+  const business = input.business ?? businessId;
+  const reviewId = await seedReview(business);
+  const responseId = await seedDraftResponse(business, reviewId);
+  const flagId = randomUUID();
+  await sql()`
+    INSERT INTO flagged_responses (
+      id, response_id, account_id, business_id, review_id,
+      source, reason, severity, status, created_at
+    ) VALUES (
+      ${flagId}::uuid, ${responseId}::uuid,
+      ${input.accountId ?? tenant!.accountId}::uuid, ${business}::uuid,
+      ${input.flaggedReviewId ?? reviewId}::uuid,
+      'local_regex', ${FLAG_REASON}, ${input.severity ?? 'high'}, 'open',
+      ${input.createdAt.toISOString()}::timestamptz
+    )
+  `;
+  return { flagId, reviewId, responseId };
+}
+
+interface DowngradeSeed {
+  auditId: string;
+  reviewId: string;
+  responseId: string;
+}
+
+/** One `approval_audit_log` revocation row, with its own review + draft reply. */
+async function seedDowngrade(input: {
+  business?: string;
+  accountId?: string;
+  /** The response the AUDIT ROW names. Defaults to a freshly seeded one. */
+  responseId?: string;
+  reviewId?: string;
+  action: string;
+  createdAt: Date;
+}): Promise<DowngradeSeed> {
+  const business = input.business ?? businessId;
+  const reviewId = input.reviewId ?? (await seedReview(business));
+  const responseId = input.responseId ?? (await seedDraftResponse(business, reviewId));
+  const auditId = randomUUID();
+  await sql()`
+    INSERT INTO approval_audit_log (
+      id, response_id, business_id, account_id, action, auth_method, created_at
+    ) VALUES (
+      ${auditId}::uuid, ${responseId}::uuid, ${business}::uuid,
+      ${input.accountId ?? tenant!.accountId}::uuid, ${input.action}, 'auto_policy',
+      ${input.createdAt.toISOString()}::timestamptz
+    )
+  `;
+  return { auditId, reviewId, responseId };
+}
+
 function accountScope(): Parameters<typeof getRefusalLog>[1] {
   return { kind: 'account', accountId: tenant!.accountId };
 }
@@ -165,6 +297,11 @@ function locationScope(business = businessId): Parameters<typeof getRefusalLog>[
 /** Every entry id in the log, in returned order — what the ordering cases assert on. */
 function entryIds(log: RefusalLog): string[] {
   return log.categories.flatMap((group) => group.entries.map((entry) => entry.id));
+}
+
+/** Every entry in the log, flattened, for the per-entry shape assertions. */
+function allEntries(log: RefusalLog): RefusalEntry[] {
+  return log.categories.flatMap((group) => group.entries);
 }
 
 describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }, () => {
@@ -196,6 +333,11 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
       name: 'Refusal Log Sibling Location',
       isPrimary: false,
     });
+    await seedLocation(db, otherTenant.accountId, {
+      businessId: foreignBusinessId,
+      name: 'Refusal Log Foreign Location',
+      isPrimary: true,
+    });
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   beforeEach(() => {
@@ -210,6 +352,16 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
     await sql()`DELETE FROM solicitation_batches WHERE business_id = ANY(${businesses}::uuid[])`;
     await sql()`DELETE FROM solicitation_contacts WHERE business_id = ANY(${businesses}::uuid[])`;
     await sql()`DELETE FROM contact_csv_uploads WHERE business_id = ANY(${businesses}::uuid[])`;
+
+    // The review/response lanes, foreign location included: a cross-tenant case
+    // deliberately writes a row of ours pointing at the other account's data.
+    // Explicit deletes first, so a row whose OWN business is in scope but whose
+    // child hangs off another one still goes; `reviews` then cascades the rest.
+    const reviewLaneBusinesses = [businessId, siblingBusinessId, foreignBusinessId];
+    await sql()`DELETE FROM flagged_responses WHERE business_id = ANY(${reviewLaneBusinesses}::uuid[])`;
+    await sql()`DELETE FROM approval_audit_log WHERE business_id = ANY(${reviewLaneBusinesses}::uuid[])`;
+    await sql()`DELETE FROM responses WHERE business_id = ANY(${reviewLaneBusinesses}::uuid[])`;
+    await sql()`DELETE FROM reviews WHERE business_id = ANY(${reviewLaneBusinesses}::uuid[])`;
   });
 
   // Release in the reverse of acquisition order, and on every path: a
@@ -218,6 +370,7 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
   afterAll(async () => {
     try {
       if (db) {
+        await cleanupLocation(db, foreignBusinessId);
         await cleanupLocation(db, siblingBusinessId);
         await cleanupLocation(db, businessId);
         if (tenant) await cleanupTenantAccount(db, tenant);
@@ -230,11 +383,65 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
   }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
   describe('getRefusalLog tenant isolation', () => {
-    it.todo('getRefusalLog never returns a held-draft row from another account');
+    // S1 is deny-all RLS read through the RLS-bypassing `postgres` role, so
+    // these two cases ARE its access control (plan §7 risk 1, invariant #8).
+    it('getRefusalLog never returns a held-draft row from another account', async () => {
+      const mine = await seedHeldDraft({ createdAt: new Date(NOW.getTime() - DAY_MS) });
+      const foreign = await seedHeldDraft({
+        business: foreignBusinessId,
+        accountId: otherTenant!.accountId,
+        createdAt: new Date(NOW.getTime() - 2 * DAY_MS),
+      });
 
-    it.todo('getRefusalLog never returns a held-draft row from another location');
+      const log = await getRefusalLog(sql(), accountScope(), '30d');
+      expect(entryIds(log)).toEqual([mine.flagId]);
 
-    it.todo('getRefusalLog never returns a downgrade row from another account');
+      // The foreign hold really exists — the account scope excluded it, rather
+      // than the fixture never having written it.
+      const theirs = await getRefusalLog(
+        sql(),
+        { kind: 'account', accountId: otherTenant!.accountId },
+        '30d',
+      );
+      expect(entryIds(theirs)).toEqual([foreign.flagId]);
+    });
+
+    it('getRefusalLog never returns a held-draft row from another location', async () => {
+      const mine = await seedHeldDraft({ createdAt: new Date(NOW.getTime() - DAY_MS) });
+      const sibling = await seedHeldDraft({
+        business: siblingBusinessId,
+        createdAt: new Date(NOW.getTime() - 2 * DAY_MS),
+      });
+
+      const scoped = await getRefusalLog(sql(), locationScope(), '30d');
+      expect(entryIds(scoped)).toEqual([mine.flagId]);
+
+      const aggregate = await getRefusalLog(sql(), accountScope(), '30d');
+      expect(entryIds(aggregate)).toEqual([mine.flagId, sibling.flagId]);
+    });
+
+    it('getRefusalLog never returns a downgrade row from another account', async () => {
+      const mine = await seedDowngrade({
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - DAY_MS),
+      });
+      const foreign = await seedDowngrade({
+        business: foreignBusinessId,
+        accountId: otherTenant!.accountId,
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - 2 * DAY_MS),
+      });
+
+      const log = await getRefusalLog(sql(), accountScope(), '30d');
+      expect(entryIds(log)).toEqual([mine.auditId]);
+
+      const theirs = await getRefusalLog(
+        sql(),
+        { kind: 'account', accountId: otherTenant!.accountId },
+        '30d',
+      );
+      expect(entryIds(theirs)).toEqual([foreign.auditId]);
+    });
 
     it('getRefusalLog never returns a withheld ask from another location', async () => {
       const mine = await seedWithheldAsk({
@@ -264,9 +471,45 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
     // tenant-composite keys, so a scoped ROOT row can still reach a foreign
     // review/response through an unscoped JOIN. The predicate is repeated on the
     // join, not only on the root.
-    it.todo('getRefusalLog does not expose a foreign review through a cross-tenant flagged-response join');
+    it('getRefusalLog does not expose a foreign review through a cross-tenant flagged-response join', async () => {
+      const foreignReviewId = await seedReview(foreignBusinessId);
+      // Root row is PERFECTLY scoped — our account, our location — and still
+      // names a review under the other tenant. Only the join predicate can
+      // catch this; the WHERE clause never sees it.
+      const drifted = await seedHeldDraft({
+        flaggedReviewId: foreignReviewId,
+        createdAt: new Date(NOW.getTime() - DAY_MS),
+      });
+      const clean = await seedHeldDraft({ createdAt: new Date(NOW.getTime() - 2 * DAY_MS) });
 
-    it.todo('getRefusalLog does not expose a foreign response through a cross-tenant approval-audit join');
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      // The drifted row is dropped whole: no entry, and therefore no id the
+      // Restraint tab could resolve into a foreign review link.
+      expect(entryIds(log)).toEqual([clean.flagId]);
+      expect(JSON.stringify(log)).not.toContain(foreignReviewId);
+      expect(JSON.stringify(log)).not.toContain(drifted.flagId);
+    });
+
+    it('getRefusalLog does not expose a foreign response through a cross-tenant approval-audit join', async () => {
+      const foreignReviewId = await seedReview(foreignBusinessId);
+      const foreignResponseId = await seedDraftResponse(foreignBusinessId, foreignReviewId);
+      const drifted = await seedDowngrade({
+        responseId: foreignResponseId,
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - DAY_MS),
+      });
+      const clean = await seedDowngrade({
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - 2 * DAY_MS),
+      });
+
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      expect(entryIds(log)).toEqual([clean.auditId]);
+      expect(JSON.stringify(log)).not.toContain(foreignReviewId);
+      expect(JSON.stringify(log)).not.toContain(drifted.auditId);
+    });
   });
 
   describe('getRefusalLog account-wide sources', () => {
@@ -284,9 +527,93 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
   });
 
   describe('getRefusalLog source presence', () => {
-    it.todo('getRefusalLog includes a held draft as unsafe_content');
+    it('getRefusalLog includes a held draft as unsafe_content', async () => {
+      const createdAt = new Date(NOW.getTime() - 3 * DAY_MS);
+      const held = await seedHeldDraft({ createdAt });
 
-    it.todo('getRefusalLog includes an auto-policy downgrade with its mapped category');
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      expect(log).toEqual({
+        total: 1,
+        categories: [
+          {
+            // S1 has no code axis: the lane IS the fact, so the category is the
+            // fixed HELD_DRAFT_REFUSAL_CATEGORY rather than a lookup.
+            category: 'unsafe_content',
+            count: 1,
+            entries: [
+              {
+                id: held.flagId,
+                source: 'held_draft',
+                category: 'unsafe_content',
+                occurredAt: createdAt.toISOString(),
+                // S1 names the review the draft answers — the one link target
+                // the locked table gives this category.
+                reviewId: held.reviewId,
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    // Redaction is the whole security story for S1 (plan §7 risk 1). This is the
+    // read-layer half: the seeded moderation prose, draft body and review body
+    // are REAL values, so the assertion is that none of them survives the read.
+    // The three ROUTE cases (serialization, error path, logs) are T5's.
+    it('getRefusalLog returns no draft text or review text for a held draft', async () => {
+      await seedHeldDraft({ createdAt: new Date(NOW.getTime() - DAY_MS) });
+
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+      const serialized = JSON.stringify(log);
+
+      expect(serialized).not.toContain(FLAG_REASON);
+      expect(serialized).not.toContain(DRAFT_TEXT);
+      expect(serialized).not.toContain(REVIEW_TEXT);
+
+      // Positive half: the entry carries EXACTLY the five safe fields, so a
+      // later widening shows up here instead of hiding behind three `not`s.
+      const entries = allEntries(log);
+      expect(entries).toHaveLength(1);
+      expect(Object.keys(entries[0]!).sort()).toEqual([
+        'category',
+        'id',
+        'occurredAt',
+        'reviewId',
+        'source',
+      ]);
+    });
+
+    it('getRefusalLog includes an auto-policy downgrade with its mapped category', async () => {
+      const createdAt = new Date(NOW.getTime() - 3 * DAY_MS);
+      const revoked = await seedDowngrade({
+        // Stored as ONE action for both judge reasons — the collapse the
+        // action-keyed derivation exists to survive.
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt,
+      });
+
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      expect(log).toEqual({
+        total: 1,
+        categories: [
+          {
+            category: 'watchdog_unavailable',
+            count: 1,
+            entries: [
+              {
+                id: revoked.auditId,
+                source: 'auto_post_revoked',
+                category: 'watchdog_unavailable',
+                occurredAt: createdAt.toISOString(),
+                reviewId: revoked.reviewId,
+              },
+            ],
+          },
+        ],
+      });
+    });
 
     it.todo('getRefusalLog includes an autonomy suspension as autonomy_paused');
 
@@ -324,13 +651,71 @@ describeWithDb('getRefusalLog against live local Postgres', { timeout: 120_000 }
 
     it.todo('getRefusalLog includes a platform_halt batch as autonomy_paused');
 
-    it.todo('getRefusalLog returns two entries when one response is downgraded twice');
+    // Two acts of restraint on one draft are two refusals. Deduping to "one
+    // response" would under-report exactly the repeat behaviour the tab exists
+    // to make visible.
+    it('getRefusalLog returns two entries when one response is downgraded twice', async () => {
+      const reviewId = await seedReview(businessId);
+      const responseId = await seedDraftResponse(businessId, reviewId);
+      const older = await seedDowngrade({
+        responseId,
+        reviewId,
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - 3 * DAY_MS),
+      });
+      const newer = await seedDowngrade({
+        responseId,
+        reviewId,
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_JUDGE_UNAVAILABLE,
+        createdAt: new Date(NOW.getTime() - DAY_MS),
+      });
+
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      // Same lane, same action, same response — and still two rows, newest
+      // first. Nothing keys on the response, so nothing can collapse them.
+      expect(log.total).toBe(2);
+      expect(entryIds(log)).toEqual([newer.auditId, older.auditId]);
+      expect(allEntries(log).map((entry) => entry.reviewId)).toEqual([reviewId, reviewId]);
+      expect(log.categories.map((group) => group.category)).toEqual(['watchdog_unavailable']);
+    });
+
+    // A downgrade under a DIFFERENT action still maps, so the arm reads the
+    // whole five-action list rather than the one the fixtures above use.
+    it('getRefusalLog maps a policy-suspended downgrade to autonomy_paused', async () => {
+      const revoked = await seedDowngrade({
+        action: AUDIT_ACTION_AUTO_POLICY_REVOKED_POLICY_SUSPENDED,
+        createdAt: new Date(NOW.getTime() - DAY_MS),
+      });
+
+      const log = await getRefusalLog(sql(), locationScope(), '30d');
+
+      expect(log.categories.map((group) => group.category)).toEqual(['autonomy_paused']);
+      expect(entryIds(log)).toEqual([revoked.auditId]);
+    });
 
     // `unsuspendAccountAutonomy` clears both policy columns (suspension.ts:352-354),
     // so the durable trace is the audit row and a lifted suspension still appears.
     it.todo('getRefusalLog includes a suspension after the policy is later unsuspended');
 
-    it.todo('getRefusalLog drops a flagged response whose review row is gone');
+    // INNER JOIN, not LEFT: an entry whose review cannot be resolved would
+    // render a link to nothing. Note the schema makes this doubly enforced —
+    // `flagged_responses.review_id` is `ON DELETE CASCADE` (051:18), so a
+    // deleted review takes the flag row with it and a truly DANGLING review_id
+    // is unrepresentable. The join is the second lock, and the observable
+    // behaviour asserted here is the one the owner sees either way.
+    it('getRefusalLog drops a flagged response whose review row is gone', async () => {
+      const doomed = await seedHeldDraft({ createdAt: new Date(NOW.getTime() - DAY_MS) });
+      const kept = await seedHeldDraft({ createdAt: new Date(NOW.getTime() - 2 * DAY_MS) });
+
+      const before = await getRefusalLog(sql(), locationScope(), '30d');
+      expect(entryIds(before)).toEqual([doomed.flagId, kept.flagId]);
+
+      await sql()`DELETE FROM reviews WHERE id = ${doomed.reviewId}::uuid`;
+
+      const after = await getRefusalLog(sql(), locationScope(), '30d');
+      expect(entryIds(after)).toEqual([kept.flagId]);
+    });
 
     it('getRefusalLog returns an empty result for an account with no refusals', async () => {
       // A real, seeded account that simply refused nothing — not a bare unknown id.
