@@ -276,6 +276,75 @@ describe('ImportOfferBanner', () => {
     ).toBeInTheDocument();
   });
 
+  it('ImportOfferBanner retires the completion notice instead of leaving it on screen', async () => {
+    // The defect this pins: `completed_at` is permanent, so `imported` used to
+    // render on every dashboard load, forever. The notice is a notice — it says
+    // its piece and goes.
+    //
+    // This is the CLIENT half. The server half is `IMPORT_NOTICE_WINDOW_MS`,
+    // which stops the state being reported at all after a while; without both,
+    // either the banner sits there for the whole visit or it returns on every
+    // reload.
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([{ state: 'imported', count: 37 }]);
+      renderBanner();
+
+      await vi.waitFor(() =>
+        expect(
+          screen.getByText("Imported 37 reviews. They're in your reviews list.", {
+            selector: '.b-title',
+          }),
+        ).toBeInTheDocument(),
+      );
+
+      // Still there just before the visible window closes — the notice must
+      // actually be readable, not flash.
+      // Scoped to `.b-title` throughout: the message is deliberately in TWO
+      // places — the visible banner and BannerShell's live region — so an
+      // unscoped query matches both and cannot tell them apart.
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(
+        screen.queryByText(/Imported 37 reviews/, { selector: '.b-title' }),
+      ).not.toBeNull();
+
+      // Visible window (8s) plus the leave (320ms).
+      await vi.advanceTimersByTimeAsync(1500);
+      await vi.waitFor(() =>
+        expect(screen.queryByText(/Imported 37 reviews/, { selector: '.b-title' })).toBeNull(),
+      );
+      // The WHOLE banner goes, wrapper included — a surviving `section-enter`
+      // wrapper would leave an empty flex item that doubles the section gap,
+      // which is the trap this file's header calls out.
+      expect(document.querySelector('[aria-live]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ImportOfferBanner keeps the failed state on screen — a failure is not a notice', async () => {
+    // The counterpart to the title above, and the reason the retire is scoped to
+    // the two terminal SUCCESS states: an unresolved failure is something the
+    // owner may still need to act on, so it must not time out.
+    vi.useFakeTimers();
+    try {
+      mockGetSequence([{ state: 'failed' }]);
+      renderBanner();
+
+      await vi.waitFor(() =>
+        expect(
+          screen.queryByText(/couldn't finish importing your reviews/i, { selector: '.b-title' }),
+        ).not.toBeNull(),
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(
+        screen.queryByText(/couldn't finish importing your reviews/i, { selector: '.b-title' }),
+      ).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('ImportOfferBanner explains an expired offer instead of leaving the buttons live', async () => {
     // The late click is the ORDINARY case: expiry is derived and nothing fires at
     // the deadline (#670), so a banner rendered at T+6d59m is still on screen,

@@ -12,7 +12,7 @@ import {
 import type { OffboardingStatusView } from '@/components/dashboard/account-state/OffboardingStatusBanner';
 import { ACCOUNT_OFFBOARDING_STATUS_PATH } from '@/lib/shared/request-path-header';
 import { PendingPaymentScreen } from '@/components/dashboard/account-state/PendingPaymentScreen';
-import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { ImportOfferBanner } from '@/components/dashboard/account-state/ImportOfferBanner';
@@ -267,11 +267,13 @@ function DashboardOperationalContent() {
     <>
       <TopBar title={timeGreeting()} subtitle={subtitle} showLive refresh={refresh} />
       <div className="content content--dash">
-        {activeData.trialEndsAt && (
-          <div className="section-enter section-enter-1">
-            <TrialBanner trialEndsAt={activeData.trialEndsAt} />
-          </div>
-        )}
+        {/* The trial notice is NOT here (owner decision, 2026-08-29). It is a
+            billing fact — days left, the charge date, how to manage it — and its
+            own copy pointed at /settings/billing, so it now renders there, on the
+            page that answers for it. This overview answers "how is my reputation
+            doing"; a subscription countdown is not that question. `PastDueBanner`
+            stays because a past-due account is read-only and that DOES change
+            what this screen can do. */}
         {pastDueData && (
           <div className="section-enter section-enter-1">
             <PastDueBanner

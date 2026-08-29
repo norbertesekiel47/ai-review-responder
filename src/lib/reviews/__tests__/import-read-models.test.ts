@@ -1,7 +1,7 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { describe, expect, it, vi } from 'vitest';
 import { recordImportDecisionAndEnqueue } from '../import-consent';
-import { readImportOfferView } from '../import-offer-view';
+import { IMPORT_NOTICE_WINDOW_MS, readImportOfferView } from '../import-offer-view';
 
 type ConsentRow = {
   state: 'pending' | 'accepted' | 'declined' | 'expired';
@@ -77,17 +77,47 @@ describe('readImportOfferView', () => {
     });
   });
 
+  // RELATIVE, not a fixed literal. The view now expires the completion notice
+  // `IMPORT_NOTICE_WINDOW_MS` after the run finished, so a hard-coded date walks
+  // out of the window as the calendar moves and the suite rots.
   it.each([
     [0, { state: 'empty' }],
     [7, { state: 'imported', count: 7 }],
-  ] as const)('maps a completed run with count %i', async (count, expected) => {
+  ] as const)('maps a recently completed run with count %i', async (count, expected) => {
     const db = viewSql({
       ...accepted,
-      run_completed_at: new Date('2026-08-13T12:00:00.000Z'),
+      run_completed_at: new Date(Date.now() - 60_000),
       imported_count: count,
     });
     await expect(readImportOfferView(db, 'business-1', 'account-1')).resolves.toEqual(expected);
   });
+
+  // The boundary, both sides, cheaply. `completed_at` is permanent — without the
+  // window the view reported `imported` on every dashboard load forever, which is
+  // the defect that made the banner furniture. Both terminal SUCCESS outcomes
+  // expire on the same clock.
+  it.each([7, 0] as const)(
+    'stops reporting a run completed past the notice window (count %i)',
+    async (count) => {
+      const stale = viewSql({
+        ...accepted,
+        run_completed_at: new Date(Date.now() - IMPORT_NOTICE_WINDOW_MS - 60_000),
+        imported_count: count,
+      });
+      await expect(readImportOfferView(stale, 'business-1', 'account-1')).resolves.toEqual({
+        state: 'none',
+      });
+
+      const fresh = viewSql({
+        ...accepted,
+        run_completed_at: new Date(Date.now() - IMPORT_NOTICE_WINDOW_MS + 60_000),
+        imported_count: count,
+      });
+      await expect(readImportOfferView(fresh, 'business-1', 'account-1')).resolves.not.toEqual({
+        state: 'none',
+      });
+    },
+  );
 });
 
 describe('recordImportDecisionAndEnqueue rejection classification', () => {

@@ -1199,6 +1199,18 @@
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* A banner that is a NOTICE rather than a state retires itself — the import
+   completion notice is the only one today. It leaves the way it arrived, so the
+   pair reads as one gesture. Under `prefers-reduced-motion` the block near the
+   foot of this file already resolves `.banner` to `animation: none`, and it is
+   LATER in the file at equal specificity, so it wins here too; the component's
+   second timer unmounts the banner regardless, which is what makes suppressing
+   the motion safe rather than sticky. */
+.banner--leaving { animation: rw-notice-out 320ms var(--rw-ease) both; }
+@keyframes rw-notice-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-6px); }
+}
 .banner-attn { border-color: var(--rw-attn-border); background: var(--rw-attn-bg); }
 .banner-blue { border-color: var(--rw-info-border); background: var(--rw-info-bg); }
 .banner .b-title { font-weight: 600; color: var(--rw-attn-fg); font-size: 14px; }

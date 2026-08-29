@@ -214,8 +214,15 @@ describe('TrialBanner', () => {
 
     expect(screen.getByText(/days left in your free trial/)).toBeDefined();
     expect(screen.getByText(/charged automatically on/)).toBeDefined();
-    const manageLink = screen.getByRole('link', { name: /Manage billing/ });
-    expect(manageLink.getAttribute('href')).toBe('/settings/billing');
+  });
+
+  // The banner renders on /settings/billing and nowhere else (owner decision,
+  // 2026-08-29), so a "Manage billing" link would point at the page it is on.
+  // This asserts the ABSENCE deliberately: re-adding the link is the regression.
+  it('carries no link, because it renders on the billing page itself', () => {
+    const fiveDaysOut = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    render(<TrialBanner trialEndsAt={fiveDaysOut} />);
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('handles a same-day trial end without negative days', () => {

@@ -167,6 +167,32 @@ describeWithDb('readImportOfferView against live Postgres', { timeout: 30_000 },
     expect(await view()).toEqual({ state: 'imported', count: 1 });
   });
 
+  it('readImportOfferView stops reporting a completed import once the notice window closes', async () => {
+    // The banner is a NOTICE, not a state, and `completed_at` is permanent — so
+    // without a window the view reported `imported` on every dashboard load
+    // forever and the banner became furniture. Both terminal SUCCESS outcomes
+    // expire; `failed` deliberately does not (it is reached on the outbox branch,
+    // which only runs when no completed run exists).
+    await setConsent('accepted', null);
+    await seedRun({ completedAtSql: `now() - interval '31 minutes'`, importedCount: 12 });
+
+    expect(await view()).toEqual({ state: 'none' });
+
+    // Inside the window the same row still reports the notice — which is what
+    // makes "once it closes" a real boundary rather than a blanket suppression.
+    await sql()`DELETE FROM zernio_backfill_runs WHERE business_id = ${businessId}::uuid`;
+    await seedRun({ completedAtSql: `now() - interval '29 minutes'`, importedCount: 12 });
+
+    expect(await view()).toEqual({ state: 'imported', count: 12 });
+
+    // `empty` expires on the same clock — "nothing to import" is equally a
+    // one-time notice, not a standing fact about the location.
+    await sql()`DELETE FROM zernio_backfill_runs WHERE business_id = ${businessId}::uuid`;
+    await seedRun({ completedAtSql: `now() - interval '31 minutes'`, importedCount: 0 });
+
+    expect(await view()).toEqual({ state: 'none' });
+  });
+
   it('readImportOfferView reports failed for a terminal non-completed outbox row', async () => {
     await setConsent('accepted', null);
     await seedOutbox('failed');
@@ -194,10 +220,16 @@ describeWithDb('readImportOfferView against live Postgres', { timeout: 30_000 },
     // would flip this banner back to "importing" every time an archived location
     // was reactivated, long after the one-time import finished. The view therefore
     // scopes run rows to `run_reason = 'initial'`.
+    // Ten minutes, not thirty days. This title is about ROW SELECTION — the
+    // initial run beating a newer reactivation run — and the reactivation row
+    // below is created `now()`, so ten minutes is already older and proves the
+    // same thing. Thirty days would additionally fall outside
+    // `IMPORT_NOTICE_WINDOW_MS` and make this assert the window instead, which
+    // its own title covers.
     await seedRun({
-      completedAtSql: "now() - interval '30 days'",
+      completedAtSql: "now() - interval '10 minutes'",
       importedCount: 99,
-      createdAtSql: "now() - interval '30 days'",
+      createdAtSql: "now() - interval '10 minutes'",
       runReason: 'initial',
     });
     await seedRun({

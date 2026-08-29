@@ -355,6 +355,21 @@ row each:
 - The recap's chart is flush with its card's right padding, so the column gap
   between the sentence and the chart reads as one gap rather than a hollow middle.
 
+*Notices, amended 2026-08-29 (owner-approved).* Two banners left the overview,
+for the same reason in two different shapes:
+
+- **The trial countdown moved to `/settings/billing`.** Days left, the charge
+  date and how to manage the subscription are billing facts, and the banner's own
+  copy already linked to that page — so it now renders there and carries no link,
+  because a banner may not link to the page it is on. `PastDueBanner` stays on the
+  overview: a past-due account is read-only, which changes what that screen can do.
+- **The import completion notice retires itself.** It is a NOTICE, not a state,
+  and `completed_at` is permanent — so it used to render on every dashboard load
+  forever. Two halves, and both are needed: `IMPORT_NOTICE_WINDOW_MS` stops the
+  server reporting it across loads, and an on-screen timer retires it within one.
+  `failed` is deliberately exempt from both — an unresolved failure is a state the
+  owner may still need to act on.
+
 ## Components
 
 Component primitives live in the app's existing CSS files (`_styles/console.css`,
