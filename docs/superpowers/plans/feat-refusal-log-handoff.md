@@ -35,15 +35,15 @@ Base: `75a1f436`, parent `5ab6bfee` (squash merge of #993). Enforcement ARMED.
 
 | Task | State | Notes |
 |---|---|---|
-| T0 eval | **DONE** `508b8a76` | 73 titles, 3 failed / 70 todo / 0 passed. Spot check PASSED. |
-| T1 vocabulary | **IN FLIGHT** | `vocabulary.ts`, `CONTEXT.md` 4 terms, D7 title delta, greens `vocabulary.test.ts`. |
-| T2 scope rename + S5 arm | blocked on T1 | |
-| T3 S1 + S3 arms | blocked on T2 | |
-| T4 S4 + S6 + S7 arms | blocked on T3 (same file) | |
-| T5 route | blocked on T4 | |
-| T6 tab bar + route shell | blocked on T0 only; may run parallel with T3 | Page shell renders the LOADING branch only — it must import neither T5 nor T7, or its T0-only edge is false. Invoke `repworth-brand-design` (Console) first. |
-| T7 Restraint screen | blocked on T1, T5, T6 | |
-| T8 docs sweep | blocked on T7 | `docs/directory.md` rows + ADR **0023**. |
+| T0 eval | **DONE** `508b8a76` | 73 titles, 3 failed / 70 todo / 0 passed. First-task spot check PASSED — the guard binds for subagent tool calls. |
+| T1 vocabulary | **DONE** `10723248` | 42 codes: 25 → a category, 17 → explicit `null`. 4 maps `satisfies`-guarded, 2 test-guarded against the migration 111 CHECK. `vocabulary.test.ts` 11/11. |
+| T6 tab bar + route shell | **DONE** `4879306a` | Ran parallel with T2. 15 tests pass. Page shell imports neither T5 nor T7 — verified, which is what made the parallel dispatch sound. |
+| T2 scope rename + S5 arm | **DONE** `b9eb3f53` | Rename: 2 refs, no alias. 22 passed / 31 todo / **0 skipped** on the live DB. |
+| T3 S1 + S3 arms | **IN FLIGHT** | Also fixes the §A gap: the S3 map is keyed by reason (6) but the DB stores audit actions (5) — see D11. |
+| T4 S4 + S6 + S7 arms | blocked on T3 (same file) | S4 must NOT join `businesses`. S6 anchor is reason-dependent (D7). |
+| T5 route | blocked on T4 | Owns the 3 route redaction titles (D6c), not T3. Clears the LAST surface entry. |
+| T7 Restraint screen | blocked on T5, T6 | `{ kind: 'review' }` is CONDITIONAL — `unsafe_content` is fed by S1 (has a review) and S6 `moderation_high` (has none). Category and source are not 1:1. Owner's rule: before/after screenshots at 390px and 1440px. |
+| T8 docs sweep | blocked on T7 | **Mostly done early**: ADR 0023 written (`f0eba903`), both `docs/directory.md` rows landed. Only the residual sweep remains. |
 
 ## Budgets
 
@@ -54,10 +54,15 @@ Base: `75a1f436`, parent `5ab6bfee` (squash merge of #993). Enforcement ARMED.
 
 ## Known gate condition — do not "fix" it
 
-`feature-surface` FAILS until every surface entry matches a real file. After T0
-six remain: `vocabulary.ts` (T1), `read.ts` (T2), the route (T5), `page.tsx`,
-`restraint.css`, `AnalyticsTabs.tsx` (T6). It is a push-time audit and its own
-message names the pre-implementation case.
+`feature-surface` FAILS until every surface entry matches a real file. **One
+entry remains: `src/app/api/dashboard/refusals/route.ts` (T5).** It is a
+push-time audit and its own message names the pre-implementation case. The gate
+can go green as soon as T5 lands.
+
+`ci:directory-map` goes red the moment a new `src/lib/**` file appears without
+its row. Both refusals rows are already in, so add a row in the SAME change as
+any further file there — a row whose file is absent fails the same audit, so
+rows cannot be pre-written.
 
 **Do NOT narrow the surface to force it green** — that spends the second
 amendment on bookkeeping and trips the abort criteria. Every other check
