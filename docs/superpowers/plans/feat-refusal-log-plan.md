@@ -1,7 +1,13 @@
-# Refusal Log — implementation plan
+# Refusal Log — implementation plan (rev 2)
 
 Branch: `feat/refusal-log` · Intake: `docs/superpowers/plans/feat-refusal-log-intake.json`
-Base: `main` @ `75a1f436` · RISK = high · SURFACE = mixed · `db_touching: false`
+Worktree base: `75a1f436` (parent `5ab6bfee`, the squash merge of #993) · RISK = high · SURFACE = mixed · `db_touching: false`
+
+**rev 2** folds plan-review round 1 (`docs/reviews/feat-refusal-log/plan-review-r1.md`,
+VERDICT: REVISE, 24 findings). Changes: `judge_verdicts` dropped, autonomy
+suspension re-sourced, S6 timestamp corrected, S7 added, six queries collapsed
+to one `UNION ALL`, ADR renumbered 0023, eval grown 32 → 65 titles. Deviations:
+`docs/superpowers/plans/feat-refusal-log-deviations.md` D1–D5.
 
 ## 1. What this builds
 
@@ -9,33 +15,63 @@ One closed refusal vocabulary over reasons RepWorth **already records**, one
 tenant-scoped owner-safe read, and one Restraint tab at
 `/dashboard/analytics/restraint`.
 
-No migration. Migration 116 stays unused. Every reason below is already
-persisted with `account_id` and a location key.
+No migration. Migration 116 stays unused.
 
-## 2. Verified source inventory (HEAD `2f4497a9`)
+## 2. Verified source inventory
 
-| Source | Table | Location key | Timestamp | Owner-safe today |
-|---|---|---|---|---|
-| S1 Held draft | `flagged_responses` (051) | `business_id` | `created_at` | No — deny-all RLS |
-| S2 Judge verdict | `judge_verdicts` (076) | `business_id` | `created_at` | No — deny-all RLS |
-| S3 Auto-post revoked | `approval_audit_log` (001/034) | `business_id` | `created_at` | Yes (RLS 035 §1f), never rendered |
-| S4 Autonomy suspended | `auto_approval_policies` (055/074) | `location_id` (NULL = account default) | `suspended_at` | Yes, on `/settings/auto-approval` |
-| S5 Ask withheld at build | `solicitation_asks` (088) | `business_id` | `decided_at` | Yes, on `/dashboard/requests` |
-| S6 Outreach withheld at send | `solicitation_outreach` (091/110/111) | `business_id` | `rendered_at` | Partly |
+| Source | Table | Account key | Location key | Timestamp | Owner-safe today |
+|---|---|---|---|---|---|
+| S1 Held draft | `flagged_responses` (051) | `account_id` | `business_id` | `created_at` | No — deny-all RLS |
+| S3 Auto-post revoked | `approval_audit_log` (001 → 002 → 034) | `account_id` | `business_id` | `created_at` | Yes (RLS 035 §1f), never rendered |
+| S4 Autonomy suspended | `account_audit_log` (034), `event_type='autonomy_suspended'` | `account_id` | none — account-wide | `created_at` | Yes (RLS 035 §1g), never rendered |
+| S5 Ask withheld at build | `solicitation_asks` (088) | `account_id` | `business_id` | `decided_at` | Yes, on `/dashboard/requests` |
+| S6 Outreach withheld at send | `solicitation_outreach` (091 → 110 → 111) | `account_id` | `business_id` | `updated_at` | Partly |
+| S7 Batch halted by us | `solicitation_batches` (088 → 091 → 111) | `account_id` | `business_id` | `halted_at` | Partly |
 
-S6 has **no disposition timestamp**. A withheld row was rendered and then
-withheld, so `rendered_at` is the anchor. Pin this; do not invent a column.
+Only S1 is deny-all. Everything else already has an owner SELECT policy or an
+owner surface — the work there is rendering, not access.
 
-`solicitation_batches.halt_reason` contributes only `admin_halt` and
-`platform_halt` (S4's category). The four owner/expiry reasons are excluded.
+### Three corrections that rev 1 got wrong
+
+**`judge_verdicts` is NOT a source.** The judge runs on already-posted replies:
+`src/lib/responses/judge-policy.ts:9`, `src/lib/responses/judge-store.ts:115`
+(`WHERE r.status = 'posted'`), `worker/jobs/judge/context.ts:65`. A verdict is
+a post-publication observation. Counting it as a refusal would be false and
+would double-count the autonomy suspension a flag triggers.
+
+**S4 is `account_audit_log`, not `auto_approval_policies`.**
+`unsuspendAccountAutonomy` sets `suspended_at = NULL, suspended_reason = NULL`
+(`src/lib/auto-approval/suspension.ts:352-354`), so a lifted suspension leaves
+no trace on the policy row. `suspendAccountAutonomy` writes a durable audit row
+carrying the `AutonomySuspensionTrigger` in `payload`
+(`suspension.ts:309-313`). `suspended_reason` is owner-facing prose the
+codebase deliberately does not machine-parse; the trigger enum is the machine
+fact.
+
+**S6 anchors on `updated_at`.** `commitWithhold`
+(`src/lib/solicitation/dispatch.ts:1371-1379`) writes
+`delivery_status='withheld', disposition_reason=…, updated_at = NOW()`.
+`rendered_at` predates the refusal and is not its time.
+
+### The gap this feature cannot close
+
+`AutoApprovalBlockReason` — 22 members at
+`worker/jobs/response-generation/auto-approval.ts:37` — is the per-review answer
+to "we drafted a reply and did not auto-post it, why". `persist.ts:570-576`
+emits it through `logger.log` only. The `policy_gate` run-spine step records
+`decision: 'held_for_owner'` and no reason.
+
+So the Refusal Log reports **that** a draft was held for the owner, never
+**why**. This is likely the highest-volume refusal in the system. Closing it
+needs a capture change, which the intake excludes. ADR 0023 and `CONTEXT.md`
+own this statement — it must be written down, not left implicit.
 
 ## 3. Vocabulary — the whole decision
 
-Two axes, per the locked design review.
+Two axes.
 
-**Axis A — `RefusalCategory`.** Closed, 7 members, precedence order. This is
-what the owner reads. Modelled on `WITHHOLD_REASONS`
-(`src/lib/solicitation/restraint-policy.ts:45`).
+**Axis A — `RefusalCategory`.** Closed, 7 members, precedence order. Modelled on
+`WITHHOLD_REASONS` (`src/lib/solicitation/restraint-policy.ts:45`).
 
 ```ts
 export const REFUSAL_CATEGORIES = [
@@ -49,133 +85,139 @@ export const REFUSAL_CATEGORIES = [
 ] as const;
 ```
 
-**Axis B — `RefusalSource`.** The lane plus the verbatim source code. For S1
-and S2 the code stays server-side and never enters a returned object.
+Feeders after the corrections:
 
-**Exhaustiveness is the enforcement.** Every existing enum maps in under
-`satisfies Record<SourceEnum, RefusalCategory | null>`, so adding a member to
-`WITHHOLD_REASONS`, `AutoPolicyDowngradeReason`, `JUDGE_REASON_CATEGORIES`,
-`AutonomySuspensionTrigger`, or the outreach disposition list breaks the build
-until it is mapped. `null` is the explicit "not a refusal" value — it is a
-mapping decision, not an omission.
+| Category | Source codes |
+|---|---|
+| `unsafe_content` | S1 (high severity), S6 `moderation_high` |
+| `watchdog_unavailable` | S3 `judge_disabled`, `judge_unhealthy`, `notice_undelivered` |
+| `below_our_bar` | S6 `render_failed`, `lint_failed` |
+| `no_permission` | S5 `no_consent`, `suppressed`; S6 `no_consent`, `suppressed`, `unsubscribed` |
+| `wrong_moment` | S5 `already_reviewed`, `stale_visit`, `over_contacted` |
+| `autonomy_paused` | S3 `auto_approval_disabled`, `autopilot_entitlement_lost`, `policy_suspended`; S4 all 4 triggers; S7 `admin_halt`, `platform_halt` |
+| `missing_information` | S6 `no_postal_address`, `postal_address_mismatch` |
 
-Excluded, each mapped to `null` with a one-line reason:
-`velocity_banked` (volume shaping — `BatchReport.tsx:27`), the four owner acts,
-the four delivery failures, judge verdict `error`.
+**Axis B — `RefusalSource`.** The lane plus the verbatim source code. For S1 the
+code stays server-side.
+
+**Exhaustiveness.** Every source enum maps under
+`satisfies Record<SourceEnum, RefusalCategory | null>`. `null` is the explicit
+decision "not a refusal", never an omission. That mechanism covers
+`WithholdReason`, `AutoPolicyDowngradeReason`, `AutonomySuspensionTrigger` and
+the batch halt list. **It does not cover S6**: the authoritative withheld
+vocabulary lives only in the migration 111 CHECK (`111:92-96`) and is
+fragmented across partial TypeScript unions. S6's map is guarded by a test that
+parses that CHECK instead.
+
+Mapped to `null`: `velocity_banked`; the four owner acts; the four delivery
+failures; `superseded`; `send_indeterminate`.
 
 ## 4. Modules and seams
 
 | Module | Interface | Deep? |
 |---|---|---|
-| `src/lib/refusals/vocabulary.ts` (NEW) | one enum, one lookup, one label map | Yes — ~30 source codes behind one enum |
-| `src/lib/refusals/read.ts` (NEW) | `getRefusalLog(sql, scope, window)` | Yes — 6 queries, 2 scope modes, redaction, exclusions behind 3 params |
+| `src/lib/refusals/vocabulary.ts` (NEW) | one enum, one lookup, one label map | Yes — ~30 codes behind one enum |
+| `src/lib/refusals/read.ts` (NEW) | `getRefusalLog(sql, scope, window)` | Yes — one `UNION ALL`, 2 scope modes, redaction, exclusions behind 3 params |
 | `src/app/api/dashboard/refusals/route.ts` (NEW) | HTTP GET | Orchestration only (#12) |
 | `src/components/dashboard/restraint/` (NEW) | one `RefusalLog` prop | Pure presentation, like `BatchReport` |
 
-**No interface widens.** One rename: `AgentTeamScope` → `DashboardReadScope`
-(`src/lib/agents/read.ts:194,426` — two references, both in that file, no
-external caller). Both owner reads then share one scope vocabulary instead of
-growing a second. `getRefusalLog` takes the same `(sql, scope, window)` shape
-as `getAgentTeamSummary`, so a caller who knows one knows the other.
+**One `UNION ALL`, not six queries** (review finding 24). One arm per accepted
+source projecting the same safe column set, one final sort, one place the
+tenant predicates live. Simpler and safer than six independently scoped reads.
 
-**Deletion test.** Delete `vocabulary.ts` and the mapping reappears in the read
-module, the screen, and every test. It earns its keep.
+**No interface widens.** One rename: `AgentTeamScope` → `DashboardReadScope`
+(`src/lib/agents/read.ts:194,426` — two references, both in that file). Both
+owner reads then share one scope vocabulary instead of growing a second.
 
 ## 5. Precedents to follow
 
-- `src/lib/agents/read.ts:424-451` `getAgentTeamSummary` — scope discriminant, window handling, aggregate/location branch. Copy this shape.
-- `src/app/api/dashboard/agent-team/route.ts` — `withDashboardOwnerRead`, `resolveDashboardRequest`, `resolveDashboardLocation`. Copy this route almost verbatim.
-- `src/components/dashboard/timeline/step-facts.ts` — owner-safe projection by per-key allowlist with a closed `allowed` set. This is the redaction pattern.
-- `src/app/(authenticated)/dashboard/requests/BatchReport.tsx:29-38` — `REASON_META` keyed `Record<ClosedEnum, Meta>`. This is the label pattern.
-- `src/components/dashboard/reviews/ReviewsTabs.tsx` — routed tabs, plain `Link`, each route owns its data.
+- `src/lib/agents/read.ts:424-451` `getAgentTeamSummary` — scope discriminant, window handling, aggregate/location branch.
+- `src/app/api/dashboard/agent-team/route.ts` — `withDashboardOwnerRead`, `resolveDashboardRequest`, `resolveDashboardLocation`. Copy almost verbatim.
+- `src/components/dashboard/timeline/step-facts.ts` — owner-safe projection by per-key allowlist with a closed `allowed` set.
+- `src/app/(authenticated)/dashboard/requests/BatchReport.tsx:29-38` — `REASON_META` keyed `Record<ClosedEnum, Meta>`.
+- `src/components/dashboard/reviews/ReviewsTabs.tsx` — routed tabs, plain `Link`.
 - `src/lib/kpi/types.ts` — `DASHBOARD_WINDOWS`, `dashboardWindowParams`.
 - `src/app/(authenticated)/dashboard/requests/requests.css` — colocated route stylesheet.
 
 ## 6. Tasks (tracer bullets)
 
-Each task is a vertical slice. Each names the failing tests it turns green.
-Blocking edges are listed; unlisted tasks are independent.
-
 ### T0 — Eval task (runs alone, first)
-Author all 32 `tests_to_add` titles from the intake as **failing** tests.
-Slices not yet buildable use `.todo`. No implementation.
-Files: `src/lib/refusals/__tests__/`, `src/app/api/dashboard/__tests__/`,
-`src/components/dashboard/restraint/__tests__/`,
-`src/components/dashboard/analytics/__tests__/`.
+Author all 65 `tests_to_add` titles as **failing** tests. Slices not yet
+buildable use `.todo`. No implementation.
 Blocks: everything.
 
 ### T1 — Vocabulary (runs alone)
-Build `src/lib/refusals/vocabulary.ts`. Add the four LOCKED terms to
-`CONTEXT.md`: **Refusal**, **Refusal category**, **Refusal source**,
-**Restraint tab**.
-Green: the 8 vocabulary tests (5 exhaustiveness, exclusions absent, precedence
-order, label + link coverage).
-Blocks: T2, T3, T4, T7. Edges: T0.
+`src/lib/refusals/vocabulary.ts`. Add four LOCKED terms to `CONTEXT.md`:
+**Refusal**, **Refusal category**, **Refusal source**, **Restraint tab** — and
+state the `AutoApprovalBlockReason` limit under **Refusal**.
+Green: the 10 vocabulary tests.
+Edges: T0. Blocks: T2, T3, T4, T7.
 
-### T2 — Scope rename + first source, end to end
-Rename `AgentTeamScope` → `DashboardReadScope` (2 edits in
-`src/lib/agents/read.ts`). Add `src/lib/refusals/read.ts` with `getRefusalLog`
-covering **S5 only** (`solicitation_asks`) in both scope modes.
-Green: the 4 tenant-scoping tests, the empty-result test, the window-boundary
-test, the `velocity_banked` exclusion test.
+### T2 — Scope rename + first UNION arm
+Rename `AgentTeamScope` → `DashboardReadScope`. Add `src/lib/refusals/read.ts`
+with the `UNION ALL` skeleton carrying **S5 only**, both scope modes.
+Green: the S5 scoping tests, empty result, ordering, the three window-boundary
+tests, `velocity_banked` exclusion, the two invariant tests (#12/#15).
 Edges: T0, T1.
 
-### T3 — The four hidden sources
-Add S1, S2, S3, S4 to `getRefusalLog`. S1/S2 select **no** reason text column.
-S4 in location scope must include the account-default row (`location_id IS
-NULL`) as well as the location override — a suspended account default applies
-to every location.
-Green: the 2 redaction tests, the judge-`error` exclusion, the owner-halt and
-delivery-failure exclusions, the dropped-review test, the JSONB-string parse
-test, the double-downgrade test.
+### T3 — The two hidden and audit sources
+Add S1 and S3 arms. S1 selects **no** `reason` column and joins `reviews` with
+the tenant predicate repeated on the join, not only on the root row — both
+tables carry independent FKs (051:15), so a scoped root can still reach a
+foreign review.
+Green: the 5 redaction tests, the 2 cross-tenant join tests, per-source tenant
+tests, held-draft and downgrade presence, dropped-review, double-downgrade.
 Edges: T2.
 
-### T4 — Outreach dispositions
-Add S6, anchored on `rendered_at`, withheld arm only.
-Green: the `missing_information` mapping test.
+### T4 — The three account and solicitation sources
+Add S4 (account-wide, appears in every location scope), S6 (anchored on
+`updated_at`) and S7 arms.
+Green: the 2 S4 scope tests, the lifted-suspension test, the S6 anchor test,
+presence tests for S4/S6/S7, the 3 exclusion-set tests, the migration-111
+exhaustiveness test.
 Edges: T3 (same file).
 
 ### T5 — The route
 `src/app/api/dashboard/refusals/route.ts`, copied from `agent-team/route.ts`.
-Green: the 3 route tests (unauthenticated, foreign location, window clamp).
+Green: the 5 route tests, including the impersonation test.
 Edges: T4.
 
 ### T6 — Tab bar and route shell *(may run parallel with T3)*
 **Invoke the `repworth-brand-design` skill first — Console system.**
-`src/components/dashboard/analytics/AnalyticsTabs.tsx`, mounted in
-`AnalyticsAggregateView` and `AnalyticsPerLocationView` with a literal `active`
-prop. New route `src/app/(authenticated)/dashboard/analytics/restraint/page.tsx`.
+`AnalyticsTabs.tsx`, mounted in both analytics views with a literal `active`
+prop. New route `…/analytics/restraint/page.tsx`.
+**Constraint (review finding 23): the page shell renders the loading branch
+only.** It must import neither T5 nor T7, or the T0-only edge is false.
 Green: the tab-bar current-route test.
 Edges: T0. Disjoint files from T3.
 
 ### T7 — The Restraint screen
 `src/components/dashboard/restraint/` + `restraint.css`. Fed by one
-`RefusalLog` object so the total and the breakdown cannot disagree. Links only,
-no writes: held draft → the review; autonomy paused → `/settings/auto-approval`;
-no permission → contacts. No link for the other four categories.
-Green: the 6 screen tests.
+`RefusalLog` object so the total and the breakdown cannot disagree.
+Green: the 12 screen and page tests.
 Edges: T1, T5, T6.
 
 ### T8 — Docs sweep
-`docs/directory.md` rows for the two new `src/lib/refusals/` files
-(`ci:directory-map` fails without them). ADR
-`docs/adr/0022-refusal-log-owner-safe-projection.md` recording the
-do-not-widen-RLS decision and the two-axis vocabulary.
+`docs/directory.md` rows for both new `src/lib/refusals/` files. ADR
+`docs/adr/0023-refusal-log-owner-safe-projection.md` recording: the
+do-not-widen-RLS decision, the two-axis vocabulary, why `judge_verdicts` is not
+a refusal, and the `AutoApprovalBlockReason` limit.
 Edges: T7.
 
 ## 7. Risks
 
-1. **Redaction is the whole security story.** S1 and S2 are deny-all RLS and are
-   read through the RLS-bypassing `postgres` role. Application scoping is the
-   only guard (#8). T3's two redaction tests must assert the **absence** of the
-   columns in the returned object, not merely that a label looks right.
-2. **S4 has no history.** `suspended_at` is one mutable column. The screen must
-   not imply an event log. State the limit in the ADR.
-3. **Six queries per request.** `ci:pool-fanout` fails a `Promise` combinator
-   over ≥2 DB-issuing elements in `src/lib/{admin,dashboard,locations}`.
-   `src/lib/refusals/` is not in that list, but issue the six queries
-   **sequentially** anyway — the rule's reason (pool admission, #773) applies
-   regardless of the path it audits.
-4. **Diff-coverage gate.** `--review` enforces 80% on changed lines. The
-   category-to-label maps are data, not branches; keep them out of the
-   uncovered-line count by exercising every category in the label test.
+1. **Redaction is the whole security story for S1.** It is deny-all RLS, read
+   through the RLS-bypassing `postgres` role; application scoping is the only
+   guard (#8). The five redaction tests assert the **absence** of the column
+   from the SQL, from the response at any depth, from the error path, and from
+   the logs — not merely that a label looks right.
+2. **Every join is scoped on both sides.** S1 and S3 carry independent FKs, not
+   tenant-composite keys.
+3. **S4 has no location key.** An account-wide suspension appears in every
+   location scope. That is correct, and the eval pins it so a later
+   "optimisation" cannot quietly drop it.
+4. **The log under-reports the reply lane.** See §2's gap. State it, do not
+   paper over it.
+5. **Diff-coverage gate.** `--review` enforces 80% on changed lines. The
+   category maps are data, not branches; the label test exercises every
+   category.
