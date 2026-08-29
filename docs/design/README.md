@@ -41,7 +41,7 @@ the amber/orange/stone ban locked by `console-admin-palette.test.ts`.
    the dashboard, decided only by CSS load order. `globals.css` loads on every route, so
    the other two systems inherit it by fall-through — they override, they do not restate.
    **An override belongs inside the scope** (`.rw-console` / `.rw-lp`), or on the scoped
-   element itself: the Console's Young Serif and DM Sans are `localFont` variables bound
+   element itself: the Console's Gabarito and Figtree are `localFont` variables bound
    on the `.rw-console` div, and its system-mono stack is a `.rw-console` rule in
    `console.css`. A second `:root` declaration is never the mechanism.
    `:root` belongs to the Island alone — the Console declares its whole palette on
@@ -50,7 +50,7 @@ the amber/orange/stone ban locked by `console-admin-palette.test.ts`.
    page. That scoping has a typographic consequence worth knowing: a `var()` inside a
    custom property is substituted where the property is **declared**, so the Console's
    composite `font:` roles pick up the `localFont` display family from the element they
-   are declared on — `font: var(--rw-app-h1)` alone renders Young Serif inside the scope.
+   are declared on — `font: var(--rw-app-h1)` alone renders Gabarito inside the scope.
 3. **The two teals.** The decorative Island teal fails WCAG AA for text. For links, button
    fills, and any text use the actionable teal token, which passes AA on white and cream
    (and neither on sage or teal — use ink there). Rationale:

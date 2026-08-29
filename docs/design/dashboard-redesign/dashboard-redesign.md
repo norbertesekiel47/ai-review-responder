@@ -764,58 +764,94 @@ The practical sequence:
 Use this as a pass over any dashboard screen. Group A is correctness. Group B is whether
 anyone will remember it. Failing group A is a bug. Failing group B is a bland product.
 
+> **RepWorth status, 2026-08-28.** This section — and only this section — is scored
+> against the RepWorth Console. Everything else in this file stays what the header says
+> it is: a source note about two external videos, with no RepWorth token, route, or
+> component in it. The boxes below are the exception, because a checklist nobody scores
+> is decoration.
+>
+> Scored against `main` at `926d9b74`, after PRs **#987** (Harbor redesign), **#988**
+> (surface polish), **#989** (shell) and **#990** (glance dashboard). A box is ticked
+> only when the whole claim holds; a partial is left unticked with the gap named, so the
+> list stays a to-do rather than a trophy. The decisions themselves live in
+> `docs/design/console/DESIGN.md` and `.claude/reference/arch-review-log.md`.
+
 ### A — Structure
 
 **Sidebar**
-- [ ] Profile/account control at the top, with a clickable affordance.
-- [ ] Every link has an icon and a short label.
-- [ ] Links are grouped; Settings and Help are docked at the bottom.
-- [ ] The current link has a visible active state.
-- [ ] The sidebar still reads when collapsed to icons.
+- [x] Profile/account control at the top, with a clickable affordance. — `AccountMenu` (#989)
+- [x] Every link has an icon and a short label.
+- [x] Links are grouped; Settings and Help are docked at the bottom. — `.nav-section--utility` (#989)
+- [x] The current link has a visible active state.
+- [ ] The sidebar still reads when collapsed to icons. — **no collapsed mode exists.** The
+      rail is a fixed 240px and simply hides below 768px.
 
 **Layout**
-- [ ] Type scale is small, with small steps between levels.
-- [ ] The grid is followed with no drift.
-- [ ] The main region holds the user's most important object.
-- [ ] The page top bar holds page actions or simple navigation, nothing else.
+- [x] Type scale is small, with small steps between levels. — 24→18→16→14→12 (#987)
+- [x] The grid is followed with no drift.
+- [ ] The main region holds the user's most important object. — **deliberately not the
+      reviews.** The owner chose a weekly recap over a review list, because Reviews has a
+      dedicated page (#990). This is a known, chosen deviation from Source A rule 9, not
+      an oversight.
+- [ ] The page top bar holds page actions or simple navigation, nothing else. — it also
+      carries the live-sync countdown, and on mobile the location picker and the account
+      menu. The mobile pair is load-bearing: without it sign-out is unreachable.
 
 **Data**
-- [ ] Row fields are the minimum set the user needs.
-- [ ] An empty state exists and is designed.
-- [ ] Bulk actions appear only after selection.
-- [ ] Tables offer search, filter and sort.
+- [x] Row fields are the minimum set the user needs.
+- [x] An empty state exists and is designed. — every list, plus the recap's quiet states
+      and the ramping Rep Pulse explainer (#990)
+- [ ] Bulk actions appear only after selection. — selection exists **only** in Requests,
+      and is opt-out with no select-all. The reviews queue has none.
+- [ ] Tables offer search, filter and sort. — Past replies has search + filter, but they
+      run over the **current page only**, and there is no sort anywhere.
 
 **Charts**
-- [ ] Grid lines present.
-- [ ] Axis numbers present.
-- [ ] A summary figure sits above the chart.
-- [ ] A range selector is present.
-- [ ] The chart type is a standard, readable one.
+- [x] Grid lines present.
+- [ ] Axis numbers present. — `StackedVelocityChart` has y-axis numbers but **no x-axis
+      labels**.
+- [ ] A summary figure sits above the chart. — missing on `AggregateRankingCard`, and on
+      `StackedVelocityChart` outside its `total` mode.
+- [ ] A range selector is present. — only on Analytics. The glance dashboard is hard-wired
+      to 30 days, and the reputation trend to 8 weeks regardless of the control.
+- [x] The chart type is a standard, readable one. — no invented shapes; the Rep Pulse
+      gauge is a standard radial.
 
 **Action surfaces**
-- [ ] Simple, non-blocking context uses a popover.
-- [ ] Complex but related context uses a modal.
-- [ ] Permanent or large context uses a page, with a back button or breadcrumb.
-- [ ] Every blocking action ends in a toast.
-- [ ] The error and warning toast states exist, not just success.
+- [x] Simple, non-blocking context uses a popover. — `useMenuPopover`, two callers (#989)
+- [x] Complex but related context uses a modal. — native `<dialog>`, no portals
+- [x] Permanent or large context uses a page, with a back button or breadcrumb.
+- [ ] Every blocking action ends in a toast. — the **system** now exists (#989) with two
+      callers: settings save and sign-out failure. Most mutations still report inline.
+- [x] The error and warning toast states exist, not just success. — both arms shipped
+      together; error is assertive and lives twice as long (#989)
 
 **Motion**
-- [ ] Non-chart motion is restrained.
-- [ ] Chart hover states give value and context.
-- [ ] User-triggered mutations apply optimistically.
+- [x] Non-chart motion is restrained.
+- [ ] Chart hover states give value and context. — only 2 of 8 charts have a tooltip with
+      a delta sentence.
+- [ ] User-triggered mutations apply optimistically. — **deliberately none.** Every
+      mutation is pessimistic; `ImportOfferBanner` records why an optimistic flip would be
+      a lie about work that had not started.
 
 ### B — Memorability
 
-- [ ] At least one number on the screen is **interpreted**, not just displayed.
-- [ ] The interpretation is a sentence, and it sits beside the data it explains.
-- [ ] The screen states **what to do next**, not only what happened.
-- [ ] One element on the screen is not a generic card, table or line chart.
-- [ ] The empty state is content, not an absence.
-- [ ] The product owns **one named metric** the user would repeat out loud.
-- [ ] There is at least one in-place prompt where a user would ask "why?".
+- [x] At least one number on the screen is **interpreted**, not just displayed. —
+      `computeHeroHeadline`, `repPulseNote`, `computeWeeklyRecap`
+- [x] The interpretation is a sentence, and it sits beside the data it explains.
+- [x] The screen states **what to do next**, not only what happened.
+- [x] One element on the screen is not a generic card, table or line chart. — the Rep
+      Pulse gauge, and the recap's weekly bars with the running week marked apart.
+- [x] The empty state is content, not an absence. — strengthened in #990: a quiet week, a
+      quiet eight weeks, and a ramping score that names what will set it.
+- [x] The product owns **one named metric** the user would repeat out loud. — Rep Pulse.
+- [x] There is at least one in-place prompt where a user would ask "why?". — the recap's
+      "why" line, and "What moved it" answered inside the Rep Pulse card (#990).
 - [ ] The screen, alone, communicates what the product does to someone who has never
-      seen it.
-- [ ] Someone would screenshot it — and you can say why in one sentence.
+      seen it. — a stranger sees scores and agent names, but never a review with the reply
+      RepWorth wrote for it. This is the cost of the layout choice recorded above.
+- [ ] Someone would screenshot it — and you can say why in one sentence. — **the owner's
+      call, not the implementer's.** Deliberately left open.
 
 ## 17. Example bank
 
