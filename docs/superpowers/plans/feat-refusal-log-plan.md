@@ -1,9 +1,13 @@
-# Refusal Log — implementation plan (rev 2)
+# Refusal Log — implementation plan (rev 4)
 
 Branch: `feat/refusal-log` · Intake: `docs/superpowers/plans/feat-refusal-log-intake.json`
 Worktree base: `75a1f436` (parent `5ab6bfee`, the squash merge of #993) · RISK = high · SURFACE = mixed · `db_touching: false`
 
-**rev 2** folds plan-review round 1 (`docs/reviews/feat-refusal-log/plan-review-r1.md`,
+**rev 4** is the locked plan. Review is closed at 3 of 3 rounds
+(`plan-review-r1.md` → `-r2.md` → `-r3.md`), findings converging 24 → 4 → 1.
+The eval is **74 titles**; the intake is the operative count, never this prose.
+
+**rev 2** folded plan-review round 1 (`docs/reviews/feat-refusal-log/plan-review-r1.md`,
 VERDICT: REVISE, 24 findings). Changes: `judge_verdicts` dropped, autonomy
 suspension re-sourced, S6 timestamp corrected, S7 added, six queries collapsed
 to one `UNION ALL`, ADR renumbered 0023, eval grown 32 → 65 titles. Deviations:
@@ -178,7 +182,7 @@ owner reads then share one scope vocabulary instead of growing a second.
 ## 6. Tasks (tracer bullets)
 
 ### T0 — Eval task (runs alone, first)
-Author all 65 `tests_to_add` titles as **failing** tests. Slices not yet
+Author all 74 `tests_to_add` titles as **failing** tests. Slices not yet
 buildable use `.todo`. No implementation.
 Blocks: everything.
 
@@ -201,7 +205,8 @@ Add S1 and S3 arms. S1 selects **no** `reason` column and joins `reviews` with
 the tenant predicate repeated on the join, not only on the root row — both
 tables carry independent FKs (051:15), so a scoped root can still reach a
 foreign review.
-Green: the 5 redaction tests, the 2 cross-tenant join tests, per-source tenant
+Green: the 2 READ-layer redaction tests (the other 3 are route cases T5 owns —
+deviations D6c), the 2 cross-tenant join tests, per-source tenant
 tests, held-draft and downgrade presence, dropped-review, double-downgrade.
 Edges: T2.
 

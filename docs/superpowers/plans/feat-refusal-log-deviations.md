@@ -157,3 +157,41 @@ subject: pure mapping in `vocabulary.test.ts`, anything calling `getRefusalLog`
 in the live-DB suite.
 
 Verdict: **ACCEPT** — all four are corrections to prose, not to the build.
+
+## D7 — Round-3 anchor delta to the eval (not an amendment)
+
+Plan review round 3 landed after T0 was already dispatched against the 73-title
+eval, so this delta is owed. Titles are deviations entries, never surface
+amendments; the surface stays at 21 entries and the budget at 1 of 2.
+
+- **ADD** `getRefusalLog anchors a render-time outreach refusal on rendered_at`
+- **RETITLE** `getRefusalLog does not move a withheld outreach entry when the row is mutated later`
+  → `getRefusalLog does not move a render-time or run-anchored outreach entry when the row is mutated later`
+
+Reason: the withheld arm has TWO writers. `ask-generation.ts` INSERTs a row
+already withheld at render time (`render_failed`, `lint_failed`,
+`moderation_high`) where `rendered_at` IS the refusal time; `dispatch.ts`
+`commitWithhold` writes the other five and sets `agent_run_id` atomically. The
+single anchor from D-round-2 was wrong for the render half. Full record:
+`docs/reviews/feat-refusal-log/plan-review-r3.md`.
+
+Eval is now **74 titles**. T1 adds these two to
+`src/lib/refusals/__tests__/read.integration.test.ts` as `.todo`.
+
+Verdict: **ACCEPT**.
+
+## D6 verdicts (orchestrator triage)
+
+- **D6a** (`--project unit` does not exist) — **ACCEPT.** My T0 brief was wrong;
+  `vitest.config.ts` defines `parallel` and `integration`. Later task briefs use
+  the corrected command. Verified independently: 73 tests, 3 failed, 70 todo,
+  0 passed.
+- **D6b** (plan §6 said 65) — **ACCEPT, fixed in rev 4.** Plan prose now says 74
+  and states that the intake is the operative count.
+- **D6c** (T3's green list claimed 3 route redaction tests) — **ACCEPT, fixed in
+  rev 4.** T3 greens 2 read-layer cases; T5 greens the 3 route cases. The
+  dependency edges were already right.
+- **D6d** (per-file counts off by one) — **ACCEPT, no action.** A brief-writing
+  slip, not a plan defect. T0's filing decision was correct: `getRefusalLog
+  excludes the cancelled arm of solicitation_outreach entirely` is behavioural
+  and belongs in the live-DB suite.
