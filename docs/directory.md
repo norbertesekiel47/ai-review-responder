@@ -789,6 +789,28 @@ Auto-policy evaluation plus the WS6 account-level safety governor and suspension
 | `solicitation-settings.ts` | **(#631 D20; extracted from `settings.ts` in the round-1 review)** The Solicitation lane of the auto-approval settings: `applySolicitationMutation` (the PATCH branch — classify exposure → `standard` confirmation → expansion gate → declarative upsert/DELETE of the ONE `persona='solicitation' AND action_class='sending' AND location_id IS NULL` account-default row → audit) and `loadSolicitationApiState` (the GET `solicitation` block; `available` = both lane flags AND `tierGrantsAutopilot`). Traps: enabling — no row before — is ALWAYS an expansion (the D20 opt-in IS the exposure); the cap dimension classifies through `resolveAccountDailySendCap`'s ≤10 clamp, so storing 50 over 30 is `no_change`; the suspension input is the D19 account-wide read via `readAccountWideSuspension` (`src/lib/solicitation/auto-approval.ts` — the locked semantic's ONE owner), never a re-spelled EXISTS; disabling DELETEs only the solicitation row — laundering-safe because the Governor's account-wide kill switch lives on the REPLY account-default row. Injected `Sql`/`TransactionSql` (invariant #15). |
 | `types.ts` | Auto-approval vocabulary and API contract: `AutoApprovalThreshold` (4 | 5 — positive quadrant only, WS4 §2.2), `VetoWindowMinutes` (15 | 30), daily-cap schema (1..50 or null), `APPROVAL_METHOD` (`owner` / `auto_policy`), `POLICY_PERSONA_REPLY` / `POLICY_ACTION_POSTING`, `PolicyRowState`, `EffectiveAutoApprovalPolicy`, `AutoApprovalReadiness` + block reasons, the settings response DTOs, `autoApprovalThresholdLabel`, and `AutoApprovalPatchSchema` (zod discriminated union — the single source of the `PATCH /api/settings/auto-approval` contract, incl. **(WS8)** dial ops). |
 
+### `refusals/`
+
+> The **Refusal Log**: what RepWorth decided NOT to do, and why. It captures
+> nothing — every reason here is already persisted by the lane that made the
+> decision, scattered across six tables and mostly hidden from the owner. This
+> folder is one vocabulary over them plus one owner-safe read.
+>
+> Two facts worth knowing before touching it. **A judge verdict is not a
+> refusal** — the Judge runs on already-posted replies (`judge-store.ts:115`,
+> `WHERE r.status = 'posted'`), so counting one would be false AND would
+> double-count the autonomy suspension a flag triggers. And **the highest-volume
+> refusal is unavailable**: `AutoApprovalBlockReason` (22 members,
+> `worker/jobs/response-generation/auto-approval.ts:37`) reaches only a
+> `logger.log` at `persist.ts:570-576`, so the log reports THAT a draft was held
+> for the owner, never WHY. Closing that needs a capture change and is
+> deliberately out of scope. Terms: `CONTEXT.md` → **Refusal**, **Refusal
+> category**, **Refusal source**, **Restraint tab**.
+
+| File | What it does |
+|------|--------------|
+| `vocabulary.ts` | The two-axis refusal vocabulary, pure — no DB, no clock. Axis A `REFUSAL_CATEGORIES`: the closed seven in precedence order, on the **Withhold reason** model (`WITHHOLD_REASONS` — `as const` array, union derived from it, `REFUSAL_CATEGORY_META` keyed `Record<ClosedEnum, Meta>` so a drifted enum is a compile error). Axis B `REFUSAL_SOURCES`: six lanes (`held_draft`, `auto_post_revoked`, `autonomy_suspended`, `ask_withheld`, `outreach_withheld`, `batch_halted`) — the map is PER-LANE because one code means different things in different lanes. 42 source codes: 25 to a category, 17 to explicit `null`. Traps: `null` is the recorded decision "not a refusal", NEVER an omission — the test uses `Object.hasOwn`, not truthiness; `refusalCategoryFor` THROWS `UnknownRefusalCodeError` rather than defaulting, because a default files an unmapped refusal under a plausible heading and the owner cannot tell the difference; `admin_halt`/`platform_halt` map to `autonomy_paused` on `batch_halted` but to `null` on `outreach_withheld` (`latchHalt` copies a batch halt through to every cancelled row, so counting both reports one halt again per recipient); `held_draft` has NO code axis, since `flagged_responses.reason` is moderation prose that may never leave the server. Four vocabularies are `satisfies Record<SourceEnum, RefusalCategory or null>`-guarded; `BATCH_HALT_REASONS` and `OUTREACH_WITHHELD_REASONS` have no TypeScript owner — their authority is the migration 111 CHECK, so a test parses `supabase/migrations/111_platform_halt_reason.sql` instead. Also exports `RENDER_WITHHOLD_REASONS` for the reason-dependent S6 anchor. |
+
 ### `reviews/`
 
 Everything about fetching and normalising Google reviews.
