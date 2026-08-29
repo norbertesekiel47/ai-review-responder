@@ -3,12 +3,9 @@
 // Titles are VERBATIM from the intake's `tests_to_add`; the `promised-tests`
 // gate row matches them as fixed strings.
 //
-// `src/lib/refusals/read.ts` does not exist at this commit — T2 creates it and
-// T3/T4 add its arms. Cases that need `getRefusalLog` itself are `it.todo`
-// (a static import of a missing module fails the whole file at collection).
-// Two cases are written for REAL because they are source-shape invariants that
-// need no module to be loaded, only to EXIST — both fail today naming the
-// missing file, which is the point:
+// T2 landed `src/lib/refusals/read.ts` with the S5 arm; T3/T4 add the other
+// five to the same `UNION ALL`. Two cases here are SOURCE-SHAPE invariants that
+// need the file to exist rather than to be loaded:
 //
 //   - the flagged-reason redaction invariant (risk 1 in plan §7: S1 is deny-all
 //     RLS read through the RLS-bypassing `postgres` role, so redaction is the
@@ -16,12 +13,21 @@
 //     the SQL, not that a label looks right);
 //   - invariant #15, which is a file-level import rule by construction.
 //
+// The query-shape cases below run the real `getRefusalLog` against the shared
+// Postgres.js mock (`createMockSql`), which flattens nested fragments into the
+// recorded query text — so a scoping assertion reads the SQL the module would
+// actually send. The ones still `it.todo` need arms T3/T4 own.
+//
 // Behavioural coverage — tenant isolation, presence per source, windows,
 // exclusions — lives in `./read.integration.test.ts`.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { createMockSql } from '../../../../worker/__tests__/helpers/mock-sql';
+import { getRefusalLog } from '../read';
+import { UnknownRefusalCodeError } from '../vocabulary';
 
 const REFUSALS_DIR = join(process.cwd(), 'src/lib/refusals');
 const READ_MODULE = 'src/lib/refusals/read.ts';
@@ -79,11 +85,34 @@ describe('getRefusalLog query shape', () => {
 
   it.todo('every business-scoped refusal source query scopes location reads by account_id and business_id');
 
-  it.todo('getRefusalLog orders entries newest first');
-
   // Intake edge case: an unrecognised source code reaching the read is a fault,
   // not a category. Assert rather than fall back to a default.
-  it.todo('getRefusalLog throws on an unrecognised source code rather than defaulting a category');
+  //
+  // A code can only reach here from a row the SQL already filtered on, so the
+  // failure this pins is a DRIFTED source vocabulary — a seventh
+  // `WithholdReason` shipped without a mapping — not user input. The mock feeds
+  // exactly that row; a default category would file it under a plausible-looking
+  // heading the owner cannot tell from a real one.
+  it('getRefusalLog throws on an unrecognised source code rather than defaulting a category', async () => {
+    const harness = createMockSql();
+    harness.sqlReturnQueue.push([
+      {
+        entry_id: 'ask-1',
+        source: 'ask_withheld',
+        code: 'reason_nobody_decided_about',
+        occurred_at: new Date('2026-08-20T12:00:00.000Z'),
+        review_id: null,
+      },
+    ]);
+
+    await expect(
+      getRefusalLog(
+        harness.mockSql as unknown as Sql,
+        { kind: 'account', accountId: 'account-1' },
+        '30d',
+      ),
+    ).rejects.toBeInstanceOf(UnknownRefusalCodeError);
+  });
 });
 
 describe('refusals module invariants', () => {

@@ -252,6 +252,56 @@ is the one that iterates a real exported array (`WITHHOLD_REASONS`).
 
 Verdict: **ACCEPT** for all five.
 
+## D9 — Five things T2 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D9a — `ci:tenant-scope` substitutes ONE `$N` per `${}` in the RAW template
+text, so a nested fragment dropped straight after the account predicate destroys
+the proof.** The audit reads un-evaluated template text
+(`scripts/ci/tenant-scope-audit.ts`, the rule `src/lib/kpi/fragments.ts` states
+for the Review-time anchor), splits each WHERE on top-level `AND`, and requires a
+conjunct matching exactly `alias.account_id = $N`. Written
+``WHERE r.account_id = ${scope.accountId}\n  ${inLocation}``, the first conjunct
+reads as `r.account_id = $1 $2` and the arm was reported unscoped — a RED audit on
+a query that is in fact scoped. The location filter therefore composes as a WHOLE
+conjunct — `AND ${inLocation}`, resolving to `r.business_id = $2` in location
+scope and to `TRUE` in aggregate scope. Consequence for T3/T4: each new arm
+spells `r.account_id = ${scope.accountId}` in its own template (a helper would
+hide it from the audit) and adds `AND ${inLocation}` as a separate conjunct.
+
+**D9b — a backtick inside a SQL comment terminates the tagged template.** The
+S5 arm's comment originally read ``-- S5 · … `solicitation_asks`, keyed …`` and
+the backtick closed the template literal, producing the three `TS1005` parse
+errors T6 recorded as D10d. SQL comments inside `sql\`\`` carry no backticks.
+
+**D9c — the invariant-#15 test is a whole-file substring scan, so PROSE naming
+the import path fails it.** `read.test.ts` filters modules on
+`readFileSync(...).includes('@/lib/db/server')`. A doc comment saying "this
+module must never import `@/lib/db/server`" is indistinguishable from the import
+itself; `read.ts` states the rule without spelling the path and says why.
+
+**D9d — the window needs an UPPER bound that `getAgentTeamSummary` does not
+have.** The eval promises `getRefusalLog excludes an entry after the window
+end`; the precedent read binds only `>= windowStart` (agent outcomes are always
+in the past). `getRefusalLog` binds both ends off ONE `new Date()`, so the window
+is `[now - windowDays, now]` and every arm shares the instant. Because the read
+derives that instant at call time, the three boundary cases in
+`read.integration.test.ts` freeze Date (`vi.useFakeTimers({ toFake: ['Date'] })`)
+— inclusion at EXACTLY the window start is unobservable against a moving clock —
+and every seeded stamp is an explicit `::timestamptz`, never `NOW()`.
+
+**D9e — `getRefusalLog orders entries newest first` moved from the unit file to
+the live-DB suite.** T0 filed it under `read.test.ts`'s query-shape describe,
+where it could only ever assert that the text `ORDER BY … DESC` appears. It is a
+behavioural claim, so it is now proved against three seeded asks in
+`read.integration.test.ts` and the unit `.todo` was removed — one title, one
+home. Placement is free: the `promised-tests` row is a fixed-string `grep -rF`
+over `src`, `worker` and `scripts` (`scripts/verify-gate.sh:294-318`), matching
+D6d's finding.
+
+Verdict: **ACCEPT** for all five.
+
 ## D10 — Four things T6 found that the plan did not anticipate
 
 None changes a locked decision, and none touches `allowed_edit_surface`.

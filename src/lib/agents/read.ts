@@ -191,7 +191,15 @@ type TeamSummaryRow = {
   n: number;
 };
 
-export type AgentTeamScope =
+/**
+ * The scope discriminant every owner-facing dashboard read takes: the whole
+ * account (aggregate view) or exactly one location. Named for the surface
+ * rather than for the Agent Team, because `getRefusalLog`
+ * (`src/lib/refusals/read.ts`) takes the SAME three-parameter shape — a caller
+ * who knows one read knows the other, and a second scope vocabulary would be
+ * two spellings of one decision.
+ */
+export type DashboardReadScope =
   | { kind: 'account'; accountId: string }
   | { kind: 'location'; accountId: string; businessId: string };
 
@@ -423,7 +431,7 @@ export async function getReviewTimeline(
 
 export async function getAgentTeamSummary(
   sql: Sql,
-  scope: AgentTeamScope,
+  scope: DashboardReadScope,
   window: DashboardWindow,
 ): Promise<AgentTeamSummary> {
   const { windowDays } = dashboardWindowParams(window);
