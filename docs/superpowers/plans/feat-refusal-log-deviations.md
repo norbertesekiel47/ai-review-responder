@@ -638,3 +638,60 @@ Estimates corrected to 1,600 / 3,400, which includes T7's projected screen.
 Owner confirmed "lane stands, continue to T7" on 2026-08-29.
 
 Verdict: **ACCEPT**.
+
+## D16 — Four things T7 found that the plan did not anticipate
+
+None changes a locked decision, and none touches `allowed_edit_surface`.
+
+**D16a — the subscription gate needs a SECOND read, because the refusals route
+carries no subscription field.** T7's brief says to follow `AnalyticsContent`
+"and the `SubscriptionUnavailableCard` branch", and that branch is
+`perLocationActive(data)` over the shared `/api/dashboard` payload — the only
+client-side source of subscription status in the app (there is no subscription
+context or hook; `useSettingsForm` reads its own). `/api/dashboard/refusals`
+(T5) deliberately answers one question and returns `{ window, ...log }`, so the
+Restraint tab issues TWO reads: `useDashboardData` for the gate, `useRefusalLog`
+for the log. They run in parallel rather than in sequence, so the common path
+costs no extra latency and a gated account merely makes one unused request. The
+alternative — widening the log endpoint to carry an entitlement field — puts an
+entitlement decision inside a log route and gives `perLocationActive` a second
+owner. Recorded because it is the one place T7's structure is heavier than
+`AnalyticsContent`'s.
+
+**D16b — an `href` link belongs to the CATEGORY, not the row, and the 390px
+screenshot is what proved it.** The first build put every link on the entry row,
+which rendered "Who we may contact" five times down one card — the same
+destination, once per entry. `REFUSAL_CATEGORY_META`'s own contract already says
+why that is wrong: "`href` is the same page for every entry, `review` is
+resolved per entry from the review that entry names." So the shared destination
+is now drawn ONCE beside the category's sentence and only the conditional review
+link sits on a row. The three link cases still assert exactly one anchor with
+exactly the locked href, and the no-link case still asserts zero, so the eval
+did not move — but the eval would have passed the repeated version too. The
+screenshot caught it; the tests could not have.
+
+**D16c — the screenshots are a static render of the real components, not the
+running app, and that limit is stated rather than papered over.** Reaching
+`/dashboard/analytics/restraint` in a browser needs a Supabase session and an
+account carrying seeded refusals across six source tables; neither exists
+locally. The capture harness (`.feature/screenshots/`, gitignored scratch) renders
+the REAL `RestraintContent` — real `TopBar`, real `AnalyticsTabs`, real
+`PeriodToolbar`, real `RestraintReport` — against the REAL `tokens.css` +
+`console.css` + `restraint.css` and the repo's self-hosted Gabarito/Figtree, then
+screenshots it at 390px and 1440px in both the populated and empty states. What
+it does NOT prove: the sidebar rail (empty in the harness, untouched by this
+feature) and `.sr-only`, which is a Tailwind utility the harness does not load —
+so the `LiveRegion` text is visible in the images and invisible in the app.
+Everything inside `.content--analytics` is the shipped markup under the shipped
+CSS.
+
+**D16d — the Chrome DevTools MCP writes screenshots into the PARENT checkout,
+not the worktree.** A relative `filePath` resolves against the MCP's own
+workspace root (`…/startups/RepWorth`), and an absolute path anywhere else — the
+worktree, the session scratchpad — is refused outright as "not within any of the
+configured workspace roots". Four PNGs therefore landed in the main checkout's
+root and were moved out; `git status --porcelain` there was verified clean
+afterwards. Anyone capturing screenshots from a sibling worktree must expect
+this and check the parent repo's status before finishing.
+
+Verdict: **ACCEPT** for all four.
