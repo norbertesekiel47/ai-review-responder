@@ -25,7 +25,7 @@ No migration. Migration 116 stays unused.
 | S3 Auto-post revoked | `approval_audit_log` (001 → 002 → 034) | `account_id` | `business_id` | `created_at` | Yes (RLS 035 §1f), never rendered |
 | S4 Autonomy suspended | `account_audit_log` (034), `event_type='autonomy_suspended'` | `account_id` | none — account-wide | `created_at` | Yes (RLS 035 §1g), never rendered |
 | S5 Ask withheld at build | `solicitation_asks` (088) | `account_id` | `business_id` | `decided_at` | Yes, on `/dashboard/requests` |
-| S6 Outreach withheld at send | `solicitation_outreach` (091 → 110 → 111) | `account_id` | `business_id` | `updated_at` | Partly |
+| S6 Outreach withheld at send | `solicitation_outreach` (091 → 108 → 109 → 110 → 111), **withheld arm only** | `account_id` | `business_id` | `COALESCE(run.started_at, updated_at)` | Partly |
 | S7 Batch halted by us | `solicitation_batches` (088 → 091 → 111) | `account_id` | `business_id` | `halted_at` | Partly |
 
 Only S1 is deny-all. Everything else already has an owner SELECT policy or an
@@ -48,10 +48,21 @@ carrying the `AutonomySuspensionTrigger` in `payload`
 codebase deliberately does not machine-parse; the trigger enum is the machine
 fact.
 
-**S6 anchors on `updated_at`.** `commitWithhold`
-(`src/lib/solicitation/dispatch.ts:1371-1379`) writes
-`delivery_status='withheld', disposition_reason=…, updated_at = NOW()`.
-`rendered_at` predates the refusal and is not its time.
+**S6 anchors on the lazy child run start, with `updated_at` as fallback.**
+`commitWithhold` (`src/lib/solicitation/dispatch.ts:1371-1379`) writes
+`delivery_status='withheld', disposition_reason=…, agent_run_id=…,
+updated_at = NOW()`. `rendered_at` predates the refusal. `updated_at` is a
+general mutation timestamp that a later write can move, so it cannot anchor a
+two-year record. `agent_runs.started_at` (071:25) is `DEFAULT NOW()` with no
+updater, and `commitWithhold` sets `agent_run_id` in the same statement — so
+the run start IS the refusal time, durably. `agent_run_id` is nullable on the
+best-effort attach path (`dispatch.ts:1284`), hence the `COALESCE`.
+
+**S6 reads the WITHHELD arm only.** The cancelled arm is out of scope entirely.
+`latchHalt` writes a batch's halt reason through to every cancelled outreach
+row, so counting the cancelled arm's `admin_halt`/`platform_halt` copies would
+report one batch halt once through S7 and again per outreach row. Those copies
+map to `null` explicitly and the eval pins it.
 
 ### The gap this feature cannot close
 
@@ -110,7 +121,9 @@ fragmented across partial TypeScript unions. S6's map is guarded by a test that
 parses that CHECK instead.
 
 Mapped to `null`: `velocity_banked`; the four owner acts; the four delivery
-failures; `superseded`; `send_indeterminate`.
+failures; `superseded`; `send_indeterminate`; and the cancelled-arm
+`admin_halt`/`platform_halt` outreach copies, which S7 already counts once at
+the batch.
 
 ## 4. Modules and seams
 
@@ -170,11 +183,20 @@ tests, held-draft and downgrade presence, dropped-review, double-downgrade.
 Edges: T2.
 
 ### T4 — The three account and solicitation sources
-Add S4 (account-wide, appears in every location scope), S6 (anchored on
-`updated_at`) and S7 arms.
-Green: the 2 S4 scope tests, the lifted-suspension test, the S6 anchor test,
-presence tests for S4/S6/S7, the 3 exclusion-set tests, the migration-111
-exhaustiveness test.
+Add S4, S6 and S7 arms.
+
+- **S4 is account-wide.** It appears in every location scope. Join nothing to
+  `businesses` — an account-wide arm joined through locations multiplies one
+  audit row by the location count. The eval pins exactly-once in both scopes.
+- **S6 is the withheld arm only**, `LEFT JOIN agent_runs` for the anchor.
+- **S7** reads `admin_halt` and `platform_halt` only.
+- **Per-arm tenant proof.** One `UNION ALL` means a structural assertion over
+  the combined SQL cannot prove any single arm is scoped. Every arm gets its own
+  behavioural foreign-account or foreign-location negative-row test.
+
+Green: the 2 S4 exactly-once tests, the 2 S4 scope tests, the lifted-suspension
+test, the 3 S6 anchor tests, the S6/S7 foreign-location tests, presence tests
+for S4/S6/S7, the 5 exclusion tests, the migration-111 exhaustiveness test.
 Edges: T3 (same file).
 
 ### T5 — The route

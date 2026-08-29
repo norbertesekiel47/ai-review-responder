@@ -16,6 +16,7 @@
     "Owner acts are excluded: owner_veto, owner_halt, owner_excluded, owner_withdrawn.",
     "Delivery failures are excluded: send_failed, send_exhausted, batch_expired, send_window_elapsed.",
     "superseded and send_indeterminate are excluded — neither is a refusal.",
+    "S6 reads the solicitation_outreach WITHHELD arm only. The cancelled arm is out of scope entirely, including its admin_halt and platform_halt copies — latchHalt writes the batch halt reason through to every cancelled row, so counting them would report one batch halt once through S7 and again per outreach row.",
     "No raw text from flagged_responses.reason reaches any API response or the browser."
   ],
   "user_visible_behavior": [
@@ -34,7 +35,7 @@
     "An account without full subscription access sees the existing SubscriptionUnavailableCard branch."
   ],
   "invariants": [
-    "Tenant isolation (#8): every UNION arm filters account_id, and additionally business_id in location scope for every business-keyed source.",
+    "Tenant isolation (#8): every UNION arm filters account_id, and additionally business_id in location scope for every business-keyed source. Because the arms share one statement, a structural assertion over the combined SQL cannot prove per-arm scoping — every arm carries its own behavioural foreign-account or foreign-location negative-row test.",
     "Every join is scoped on both sides. flagged_responses (051:15) and approval_audit_log carry independent FKs, not tenant-composite keys, so a scoped root row can still reach a foreign review or response through an unscoped join.",
     "flagged_responses keeps deny-all RLS. The read reaches it only through the server postgres role, scoped in the application layer.",
     "No value read from flagged_responses.reason is selected by the query or placed in a returned object.",
@@ -54,7 +55,9 @@
     "One response downgraded twice produces two approval_audit_log rows and two dated entries.",
     "An entry timestamped exactly at the window start is included (>=), matching getAgentTeamSummary.",
     "An entry after the window end is excluded.",
-    "A dispatch-time outreach withhold is anchored on updated_at, not rendered_at — commitWithhold writes updated_at = NOW() (dispatch.ts:1371-1379) and rendered_at predates the refusal.",
+    "A dispatch-time outreach withhold is anchored on COALESCE(agent_runs.started_at, solicitation_outreach.updated_at). rendered_at predates the refusal; updated_at is a general mutation timestamp a later write can move. commitWithhold sets agent_run_id in the same statement (dispatch.ts:1371-1379) and agent_runs.started_at (071:25) is DEFAULT NOW() with no updater, so the run start is the durable refusal time. updated_at is the fallback only for the best-effort path that leaves agent_run_id NULL.",
+    "A later mutation to a withheld outreach row does not move its entry between windows.",
+    "One account_audit_log suspension row yields exactly one entry in aggregate scope and exactly one in location scope — never one per location.",
     "An impersonated admin session reads the impersonated account only, like every other dashboard read.",
     "A past_due or cancelled subscription takes the existing SubscriptionUnavailableCard branch.",
     "A location the caller does not own returns the uniform not-found response via resolveDashboardLocation.",
@@ -114,6 +117,8 @@
     "getRefusalLog never returns a held-draft row from another location",
     "getRefusalLog never returns a downgrade row from another account",
     "getRefusalLog never returns a withheld ask from another location",
+    "getRefusalLog never returns a withheld outreach from another location",
+    "getRefusalLog never returns a halted batch from another location",
     "getRefusalLog does not expose a foreign review through a cross-tenant flagged-response join",
     "getRefusalLog does not expose a foreign response through a cross-tenant approval-audit join",
     "getRefusalLog includes an account-wide autonomy suspension in location scope",
@@ -127,7 +132,13 @@
     "getRefusalLog includes a platform_halt batch as autonomy_paused",
     "getRefusalLog returns two entries when one response is downgraded twice",
     "getRefusalLog includes a suspension after the policy is later unsuspended",
-    "getRefusalLog anchors a dispatch-time outreach refusal on the withheld update",
+    "getRefusalLog anchors a dispatch-time outreach refusal on its lazy child run start",
+    "getRefusalLog falls back to updated_at for a withheld outreach with no agent run",
+    "getRefusalLog does not move a withheld outreach entry when the row is mutated later",
+    "getRefusalLog counts one autonomy suspension exactly once in aggregate scope",
+    "getRefusalLog counts one autonomy suspension exactly once in location scope",
+    "getRefusalLog excludes the cancelled arm of solicitation_outreach entirely",
+    "the cancelled-arm admin_halt and platform_halt outreach copies map explicitly to null",
     "getRefusalLog includes an entry timestamped exactly at the window start",
     "getRefusalLog excludes an entry before the window start",
     "getRefusalLog excludes an entry after the window end",
@@ -165,7 +176,7 @@
     "pnpm ci:directory-map"
   ],
   "estimated_prod_lines": "700",
-  "estimated_test_lines": "1800",
+  "estimated_test_lines": "2000",
   "dependencies_added": [],
   "rollback_plan": "Not DB-touching. Revert the PR. No migration, no flag, no data written.",
   "observability": [
