@@ -94,7 +94,9 @@
     "docs/superpowers/plans/feat-refusal-log-handoff.md",
     "docs/superpowers/plans/feat-refusal-log-deviations.md",
     "docs/reviews/feat-refusal-log/*.md",
-    ".claude/reference/arch-review-log.md"
+    "docs/reviews/feat-refusal-log/*.log",
+    ".claude/reference/arch-review-log.md",
+    "docs/superpowers/plans/feat-refusal-log-postmortem.md"
   ],
   "tests_to_add": [
     "every WithholdReason maps to a RefusalCategory or explicit null",
