@@ -26,6 +26,29 @@ import {
 
 type SqlExecutor = Sql | TransactionSql;
 
+/**
+ * How long after a run finishes the completion notice still has something to say.
+ *
+ * It is a NOTICE, not a state. `completed_at` is permanent, so before this
+ * window the view reported `imported` on every dashboard load, forever — the
+ * banner became furniture, which is the defect this constant fixes.
+ *
+ * WHY NOT A "SEEN" COLUMN. A per-owner acknowledgement is a migration, a write
+ * path, and a second source of truth for a message whose whole job is to be
+ * transient. The run's own `completed_at` already dates the event; the notice
+ * can simply expire from it.
+ *
+ * WHY THIRTY MINUTES. Long enough that an owner who walks away during a
+ * one-minute import is still told when they come back. Short enough that the
+ * notice can never read as part of the furniture. Past it the reviews speak for
+ * themselves on the Reviews page.
+ *
+ * `failed` is deliberately NOT windowed. It is reached on the outbox branch,
+ * which only runs when no completed run exists, and an unresolved failure is a
+ * state the owner may still need to act on — not a notice.
+ */
+export const IMPORT_NOTICE_WINDOW_MS = 30 * 60 * 1000;
+
 export type ImportOfferView =
   | { state: 'none' }
   | { state: 'offer'; expiresAt: string }
@@ -46,6 +69,27 @@ interface ViewRow {
   expires_at: Date | null;
   run_completed_at: Date | null;
   imported_count: number | null;
+}
+
+/**
+ * What a COMPLETED initial run has to say, if anything.
+ *
+ * Split out of `readImportOfferView` to keep that function under the complexity
+ * gate; it is also the only part of the view that is pure, so it is the only
+ * part with a cheap unit test.
+ *
+ * The notice expires; the run does not. Both terminal SUCCESS outcomes fall
+ * through to `none` once the window closes — `empty` as well as `imported`,
+ * because "nothing to import" is equally a one-time notice. The comparison is
+ * here rather than in SQL so the window stays a TypeScript constant with one
+ * owner, not a value re-spelled inside a predicate.
+ */
+function completedRunNotice(completedAt: Date, importedCount: number | null): ImportOfferView {
+  if (Date.now() - completedAt.getTime() > IMPORT_NOTICE_WINDOW_MS) return { state: 'none' };
+  const count = importedCount ?? 0;
+  // `empty` requires completed AND zero — a distinct OUTCOME, not a count of
+  // zero, because "Imported 0 reviews" reads as a bug to an owner.
+  return count === 0 ? { state: 'empty' } : { state: 'imported', count };
 }
 
 /**
@@ -133,10 +177,7 @@ export async function readImportOfferView(
   // positive partial count is still `importing`. Reading a positive count as
   // "done" is the most natural wrong implementation here.
   if (row.run_completed_at) {
-    const count = row.imported_count ?? 0;
-    // `empty` requires completed AND zero — a distinct OUTCOME, not a count of
-    // zero, because "Imported 0 reviews" reads as a bug to an owner.
-    return count === 0 ? { state: 'empty' } : { state: 'imported', count };
+    return completedRunNotice(row.run_completed_at, row.imported_count);
   }
 
   // No completed run. The outbox row decides whether work is still coming — read

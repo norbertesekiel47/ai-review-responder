@@ -27,7 +27,7 @@
 // declining does not read as "reviews stop being handled": new reviews are still
 // handled automatically either way. Do not reword it to save space.
 //
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, type IconName } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
@@ -146,12 +146,138 @@ function BannerShell({ announcement, children }: { announcement: string; childre
   );
 }
 
+/**
+ * How long a completion notice stays on screen, and how long it takes to leave.
+ *
+ * The server side of the same rule is `IMPORT_NOTICE_WINDOW_MS`: that stops the
+ * notice being permanent ACROSS loads, this retires it WITHIN one. Both are
+ * needed — the window alone would leave the banner sitting there for the whole
+ * visit, and this alone would bring it back on every reload forever.
+ *
+ * The leave is cosmetic. `.banner` already resolves to `animation: none` under
+ * `prefers-reduced-motion`, and the second timer unmounts the banner either way,
+ * so a reader who suppresses motion still gets the notice and still loses it.
+ */
+const NOTICE_VISIBLE_MS = 8_000;
+const NOTICE_LEAVE_MS = 320;
+
+type NoticePhase = 'visible' | 'leaving' | 'gone';
+
+/**
+ * The on-screen life of a completion notice: visible, leaving, gone.
+ *
+ * Extracted from `ImportOfferBanner` because adding it inline pushed that
+ * component past the complexity gate — the behaviour is four statements, but it
+ * costs the component two state hooks, an effect and a render-time adjustment,
+ * and the component already carries a query, a mutation and eight render
+ * branches.
+ *
+ * `noticeState` is the SUBJECT, not a boolean: passing the state value is what
+ * lets the phase reset when one notice replaces another. Pass `null` for every
+ * state that is not a notice and the hook stays inert.
+ */
+function useNoticePhase(noticeState: string | null): NoticePhase {
+  const [phase, setPhase] = useState<NoticePhase>('visible');
+
+  // Reset DURING RENDER, which is React's sanctioned shape for "adjust state
+  // when an input changes". The same write inside an effect body is the
+  // cascading render `react-hooks/set-state-in-effect` exists to stop.
+  const [phaseKey, setPhaseKey] = useState<string | null>(noticeState);
+  if (phaseKey !== noticeState) {
+    setPhaseKey(noticeState);
+    setPhase('visible');
+  }
+
+  // The effect owns ONLY the timers. Both write from a callback, never
+  // synchronously, so neither cascades.
+  useEffect(() => {
+    if (!noticeState) return;
+    const leaving = setTimeout(() => setPhase('leaving'), NOTICE_VISIBLE_MS);
+    const gone = setTimeout(() => setPhase('gone'), NOTICE_VISIBLE_MS + NOTICE_LEAVE_MS);
+    return () => {
+      clearTimeout(leaving);
+      clearTimeout(gone);
+    };
+  }, [noticeState]);
+
+  return phase;
+}
+
 /** Mirrors `ConnectGoogleBanner.ReadOnlyNotice` — same slot, same treatment. */
 function ReadOnlyNotice() {
   return (
     <p className="text-xs mt-1" style={{ color: 'var(--rw-app-text-muted)' }}>
       Update billing to import your reviews.
     </p>
+  );
+}
+
+/**
+ * The offer itself — the one branch that carries controls rather than a
+ * sentence. Extracted to bring `ImportOfferBanner` back under the complexity
+ * gate after the retire logic landed.
+ *
+ * It renders the INNER `.banner` only, never its own `BannerShell`. That is the
+ * point: `BannerShell` must stay the element at the parent's return position
+ * across every state, or React remounts the live region and the terminal
+ * announcement is lost with it (the round-1 A6c contract this file's BannerShell
+ * doc states).
+ *
+ * COPY IS LOCKED VERBATIM (owner decision 6, plan T5) — the 7-day disclosure and
+ * the automatic-handling reassurance both. Moving it did not license rewording it.
+ */
+function OfferPrompt({
+  retryable,
+  readOnly,
+  pending,
+  onDecide,
+}: {
+  retryable: string;
+  readOnly: boolean;
+  pending: boolean;
+  onDecide: (decision: 'accepted' | 'declined') => void;
+}) {
+  return (
+    <div className="banner banner-blue">
+      <div className="b-icon">
+        <Icon name="google" size={18} />
+      </div>
+      <div>
+        <div className="b-title">Import your recent reviews?</div>
+        <div className="b-sub">
+          We can pull in your 100 most recent Google reviews from the past year so you can generate
+          replies for them. Nothing gets posted — you choose what to reply to.
+        </div>
+        <div className="b-sub">
+          This is a one-time import, available for the next 7 days. New reviews will still be
+          handled automatically either way.
+        </div>
+        {retryable && <div className="b-sub">{retryable}</div>}
+      </div>
+      {readOnly ? (
+        <ReadOnlyNotice />
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="banner-cta"
+            disabled={pending}
+            onClick={() => onDecide('accepted')}
+          >
+            Import my reviews
+          </button>
+          <button
+            type="button"
+            className="banner-cta"
+            style={{ background: 'transparent', color: 'var(--rw-app-text-muted)' }}
+            disabled={pending}
+            onClick={() => onDecide('declined')}
+          >
+            No thanks
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -168,6 +294,12 @@ export function ImportOfferBanner({ locationId, readOnly = false }: Props) {
     refetchInterval: (query) =>
       (query.state.data as ImportOfferView | undefined)?.state === 'importing' ? 4000 : false,
   });
+
+  // The two terminal SUCCESS states are notices and retire themselves; every
+  // other state is a state and stays. `failed` in particular must persist — it
+  // is the one branch an owner may still need to act on.
+  const noticeState = data?.state === 'imported' || data?.state === 'empty' ? data.state : null;
+  const noticePhase = useNoticePhase(noticeState);
 
   const decide = useMutation({
     mutationFn: postDecision,
@@ -215,107 +347,81 @@ export function ImportOfferBanner({ locationId, readOnly = false }: Props) {
     const retryable = decide.error ? DECISION_FAILED_MESSAGE : '';
     return (
       <BannerShell announcement={retryable}>
-        <div className="banner banner-blue">
-          <div className="b-icon">
-            <Icon name="google" size={18} />
-          </div>
-          <div>
-            <div className="b-title">Import your recent reviews?</div>
-            <div className="b-sub">
-              We can pull in your 100 most recent Google reviews from the past year so you can
-              generate replies for them. Nothing gets posted — you choose what to reply to.
-            </div>
-            <div className="b-sub">
-              This is a one-time import, available for the next 7 days. New reviews will still be
-              handled automatically either way.
-            </div>
-            {retryable && <div className="b-sub">{retryable}</div>}
-          </div>
-          {readOnly ? (
-            <ReadOnlyNotice />
-          ) : (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                type="button"
-                className="banner-cta"
-                disabled={decide.isPending}
-                onClick={() => decide.mutate('accepted')}
-              >
-                Import my reviews
-              </button>
-              <button
-                type="button"
-                className="banner-cta"
-                style={{ background: 'transparent', color: 'var(--rw-app-text-muted)' }}
-                disabled={decide.isPending}
-                onClick={() => decide.mutate('declined')}
-              >
-                No thanks
-              </button>
-            </div>
-          )}
-        </div>
+        <OfferPrompt
+          retryable={retryable}
+          readOnly={readOnly}
+          pending={decide.isPending}
+          onDecide={(decision) => decide.mutate(decision)}
+        />
       </BannerShell>
     );
   }
 
-  if (data.state === 'importing') {
-    return (
-      <BannerShell announcement="">
-        <div className="banner banner-blue">
-          <div className="b-icon">
-            <Icon name="refresh" size={18} />
-          </div>
-          <div>
-            <div className="b-title">Importing your reviews… this usually takes a minute.</div>
-          </div>
-        </div>
-      </BannerShell>
-    );
-  }
+  return <ImportStatusBanner view={data} noticePhase={noticePhase} />;
+}
 
-  if (data.state === 'imported') {
-    // ONE interpolated string, not `Imported {count} reviews.` in JSX. The JSX
-    // form renders three sibling text nodes, which no exact-text query can match
-    // and which a screen reader may read with odd pauses.
-    const importedMessage = `Imported ${data.count} reviews. They're in your reviews list.`;
-    // The announcement is DERIVED from `data`, not held in state: setting state
-    // during render is a React anti-pattern, and there is nothing here that
-    // render cannot compute.
-    return (
-      <BannerShell announcement={importedMessage}>
-        <div className="banner banner-blue">
-          <div className="b-icon">
-            <Icon name="check" size={18} />
-          </div>
-          <div>
-            <div className="b-title">{importedMessage}</div>
-          </div>
-        </div>
-      </BannerShell>
-    );
-  }
+/**
+ * Every state AFTER the offer is answered: importing, and the three outcomes.
+ *
+ * They live in ONE component rather than four branches in `ImportOfferBanner`
+ * for two reasons, and the second is a correctness constraint, not tidiness:
+ *
+ *  - it brings the parent back under the complexity gate;
+ *  - it keeps `BannerShell` at the SAME tree position across importing →
+ *    imported. A live region mounted in the same commit as its message announces
+ *    nothing (round-1 A6c), so the region must already exist while the import
+ *    runs and must be the same node when the message lands. Four sibling
+ *    branches in the parent gave that for free; one component per state would
+ *    have quietly taken it away.
+ *
+ * `importing` is a STATE and stays until it resolves. The two SUCCESS outcomes
+ * are notices and retire on `noticePhase`. `failed` is neither — it keeps its own
+ * urgent channel and never times out.
+ */
+function ImportStatusBanner({
+  view,
+  noticePhase,
+}: {
+  view: Extract<ImportOfferView, { state: 'importing' | 'imported' | 'empty' | 'failed' }>;
+  noticePhase: NoticePhase;
+}) {
+  if (view.state === 'failed') return <FailedBanner />;
 
-  if (data.state === 'empty') {
-    // A distinct OUTCOME, not a count of zero — "Imported 0 reviews" reads as a
-    // bug to an owner (owner decision 4).
-    return (
-      <BannerShell announcement="No recent reviews found — nothing to import.">
-        <div className="banner banner-blue">
-          <div className="b-icon">
-            <Icon name="check" size={18} />
-          </div>
-          <div>
-            <div className="b-title">No recent reviews found — nothing to import.</div>
-          </div>
-        </div>
-      </BannerShell>
-    );
-  }
+  // ONE interpolated string per state, never `Imported {count} reviews.` in JSX.
+  // The JSX form renders three sibling text nodes, which no exact-text query can
+  // match and which a screen reader may read with odd pauses.
+  const message =
+    view.state === 'importing'
+      ? 'Importing your reviews… this usually takes a minute.'
+      : view.state === 'empty'
+        ? 'No recent reviews found — nothing to import.'
+        : `Imported ${view.count} reviews. They're in your reviews list.`;
 
-  // failed — neutral, with support contact, and deliberately NO retry button.
-  // Retry belongs to the worker via the `completed_at IS NULL` sentinel (spec
-  // §5.1); an owner-facing retry would enqueue a second job.
+  // `empty` is a distinct OUTCOME, not a count of zero — "Imported 0 reviews"
+  // reads as a bug to an owner (owner decision 4).
+  const retires = view.state !== 'importing';
+  if (retires && noticePhase === 'gone') return null;
+
+  return (
+    <BannerShell announcement={retires ? message : ''}>
+      <div className={`banner banner-blue${retires && noticePhase === 'leaving' ? ' banner--leaving' : ''}`}>
+        <div className="b-icon">
+          <Icon name={view.state === 'importing' ? 'refresh' : 'check'} size={18} />
+        </div>
+        <div>
+          <div className="b-title">{message}</div>
+        </div>
+      </div>
+    </BannerShell>
+  );
+}
+
+/**
+ * Neutral, with a support contact, and deliberately NO retry button. Retry
+ * belongs to the worker via the `completed_at IS NULL` sentinel (spec §5.1); an
+ * owner-facing retry would enqueue a second job.
+ */
+function FailedBanner() {
   return (
     <BannerShell announcement="We couldn't finish importing your reviews.">
       <div className="banner banner-attn" role="alert">

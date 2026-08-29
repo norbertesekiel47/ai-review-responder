@@ -12,7 +12,7 @@ import {
 import type { OffboardingStatusView } from '@/components/dashboard/account-state/OffboardingStatusBanner';
 import { ACCOUNT_OFFBOARDING_STATUS_PATH } from '@/lib/shared/request-path-header';
 import { PendingPaymentScreen } from '@/components/dashboard/account-state/PendingPaymentScreen';
-import { CancelledBanner, PastDueBanner, TrialBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
+import { CancelledBanner, PastDueBanner } from '@/components/dashboard/account-state/SubscriptionStatusBanner';
 import { PastDueModal } from '@/components/dashboard/account-state/PastDueModal';
 import { ConnectGoogleBanner } from '@/components/dashboard/account-state/ConnectGoogleBanner';
 import { ImportOfferBanner } from '@/components/dashboard/account-state/ImportOfferBanner';
@@ -63,7 +63,7 @@ export function DashboardContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <LiveRegion message="Loading your dashboard…" />
           <DashboardSkeleton />
         </div>
@@ -78,7 +78,7 @@ export function DashboardContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <LiveRegion message={message} level="assertive" />
           <DashboardErrorCard heading="Unable to verify account status" message={message} />
         </div>
@@ -89,7 +89,7 @@ export function DashboardContent() {
   if (blockedOffboarding) {
     redirect(ACCOUNT_OFFBOARDING_STATUS_PATH);
     return (
-      <div className="content">
+      <div className="content content--dash">
         <LiveRegion message="Opening account status..." />
         <div className="dashboard-skeleton">
           <div className="skeleton-card-lg" />
@@ -152,7 +152,7 @@ function DashboardOperationalContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <LiveRegion message={error} level="assertive" />
           <DashboardErrorCard heading="Error" message={error} />
         </div>
@@ -165,7 +165,7 @@ function DashboardOperationalContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <LiveRegion message="Loading your dashboard…" />
           <DashboardSkeleton />
         </div>
@@ -183,7 +183,7 @@ function DashboardOperationalContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <ActivePendingBusinessScreen />
         </div>
       </>
@@ -196,7 +196,7 @@ function DashboardOperationalContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <PendingPaymentScreen data={data} />
         </div>
       </>
@@ -209,7 +209,7 @@ function DashboardOperationalContent() {
     return (
       <>
         <TopBar title="Dashboard" />
-        <div className="content">
+        <div className="content content--dash">
           <CancelledBanner
             gracePeriodEndDate={cancelledData.gracePeriodEndDate}
             readAccess={cancelledData.readAccess}
@@ -266,12 +266,14 @@ function DashboardOperationalContent() {
   return (
     <>
       <TopBar title={timeGreeting()} subtitle={subtitle} showLive refresh={refresh} />
-      <div className="content">
-        {activeData.trialEndsAt && (
-          <div className="section-enter section-enter-1">
-            <TrialBanner trialEndsAt={activeData.trialEndsAt} />
-          </div>
-        )}
+      <div className="content content--dash">
+        {/* The trial notice is NOT here (owner decision, 2026-08-29). It is a
+            billing fact — days left, the charge date, how to manage it — and its
+            own copy pointed at /settings/billing, so it now renders there, on the
+            page that answers for it. This overview answers "how is my reputation
+            doing"; a subscription countdown is not that question. `PastDueBanner`
+            stays because a past-due account is read-only and that DOES change
+            what this screen can do. */}
         {pastDueData && (
           <div className="section-enter section-enter-1">
             <PastDueBanner
@@ -349,12 +351,13 @@ function DashboardOperationalContent() {
           <AgentTeamStrip scope={currentScope} />
         </div>
         <NeedsAttentionList />
-        {/* Action strip → Reviews page. */}
-        <div className="section-enter section-enter-6">
+        {/* Zone 6 — the two doorways, side by side. Both are one-line strips
+            that point off the dashboard: approvals → Reviews, the other →
+            Analytics. Stacked they were two full-width bands carrying one line
+            each; paired they are one band, and the reader sees both exits at
+            once. `.dash-pair` drops to one column at 900px. */}
+        <div className="section-enter section-enter-6 dash-pair">
           <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
-        </div>
-        {/* Doorway to the full analytics page (the full charts live there). */}
-        <div className="section-enter section-enter-7">
           <AnalyticsLinkCard />
         </div>
       </div>

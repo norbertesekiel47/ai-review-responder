@@ -73,7 +73,7 @@ export function AgentTeamStrip({
 
   if (query.isPending) {
     return (
-      <section className="card agent-team" aria-labelledby="agent-team-heading">
+      <section className="agent-team" aria-labelledby="agent-team-heading">
         <h2 id="agent-team-heading" className="card-h2">Your agent team</h2>
         <output className="agent-team-state">Loading agent activity…</output>
       </section>
@@ -82,7 +82,7 @@ export function AgentTeamStrip({
 
   if (query.isError) {
     return (
-      <section className="card agent-team" aria-labelledby="agent-team-heading">
+      <section className="agent-team" aria-labelledby="agent-team-heading">
         <h2 id="agent-team-heading" className="card-h2">Your agent team</h2>
         <div className="agent-team-state agent-team-state--error" role="alert">
           {query.error instanceof Error ? query.error.message : 'Unable to load agent activity'}
@@ -93,7 +93,7 @@ export function AgentTeamStrip({
 
   const windowLabel = WINDOW_LABELS[query.data.window];
   return (
-    <section className="card agent-team" aria-labelledby="agent-team-heading">
+    <section className="agent-team" aria-labelledby="agent-team-heading">
       <div className="agent-team-head">
         <div>
           <h2 id="agent-team-heading" className="card-h2">Your agent team</h2>

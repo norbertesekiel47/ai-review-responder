@@ -169,9 +169,14 @@ const TRIAL_DEADLINE_FORMATTER = new Intl.DateTimeFormat('en-US', {
 
 /**
  * "Trial — N days left" banner. Shown while the account is trialing. Calm and
- * truthful: states the days left, the charge date, and where to manage billing.
- * No urgency theatrics — the card is already captured and Stripe auto-charges
- * at trial end.
+ * truthful: states the days left and the charge date. No urgency theatrics — the
+ * card is already captured and Stripe auto-charges at trial end.
+ *
+ * It renders on /settings/billing and nowhere else (owner decision, 2026-08-29 —
+ * it used to sit on the dashboard overview, which answers a different question).
+ * That move is why the copy carries NO "Manage billing" link any more: the link
+ * pointed at this page, and a banner that links to the page it is on is a dead
+ * control. The plan card and the cancel panel are directly below it.
  */
 function computeTrialDaysRemaining(trialEndsAt: string): number {
   const msRemaining = new Date(trialEndsAt).getTime() - Date.now();
@@ -201,10 +206,7 @@ export function TrialBanner({ trialEndsAt }: TrialBannerProps) {
         <div className="sub-status-banner__title">{daysCopy}</div>
         <div className="sub-status-banner__body">
           You have full access to RepWorth. Your card is charged automatically on{' '}
-          <strong>{deadlineCopy}</strong> unless you cancel before then.{' '}
-          <Link className="sub-status-banner__link" href="/settings/billing">
-            Manage billing →
-          </Link>
+          <strong>{deadlineCopy}</strong> unless you cancel before then.
         </div>
       </div>
     </div>
