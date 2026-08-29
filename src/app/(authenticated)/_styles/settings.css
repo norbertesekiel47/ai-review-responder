@@ -657,31 +657,9 @@
   }
 }
 
-/* Saved confetti pulse */
-.saved-toast {
-  position: fixed;
-  bottom: 88px;
-  left: 50%;
-  transform: translateX(-50%) translateY(20px);
-  background: var(--rw-green-800);
-  color: var(--rw-on-accent);
-  padding: 10px 18px;
-  border-radius: 9999px;
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  box-shadow: 0 10px 30px var(--rw-success-shadow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 360ms var(--rw-ease), transform 360ms var(--rw-ease);
-  z-index: 70;
-}
-.saved-toast.visible {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
+/* The settings save confirmation is a `.toast` from the shared Console toast
+   region now (console.css § Toasts) — one confirmation surface for the whole
+   app instead of a settings-only pill with no failure arm. */
 
 /* Place ID copy */
 .copy-row {
@@ -905,7 +883,6 @@
   .plan-cta,
   .btn-danger,
   .save-bar,
-  .saved-toast,
   .copy-btn,
   .loc-row,
   .loc-row-edit-btn,

@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/db/browser';
+import { usePathname } from 'next/navigation';
+import { type ReactNode } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
+import { AccountMenu } from '@/components/dashboard/shell/AccountMenu';
 import { deriveNavSection, type NavSection } from '@/components/dashboard/shell/active-nav';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import { LocationPicker } from '@/components/dashboard/location/LocationPicker';
@@ -13,20 +13,10 @@ import { usePendingCount } from '@/contexts/PendingCountContext';
 
 interface Props {
   businessName: string;
-  ownerName: string;
-  ownerEmail: string;
   /** Server-authoritative SOLICITATION_WATCH_ENABLED, passed down from
    *  (authenticated)/layout.tsx. Invariant #13: the browser learns flag state
    *  only through this prop — there is no NEXT_PUBLIC companion. */
   solicitationEnabled: boolean;
-}
-
-function deriveInitials(name: string, email: string): string {
-  if (name.trim()) {
-    const parts = name.trim().split(/\s+/);
-    return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
-  }
-  return (email[0] ?? '?').toUpperCase();
 }
 
 /** One nav row. Pairing className and aria-current here keeps the visual
@@ -54,65 +44,52 @@ function NavItem({
   );
 }
 
-export function Sidebar({
-  businessName,
-  ownerName,
-  ownerEmail,
-  solicitationEnabled,
-}: Props) {
-  const router = useRouter();
+/**
+ * A child route that appears only while its parent section is open. A flat rail
+ * stops working as the route count grows, and `/dashboard/reviews/history` was
+ * reachable from nowhere in either nav. Expansion follows the active section
+ * rather than a stored toggle: there is one child today, and a disclosure state
+ * machine for one row would be state nobody reads back.
+ */
+function NavChild({ href, label }: { href: string; label: string }) {
   const pathname = usePathname() ?? '';
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState(false);
+  const active = pathname === href;
+  return (
+    <Link
+      href={href}
+      className={`nav-child ${active ? 'active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+    >
+      {label}
+    </Link>
+  );
+}
 
+export function Sidebar({ businessName, solicitationEnabled }: Props) {
+  const pathname = usePathname() ?? '';
   const { isMultiLocation } = useLocationScope();
   const pendingCount = usePendingCount();
 
-  async function handleSignOut() {
-    setSigningOut(true);
-    setSignOutError(false);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        setSignOutError(true);
-        setSigningOut(false);
-        return;
-      }
-      // The OWNER login page. Sending an owner to /admin/login dead-ends them:
-      // that form is allowedRoles={['admin']}, so re-entering their own
-      // credentials signs them straight back out with "That account is for the
-      // owner portal." The guards in require-owner-access.ts and the
-      // authenticated layout deliberately still target /admin/login — those are
-      // pinned by require-owner-access.test.ts and are not this path.
-      router.push('/login');
-      router.refresh();
-    } catch {
-      setSignOutError(true);
-      setSigningOut(false);
-    }
-  }
-
   const activeNav = deriveNavSection(pathname);
-
-  const initials = deriveInitials(ownerName, ownerEmail);
-  const displayOwner = ownerName.trim() || (ownerEmail.split('@')[0] ?? '');
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <BrandLogo size={32} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="brand-name">RepWorth</div>
+      {/* Identity first (Source A: a logo wastes the most convenient spot).
+          Two rows, because the Console has two identities the owner switches
+          between — the account, and the location the numbers describe. */}
+      <div className="sidebar-identity">
+        <AccountMenu />
+        <div className="sidebar-scope">
+          <Icon name="location" size={13} />
           {isMultiLocation ? (
             <LocationPicker singleLocationLabel={businessName} />
           ) : (
-            <div className="brand-biz">{businessName}</div>
+            <span className="brand-biz">{businessName}</span>
           )}
         </div>
       </div>
 
-      <div className="nav-section">
+      <nav className="nav-section" aria-label="Main">
         <NavItem href="/dashboard" section="dashboard" activeNav={activeNav}>
           <Icon name="home" /> Dashboard
         </NavItem>
@@ -120,6 +97,12 @@ export function Sidebar({
           <Icon name="inbox" /> Reviews
           {pendingCount > 0 && <span className="nav-badge">{pendingCount}</span>}
         </NavItem>
+        {activeNav === 'reviews' && (
+          <div className="nav-children">
+            <NavChild href="/dashboard/reviews" label="Needs action" />
+            <NavChild href="/dashboard/reviews/history" label="Past replies" />
+          </div>
+        )}
         {solicitationEnabled && (
           <NavItem href="/dashboard/requests" section="requests" activeNav={activeNav}>
             <Icon name="trend" /> Requests
@@ -128,39 +111,26 @@ export function Sidebar({
         <NavItem href="/dashboard/analytics" section="analytics" activeNav={activeNav}>
           <Icon name="chart" /> Analytics
         </NavItem>
-      </div>
-
-      <div className="nav-divider" />
-
-      <div className="nav-section">
-        <NavItem href="/settings" section="settings" activeNav={activeNav}>
-          <Icon name="cog" /> Settings
-        </NavItem>
-      </div>
+      </nav>
 
       <div className="sidebar-spacer" />
 
-      <div className="user-chip">
-        <div className="avatar">{initials}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="user-name">{displayOwner}</div>
-          <div className="user-email">{ownerEmail}</div>
-        </div>
-      </div>
+      {/* Rare destinations dock at the base, separated from the main group. */}
+      <nav className="nav-section nav-section--utility" aria-label="Utility">
+        <NavItem href="/settings" section="settings" activeNav={activeNav}>
+          <Icon name="cog" /> Settings
+        </NavItem>
+        <Link href="/help/contact" className="nav-item">
+          <Icon name="help" /> Help
+        </Link>
+      </nav>
 
-      {signOutError && (
-        // On the deep Harbor field the terracotta danger token falls below AA;
-        // the words carry the failure, the light ink keeps it readable.
-        <p style={{ fontSize: 12, color: 'var(--rw-nav-ink)', marginTop: 4 }}>Sign out failed</p>
-      )}
-      <button
-        type="button"
-        onClick={handleSignOut}
-        disabled={signingOut}
-        className="signout-btn"
-      >
-        <Icon name="logout" /> {signingOut ? 'Signing out…' : 'Sign out'}
-      </button>
+      {/* The wordmark keeps a quiet presence at the foot of the rail rather
+          than occupying the prime slot the account control now holds. */}
+      <div className="sidebar-brand">
+        <BrandLogo size={18} />
+        <span>RepWorth</span>
+      </div>
     </aside>
   );
 }

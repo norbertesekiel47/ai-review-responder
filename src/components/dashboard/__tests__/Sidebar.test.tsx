@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { createElement as h } from 'react';
 import { Sidebar } from '@/components/dashboard/shell/Sidebar';
 import { LocationProvider, type LocationInfo } from '@/contexts/LocationContext';
+import { OwnerIdentityProvider } from '@/contexts/OwnerIdentityContext';
 import type { LocationId } from '@/lib/shared/ids';
 
 vi.mock('@/lib/db/browser', () => ({
@@ -36,12 +37,19 @@ function wrapWithProvider(
     { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },
   ];
   return h(
-    LocationProvider,
+    OwnerIdentityProvider,
     {
-      locations,
-      initialScope: LOC_A,
-      multiLocationEnabled: overrides?.multiLocationEnabled ?? false,
-      children: ui,
+      name: 'Maya Chen',
+      email: 'maya@bristolbay.co',
+      children: h(
+        LocationProvider,
+        {
+          locations,
+          initialScope: LOC_A,
+          multiLocationEnabled: overrides?.multiLocationEnabled ?? false,
+          children: ui,
+        },
+      ),
     },
   );
 }
@@ -51,40 +59,58 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard');
   });
 
-  it('renders brand, nav items, user chip, and sign-out', () => {
+  it('leads with the account control, then the scope, and docks the wordmark', () => {
     render(
       wrapWithProvider(
         <Sidebar
           businessName="Bristol Bay Coffee"
-          ownerName="Maya Chen"
-          ownerEmail="maya@bristolbay.co"
           solicitationEnabled={false}
         />,
       ),
     );
-    expect(screen.getByText('RepWorth')).toBeInTheDocument();
+    // Identity first: the account trigger carries the owner's name, and the
+    // email now lives inside its menu rather than on a static chip.
+    expect(screen.getByRole('button', { name: /maya chen/i })).toBeInTheDocument();
+    expect(screen.queryByText('maya@bristolbay.co')).not.toBeInTheDocument();
     expect(screen.getByText('Bristol Bay Coffee')).toBeInTheDocument();
+    // The wordmark survives, at the foot of the rail.
+    expect(screen.getByText('RepWorth')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /reviews/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /settings/i })).toBeInTheDocument();
-    expect(screen.getByText('Maya Chen')).toBeInTheDocument();
-    expect(screen.getByText('maya@bristolbay.co')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /help/i })).toHaveAttribute('href', '/help/contact');
   });
 
-  it('never renders a standalone Past Replies nav item (folded into Reviews → History)', () => {
+  it('hides the Past replies child until the Reviews section is open', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
   });
 
+  it('reveals the Reviews children on a reviews route, and marks the open child', () => {
+    pathnameMock.mockReturnValue('/dashboard/reviews/history');
+    render(
+      wrapWithProvider(
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
+      ),
+    );
+    const history = screen.getByRole('link', { name: /past replies/i });
+    expect(history).toHaveAttribute('href', '/dashboard/reviews/history');
+    expect(history).toHaveAttribute('aria-current', 'page');
+    // The parent row stays highlighted alongside the child.
+    expect(screen.getByRole('link', { name: /^reviews$/i }).className).toContain('active');
+    expect(screen.getByRole('link', { name: /needs action/i })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
   it('marks active nav item based on usePathname', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     const dash = screen.getByRole('link', { name: /dashboard/i });
@@ -96,7 +122,7 @@ describe('Sidebar', () => {
   it('renders the Reviews nav item (Insights/Past Replies removed)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
@@ -107,7 +133,7 @@ describe('Sidebar', () => {
   it('renders the Analytics nav item (final order: Dashboard · Reviews · Analytics · Settings)', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i })).toHaveAttribute('href', '/dashboard/analytics');
@@ -117,7 +143,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/analytics');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.getByRole('link', { name: /analytics/i }).className).toContain('active');
@@ -125,21 +151,13 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /^dashboard$/i }).className).not.toContain('active');
   });
 
-  it('calls supabase signOut on click', async () => {
-    const user = userEvent.setup();
-    render(
-      wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
-      ),
-    );
-    await user.click(screen.getByRole('button', { name: /sign out/i }));
-    expect(screen.getByRole('button', { name: /sign out|signing out/i })).toBeInTheDocument();
-  });
+  // Sign-out moved into the account menu; its success and both failure arms are
+  // covered by shell/__tests__/AccountMenu.test.tsx.
 
   it('hides the Requests sidebar row when watch-mode is off', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
     expect(screen.queryByRole('link', { name: /requests/i })).not.toBeInTheDocument();
@@ -148,7 +166,7 @@ describe('Sidebar', () => {
   it('renders exactly one Requests row, between Reviews and Analytics, when watch-mode is on', () => {
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled />,
       ),
     );
     const requests = screen.getAllByRole('link', { name: /requests/i });
@@ -170,7 +188,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/requests');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled />,
       ),
     );
     const requests = screen.getByRole('link', { name: /requests/i });
@@ -183,7 +201,7 @@ describe('Sidebar', () => {
     pathnameMock.mockReturnValue('/dashboard/requests/contacts');
     render(
       wrapWithProvider(
-        <Sidebar businessName="Coffee Co" ownerName="" ownerEmail="a@b.co" solicitationEnabled />,
+        <Sidebar businessName="Coffee Co" solicitationEnabled />,
       ),
     );
     expect(screen.getByRole('link', { name: /requests/i }).className).toContain('active');
@@ -194,7 +212,7 @@ describe('Sidebar', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },
@@ -215,7 +233,7 @@ describe('Sidebar', () => {
     const LOC_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' as LocationId;
     render(
       wrapWithProvider(
-        <Sidebar businessName="Bristol Bay Coffee" ownerName="Maya" ownerEmail="maya@test.co" solicitationEnabled={false} />,
+        <Sidebar businessName="Bristol Bay Coffee" solicitationEnabled={false} />,
         {
           locations: [
             { id: LOC_A, name: 'Bristol Bay Coffee', displayLabel: null, isPrimary: true },

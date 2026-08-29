@@ -19,6 +19,11 @@ export type IconName =
   | 'edit'
   | 'regenerate'
   | 'chevron-down'
+  | 'chevron-updown'
+  | 'close'
+  | 'user'
+  | 'card'
+  | 'help'
   | 'plus'
   | 'location'
   | 'shield';
@@ -178,6 +183,44 @@ export function Icon({ name, size = 18, ...rest }: Props) {
       return (
         <svg {...props}>
           <path d="M6 9l6 6 6-6" />
+        </svg>
+      );
+    // The stacked pair, not a single chevron: it reads as "this row opens a
+    // switcher", which a lone down-chevron does not.
+    case 'chevron-updown':
+      return (
+        <svg {...props}>
+          <path d="M8 9l4-4 4 4" />
+          <path d="M16 15l-4 4-4-4" />
+        </svg>
+      );
+    case 'close':
+      return (
+        <svg {...props}>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      );
+    case 'user':
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+        </svg>
+      );
+    case 'card':
+      return (
+        <svg {...props}>
+          <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+          <path d="M2.5 10h19" />
+          <path d="M6.5 15h3" />
+        </svg>
+      );
+    case 'help':
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9.5a2.5 2.5 0 115 .5c0 1.5-2.5 1.75-2.5 3.5" />
+          <path d="M12 17h.01" />
         </svg>
       );
     case 'plus':

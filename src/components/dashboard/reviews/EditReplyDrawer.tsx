@@ -388,7 +388,7 @@ function Spinner() {
   return (
     <span
       aria-hidden="true"
-      className="inline-block size-4 animate-spin rounded-full border-2"
+      className="inline-block size-4 animate-spin motion-reduce:animate-none rounded-full border-2"
       style={{ borderColor: 'var(--rw-sage-line)', borderTopColor: 'var(--rw-sage-deep)' }}
     />
   );

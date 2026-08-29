@@ -8,6 +8,12 @@ import {
   formatRankingDateLabel,
 } from '@/components/dashboard/kpi/RankingChart.helpers';
 import { RANKING_COLORS } from '@/components/dashboard/charts/chart-tokens';
+import { CardViewTabs } from '@/components/dashboard/charts/CardViewTabs';
+
+const RANKING_VIEWS = [
+  { value: 'aggregate', label: 'Best Across Locations' },
+  { value: 'per-location', label: 'Per Location' },
+] as const;
 
 interface Props {
   ranking: AggregateDashboardData['ranking'];
@@ -45,59 +51,45 @@ export function AggregateRankingCard({ ranking, perLocationRanking }: Props) {
         <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--rw-app-text-soft)' }}>local pack</span>
       </div>
 
-      {/* VAL-DASH-015: per-location ranking toggle */}
-      <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--rw-recess)', borderRadius: 9999, width: 'fit-content', marginBottom: 14 }}>
-        <button
-          type="button"
-          className={`tab ${mode === 'aggregate' ? 'active' : ''}`}
-          aria-pressed={mode === 'aggregate'}
-          onClick={() => setMode('aggregate')}
-          style={{ padding: '4px 12px', fontSize: 12 }}
-        >
-          Best Across Locations
-        </button>
-        <button
-          type="button"
-          className={`tab ${mode === 'per-location' ? 'active' : ''}`}
-          aria-pressed={mode === 'per-location'}
-          onClick={() => setMode('per-location')}
-          style={{ padding: '4px 12px', fontSize: 12 }}
-        >
-          Per Location
-        </button>
-      </div>
-
-      {mode === 'aggregate' ? (
-        <RankingChart
-          series={aggregateSeries}
-          formatSeriesLabel={formatAggregateSeriesLabel}
-          labelFontSize="9"
-          labelFontWeight="500"
-          emphasis="series"
-        />
-      ) : (
-        <>
+      {/* VAL-DASH-015: per-location ranking view */}
+      <CardViewTabs
+        label="Search ranking view"
+        value={mode}
+        onChange={setMode}
+        options={RANKING_VIEWS}
+      >
+        {mode === 'aggregate' ? (
           <RankingChart
-            series={perLocationSeries.map((s) => ({
-              keyword: `[${s.locationDisplayName}] ${s.keyword}`,
-              color: s.color,
-              points: s.points,
-            }))}
+            series={aggregateSeries}
             formatSeriesLabel={formatAggregateSeriesLabel}
             labelFontSize="9"
             labelFontWeight="500"
             emphasis="series"
           />
-          <div className="chart-legend">
-            {perLocationRanking.map((loc, i) => (
-              <span key={loc.locationId}>
-                <span className="legend-dot" style={{ background: RANKING_COLORS[i % RANKING_COLORS.length] }} />
-                {loc.displayName}
-              </span>
-            ))}
-          </div>
-        </>
-      )}
+        ) : (
+          <>
+            <RankingChart
+              series={perLocationSeries.map((s) => ({
+                keyword: `[${s.locationDisplayName}] ${s.keyword}`,
+                color: s.color,
+                points: s.points,
+              }))}
+              formatSeriesLabel={formatAggregateSeriesLabel}
+              labelFontSize="9"
+              labelFontWeight="500"
+              emphasis="series"
+            />
+            <div className="chart-legend">
+              {perLocationRanking.map((loc, i) => (
+                <span key={loc.locationId}>
+                  <span className="legend-dot" style={{ background: RANKING_COLORS[i % RANKING_COLORS.length] }} />
+                  {loc.displayName}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </CardViewTabs>
     </div>
   );
 }

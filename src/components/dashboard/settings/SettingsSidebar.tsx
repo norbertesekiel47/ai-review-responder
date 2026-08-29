@@ -30,8 +30,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Locations', href: '/settings/locations', icon: 'location' },
       { label: 'Review QR', href: '/settings/review-qr', icon: 'location' },
-      { label: 'Profile', href: '/settings/profile', icon: 'home' },
-      { label: 'Billing', href: '/settings/billing', icon: 'chart' },
+      // These three are also the account menu's destinations. One destination,
+      // one icon: `user` / `card` / `shield` in both places, or the same page
+      // wears two marks depending on how the owner reached it.
+      { label: 'Profile', href: '/settings/profile', icon: 'user' },
+      { label: 'Billing', href: '/settings/billing', icon: 'card' },
       { label: 'Security', href: '/settings/security', icon: 'shield' },
     ],
   },

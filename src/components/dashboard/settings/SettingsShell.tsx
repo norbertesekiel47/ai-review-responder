@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
 
 interface Props {
   children: React.ReactNode;
@@ -18,6 +20,19 @@ interface Props {
 }
 
 export function SettingsShell({ children, saveBar, savedFlash, saveError }: Props) {
+  const { toast } = useToast();
+  const wasFlashing = useRef(false);
+
+  // Rising edge only: `savedFlash` stays true for the length of the flash
+  // window, so a value read would re-raise on every unrelated re-render.
+  useEffect(() => {
+    const flashing = savedFlash === true;
+    if (flashing && !wasFlashing.current) {
+      toast({ tone: 'success', title: 'Settings saved' });
+    }
+    wasFlashing.current = flashing;
+  }, [savedFlash, toast]);
+
   return (
     <div className="settings-content">
       {children}
@@ -54,11 +69,11 @@ export function SettingsShell({ children, saveBar, savedFlash, saveError }: Prop
         </div>
       )}
 
-      <LiveRegion message={savedFlash ? 'Settings saved' : ''} />
+      {/* The save CONFIRMATION is announced by the toast above (role="status"),
+          so a second live region here would read it twice. The save ERROR keeps
+          its own assertive region: its visible copy is an inline paragraph in
+          each settings client, which carries no live semantics of its own. */}
       <LiveRegion message={saveError ?? ''} level="assertive" />
-      <div className={`saved-toast ${savedFlash ? 'visible' : ''}`}>
-        <Icon name="check" size={14} /> Settings saved
-      </div>
     </div>
   );
 }
