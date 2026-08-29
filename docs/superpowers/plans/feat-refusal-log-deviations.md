@@ -586,3 +586,55 @@ what the read returned is exactly the leak this route must not be able to do,
 and the body is `{ window, ...log }` or nothing.
 
 Verdict: **ACCEPT** for all four.
+
+## D15 — Surface amendment 2 of 2, and the re-classification
+
+**The budget is now SPENT. A third `allowed_edit_surface` change triggers the
+abort criteria** — tear down, post-mortem, restart at step 1. Note especially
+that step 8 asks to promote durable deviations into
+`.claude/reference/lab-notes.md`, which is NOT in the surface; do that from the
+main checkout after merge, where the worktree guard does not apply, never by
+amending again.
+
+### D15a — amendment: `.claude/reference/arch-review-log.md`
+
+`ci:merge-ledger` fails any PR that changes production files and adds no line to
+that log (#896, #849, #905 — a merge skipping the workflow is otherwise
+invisible by construction). It is a required check in the `lint` job, so the PR
+cannot merge without it, and `/feature` step 8 mandates the same line. My intake
+should have listed the file and did not.
+
+The owner approved the NARROW form (this one file) over widening to
+`.claude/reference/*.md`, on 2026-08-29. Both intake copies updated; surface is
+now 22 entries. Verdict: **ACCEPT**.
+
+### D15b — re-classification trigger fired, lane confirmed unchanged
+
+The gate's `reclassify` row: production **1,267** changed lines against
+`estimated_prod_lines: 700` — over 2×. Tests **2,914** against 2,000 — under.
+
+Step 0 re-run honestly against the four epic triggers:
+
+| Trigger | Verdict |
+|---|---|
+| Surface untightenable beyond a few top-level dirs | **No** — 21 specific paths, `ci:feature-surface` green with every entry matching |
+| Spans multiple risk domains (schema + billing + worker) | **No** — no migration, no billing, no worker change |
+| More than ~8 tracer tickets | **No** — exactly 8, T1–T8, plus T0 the eval |
+| Open investigation questions grilling cannot resolve | **No** — none remain |
+
+So **RISK = high, SURFACE = mixed, normal feature** stands. The lane was right;
+the estimate was wrong.
+
+**Where the estimate went wrong, for the next estimator.** `read.ts` came in at
+637 lines against ~250 estimated. The miss was not the six arms — it was what
+each arm costs once tenant isolation must be *proved* rather than asserted:
+every arm needs a `businesses` bridge predicate plus a child tie (T3's D12c),
+its own `AND ${inLocation}` conjunct spelled apart from the account predicate so
+`ci:tenant-scope` can see it (T2's D9a), and — because one `UNION ALL` defeats
+structural assertions — its own behavioural negative-row test. Roughly 3× the
+naive per-arm estimate.
+
+Estimates corrected to 1,600 / 3,400, which includes T7's projected screen.
+Owner confirmed "lane stands, continue to T7" on 2026-08-29.
+
+Verdict: **ACCEPT**.

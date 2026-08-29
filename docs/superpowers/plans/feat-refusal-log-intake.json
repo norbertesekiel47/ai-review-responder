@@ -93,7 +93,8 @@
     "docs/superpowers/plans/feat-refusal-log-plan.md",
     "docs/superpowers/plans/feat-refusal-log-handoff.md",
     "docs/superpowers/plans/feat-refusal-log-deviations.md",
-    "docs/reviews/feat-refusal-log/*.md"
+    "docs/reviews/feat-refusal-log/*.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "every WithholdReason maps to a RefusalCategory or explicit null",
@@ -176,8 +177,8 @@
     "pnpm ci:rls-audit",
     "pnpm ci:directory-map"
   ],
-  "estimated_prod_lines": "700",
-  "estimated_test_lines": "2000",
+  "estimated_prod_lines": "1600",
+  "estimated_test_lines": "3400",
   "dependencies_added": [],
   "rollback_plan": "Not DB-touching. Revert the PR. No migration, no flag, no data written.",
   "observability": [
