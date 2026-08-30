@@ -1,79 +1,79 @@
 # Handoff — feat/refusal-log
 
-A resumed session bootstraps from this file. It never needs the prior
-transcript. Read the referenced paths; do not restate them here.
+> ## ⛔ THIS `/feature` RUN IS STOPPED. DO NOT RESUME IT.
+>
+> It took the **abort path** at step 7 on an owner decision (2026-08-29): build
+> the durable ledger first. `/feature-resume feat/refusal-log` is the WRONG
+> command — it would restart a run whose premise was retired.
+>
+> **The live work is the wayfinder map: [#994](https://github.com/RepWorth/ai-review-responder/issues/994).**
+> Continue with `/wayfinder 994`. The map is on the tracker, not in `.feature/`
+> state, and a fresh session reads it there.
+>
+> Read `docs/superpowers/plans/feat-refusal-log-postmortem.md` before anything
+> else in this directory.
 
-## Where we are
+## Why it stopped
 
-Step 3 (plan) is CLOSED. Step 4 (execute) is in progress: **T0 landed, T1 is
-dispatched.** `.feature/state.json` is authoritative for phase and counters.
+The **Restraint tab** was built as a projection over six operational tables. It
+is green and it cannot keep its own promise:
 
-| Artifact | Path |
+1. `ArchivalPoller` deletes `agent_runs` at 180 days (`AGENT_SPINE_RETENTION_DAYS`)
+   and the outreach FK is `ON DELETE SET NULL`, so every dispatch-time outreach
+   **Refusal** loses its immutable anchor to a mutable `updated_at`.
+2. Offboarding purges the sources.
+3. Vocabulary changes retroactively re-categorise decisions never recorded.
+
+The intake inherited the brief's premise — "the reasons already exist" — without
+testing it. That is true of *availability* and false of *durability*, and the
+grilling never separated the two claims. Retention appears in none of the 12
+edge cases, 11 invariants or 74 test titles.
+
+## Terminal state of this branch
+
+Branch `feat/refusal-log`, worktree
+`/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-refusal-log`.
+**HEAD `4e0d8086`, tree clean, gate GREEN (32 checks).** Parked, not merged.
+
+| Task | State |
 |---|---|
-| Intake (audit copy) | `docs/superpowers/plans/feat-refusal-log-intake.json` |
-| Intake (arming copy, gitignored) | `.feature/intake.json` — kept byte-identical |
-| Plan, **rev 4 (locked)** | `docs/superpowers/plans/feat-refusal-log-plan.md` |
-| Deviations D1–D7 | `docs/superpowers/plans/feat-refusal-log-deviations.md` |
-| Plan reviews r1/r2/r3 + triage | `docs/reviews/feat-refusal-log/plan-review-r{1,2,3}.md` |
-| Review transcripts | `.feature/logs/codex-plan-review-r*.log` |
+| T0 eval · T1 vocabulary · T2 read+S5 · T3 S1+S3 · T4 S4+S6+S7 · T5 route · T6 tab bar · T7 screen | **ALL LANDED**, each verified independently |
+| Step 5 gate | GREEN at `1466ffc6`, re-run GREEN at `4e0d8086` |
+| Step 6 deviations | 17 entries, all triaged ACCEPT |
+| Step 7 review | Round 1 of 3 ran, all three axes. **18 findings, NOT fixed** — the fix round was stopped mid-flight |
+| Step 7.5 red team | Never ran |
+| Step 8 ship | Never ran |
 
-Worktree: `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-refusal-log`
-Base: `75a1f436`, parent `5ab6bfee` (squash merge of #993). Enforcement ARMED.
+Budgets at stop: plan reviews 3/3 closed · surface amendments 2/2 spent (plus
+one exit-artifact addition for the post-mortem) · branch reviews 1/3.
 
-## Decisions the owner locked — do not reopen
+## What survives, and where it goes
 
-1. Two-axis vocabulary: `RefusalCategory` (7, closed, precedence order) + `RefusalSource`.
-2. Routed tab at `/dashboard/analytics/restraint`, following `ReviewsTabs` — not `useState`.
-3. Redaction: category plus subject, never reason text, never draft text.
-4. `admin_halt`/`platform_halt` in, folded into `autonomy_paused`. `velocity_banked`, owner acts, delivery failures out.
-5. `DASHBOARD_WINDOWS` (`7d`/`30d`/`90d`/`12w`), default `30d`.
-6. Links only, no writes.
-7. `judge_verdicts` dropped — post-publication (D3a).
-8. `AutoApprovalBlockReason` gap documented, not captured (D3c).
+| Artifact | Fate |
+|---|---|
+| `src/lib/refusals/vocabulary.ts` | Carries over unchanged. #998 adds an eighth **Refusal category**, `owner_review_required`. |
+| `src/components/dashboard/restraint/*` + the route + `AnalyticsTabs` | Carry over. 10 of 13 review findings ride with them (#1000). |
+| `src/lib/refusals/read.ts` — six `UNION ALL` arms | **Dead.** #1002 ruled no backfill, ever, so the arms are not even the migration input they were expected to be. |
+| `docs/adr/0023-…` | Correct on redaction and the two-axis vocabulary; **wrong on durability**. Superseded in part by #996. |
+| The 74-title eval | Mostly survives; the per-source arm tests die with `read.ts`. |
 
-## Task state
+## The open review findings, if anyone lands this branch
 
-| Task | State | Notes |
-|---|---|---|
-| T0 eval | **DONE** `508b8a76` | 73 titles, 3 failed / 70 todo / 0 passed. First-task spot check PASSED — the guard binds for subagent tool calls. |
-| T1 vocabulary | **DONE** `10723248` | 42 codes: 25 → a category, 17 → explicit `null`. 4 maps `satisfies`-guarded, 2 test-guarded against the migration 111 CHECK. `vocabulary.test.ts` 11/11. |
-| T6 tab bar + route shell | **DONE** `4879306a` | Ran parallel with T2. 15 tests pass. Page shell imports neither T5 nor T7 — verified, which is what made the parallel dispatch sound. |
-| T2 scope rename + S5 arm | **DONE** `b9eb3f53` | Rename: 2 refs, no alias. 22 passed / 31 todo / **0 skipped** on the live DB. |
-| T3 S1 + S3 arms | **IN FLIGHT** | Also fixes the §A gap: the S3 map is keyed by reason (6) but the DB stores audit actions (5) — see D11. |
-| T4 S4 + S6 + S7 arms | blocked on T3 (same file) | S4 must NOT join `businesses`. S6 anchor is reason-dependent (D7). |
-| T5 route | blocked on T4 | Owns the 3 route redaction titles (D6c), not T3. Clears the LAST surface entry. |
-| T7 Restraint screen | blocked on T5, T6 | `{ kind: 'review' }` is CONDITIONAL — `unsafe_content` is fed by S1 (has a review) and S6 `moderation_high` (has none). Category and source are not 1:1. Owner's rule: before/after screenshots at 390px and 1440px. |
-| T8 docs sweep | blocked on T7 | **Mostly done early**: ADR 0023 written (`f0eba903`), both `docs/directory.md` rows landed. Only the residual sweep remains. |
+`docs/reviews/feat-refusal-log/{spec-correctness,standards,approach-review}` —
+13 findings, 2 HIGH. #1000 triaged them: **8 carry forward** into the harvest
+ticket, 3 die with `read.ts`, 1 is moot. They land in the harvest ticket,
+**never on this branch**, and that ticket's `allowed_edit_surface` must include
+`src/components/dashboard/shell/DashboardStatePanel.tsx` — excluding it is what
+produced the duplicated loading scaffold in the first place.
 
-## Budgets
+The sharpest one is not on either list. `RestraintReport.tsx:146` renders "We
+did not hold anything back… Everything we were asked to do, we did." That is
+false while the highest-volume lane is log-only. #1000 retired the absolute
+claim permanently: **no Restraint surface makes a claim about all time.**
 
-- **Plan review rounds: 3 of 3 — CLOSED.** Findings converged 24 → 4 → 1. Do not open a fourth.
-- **Surface amendments: 1 of 2.** Only D1 (ADR renumber) counted. A second triggers the abort criteria.
-- **Branch review rounds: 0 of 3** (step 7 has not started).
-- Eval: **74 titles**. The intake is the operative count; plan prose is not.
+## One thing worth carrying to any future work in this domain
 
-## Known gate condition — do not "fix" it
+**For every source, ask: what deletes this row, and when?**
 
-`feature-surface` FAILS until every surface entry matches a real file. **One
-entry remains: `src/app/api/dashboard/refusals/route.ts` (T5).** It is a
-push-time audit and its own message names the pre-implementation case. The gate
-can go green as soon as T5 lands.
-
-`ci:directory-map` goes red the moment a new `src/lib/**` file appears without
-its row. Both refusals rows are already in, so add a row in the SAME change as
-any further file there — a row whose file is absent fails the same audit, so
-rows cannot be pre-written.
-
-**Do NOT narrow the surface to force it green** — that spends the second
-amendment on bookkeeping and trips the abort criteria. Every other check
-passes. The local test DB is provisioned to head (`115_qr_scan_analytics_event.sql`).
-
-## Traps a resumed session will otherwise hit
-
-- **There is no vitest project named `unit`** (D6a). Projects are `parallel` and `integration`. Use:
-  `REPWORTH_DISABLE_LIVE_DB_SUITES=1 pnpm vitest run src/lib/refusals src/components/dashboard/restraint src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx src/app/api/dashboard/__tests__/refusals-route.test.ts`
-- **Never start the gate while a subagent is in flight.** A subagent returning mid-gate moves HEAD under the evidence and the Stop hook then refuses finished work.
-- **S6's anchor is reason-dependent** (D7, plan §2). `rendered_at` for the three `RenderWithholdReason` codes; `COALESCE(run.started_at, updated_at)` for the other five. Neither is correct alone.
-- **S4 must not join `businesses`.** An account-wide arm joined through locations multiplies one audit row by the location count.
-- **One `UNION ALL` means structural SQL assertions cannot prove per-arm scoping.** Every arm needs its own behavioural negative-row test.
-- After each subagent, run the spot check: `git diff --name-only <prev>..HEAD` against `allowed_edit_surface`.
+This effort had 12 edge cases, 11 invariants, 74 test titles and three
+adversarial plan-review rounds, and asked it of none of them.
