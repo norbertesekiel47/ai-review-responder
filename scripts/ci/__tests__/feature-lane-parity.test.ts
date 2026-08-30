@@ -84,6 +84,14 @@ describe('the speed-lane rules reached both lanes', () => {
   it.each(ROUTERS)('%s points at the Codex dispatch rules', (_name, router) => {
     expect(router).toContain('Dispatching a Codex round');
   });
+
+  // The most expensive single event measured in a /feature run was a rebase,
+  // not a slow reviewer: 67 of red team's 174 minutes on feat/1008 went to one
+  // post-rebase re-run. Both routers must say so at the wave.
+  it.each(ROUTERS)('%s freezes the fork at the wave', (_name, router) => {
+    expect(router).toContain('Pin the fork');
+    expect(router).toContain('Take main BEFORE');
+  });
 });
 
 describe('the Codex dispatch rules keep their guardrails', () => {
@@ -122,8 +130,9 @@ describe('the Codex dispatch rules keep their guardrails', () => {
 });
 
 describe('the reference owns what the routers only point at', () => {
-  it('execution-lanes.md defines the wave, the conditional round and the loop', () => {
+  it('execution-lanes.md defines the wave, the fork rule, the conditional round and the loop', () => {
     expect(executionLanes).toContain('## The review wave');
+    expect(executionLanes).toContain('## Pin the fork');
     expect(executionLanes).toContain('## Conditional verification rounds');
     expect(executionLanes).toContain('## The gate loop');
   });

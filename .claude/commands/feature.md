@@ -432,6 +432,17 @@ any entry lacks a resolved **Verdict:** ACCEPT. A RE-PLAN verdict also refuses.
 
 ## 7. REVIEW WAVE — every axis and the red team, in one dispatch
 
+**Take main BEFORE this step, then freeze the fork.** Check drift now
+(`git rev-list --count HEAD..origin/main`) and rebase or merge if it is
+material. From the moment the wave dispatches, the fork point is FROZEN: a
+rebase during steps 7–7.5 voids the gate result, the fingerprint, the blast
+radius and the red-team sidecar all at once, and `red-team-status.mjs` will
+refuse the `reviewed` transition on exactly that basis. On feat/1008 that cost
+**67 of red team's 174 minutes** for one post-rebase re-run. Taking main before
+the wave costs one 95 s gate. If main truly must be taken mid-review, the round
+is VOID — say so, re-run the full gate, and open a fresh round under the same
+caps. Never patch around it. See `execution-lanes.md` § Pin the fork.
+
 First:
 
 ```bash

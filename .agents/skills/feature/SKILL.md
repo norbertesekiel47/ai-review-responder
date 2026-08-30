@@ -292,6 +292,14 @@ as its note before you stop.
 Read [review-prompts.md](references/review-prompts.md). Review the diff from a
 fixed merge-base only after the review gate is green:
 
+**Take main BEFORE this section, then freeze the fork.** From the moment the
+wave dispatches, a rebase voids the gate result, the fingerprint, the blast
+radius and the red-team sidecar together, and the `reviewed` transition refuses
+on that basis. Measured on feat/1008: 67 of red team's 174 minutes went to one
+post-rebase re-run, against 95 s for taking main beforehand. If main must be
+taken mid-review the round is VOID — re-run the full gate and open a fresh one.
+Read [execution-lanes.md](references/execution-lanes.md) § Pin the fork.
+
 Dispatch every required axis AND the red-team pass in ONE parallel wave; route
 mechanical passes (logging, checklist sweeps, doc greps) to cheaper subagents.
 Read [execution-lanes.md](references/execution-lanes.md) § The review wave
