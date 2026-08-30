@@ -61,7 +61,31 @@ block() {
   exit 2
 }
 
-if printf '%s' "$COMMAND" | grep -qE '(^|[;&| ])sed[[:space:]][^;&|]*-i'; then
+# `-i` counts ONLY as an option token. The previous rule matched `-i` ANYWHERE
+# after `sed `, so a read-only `sed -n '/foo-i/p' FILE` — a hyphen-i inside a
+# SEARCH PATTERN or a filename — was blocked as an in-place write. That false
+# positive cost a plan-review round in #1008 (deviation D9, whose own diagnosis
+# was wrong: the guard did distinguish `-n … p`; it could not distinguish a
+# flag from a pattern). Scanning resets at each command separator so a second
+# `sed` on the same line is still checked.
+sed_uses_in_place() {
+  local tok scanning=0
+  for tok in $(printf '%s' "$1" | tr ';&|()' '     '); do
+    if [ "$scanning" = 1 ]; then
+      case "$tok" in
+        --in-place|--in-place=*) return 0 ;;
+        --)     scanning=0; continue ;;
+        -[!-]*) case "$tok" in *i*) return 0 ;; esac; continue ;;
+        --*)    continue ;;
+        *)      scanning=0 ;;
+      esac
+    fi
+    case "$tok" in sed|*/sed) scanning=1 ;; esac
+  done
+  return 1
+}
+
+if sed_uses_in_place "$COMMAND"; then
   while IFS= read -r token; do
     is_source_target "$token" && block "sed -i against '$token'"
   done < <(printf '%s\n' "$COMMAND" | tr -s ' \t' '\n')
