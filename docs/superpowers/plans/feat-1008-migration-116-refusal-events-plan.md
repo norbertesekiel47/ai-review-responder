@@ -40,8 +40,9 @@ a `verificationQuery` branch and a purge `DELETE`, both of which name
 recovering (D6).
 
 So this slice ships on the repository's standard RISK = high lane, migration
-first in every environment. Step 8 spells it out. `#1009` was gated on
-promotion rather than merge; under this ordering the two coincide.
+first in every environment — but never ahead of CI or of your merge approval.
+Step 8 spells out the only order that gives both properties, and names the
+exact step at which #1009 unblocks.
 
 ## Tasks
 
@@ -53,7 +54,7 @@ implementation.
 Author all twenty-two `tests_to_add` titles as runnable failing tests.
 
 **New file** `src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts`
-— titles 1–18. Precedent, followed exactly:
+— titles 1–19. Precedent, followed exactly:
 `src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts`.
 
 - `describeWithDb` + `acquireLiveDbLock` (`LIVE_DB_LOCK_HOOK_TIMEOUT_MS`), the
@@ -74,9 +75,13 @@ lesson and it is the difference between a real eval and a decorative one:**
 
 | Style | Reads | Used by |
 |---|---|---|
-| structural | `pg_get_constraintdef`, `pg_indexes.indexdef`, `information_schema.columns`, `pg_description` | 2, 3, 4, 5, 7 |
+| structural | `pg_class.relrowsecurity`, `pg_policies`, `pg_get_constraintdef`, `pg_indexes.indexdef`, `information_schema.columns`, `pg_constraint` (FKs), `pg_description` | 1, 2, 3, 4, 5, 7 |
 | file text | the checked-in `116_refusal_events.sql` | 6 |
+| module import | `TENANT_TABLES` from `scripts/ci/tenant-tables.ts` | 19 |
 | behavioural | `INSERT` succeeds or raises a named constraint | 8–18 |
+
+Every one of titles 1–19 has a style. Titles 20–22 live in existing
+offboarding suites and follow those suites' established styles.
 
 **Title 7 must be structural, not behavioural.** The standalone
 `refusal_source` CHECK rejects every unmapped lane before C1 evaluates, so no
@@ -84,8 +89,12 @@ reachable row exercises C1's fall-through. A C1 with the correct seven arms and
 **no** `IS TRUE` wrapper would pass every behavioural test. The test reads
 `pg_get_constraintdef` and asserts the wrapper is present.
 
-**Existing file** `scripts/ci/__tests__/tenant-tables.integration.test.ts` or a
-unit peer — title 19.
+**Title 19 lives in the migration-116 suite, not in a `scripts/ci/` test.**
+`scripts/ci/__tests__/tenant-tables.integration.test.ts` is NOT in
+`allowed_edit_surface`, and widening the surface for one assertion would spend
+the second and last amendment of the abort budget. The assertion needs no
+database — it imports `TENANT_TABLES` and reads one key — so it belongs beside
+the schema it describes. Rehomed, not dropped (D10).
 
 **Existing file** `src/lib/account-offboarding/__tests__/table-disposition.test.ts`
 — title 20, on the existing
@@ -382,24 +391,43 @@ live-DB suites silently skip and the gate is not review-ready.
 changes; the gate runs every `ci:*` script except `fallow`, so neither needs a
 `verification_commands` entry.
 
-## Step 8 — the ship order (RISK = high, corrected by D6)
+## Step 8 — the ship order (RISK = high, corrected by D6 and D10)
 
-The migration precedes the code in every environment. No step may be reordered.
+Two properties must hold at once, and only one order gives both:
 
-1. Apply 116 to the **staging** Supabase project. Verify by introspection.
-2. Push the branch to `staging`. The staging worker deploys against a database
+- **The migration reaches a database before the code that names it** (D6).
+- **No SQL reaches production before CI is green and you have approved it**
+  (D10). Revision 2 applied production DDL at step 4, ahead of the PR — that
+  put unreviewed, CI-ungated SQL on the production database, and
+  `deployment-guide.md` §II.5 opens the PR first for exactly this reason.
+
+No step may be reordered.
+
+1. Open the PR to `main` with `gh pr create --draft`, then `gh pr ready`.
+   Draft PRs run no CI, so nothing gates until it is marked ready.
+2. Confirm every required check is green. **This is the gate on the SQL**, and
+   it is why it comes before any database is touched.
+3. Apply 116 to the **staging** Supabase project. Verify by introspection
+   (`information_schema.columns`, `pg_constraint`, `pg_indexes`), never
+   `list_migrations`.
+4. Push the branch to `staging`. The staging worker deploys against a database
    that already holds the table.
-3. Smoke the touched path on staging: run an account offboarding purge and
+5. Smoke the touched path on staging: run an account offboarding purge and
    confirm `verifyAccountOffboardingPurge` reports no `refusal_events` issue.
-4. Apply 116 to the **production** Supabase project. Verify by introspection.
-5. Open the PR to `main`, confirm CI green, pause for owner merge approval.
-6. Merge. Production deploys against a database that already holds the table.
-7. Land the promotion change: remove the LOCAL-ONLY marker from the 116 entry
+6. **Pause for owner merge approval.**
+7. Apply 116 to the **production** Supabase project. Verify by introspection.
+   This is the last step before the code that names the table can run there.
+8. Merge. Production deploys against a database that already holds the table.
+9. Land the promotion change: remove the LOCAL-ONLY marker from the 116 entry
    and record both promotion lines. This re-arms
    `migration-immutability-guard.sh`.
-8. Re-sync `staging` to `main` per `deployment-guide.md`. The PR squash-merges,
-   so the branches diverge and `--ff-only` aborts; use
-   `git reset --hard origin/main` plus `--force-with-lease`, never a sync merge.
+10. Re-sync `staging` to `main` per `deployment-guide.md`. The PR squash-merges,
+    so the branches diverge and `--ff-only` aborts; use
+    `git reset --hard origin/main` plus `--force-with-lease`, never a sync merge.
+
+**When #1009 unblocks: at step 7, not at step 8 and not at step 9.** #1009 is
+gated on 116 being present in staging and production, which is true the moment
+step 7 completes. Step 9 is bookkeeping and gates nothing.
 
 ## Not in this PR
 

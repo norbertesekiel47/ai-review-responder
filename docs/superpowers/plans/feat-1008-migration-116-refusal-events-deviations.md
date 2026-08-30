@@ -170,6 +170,11 @@ under this ordering the two coincide, so #1009 unblocks at merge.
 **This reverses a stated step of ticket #1008.** Surfaced to the owner as a
 map-level correction.
 
+**Superseded in part by D10.** Revision 2's ordering put production DDL ahead
+of the PR, which fixed the 42P01 window by creating a worse one. The final
+order is in the plan's Step 8: CI green first, then staging DDL, then the
+staging ride, then owner approval, then production DDL, then merge.
+
 **Verdict:** _pending step 6._
 
 ---
@@ -221,5 +226,53 @@ the round.
 
 Not fixed here: the guard is outside this feature's edit surface. Recorded so
 the lesson can be promoted at step 8.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D10 — plan review round 2: my own fixes introduced four defects
+
+**When:** step 3, codex plan review round 2 (verification-only),
+`VERDICT: REVISE`. Six of round 1's seven findings verified fixed; R1-C3
+partial. Report:
+`docs/reviews/feat-1008-migration-116-refusal-events/plan-review-r2.md`.
+
+**D10a — CRITICAL. Revision 2's ship order put production DDL ahead of CI.**
+D6 fixed the 42P01 window by applying the migration first in every
+environment — and put unreviewed, CI-ungated SQL on the production database
+to do it. `docs/runbooks/deployment-guide.md` §II.5 opens the PR first for
+exactly this reason. Two properties must hold together: the migration
+precedes the code, AND no SQL reaches production before CI is green and the
+owner has approved. The plan's Step 8 now carries the only order giving both.
+
+**D10b — MAJOR. The rollback could not remove the disposition row.**
+`accountLinkedTablesFromMigrations()` parses migration files for
+`account_id … REFERENCES accounts(id)`. It reads CREATE statements, not net
+schema, so a migration 117 `DROP` does **not** release the row. Removing the
+row while 116 is checked in fails CI; keeping it while the table is dropped
+leaves purge code naming a missing relation. The rollback is therefore a **PR
+revert**, never a down migration — the revert removes the migration file and
+every dependent row together. An empty table with no reader, writer or
+registry entry is inert, so leaving `refusal_events` in the database is the
+default; dropping it is optional and happens out of band, after the revert
+has deployed. `rollback_plan` rewritten.
+
+**D10c — MAJOR. Title 19 had no authorized home.** The plan sent it to
+`scripts/ci/__tests__/tenant-tables.integration.test.ts`, which is not in
+`allowed_edit_surface`. Widening for one assertion would have spent the
+second and last amendment of the abort budget. **Rehomed instead**: the
+assertion imports `TENANT_TABLES` and reads one key, needs no database, and
+belongs beside the schema it describes — the migration-116 suite. A rehome is
+a deviations entry, not an amendment, so the budget still stands at 1 of 2.
+
+**D10d — MINOR ×2.** Title 1 had no assertion style (it is structural —
+`pg_class.relrowsecurity` plus `pg_policies`); and "promotion and merge
+coincide" was ambiguous. Both fixed; Step 8 now names step 7 as the exact
+point #1009 unblocks.
+
+**Appendix finding, accepted anyway:** the intake still cited
+`tenant-tables.ts:158`. Round 1 corrected only the plan's copy. Now 154 in
+both.
 
 **Verdict:** _pending step 6._
