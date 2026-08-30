@@ -273,7 +273,7 @@ than choose their own:
 
 | Identifier | Where the plan describes it | Where the eval now pins it |
 |---|---|---|
-| `resetRefusalLedgerWarningForTests()` from `src/lib/refusals/write.ts` | §4 T3, *"export a test-only reset that clears both, on `circuit-breaker.ts`'s `reset()` precedent"* | `write.test.ts`'s `beforeEach`/`afterEach` — without it title 9's "exactly one per process" is satisfied by whichever case ran first |
+| `resetRefusalLedgerWarningForTests()` from `src/lib/refusals/write.ts` | §4 T3, *"export a test-only reset that clears both, on `circuit-breaker.ts`'s `reset()` precedent"* | `write.test.ts`'s `beforeEach`/`afterEach` — without it title 9's "exactly one Sentry warning per disabled episode" is satisfied by whichever case ran first. (**Historical quotation:** when this deviation was written the title read *"exactly one per process"*; red-team RT-7 renamed it to match the shipped per-EPISODE rule. The mechanism this row records is unchanged.) |
 | `WARN_RETRY_COOLDOWN_MS` exported from the same module | §2.3's cooldown pseudocode, `300_000` | title 28 advances a stubbed `Date.now()` by exactly this value, so the case pins the cooldown rather than an arbitrary "long enough" margin |
 | `REFUSAL_LEDGER_RETENTION_DAYS` exported from `ArchivalPoller.ts` | §4 T5 step 1 | read off the poller's DYNAMIC import in the live-DB suite's `beforeAll` — a static import would bind the `@/lib/db/server` singleton before `DATABASE_POOL_URL` points at the test DB |
 

@@ -20,17 +20,20 @@ import {
 // ── #1009 slice 2: the first Refusal write site ─────────────────────────────
 //
 // `suspendAccountAutonomy` is where the Refusal ledger gets its first caller —
-// `autonomy_suspended`, one site, inside the existing transaction. The five
-// cases at the foot of this file (titles 16-20) extend this suite rather than
-// opening a sibling one: it already stands up the account, the TWO businesses
-// and the policy rows they need, and a second file would fork that fixture and
-// split one lane's coverage across two places.
+// `autonomy_suspended`, one site, inside the existing transaction. The six
+// cases at the foot of this file (titles 16-20, plus title 29 added by red-team
+// RT-8) extend this suite rather than opening a sibling one: it already stands
+// up the account, the TWO businesses and the policy rows they need, and a
+// second file would fork that fixture and split one lane's coverage across two
+// places.
 //
 // WHY THE VOCABULARY MODULE IS MOCKED. Title 20 has to force a REAL ledger
 // rejection from the REAL helper inside the REAL deciding transaction — a
 // mocked-away helper would prove only that a stub can reject, and every other
-// case here supplies valid input, so a catch-and-swallow helper (or one that
-// opened its own connection) would pass all of them. Bending ONE map entry to
+// case here supplies valid input. (Title 20 does NOT also discriminate a helper
+// that opened its own connection — its forced INSERT fails on either one, so no
+// row exists to survive the rollback; title 29 is the case that does.) Bending
+// ONE map entry to
 // an unknown category makes the ledger INSERT violate
 // `refusal_events_refusal_category_check`, which is exactly the writer bug the
 // design says must abort the decision rather than be caught.
@@ -464,7 +467,7 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
     }
   });
 
-  // ── #1009: the first Refusal write site (titles 16-20) ────────────────────
+  // ── #1009: the first Refusal write site (titles 16-20, 29) ────────────────
 
   it('suspendAccountAutonomy writes exactly one refusal_events row per account with business_id IS NULL, never one per location', async () => {
     // The fixture seeds TWO businesses under this one account, and that is the
@@ -573,17 +576,30 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
 
     // EVERYTHING the transaction wrote is gone.
     //
-    // What this DOES discriminate: a helper that opens its own connection
-    // instead of using the caller's `tx` — its row would survive this rollback.
+    // WHAT THIS CASE DOES DISCRIMINATE: a write site deleted outright (mutant
+    // M9b, killed), and the fact that a CHECK violation takes the WHOLE
+    // decision with it rather than leaving a partially-committed suspension.
     //
-    // What it does NOT discriminate, corrected after red-team RT-4: a helper
-    // that CATCHES its own insert error. postgres.js records `uncaughtError`
-    // per query inside `scope()` and rethrows it after the callback returns
-    // (`index.js:290-296`), so the transaction aborts even when the helper
-    // swallows — that mutation is EQUIVALENT, not killed. An earlier version of
-    // this comment claimed the opposite, which would have let a reader trust a
-    // guarantee this assertion does not provide. The no-catch policy is held by
-    // `write.ts`'s own comment and by review, not by this test.
+    // WHAT IT DOES NOT DISCRIMINATE — two mutations, both measured:
+    //
+    //   (a) A helper that opens its OWN CONNECTION instead of using the
+    //       caller's `tx`. This fixture forces the INSERT to FAIL, so no row is
+    //       produced on either connection and there is nothing left to survive
+    //       a rollback. Red-team RT-8 planted exactly that mutant here and it
+    //       SURVIVED. The own-connection property is discriminated by the
+    //       SUCCESS-PATH twin directly below — "a ledger row written through
+    //       the caller's transaction does not survive that transaction's
+    //       rollback" — where the write lands first and the caller then aborts
+    //       for a reason unrelated to the ledger. That case is why this one no
+    //       longer claims the property.
+    //
+    //   (b) A helper that CATCHES its own insert error (corrected after RT-4).
+    //       postgres.js records an `uncaughtError` per query inside `scope()`'s
+    //       `handler` (`postgres/src/index.js:291-296`) and rethrows it after
+    //       the callback returns (`:265-266`), so the transaction aborts even
+    //       when the helper swallows — that mutation is EQUIVALENT, not killed.
+    //       The no-catch policy is held by `write.ts`'s own comment and by
+    //       review, not by this test.
     const [policy] = await sql()<{ id: string }[]>`
       SELECT id FROM auto_approval_policies
       WHERE account_id = ${requireTenant().accountId}::uuid
@@ -595,5 +611,75 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
       alert_count: 0,
     });
     expect(await readRefusalRows()).toEqual([]);
+  });
+
+  it("a ledger row written through the caller's transaction does not survive that transaction's rollback", async () => {
+    // THE SUCCESS-PATH TWIN of the case above, and the only case on this branch
+    // that discriminates invariant #15 for this helper.
+    //
+    // WHY IT HAD TO BE A SEPARATE CASE. The twin forces a CHECK violation, so
+    // its INSERT fails on the caller's `tx` and on a private connection alike —
+    // nothing is written, so nothing can outlive the rollback and the two
+    // helpers are indistinguishable there (measured: red-team RT-8's mutant
+    // SURVIVED it). Here the write SUCCEEDS first and the caller aborts
+    // afterwards for a reason that has nothing to do with the ledger, so the
+    // two helpers finally differ: one that opened its own connection has
+    // already COMMITTED its row independently, and that row is still there at
+    // the last assertion.
+    //
+    // Nothing else catches this shape. `ci:db-imports` matches the
+    // `@/lib/db/server` specifier only, so a bare `postgres(…)` constructed
+    // inside `src/lib/refusals/` is invisible to it, and invariant #1's ESLint
+    // boundary covers `src/app/**` and `src/components/**`, not `src/lib/**`.
+    //
+    // HOW THE MUTANT ACTUALLY DIES, measured rather than assumed. Replanting
+    // RT-8's M10 here fails this case — but through the LOCK, one step before
+    // the surviving-row assertion: `suspendAccountAutonomy` opens with
+    // `lockAutonomyAccount`'s `SELECT … FROM accounts … FOR UPDATE`, and an
+    // INSERT on any other connection needs `FOR KEY SHARE` on that same row for
+    // `refusal_events.account_id`'s foreign key. So the private connection
+    // blocks on the transaction that is awaiting it and the case times out.
+    // (Reproduced in isolation with `lock_timeout`: `55P03`, exactly there.)
+    // The assertion below is still the one that carries the property — it is
+    // what catches an own-connection write on any future caller that does not
+    // hold the account lock — and both failure modes are this mutant's doing.
+    const abort = new Error('caller aborted after the ledger wrote — unrelated to the ledger');
+
+    await expect(
+      sql().begin(async (tx) => {
+        await expect(suspendAccountAutonomy(tx, {
+          accountId: requireTenant().accountId,
+          trigger: 'judge_flag',
+          suspensionEventId: randomUUID(),
+          evidence: { verdict_id: randomUUID() },
+        })).resolves.toEqual({ newlySuspended: true });
+
+        // Read INSIDE the transaction, before aborting it. A helper that
+        // silently wrote nothing would otherwise satisfy the zero-rows
+        // assertion below by vacuum, which is the failure mode that made the
+        // twin undiscriminating in the first place.
+        const [written] = await tx<{ refusal_count: number }[]>`
+          SELECT COUNT(*)::int AS refusal_count
+          FROM refusal_events
+          WHERE account_id = ${requireTenant().accountId}::uuid
+        `;
+        expect(written?.refusal_count).toBe(1);
+
+        // The caller's own doing, after the ledger has already written — so
+        // the rollback tests the ledger row's TRANSACTION, not its validity.
+        throw abort;
+      }),
+    ).rejects.toBe(abort);
+
+    // The row went down with the decision it recorded. A helper on its own
+    // connection fails right here.
+    expect(await readRefusalRows()).toEqual([]);
+    // And the rollback really did reach everything else, so the zero above is
+    // not a rollback that skipped the ledger.
+    await expect(readSuspensionFactCounts()).resolves.toEqual({
+      audit_count: 0,
+      notice_count: 0,
+      alert_count: 0,
+    });
   });
 });

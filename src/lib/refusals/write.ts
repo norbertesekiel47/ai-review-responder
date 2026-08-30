@@ -30,11 +30,19 @@
  *
  *   * It does not CATCH the insert error. Migration 116's five CHECKs each name
  *     a bug rather than a preference, and a violation aborts the deciding
- *     transaction. Catching would hide a writer bug in the one place the ledger
- *     cannot report it, and the lever against a writer bug is the kill switch —
- *     the ticket says so in those words. The `.claude/CLAUDE.md` rule about
- *     best-effort work needing its own `try/catch` is about work AFTER a primary
- *     side effect; this write is INSIDE the decision, not beside it.
+ *     transaction. BE EXACT ABOUT WHAT A CATCH WOULD BUY, because an earlier
+ *     wording of this bullet overclaimed it: a catch would NOT save the
+ *     transaction. postgres.js records an `uncaughtError` per query inside
+ *     `scope()`'s `handler` (`postgres/src/index.js:291-296`) and rethrows it
+ *     after the callback returns (`:265-266`), so the deciding transaction
+ *     fails either way. What a catch WOULD hide is the error from THIS HELPER'S
+ *     OWN CALLER — the decision dies regardless, but the writer bug that killed
+ *     it stops being the thing the caller sees and raises, and the ledger is
+ *     precisely the place that cannot report it instead. The lever against a
+ *     writer bug is the kill switch — the ticket says so in those words. The
+ *     `.claude/CLAUDE.md` rule about best-effort work needing its own
+ *     `try/catch` is about work AFTER a primary side effect; this write is
+ *     INSIDE the decision, not beside it.
  *   * It does not REVALIDATE its input at run time. `WriteRefusalEventInput`
  *     projects C1–C5 into the type system and migration 116 still enforces them
  *     in storage; a THIRD, run-time copy would be the second authority that

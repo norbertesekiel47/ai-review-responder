@@ -67,8 +67,14 @@ email shares the Resend provider with the product.
 - [ ] **Autonomy Governor candidate failure routed to Discord** — issues tagged
   `subsystem:autonomy_governor`, emitted by `AutonomyGovernorScheduler`'s
   per-candidate `catch`. **Unlike the row above this one is a `captureException`,
-  so it defaults to level `error` and the existing high-priority rule should
-  already reach email** — the Discord route is an upgrade, not a gap. It matters
+  so it defaults to level `error`** and Sentry's default high-priority rule should
+  mail the issue owners. That is better than silence — but **email is NOT an
+  acceptable alert route by this section's own standard** (§1's premise: admin
+  email shares the Resend provider with the product), so this row is still a
+  **gap**, not merely an upgrade, until the Discord rule exists. Two further
+  caveats: the default-rule claim is unaudited in **production** (CONFIG-1's
+  evidence is a 2026-06-24 audit of `repworth-nv/repworth-staging`), and email
+  reaches issue owners rather than a paging channel. It matters
   because that scheduler is **not** a BullMQ worker, so `attachJobFailureSink`
   never sees it: before #1009 a failed suspension there reached `logger.error`
   and nothing else, leaving an account un-suspended silently on every 15-minute

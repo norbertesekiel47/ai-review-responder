@@ -118,11 +118,12 @@
     "the archival log line and the saturation list both carry refusal_events",
     "every test file this branch adds is free of .todo, .skip and .fails markers",
     "a throwing Sentry capture inside the Governor catch still lets the cycle reach the next candidate",
-    "a first Sentry capture that throws does not suppress the refusal-ledger warning permanently"
+    "a first Sentry capture that throws does not suppress the refusal-ledger warning permanently",
+    "a ledger row written through the caller's transaction does not survive that transaction's rollback"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "±540 production and documentation lines (vocabulary.ts ~170, write.ts ~160, suspension.ts +15, ArchivalPoller.ts +40, AutonomyGovernorScheduler.ts +10, tenant-scope-allowlist.ts +7, plus the two flag registry rows, the directory.md rows and the D16 sweep across five reference documents)",
-  "estimated_test_lines": "±1350 test lines across seven files — twenty-eight tests, of which eleven are live-DB and seed real accounts, businesses, policies and audit rows",
+  "estimated_test_lines": "±1405 test lines across seven files — twenty-nine tests, of which twelve are live-DB and seed real accounts, businesses, policies and audit rows",
   "dependencies_added": [],
   "rollback_plan": "Three layers, in order of reach. (1) Flag flip: REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy, and leaves suspension, audit and notification behaviour byte-identical to today; invoke the flag-flip skill. (2) PR revert on main plus a redeploy — this removes the helper, the caller, the poller arm and the scheduler's Sentry sink together. (3) NO down migration and no migration 117. Migration 116 stays: it is already applied to staging and production, it is immutability-guarded, and an empty table with no writer is inert. Rows already written are NOT deleted by a rollback, and layer 2 REMOVES THE SWEEP THAT WOULD RETIRE THEM: the ArchivalPoller arm reverts with the PR, so surviving rows then have no writer, no reader and no pruner and sit until a later slice restores the arm. That is acceptable — the table is empty of readers and #1002 forbids any backfill — but it must not be described as self-cleaning, which an earlier draft of this field wrongly did. If retiring them matters, delete them explicitly at revert time; do not wait for a sweep that the revert just removed.",
   "observability": [

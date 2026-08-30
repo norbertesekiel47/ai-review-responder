@@ -1056,5 +1056,13 @@ built here (deviations D5).
 ## 8. Rollback
 
 Per the intake: flag flip first (no deploy), PR revert second, and **no
-migration 117**. Rows already written are retired by the 180-day sweep; #1002
-forbids any backfill that would re-create them.
+migration 117**. Rows already written are **NOT** deleted by a rollback, and the
+PR revert **removes the very sweep that would have retired them** — the
+`ArchivalPoller`'s `refusal_events` arm reverts with the PR, so surviving rows
+have no writer, no reader and no pruner until a later slice restores the arm.
+That is acceptable (deny-all RLS; UUIDs, enum strings and timestamps only; the
+offboarding purge is unaffected; and #1002 forbids any backfill that would
+re-create them) but it **must not be described as self-cleaning**, which an
+earlier draft of this section wrongly did. If retiring the rows matters, delete
+them explicitly at revert time — do not wait for a sweep the revert just took
+away.
