@@ -167,6 +167,22 @@ describe('account offboarding table disposition inventory', () => {
     }
   });
 
+  it('classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent', () => {
+    const entry = tableDispositions.find((candidate) => candidate.table === 'refusal_events');
+    expect(entry).toBeDefined();
+    expect(entry?.disposition).toBe('hard_delete');
+    // ACCOUNT evidence, never business: the autonomy_suspended lane is
+    // account-wide and carries `business_id IS NULL`, so business-scoped
+    // evidence would leave every suspension Refusal behind after a purge.
+    expect(entry?.scopeEvidence).toBe('direct_account_id');
+    expect(entry?.purgeVerification).toBe('must_be_absent');
+    // The reason must state the accurate fact rather than gesture at one: this
+    // table's only FKs are to `accounts` and `businesses`, both
+    // retain_deidentified and neither cascading, so nothing removes these rows
+    // unless the purge deletes them explicitly.
+    expect(entry?.reason).toMatch(/cascade/i);
+  });
+
   it('requires purge verification for every applicable table', () => {
     const applicableTables = tableDispositions.filter(
       (entry) => entry.disposition !== 'not_applicable',
