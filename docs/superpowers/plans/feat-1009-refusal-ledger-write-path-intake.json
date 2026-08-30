@@ -32,13 +32,16 @@
     "The helper takes tx: TransactionSql as an explicit parameter and never imports @/lib/db/server (invariant #15).",
     "The retention sweep is deliberately cross-tenant and carries its tenant-scope allowlist exemption; without it ci:tenant-scope fails.",
     "Tenant isolation: every refusal_events row carries account_id NOT NULL, and the table keeps deny-all RLS.",
-    "A ledger failure aborts the deciding transaction and is never swallowed inside the helper. Telemetry around it IS swallowed — observability must never poison the path it observes.",
+    "A ledger failure aborts the deciding transaction and is never swallowed inside the helper. Telemetry around it IS swallowed — observability must never poison the path it observes, and that applies to EVERY telemetry call this change adds, including the one added inside AutonomyGovernorScheduler's containment catch.",
+    "The kill-switch warning is bounded in BOTH directions: at most one successful Sentry warning per process, and at most MAX_WARN_ATTEMPTS attempts. The latch is set on success, never before the attempt — a transient capture failure must not buy permanent silence about a ledger gap.",
     "Every test this branch adds executes. No .todo, no .skip, no .fails — the gate's promised-tests row matches titles only, so an inert eval passes it."
   ],
   "edge_cases": [
     "Kill switch off: the helper returns without touching the deciding transaction, and emits exactly one Sentry warning per process — the ledger structurally cannot show its own gap.",
     "Kill switch off mid-process: the flag is read live per call, so a toggle takes effect without a restart, in both directions.",
     "Sentry itself throws while the kill switch is off: the helper still returns cleanly and the suspension is unaffected. Telemetry may not poison the disabled path.",
+    "Sentry throws ONCE and then recovers: the warning still reaches Sentry on a later call. Setting the once-per-process latch before the attempt would trade one network blip for permanent silence about the gap.",
+    "Sentry throws inside the Governor cycle's containment catch: the cycle still advances to the next candidate. Telemetry added to observe a contained failure must not become an uncontained one.",
     "Two suspensions of one account: both persist as two Refusals, because the partial unique index excludes a NULL subject_id.",
     "suspendAccountAutonomy returns newlySuspended: false (the policy was already suspended): no ledger row is written, because no decision was made.",
     "A CHECK violation from a writer bug still aborts the decision transaction, rolling back the policy row, the audit row and the notice outbox rows together. ON CONFLICT covers duplicate keys only. The kill switch is the lever, and it is not a revert deploy.",
@@ -106,11 +109,13 @@
     "the refusal_events arm keys on occurred_at, so a fresh occurred_at with an old created_at survives and the reverse is deleted",
     "the refusal_events arm orders by (occurred_at, id) so the sweep matches idx_refusal_events_archival",
     "the archival log line and the saturation list both carry refusal_events",
-    "every test file this branch adds is free of .todo, .skip and .fails markers"
+    "every test file this branch adds is free of .todo, .skip and .fails markers",
+    "a throwing Sentry capture inside the Governor catch still lets the cycle reach the next candidate",
+    "a first Sentry capture that throws does not suppress the refusal-ledger warning permanently"
   ],
   "verification_commands": [],
   "estimated_prod_lines": "±540 production and documentation lines (vocabulary.ts ~170, write.ts ~160, suspension.ts +15, ArchivalPoller.ts +40, AutonomyGovernorScheduler.ts +10, tenant-scope-allowlist.ts +7, plus the two flag registry rows, the directory.md rows and the D16 sweep across five reference documents)",
-  "estimated_test_lines": "±1250 test lines across six files — twenty-six tests, of which eleven are live-DB and seed real accounts, businesses, policies and audit rows",
+  "estimated_test_lines": "±1350 test lines across seven files — twenty-eight tests, of which eleven are live-DB and seed real accounts, businesses, policies and audit rows",
   "dependencies_added": [],
   "rollback_plan": "Three layers, in order of reach. (1) Flag flip: REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy, and leaves suspension, audit and notification behaviour byte-identical to today; invoke the flag-flip skill. (2) PR revert on main plus a redeploy — this removes the helper, the caller, the poller arm and the scheduler's Sentry sink together. (3) NO down migration and no migration 117. Migration 116 stays: it is already applied to staging and production, it is immutability-guarded, and an empty table with no writer is inert. Rows already written are not deleted by a rollback; the 180-day sweep retires them, and #1002 forbids any backfill that would re-create them.",
   "observability": [

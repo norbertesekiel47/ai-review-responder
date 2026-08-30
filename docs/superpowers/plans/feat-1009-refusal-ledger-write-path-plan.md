@@ -311,8 +311,32 @@ emission rejects before the helper returns, and a suspension fails **because the
 ledger was turned off** — the exact opposite of what the kill switch promises.
 The named precedent already does this (`circuit-breaker.ts` guards its own
 capture), and it is the repo's standing rule: best-effort work must never poison
-the path it observes. The latch is set **before** the emission, so a throwing
-Sentry cannot turn "once per process" into "once per decision".
+the path it observes.
+
+**The latch is BOUNDED-RETRY, not set-before-emit.** Round 2, defect 3 killed
+the first version of this rule. Setting the latch before the capture does stop
+spam, but a *single transient* capture failure then suppresses the warning for
+the entire process life — and this warning is the **only** evidence a ledger gap
+exists. One network blip would buy permanent silence about the thing the ledger
+structurally cannot show.
+
+The rule instead:
+
+```
+attempts = 0
+if (!warned && attempts < MAX_WARN_ATTEMPTS) {   // MAX_WARN_ATTEMPTS = 3
+  attempts += 1
+  try { Sentry.captureMessage(…, { level: 'warning' }); warned = true }
+  catch { /* swallow; the next call retries until the bound */ }
+}
+```
+
+Both failure modes stay bounded. A working Sentry emits **exactly one** warning
+per process (the latch is set on success). A permanently broken Sentry makes at
+most three swallowed attempts and then stops — no spam, and no unbounded work on
+the decision path. A transient failure recovers, which is the case that
+motivated the change. Test 28 pins it: throw once, then succeed, expect exactly
+one successful warning.
 
 `REFUSAL_LEDGER_RETENTION_DAYS = 180` is a **code constant, not an env var**
 (#996). No registry rows. It lives beside `AGENT_SPINE_RETENTION_DAYS` and
@@ -357,15 +381,15 @@ and that asymmetry is why this slice touches a scheduler.** See T4b.
 
 ## 4. Tasks — tracer bullets
 
-**Twenty-six** promised tests. Every title below is VERBATIM from
+**Twenty-eight** promised tests. Every title below is VERBATIM from
 `.feature/intake.json`; the gate's `promised-tests` row matches on exact text.
 
 ### T1 — the eval task (runs ALONE; enforcement spot check)
 
 **Blocking edges:** none. Blocks everything.
 
-Author all twenty-six tests as **failing** tests, in six files, and commit
-before any implementation task.
+Author all twenty-eight tests as **failing** tests, in **seven** files, and
+commit before any implementation task.
 
 **NO `.todo`, NO `.skip`, NO `.fails`. This is a hard rule for this run, and it
 reverses the plan's first draft.** Plan review round 1, finding 1 (the only
@@ -376,22 +400,46 @@ still green. The repo has hit this before —
 `src/lib/kpi/__tests__/fragments.test.ts` records a surviving todo as
 review-blocking.
 
-Nothing here needs a marker: every one of the six subjects is buildable inside
+Nothing here needs a marker: every one of the seven subjects is buildable inside
 this run. Test 26 is the mechanical guard.
+
+**Test 26 cannot fully certify itself, and the plan says so rather than
+pretending otherwise** (round 2, defect 1). If test 26 were written
+`it.todo(...)`, its title still satisfies `promised-tests` and nothing runs. Two
+things close that, and neither is test 26:
+
+1. **Test 26's scan set includes its OWN file.** All seven files, not the other
+   six. It asserts each file contains at least one active `it(`/`test(` call and
+   zero `.todo`/`.skip`/`.fails` markers. That makes the circularity visible in
+   one file rather than hidden across seven.
+2. **`verify-gate.sh --review`'s `diff-coverage` row is the independent guard,
+   and it already exists.** An eval that executes nothing covers no changed
+   line, so changed-line coverage collapses and the review gate fails
+   mechanically. It is a different mechanism, in a different process, that
+   cannot be satisfied by a title.
+
+**Rejected: a new syntax-aware CI audit script**, which round 2 proposed. A new
+`ci:*` entry has to be added to `package.json`, `ci.yml`'s lint job and
+`lefthook.yml` together, and `src/__tests__/ci-audit-wiring.test.ts` fails if
+those three drift — a permanent repo-wide obligation bought for a
+single-branch concern that `diff-coverage` already catches.
 
 | File | Tests |
 |---|---|
 | File | Tests | New? |
 |---|---|---|
 | `src/lib/refusals/__tests__/vocabulary.test.ts` | 1–5 | new |
-| `src/lib/refusals/__tests__/write.test.ts` | 6–11 | new |
+| `src/lib/refusals/__tests__/write.test.ts` | 6–11, 28 | new |
 | `src/lib/refusals/__tests__/write.integration.test.ts` | 12–15 | new (live-DB) |
 | `src/lib/auto-approval/__tests__/suspension.integration.test.ts` | 16–20 | **EXTEND** |
-| `worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts` | 21 | **EXTEND** |
+| `worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts` | 21, 27 | **EXTEND** |
 | `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts` | 22–25 | **EXTEND** |
 | `src/lib/refusals/__tests__/eval-completeness.test.ts` | 26 | new |
 
-All twenty-six titles are claimed exactly once. No gaps, no duplicates.
+**Seven rows, seven distinct files, twenty-eight titles each claimed exactly
+once.** No gaps, no duplicates, and no file listed twice — the row count and the
+file count must agree, because round 2's defect 1 was exactly this drifting
+apart.
 
 **Three files are EXTENDED rather than created** — the repo's default is "no new
 file". `suspension.integration.test.ts` (388 lines) already stands up the
@@ -436,8 +484,10 @@ pass. Round 1 found six more of these; all six are now in the list.
 | A helper that catches the insert error, or opens its own connection | **20** — forced rejection, assert full rollback (finding 8). |
 | A Governor-path failure that never pages | **21** (finding 2). |
 | A sweep keyed on `created_at` instead of `occurred_at` | **23** — CROSSED clocks. Fixtures that age both timestamps together return the same answer under either clock, so test 22 alone cannot kill this (finding 5). |
-| A `.todo`-filled eval that executes nothing | **26** (finding 1). |
+| A `.todo`-filled eval that executes nothing | **26**, plus `diff-coverage` as the independent guard (finding 1, round-2 defect 1). |
 | `REFUSAL_SOURCES` / `REFUSAL_CATEGORIES` drifting from the CHECK members | **1–3** — they parse migration 116 rather than restating it. |
+| Telemetry inside the Governor `catch` breaking the containment it observes | **27** (round-2 defect 2). |
+| One transient Sentry failure permanently silencing the ledger-gap warning | **28** (round-2 defect 3). |
 
 **Not in this net, deliberately.** The `tenant-scope-allowlist.ts` `sqlSnippet`
 drifting from the emitted SQL is finding 6, and it is **rejected as a test**:
@@ -504,7 +554,7 @@ from becoming a second authority that drifts.
 ### T3 — `write.ts`, the helper and its kill switch
 
 **Blocking edges:** T2. **Blocks:** T4, T6.
-**Turns green:** tests 6–15.
+**Turns green:** tests 6–15 and 28.
 
 Precedent to follow, named: `src/lib/audit/log.ts`.
 
@@ -521,9 +571,11 @@ vocabulary_version, subject_type, subject_id, occurred_at`. `created_at` is
 - `occurred_at`: `NOW()` unparameterised for `'transaction_time'`; a bound
   `${date}::timestamptz` for a `Date`. Two SQL fragments, one statement.
 
-Kill switch and warn-once latch per §2.3, including its `try/catch`. The latch
-is a module-level boolean **set before the emission**; export a test-only reset
-on `circuit-breaker.ts`'s `reset()` precedent.
+Kill switch and warn-once latch per §2.3, including its guarded emission and its
+**bounded retry** — the latch is set on a SUCCESSFUL capture, never before the
+attempt, and a counter bounds the attempts at `MAX_WARN_ATTEMPTS = 3`. Both are
+module-level; export a test-only reset that clears both, on
+`circuit-breaker.ts`'s `reset()` precedent.
 
 The flag is read **inside the function body on every call**, never at module
 scope. A `const enabled = readFlagEnabledByDefault(...)` at module level passes
@@ -573,7 +625,7 @@ lane except `held_draft`.
 
 ### T4b — the Governor cycle's Sentry sink (SURFACE AMENDMENT 1 of 2)
 
-**Blocking edges:** T4. **Turns green:** test 21.
+**Blocking edges:** T4. **Turns green:** tests 21 and 27.
 
 **Why this task exists.** Plan review round 1, finding 2. `suspendAccountAutonomy`
 has two production callers and they reach Sentry by different routes:
@@ -599,6 +651,18 @@ covered.
 `runAutonomyGovernorCycle`, beside the existing `logger.error`, add a
 `Sentry.captureException` carrying the account id and the error class. Follow
 `worker/job-failure-sink.ts`'s issue shape.
+
+**The capture gets its OWN nested `try/catch` that swallows.** Round 2, defect
+2 — and it is my own §2.3 lesson, not applied to the code that §2.3's fix
+created. This `catch` block exists to CONTAIN a failure to one candidate. An
+unguarded `captureException` that throws would propagate out of the containment
+handler, abort `runAutonomyGovernorCycle` mid-loop, and skip every remaining
+candidate — the precise outcome the containment was written to prevent, now
+caused by the telemetry added to observe it. `logger.error` runs FIRST, so the
+structured line survives even when Sentry does not.
+
+Test 27 pins it: a throwing Sentry mock, and the cycle still reaches the next
+candidate.
 
 **Do not change the containment.** The `catch`, the pre-evaluation cursor
 advance and the loop stay exactly as they are — one poison account must still
@@ -766,6 +830,40 @@ It also confirmed D16's settlement is supported by #1004 and #1009 §5.
 enumerated `ci:*` set and on every PR forever. A dedicated test would make two
 owners of one fact. #1001 declines to CHECK the 22 `AutoApprovalBlockReason`
 members for exactly this reason: a second authority drifts.
+
+---
+
+## 5c. Plan review round 2 — verification-only, and it found four defects the
+## round-1 FIXES introduced
+
+Full report:
+`docs/reviews/feat-1009-refusal-ledger-write-path/plan-review-r2.md`.
+**VERDICT: REVISE.** Under review: commit `eaa0545d`.
+
+**Verification of round 1: eight ADDRESSED, two PARTIAL, and the rejection of
+#6 was confirmed SOUND** — the reviewer checked that `ci:tenant-scope`
+normalizes and exact-matches allowlist snippets and rejects stale entries, which
+is the reason the rejection was made. It also independently confirmed against
+the PostgreSQL documentation that `NOW()` is transaction-start time and equal to
+`transaction_timestamp()` — the same fact §2.2b measured.
+
+**The four fix-introduced defects, all accepted:**
+
+| # | Sev | The defect my fix created | Where the correction landed |
+|---|---|---|---|
+| 1 | med | Finding 1's fix said "six files" over a seven-row map, and test 26 can certify itself with `it.todo` | §4 T1 — seven files; test 26 scans its OWN file; `diff-coverage` named as the independent guard; the proposed new CI script rejected |
+| 2 | med | Finding 2's fix put an UNGUARDED `captureException` inside the very `catch` whose job is containment — a throwing Sentry would abort the cycle and skip every later candidate | §4 T4b — nested swallowing guard, `logger.error` first; **test 27** |
+| 3 | med | Finding 9's fix set the warn-once latch BEFORE the capture, so one transient failure permanently silences the only evidence a ledger gap exists | §2.3 — bounded retry, latch on SUCCESS, `MAX_WARN_ATTEMPTS = 3`; **test 28** |
+| 4 | low | D3 said "six" wrong implementations over a seven-row table and omitted finding 2 | deviations D3 |
+
+**Defects 2 and 3 are the same mistake, twice: I applied a lesson to the code
+that prompted it and not to the code my fix wrote.** Round 1 finding 9 says
+telemetry must never poison the path it observes. Fix 2 then added unguarded
+telemetry inside a containment handler, and fix 9's own guard bought permanent
+silence in exchange for safety. This is #1008's D15 — *a fix is a sweep, never
+an edit* — recurring in code rather than prose. Queued for step 8 promotion.
+
+`tests_to_add` 26 → 28.
 
 ---
 
