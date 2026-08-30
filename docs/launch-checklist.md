@@ -157,8 +157,18 @@ Pre-invite actions from these decisions:
   The 3-months-free offer has **no supported activation path today**;
   dashboard-created subscriptions, raw-SQL binding, and manual invoices are
   forbidden substitutes.
-- [ ] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
-  exists.** The comp's eligibility test is `onboarded_by IS NOT NULL` on the
+- [x] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
+  exists.** ✅ **CLEARED 2026-08-30T22:28:33Z — zero rows, and permanently so.**
+  The checklist query below was run verbatim against prod
+  (`udeyaqnvpojbwgoaxwdg`) and returned **0 rows**. It cannot return rows again:
+  every legacy row migration 025 backfilled was destroyed by the 2026-07-16
+  36-table purge, and prod now holds **0 rows across all 52 `public` tables plus
+  0 `auth.users`**. Any `onboarded_by IS NOT NULL` row created from here on is
+  one you deliberately invited — which is exactly who the comp is for. **This
+  gate is therefore satisfied by construction, not merely satisfied today**, so
+  it does not need re-running before the coupon is created. Full evidence:
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` →
+  "Zero-state proof". Original reasoning preserved below. The comp's eligibility test is `onboarded_by IS NOT NULL` on the
   primary Business, and migration **025** backfilled that column on every row
   that predated it, pointing them all at the oldest admin/sales_partner user.
   Those rows are genuinely admin-onboarded (self-serve signup shipped in the
