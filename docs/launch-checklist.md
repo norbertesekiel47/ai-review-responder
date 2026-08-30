@@ -136,8 +136,11 @@ Pre-invite actions from these decisions:
   the first prod worker deploy happens before it (§6), which is the live resume
   point.
   **077 and 105 are already applied in prod** (verified 2026-08-14 by the
-  migration lockstep audit, #825): 077 landed unrecorded after the 2026-07-17
-  cutover pause, and 105 was applied deliberately once that audit showed its only
+  migration lockstep audit, #825): 077 was applied 2026-07-17T02:17:11Z and IS
+  recorded — see that date's evidence file, "Quiescence + formal gates + phase 5"
+  (the "landed unrecorded" wording was corrected 2026-08-30; only the Supabase
+  migration ledger lacks it, because the SQL editor does not write there). 105
+  was applied deliberately once that audit showed its only
   blocker — the 077 dependency — was already satisfied. **§5 and §8 are therefore
   verify steps in prod, not apply steps.** Staging has had all three since
   2026-07-16.

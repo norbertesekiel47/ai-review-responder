@@ -2513,14 +2513,44 @@ head; prod missing **005** (unknown drift), **078** (by design), **105** (held o
 a premise that had already expired).
 
 - **[2026-08-14] Three docs asserted 077 was absent from prod → it had been
-  applied for weeks, unrecorded → never state an environment's schema state from
-  a doc; introspect it.** The prod WS8 cutover paused 2026-07-17 with §5 (apply
-  077) pending; 077 landed after that with no evidence file, so
-  `.claude/CLAUDE.md`, `migrations-log.md` and `ws8-tier-cutover.md` §5 all kept
-  saying "deliberately absent". Every session that trusted them inherited a false
-  premise, and every session that checked the DB disagreed — that oscillation was
-  the reported symptom, not a memory bug. **The prod cutover is partially executed
-  through §5; resume at §6.**
+  applied for weeks → never state an environment's schema state from a doc;
+  introspect it.** `.claude/CLAUDE.md`, `migrations-log.md` and
+  `ws8-tier-cutover.md` §5 all kept saying "deliberately absent". Every session
+  that trusted them inherited a false premise, and every session that checked the
+  DB disagreed — that oscillation was the reported symptom, not a memory bug.
+  **The prod cutover is executed through §5; resume at §6.** The lesson stands;
+  its stated cause did not — see the correction below.
+
+- **[2026-08-30] The 2026-08-14 audit wrote "077 landed unrecorded / no evidence
+  file records it" → it was recorded, 66 minutes further down the same file →
+  read a long evidence file to its END before asserting what it does not say.**
+  `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` verifies
+  `price_variant` **absent** at 01:11:05Z in its "Prod DB findings" section, then
+  records 077 **applied and verified at 02:17:11Z** in a later section, plus PR
+  #469 merged at 02:40:15Z. The audit stopped at the first read, concluded the
+  session had ended there, and re-derived from the database what the record
+  already stated — then wrote down that the record was silent. `git log` on that
+  file returns one commit (`d1d227e4`) and `git diff d1d227e4 HEAD` on it is
+  empty, so the 077 record was present from its first and only commit. The false
+  sentence then propagated to six live surfaces before being caught.
+  **Two rules:** (a) an evidence file is appended to during a run — its
+  chronology runs top to bottom and the outcome is at the BOTTOM, so never quote
+  a mid-file reading as the terminal state; (b) "no record exists" is a claim
+  about absence — verify it with `git log`/`git diff` on the file, not by reading
+  part of it. What was actually true is narrower and is already the standing
+  rule: the **Supabase migration-history table** lacks 077 because the SQL editor
+  does not write there.
+
+- **[2026-08-30] A launch blocker recorded only in an evidence file vanished for
+  six weeks → evidence files are logs, not tracking surfaces → copy every item
+  still owed at a pause into `launch-checklist.md` before the session closes.**
+  The 2026-07-17 record closed with four "post-merge launch tasks, recorded so
+  they don't vanish". Three reached `beta-production-standup.md`. The fourth —
+  Stripe live activation, `charges_enabled=false`, "no live payment (incl. prod
+  smoke checkout) until complete" — reached no checklist, no phase and no launch
+  doc, and would have failed WS8 §6 smoke and the entire beta coupon path with
+  nothing predicting it. Caught 2026-08-30 only by reading the predecessor
+  evidence file end-to-end during the resume.
 
 - **[2026-08-14] Migration 005 was never applied to prod and nothing detected it
   for ~4 months → there is no migration ledger here, and no CI check compares the
