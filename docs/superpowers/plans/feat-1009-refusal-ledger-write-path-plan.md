@@ -692,7 +692,9 @@ Any surface violation by a wave-2 task stops the whole fan-out.
 ## 5b. Plan review round 1 — triage
 
 Full report: `docs/reviews/feat-1009-refusal-ledger-write-path/plan-review-r1.md`.
-Reviewer: `codex exec`, read-only, thread `01a05410-c24a-75d3-beb6-dad6cd01b59e`.
+Reviewer: `codex exec`, read-only. The codex thread id is recorded in that
+report's header and in the handoff doc, not here — the plan pre-validator reads
+a bare UUID as a commit SHA and reports it stale forever.
 **VERDICT: REVISE.** Ten findings, one `high`, eight `medium`, one `low`, zero
 low-confidence. Nine accepted, one rejected.
 
