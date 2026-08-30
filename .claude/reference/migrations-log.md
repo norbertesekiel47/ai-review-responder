@@ -965,12 +965,21 @@ Revisit triggers:
   > `reject_accounts_price_variant_mutation()` and its
   > `accounts_price_variant_immutable` trigger.
   >
-  > **When it landed is not recorded.** The prod cutover evidence
-  > (`docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md`) verified
-  > `price_variant` **absent** at 2026-07-17T01:11:05Z and paused with "Phase 5
-  > 077 (owner pastes via SQL editor)" listed as pending; no later evidence file
-  > records the apply. So the prod WS8 cutover is **partially executed through
-  > §5**, not unstarted — resume from §6, not §5.
+  > **When it landed IS recorded — corrected 2026-08-30.** The owner applied it
+  > via the Supabase SQL editor at **2026-07-17T02:17:11Z**, and
+  > `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` records it
+  > under "Quiescence + formal gates + phase 5" with eight verification checks
+  > (`outbox_count_after_077 = 0 = baseline`, both invalid-row counts 0, the
+  > CHECK, the trigger, the lease index). So the prod WS8 cutover is **executed
+  > through §5** — resume from §6.
+  >
+  > The prior wording ("when it landed is not recorded") cited the
+  > `price_variant`-absent read at 01:11:05Z, which sits mid-file, and missed the
+  > apply 66 minutes later at the bottom of the same file. What is true is
+  > narrower, and is this file's own rule: the **Supabase migration-history
+  > table** does not list 077, because the SQL editor does not write to it.
+  > Introspect the schema, not the ledger — and read a long evidence file to its
+  > end.
   >
   > **The "After 077" rollback boundary has therefore already been crossed in
   > prod, but is inert:** prod was truncated to zero tenant rows on 2026-07-16

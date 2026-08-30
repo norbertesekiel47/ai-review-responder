@@ -729,8 +729,9 @@ from the founder who onboarded them works far better than anything automated.
 - [ ] **Confirm WS8 cutover timing.** As of 2026-08-14, migration **078** is
       the only one still absent in production; it applies *inside* the WS8 tier
       cutover (`docs/runbooks/ws8-tier-cutover.md` §7). **077 and 105 are
-      already applied there** — 077 unrecorded after the 2026-07-17 cutover
-      pause, 105 deliberately on 2026-08-14 once the audit showed its 077
+      already applied there** — 077 at 2026-07-17T02:17:11Z (recorded in that
+      date's evidence file; the "unrecorded" wording was corrected 2026-08-30),
+      105 deliberately on 2026-08-14 once the audit showed its 077
       dependency was satisfied. **Until WS8 runs in prod, this checkout path is
       staging-only** — the remaining gate is the strict-code deploy plus 078,
       not the schema. Do not apply 078 to production out-of-band.
