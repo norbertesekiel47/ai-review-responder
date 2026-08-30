@@ -139,31 +139,134 @@ blocker. Do not edit those records while creating the mailbox.
 
 ## Zero-state proof (replaces WS8 §2–§3 quiesce/drain)
 
-Production holds no tenant data. This is by deliberate purge on 2026-07-16 (36-table FK
+Production holds no data at all. This is by deliberate purge on 2026-07-16 (36-table FK
 closure, owner-executed, recorded in the predecessor file), not because production was
-never used — the earlier "never launched" line in that file is itself corrected there.
+never used — the "never launched" line in that file is corrected there.
 
-Agent verification, 2026-08-30:
+WS8 §2–§3 exist to prove that producers are denied and that in-flight work has drained.
+Both are satisfied here by something stronger than a drain: **there is nothing to drain,
+and no infrastructure capable of producing.** Evidence below is a live read, not a doc
+claim, and is recorded to the §2.5–2.8 two-sample discipline the predecessor used.
+
+### D1a — whole-schema sweep (exact counts, not `reltuples`)
 
 ```sql
-SELECT
-  (SELECT count(*) FROM accounts)   AS accounts,     -- 0
-  (SELECT count(*) FROM businesses) AS businesses,   -- 0
-  (SELECT count(*) FROM users)      AS users,        -- 0
-  (SELECT count(*) FROM reviews)    AS reviews,      -- 0
-  (SELECT count(*) FROM responses)  AS responses,    -- 0
-  (SELECT count(*) FROM job_outbox) AS outbox;       -- 0
+SELECT now() AT TIME ZONE 'UTC' AS sample_utc,
+  count(*) AS base_tables_in_public,
+  count(*) FILTER (WHERE n > 0) AS tables_with_rows,
+  coalesce(sum(n), 0) AS total_rows_all_tables,
+  coalesce(string_agg(table_name || '=' || n, ', ' ORDER BY n DESC)
+           FILTER (WHERE n > 0), '(none)') AS non_empty_tables
+FROM (
+  SELECT t.table_name,
+         (xpath('/row/cnt/text()',
+                query_to_xml(format('SELECT count(*) AS cnt FROM %I.%I',
+                                    t.table_schema, t.table_name), false, true, '')
+         ))[1]::text::bigint AS n
+  FROM information_schema.tables t
+  WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+) s;
 ```
 
-Structural, not merely observed: the Railway `production` environment has **no Redis
-service** and the worker has **zero deployments ever**, so no BullMQ producer or consumer
-has run. There is nothing to drain.
+**Result 2026-08-30T22:28:22.624Z:**
 
-**This also settles the launch-checklist's BLOCKING legacy `onboarded_by` audit.** That
-gate asks how many pre-existing admin-onboarded accounts sit in `pending_payment` and would
-draw the 3-month comp the moment the live coupon exists. With zero businesses, the answer
-is zero. The gate is satisfied by construction — tick it citing this query, not by running
-the checklist's query against a populated table.
+| sample_utc | base_tables_in_public | tables_with_rows | total_rows_all_tables | non_empty_tables |
+|---|---|---|---|---|
+| 2026-08-30 22:28:22.6243 | **52** | **0** | **0** | `(none)` |
+
+Every base table in `public` is empty. This is deliberately broader than the five-table
+read the plan originally proposed: it enumerates the schema rather than trusting a
+hand-written list, so a table nobody thought to name cannot hide rows.
+
+### D1b — non-`public` schemas, and the in-flight outbox contract
+
+The 2026-07-16 purge TRUNCATEd `public` only. Supabase Auth identities live in `auth`, so
+they would have survived it. They did not exist:
+
+```sql
+SELECT now() AT TIME ZONE 'UTC' AS sample_utc,
+  (SELECT count(*) FROM auth.users)       AS auth_users,
+  (SELECT count(*) FROM auth.identities)  AS auth_identities,
+  (SELECT count(*) FROM auth.sessions)    AS auth_sessions,
+  (SELECT count(*) FROM auth.mfa_factors) AS auth_mfa_factors,
+  (SELECT count(*) FROM job_outbox
+     WHERE status IN ('pending','dispatching','dispatched')) AS outbox_in_flight,
+  (SELECT count(*) FROM job_outbox)       AS outbox_total,
+  (SELECT count(*) FROM storage.objects)  AS storage_objects;
+```
+
+**Sample 1 — 2026-08-30T22:28:33.224Z:** `auth_users=0`, `auth_identities=0`,
+`auth_sessions=0`, `auth_mfa_factors=0`, **`outbox_in_flight=0`**, `outbox_total=0`,
+`storage_objects=0`.
+
+`outbox_in_flight` uses the byte-for-byte in-flight set `('pending','dispatching',
+'dispatched')` owned by `src/lib/shared/job-outbox-status.ts` (invariant #2), not a
+re-derived list.
+
+**Sample 2 — 2026-08-30T22:30:03.359Z** (1m30s after sample 1): `outbox_in_flight=0`,
+`outbox_total=0`, `auth_users=0`, `accounts=0`, `businesses=0`.
+
+Two separated samples, both zero — the counts are stable, not merely zero at one instant.
+Per §2.5–2.8, which is what the two-sample protocol is for.
+
+**QUIESCENCE DECLARED 2026-08-30T22:30:03Z.**
+
+### D1c — structural proof: nothing can produce or consume
+
+| Fact | Verified 2026-08-30 | Consequence |
+|---|---|---|
+| Railway `production` environment services | **only `repworth-worker`; no `redis` service exists** | No queue. BullMQ has never had a broker in this environment. |
+| `repworth-worker` deployments, all time | **0 active, "No deployment"** | No consumer or poller has ever run against prod. |
+| `REDIS_QUEUE_URL` on the prod worker | **unset** | The worker could not connect even if deployed — `assertCoreInfraEnv` would refuse to boot. |
+| Vercel WAF `ws8-cutover-prod-api-deny` | **Enabled**, `environment=production AND path startsWith /api/` → Deny | Every producer route is denied. `GET /api/health` → **403**, `x-vercel-mitigated: deny`. |
+| `SELF_SERVE_SIGNUP_ENABLED` (Vercel prod) | `false` | Anonymous account-minting closed. |
+| `ZERNIO_RECENT_REVIEW_POLL_DISABLED` (Railway prod) | `true` | The §2.3 producer denial is still in force. |
+
+Queue counts are **structurally zero, not merely observed zero** — the same finding the
+predecessor recorded at §2.5–2.8, still true and now re-verified.
+
+### D1d — one line NOT verified today
+
+**Live Stripe webhook endpoints: UNVERIFIED.** The local Stripe CLI's live-mode key expired
+2026-08-19 (`your live mode API key needs to be re-configured`). The predecessor verified
+**0 live endpoints** at 2026-07-17T00:0xZ, and nothing since could have created one without
+a manual dashboard action. **Re-verify after `stripe login`, before creating the endpoint at
+§6/D.3**, and record the reading here: `____`.
+
+Recorded as unverified rather than assumed zero. An unchecked assumption is what this whole
+reconciliation exists to correct.
+
+### D1e — what this settles
+
+1. **WS8 §2–§3 are satisfied.** Producers denied (D1c), in-flight work zero and stable
+   (D1b), drain unnecessary because no queue has ever existed. Record the substitution in
+   place of the quiesce/drain protocol, per the stand-up's Phase D1 instruction.
+2. **The launch-checklist BLOCKING `onboarded_by` audit is cleared — permanently.** The
+   checklist's query was run **verbatim** against prod at 2026-08-30T22:28:33Z and returned
+   **0 rows**:
+
+   ```sql
+   SELECT b.id, b.name, a.id AS account_id, b.created_at
+     FROM businesses b
+     JOIN accounts a ON a.id = b.account_id
+    WHERE b.is_primary = TRUE
+      AND b.archived_at IS NULL
+      AND b.onboarded_by IS NOT NULL
+      AND a.subscription_status = 'pending_payment'
+    ORDER BY b.created_at;
+   -- → 0 rows
+   ```
+
+   **It is satisfied by construction, not merely satisfied today.** The gate guards against
+   rows migration **025** backfilled — every one of which was destroyed by the 2026-07-16
+   purge. With 0 rows in all 52 tables and 0 `auth.users`, no legacy row can exist to draw
+   the comp. Any `onboarded_by IS NOT NULL` row created from here on is an account you
+   deliberately invited, which is precisely who the comp is for. **The audit does not need
+   re-running before the coupon is created** — which is what the checklist's "do not create
+   the coupon while this is unresolved" was blocking on.
+3. **Migration 077's rollback boundary is inert.** The predecessor noted this: 077's
+   first-apply normalization UPDATE touched no rows, so there are no normalized
+   Copilot/`list` rows for an old binary to fail against. Re-confirmed by D1a.
 
 ---
 
@@ -256,7 +359,12 @@ Verified against the prod schema 2026-08-30. Head is **116, minus 078**.
 
 ## Sign-off
 
-- [ ] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned
+- [x] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned
+- [x] **Zero-state proof complete** — 52/52 `public` tables empty, `auth.users`=0, two
+      separated outbox samples both zero, producers denied, no queue infrastructure.
+      Quiescence declared 2026-08-30T22:30:03Z. WS8 §2–§3 satisfied by substitution.
+- [x] **Launch-checklist BLOCKING `onboarded_by` audit cleared** — checklist query run
+      verbatim, 0 rows, satisfied by construction (ticked in `launch-checklist.md`)
 - [ ] Reconciliation doc corrections 1–4 landed via PR
 - [ ] Prod worker Online, all boot gates green on the production lane
 - [ ] 078 applied in sequence; legacy price sentinels retained through the rollback window
