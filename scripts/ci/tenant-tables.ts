@@ -98,6 +98,12 @@ export const TENANT_TABLES = [
   // business_id and is written only from tenant-scoped JudgeWorker transactions.
   // Cross-tenant sweep anti-joins are exempted explicitly in the allowlist.
   'judge_verdicts',
+  // Deny-all RLS (migration 116, the Refusal ledger) — carries account_id and
+  // a nullable business_id, and is written only from the tenant-scoped
+  // transaction that made each decision. The account-offboarding purge deletes
+  // it account-scoped; the retention sweep arrives with #1009 and will need
+  // its own cross-tenant allowlist exemption then, not now.
+  'refusal_events',
 ] as const;
 
 export type TenantTable = (typeof TENANT_TABLES)[number];
@@ -166,6 +172,10 @@ export const TENANT_SCOPE_COLUMNS: Record<TenantTable, readonly TenantScopeColum
   agent_outcomes: ['account_id', 'business_id'],
   review_escalations: ['account_id', 'business_id'],
   judge_verdicts: ['account_id', 'business_id'],
+  // business_id is NULL for the account-wide autonomy_suspended lane, so a
+  // per-location read is `account_id = $1 AND (business_id = $2 OR business_id
+  // IS NULL)` — both columns are in scope, neither alone is (migration 116).
+  refusal_events: ['account_id', 'business_id'],
 };
 
 /**

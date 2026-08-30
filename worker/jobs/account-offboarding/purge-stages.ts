@@ -431,6 +431,20 @@ export async function runContentPurgeStage(sql: postgres.Sql, row: AccountOffboa
       DELETE FROM agent_runs
       WHERE account_id = ${row.account_id}::uuid
     `;
+    // The Refusal ledger (migration 116). This DELETE is not optional and is
+    // not covered by any cascade: refusal_events' only foreign keys are to
+    // accounts and businesses, both retain_deidentified and neither carrying a
+    // referential action, so nothing else ever removes these rows. Its
+    // hard_delete / must_be_absent disposition would otherwise be a
+    // classification the purge cannot honour.
+    //
+    // Account-scoped, never joined through businesses: the account-wide
+    // autonomy_suspended lane carries business_id IS NULL and a business join
+    // would leave every one of those rows behind.
+    await tx`
+      DELETE FROM refusal_events
+      WHERE account_id = ${row.account_id}::uuid
+    `;
   });
 }
 

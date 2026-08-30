@@ -167,6 +167,38 @@ describe('account offboarding table disposition inventory', () => {
     }
   });
 
+  it('classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent', () => {
+    const entry = tableDispositions.find((candidate) => candidate.table === 'refusal_events');
+    expect(entry).toBeDefined();
+    expect(entry?.disposition).toBe('hard_delete');
+    // ACCOUNT evidence, never business: the autonomy_suspended lane is
+    // account-wide and carries `business_id IS NULL`, so business-scoped
+    // evidence would leave every suspension Refusal behind after a purge.
+    expect(entry?.scopeEvidence).toBe('direct_account_id');
+    expect(entry?.purgeVerification).toBe('must_be_absent');
+    // The reason must state the accurate fact rather than gesture at one: this
+    // table's only FKs are to `accounts` and `businesses`, both
+    // retain_deidentified and neither cascading, so nothing removes these rows
+    // unless the purge deletes them explicitly.
+    //
+    // POLARISED on purpose. A bare /cascade/i passes on a reason claiming this
+    // table DOES cascade just as happily as on one saying it does not — the
+    // same defect this branch already fixed once in the migration suite's
+    // retention-clock assertion, applied in one file of the change and missed
+    // in the other. An assertion that cannot fail is worse than none, because
+    // it reads as coverage.
+    expect(entry?.reason).toMatch(/NO CASCADE REACHES IT/);
+    expect(entry?.reason).toMatch(/deletes them explicitly/i);
+    // POLARISED, same shape and same reason as the two above: the analogy set
+    // states a DIRECTION for each table it names, and a sentence claiming the
+    // opposite direction is exactly the error this arm has already made once.
+    // Both regexes must fail on the negation, not merely miss it.
+    expect(entry?.reason).toMatch(/review_escalations relies on, which is likewise NO ACTION/);
+    expect(entry?.reason).toMatch(
+      /contact_csv_uploads and agent_outcomes[\s\S]*?DO carry ON DELETE CASCADE/,
+    );
+  });
+
   it('requires purge verification for every applicable table', () => {
     const applicableTables = tableDispositions.filter(
       (entry) => entry.disposition !== 'not_applicable',

@@ -25,6 +25,9 @@
 
 import { it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
+// `refusal_events.id` is worker-supplied UUIDv7 with no DB default (migration
+// 116), so its fixtures use the repo-standard generator rather than randomUUID.
+import { v7 as uuidv7 } from 'uuid';
 // A second, short-lived client with a `debug` hook — the only way to assert the
 // purge clears the postal-address tuple in ONE statement (#656 T8).
 import postgres from 'postgres';
@@ -627,6 +630,72 @@ async function seedSecondLocation(seed: OwnerOffboardingSeedData): Promise<strin
     )
   `;
   return id;
+}
+
+/**
+ * One Refusal (migration 116) under an account. `businessId: null` seeds the
+ * ACCOUNT-WIDE shape — the `autonomy_suspended` lane, which C3 requires to
+ * carry no location — and that is the row a business-joined purge misses.
+ */
+async function seedRefusalEvent(input: {
+  accountId: string;
+  businessId: string | null;
+  /**
+   * `occurred_at` age as a Postgres interval, e.g. '400 days'. Omit for NOW().
+   *
+   * This exists so a fixture can be HETEROGENEOUS in time. `occurred_at` is the
+   * table's single retention clock, so a verification query narrowed by it is
+   * invisible to any fixture whose rows are all fresh — which is exactly how a
+   * temporal mutant survived the first version of this arm.
+   */
+  age?: string;
+}): Promise<string> {
+  const sql = getE2eSql();
+  const id = uuidv7();
+  const accountWide = input.businessId === null;
+  await sql`
+    INSERT INTO refusal_events (
+      id, account_id, business_id, refusal_source, refusal_code, all_refusal_codes,
+      refusal_category, vocabulary_version, subject_type, subject_id, occurred_at
+    ) VALUES (
+      ${id}::uuid, ${input.accountId}::uuid, ${input.businessId}::uuid,
+      ${accountWide ? 'autonomy_suspended' : 'held_draft'},
+      ${accountWide ? 'governor_suspended' : null},
+      ${null}::text[],
+      ${accountWide ? 'autonomy_paused' : 'unsafe_content'},
+      'refusal_vocabulary_v1',
+      ${accountWide ? null : 'response'},
+      ${accountWide ? null : uuidv7()}::uuid,
+      ${input.age ? sql`NOW() - ${input.age}::interval` : sql`NOW()`}
+    )
+  `;
+  return id;
+}
+
+async function countRefusalEvents(accountId: string): Promise<number> {
+  const sql = getE2eSql();
+  const [row] = await sql<{ count: number | string | bigint }[]>`
+    SELECT COUNT(*) AS count FROM refusal_events WHERE account_id = ${accountId}::uuid
+  `;
+  return Number(row?.count ?? -1);
+}
+
+/**
+ * Removes a tenant's Refusals before `cleanupOwnerOffboardingSeed` deletes the
+ * account: `refusal_events.account_id` references `accounts(id)` with NO
+ * referential action, so a surviving row would block the teardown.
+ *
+ * Tolerates ONLY 42P01. Before the migration lands the relation does not exist,
+ * and letting that abort the cleanup would strand two seeded tenants without
+ * telling anyone why.
+ */
+async function cleanupRefusalEvents(accountId: string): Promise<void> {
+  const sql = getE2eSql();
+  try {
+    await sql`DELETE FROM refusal_events WHERE account_id = ${accountId}::uuid`;
+  } catch (error) {
+    if ((error as { code?: string }).code !== '42P01') throw error;
+  }
 }
 
 // 30s per test: TEST_DATABASE_POOL_URL may be a remote Supabase pooler where
@@ -1305,6 +1374,101 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
     } finally {
       releaseBuild?.();
       await sql`DELETE FROM businesses WHERE id = ${secondBusinessId}::uuid`;
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+  // ── #1008 Refusal ledger purge arm (migration 116) ─────────────────────────
+  //
+  // Two tenants, because the scoping claim has two halves and a single-tenant
+  // fixture can only ever prove one of them. Two rows per tenant, because the
+  // account-wide row (`business_id IS NULL`) is the one a DELETE joined through
+  // `businesses` silently leaves behind.
+
+  it("the content purge stage deletes refusal_events rows for the purged account, account-wide rows included, and leaves another account's rows untouched", async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const bystander = await seedOwnerOffboardingAccount({ zernioConnection: false });
+
+    try {
+      for (const tenant of [seed, bystander]) {
+        await seedRefusalEvent({ accountId: tenant.accountId, businessId: tenant.businessId });
+        await seedRefusalEvent({ accountId: tenant.accountId, businessId: null });
+      }
+      expect(await countRefusalEvents(seed.accountId)).toBe(2);
+      expect(await countRefusalEvents(bystander.accountId)).toBe(2);
+
+      const purgeRow = { account_id: seed.accountId } as AccountOffboardingPurgeRow;
+      await runContentPurgeStage(getE2eSql(), purgeRow);
+
+      // Both of the purged tenant's rows, not just the located one: nothing
+      // else removes them — the table's only FKs are to `accounts` and
+      // `businesses`, both retain_deidentified and neither cascading.
+      expect(await countRefusalEvents(seed.accountId)).toBe(0);
+      // …and only that tenant's.
+      expect(await countRefusalEvents(bystander.accountId)).toBe(2);
+    } finally {
+      await cleanupRefusalEvents(bystander.accountId);
+      await cleanupRefusalEvents(seed.accountId);
+      await cleanupOwnerOffboardingSeed(bystander);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
+
+  // The read side needs its own oracle. The covering case in
+  // purge-verification.test.ts replaces `sql` with a mock that fabricates the
+  // count, so it pins this branch by SQL TEXT and nothing else: a WHERE clause
+  // that narrows the row set, or a renamed count alias, both satisfy every one
+  // of its assertions while reporting a CLEAN purge over surviving rows. This
+  // arm reads the count back out of a real database instead (#643's pattern).
+  it('purge verification counts every surviving refusal_events row and no other tenant\'s', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const bystander = await seedOwnerOffboardingAccount({ zernioConnection: false });
+
+    try {
+      // THE FIXTURE IS THE ORACLE, so it varies along every axis this arm's
+      // WHERE clause could narrow on. A row all fixture rows share is a row no
+      // predicate change can be caught by — that is not a hypothetical, it is
+      // how the first version of this arm let a temporal mutant through.
+      //
+      //   location — per-location AND account-wide (`business_id IS NULL`)
+      //   subject  — with a subject_id, and without (C2 forces NULL account-wide)
+      //   time     — inside any plausible retention window, and far outside it
+      //   tenant   — a bystander account holding a Refusal of its own
+      //
+      // Three rows belong to the target account and exactly one does not.
+      await seedRefusalEvent({ accountId: seed.accountId, businessId: seed.businessId });
+      await seedRefusalEvent({ accountId: seed.accountId, businessId: null });
+      await seedRefusalEvent({
+        accountId: seed.accountId,
+        businessId: seed.businessId,
+        age: '400 days',
+      });
+      await seedRefusalEvent({ accountId: bystander.accountId, businessId: bystander.businessId });
+
+      const result = await verifyAccountOffboardingPurge(
+        { accountId: seed.accountId, offboardingId: randomUUID() },
+        getE2eSql(),
+      );
+
+      // EXACTLY three. Not "at least" — the count is the whole assertion, and a
+      // range would re-admit the narrowing this fixture exists to catch.
+      expect(result.ok).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          table: 'refusal_events',
+          disposition: 'hard_delete',
+          purgeVerification: 'must_be_absent',
+          violationCount: 3,
+        }),
+      );
+      // The bystander's Refusal is outside the filter rather than merely absent
+      // from the fixture: a widened predicate reports 4 and fails here.
+      expect(await countRefusalEvents(bystander.accountId)).toBe(1);
+    } finally {
+      await cleanupRefusalEvents(bystander.accountId);
+      await cleanupRefusalEvents(seed.accountId);
+      await cleanupOwnerOffboardingSeed(bystander);
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

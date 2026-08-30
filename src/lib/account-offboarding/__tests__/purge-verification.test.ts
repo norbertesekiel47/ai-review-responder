@@ -211,6 +211,47 @@ describe('purge verification', () => {
     expect(outreachQuery?.values).toEqual([accountId]);
   });
 
+  it('purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account', async () => {
+    const accountId = '00000000-0000-7000-8000-000000000001';
+    mockSql.mockImplementation(async (strings: any, ...values: unknown[]) => {
+      if (!Array.isArray(strings)) return [];
+      const text = strings.join('?');
+      calls.push({ text, values });
+      // Two survivors stands in for the pair that matters: one per-location
+      // Refusal and one ACCOUNT-WIDE one.
+      if (text.includes('FROM refusal_events')) return [{ violation_count: 2 }];
+      return [{ violation_count: 0 }];
+    });
+
+    const result = await verifyAccountOffboardingPurge({
+      accountId,
+      offboardingId: '00000000-0000-7000-8000-000000000002',
+    }, mockSql);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        table: 'refusal_events',
+        disposition: 'hard_delete',
+        purgeVerification: 'must_be_absent',
+        violationCount: 2,
+      }),
+    ]);
+
+    const refusalQuery = calls.find((call) => call.text.includes('FROM refusal_events'));
+    expect(refusalQuery?.text).toContain('WHERE account_id = ?::uuid');
+    // "Including account-wide rows" is the whole reason this branch is scoped
+    // by account_id and NEVER joined through businesses: an autonomy_suspended
+    // Refusal carries `business_id IS NULL`, so the account_businesses CTE the
+    // consent ledger uses below would miss every one of them and the
+    // verification would report a clean purge over surviving rows.
+    expect(refusalQuery?.text).not.toContain('account_businesses');
+    expect(refusalQuery?.text).not.toContain('business_id');
+    // Exactly one bind, the target account — another account's rows are outside
+    // the filter rather than merely absent from this fixture.
+    expect(refusalQuery?.values).toEqual([accountId]);
+  });
+
   it('purge verification fails when a solicitation_consent row survives the purge', async () => {
     const accountId = '00000000-0000-7000-8000-000000000001';
     // absentByBusiness passes the table name through exec(tableName) as an
