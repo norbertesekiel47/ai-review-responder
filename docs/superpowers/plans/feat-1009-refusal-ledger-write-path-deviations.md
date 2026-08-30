@@ -1,6 +1,6 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Five entries.** Five ACCEPT, zero RE-PLAN.
+**Six entries.** Six ACCEPT, zero RE-PLAN.
 
 | # | What | Verdict | One line |
 |---|---|---|---|
@@ -9,6 +9,7 @@
 | D3 | `tests_to_add` grew 19 → 26 → 28 across plan review rounds 1 and 2 | **ACCEPT** | Test-title additions are deviations, not amendments. Nine wrong implementations passed the first nineteen. |
 | D4 | Round 2 found four defects that round 1's own FIXES introduced | **ACCEPT** | Two of them are one mistake twice: a lesson applied to the code that prompted it, not to the code the fix wrote. |
 | D5 | Round 3 disproved a claim a rejection rested on, and found the SAME warning path wrong a third time | **ACCEPT** | Three rounds, three different bugs in one five-line warning. The pattern, not any one bug, is the lesson. |
+| D6 | T1's eval FIXES three API names the plan described but never spelled, and forces test 20's rejection through the vocabulary map | **ACCEPT** | A RED eval is the API's first caller; T3 and T4 now have identifiers to bind to rather than a description to guess from. |
 
 ---
 
@@ -235,3 +236,49 @@ warning silences the only thing that could.
 **Verdict:** ACCEPT. All three corrected. One disagreement remains open and is
 the owner's call: plan §5d, the module-scope check versus a new `ci:*` audit
 script.
+
+---
+
+## D6 — the eval fixes three API names the plan described but never spelled
+
+**When:** step 5, task T1, while authoring the twenty-eight failing tests.
+
+A RED eval is the first CALLER of an API that does not exist yet, so it does not
+merely describe the surface — it decides it. Three identifiers the plan names
+only in prose are now pinned by an import, and T3/T5 must bind to them rather
+than choose their own:
+
+| Identifier | Where the plan describes it | Where the eval now pins it |
+|---|---|---|
+| `resetRefusalLedgerWarningForTests()` from `src/lib/refusals/write.ts` | §4 T3, *"export a test-only reset that clears both, on `circuit-breaker.ts`'s `reset()` precedent"* | `write.test.ts`'s `beforeEach`/`afterEach` — without it title 9's "exactly one per process" is satisfied by whichever case ran first |
+| `WARN_RETRY_COOLDOWN_MS` exported from the same module | §2.3's cooldown pseudocode, `300_000` | title 28 advances a stubbed `Date.now()` by exactly this value, so the case pins the cooldown rather than an arbitrary "long enough" margin |
+| `REFUSAL_LEDGER_RETENTION_DAYS` exported from `ArchivalPoller.ts` | §4 T5 step 1 | read off the poller's DYNAMIC import in the live-DB suite's `beforeAll` — a static import would bind the `@/lib/db/server` singleton before `DATABASE_POOL_URL` points at the test DB |
+
+None of the three changes the design. They are recorded because a later task
+choosing a different name would turn a red test green-by-rewriting rather than
+by implementing, which is the one thing a locked eval exists to prevent.
+
+### And one mechanism the plan did not anticipate: how test 20 forces its rejection
+
+Plan §3 requires title 20 to force a real `writeRefusalEvent` rejection and
+assert full rollback, but does not say HOW. Three candidates were considered:
+
+1. **Mock `@/lib/refusals/write` to reject.** Rejected — it proves only that a
+   stub can reject. The claims that a real helper does not catch its own insert
+   error and does not open its own connection both disappear.
+2. **Pass an out-of-vocabulary `trigger` to `suspendAccountAutonomy`.** Rejected
+   — `AUTONOMY_SUSPENSION_REASONS[trigger]` would be `undefined` too, so the
+   POLICY insert fails first and the rejection never comes from the ledger.
+3. **Mock `@/lib/refusals/vocabulary` and bend ONE map entry** to a category the
+   CHECK does not admit. Chosen: the real helper, the real deciding
+   transaction, a real `23514` from `refusal_events`, and the rest of the
+   vocabulary untouched.
+
+The stand-in map is DERIVED from the real one inside the mock factory rather
+than re-typed, so titles 16-19 run against the production vocabulary and the
+test never becomes a second authority over the four triggers. It was verified
+that `vi.mock` on a module that does not exist yet does NOT break collection, so
+the six pre-existing cases in that suite keep running through the RED phase.
+
+**Verdict:** ACCEPT. No surface change, no amendment; `allowed_edit_surface`
+already covers every file T1 touched.

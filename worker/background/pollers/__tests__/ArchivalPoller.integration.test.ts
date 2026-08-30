@@ -23,7 +23,9 @@
 // imported DYNAMICALLY, after beforeAll points that variable at the test DB.
 
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import { describeWithDb } from '@/__tests__/helpers/describe-with-db';
 import {
@@ -38,6 +40,7 @@ import {
   MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
   MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
   MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
+  type SchemaRequirement,
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import {
   checksum,
@@ -55,10 +58,28 @@ import { createWorkerLogger, type WorkerLogger } from '@/lib/shared/logger';
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
 
+/**
+ * #1009: the Refusal ledger's retention arm. Declared locally rather than added
+ * to `schema-ready.ts` — that helper lives outside this branch's
+ * `allowed_edit_surface`, and #1008's own 116 suite declares its requirement
+ * inline for the same reason.
+ */
+const MIGRATION_116_REFUSAL_EVENTS: SchemaRequirement = {
+  migration: '116_refusal_events',
+  tables: ['refusal_events'],
+  indexes: ['idx_refusal_events_archival'],
+};
+
+const ARCHIVAL_INDEX = 'idx_refusal_events_archival';
+const POLLER_SOURCE_FILE = 'worker/background/pollers/ArchivalPoller.ts';
+/** The per-arm claim limit every arm shares; a cycle at it is `saturated`. */
+const BATCH_LIMIT = 5000;
+
 let featureDatabaseLock: LiveDbLock | undefined;
 let tenant: TenantSeed | undefined;
 let appSql: Sql | undefined;
 let runArchival: ((logger: WorkerLogger) => Promise<void>) | undefined;
+let refusalRetentionDays: number | undefined;
 
 function sql(): Sql {
   if (!appSql) throw new Error('archival integration database was not initialized');
@@ -70,9 +91,69 @@ function accountId(): string {
   return tenant.accountId;
 }
 
-function runOneArchivalCycle(): Promise<void> {
+function runOneArchivalCycle(logger?: WorkerLogger): Promise<void> {
   if (!runArchival) throw new Error('archival integration poller was not imported');
-  return runArchival(createWorkerLogger('[ArchivalPollerIntegration]'));
+  return runArchival(logger ?? createWorkerLogger('[ArchivalPollerIntegration]'));
+}
+
+/** The 180-day Refusal-ledger window, captured off the dynamic poller import. */
+function retentionDays(): number {
+  if (refusalRetentionDays === undefined) {
+    throw new Error('ArchivalPoller does not export REFUSAL_LEDGER_RETENTION_DAYS');
+  }
+  return refusalRetentionDays;
+}
+
+/**
+ * One Refusal, aged on BOTH clocks independently.
+ *
+ * `created_at` is `DEFAULT NOW()`, so a fixture that wants the two clocks to
+ * DISAGREE has to write it explicitly — which is the whole of title 23. This is
+ * an INSERT with explicit columns and never DDL (`ci:live-db-suites` R2).
+ *
+ * Every stamp is a SQL interval off NOW() rather than a JS `Date`: postgres.js
+ * truncates timestamptz microseconds, so a JS-derived timestamp compared
+ * against a SQL-derived retention boundary can mis-order by under a
+ * millisecond — and the boundary is exactly what these cases are about.
+ */
+async function seedRefusal(occurredDaysAgo: number, createdDaysAgo = 0): Promise<string> {
+  const id = randomUUID();
+  await sql()`
+    INSERT INTO refusal_events (
+      id, account_id, business_id, refusal_source, refusal_code, all_refusal_codes,
+      refusal_category, vocabulary_version, subject_type, subject_id,
+      occurred_at, created_at
+    ) VALUES (
+      ${id}::uuid, ${accountId()}::uuid, NULL,
+      'autonomy_suspended', 'judge_flag', NULL,
+      'autonomy_paused', 'archival-retention-fixture', NULL, NULL,
+      NOW() - make_interval(days => ${occurredDaysAgo}),
+      NOW() - make_interval(days => ${createdDaysAgo})
+    )
+  `;
+  return id;
+}
+
+/** `count` aged Refusals in ONE statement — the saturation fixture. */
+async function seedAgedRefusals(count: number, occurredDaysAgo: number): Promise<void> {
+  await sql()`
+    INSERT INTO refusal_events (
+      id, account_id, business_id, refusal_source, refusal_code, all_refusal_codes,
+      refusal_category, vocabulary_version, subject_type, subject_id, occurred_at
+    )
+    SELECT gen_random_uuid(), ${accountId()}::uuid, NULL,
+           'autonomy_suspended', 'judge_flag', NULL,
+           'autonomy_paused', 'archival-saturation-fixture', NULL, NULL,
+           NOW() - make_interval(days => ${occurredDaysAgo}) - make_interval(secs => series)
+      FROM generate_series(1, ${count}) AS series
+  `;
+}
+
+async function listRefusalIds(): Promise<string[]> {
+  const rows = await sql()<{ id: string }[]>`
+    SELECT id::text AS id FROM refusal_events WHERE account_id = ${accountId()}::uuid
+  `;
+  return rows.map((row) => row.id);
 }
 
 const SUBJECT = OUTREACH_SUBJECT;
@@ -259,11 +340,13 @@ describeWithDb(
       appSql = dbModule.sql as unknown as Sql;
       const pollerModule = await import('../ArchivalPoller');
       runArchival = pollerModule.runArchival;
+      refusalRetentionDays = pollerModule.REFUSAL_LEDGER_RETENTION_DAYS;
 
       await assertSchemaReady(sql(), [
         MIGRATION_088_SOLICITATION_BATCH_EXECUTOR,
         MIGRATION_091_SEND_MODE_SPINE_LIFECYCLE,
         MIGRATION_092_TERMINAL_OUTREACH_BODY_REDACTION,
+        MIGRATION_116_REFUSAL_EVENTS,
       ]);
       tenant = await seedTenantAccount(sql(), {
         userName: 'Archival Redaction Owner',
@@ -280,6 +363,7 @@ describeWithDb(
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     afterEach(async () => {
+      await sql()`DELETE FROM refusal_events WHERE account_id = ${accountId()}::uuid`;
       await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
       await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
@@ -444,5 +528,104 @@ describeWithDb(
       expect((await readOutreach(sentId)).body_redacted_at).not.toBeNull();
       expect((await readOutreach(cancelledId)).body_redacted_at).not.toBeNull();
     });
+
+    // ── #1009: the Refusal ledger's retention arm (titles 22-25) ───────────
+    //
+    // The eleventh arm, sharing the ten existing arms' single try/catch — which
+    // is why it could not ride slice 1 and why #1009 is gated on migration
+    // 116's PROMOTION rather than its merge.
+
+    it('the refusal_events arm deletes rows older than REFUSAL_LEDGER_RETENTION_DAYS and keeps rows inside the window', async () => {
+      // 180, matching AGENT_SPINE_RETENTION_DAYS so one number governs the whole
+      // agentic domain (#996). A code constant, deliberately not an env var, so
+      // it carries no registry rows.
+      expect(retentionDays()).toBe(180);
+
+      const aged = await seedRefusal(retentionDays() + 20);
+      const fresh = await seedRefusal(retentionDays() - 20);
+
+      await runOneArchivalCycle();
+
+      const survivors = await listRefusalIds();
+      expect(survivors).not.toContain(aged);
+      expect(survivors).toContain(fresh);
+    });
+
+    it('the refusal_events arm keys on occurred_at, so a fresh occurred_at with an old created_at survives and the reverse is deleted', async () => {
+      // CROSSED CLOCKS, and this is not optional. A plain old-row/fresh-row pair
+      // ages both timestamps together, so it returns the identical answer under
+      // an `occurred_at` sweep and a `created_at` sweep — the case above alone
+      // cannot kill the wrong clock. Only rows whose two clocks DISAGREE can.
+      //
+      // `occurred_at` is the DECISION time and the ONE retention clock (#996);
+      // `created_at` is the insert stamp and its own column comment says it is
+      // explicitly not a retention candidate.
+      const decidedLongAgoInsertedToday = await seedRefusal(retentionDays() + 20, 0);
+      const decidedTodayInsertedLongAgo = await seedRefusal(0, retentionDays() + 20);
+
+      await runOneArchivalCycle();
+
+      const survivors = await listRefusalIds();
+      expect(survivors).not.toContain(decidedLongAgoInsertedToday);
+      expect(survivors).toContain(decidedTodayInsertedLongAgo);
+    });
+
+    it('the refusal_events arm orders by (occurred_at, id) so the sweep matches idx_refusal_events_archival', async () => {
+      // The index as the DATABASE has it, not as a comment claims it.
+      const [index] = await sql()<{ definition: string }[]>`
+        SELECT indexdef AS definition FROM pg_indexes
+         WHERE schemaname = 'public' AND indexname = ${ARCHIVAL_INDEX}
+      `;
+      expect(index, `${ARCHIVAL_INDEX} is absent`).toBeDefined();
+      const keyColumns = /USING btree \(([^)]*)\)/.exec(index!.definition)?.[1];
+      expect(keyColumns, `could not read ${ARCHIVAL_INDEX}'s key columns`).toBeDefined();
+
+      const pollerSource = readFileSync(join(process.cwd(), POLLER_SOURCE_FILE), 'utf8');
+      const arm = /SELECT id FROM refusal_events([\s\S]*?)LIMIT/.exec(pollerSource)?.[1];
+      expect(arm, `${POLLER_SOURCE_FILE} has no refusal_events retention arm`).toBeDefined();
+      const armSql = arm!.replace(/\s+/g, ' ').trim();
+
+      // Without an ORDER BY that MATCHES an index the sweep is unbounded — arms
+      // 9 and 10 state the rule, and this derives the expectation from the live
+      // index rather than restating it.
+      expect(armSql).toContain(`ORDER BY ${keyColumns}`);
+      expect(keyColumns).toBe('occurred_at, id');
+
+      // `occurred_at` and nothing else. A sweep keyed on the insert stamp would
+      // pass the window case above and delete the wrong rows in production.
+      expect(armSql).toContain('occurred_at <');
+      expect(armSql).not.toContain('created_at');
+
+      // Same concurrent-cycle count-accuracy contract as every sibling arm.
+      expect(armSql).toContain('FOR UPDATE SKIP LOCKED');
+    });
+
+    it('the archival log line and the saturation list both carry refusal_events', async () => {
+      // A full claim, so the arm reports `BATCH_LIMIT` and the cycle saturates.
+      // Both halves are observed from the LOGGER rather than read off the
+      // poller's source, because what the intake promises is the operator's
+      // view: a count on the 'Archived' line, and the table named when a cycle
+      // hits the limit and more rows remain.
+      await seedAgedRefusals(BATCH_LIMIT, retentionDays() + 20);
+
+      const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      await runOneArchivalCycle(logger as unknown as WorkerLogger);
+
+      // The ten arms share ONE try/catch, so a broken eleventh arm shows up as a
+      // swallowed 'Archival cycle failed' rather than a failed assertion.
+      expect(logger.error).not.toHaveBeenCalled();
+
+      const archived = logger.log.mock.calls.find((call) => call[0] === 'Archived');
+      expect(archived, "the cycle logged no 'Archived' line").toBeDefined();
+      expect(archived![1]).toMatchObject({ refusal_events: BATCH_LIMIT });
+
+      const saturation = logger.warn.mock.calls.find((call) =>
+        String(call[0]).includes('Batch limit reached'));
+      expect(saturation, 'the cycle logged no batch-limit warning').toBeDefined();
+      // The sanitizer drops array values, so the poller joins the names into a
+      // string — assert on that string, not on an array.
+      const targets = (saturation![1] as { saturated_targets?: unknown }).saturated_targets;
+      expect(String(targets)).toContain('refusal_events');
+    }, 120_000);
   },
 );
