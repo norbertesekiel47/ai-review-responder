@@ -2581,8 +2581,8 @@ Revisit triggers:
   instead — and never ahead of CI, which is the second half of the rule:
   **CI green → staging DDL → staging ride → owner approval → production DDL →
   merge.** Applying production DDL before the PR exists trades one hazard for
-  a worse one. `deployment-guide.md` §II.5 establishes the PR-first, staging-DDL-
-  before-staging-deploy shape; the production-DDL-before-merge step is this
+  a worse one. `deployment-guide.md` §II.5 establishes the PR-first shape and
+  staging-DDL-before-PROD-DDL; the production-DDL-before-MERGE step is this
   branch's own inference from it plus the `42P01` hazard, not a sentence that
   section states.
   **ROLLBACK IS A PR REVERT, NOT A DOWN MIGRATION.**

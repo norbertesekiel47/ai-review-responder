@@ -181,6 +181,14 @@ sets intersect:
 | `render_failed` | `ask-generation.ts` only — inserts the row already withheld | `rendered_at` — `NOT NULL`, never updated |
 | `lint_failed`, `moderation_high` | **BOTH.** `ask-generation.ts` at render time, and `dispatch.ts` `commitWithhold` at dispatch time — they are members of `OutreachWithheldReason` (`dispatch.ts:149-155`) and are emitted by the dispatch gate (`:254-255`) | **depends on which writer wrote the row**, not on the reason |
 | `suppressed`, `no_consent`, `no_postal_address`, `postal_address_mismatch` | `dispatch.ts` `commitWithhold`, which sets `agent_run_id` atomically | `COALESCE(agent_runs.started_at, updated_at)` |
+| `unsubscribed` | neither of the two above — written by the unsubscribe lane, not by the send pipeline | that lane's own decision time |
+
+Eight members, and the eighth is easy to lose: an earlier draft of this table
+counted "the other five" and a later one listed only seven, because
+`unsubscribed` belongs to neither writer. `OutreachWithheldReason`'s own
+comment says so — it deliberately excludes `render_failed` and `unsubscribed`
+from the six the dispatch gate can produce, "because re-spelling them here
+would invite a gate arm that has no item."
 
 The superseded claim was "the partition is exactly `RenderWithholdReason`, so
 the split is the shape of the data rather than a special case." It is not a

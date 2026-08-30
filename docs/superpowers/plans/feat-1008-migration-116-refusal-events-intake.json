@@ -43,9 +43,9 @@
     "supabase/migrations/114_solicitation_attribution.sql — file header stating WHY, BEGIN + SET LOCAL lock_timeout = '10s', COMMENT ON COLUMN per column, and the trailing IS TRUE CHECK wrapper with its reasoning spelled out.",
     "supabase/migrations/111_platform_halt_reason.sql — the IS TRUE NULL-safety idiom on a multi-arm CASE CHECK.",
     "src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts — read-only shape suite: assertSchemaReady instead of run-time DDL, the cross-process live-DB lock, catalogue reads against information_schema / pg_indexes / pg_constraint, and deliberate absence from MIGRATION_SHAPE_FILES.",
-    "scripts/ci/tenant-tables.ts:154 — solicitation_batches' two-column ['account_id', 'business_id'] entry shape.",
-    "src/lib/account-offboarding/table-disposition.ts:361-366 — solicitation_batches' hard_delete / direct_account_id / must_be_absent row shape.",
-    "src/lib/account-offboarding/purge-verification.ts:620-633 — solicitation_batches' verificationQuery branch shape.",
+    "scripts/ci/tenant-tables.ts — the solicitation_batches KEY, in BOTH structures: the TENANT_TABLES array and the scope-column map. Cited by key, never by line.",
+    "src/lib/account-offboarding/table-disposition.ts — the solicitation_batches ENTRY (cited by table key, never by line: this change inserts above it and would stale a line citation in the same commit that made it).",
+    "src/lib/account-offboarding/purge-verification.ts — the solicitation_batches CASE label in verificationQuery (cited by label, never by line).",
     "worker/jobs/account-offboarding/purge-stages.ts runContentPurgeStage — the account-scoped DELETE shape and its lock-ordering comments.",
     "docs/adr/0021-ask-withdrawal-is-restraint-not-reapproval.md — ADR file shape.",
     "branch feat/refusal-log — CONTEXT.md '## Refusal Log' block and docs/adr/0023-refusal-log-owner-safe-projection.md are the source text to CORRECT and carry, never to copy verbatim."

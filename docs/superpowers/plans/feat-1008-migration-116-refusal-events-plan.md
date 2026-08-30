@@ -51,7 +51,7 @@ exact step at which #1009 unblocks.
 **Blocking edges:** none. Lands first, alone, committed before any
 implementation.
 
-Author all twenty-two `tests_to_add` titles as runnable failing tests.
+Author all `tests_to_add` titles as runnable failing tests. (Twenty-two at authoring time; a twenty-third — C5's structural case — was added by red-team finding RT-03.)
 
 **New file** `src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts`
 — titles 1–19. Precedent, followed exactly:

@@ -58,6 +58,41 @@ A third lesson for step 8 promotion, alongside D9, D11 and D12.
 
 ---
 
+## D15 — the fix for D14 reproduced D14, five times
+
+**When:** step 7.5, red-team round 2 (RT-04, RT-06, RT-12, RT-13, RT-14,
+RT-15).
+
+D14's whole content is: *a fact stated in two artifacts, corrected in one.*
+The commit that wrote D14 then did exactly that, five more times:
+
+| Fact | Corrected in | Left stale in |
+|---|---|---|
+| line citations → symbol citations | the plan | the **intake** — while D14 claimed both were done |
+| "nine probe rows" → eight | the deviations file | `arch-review-log.md` |
+| "22 promised tests" → 23 | nowhere | `arch-review-log.md`, and `plan.md`'s "twenty-two" |
+| the §II.5 over-attribution | `migrations-log.md` | `arch-review-log.md` |
+| the ADR's writer table | rewritten | dropped `unsubscribed`, its eighth member |
+
+**Why it kept happening, and it is not carelessness.** Each correction was
+made where the finding POINTED — a reviewer cites one `file:line`, and fixing
+that line reads as done. The artifacts here duplicate deliberately (the
+migrations log, the arch-review log, the plan, the intake and the ADR each
+restate the same decisions for a different reader), so every duplicated fact
+is a place a single-site fix leaves a contradiction.
+
+**The method that actually works, applied for round 2's fixes:** for each
+finding, grep every artifact for the FACT, not the cited line, and fix all
+hits in one pass. That is how these six were closed, and re-running those
+greps is how the next reader should check them.
+
+**Queued for step 8 promotion** as the fourth lesson: in this repo a
+documentation fix is a *sweep*, never an edit.
+
+**Verdict:** ACCEPT, fixed.
+
+---
+
 ## D1 — the ticket's "nothing that names the table in code" cannot hold
 
 **When:** grilling, before setup.
