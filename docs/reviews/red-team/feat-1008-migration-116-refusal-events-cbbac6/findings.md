@@ -473,3 +473,25 @@ this branch has now hit on every rebase. No file the evidence covers changed.
 Not re-run, and deliberately so: re-running would have needed a third round the
 skill's cap forbids, and there was nothing new to measure. What is claimed here
 is exactly what was measured, pointed at the commit that now holds that content.
+
+
+### SHA re-anchor, second time — b41774b11503 → 276607b9d8af
+
+`origin/main` moved twice more while #1019 was open (#1020, #1021), forcing a third
+rebase under the strict up-to-date ruleset. Renumbering again, not re-measurement:
+`git diff` between the pre- and post-rebase trees, restricted to this branch's files,
+is **two appended rows in `.claude/reference/arch-review-log.md`** — main's own #1020
+and #1021 entries. The migration, `src/`, `worker/`, `CONTEXT.md` and the ADR are
+byte-identical.
+
+Worth noting where it landed: one of the commits forcing this rebase is #1021,
+*"pin the fork, do not take main after the review wave opens"* — the workflow learning
+the exact lesson this branch paid for three times tonight.
+
+**Anchor points at the staging-evidence commit, not the measured one.** The checker's
+rule is that the tree must be unmoved since `head_sha` outside this run's own two
+artifacts, and `docs/runbooks/evidence/2026-08-30-migration-116-staging.md` is a third
+file added after the measurements. It adds a document and changes nothing the evidence
+covers — the migration, `src/`, `worker/`, the tests, `CONTEXT.md` and the ADR are
+byte-identical between the measured commit and this one. The anchor therefore reads
+"valid as of this tree", which is true of everything it claims.
