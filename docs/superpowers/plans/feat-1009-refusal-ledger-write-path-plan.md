@@ -264,6 +264,24 @@ sentinel is a narrower sanctioned exception the migration could not yet name.**
   `'transaction_time'`. It cannot arrive there by omission — that is the whole
   reason `occurredAt` is required rather than optional (§2.2).
 
+**This was MEASURED against a live Postgres, not asserted from memory**, because
+the whole #1006 equality join rests on it. One transaction, two statements
+separated by `pg_sleep(0.25)`:
+
+| Fact | Result |
+|---|---|
+| `NOW()` = `transaction_timestamp()`, statement 1 | **true** |
+| `NOW()` = `transaction_timestamp()`, statement 2 | **true** |
+| `NOW()` stable across both statements | **true** |
+| `statement_timestamp()` moved between them | true |
+| `clock_timestamp()` moved between them | true |
+| `NOW()` carries six-digit microseconds | true — `…32.061377+00` |
+
+So `NOW()` is the transaction's clock, not the statement's, and the ledger row
+and the audit row written in one transaction are equal to the microsecond. The
+last row is the same measurement that makes #520 fatal here: those six digits
+are what a JS `Date` round trip destroys.
+
 **Migration 116 is still not edited.** It is applied to production and
 immutability-guarded, and the correction is not to its SQL. The record is
 corrected where records are corrected: T7 carries one sentence into
@@ -363,16 +381,39 @@ this run. Test 26 is the mechanical guard.
 
 | File | Tests |
 |---|---|
-| `src/lib/refusals/__tests__/vocabulary.test.ts` | 1–5 |
-| `src/lib/refusals/__tests__/write.test.ts` | 6–11 |
-| `src/lib/refusals/__tests__/write.integration.test.ts` | 12–15 |
-| `src/lib/auto-approval/__tests__/suspension-refusal.integration.test.ts` | 16–20 |
-| `worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts` (extend) | 21 |
-| `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts` (extend) | 22–25 |
-| `src/lib/refusals/__tests__/eval-completeness.test.ts` | 26 |
+| File | Tests | New? |
+|---|---|---|
+| `src/lib/refusals/__tests__/vocabulary.test.ts` | 1–5 | new |
+| `src/lib/refusals/__tests__/write.test.ts` | 6–11 | new |
+| `src/lib/refusals/__tests__/write.integration.test.ts` | 12–15 | new (live-DB) |
+| `src/lib/auto-approval/__tests__/suspension.integration.test.ts` | 16–20 | **EXTEND** |
+| `worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts` | 21 | **EXTEND** |
+| `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts` | 22–25 | **EXTEND** |
+| `src/lib/refusals/__tests__/eval-completeness.test.ts` | 26 | new |
+
+All twenty-six titles are claimed exactly once. No gaps, no duplicates.
+
+**Three files are EXTENDED rather than created** — the repo's default is "no new
+file". `suspension.integration.test.ts` (388 lines) already stands up the
+accounts, businesses and policy rows tests 16–20 need, so a sibling
+`suspension-refusal.integration.test.ts` would duplicate that fixture and split
+one lane's coverage across two files.
+
+**`eval-completeness.test.ts` is the one new test file that needs a
+justification.** Test 26 asserts a property of the six test files *as a set*.
+Putting that assertion inside one of the six is circular — a `.todo`-filled file
+would be asserting about itself. The natural home for a repo-wide meta test is
+`src/__tests__/` (`ci-audit-wiring.test.ts`, `claude-md-shape.test.ts`), but
+that path is outside `allowed_edit_surface` and widening to reach it would spend
+the last amendment on a test file. This branch's own directory is the correct
+second choice.
 
 Test 6 is a **compile-time** assertion (`@ts-expect-error` against an omitted
 `occurredAt`), not a runtime one — finding 3. Tests 12–15 and 16–20 are live-DB.
+
+**Test 26 is the one test T1 turns green itself**, not a later task: it is true
+the moment T1 obeys the no-marker rule, and it stays true only if every later
+task does too. That is the point of it.
 
 **Live-DB naming is load-bearing.** A live-DB suite is named
 `*.integration.test.ts` so vitest's serialized `integration` project picks it up,
