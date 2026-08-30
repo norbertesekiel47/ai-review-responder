@@ -15,9 +15,16 @@ This document REFERENCES. It does not restate. Read the files it names.
 | Ticket | #1009 · map #994 · slice 2 of 7 |
 | Lane | RISK = high, SURFACE = backend, SIZE = normal — full pipeline |
 | Phase | see `.feature/state.json` (authoritative; this file can go stale) |
-| Plan review | round 1 REVISE (9 accepted, 1 rejected) · round 2 verification-only |
+| Plan review | 3 of 3 rounds used. **LOCKED** by owner call 2026-08-30 (round-3 stop rule) |
 | Surface amendments | **1 of 2 used** — `AutonomyGovernorScheduler.ts` (D2) |
 | Gate rounds | 0 |
+| Promised tests | **28** |
+
+**The plan is locked. Do not reopen it.** Round 1 REVISE (10 findings, 9
+accepted). Round 2 REVISE (4 defects the round-1 fixes introduced). Round 3
+REVISE (3 defects, 1 `high`). All corrected. One disagreement was carried to the
+owner and decided: **the module-scope eval check, not a new `ci:*` audit
+script** — plan §5d.
 
 ## The artifacts, by path
 

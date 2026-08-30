@@ -952,8 +952,14 @@ and `lefthook.yml` together, with `src/__tests__/ci-audit-wiring.test.ts`
 failing whenever those three drift — a permanent repo-wide obligation bought for
 one branch's eval hygiene.
 
-**Status:** owner-decided. Recorded per the round-3 stop rule, which makes the
-owner's call substitute for `APPROVED`.
+**OWNER DECISION, 2026-08-30: the module-scope check.** Both positions were put
+to the owner with their costs. No `ci:*` audit script is added. Per the round-3
+stop rule this call substitutes for `APPROVED`, and **the plan is LOCKED**.
+
+The general problem the reviewer identified is real and outlives this branch —
+`promised-tests` greps titles for EVERY `/feature` run, so any run's eval can be
+satisfied by `it.todo`. It is recorded as a step-8 promotion item rather than
+built here (deviations D5).
 
 ---
 
