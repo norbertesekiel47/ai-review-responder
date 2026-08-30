@@ -1,6 +1,11 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Twelve entries.** Twelve ACCEPT, zero RE-PLAN.
+**Seventeen entries.** Seventeen ACCEPT, zero RE-PLAN.
+
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17 — there is no
+plain "D16" in this file. In this run that label means #1008's write-site
+deviation, the one this branch exists to settle, and reusing it here would be a
+genuinely bad piece of record-keeping.
 
 | # | What | Verdict | One line |
 |---|---|---|---|
@@ -16,6 +21,11 @@
 | D10 | The eleventh arm broke a pre-existing UNIT test that counts arms | **ACCEPT** | T5 reported rather than reached across the wave; the orchestrator fixed it serially. 26/26 green. |
 | D11 | `ci:directory-map` needs `docs/directory.md` rows T2 could not write | **ACCEPT** | Already T6's job. Recorded so the gate's dependency on T6 is explicit. |
 | D12 | The D16 sweep table was short THREE times — inside D16's own sweep | **ACCEPT** | Counting is not a thing you do once. A branch writing new copies has a moving target. |
+| D13 | Plan §2.3's prose and its pseudocode disagreed; T3 resolved it toward the prose | **ACCEPT** | The prose promised a surviving log line; the pseudocode showed only Sentry. The prose was right. |
+| D14 | **Live-DB suites SILENTLY SKIP unless `TEST_DATABASE_POOL_URL` is EXPORTED** | **ACCEPT** | The `.env.local` fallback does not hydrate `process.env` for `describeWithDb`. A green file that ran nothing. |
+| D15 | `DATABASE_POOL_URL` in the worktree's `.env.local` points at the LIVE Supabase pooler | **ACCEPT** | Copied in by `worktree:new`. Both vars must be overridden for any local test run, not just one. |
+| D16b | T4b's Sentry assertion does not pin the account id's PLACEMENT | **ACCEPT** | Numbered `D16b` on purpose — "D16" in this run means #1008's write-site deviation and nothing else. |
+| D17 | T6's two registry placement calls | **ACCEPT** | The plan left both open. Each went next to its nearest sibling, which is this repo's default. |
 
 ---
 
@@ -425,3 +435,121 @@ did not exist when the table was written.
 at edit time, not at plan time, whenever the branch also writes copies.
 
 **Verdict:** ACCEPT. Table corrected in plan §0; neither new copy is edited.
+
+---
+
+## D13 — plan §2.3's prose and its pseudocode disagreed, and the prose was right
+
+**When:** wave 3, T3.
+
+§2.3's outcome table promises that when Sentry always throws, *"the structured
+log line still carries the fact"*. Its pseudocode block shows only
+`Sentry.captureMessage`. A task following the pseudocode literally would ship a
+kill switch whose only signal is the one that is failing.
+
+T3 resolved it toward the **prose** and added one
+`createWorkerLogger('[refusals:write]').warn(...)` **first** inside the same
+guarded block — matching T4b's independently-stated rule that `logger.error`
+runs first so the structured line survives even when Sentry does not.
+
+**This is the right resolution and the plan was at fault.** The whole reason
+this warning exists is that the ledger cannot show its own absence. A signal
+path with a single point of failure would defeat that, and the prose said so
+while the pseudocode quietly did not.
+
+Visible consequence: the unit suite prints six JSON log lines to stderr. That is
+the log line working, not noise.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D14 — live-DB suites SILENTLY SKIP unless `TEST_DATABASE_POOL_URL` is EXPORTED
+
+**When:** wave 4, T4. **This is the most operationally important entry in this
+file.**
+
+T4's suite passed on a bare `pnpm vitest run` **while executing nothing**.
+`describeWithDb` reads `process.env.TEST_DATABASE_POOL_URL` **directly**, and the
+repo's `.env.local`-off-disk fallback does not hydrate `process.env` for it. The
+variable is present in the file and absent from the environment, so the suite
+self-skips and reports green.
+
+T4 caught it by re-running with `--reporter=verbose` and checking that the cases
+actually executed. Without that check, "done" would have meant *a green file
+that ran nothing* — for the five tests that carry this slice's entire safety
+argument.
+
+**This is the #520 class, and CLAUDE.md already warns about the neighbouring
+half** ("Unsetting `TEST_DATABASE_POOL_URL` does NOT put live-DB suites to
+sleep"). What this run adds is the mirror image: **setting it in `.env.local`
+does not wake them either.** Both halves are true and they are not obvious
+together.
+
+**Binding on every later step of this run:** the verify gate must be launched
+with the variable EXPORTED, and any gate reporting a live-DB `SKIP` row is not
+review-ready for this branch.
+
+**Queued for step 8 promotion.**
+
+**Verdict:** ACCEPT.
+
+---
+
+## D15 — `DATABASE_POOL_URL` in the worktree's `.env.local` points at the LIVE Supabase pooler
+
+**When:** wave 4, T4.
+
+`pnpm worktree:new` copies `.env*.local` from the parent checkout, so a fresh
+worktree inherits the developer's real `DATABASE_POOL_URL` —
+`aws-1-us-west-2.pooler.supabase.com`. Any accidental singleton import during a
+local test run reaches **production**.
+
+T4 overrode it to the local test URL for its run rather than exporting only
+`TEST_DATABASE_POOL_URL`. That is correct, and it is what CLAUDE.md means by
+*"Locally export `TEST_DATABASE_POOL_URL` **and** `DATABASE_POOL_URL` first"* —
+the second variable is not redundancy, it is the blast shield.
+
+Taken with D14 the rule is: **override BOTH, every time.** One of them decides
+whether the tests run at all; the other decides what they run against.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D16b — T4b's Sentry assertion does not pin the account id's placement
+
+**When:** wave 5, T4b.
+
+Numbered **D16b** deliberately. In this run "D16" means #1008's write-site
+deviation and nothing else, and a second D16 in the branch that exists to settle
+the first one would be a genuinely bad piece of record-keeping.
+
+Test 21 asserts the account id by `JSON.stringify(secondArg)` containing it.
+That passes whether the id sits in `extra` or in `tags`, so the assertion pins
+*presence* and not *placement*. T4b followed `worker/job-failure-sink.ts` —
+identifiers in `extra`, subsystem in `tags` — which is the repo's shape.
+
+Left as-is: the test's job is that the id reaches Sentry at all, and tightening
+it to a specific key would pin a Sentry convention rather than a behaviour. The
+precedent is what keeps placement consistent, and the precedent is followed.
+
+**Verdict:** ACCEPT, no change.
+
+---
+
+## D17 — T6's two placement calls in the registries
+
+**When:** wave 5, T6. Recorded because the plan left both open.
+
+- `docs/eservices-variables.md` — `REFUSAL_LEDGER_ENABLED` went into the
+  **Agentic autonomy** table rather than Database or LLM, since the flag belongs
+  to the watchdog cluster its first write site sits in.
+- `.claude/reference/env-vars.md` — the behaviour entry went into **Worker
+  Infrastructure**, directly after `LLM_CIRCUIT_BREAKER_ENABLED`, because that
+  section is where both existing default-ON kill switches already live.
+
+Both are the "put it next to its nearest sibling" call, which is this repo's
+default. Either is a one-line move if a reviewer disagrees.
+
+**Verdict:** ACCEPT.
