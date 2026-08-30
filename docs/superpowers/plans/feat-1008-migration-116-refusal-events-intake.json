@@ -1,0 +1,97 @@
+{
+  "classification": "high",
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "Land migration 116 refusal_events — the Refusal ledger table with its twelve columns, five CHECK constraints, three indexes and deny-all RLS — plus every registry row and account-offboarding purge arm the table forces, and the LOCKED vocabulary that names it, with no Refusal write site and no read.",
+  "non_goals": [
+    "The insert helper, the REFUSAL_LEDGER_ENABLED kill switch, and the ArchivalPoller sweep arm — slice 2 (#1009).",
+    "Any of the eleven Refusal write sites (#1010, #1011, #1012, #1013).",
+    "The Restraint tab and any read of refusal_events (#1014).",
+    "The scripts/ci/tenant-scope-allowlist.ts retention-sweep exemption — it belongs to the PR that adds the sweep (#1009).",
+    "src/lib/refusals/vocabulary.ts. CONTEXT.md defines the four terms here; the TypeScript owner arrives in #1009.",
+    "Promotion of migration 116 to staging or production. That is a separate act after this PR merges, and #1009 is gated on it.",
+    "A backfill, and any origin column. #1002 decided there is never one.",
+    "A migrations-log retention-policy row whose Enforcement cell claims a live sweep. The row lands here marked pending #1009."
+  ],
+  "user_visible_behavior": [
+    "No owner-visible change. No route, screen, notification or draft behavior changes.",
+    "An account purge now deletes that account's refusal_events rows in runContentPurgeStage and verifies their absence in verifyAccountOffboardingPurge. The table is empty in every environment at merge, so the observable effect today is zero rows deleted and zero violations reported."
+  ],
+  "invariants": [
+    "Deny-all RLS: refusal_events has ROW LEVEL SECURITY enabled and zero policies. all_refusal_codes never reaches an owner (ADR 0023). RLS filters rows, not columns, so the guarantee lives at the table.",
+    "Tenant isolation: every refusal_events statement is scoped by account_id.",
+    "The table has no write site in this PR, so it is empty in every environment at merge.",
+    "Migration files at or below the recorded head are immutable. 116 carries LOCAL-ONLY until promotion; removing the marker is the promotion change, never this one.",
+    "occurred_at is the single retention clock. created_at is the insert stamp and is never swept.",
+    "A CHECK is satisfied by NULL, so C1 wraps its CASE in IS TRUE. A fall-through must reject, never admit.",
+    "account_id and business_id are the only foreign keys, and neither carries a referential action. subject_id is a bare uuid with no FK, so NULL (points at nothing) stays distinguishable from non-null-but-unresolvable.",
+    "The members of all_refusal_codes are deliberately NOT CHECKed against AutoApprovalBlockReason. That enum's owner is TypeScript; a CHECK would create a second authority that drifts."
+  ],
+  "edge_cases": [
+    "C1 CASE fall-through: an eighth refusal_source admitted by the source CHECK but absent from C1's CASE must be rejected. Without the IS TRUE wrapper the CASE returns NULL and the CHECK admits any subject_type.",
+    "C2: a typed subject with no id slips past the partial unique index; an id with no type is unresolvable at read. Both rejected.",
+    "C3 is biconditional: an account-wide row that is not autonomy_suspended, and an autonomy_suspended row pinned to a location, are both unrepresentable. The second is the exact defect the parent effort hit.",
+    "C4: refusal_code IS NULL exactly for held_draft, and for no other lane.",
+    "C5: all_refusal_codes is non-null, non-empty and contains refusal_code exactly for policy_gate_held, and NULL for every other lane. NULL and '{}' must never become the same value.",
+    "Idempotency: the same (refusal_source, subject_id) inserted twice under ON CONFLICT DO NOTHING yields one row and does NOT abort the caller's transaction.",
+    "Two autonomy_suspended rows for one account both persist — the unique index is partial on subject_id IS NOT NULL, so a NULL subject is never deduplicated.",
+    "ON CONFLICT cannot infer a partial index unless the predicate is re-spelled byte-for-byte. The test proves the shipped predicate is inferable.",
+    "Deploy ordering: runContentPurgeStage naming a table absent from the database raises 42P01 at plan time. It surfaces as a retryable purge failure plus a Sentry issue, never silent data loss, and clears once 116 is promoted.",
+    "The account-window index leads on account_id: PG16 has no skip scan and the purge DELETE filters account-first. It covers business_id IS NULL rows without a second index."
+  ],
+  "existing_patterns_to_follow": [
+    "supabase/migrations/114_solicitation_attribution.sql — file header stating WHY, BEGIN + SET LOCAL lock_timeout = '10s', COMMENT ON COLUMN per column, and the trailing IS TRUE CHECK wrapper with its reasoning spelled out.",
+    "supabase/migrations/111_platform_halt_reason.sql — the IS TRUE NULL-safety idiom on a multi-arm CASE CHECK.",
+    "src/lib/shared/__tests__/migration-114-solicitation-attribution.integration.test.ts — read-only shape suite: assertSchemaReady instead of run-time DDL, the cross-process live-DB lock, catalogue reads against information_schema / pg_indexes / pg_constraint, and deliberate absence from MIGRATION_SHAPE_FILES.",
+    "scripts/ci/tenant-tables.ts:158 — solicitation_batches' two-column ['account_id', 'business_id'] entry shape.",
+    "src/lib/account-offboarding/table-disposition.ts:361-366 — solicitation_batches' hard_delete / direct_account_id / must_be_absent row shape.",
+    "src/lib/account-offboarding/purge-verification.ts:620-633 — solicitation_batches' verificationQuery branch shape.",
+    "worker/jobs/account-offboarding/purge-stages.ts runContentPurgeStage — the account-scoped DELETE shape and its lock-ordering comments.",
+    "docs/adr/0021-ask-withdrawal-is-restraint-not-reapproval.md — ADR file shape.",
+    "branch feat/refusal-log — CONTEXT.md '## Refusal Log' block and docs/adr/0023-refusal-log-owner-safe-projection.md are the source text to CORRECT and carry, never to copy verbatim."
+  ],
+  "allowed_edit_surface": [
+    "supabase/migrations/116_refusal_events.sql",
+    "scripts/ci/tenant-tables.ts",
+    "src/lib/account-offboarding/table-disposition.ts",
+    "src/lib/account-offboarding/purge-verification.ts",
+    "src/lib/account-offboarding/__tests__/table-disposition.test.ts",
+    "src/lib/account-offboarding/__tests__/purge-verification.test.ts",
+    "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
+    "worker/jobs/account-offboarding/purge-stages.ts",
+    "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts",
+    ".claude/reference/migrations-log.md",
+    "CONTEXT.md",
+    "docs/adr/0023-refusal-log-owner-safe-projection.md",
+    "docs/directory.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "migration 116 enables row level security on refusal_events and defines zero policies",
+    "migration 116 creates the archival, account-window and partial-unique indexes with the locked definitions",
+    "C1 rejects a lane whose subject_type does not match it, and rejects the CASE fall-through an unmapped lane takes",
+    "C2 rejects a typed subject with no id, and an id with no subject_type",
+    "C3 rejects an account-wide row that is not autonomy_suspended, and an autonomy_suspended row pinned to a location",
+    "C4 rejects a held_draft row carrying a refusal_code, and a non-held_draft row carrying none",
+    "C5 rejects policy_gate_held rows whose all_refusal_codes is null, empty, or missing refusal_code, and any other lane carrying an array",
+    "the refusal_source and refusal_category CHECKs admit exactly the seven lanes and the eight categories, and reject an unknown member",
+    "the same (refusal_source, subject_id) inserted twice under ON CONFLICT DO NOTHING yields one row and does not abort the caller transaction",
+    "two autonomy_suspended rows for one account both persist because the unique index is partial on subject_id IS NOT NULL",
+    "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+    "purge verification fails when a refusal_events row survives the purge",
+    "the content purge stage deletes refusal_events rows for the purged account and leaves another account's rows untouched"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": "460 — migration SQL ~215, tenant-tables 2, table-disposition 7, purge-verification 14, purge-stages 12, migrations-log ~50, CONTEXT.md ~8, ADR 0023 ~150, docs/directory.md ~2",
+  "estimated_test_lines": "575 — migration-116 integration suite ~480, offboarding-lifecycle ~50, purge-verification ~35, table-disposition ~10",
+  "dependencies_added": [],
+  "rollback_plan": "Before promotion (the state at merge): nothing to roll back in any database — 116 is LOCAL-ONLY and only the rebuildable local test container has the table. Revert the PR and run pnpm test:db:setup to rebuild the container. After promotion: the table has no writer until #1009, so DROP TABLE IF EXISTS refusal_events CASCADE is a complete and lossless reversal, applied staging first then production in lockstep, as a NEW migration (117) rather than an edit to 116. The code arms revert with the PR: the purge DELETE and verificationQuery branch are additive and removing them restores the prior purge behavior exactly. Order: revert the code deploy first, then apply the down migration — never the reverse, or the deployed purge stage raises 42P01.",
+  "observability": [
+    "Proof it works: schema introspection on each database, never list_migrations. information_schema.tables for refusal_events, information_schema.columns for the twelve columns, pg_constraint for the five CHECK names, pg_indexes for the three index names, and pg_class.relrowsecurity = true with zero matching rows in pg_policies.",
+    "Proof it broke, deploy-ordering class: an account purge raising 42P01 relation \"refusal_events\" does not exist from runContentPurgeStage. It surfaces as a retryable purge failure and a real Sentry issue through attachJobFailureSink, and clears the moment 116 is promoted.",
+    "Proof it broke, classification class: verifyAccountOffboardingPurge returning a refusal_events issue with a non-zero violationCount after a purge completes. Impossible today (no writer), and the signal that keeps the hard_delete classification honest once #1010 onward start writing.",
+    "Post-#1009 diagnostic this migration deliberately preserves: the skew between created_at and occurred_at is the only measurement that would catch a writer stamping occurred_at with insert time instead of decision time."
+  ],
+  "open_questions": []
+}
