@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 1** — last reset to 0 by the
+**Merges since last architecture pass: 2** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -58,6 +58,12 @@ Merges since the 2026-08-26 pass:
   counting merge until H7 lands. Its own row also names a **sixth**
   enumerated-scope instance for this pass's census — `GOVERNANCE_PATHS` covers
   `.claude/skills/` and `.claude/hooks/` but **not** `.claude/commands/`.
+- 2026-08-30 — `feat(1008)` (#1019): migration 116 `refusal_events`, the
+  **Refusal ledger**'s table, plus the four registries a new tenant table
+  forces. **COUNTS** — production files under `supabase/`, `src/lib/` and
+  `worker/`. Takes the counter to **2**. Migration promoted to staging and
+  production ahead of the merge, per the ship order; both databases verified
+  identical by constraint and index fingerprint.
 
 ---
 
