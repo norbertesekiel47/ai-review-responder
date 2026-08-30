@@ -7,7 +7,55 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-27 (**Review QR** — Quick summary immediately below. Prior entry: #631 Auto-approval lane.)
+Last updated: 2026-08-30 (**Refusal ledger** — Quick summary immediately below. Prior entry: Review QR.)
+
+## Quick summary — **Refusal ledger**, slice 1 of 7 (2026-08-30, PR #1019)
+
+**RepWorth now has a place to record the things it decided NOT to do — one row
+per decision, written when the decision was made. The table exists; nothing
+writes to it or reads it yet.**
+
+A **Refusal** is a *decision*, which is what excludes every neighbour that looks
+like one: an owner act is the owner's decision, a delivery failure is an act
+that did not land, an elapsed clock weighed nothing, and a Judge verdict is a
+post-publication observation. It is **RECORDED, never re-derived** — the parent
+effort tried to project this surface over seven tables and could not ORDER it,
+because two lanes carry no immutable timestamp of their own. That failure is
+why `occurred_at` exists and why it is writer-supplied.
+
+`refusal_events` carries twelve columns, five CHECK constraints, three indexes
+and **deny-all RLS** — the last is load-bearing rather than a default:
+`all_refusal_codes` is non-owner-facing under ADR 0023, and **RLS filters rows,
+not columns**, so an owner-readable policy could not withhold it.
+
+Two constraints encode defects rather than hygiene. **C3** is biconditional
+(`business_id IS NOT NULL` ⇔ not `autonomy_suspended`) because joining the audit
+log through `businesses` multiplied one account-wide suspension by the location
+count. **C5** gained two clauses the locked #1001 shape lacked: with
+`refusal_code = 'winner'` against `all_refusal_codes = ARRAY['different', NULL]`
+the original expression returned NULL, **and a CHECK passes on NULL** — Postgres
+accepted a row lying about its own precedence. Reproduced on a live database
+before the fix, and live-fired again on staging at promotion.
+
+**No write site and no read.** The only code naming the table in the same change
+is the account-offboarding purge, which must honour the `hard_delete` /
+`must_be_absent` disposition the table forces — **no cascade reaches it**, so an
+explicit account-scoped DELETE is the only thing that removes these rows.
+
+The new shape:
+- `supabase/migrations/116_refusal_events.sql` — table, 5 CHECKs, 3 indexes, deny-all RLS
+- `scripts/ci/tenant-tables.ts` (**two structures**) · `docs/security/rls-inventory.md`
+- `src/lib/account-offboarding/{table-disposition,purge-verification}.ts` ·
+  `worker/jobs/account-offboarding/purge-stages.ts` — the purge surface
+- `docs/adr/0023-refusal-log-owner-safe-projection.md` ·
+  glossary: CONTEXT.md → **Refusal**, **Refusal source**, **Refusal category**, **Restraint tab**
+- migration **116** — staging + prod 2026-08-30, lockstep, verified identical by
+  constraint and index fingerprint
+
+Next: the insert helper, its `REFUSAL_LEDGER_ENABLED` kill switch and the
+`ArchivalPoller` sweep arm (#1009); the write sites (#1010–#1013); the
+**Restraint tab** (#1014). Where the FIRST write site lands is deliberately
+unsettled — see #1008's deviation D16.
 
 ## Quick summary — **Review QR** (2026-08-26, PR #982)
 
