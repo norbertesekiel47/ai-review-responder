@@ -315,10 +315,12 @@ without defensible causality.
 ## Phase 8 / later
 
 Competitor-intelligence expansion (snapshots + digest line exist — add
-trends/alerts), website social-proof widgets, AI-search visibility, public
-API + **MCP server** (read-first, action-classed authorization; explicitly
-after the internal tool layer is clean — MCP is an interface, not the agent),
-agency/white-label. From design §8.5: calibrated-confidence router,
+trends/alerts), website social-proof widgets, AI-search visibility (full
+feature; the probe runs earlier — see Cross-cutting), public API + the
+**MCP write surface** (the read-only pilot was pulled forward to after
+Phase 2 — see Cross-cutting; write-capable tools land here, action-classed,
+after the internal tool layer is clean — MCP is an interface, not the
+agent), agency/white-label. From design §8.5: calibrated-confidence router,
 conversational surface, cross-agent coordination keys, outcome billing.
 The agentic subset of this list (API/MCP, confidence router, conversational
 surface, A2A) is sequenced with rationale in
@@ -337,7 +339,30 @@ surface, A2A) is sequenced with rationale in
   memo's $79/$149 per location. Inputs to the decision: Phase 1–2 shipped
   value, founding-customer runway (deadline 2027-01-01), competitor anchors
   (GatherUp $60/loc, NiceJob $75, Reputation $80/loc). Grandfathering
-  infrastructure makes repricing safe for existing accounts.
+  infrastructure makes repricing safe for existing accounts. **Recommended
+  shape (2026-08-29 research, overlay doc §1):** keep a subscription base —
+  hybrid base-plus-usage is the 41% industry standard and "seats became the
+  floor" across 107 audited pricing pages; never pure outcome (attribution
+  disputes kill deals); add outcome credits later via Stripe Billing
+  Meters, anchored against Intercom $0.99 / HubSpot $0.50 per resolution.
+  Price POINTS remain the open decision.
+- **Outcome SLO packaging + autonomy telemetry** (owner-approved
+  2026-08-29, overlay doc §1): the controllable promises (every review
+  answered within SLA, every completed job triggers the ask, every critical
+  negative escalated, every action auditable) go into tier copy. Autonomy
+  rate and human-correction rate — computed from the run spine +
+  `agent_outcomes`, no new schema — go on the founder dashboard now and the
+  Phase 7 Impact page later.
+- **Read-only MCP pilot — pulled forward from Phase 8 to after Phase 2**
+  (owner-approved 2026-08-29, overlay doc §2): five read tools, OAuth 2.1,
+  scoped tokens per action-risk class, MCP actor attribution on the run
+  spine, MCP-registry listing as a distribution probe. Design center: the
+  agent-identity gap. Write-capable tools stay Phase 8. Details:
+  `2026-08-26-agentic-architecture.md` §4.
+- **AEO probe** (AI-answer visibility, overlay doc §2): periodic
+  cost-bounded checks of how a business appears in AI-assistant answers for
+  its category + location, stored competitor-snapshot-style. Probe now; the
+  full AI-search-visibility feature stays Phase 8.
 - **Free reputation-audit funnel** (acquisition, sequence anytime): rating vs
   nearby competitors, review volume/velocity, unanswered reviews, response
   time. Most ingredients exist (SerpAPI local pack via competitor snapshots,
