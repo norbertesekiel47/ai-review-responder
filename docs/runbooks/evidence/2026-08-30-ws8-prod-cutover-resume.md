@@ -80,7 +80,9 @@ channel, with eight named verification checks recorded.
 2. **Stripe live activation: COMPLETE.** `charges_enabled` reported **true** by the owner
    on 2026-08-30, resolving the blocker recorded as `charges_enabled=false` at
    2026-07-17T00:0xZ. This unblocks §6 smoke Checkout and all of Phase F.
-   → **Agent re-verification owed at §6** — see "Open items", item 1.
+   **VERIFIED 2026-08-30** by owner-run `railway run` check against the production
+   `sk_live_` key: `charges_enabled=True`, `payouts_enabled=True`,
+   `details_submitted=True`. See D1d. No longer owed at §6.
 3. **`ADMIN_NOTIFICATION_EMAIL` = `alerts@repworth.net`** — a new Zoho Mail mailbox on the
    already-Zoho-hosted domain. Receiving only; **no DNS change required** (see the mail
    note below). Must exist before Phase B, because it is a hard boot gate.
@@ -111,6 +113,19 @@ is the reason `beta-launch-alerting.md` and the code disagreed.
 **Revisit after beta:** if the team consolidates on Zoho, a Sentry → Cliq bridge is a
 small, well-understood piece of work. It is not a launch-day dependency. Record the
 outcome here when decided: `____`.
+
+### Decision 3 detail — `alerts@repworth.net` is a GROUP, not an alias
+
+Created 2026-08-30 as Zoho Mail group **"RepWorth Alerts"**, 5 members, all Active, Post
+Approval `Accept`, **"Send using group email address: Not allowed"** for every member.
+
+A group rather than an alias, deliberately: an alias binds to one user and cannot be
+reassigned without deletion, while `ADMIN_NOTIFICATION_EMAIL` carries admin, failover and
+engagement alerts that must outlive any one founder. The group also gives the other founders
+the same visibility.
+
+"Send using group email address: Not allowed" is correct and should stay — the address is an
+inbound-only alert sink, and nobody should be able to send *as* it. Receiving is unaffected.
 
 ### Mail note — `alerts@repworth.net` does not touch the verified email auth
 
@@ -225,16 +240,59 @@ Per §2.5–2.8, which is what the two-sample protocol is for.
 Queue counts are **structurally zero, not merely observed zero** — the same finding the
 predecessor recorded at §2.5–2.8, still true and now re-verified.
 
-### D1d — one line NOT verified today
+### D1d — live Stripe state, VERIFIED 2026-08-30
 
-**Live Stripe webhook endpoints: UNVERIFIED.** The local Stripe CLI's live-mode key expired
-2026-08-19 (`your live mode API key needs to be re-configured`). The predecessor verified
-**0 live endpoints** at 2026-07-17T00:0xZ, and nothing since could have created one without
-a manual dashboard action. **Re-verify after `stripe login`, before creating the endpoint at
-§6/D.3**, and record the reading here: `____`.
+Initially recorded as UNVERIFIED because the local CLI's live key returned 401. Resolved the
+same day through the **`railway run` injection pattern** the predecessor established, so the
+production `sk_live_` key was used but never observed:
 
-Recorded as unverified rather than assumed zero. An unchecked assumption is what this whole
-reconciliation exists to correct.
+```
+railway run --environment production --service repworth-worker -- python3 <check>
+```
+
+**Result — owner-run, 2026-08-30:**
+
+```
+key prefix: sk_live_ | length: 107
+HTTP 200 — live account reachable
+  id                : acct_1TUcR7IhPBLaM6xA
+  charges_enabled   : True
+  payouts_enabled   : True
+  details_submitted : True
+  live webhook endpoints: 0
+  active livemode Prices: 6
+```
+
+| Fact | Value | Closes |
+|---|---|---|
+| `charges_enabled` | **True** | The orphaned 2026-07-17 blocker (`false` then). Live Checkout can complete. |
+| `payouts_enabled` / `details_submitted` | True / True | Activation is complete, not partial |
+| Live webhook endpoints | **0** | Matches the predecessor's 2026-07-17 reading. §2.4 "nothing to disable" still holds; D.3 creates the first one. |
+| Active livemode Prices | **6** | WS8 §1 output present and active. Per-ID/amount match still runs at D.1. |
+
+**Also proves the production credential is sound.** The `sk_live_` key already deployed to
+the Railway prod worker authenticates and reads live resources.
+
+### D1d-note — the local Stripe CLI returns 401 on live, and it does NOT block this cutover
+
+`stripe login` succeeds and mints a working **test**-mode key (`sk_test_` → HTTP 200), but
+its **live** restricted key (`rk_live_`) returns `401 Invalid API Key provided` on every
+endpoint including `/v1/account`. Same login, same account id, opposite results — so the
+fault is neither the CLI, the config, nor the account, which `charges_enabled=True` above
+independently confirms.
+
+Most likely cause: the browser authorization bound to a **Sandbox** rather than the live
+account (modern Stripe puts sandboxes behind the same account-name dropdown).
+
+**Not a blocker.** Every Stripe action in this cutover — including D.3's endpoint creation —
+runs through `railway run --environment production` injection, which uses the deployed
+`sk_live_` key and is the sanctioned path from the 2026-07-17 record ("the full live secret
+key must never transit an agent transcript"). Fix the CLI when convenient; do not gate on it.
+
+**Trap for D.3:** if the browser session defaults to a Sandbox, it is easy to create the live
+webhook endpoint in the wrong context and not notice until checkouts silently fail. Confirm
+the endpoint appears in the **live** dashboard, and re-run the check above — it must then
+report `live webhook endpoints: 1`.
 
 ### D1e — what this settles
 
@@ -277,7 +335,7 @@ Three reached `beta-production-standup.md`. One did not, and this is where it is
 
 | # | Item | Reached a checklist? | State 2026-08-30 |
 |---|---|---|---|
-| 1 | **Stripe activation (`charges_enabled`)** | **NO — orphaned** | Owner reports **activated**. Appears in no checklist, no stand-up phase, and no launch doc — only in the predecessor evidence file. **Re-verify before §6 smoke** and record the reading here: `____` |
+| 1 | **Stripe activation (`charges_enabled`)** | **NO — was orphaned; now tracked** | ✅ **RESOLVED 2026-08-30.** `charges_enabled=True`, `payouts_enabled=True`, `details_submitted=True`, verified against the production `sk_live_` key (D1d). **Now carried as a ticked item in `launch-checklist.md`**, so it can never orphan again — that was the whole lesson. |
 | 2 | Live webhook endpoint + `STRIPE_WEBHOOK_SECRET` | Yes — stand-up Phase D3 | Not done. No live endpoint exists. |
 | 3 | Prod worker infra (Redis, `SENTRY_DSN`, provider keys, boot-assert env) | Yes — stand-up Phases A/B | Not done. Worker has 27 vars; 6 hard boot gates missing. |
 | 4 | §6 smoke → 078 → resume, removing `ws8-cutover-prod-api-deny` | Yes — stand-up Phase D | Not done. **The deny rule is still live.** |
@@ -360,6 +418,11 @@ Verified against the prod schema 2026-08-30. Head is **116, minus 078**.
 ## Sign-off
 
 - [x] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned
+- [x] **Preflight closed 2026-08-30.** Stripe live verified via `railway run`
+      (`charges_enabled=True`, 0 live webhook endpoints, 6 active livemode Prices);
+      Infisical `RepWorth` project created, CLI v0.43.128 logged in;
+      `alerts@repworth.net` Zoho group live with 5 members. Known non-blocker: the local
+      Stripe CLI's `rk_live_` key 401s (D1d-note) — cutover uses `railway run` injection.
 - [x] **Zero-state proof complete** — 52/52 `public` tables empty, `auth.users`=0, two
       separated outbox samples both zero, producers denied, no queue infrastructure.
       Quiescence declared 2026-08-30T22:30:03Z. WS8 §2–§3 satisfied by substitution.

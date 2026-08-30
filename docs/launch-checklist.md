@@ -42,9 +42,21 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
 - [ ] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — owner approval is the
   content-safety control for irreversible public posting. Auto-approval go-live is
   a separate gate (prod moderation validation + canary + kill-switch drill).
+- [x] **Stripe live-mode activation** — ✅ **verified 2026-08-30**:
+  `charges_enabled=True`, `payouts_enabled=True`, `details_submitted=True` on
+  `acct_1TUcR7IhPBLaM6xA`, read with the production `sk_live_` key via
+  `railway run --environment production`. **This item is new to this checklist and that
+  is the point.** It was recorded on 2026-07-17 as `charges_enabled=false` — "no live
+  payment (incl. prod smoke checkout) until complete" — inside an evidence file and
+  nowhere else, so it silently stopped being tracked for six weeks while remaining a hard
+  gate on WS8 §6 smoke and the entire beta coupon path. Evidence files are logs, not
+  tracking surfaces; anything still owed at a pause belongs here. Reading recorded in
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` → D1d.
 - [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
   the worker refuses to start without the non-email alert sink.
-- [ ] **Sentry alert routing → Slack/PagerDuty** for `subsystem:health_alert` and
+- [ ] **Sentry alert routing → Discord** (sink decided 2026-08-30; Sentry has no Zoho Cliq
+  integration and a Cliq bridge would put a translator service on the paging path) for
+  `subsystem:health_alert` and
   `cost_event:limit_exceeded`, plus `subsystem:import_consent_analytics` (#697 —
   a P2 whose signal is *repetition*, so route it on an event-frequency
   condition, not on "a new issue is created"; alerting runbook §1).
