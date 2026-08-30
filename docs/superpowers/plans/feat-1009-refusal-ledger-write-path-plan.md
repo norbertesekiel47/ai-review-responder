@@ -65,6 +65,16 @@ sweep was run first. Here is the complete inventory of copies at
 | `docs/superpowers/plans/feat-1008-…-intake.json` | `non_goals[1]` | **DO NOT TOUCH** — sha-locked contract mirror |
 | `docs/superpowers/plans/feat-1008-…-plan.md` | "## Not in this PR" | **DO NOT TOUCH** — closed run's record |
 | `docs/reviews/red-team/feat-1008-…/findings.{md,json}` | RT-12, RT-22 | **DO NOT TOUCH** — historical findings |
+| `docs/reviews/feat-1008-…/standards.md` | the finding that told `arch-review-log.md` to match the other two | **DO NOT TOUCH** — historical review record |
+| `docs/reviews/feat-1008-…/triage.md` | that finding's disposition | **DO NOT TOUCH** — historical review record |
+
+**The last two rows were added after plan review round 1 (finding 10).** The
+first version of this table listed eight artifacts and implicitly claimed to be
+complete. It was not: the #1008 standards report and its triage also reproduce
+the disputed claim. They stay untouched — a review report records what a
+reviewer said, and editing one falsifies the record — but a table that claims
+completeness must list them. This is D16's own lesson applied to D16's own
+sweep: **count every copy first, then choose the edit direction.**
 
 **Why migration 116 is untouchable, and why it does not need touching.** It is
 applied to production and guarded by `migration-immutability-guard.sh`. It is
@@ -226,6 +236,41 @@ substitute join #1006 accepted in place of a `suspension_event_id` column.
 postgres.js truncates microseconds on decode (#520), and the equality dies.
 Every test asserting the equality reads both columns `::text`.
 
+#### 2.2b The migration's `NOW()` prohibition, and why the sentinel supersedes it
+
+**Plan review round 1, finding 7.** Migration 116 says two things this plan
+appears to contradict, and an earlier draft of §0 called the migration "already
+correct" without qualification. That was an overclaim, and it is corrected here.
+
+The migration's header says *"No writer may pass `NOW()` for `occurred_at`"*,
+and the `occurred_at` column comment says *"Never `NOW()` inside the insert"*.
+T3 emits exactly an unparameterised `NOW()`.
+
+**Both statements are right about what they were written to prevent, and the
+sentinel is a narrower sanctioned exception the migration could not yet name.**
+
+- What the migration forbids is a writer that **has** a decision time and passes
+  `NOW()` instead, out of convenience. Its own reason names the divergence: *"a
+  retried job, a long transaction"*. That writer records a write timestamp under
+  a decision timestamp's name.
+- What #1006 locked is a lane whose decision time **is** the transaction. In
+  Postgres `NOW()` is `transaction_timestamp()` — transaction start, not
+  statement time — so for `autonomy_suspended`, which decides inside the very
+  transaction that stamps it, `NOW()` *is* the decision time. That is precisely
+  why #1006 could decline a `suspension_event_id` column and take an exact
+  equality join against `account_audit_log.created_at` instead: both take the
+  same transaction's `NOW()`.
+- The sentinel makes the exception **explicit and per-lane**. A lane must SAY
+  `'transaction_time'`. It cannot arrive there by omission — that is the whole
+  reason `occurredAt` is required rather than optional (§2.2).
+
+**Migration 116 is still not edited.** It is applied to production and
+immutability-guarded, and the correction is not to its SQL. The record is
+corrected where records are corrected: T7 carries one sentence into
+`.claude/reference/migrations-log.md`'s **116** entry stating that the
+`'transaction_time'` sentinel is the sanctioned exception, why it holds, and
+that it is per-lane and never a default.
+
 ### 2.3 `REFUSAL_LEDGER_ENABLED` — default ON, checked inside the helper
 
 `readFlagEnabledByDefault('REFUSAL_LEDGER_ENABLED')` from
@@ -241,6 +286,15 @@ When off: return before touching the deciding transaction, and emit **one**
 process, because a suspended fleet would otherwise emit one per decision. The
 warning exists because **the ledger structurally cannot show its own gap** — an
 absent row and a row that was never decided look identical at read time.
+
+**The warning is emitted inside its own `try/catch` and the catch swallows.**
+Plan review round 1, finding 9. If `captureMessage` throws, an unguarded
+emission rejects before the helper returns, and a suspension fails **because the
+ledger was turned off** — the exact opposite of what the kill switch promises.
+The named precedent already does this (`circuit-breaker.ts` guards its own
+capture), and it is the repo's standing rule: best-effort work must never poison
+the path it observes. The latch is set **before** the emission, so a throwing
+Sentry cannot turn "once per process" into "once per decision".
 
 `REFUSAL_LEDGER_RETENTION_DAYS = 180` is a **code constant, not an env var**
 (#996). No registry rows. It lives beside `AGENT_SPINE_RETENTION_DAYS` and
@@ -261,6 +315,22 @@ The five CHECKs each abort the decision transaction, and that is accepted:
   `try/catch` is about work **after** a primary side effect. The ledger write is
   **inside** the deciding transaction by design. It is not best-effort.
 
+**Two `try/catch` decisions that look contradictory and are not.** The ledger
+INSERT is NOT caught — it is part of the decision. The Sentry warning around it
+IS caught (§2.3) — it is telemetry about the decision. The line is: *does this
+statement carry the fact, or observe it?* Facts propagate; observations
+swallow.
+
+**Failure atomicity is a tested claim, not an assumed one.** Plan review round 1,
+finding 8: every earlier planned test used valid ledger input, so a
+catch-and-swallow helper — or one that opened its own connection instead of
+using `tx` — passed all of them. Test 20 forces a rejection and asserts that the
+policy row, the audit row and the notice outbox rows are all absent afterwards
+and that the caller rejects.
+
+**A rejection here does not reach Sentry by the same route from both callers,
+and that asymmetry is why this slice touches a scheduler.** See T4b.
+
 **It does not validate its input against C1–C5.** §1 states why.
 
 **It does not read.** The read path is #1014.
@@ -269,23 +339,40 @@ The five CHECKs each abort the decision transaction, and that is accepted:
 
 ## 4. Tasks — tracer bullets
 
-Nineteen promised tests. Every title below is VERBATIM from
+**Twenty-six** promised tests. Every title below is VERBATIM from
 `.feature/intake.json`; the gate's `promised-tests` row matches on exact text.
 
 ### T1 — the eval task (runs ALONE; enforcement spot check)
 
 **Blocking edges:** none. Blocks everything.
 
-Author all nineteen tests as **failing** tests, in five files, and commit before
-any implementation task. Slices not yet buildable use `.todo`.
+Author all twenty-six tests as **failing** tests, in six files, and commit
+before any implementation task.
+
+**NO `.todo`, NO `.skip`, NO `.fails`. This is a hard rule for this run, and it
+reverses the plan's first draft.** Plan review round 1, finding 1 (the only
+`high`): `scripts/verify-gate.sh`'s `promised-tests` row greps for the TITLE
+and nothing else. A file full of `it.todo(...)` satisfies every promised title
+while executing zero assertions, so the whole eval can be inert and the gate
+still green. The repo has hit this before —
+`src/lib/kpi/__tests__/fragments.test.ts` records a surviving todo as
+review-blocking.
+
+Nothing here needs a marker: every one of the six subjects is buildable inside
+this run. Test 26 is the mechanical guard.
 
 | File | Tests |
 |---|---|
 | `src/lib/refusals/__tests__/vocabulary.test.ts` | 1–5 |
-| `src/lib/refusals/__tests__/write.test.ts` | 6–8 |
-| `src/lib/refusals/__tests__/write.integration.test.ts` | 9–12 |
-| `src/lib/auto-approval/__tests__/suspension-refusal.integration.test.ts` | 13–16 |
-| `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts` (extend) | 17–19 |
+| `src/lib/refusals/__tests__/write.test.ts` | 6–11 |
+| `src/lib/refusals/__tests__/write.integration.test.ts` | 12–15 |
+| `src/lib/auto-approval/__tests__/suspension-refusal.integration.test.ts` | 16–20 |
+| `worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts` (extend) | 21 |
+| `worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts` (extend) | 22–25 |
+| `src/lib/refusals/__tests__/eval-completeness.test.ts` | 26 |
+
+Test 6 is a **compile-time** assertion (`@ts-expect-error` against an omitted
+`occurredAt`), not a runtime one — finding 3. Tests 12–15 and 16–20 are live-DB.
 
 **Live-DB naming is load-bearing.** A live-DB suite is named
 `*.integration.test.ts` so vitest's serialized `integration` project picks it up,
@@ -294,18 +381,29 @@ concurrent suites (`ci:live-db-suites`, #573). Seed with `INSERT`, never with
 `CREATE`/`ALTER`.
 
 **The eval's own adversarial question — can it pass while the feature is wrong?**
-Three tests exist to close specific holes:
+Every test below exists because a specific wrong implementation would otherwise
+pass. Round 1 found six more of these; all six are now in the list.
 
-- Test 8 asserts SQL **text**. On its own that is the fake-coverage pattern
-  #1008's third red-team pass killed in `purge-verification.test.ts`. It is
-  paired with test 9, which proves against a **real database** that the helper's
-  own clause infers `refusal_events_subject_uniq`. Text alone would pass with a
-  clause that reads right and infers nothing.
-- Test 14 is the only thing holding the #1006 suspension join together. It fails
-  the day the site switches to a JS `Date`. Both columns are read `::text`.
-- Test 13 asserts **one row per account**, not "at least one". The parent
-  effort's defect was a fan-out that multiplied by location count; a
-  `toBeGreaterThan` assertion would pass on the bug.
+| Wrong implementation | Killed by |
+|---|---|
+| A clause that reads byte-for-byte right but infers no index | 11 **paired with** 12. Text alone is the fake-coverage pattern #1008's third red-team pass killed in `purge-verification.test.ts`; 12 runs it against a real database. |
+| `occurredAt?: …` optional, defaulting to `NOW()` | **6** — a compile-time assertion. Every runtime test supplies the field, so only the type system can catch this (finding 3). |
+| The flag read cached at module construction | **8** — false→true→false inside ONE process. Test 7 alone passes on a cached read (finding 4). |
+| A throwing `captureMessage` aborting the disabled path | **10** (finding 9). |
+| A fan-out writing one row per location | **16** — asserts *exactly one*, never "at least one". A `toBeGreaterThan` passes on the parent effort's actual defect. |
+| A JS `Date` round trip breaking the #1006 join | **17** — both columns read `::text`. This is the only thing holding that join together. |
+| A helper that catches the insert error, or opens its own connection | **20** — forced rejection, assert full rollback (finding 8). |
+| A Governor-path failure that never pages | **21** (finding 2). |
+| A sweep keyed on `created_at` instead of `occurred_at` | **23** — CROSSED clocks. Fixtures that age both timestamps together return the same answer under either clock, so test 22 alone cannot kill this (finding 5). |
+| A `.todo`-filled eval that executes nothing | **26** (finding 1). |
+| `REFUSAL_SOURCES` / `REFUSAL_CATEGORIES` drifting from the CHECK members | **1–3** — they parse migration 116 rather than restating it. |
+
+**Not in this net, deliberately.** The `tenant-scope-allowlist.ts` `sqlSnippet`
+drifting from the emitted SQL is finding 6, and it is **rejected as a test**:
+`ci:tenant-scope` is in the gate's enumerated `ci:*` set and runs on every PR
+forever, so it already owns that fact. A dedicated test would be a second owner
+of one fact — the defect #1001 cites when it declines to CHECK the 22
+`AutoApprovalBlockReason` members.
 
 **Deliberately NOT re-tested.** #1008's
 `src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts`
@@ -365,7 +463,7 @@ from becoming a second authority that drifts.
 ### T3 — `write.ts`, the helper and its kill switch
 
 **Blocking edges:** T2. **Blocks:** T4, T6.
-**Turns green:** tests 6–12.
+**Turns green:** tests 6–15.
 
 Precedent to follow, named: `src/lib/audit/log.ts`.
 
@@ -382,16 +480,24 @@ vocabulary_version, subject_type, subject_id, occurred_at`. `created_at` is
 - `occurred_at`: `NOW()` unparameterised for `'transaction_time'`; a bound
   `${date}::timestamptz` for a `Date`. Two SQL fragments, one statement.
 
-Kill switch and warn-once latch per §2.3. The latch is a module-level boolean;
-export a test-only reset on `circuit-breaker.ts`'s `reset()` precedent.
+Kill switch and warn-once latch per §2.3, including its `try/catch`. The latch
+is a module-level boolean **set before the emission**; export a test-only reset
+on `circuit-breaker.ts`'s `reset()` precedent.
+
+The flag is read **inside the function body on every call**, never at module
+scope. A `const enabled = readFlagEnabledByDefault(...)` at module level passes
+test 7 and fails test 8.
+
+`occurredAt` is **required** in `WriteRefusalEventInput` — no `?`, no default.
+Test 6 asserts this at compile time.
 
 **Invariant #15:** takes `tx` as an explicit parameter, never imports
 `@/lib/db/server`.
 
 ### T4 — the first write site
 
-**Blocking edges:** T3.
-**Turns green:** tests 13–16.
+**Blocking edges:** T3. **Blocks:** T4b.
+**Turns green:** tests 16–20.
 
 In `suspendAccountAutonomy` (`src/lib/auto-approval/suspension.ts`), **after**
 the `if (!policy) return { newlySuspended: false };` guard and inside the same
@@ -413,21 +519,59 @@ await writeRefusalEvent(tx, {
 
 **Placement is load-bearing.** After the `!policy` guard, because an
 already-suspended account made no decision and a Refusal records a decision
-(test 16). Before or after `writeAccountAuditLog` is immaterial to the
+(test 19). Before or after `writeAccountAuditLog` is immaterial to the
 timestamp — both take the transaction's `NOW()` — but it goes **after**, so the
 audit row the join targets exists first.
 
 `business_id` is NULL and the read is **once per account, never once per
-location**. This is the parent effort's defect; test 13 is its regression test,
+location**. This is the parent effort's defect; test 16 is its regression test,
 not a comment.
 
 `refusalCode` is the trigger verbatim. C4 requires a non-NULL code for every
 lane except `held_draft`.
 
+### T4b — the Governor cycle's Sentry sink (SURFACE AMENDMENT 1 of 2)
+
+**Blocking edges:** T4. **Turns green:** test 21.
+
+**Why this task exists.** Plan review round 1, finding 2. `suspendAccountAutonomy`
+has two production callers and they reach Sentry by different routes:
+
+| Caller | Kind | On failure |
+|---|---|---|
+| `JudgeWorker` | BullMQ worker | `attachJobFailureSink` raises a Sentry issue on the terminal attempt — **covered** |
+| `AutonomyGovernorScheduler` | guarded poll, **not** a BullMQ worker | its per-candidate `catch` emitted `logger.error` alone — **not covered** |
+
+Before this slice, that gap was latent. This slice makes a ledger CHECK
+violation a new way to reach it, and the failure mode is bad: the transaction
+rolls back, the account **stays un-suspended**, the cycle advances its cursor,
+and the same thing happens silently every fifteen minutes. The intake's
+`observability` field claimed coverage that did not exist, so either the code or
+the claim had to change.
+
+**Owner decision, 2026-08-30:** change the code. Recorded mechanically as
+surface amendment 1 of 2 (`feature-state.sh incr-amendment`), because
+`worker/background/schedulers/` sits outside any tree the original surface
+covered.
+
+**The change is additive and narrow.** Inside the EXISTING `catch` in
+`runAutonomyGovernorCycle`, beside the existing `logger.error`, add a
+`Sentry.captureException` carrying the account id and the error class. Follow
+`worker/job-failure-sink.ts`'s issue shape.
+
+**Do not change the containment.** The `catch`, the pre-evaluation cursor
+advance and the loop stay exactly as they are — one poison account must still
+not starve the batch, and the comment saying so stays. Do not widen the logged
+error text either: DB error text can echo bound values, which is why the
+existing line logs the error CLASS only.
+
+**This fixes the gap for every failure already swallowed there**, not only for
+the ledger. That is a side effect of the narrow fix, not a scope expansion.
+
 ### T5 — the `ArchivalPoller` arm (parallel with T2, T7)
 
 **Blocking edges:** T1. **Blocks:** T6.
-**Turns green:** tests 17–19.
+**Turns green:** tests 22–25.
 
 1. Export `REFUSAL_LEDGER_RETENTION_DAYS = 180` beside its two siblings, with a
    comment stating it matches `AGENT_SPINE_RETENTION_DAYS` so one number governs
@@ -457,6 +601,20 @@ and 10 state the rule.
 **`occurred_at` and nothing else.** `created_at` is the insert stamp and is
 explicitly not a retention candidate (its own column comment says so).
 
+**Test 23 seeds CROSSED clocks, and this is not optional.** Plan review round 1,
+finding 5: a plain old-row/fresh-row fixture pair ages both timestamps together,
+so it returns the identical answer under an `occurred_at` sweep and a
+`created_at` sweep — test 22 alone cannot kill the wrong clock. Test 23 seeds
+two rows whose clocks disagree:
+
+| Row | `occurred_at` | `created_at` | Must |
+|---|---|---|---|
+| A | 200 days ago | today | be **deleted** |
+| B | today | 200 days ago | **survive** |
+
+`created_at` is `DEFAULT NOW()`, so the fixture writes it explicitly. This is an
+`INSERT` with explicit columns — never DDL, per `ci:live-db-suites`.
+
 3. Wire the count into `refusalEventsCount`, `totalArchived`, the `Archived`
    log object (`refusal_events:`) and the `saturated` list.
 4. Add the `scripts/ci/tenant-scope-allowlist.ts` entry, copying the shape of
@@ -464,7 +622,10 @@ explicitly not a retention candidate (its own column comment says so).
    *"Global archival poller enforces the 180-day Refusal ledger retention
    independent of tenant request scope; a retention sweep is deliberately
    cross-tenant."* **The `sqlSnippet` must match the emitted SQL exactly** or
-   `ci:tenant-scope` fails.
+   `ci:tenant-scope` fails. That audit is in the gate's enumerated `ci:*` set
+   and is the single CI-enforced owner of this coupling — round 1's finding 6
+   asked for a dedicated test as well, and it is rejected for that reason
+   (§4 T1, "Not in this net").
 
 **The arm shares the ten existing arms' single `try/catch`** — that is why this
 arm could not ride slice 1, and why #1009 is gated on 116's PROMOTION rather
@@ -495,7 +656,14 @@ default-ON optional flag is absent, not blank.
 **Blocking edges:** T1. Docs only; no code dependency.
 
 Execute §0's table. Five living documents get the settlement; one closing line
-is appended to #1008's D16 section; four artifacts are left untouched.
+is appended to #1008's D16 section; six artifacts are left untouched.
+
+**Second sentence, into `.claude/reference/migrations-log.md`'s 116 entry only**
+(§2.2b, round 1 finding 7): the `'transaction_time'` sentinel is the sanctioned
+exception to the migration's *"no writer may pass `NOW()`"* rule, it holds
+because `NOW()` is `transaction_timestamp()` and this lane decides inside that
+transaction, and it is per-lane and never a default. The migration file itself
+is not edited.
 
 **Method, which is D16's own lesson:** grep every artifact for the FACT, not for
 a cited line. Cite SYMBOLS, never line numbers — D14 proved a line citation into
@@ -515,9 +683,46 @@ entry, which is also one of the five sweep targets.
 | 2 | **T2 ‖ T5 ‖ T7** | No blocking edges between them; disjoint file sets (`src/lib/refusals/vocabulary*`, `worker/…/ArchivalPoller*`+`scripts/ci/*`, `docs/*`+`.claude/reference/*`) |
 | 3 | **T3** | Needs T2's types |
 | 4 | **T4** | Needs T3's helper |
-| 5 | **T6** | Needs T3's flag name and T5's constant to exist before it documents them |
+| 5 | **T4b ‖ T6** | T4b needs T4's call site; T6 needs T3's flag name and T5's constant to exist before it documents them. Disjoint file sets. |
 
 Any surface violation by a wave-2 task stops the whole fan-out.
+
+---
+
+## 5b. Plan review round 1 — triage
+
+Full report: `docs/reviews/feat-1009-refusal-ledger-write-path/plan-review-r1.md`.
+Reviewer: `codex exec`, read-only, thread `01a05410-c24a-75d3-beb6-dad6cd01b59e`.
+**VERDICT: REVISE.** Ten findings, one `high`, eight `medium`, one `low`, zero
+low-confidence. Nine accepted, one rejected.
+
+| # | Sev | Verdict | Where it landed |
+|---|---|---|---|
+| 1 | high | ACCEPT | §4 T1 — `.todo`/`.skip`/`.fails` banned; test 26 is the guard |
+| 2 | med | ACCEPT (owner-approved amendment) | §4 T4b — new task; intake `observability` corrected |
+| 3 | med | ACCEPT | test 6 — compile-time; §4 T3 |
+| 4 | med | ACCEPT | test 8 — false→true→false; §4 T3 |
+| 5 | med | ACCEPT | test 23 — crossed clocks; §4 T5 |
+| 6 | med | **REJECT** | §4 T1 "Not in this net" — `ci:tenant-scope` already owns it |
+| 7 | med | ACCEPT | §2.2b + §4 T7's second sentence |
+| 8 | med | ACCEPT | test 20 — forced rejection; §3 |
+| 9 | med | ACCEPT | §2.3 — guarded emission; test 10 |
+| 10 | low | ACCEPT | §0 — two DO NOT TOUCH rows added |
+
+**What the round independently VERIFIED, and this matters more than the
+findings.** The reviewer introspected both Supabase projects live and confirmed
+`refusal_events`, its five named constraints, `idx_refusal_events_archival` and
+`refusal_events_subject_uniq` with the exact predicate exist in **production and
+staging** — so this slice's blocking edge is genuinely clear. It confirmed
+migration 034's `DEFAULT NOW()`, every named precedent symbol at HEAD, and that
+#1008's shipped suite really does cover the five CHECKs, C1's fall-through and
+both idempotency cases — which is what licenses this plan NOT to re-write them.
+It also confirmed D16's settlement is supported by #1004 and #1009 §5.
+
+**Why #6 is rejected and not deferred.** `ci:tenant-scope` runs in the gate's
+enumerated `ci:*` set and on every PR forever. A dedicated test would make two
+owners of one fact. #1001 declines to CHECK the 22 `AutoApprovalBlockReason`
+members for exactly this reason: a second authority drifts.
 
 ---
 

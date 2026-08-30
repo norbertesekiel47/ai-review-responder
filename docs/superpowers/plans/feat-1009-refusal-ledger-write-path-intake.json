@@ -11,13 +11,15 @@
     "Any migration. Migration 116 is already applied to staging and production; this slice adds no SQL file.",
     "Backfilling any Refusal decided before the ledger existed — #1002 ruled no backfill, ever.",
     "RENDER_WITHHOLD_REASONS from the parked branch. #1002 killed read.ts, and that constant existed only for read.ts's timestamp partition.",
-    "Re-testing migration 116's five CHECK constraints or its partial-index idempotency. #1008 already proves both, including C1's fall-through, in src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts."
+    "Re-testing migration 116's five CHECK constraints or its partial-index idempotency. #1008 already proves both, including C1's fall-through, in src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts.",
+    "Reworking AutonomyGovernorScheduler's per-candidate containment. The amendment adds a Sentry sink inside its EXISTING catch block; the catch itself, the cursor advance and the loop stay exactly as they are."
   ],
   "user_visible_behavior": [
     "No owner-visible change. Nothing reads refusal_events until #1014.",
     "An autonomy suspension writes exactly one refusal_events row per account, alongside the account_audit_log row it already writes, in the same transaction.",
     "Setting REFUSAL_LEDGER_ENABLED=false stops every ledger write without a deploy; suspension, audit and notification behaviour are byte-identical to today.",
-    "The ArchivalPoller 'Archived' log line carries a refusal_events count, and refusal_events joins the saturation list."
+    "The ArchivalPoller 'Archived' log line carries a refusal_events count, and refusal_events joins the saturation list.",
+    "A failure anywhere inside a Governor suspension candidate now raises a Sentry issue instead of reaching the structured log alone."
   ],
   "invariants": [
     "The ledger must never break the thing it records: a duplicate subject is ON CONFLICT DO NOTHING, never a raised error that aborts the deciding transaction.",
@@ -29,23 +31,29 @@
     "REFUSAL_LEDGER_ENABLED is server-authoritative with no NEXT_PUBLIC companion (invariant #13), read live per call via readFlagEnabledByDefault.",
     "The helper takes tx: TransactionSql as an explicit parameter and never imports @/lib/db/server (invariant #15).",
     "The retention sweep is deliberately cross-tenant and carries its tenant-scope allowlist exemption; without it ci:tenant-scope fails.",
-    "Tenant isolation: every refusal_events row carries account_id NOT NULL, and the table keeps deny-all RLS."
+    "Tenant isolation: every refusal_events row carries account_id NOT NULL, and the table keeps deny-all RLS.",
+    "A ledger failure aborts the deciding transaction and is never swallowed inside the helper. Telemetry around it IS swallowed — observability must never poison the path it observes.",
+    "Every test this branch adds executes. No .todo, no .skip, no .fails — the gate's promised-tests row matches titles only, so an inert eval passes it."
   ],
   "edge_cases": [
     "Kill switch off: the helper returns without touching the deciding transaction, and emits exactly one Sentry warning per process — the ledger structurally cannot show its own gap.",
-    "Kill switch off mid-process: the flag is read live per call, so a toggle takes effect without a restart.",
+    "Kill switch off mid-process: the flag is read live per call, so a toggle takes effect without a restart, in both directions.",
+    "Sentry itself throws while the kill switch is off: the helper still returns cleanly and the suspension is unaffected. Telemetry may not poison the disabled path.",
     "Two suspensions of one account: both persist as two Refusals, because the partial unique index excludes a NULL subject_id.",
     "suspendAccountAutonomy returns newlySuspended: false (the policy was already suspended): no ledger row is written, because no decision was made.",
-    "A CHECK violation from a writer bug still aborts the decision transaction. ON CONFLICT covers duplicate keys only. The kill switch is the lever, and it is not a revert deploy.",
+    "A CHECK violation from a writer bug still aborts the decision transaction, rolling back the policy row, the audit row and the notice outbox rows together. ON CONFLICT covers duplicate keys only. The kill switch is the lever, and it is not a revert deploy.",
+    "That abort inside the Governor cycle is contained to one candidate by design; the cycle advances its cursor and continues. It must raise a Sentry issue, or the account stays un-suspended silently on every 15-minute cycle.",
     "The ArchivalPoller arm shares the ten existing arms' single try/catch, so its SQL must be valid against a promoted 116 — which it is, since 116 is applied to staging and production.",
     "The sweep's ORDER BY (occurred_at, id) must match idx_refusal_events_archival, or the sweep is unbounded.",
+    "The sweep keys on occurred_at and never on created_at. A row whose two clocks disagree must be swept by the decision clock alone.",
     "Rows exactly at the 180-day boundary: the arm uses a strict < comparison, matching the nine sibling arms."
   ],
   "existing_patterns_to_follow": [
     "src/lib/audit/log.ts — writeAccountAuditLog: one helper owning one INSERT, taking Sql | TransactionSql as an explicit parameter, uuidv7() minted by the writer.",
-    "src/lib/llm/circuit-breaker.ts — the default-ON kill switch shape plus Sentry.captureMessage(..., { level: 'warning' }) for a rate-limited operational warning.",
+    "src/lib/llm/circuit-breaker.ts — the default-ON kill switch shape, the live-per-call flag read, Sentry.captureMessage(..., { level: 'warning' }) for a rate-limited operational warning, and the guarded telemetry emission.",
     "src/lib/db/admission.ts — the DB_ADMISSION_ENABLED default-ON kill-switch comment and the named-constant env-key idiom.",
     "worker/background/pollers/ArchivalPoller.ts arms 7 and 8 — the make_interval(days => ${CONST}) retention arm with FOR UPDATE SKIP LOCKED and an exported retention constant.",
+    "worker/job-failure-sink.ts — the Sentry issue shape a terminal failure raises; the Governor scheduler's catch gets the same treatment for a path no BullMQ sink reaches.",
     "scripts/ci/tenant-scope-allowlist.ts — the background-global-scan exemption entries for the existing ArchivalPoller arms.",
     "src/lib/solicitation/restraint-policy.ts — RESTRAINT_POLICY_VERSION's frozen-literal version shape and the WITHHOLD_REASONS closed as const array with the union derived from it.",
     "The parked feat/refusal-log branch's src/lib/refusals/vocabulary.ts — the harvest source. Its vocabulary.test.ts parses migration 111 to pin TypeScript constants against CHECK members; this slice does the same against migration 116."
@@ -57,6 +65,8 @@
     "worker/background/pollers/ArchivalPoller.ts",
     "worker/background/pollers/__tests__/ArchivalPoller.test.ts",
     "worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts",
+    "worker/background/schedulers/AutonomyGovernorScheduler.ts",
+    "worker/background/schedulers/__tests__/**",
     "scripts/ci/tenant-scope-allowlist.ts",
     "docs/eservices-variables.md",
     ".claude/reference/env-vars.md",
@@ -76,8 +86,11 @@
     "REFUSAL_SUBJECT_TYPES lists exactly the four subject types migration 116's subject_type CHECK admits",
     "AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES maps every AutonomySuspensionTrigger to autonomy_paused and omits none",
     "REFUSAL_VOCABULARY_VERSION is a frozen literal, not a value any code derives at runtime",
+    "WriteRefusalEventInput requires occurredAt and rejects an omitted value at compile time",
     "writeRefusalEvent writes nothing and returns when REFUSAL_LEDGER_ENABLED is the literal string false",
+    "writeRefusalEvent observes a false to true to false REFUSAL_LEDGER_ENABLED change within one process",
     "writeRefusalEvent emits exactly one Sentry warning per process while the kill switch stays off",
+    "a throwing Sentry capture does not stop writeRefusalEvent returning cleanly with the kill switch off",
     "writeRefusalEvent re-spells the refusal_events_subject_uniq predicate byte-for-byte in its ON CONFLICT clause",
     "the helper writing the same (refusal_source, subject_id) twice leaves one row and lets the caller transaction commit",
     "the helper writing two autonomy_suspended rows for one account leaves two rows, because the partial index excludes a null subject",
@@ -87,20 +100,24 @@
     "the refusal_events row suspendAccountAutonomy writes carries occurred_at equal to the account_audit_log row's created_at from the same transaction",
     "suspendAccountAutonomy still suspends, still writes its audit row and still enqueues its notices when REFUSAL_LEDGER_ENABLED is false",
     "suspendAccountAutonomy writes no refusal_events row when the account was already suspended",
+    "a writeRefusalEvent rejection rolls back the suspension policy, the audit row and the notice outbox rows",
+    "a suspension failure inside the Governor cycle reports a Sentry issue and the cycle continues to the next candidate",
     "the refusal_events arm deletes rows older than REFUSAL_LEDGER_RETENTION_DAYS and keeps rows inside the window",
+    "the refusal_events arm keys on occurred_at, so a fresh occurred_at with an old created_at survives and the reverse is deleted",
     "the refusal_events arm orders by (occurred_at, id) so the sweep matches idx_refusal_events_archival",
-    "the archival log line and the saturation list both carry refusal_events"
+    "the archival log line and the saturation list both carry refusal_events",
+    "every test file this branch adds is free of .todo, .skip and .fails markers"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": "±520 production and documentation lines (vocabulary.ts ~170, write.ts ~150, suspension.ts +15, ArchivalPoller.ts +40, tenant-scope-allowlist.ts +7, plus the two flag registry rows, the directory.md rows and the D16 sweep across five reference documents)",
-  "estimated_test_lines": "±950 test lines across five files — nineteen tests, of which nine are live-DB and seed real accounts, businesses, policies and audit rows",
+  "estimated_prod_lines": "±540 production and documentation lines (vocabulary.ts ~170, write.ts ~160, suspension.ts +15, ArchivalPoller.ts +40, AutonomyGovernorScheduler.ts +10, tenant-scope-allowlist.ts +7, plus the two flag registry rows, the directory.md rows and the D16 sweep across five reference documents)",
+  "estimated_test_lines": "±1250 test lines across six files — twenty-six tests, of which eleven are live-DB and seed real accounts, businesses, policies and audit rows",
   "dependencies_added": [],
-  "rollback_plan": "Three layers, in order of reach. (1) Flag flip: REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy, and leaves suspension, audit and notification behaviour byte-identical to today; invoke the flag-flip skill. (2) PR revert on main plus a redeploy — this removes the helper, the caller and the poller arm together. (3) NO down migration and no migration 117. Migration 116 stays: it is already applied to staging and production, it is immutability-guarded, and an empty table with no writer is inert. Rows already written are not deleted by a rollback; the 180-day sweep retires them, and #1002 forbids any backfill that would re-create them.",
+  "rollback_plan": "Three layers, in order of reach. (1) Flag flip: REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy, and leaves suspension, audit and notification behaviour byte-identical to today; invoke the flag-flip skill. (2) PR revert on main plus a redeploy — this removes the helper, the caller, the poller arm and the scheduler's Sentry sink together. (3) NO down migration and no migration 117. Migration 116 stays: it is already applied to staging and production, it is immutability-guarded, and an empty table with no writer is inert. Rows already written are not deleted by a rollback; the 180-day sweep retires them, and #1002 forbids any backfill that would re-create them.",
   "observability": [
     "Sentry warning 'Refusal ledger disabled' at level warning, once per process, whenever REFUSAL_LEDGER_ENABLED is false and a write is attempted. This is the ONLY signal that the ledger has a gap — the ledger cannot show its own absence.",
+    "A ledger failure has TWO callers and they reach Sentry by DIFFERENT routes, which is why the amendment exists. JudgeWorker is a BullMQ worker, so attachJobFailureSink raises an issue on the terminal attempt. AutonomyGovernorScheduler is NOT a BullMQ worker — it is a guarded poll whose per-candidate catch emitted logger.error alone, so a ledger failure there would have left the account un-suspended silently on every 15-minute cycle. This slice adds the Sentry capture inside that existing catch.",
     "The ArchivalPoller 'Archived' log line carries a refusal_events count, and the batch-limit warning names refusal_events when a cycle saturates at 5000.",
-    "Reconciliation query that proves the lane works in production: COUNT(*) of refusal_events WHERE refusal_source = 'autonomy_suspended' must equal COUNT(*) of account_audit_log WHERE event_type = 'autonomy_suspended' over the same occurred_at / created_at window, per account. A divergence means either the flag is off or a write is failing.",
-    "A CHECK-constraint violation from the ledger write surfaces as a failed suspension in the worker's structured log and as a Sentry issue through attachJobFailureSink on the terminal attempt — loud by design, because the alternative is a decision recorded nowhere."
+    "Reconciliation query that proves the lane works in production: COUNT(*) of refusal_events WHERE refusal_source = 'autonomy_suspended' must equal COUNT(*) of account_audit_log WHERE event_type = 'autonomy_suspended' over the same occurred_at / created_at window, per account. A divergence means either the flag is off or a write is failing."
   ],
   "open_questions": []
 }
