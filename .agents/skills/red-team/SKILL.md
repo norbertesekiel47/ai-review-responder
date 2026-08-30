@@ -1,6 +1,6 @@
 ---
 name: red-team
-description: Post-implementation adversarial verifier. Runs AFTER the code is written, the gate is green and review triage is done; its only job is to disprove "done". It hand-mutation-tests the changed test surface, flags fragile assertions, re-resolves doc claims against HEAD, hunts missed sibling cases, and checks operational completeness, then writes a committed report plus a machine-checked JSON sidecar that the `reviewed` transition parses. Use when `/feature` reaches step 7.5, when the user invokes `/red-team` directly on a branch, or when someone asks to stress-test, adversarially verify, or disprove a finished change. Do NOT use it to review a design, to review code before it is verified, or as a substitute for the step-7 review axes.
+description: "Post-implementation adversarial verifier. Runs AFTER the code is written and the gate is green; its only job is to disprove \"done\" — it mutation-tests the changed test surface, flags fragile assertions, re-resolves doc claims against HEAD, hunts missed sibling cases, checks operational completeness, and writes a report plus a JSON sidecar the `reviewed` transition parses. Use at /feature step 7.5, on /red-team, or when asked to stress-test or adversarially verify a finished change. Do NOT use it to review a design, to review code before it is verified, or as a substitute for the step-7 review axes."
 ---
 
 # Red team

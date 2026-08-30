@@ -1,6 +1,6 @@
 ---
 name: queue-run
-description: Autonomous backlog-to-PR orchestrator (Claude lane). The invoking session becomes the /feature root for each mechanical issue — it classifies the whole open backlog through a credential-free quarantine agent, drives normal-risk mechanical issues through the full /feature pipeline (including step-7.5 red-team) in isolated sibling worktrees to READY PRs with terminal CI status, prepares-but-never-executes high-risk issues, and writes decision memos for design forks. It never merges, never pushes staging, never flips flags. Use when the user invokes /queue-run, asks to "work the backlog", or wants triaged issues driven to PRs unattended. Do NOT use it for a single named issue (run /feature directly), and never without the user's explicit invocation — it opens PRs.
+description: "Autonomous backlog-to-PR orchestrator. Classifies the open backlog, drives normal-risk mechanical issues through the full /feature pipeline in isolated worktrees to READY PRs, prepares-but-never-executes high-risk issues, and writes decision memos for design forks. Never merges, pushes staging, or flips flags. Use on /queue-run, \"work the backlog\", or to drive triaged issues to PRs unattended. Do NOT use for a single named issue (run /feature directly), and never without the user's explicit invocation — it opens PRs."
 ---
 
 # Queue-run — backlog-to-PR orchestrator
