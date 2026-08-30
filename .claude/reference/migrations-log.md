@@ -2498,9 +2498,28 @@ Revisit triggers:
   CHECKs, three indexes, deny-all RLS. Additive; nothing existed before it.
   **NOTHING WRITES IT.** The insert helper, its `REFUSAL_LEDGER_ENABLED` kill
   switch and the `ArchivalPoller` retention arm are #1009; the **Restraint
-  tab** #1014. ELEVEN write sites in total — whether the first lands in #1009
-  or #1010 is NOT settled by #1008 (its artifacts split evenly); #1009's PR
-  settles it. See that branch's deviations D16.
+  tab** #1014. ELEVEN write sites in total — #1008 could not say where the
+  first lands (its artifacts split evenly) and named #1009's PR as the change
+  that would. **#1009 SETTLED IT: the first site is `autonomy_suspended`,
+  one site inside `suspendAccountAutonomy`, shipped with the helper; the other
+  TEN are #1010–#1013.** The grounds are not an artifact count — they are
+  #1004's verbatim slice order and #1009's ticket body §5, both of which
+  predate every artifact in the dispute. See that branch's deviations D16.
+  **THE `'transaction_time'` SENTINEL IS THE SANCTIONED EXCEPTION** to this
+  migration's *"No writer may pass `NOW()` for `occurred_at`"* — per-lane and
+  never a default. `NOW()` in Postgres **is** `transaction_timestamp()`,
+  transaction start rather than statement time; MEASURED against a live
+  Postgres for #1009 — `NOW()` equals `transaction_timestamp()` in every
+  statement of a transaction and is stable across them, while
+  `statement_timestamp()` and `clock_timestamp()` both move. So for
+  `autonomy_suspended`, which decides inside the very transaction that stamps
+  it, `NOW()` **is** the decision time — which is exactly why #1006 could
+  decline a `suspension_event_id` column and take an exact equality join
+  against `account_audit_log.created_at` instead. A lane must SAY
+  `'transaction_time'` and cannot arrive there by omission, which is why
+  #1009's helper makes `occurredAt` required rather than optional. What the
+  column comment forbids is unchanged: a writer that HAS a decision time and
+  passes `NOW()` out of convenience.
   **WHY THE TABLE AT ALL.** The parent effort tried to derive this surface by
   projecting over `flagged_responses`, `account_audit_log`, `solicitation_asks`
   and four more. It could not be ordered: two of the seven lanes have no

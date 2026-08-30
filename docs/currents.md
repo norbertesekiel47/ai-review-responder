@@ -53,9 +53,13 @@ The new shape:
   constraint and index fingerprint
 
 Next: the insert helper, its `REFUSAL_LEDGER_ENABLED` kill switch and the
-`ArchivalPoller` sweep arm (#1009); the write sites (#1010–#1013); the
-**Restraint tab** (#1014). Where the FIRST write site lands is deliberately
-unsettled — see #1008's deviation D16.
+`ArchivalPoller` sweep arm (#1009); the remaining write sites (#1010–#1013);
+the **Restraint tab** (#1014). #1008 could not say where the FIRST write site
+lands and named #1009's PR as the change that would. **#1009 settled it
+(D16): the first site is `autonomy_suspended`, one site inside
+`suspendAccountAutonomy`, shipped beside the helper — the other ten follow in
+#1010–#1013.** The deciding evidence was never the artifact count, which is
+tied: it is #1004's verbatim slice order and #1009's ticket body §5.
 
 ## Quick summary — **Review QR** (2026-08-26, PR #982)
 

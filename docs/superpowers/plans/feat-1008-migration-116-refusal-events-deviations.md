@@ -495,3 +495,22 @@ something narrower and sharper: **run the sweep BEFORE choosing the edit
 direction, not after.** Both wrong attempts here came from picking a winner
 from an incomplete count of the copies. Counting first would have shown 3-to-3
 and that no winner was available.
+
+**CLOSED by #1009 — the first Refusal write site lands there.**
+`autonomy_suspended`, one site, inside `suspendAccountAutonomy`, shipped with
+the insert helper; the other ten across #1010–#1013. The count above did not
+break the tie and could not: a 3-to-3 split is the signal that the deciding
+evidence sits OUTSIDE the artifacts being counted. Two locked decisions predate
+every row of the table above — **#1004 fixed the slice order verbatim**
+(*migration 116 alone → helper + kill switch + `autonomy_suspended` → …*), and
+**#1009's ticket body §5 is headed "First caller — `autonomy_suspended`
+(1 site)"**. The left-hand column is not wrong so much as about a different
+subject: "#1010–#1013" originates in this branch's intake `non_goals`, which
+was enumerating what **#1008** excluded, and every write site is outside #1008's
+surface — true about #1008 and silent about #1009. The third ground stated
+above, that a helper with zero callers is dead code this repo gates on, points
+the same way. **Nothing in the table above is edited, and neither is
+`116_refusal_events.sql`**: each records what its own change knew when it was
+written, and the migration header's "NOT SETTLED **HERE** … #1009's PR is what
+settles it" stays true forever. This paragraph is the only addition, so that a
+reader arriving on any pointer to D16 finds the answer at the end of it.

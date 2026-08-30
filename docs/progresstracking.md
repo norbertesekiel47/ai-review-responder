@@ -5419,8 +5419,18 @@ IDENTICAL by `md5(pg_get_constraintdef)` and `md5(indexdef)`.
 JSONB-vs-child-table challenges are unanswered); **31** tables carry
 `must_be_absent` against only **3** live-DB verification arms, so the same
 mutants would survive on the others; and where the first Refusal write site
-lands (#1009 vs #1010) is left unsettled by deviation D16 — the artifacts split
+lands (#1009 vs #1010) was left unsettled by deviation D16 — the artifacts split
 3-to-3 and #1009's PR is what knows.
+
+> **D16 is now closed by #1009.** The FIRST Refusal write site lands in #1009:
+> `autonomy_suspended`, one site, inside `suspendAccountAutonomy`, shipped with
+> the insert helper; the other ten across #1010–#1013. The count never broke
+> the tie and could not — the deciding evidence sits outside the artifacts
+> counted here, in two decisions that predate all of them: #1004 locked the
+> slice order verbatim (slice 2 = helper + kill switch + `autonomy_suspended`),
+> and #1009's ticket body §5 is headed "First caller — `autonomy_suspended`
+> (1 site)". The "#1010–#1013" reading came from #1008's intake `non_goals`,
+> which enumerated what #1008 excluded — true about #1008, silent about #1009.
 
 > **Ledger gap, noted not fixed:** this file's prior entry is 2026-08-26. PRs
 > #990, #992, #993, #1015, #1017, #1018, #1020, #1021, #1022 and #1023 have no
