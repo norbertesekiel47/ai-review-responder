@@ -210,6 +210,7 @@ production runtime: `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_FOUNDING`,
 | `AUTO_APPROVAL_ENABLED` | 🟢 | auto-policy approval master flag, default off |
 | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | 🟢 | provider-moderation gate attestation |
 | `AUTOPILOT_PURCHASABLE` | ✅ | Autopilot tier purchasable in checkout |
+| `REFUSAL_LEDGER_ENABLED` | ⬜ | default-ON kill switch for the Refusal ledger's one insert helper (#1009) |
 
 ### Solicitation
 | Var | Status | Note |
