@@ -29,6 +29,22 @@ export const AGENT_SPINE_RETENTION_DAYS = 180;
 // body's age, and the clock only decides which column measures it.
 export const BODY_RETENTION_DAYS = 90;
 
+// Refusal ledger retention (migration 116: refusal_events). Held at 180 —
+// deliberately the SAME number as AGENT_SPINE_RETENTION_DAYS, so one window
+// governs the whole agentic domain (#996) rather than a second number drifting
+// beside it.
+//
+// 180 is SHORTER than five of the six source tables the ledger points at, so on
+// day 181 the ledger deletes a Refusal whose source row is still on disk. That
+// is an accepted trade, not an oversight: the Restraint tab drops the LINK, not
+// the row (which is why subject_id carries no foreign key), and a ledger that
+// outlived the spine would be a second, longer-lived copy of the same history.
+//
+// A code constant and never an env var — this repo keeps every retention window
+// in code beside the arm that enforces it, so the window cannot be widened by an
+// operator on a bad day, and it carries no eservices-variables/env-vars rows.
+export const REFUSAL_LEDGER_RETENTION_DAYS = 180;
+
 function getIntervalMs(): number {
   const envVal = getWorkerConfig().ARCHIVAL_INTERVAL_MS;
   if (!envVal) return DEFAULT_INTERVAL_MS;
@@ -36,12 +52,13 @@ function getIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS;
 }
 
-// Ten independent batched retention arms + count/saturation reporting; the
+// Eleven independent batched retention arms + count/saturation reporting; the
 // length is the retention vocabulary, one block per table. Pre-existing size —
 // the perf pass only added the failed-outbox arm to the first block, #624 the
-// redact-in-place arm, and #636 its never-sent counterpart. The last two are
-// one table with two age columns, which is why they are two arms: each ORDER BY
-// has to match its own partial index for the sweep to stay bounded.
+// redact-in-place arm, #636 its never-sent counterpart, and #1009 the Refusal
+// ledger's. Arms 9 and 10 are one table with two age columns, which is why they
+// are two arms: each ORDER BY has to match its own partial index for the sweep
+// to stay bounded.
 //
 // Exported so the live-DB suite can drive exactly one cycle; the poller itself
 // goes through createGuardedPoll below.
@@ -322,6 +339,50 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       SELECT COUNT(*)::text AS count FROM redacted
     `;
 
+    // 11. refusal_events (migration 116) older than 180 days — the Refusal
+    // ledger's retention arm (#1009).
+    //
+    // occurred_at AND NOTHING ELSE. occurred_at is the DECISION time supplied by
+    // the writer and is the ONE retention clock (#996); created_at is the INSERT
+    // stamp and its own column comment in 116 says it is explicitly NOT a
+    // retention candidate. The two clocks can disagree — a retried job, a long
+    // transaction — so a created_at sweep would delete by the wrong clock and
+    // still look right on any fixture that ages both stamps together.
+    //
+    // ORDER BY (occurred_at, id) matches idx_refusal_events_archival
+    // (occurred_at, id), which 116 ships for exactly this arm. Arms 9 and 10
+    // state the rule: without an ORDER BY that matches an index the sweep is
+    // unbounded — it re-scans the same window every cycle instead of draining it
+    // oldest-first, and burns the 30s statement_timeout on a first backlog.
+    //
+    // FOR UPDATE SKIP LOCKED: same concurrent-cycle count-accuracy rationale as
+    // notification_deliveries above. Unlike arms 1-10 it sits BEFORE the row
+    // limit, and that is deliberate: the 116 shape suite reads this arm's clause
+    // text out of this file up to the limit keyword, so a locking clause written
+    // after it would be invisible to the assertion that the sweep is bounded.
+    // Postgres accepts the locking clause on either side of the limit and both
+    // orderings produce a byte-identical plan (Limit → LockRows → Sort), MEASURED
+    // against a live Postgres 16 rather than assumed.
+    //
+    // This arm shares the ten arms above's single try/catch, which is why it
+    // could not ride migration 116's own slice: a ledger table that does not yet
+    // exist in the deployed database would take the whole archival cycle down
+    // with it. That is why #1009 is gated on 116's PROMOTION, not its merge.
+    const [refusalEventsResult] = await sql<{ count: string }[]>`
+      WITH candidates AS (
+        SELECT id FROM refusal_events
+        WHERE occurred_at < NOW() - make_interval(days => ${REFUSAL_LEDGER_RETENTION_DAYS})
+        ORDER BY occurred_at, id
+        FOR UPDATE SKIP LOCKED
+        LIMIT 5000
+      ),
+      deleted AS (
+        DELETE FROM refusal_events WHERE id IN (SELECT id FROM candidates)
+        RETURNING id
+      )
+      SELECT COUNT(*)::text AS count FROM deleted
+    `;
+
     const outboxCount = parseInt(outboxResult?.count ?? '0', 10);
     const eventsCount = parseInt(eventsResult?.count ?? '0', 10);
     const demosCount = parseInt(demosResult?.count ?? '0', 10);
@@ -332,6 +393,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     const agentRunsCount = parseInt(agentRunsResult?.count ?? '0', 10);
     const outreachBodiesCount = parseInt(outreachBodiesResult?.count ?? '0', 10);
     const unsentOutreachBodiesCount = parseInt(unsentOutreachBodiesResult?.count ?? '0', 10);
+    const refusalEventsCount = parseInt(refusalEventsResult?.count ?? '0', 10);
 
     const totalArchived =
       outboxCount +
@@ -343,7 +405,8 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       agentOutcomesCount +
       agentRunsCount +
       outreachBodiesCount +
-      unsentOutreachBodiesCount;
+      unsentOutreachBodiesCount +
+      refusalEventsCount;
 
     if (totalArchived > 0) {
       logger.log('Archived', {
@@ -358,6 +421,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
         // Count only — a body is never logged.
         solicitation_outreach_bodies: outreachBodiesCount,
         solicitation_outreach_unsent_bodies: unsentOutreachBodiesCount,
+        refusal_events: refusalEventsCount,
       });
 
       const BATCH_LIMIT = 5000;
@@ -374,6 +438,7 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
       if (unsentOutreachBodiesCount >= BATCH_LIMIT) {
         saturated.push('solicitation_outreach_unsent_bodies');
       }
+      if (refusalEventsCount >= BATCH_LIMIT) saturated.push('refusal_events');
 
       if (saturated.length > 0) {
         // The sanitizer drops array values, so join the target names into a string.
