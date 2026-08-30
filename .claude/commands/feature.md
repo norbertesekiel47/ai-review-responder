@@ -232,8 +232,12 @@ surface. Surface amendments mid-run: an amendment that only NARROWS the surface,
 or adds ≤2 files inside a directory tree the surface already covers, is
 auto-approved — apply it and record it in the deviations file. Anything
 broader needs my sign-off. Either way update BOTH intake copies and count
-the amendment (abort criteria, step 5; only `allowed_edit_surface` changes
-count, other intake-field corrections are deviations-file entries).
+the amendment MECHANICALLY: `bash scripts/feature-state.sh incr-amendment`
+(the 1st auto-approves; the 2nd and later REFUSE without
+`--reason "<owner-approved reason>"` — the abort-criteria budget lives in
+`.feature/state.json`, not in prose; feat-898 reached "AMENDMENT 3 of 2" on
+prose alone). Only `allowed_edit_surface` changes
+count, other intake-field corrections are deviations-file entries.
 `.feature/deps-justification.md` is likewise ephemeral — carry its content
 into the PR description so the justification survives.
 
@@ -411,6 +415,15 @@ mechanically instead of hoping a reviewer notices.
 Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
 after every fix round is cheap; do it.
 
+**Never blocking-wait on a gate blind.** The gate writes a heartbeat
+(`.feature/gate-heartbeat.json`) while it runs; `bash scripts/verify-gate.sh
+--status` answers RUNNING (rows done, elapsed), DEAD (crashed mid-run, exit
+3), or the last completed result — in one command. Check it before waiting,
+before re-launching, and on resume; three sessions burned 10-minute waits on
+a gate that was hung or never launched. To prove a tree green WITHOUT
+advancing the phase (a plan-time baseline), run `--baseline` — a baseline
+green once auto-advanced the phase and had to be hand-rolled back.
+
 **SUBAGENT BARRIER — the gate is the LAST serialized step.** Never start a
 gate run while any step-4 subagent is still in flight. A subagent that returns
 mid-gate moves HEAD underneath the evidence, `gate-status.json` ends up older
@@ -459,7 +472,9 @@ amended once, STOP and re-run step 0 with the real numbers — the lane was
 wrong, and the heavier lane's controls exist for exactly this feature.
 
 **Abort criteria (sunk cost is not a lane)**: after 3 full gate-fail
-rounds, or a 2nd amendment of `allowed_edit_surface`, or any deviation
+rounds, or a 2nd amendment of `allowed_edit_surface` (`incr-amendment`
+refuses it mechanically — an override reason there IS the owner decision),
+or any deviation
 that invalidates a locked intake decision — stop patching. Only surface
 amendments count toward that budget: `tests_to_add` retitles and
 `verification_commands` corrections are recorded as owner-approved
@@ -479,6 +494,12 @@ verdict in the file: ACCEPT (the adaptation is sound) or RE-PLAN (it
 invalidates a locked decision — abort criteria apply). Review agents
 receive the triaged file, never a raw accumulation.
 
+This read-back is ENFORCED, not trusted: the `reviewed` transition
+(`transition-state.mjs`) parses the deviations file and refuses when any
+entry lacks a resolved **Verdict:** ACCEPT — #719 reached review with two
+verdicts still "pending" despite the file promising resolution. A RE-PLAN
+verdict also refuses; it routes through the abort criteria.
+
 ## 7. REVIEW — unified two-axis, confidence-filtered
 
 First run `cd <worktree-root> && bash scripts/blast-radius.sh` — it writes
@@ -490,7 +511,13 @@ ONE full review round: parallel fresh agents on the branch diff since the
 fork point — two axes always, a third when RISK = high — so no axis
 pollutes another. All agents receive the triaged deviations file; the spec
 agent also receives `blast-radius.md` (check the listed callers against
-the changed semantics):
+the changed semantics). Each agent ALSO receives its axis's accepted-findings
+checklist (`docs/reviews/finding-checklists/<axis>.md`, when it exists) with
+the instruction "check the diff against every line" — these are defect
+classes real reviews accepted on real branches (fake test coverage is the
+most repeated one), and a review that starts from zero re-buys them.
+Triaging a finding ACCEPT via `review-log.mjs` appends to the checklist
+automatically:
 
 - **Spec & correctness agent**: does the diff faithfully implement the
   intake contract and tickets? Flag bugs, drift outside

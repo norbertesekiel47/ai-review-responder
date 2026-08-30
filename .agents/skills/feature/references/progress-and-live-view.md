@@ -83,6 +83,14 @@ node $L render
 Rules the scripts enforce:
 
 - `triage` refuses an unknown finding id. Log the finding before triaging it.
+- `triage --verdict ACCEPT` also appends the finding (title, location,
+  reason, branch, date) to the committed per-axis checklist
+  `docs/reviews/finding-checklists/<axis>.md`, deduped by title. Future
+  reviews on that axis receive the file — the feedback loop that stops every
+  review from starting at zero. See [review-prompts.md](review-prompts.md).
+- `round-end` refuses a round with no logged turns, findings, or codex jobs —
+  an empty round would bless a review that left no record.
+- `round-start` warns when the live view is not running.
 - The open round is the highest `round-start` with no `round-end`. Every
   command without `--round` lands in that round.
 - `attach-codex` resolves the codex-companion job by workspace root, so it

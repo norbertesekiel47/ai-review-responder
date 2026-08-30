@@ -11,6 +11,23 @@ Log every round, finding, and triage verdict as it happens. Read
 [progress-and-live-view.md](progress-and-live-view.md) for the commands. The
 axis names in that file are these axes; keep them in step.
 
+## Finding checklists — every axis
+
+Before dispatching an axis, check for
+`docs/reviews/finding-checklists/<axis>.md`. When it exists, include it in
+the reviewer's prompt with this instruction:
+
+```text
+The attached checklist lists defect classes a review on this axis ACCEPTED
+on a real branch in this repository. Check the diff against every line
+before reporting your own findings.
+```
+
+The file is committed and cross-feature: `review-log.mjs triage --verdict
+ACCEPT` appends to it automatically, so each accepted finding hardens every
+later review on its axis. Prune a line only when the defect class can no
+longer occur (the seam it named is gone).
+
 ## Plan skeptic — high risk only
 
 ```text
