@@ -67,6 +67,20 @@ sweep was run first. Here is the complete inventory of copies at
 | `docs/reviews/red-team/feat-1008-…/findings.{md,json}` | RT-12, RT-22 | **DO NOT TOUCH** — historical findings |
 | `docs/reviews/feat-1008-…/standards.md` | the finding that told `arch-review-log.md` to match the other two | **DO NOT TOUCH** — historical review record |
 | `docs/reviews/feat-1008-…/triage.md` | that finding's disposition | **DO NOT TOUCH** — historical review record |
+| `docs/reviews/feat-1008-…/spec-correctness.md` | "when #1009's insert helper and #1010–13's write sites land" | **DO NOT TOUCH** — historical review record (found by T7) |
+| `src/lib/refusals/vocabulary.ts` | its file-header docblock | **NO EDIT NEEDED** — T2 wrote it already agreeing with the settlement (found by T7) |
+
+**This table was short THREE times, and that is the finding, not the fix.** Round
+1 added two rows. T7's own pre-edit sweep then found two more — a *third* #1008
+review record, and a living copy in code that this very branch created while the
+table was being written.
+
+**That is D16's own failure mode recurring inside D16's own sweep**, and the
+irony is instructive rather than embarrassing: D16's lesson is *count every copy
+before choosing the edit direction*, and counting is not a thing you do once. A
+branch that is itself writing new copies has a moving target, so the count has
+to be re-run at the moment of editing — which is exactly what T7 did, and why it
+caught what the plan had not.
 
 **The last two rows were added after plan review round 1 (finding 10).** The
 first version of this table listed eight artifacts and implicitly claimed to be

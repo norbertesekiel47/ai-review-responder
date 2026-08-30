@@ -1,6 +1,6 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Six entries.** Six ACCEPT, zero RE-PLAN.
+**Twelve entries.** Twelve ACCEPT, zero RE-PLAN.
 
 | # | What | Verdict | One line |
 |---|---|---|---|
@@ -10,6 +10,12 @@
 | D4 | Round 2 found four defects that round 1's own FIXES introduced | **ACCEPT** | Two of them are one mistake twice: a lesson applied to the code that prompted it, not to the code the fix wrote. |
 | D5 | Round 3 disproved a claim a rejection rested on, and found the SAME warning path wrong a third time | **ACCEPT** | Three rounds, three different bugs in one five-line warning. The pattern, not any one bug, is the lesson. |
 | D6 | T1's eval FIXES three API names the plan described but never spelled, and forces test 20's rejection through the vocabulary map | **ACCEPT** | A RED eval is the API's first caller; T3 and T4 now have identifiers to bind to rather than a description to guess from. |
+| D7 | T2 narrowed the parked map's `\| null` | **ACCEPT** | The brief said "carried unchanged" and was loose. `null` is a decision other lanes record, not a state this one can reach. |
+| D8 | `tenant-scope-allowlist.ts` has an `ALLOWLIST_BASELINE` count the plan never mentioned | **ACCEPT** | A ratchet: a silent append fails CI. Undocumented step, now documented. |
+| D9 | The plan's arm-11 SQL could not pass its own test 24 | **ACCEPT** | The eval wins over the plan. `FOR UPDATE SKIP LOCKED` moved before `LIMIT`; `EXPLAIN` measured byte-identical. |
+| D10 | The eleventh arm broke a pre-existing UNIT test that counts arms | **ACCEPT** | T5 reported rather than reached across the wave; the orchestrator fixed it serially. 26/26 green. |
+| D11 | `ci:directory-map` needs `docs/directory.md` rows T2 could not write | **ACCEPT** | Already T6's job. Recorded so the gate's dependency on T6 is explicit. |
+| D12 | The D16 sweep table was short THREE times — inside D16's own sweep | **ACCEPT** | Counting is not a thing you do once. A branch writing new copies has a moving target. |
 
 ---
 
@@ -282,3 +288,140 @@ the six pre-existing cases in that suite keep running through the RED phase.
 
 **Verdict:** ACCEPT. No surface change, no amendment; `allowed_edit_surface`
 already covers every file T1 touched.
+
+---
+
+## D7 — T2 narrowed the parked map's `| null`, deliberately
+
+**When:** wave 2, T2.
+
+The parked branch declares `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` as
+`satisfies Record<AutonomySuspensionTrigger, RefusalCategory | null>`. T2's brief
+said "carried unchanged", but plan §4 T2 and test 4 both specify the non-null
+form, so T2 shipped `Record<AutonomySuspensionTrigger, RefusalCategory>` and
+flagged the divergence rather than silently reconciling it.
+
+**The narrowing is correct and the brief was loose.** `| null` exists in the
+parked file because it is one arm of a *seven-lane* union where other lanes DO
+map members to `null` ("known, not a refusal"). This lane has no such member:
+all four `AutonomySuspensionTrigger` values are Refusals, and #998's rule is that
+`null` is an explicit recorded decision, never a placeholder. Keeping `| null`
+here would type a state the lane cannot reach, which the repo's own
+"assert impossible states, don't branch around them" rule forbids. The lanes
+that need `| null` bring it with them in #1010–#1013.
+
+**Verdict:** ACCEPT. Flagging rather than reconciling is the behaviour wanted.
+
+---
+
+## D8 — the tenant-scope allowlist has a BASELINE COUNT the plan did not mention
+
+**When:** wave 2, T5.
+
+`scripts/ci/tenant-scope-allowlist.ts` carries an `ALLOWLIST_BASELINE` constant,
+and the audit rejects an added entry unless the number moves with it. T5 bumped
+it 370 → 371.
+
+This is a ratchet: the allowlist may only grow deliberately, and a silent append
+fails CI. Plan §4 T5 described the entry and its `sqlSnippet` and said nothing
+about the count, so a task following the plan literally would have failed
+`ci:tenant-scope` and had to discover this. It is worth knowing before the next
+slice adds its own sweep arm.
+
+**Verdict:** ACCEPT. Correct behaviour, undocumented step, now documented.
+
+---
+
+## D9 — the plan's arm-11 SQL could not pass its own test, and the fix is measured
+
+**When:** wave 2, T5.
+
+Plan §4 T5 spells the arm with `FOR UPDATE SKIP LOCKED` **after** `LIMIT 5000`,
+copying arm 7 verbatim. Test 24 captures the arm with
+`/SELECT id FROM refusal_events([\s\S]*?)LIMIT/` — the capture STOPS at `LIMIT`,
+so a locking clause written after it falls outside the captured text and
+`toContain('FOR UPDATE SKIP LOCKED')` fails.
+
+T5 moved the locking clause before `LIMIT`. **The equivalence was measured, not
+assumed**: Postgres accepts either order and the `EXPLAIN` output is
+byte-identical (`Limit → LockRows → Sort`). The emitted SQL is otherwise the
+plan's verbatim, and the arm's comment records why the clause sits where it does.
+
+**Why this is worth a deviation rather than a silent edit.** The plan and the
+eval disagreed, and only one of them can be authoritative. The eval won, which
+is the correct precedence — a test is a claim about behaviour, a plan is a
+description of intent — but a reader comparing the shipped arm against its nine
+siblings will see one written differently and deserves the reason.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D10 — the eleventh arm broke a pre-existing unit test outside T5's brief
+
+**When:** wave 2, T5 reported it; the orchestrator fixed it.
+
+`worker/background/pollers/__tests__/ArchivalPoller.test.ts` asserts
+`expect(mockSql).toHaveBeenCalledTimes(10)` and titles two cases "10 SQL
+queries" / "10 target counts". An eleventh arm makes all three wrong.
+
+T5's brief restricted it to two production files, correctly — three agents were
+editing in parallel and a shared test file is exactly where they would have
+collided. So T5 reported rather than reached. The orchestrator applied the
+one-line fix serially after the wave closed: 10 → 11 in the assertion and in
+both titles. Suite green at 26/26.
+
+**The generalisable point:** T1's eval extended only the *integration* suite,
+because that is where the new behaviour lives. A production change can still
+falsify a sibling UNIT test that merely counts things, and no amount of
+eval-first discipline surfaces that until the code lands. Look for
+count-asserting neighbours whenever a change adds an item to an enumerated list.
+
+**Verdict:** ACCEPT. Inside `allowed_edit_surface`; no amendment.
+
+---
+
+## D11 — `ci:directory-map` needs rows T2 could not write
+
+**When:** wave 2, T2.
+
+`src/lib/refusals/vocabulary.ts` is a new production file under `src/lib/`, so
+`ci:directory-map` fails until `docs/directory.md` carries a row for it — in
+this PR. T2's brief confined it to one file, so it reported instead.
+
+This is already T6's job (plan §4 T6 item 3: a new `### \`refusals/\`` section
+with one row per production file). Recorded so the dependency is explicit rather
+than implied: **the gate cannot go green until T6 runs**, whatever else is done.
+
+**Verdict:** ACCEPT. Planned work, surfaced early.
+
+---
+
+## D12 — the D16 sweep table was short THREE times, inside D16's own sweep
+
+**When:** wave 2, T7's pre-edit sweep.
+
+Plan §0's table claimed a complete inventory of the copies. It was wrong three
+times over:
+
+| Found by | Copies it added |
+|---|---|
+| plan review round 1 | `docs/reviews/feat-1008-…/standards.md`, `…/triage.md` |
+| **T7's pre-edit sweep** | `docs/reviews/feat-1008-…/spec-correctness.md` — a THIRD #1008 review record |
+| **T7's pre-edit sweep** | `src/lib/refusals/vocabulary.ts` — a living copy in code, written by sibling T2 *during this very wave* |
+
+Both new ones already AGREE with the settlement, so nothing contradicts. The
+defect is the completeness claim, not the content.
+
+**This is D16's own failure mode recurring inside D16's own sweep, and that is
+the lesson rather than the embarrassment.** D16 says *count every copy before
+choosing the edit direction*. What this run adds is that **counting is not a
+thing you do once**: a branch that is itself creating new copies has a moving
+target, so the count must be re-run at the moment of editing. T7 did exactly
+that and caught what three plan-review rounds had not — including a copy that
+did not exist when the table was written.
+
+**Queued for step 8 promotion**, sharpening D16's own lesson: re-run the sweep
+at edit time, not at plan time, whenever the branch also writes copies.
+
+**Verdict:** ACCEPT. Table corrected in plan §0; neither new copy is edited.

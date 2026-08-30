@@ -103,15 +103,15 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 10 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent)', async () => {
+  it('issues 11 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent, refusal_events)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(10);
+    expect(mockSql).toHaveBeenCalledTimes(11);
   });
 
-  it('logs all 10 target counts when any archival happened', async () => {
+  it('logs all 11 target counts when any archival happened', async () => {
     queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13 });
 
     await runOneCycle();
