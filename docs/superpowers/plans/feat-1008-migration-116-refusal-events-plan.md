@@ -433,4 +433,4 @@ step 7 completes. Step 9 is bookkeeping and gates nothing.
 
 The insert helper and `REFUSAL_LEDGER_ENABLED` (#1009). The `ArchivalPoller`
 arm and its tenant-scope-allowlist exemption (#1009). All eleven write sites
-(#1010–#1013). The **Restraint tab** (#1014). `src/lib/refusals/vocabulary.ts`.
+(#1009–#1013 — the split point is unsettled; see deviations D16). The **Restraint tab** (#1014). `src/lib/refusals/vocabulary.ts`.

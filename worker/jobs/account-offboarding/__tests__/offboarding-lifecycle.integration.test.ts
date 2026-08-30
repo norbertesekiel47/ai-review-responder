@@ -640,6 +640,15 @@ async function seedSecondLocation(seed: OwnerOffboardingSeedData): Promise<strin
 async function seedRefusalEvent(input: {
   accountId: string;
   businessId: string | null;
+  /**
+   * `occurred_at` age as a Postgres interval, e.g. '400 days'. Omit for NOW().
+   *
+   * This exists so a fixture can be HETEROGENEOUS in time. `occurred_at` is the
+   * table's single retention clock, so a verification query narrowed by it is
+   * invisible to any fixture whose rows are all fresh — which is exactly how a
+   * temporal mutant survived the first version of this arm.
+   */
+  age?: string;
 }): Promise<string> {
   const sql = getE2eSql();
   const id = uuidv7();
@@ -657,7 +666,7 @@ async function seedRefusalEvent(input: {
       'refusal_vocabulary_v1',
       ${accountWide ? null : 'response'},
       ${accountWide ? null : uuidv7()}::uuid,
-      NOW()
+      ${input.age ? sql`NOW() - ${input.age}::interval` : sql`NOW()`}
     )
   `;
   return id;
@@ -1412,35 +1421,54 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
   // that narrows the row set, or a renamed count alias, both satisfy every one
   // of its assertions while reporting a CLEAN purge over surviving rows. This
   // arm reads the count back out of a real database instead (#643's pattern).
-  it('purge verification counts BOTH surviving refusal_events shapes, the account-wide row included', async () => {
+  it('purge verification counts every surviving refusal_events row and no other tenant\'s', async () => {
     const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+    const bystander = await seedOwnerOffboardingAccount({ zernioConnection: false });
 
     try {
-      // One per-location Refusal and one ACCOUNT-WIDE one. The account is NOT
-      // purged, so both survive and the load-bearing assertion is the exact
-      // count. A query narrowed by `subject_id IS NOT NULL` reports 1, because
-      // C2 forces the `autonomy_suspended` row to carry neither a
-      // `subject_type` nor a `subject_id`; a renamed count alias reports none
-      // at all, because `countViolations` reads `violation_count` by name.
+      // THE FIXTURE IS THE ORACLE, so it varies along every axis this arm's
+      // WHERE clause could narrow on. A row all fixture rows share is a row no
+      // predicate change can be caught by — that is not a hypothetical, it is
+      // how the first version of this arm let a temporal mutant through.
+      //
+      //   location — per-location AND account-wide (`business_id IS NULL`)
+      //   subject  — with a subject_id, and without (C2 forces NULL account-wide)
+      //   time     — inside any plausible retention window, and far outside it
+      //   tenant   — a bystander account holding a Refusal of its own
+      //
+      // Three rows belong to the target account and exactly one does not.
       await seedRefusalEvent({ accountId: seed.accountId, businessId: seed.businessId });
       await seedRefusalEvent({ accountId: seed.accountId, businessId: null });
+      await seedRefusalEvent({
+        accountId: seed.accountId,
+        businessId: seed.businessId,
+        age: '400 days',
+      });
+      await seedRefusalEvent({ accountId: bystander.accountId, businessId: bystander.businessId });
 
       const result = await verifyAccountOffboardingPurge(
         { accountId: seed.accountId, offboardingId: randomUUID() },
         getE2eSql(),
       );
 
+      // EXACTLY three. Not "at least" — the count is the whole assertion, and a
+      // range would re-admit the narrowing this fixture exists to catch.
       expect(result.ok).toBe(false);
       expect(result.issues).toContainEqual(
         expect.objectContaining({
           table: 'refusal_events',
           disposition: 'hard_delete',
           purgeVerification: 'must_be_absent',
-          violationCount: 2,
+          violationCount: 3,
         }),
       );
+      // The bystander's Refusal is outside the filter rather than merely absent
+      // from the fixture: a widened predicate reports 4 and fails here.
+      expect(await countRefusalEvents(bystander.accountId)).toBe(1);
     } finally {
+      await cleanupRefusalEvents(bystander.accountId);
       await cleanupRefusalEvents(seed.accountId);
+      await cleanupOwnerOffboardingSeed(bystander);
       await cleanupOwnerOffboardingSeed(seed);
     }
   });

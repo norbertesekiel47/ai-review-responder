@@ -28,7 +28,7 @@ amendment (D13) and carries explicit owner sign-off.
 | D13 | Surface amendment 2 tripped the abort criterion | **ACCEPT** | Surfaced to the owner, who chose amend-and-continue; all three added paths are forced registry rows, and the gate was otherwise green when it fired. |
 | D14 | The citation-fixing deviation staled its own citation | **ACCEPT** | A line citation edited by the same commit that moved the line; now cited by symbol. |
 | D15 | The fix for D14 reproduced D14, five times | **ACCEPT** | The meta-pattern: a fact stated in two artifacts, corrected in only one — five times over. A doc fix here is a SWEEP. |
-| D16 | The intake attaches the write-site count to the wrong issue list | **ACCEPT** | Resolved 3-to-1 toward the three artifacts; the sha-locked intake's phrasing is superseded, not edited. |
+| D16 | The write-site split point is unsettled, and two attempts to settle it were wrong | **ACCEPT** | 3-to-3, not 3-to-1; resolved by DECLINING to resolve it — #1009's PR is what knows. |
 
 **Five lessons queued for step 8 promotion** (D9, D11, D12, D13's
 generalisable half — the four-registry chain a new tenant table forces — and
@@ -451,39 +451,47 @@ table should list all of them up front.
 **Verdict:** see the triage table at the top of this file.
 
 
-## D16 — the intake attaches the write-site count to the wrong issue list
+## D16 — the write-site split point is unsettled, and my first two attempts to settle it were both wrong
 
-**Found by:** red-team round 1 (RT-12, P2), post-rebase.
+**Found by:** red-team round 1 (RT-12, P2). **Corrected twice** — round 2's
+RT-22 (P1) disproved the correction, on its own evidence.
 
-`.feature/intake.json` `non_goals[1]` reads "Any of the eleven Refusal write
-sites (#1010, #1011, #1012, #1013)", while three other artifacts — the
-migration header, `.claude/reference/migrations-log.md:2500` and the
-`arch-review-log.md` branch row — put the FIRST caller in #1009 and the other
-ten in #1010-#1013. The total is eleven in both readings; they disagree only
-about where the first one lands.
+Eleven Refusal write sites in total. Where the FIRST one lands is stated two
+ways across this branch's artifacts, and **they split 3-to-3**:
 
-**Resolved toward the three, not the one.** Three reasons. The intake is
-sha-locked (`intakeSha256`) and cannot be edited inside this run without
-voiding the red-team evidence. `non_goals[0]` already gives #1009 the insert
-helper and its kill switch, and a helper shipping with zero callers is dead
-code this repo gates on (fallow unused-exports). And a 3-to-1 split across
-artifacts written at different times is better explained by one imprecise
-phrase than by three independent errors.
+| Says #1010–#1013 (all eleven) | Says #1009 + ten |
+|---|---|
+| `.feature/intake.json` `non_goals[1]` | `supabase/migrations/116_refusal_events.sql` header |
+| `docs/superpowers/plans/…-intake.json:8` (tracked mirror) | `.claude/reference/migrations-log.md:2500` |
+| `docs/superpowers/plans/…-plan.md:435` | `.claude/reference/arch-review-log.md:1421` |
 
-**What was corrected:** nothing in `#1010-#1013`'s content — only the
-migration header, which now states the split explicitly and points here. The
-intake's phrasing stands as written and is superseded by this entry.
+**Two wrong attempts, recorded because the method failed twice, not once.**
 
-**Blast radius: none.** This is forward sequencing inside a declared non-goal.
-No code in this diff reads it, which is why the pass graded it P2 rather than
-P1.
+1. The first fix edited the migration header to match the intake, treating the
+   sha-locked contract as authoritative. It did not check for other copies.
+   Two existed.
+2. The second reversed that, and justified it as "3-to-1 across artifacts
+   written at different times, so one imprecise phrase beats three independent
+   errors". **Both halves of that justification are false.** It is 3-to-3, not
+   3-to-1 — the tracked intake mirror and the plan carry the same reading, and
+   `red-team-status.mjs:638` hashes only `.feature/intake.json`, so the mirror
+   is a copy the lock does not cover. And the three are not independent:
+   `git log -S` shows the migration header and `migrations-log.md` were written
+   by the SAME commit `341f1cb9`, and `arch-review-log.md` was created stating
+   the other reading at `7378e68a` and converted 36 minutes later at `5b1975eb`
+   because a review told it to match. One author act plus one conversion.
 
-**A first correction went the wrong way, and the sweep is what caught it.**
-The initial fix edited the migration header to match the intake — the reverse
-of this verdict — because it treated the locked contract as authoritative
-without first checking whether the claim had other copies. Two more copies
-existed. This is D15 recurring: in this repo a documentation fix is a SWEEP,
-never an edit, and the sweep must run BEFORE the edit direction is chosen,
-not after.
+**Verdict: ACCEPT — by declining to resolve it.** This is forward sequencing
+inside a declared non-goal. No code in this diff reads it, which is why the
+pass graded it P2 both times. #1008 is not the change that knows the answer;
+#1009's PR is. So every artifact this branch may edit now states the total
+(eleven) and marks the split point unsettled with a pointer here. **The two
+intake copies are left exactly as written** — the contract is locked, and
+editing the tracked mirror would diverge it from `.feature/intake.json`, which
+the resume protocol treats as a red flag requiring owner reconciliation.
 
-**Verdict: ACCEPT.**
+**The lesson, and it is not D15's.** D15 says a doc fix is a sweep. This says
+something narrower and sharper: **run the sweep BEFORE choosing the edit
+direction, not after.** Both wrong attempts here came from picking a winner
+from an incomplete count of the copies. Counting first would have shown 3-to-3
+and that no winner was available.

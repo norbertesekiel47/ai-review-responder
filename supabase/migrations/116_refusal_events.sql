@@ -10,13 +10,15 @@
 -- two of the seven lanes have no immutable timestamp of their own. That is the
 -- whole reason `occurred_at` exists.
 --
--- NOTHING WRITES THIS TABLE YET. The insert helper, its kill switch, the
--- ArchivalPoller sweep arm and the FIRST of the eleven write sites land in
--- #1009; the other ten in #1010-#1013; the Restraint tab in #1014. (The
--- intake's non_goals attaches all eleven to #1010-#1013; that phrasing is
--- superseded — see deviations D16. The total is eleven either way.) The only
--- code naming this table in the same change is the account-offboarding purge,
--- which must be able to honour the `hard_delete` disposition it forces.
+-- NOTHING WRITES THIS TABLE YET. ELEVEN write sites in total; the insert
+-- helper, its kill switch and the ArchivalPoller sweep arm are #1009; the
+-- Restraint tab is #1014. WHERE THE FIRST WRITE SITE LANDS IS NOT SETTLED
+-- HERE — this branch's own artifacts split evenly between #1009 and #1010,
+-- it is forward sequencing inside a declared non-goal, no code in this change
+-- reads it, and #1009's PR is what settles it. See deviations D16 before
+-- repeating either number. The only code naming this table in the same change
+-- is the account-offboarding purge, which must be able to honour the
+-- `hard_delete` disposition it forces.
 --
 -- ORDERING IS LOAD-BEARING — 116 MUST REACH A DATABASE BEFORE THE CODE THAT
 -- NAMES IT. This is the 105/114 class. `runContentPurgeStage` issues

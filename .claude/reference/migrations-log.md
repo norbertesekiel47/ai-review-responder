@@ -2497,8 +2497,10 @@ Revisit triggers:
   **New table**, twelve columns, five named CHECKs, three column-level enum
   CHECKs, three indexes, deny-all RLS. Additive; nothing existed before it.
   **NOTHING WRITES IT.** The insert helper, its `REFUSAL_LEDGER_ENABLED` kill
-  switch, the `ArchivalPoller` retention arm and the first caller are #1009;
-  the other ten write sites #1010–#1013; the **Restraint tab** #1014.
+  switch and the `ArchivalPoller` retention arm are #1009; the **Restraint
+  tab** #1014. ELEVEN write sites in total — whether the first lands in #1009
+  or #1010 is NOT settled by #1008 (its artifacts split evenly); #1009's PR
+  settles it. See that branch's deviations D16.
   **WHY THE TABLE AT ALL.** The parent effort tried to derive this surface by
   projecting over `flagged_responses`, `account_audit_log`, `solicitation_asks`
   and four more. It could not be ordered: two of the seven lanes have no

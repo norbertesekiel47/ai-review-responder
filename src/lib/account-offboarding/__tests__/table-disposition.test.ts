@@ -189,6 +189,14 @@ describe('account offboarding table disposition inventory', () => {
     // it reads as coverage.
     expect(entry?.reason).toMatch(/NO CASCADE REACHES IT/);
     expect(entry?.reason).toMatch(/deletes them explicitly/i);
+    // POLARISED, same shape and same reason as the two above: the analogy set
+    // states a DIRECTION for each table it names, and a sentence claiming the
+    // opposite direction is exactly the error this arm has already made once.
+    // Both regexes must fail on the negation, not merely miss it.
+    expect(entry?.reason).toMatch(/review_escalations relies on, which is likewise NO ACTION/);
+    expect(entry?.reason).toMatch(
+      /contact_csv_uploads and agent_outcomes[\s\S]*?DO carry ON DELETE CASCADE/,
+    );
   });
 
   it('requires purge verification for every applicable table', () => {
