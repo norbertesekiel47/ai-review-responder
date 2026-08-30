@@ -180,7 +180,15 @@ describe('account offboarding table disposition inventory', () => {
     // table's only FKs are to `accounts` and `businesses`, both
     // retain_deidentified and neither cascading, so nothing removes these rows
     // unless the purge deletes them explicitly.
-    expect(entry?.reason).toMatch(/cascade/i);
+    //
+    // POLARISED on purpose. A bare /cascade/i passes on a reason claiming this
+    // table DOES cascade just as happily as on one saying it does not — the
+    // same defect this branch already fixed once in the migration suite's
+    // retention-clock assertion, applied in one file of the change and missed
+    // in the other. An assertion that cannot fail is worse than none, because
+    // it reads as coverage.
+    expect(entry?.reason).toMatch(/NO CASCADE REACHES IT/);
+    expect(entry?.reason).toMatch(/deletes them explicitly/i);
   });
 
   it('requires purge verification for every applicable table', () => {

@@ -84,10 +84,21 @@ lookup table. Instead:
   not global**, because one code means different things in different lanes.
 
 `admin_halt` and `platform_halt` are why the split is per-lane rather than a
-convenience. `latchHalt` copies a batch's halt reason through to every cancelled
-Outreach row, so those codes appear in two lanes. On `batch_halted` they map to
-`autonomy_paused`; on `outreach_withheld` they map to `null`. A global map would
-report one halt once at the batch and again per recipient.
+convenience. `latchHalt` copies a batch's halt reason through to every affected
+Outreach row as its `disposition_reason`, so the same code string appears on two
+different tables. On `batch_halted` it maps to `autonomy_paused`; on the Outreach
+copies it maps to `null`, and a global code→category map would report one halt
+once at the batch and again per recipient.
+
+**Precise about which Outreach rows, because the imprecise version misleads a
+writer.** Migration 111's `solicitation_outreach_status_reason_consistency`
+admits `admin_halt` and `platform_halt` on the **cancelled** arm only, never the
+withheld one. So the copies are `cancelled` rows, and a `cancelled` row is not
+an `outreach_withheld` **Refusal** at all — it is an act that was called off,
+which the **Refusal** term already excludes. The `null` mapping is therefore
+belt-and-braces over a lane those rows never enter, and it is kept for the
+reason §4 gives: `null` records the decision "not a refusal", so a future reader
+finds an answer rather than an omission.
 
 **Correction 2 — the counts.** The parked text said seven categories and six
 lanes. It is **eight categories** (`owner_review_required`, #998) and **seven
@@ -161,16 +172,38 @@ eventually does.
 `solicitation_outreach` has no disposition timestamp, and its withheld arm has
 **two writers** with two different correct answers:
 
-| Reason | Writer | Anchor |
-|---|---|---|
-| `moderation_high`, `render_failed`, `lint_failed` | `ask-generation.ts` inserts the row already withheld | `rendered_at` — `NOT NULL`, never updated |
-| the other five | `dispatch.ts` `commitWithhold`, which sets `agent_run_id` atomically | `COALESCE(agent_runs.started_at, updated_at)` |
+**The reason does NOT determine the writer, and an earlier version of this
+table said it did.** Corrected 2026-08-29 after a red-team pass proved the two
+sets intersect:
 
-The partition is exactly `RenderWithholdReason`, so the split is the shape of
-the data rather than a special case. `updated_at` is a general mutation
-timestamp a later write can move, and survives only as the fallback for a
-dispatch-time withhold whose best-effort lazy-child attach left `agent_run_id`
-NULL.
+| Reason | Writer(s) | Anchor |
+|---|---|---|
+| `render_failed` | `ask-generation.ts` only — inserts the row already withheld | `rendered_at` — `NOT NULL`, never updated |
+| `lint_failed`, `moderation_high` | **BOTH.** `ask-generation.ts` at render time, and `dispatch.ts` `commitWithhold` at dispatch time — they are members of `OutreachWithheldReason` (`dispatch.ts:149-155`) and are emitted by the dispatch gate (`:254-255`) | **depends on which writer wrote the row**, not on the reason |
+| `suppressed`, `no_consent`, `no_postal_address`, `postal_address_mismatch` | `dispatch.ts` `commitWithhold`, which sets `agent_run_id` atomically | `COALESCE(agent_runs.started_at, updated_at)` |
+
+The superseded claim was "the partition is exactly `RenderWithholdReason`, so
+the split is the shape of the data rather than a special case." It is not a
+partition at all: two reasons have two writers.
+
+**Why this was a P0 rather than a documentation nit.** A writer built by
+reading that table — #1012 is the slice that will do exactly this — would map
+`moderation_high` to `rendered_at` unconditionally, and stamp a
+dispatch-time decision with a render-time clock. That is a write timestamp
+wearing a decision timestamp's name, on the column that is the **single
+retention clock**, in the one lane the column was added for.
+
+**The correct rule, and it is a rule about writers rather than reasons:** each
+of the two writers stamps `occurred_at` from its own decision point.
+`ask-generation.ts` passes `rendered_at`; `commitWithhold` passes the dispatch
+decision time. This is why #1009's helper takes
+`occurredAt: Date | 'transaction_time'` as a REQUIRED parameter with no
+default — the anchor is not derivable from any column on the row, so a lane
+must say which one it means.
+
+`updated_at` is a general mutation timestamp a later write can move, and
+survives only as the fallback for a dispatch-time withhold whose best-effort
+lazy-child attach left `agent_run_id` NULL.
 
 **Correction 3 — this is now a writer problem, not a schema one.** The parked
 ADR said closing it "needs a column, which this ADR's no-migration decision

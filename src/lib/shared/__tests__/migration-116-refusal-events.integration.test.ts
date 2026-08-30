@@ -812,6 +812,26 @@ describeWithDb(
       expect(definition).toMatch(/END\)?\s*IS TRUE/);
     });
 
+    it('C5 carries both NULL defences structurally, including the one no row can reach', async () => {
+      const definition = await constraintDefinition(C5_ALL_CODES_PAIRING);
+
+      // `array_position(..., NULL) IS NULL` IS reachable by a row, and title 12
+      // pins it with `refusal_code='winner'` against ARRAY['winner', NULL].
+      expect(definition).toMatch(/array_position\(.*NULL.*\) IS NULL/);
+
+      // The outer `IS TRUE` is NOT reachable, and that is why it needs a
+      // structural assertion rather than a row. Brute force over the whole
+      // combination space says the only rows whose verdict it changes are
+      // `policy_gate_held` with `refusal_code IS NULL` — and C4 forbids exactly
+      // those, since a NULL code belongs to `held_draft` alone. So C5's wrapper
+      // is currently redundant WITH C4, and it is kept deliberately: C4 owns a
+      // different fact and may be re-scoped by a later lane, at which point
+      // this wrapper is the only thing standing between a NULL-valued CHECK and
+      // an accepted row. Defence in depth is only depth if something notices
+      // when it is removed.
+      expect(definition).toMatch(/\)\s*IS TRUE/);
+    });
+
     // ── behavioural ─────────────────────────────────────────────────────────
 
     it('C1 rejects every lane paired with a subject_type the locked mapping does not give it', async () => {
@@ -906,12 +926,18 @@ describeWithDb(
         C5_ALL_CODES_PAIRING,
       );
 
-      // THE D4 CORRECTION, and the reason C5 carries two clauses #1001 did not
-      // have. Under the original expression `refusal_code = ANY(ARRAY['different',
+      // THE D4 CORRECTION, and the reason C5 carries a clause #1001 did not
+      // have. Under the ORIGINAL expression `refusal_code = ANY(ARRAY['different',
       // NULL])` returns NULL, that collapses the whole CHECK to NULL, and a
-      // CHECK is SATISFIED by NULL — so Postgres ACCEPTS exactly the row C5
-      // exists to forbid. `array_position(all_refusal_codes, NULL) IS NULL`
-      // plus the outer `IS TRUE` wrapper are what make this a rejection.
+      // CHECK is SATISFIED by NULL — so Postgres ACCEPTED exactly the row C5
+      // exists to forbid.
+      //
+      // Under the CORRECTED expression this row is rejected by
+      // `array_position(all_refusal_codes, NULL) IS NULL` alone: that clause is
+      // FALSE, so the arm is FALSE rather than NULL and the outer `IS TRUE`
+      // never has to do anything. Attributing the rejection to the wrapper as
+      // well would be wrong, and would hide that the wrapper needs its own
+      // (structural) assertion — see the C5 structural case above.
       await expectRejectedBy(
         insertRefusal({
           refusalSource: 'policy_gate_held',

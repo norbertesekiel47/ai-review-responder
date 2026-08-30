@@ -84,6 +84,7 @@
     "C4 rejects a held_draft row carrying a refusal_code, and a non-held_draft row carrying none",
     "C5 rejects policy_gate_held rows whose all_refusal_codes is null, empty, contains NULL, or omits refusal_code, and any other lane carrying an array",
     "C5 admits a policy_gate_held row whose all_refusal_codes carries codes the database does not know, because the member vocabulary is owned by TypeScript",
+    "C5 carries both NULL defences structurally, including the one no row can reach",
     "a canonical valid row for every one of the seven lanes satisfies all five CHECK constraints",
     "the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member",
     "an ON CONFLICT clause re-spelling the partial predicate byte-for-byte infers refusal_events_subject_uniq and does not abort the caller transaction",

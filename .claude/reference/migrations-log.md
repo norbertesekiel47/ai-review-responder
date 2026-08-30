@@ -2581,7 +2581,10 @@ Revisit triggers:
   instead — and never ahead of CI, which is the second half of the rule:
   **CI green → staging DDL → staging ride → owner approval → production DDL →
   merge.** Applying production DDL before the PR exists trades one hazard for
-  a worse one.
+  a worse one. `deployment-guide.md` §II.5 establishes the PR-first, staging-DDL-
+  before-staging-deploy shape; the production-DDL-before-merge step is this
+  branch's own inference from it plus the `42P01` hazard, not a sentence that
+  section states.
   **ROLLBACK IS A PR REVERT, NOT A DOWN MIGRATION.**
   `accountLinkedTablesFromMigrations()` reads `CREATE` statements, not net
   schema, so a 117 `DROP` would NOT release the disposition row: removing the
@@ -2599,7 +2602,7 @@ Revisit triggers:
   **NO `SchemaRequirement` GAP, deliberately**: the table, all three index
   names and all five constraint names are brand new, so naming them in the
   suite's requirement is an honest proof rather than the false-proof hazard
-  105's, 108'S, 110's and 111's entries describe.
+  105's, 108's, 110's and 111's entries describe.
 
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;

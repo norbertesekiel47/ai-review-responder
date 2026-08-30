@@ -1,0 +1,293 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1008-migration-116-refusal-events-cbbac6",
+  "branch": "feat/1008-migration-116-refusal-events",
+  "fork_sha": "5ab6bfeeef9bce1d389cf9c75ec87eeeefad9d64",
+  "merge_base_sha": "5ab6bfeeef9bce1d389cf9c75ec87eeeefad9d64",
+  "head_sha": "25a6430311a59120e01e85cbd8753c2eda1e8028",
+  "intake_sha256": "11f75d1208a0d9ad28ab53bf59bb083ce1c5767a44f749c4d966406dba1548f5",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-08-30T06:20:00.000Z",
+  "inventory": [
+    {
+      "id": "INV-01",
+      "test": "migration 116 runs as one transaction and bounds its lock acquisition with SET LOCAL lock_timeout",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:459",
+      "outcome": "excluded",
+      "reason": "Covers supabase/migrations/116_refusal_events.sql only (it reads the migration file text). supabase/migrations/ is out of mutation scope per the skill: the database is provisioned before the run, so mutating the migration changes nothing under test."
+    },
+    {
+      "id": "INV-02",
+      "test": "TENANT_TABLES scopes refusal_events by account_id and business_id",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:487",
+      "outcome": "killed"
+    },
+    {
+      "id": "INV-03",
+      "test": "migration 116 enables row level security on refusal_events and defines zero policies",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:560",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql:225 (ENABLE ROW LEVEL SECURITY) \u2014 out of mutation scope per the skill."
+    },
+    {
+      "id": "INV-04",
+      "test": "migration 116 creates the twelve locked columns with their exact types, nullability and defaults, and no others",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:583",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's CREATE TABLE \u2014 out of mutation scope per the skill."
+    },
+    {
+      "id": "INV-05",
+      "test": "migration 116 creates foreign keys only to accounts and businesses, both with no referential action, and leaves subject_id unreferenced",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:647",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's FK declarations \u2014 out of mutation scope per the skill."
+    },
+    {
+      "id": "INV-06",
+      "test": "migration 116 creates the archival, account-window and partial-unique indexes with their exact keys, ordering, uniqueness and predicate",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:688",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's three CREATE INDEX statements \u2014 out of mutation scope per the skill. Index properties were instead audited by hand against pg_indexes; every property (keys, order, DESC, uniqueness, partial predicate, absence of a fourth index) is pinned by an exact-substring or set-equality assertion."
+    },
+    {
+      "id": "INV-07",
+      "test": "migration 116 comments the table and all twelve columns, and names occurred_at as the only retention clock",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:732",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's COMMENT ON statements \u2014 out of mutation scope per the skill. The two polarised timestamp assertions were re-derived by hand and do fail on the negated comment."
+    },
+    {
+      "id": "INV-08",
+      "test": "C1 wraps its total source-to-subject CASE in IS TRUE so a fall-through rejects instead of passing on NULL",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:772",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C1 \u2014 out of mutation scope per the skill. Replaced by the TEMP-table clause probe: variant c1_nowrap changes the verdict on zero suite rows, which is why this title is structural, and the structural assertion at :812 does pin the wrapper."
+    },
+    {
+      "id": "INV-09",
+      "test": "C1 rejects every lane paired with a subject_type the locked mapping does not give it",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:817",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C1 \u2014 out of mutation scope. Probe variant c1_gone flips all seven of this title's rows from rejected to ACCEPTED, so the title is load-bearing."
+    },
+    {
+      "id": "INV-10",
+      "test": "C2 rejects a typed subject with no id, and an id with no subject_type",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:842",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C2 \u2014 out of mutation scope. Probe variant c2_gone flips both of this title's rows to ACCEPTED."
+    },
+    {
+      "id": "INV-11",
+      "test": "C3 rejects an account-wide row that is not autonomy_suspended, and an autonomy_suspended row pinned to a location",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:860",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C3 \u2014 out of mutation scope. Probe variant c3_gone flips both of this title's rows to ACCEPTED."
+    },
+    {
+      "id": "INV-12",
+      "test": "C4 rejects a held_draft row carrying a refusal_code, and a non-held_draft row carrying none",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:877",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C4 \u2014 out of mutation scope. Probe variant c4_gone flips both of this title's rows to ACCEPTED."
+    },
+    {
+      "id": "INV-13",
+      "test": "C5 rejects policy_gate_held rows whose all_refusal_codes is null, empty, contains NULL, or omits refusal_code, and any other lane carrying an array",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:894",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C5 \u2014 out of mutation scope. Replaced by a per-clause TEMP-table probe plus exhaustive brute force; results raised RT-03 (P1) and RT-11 (P2)."
+    },
+    {
+      "id": "INV-14",
+      "test": "C5 admits a policy_gate_held row whose all_refusal_codes carries codes the database does not know, because the member vocabulary is owned by TypeScript",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:961",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is migration CHECK C5's deliberate absence of a member CHECK \u2014 out of mutation scope."
+    },
+    {
+      "id": "INV-15",
+      "test": "a canonical valid row for every one of the seven lanes satisfies all five CHECK constraints",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:982",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's five CHECKs \u2014 out of mutation scope. All seven canonical rows were reproduced in the probe and are ACCEPTED under the shipped constraint set."
+    },
+    {
+      "id": "INV-16",
+      "test": "the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1021",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's three column-level CHECKs \u2014 out of mutation scope. Members and order are pinned structurally off the rendered = ANY (ARRAY[...])."
+    },
+    {
+      "id": "INV-17",
+      "test": "an ON CONFLICT clause re-spelling the partial predicate byte-for-byte infers refusal_events_subject_uniq and does not abort the caller transaction",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1075",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's partial UNIQUE index \u2014 out of mutation scope. A predicate change would raise 42P10 and fail this title."
+    },
+    {
+      "id": "INV-18",
+      "test": "the same (refusal_source, subject_id) inserted twice yields one row, and the same subject under a different refusal_source yields two",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1094",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's partial UNIQUE index \u2014 out of mutation scope."
+    },
+    {
+      "id": "INV-19",
+      "test": "two autonomy_suspended rows for one account both persist because the unique index is partial on subject_id IS NOT NULL",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1118",
+      "outcome": "excluded",
+      "reason": "Covering production hunk is the migration's partial UNIQUE index predicate \u2014 out of mutation scope."
+    },
+    {
+      "id": "INV-20",
+      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:170",
+      "outcome": "killed"
+    },
+    {
+      "id": "INV-21",
+      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:214",
+      "outcome": "killed"
+    },
+    {
+      "id": "INV-22",
+      "test": "the content purge stage deletes refusal_events rows for the purged account, account-wide rows included, and leaves another account's rows untouched",
+      "file": "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1379",
+      "outcome": "killed"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "title": "ADR 0023's withheld writer/anchor table is false for two of eight reasons, and \"the partition is exactly RenderWithholdReason\" is false \u2014 following it stamps occurred_at, the single retention clock, with a render timestamp",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:166",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "title": "Fragile assertion: expect(entry?.reason).toMatch(/cascade/i) passes on the exact negation of the claim it guards \u2014 the identical defect class this PR already fixed once, in a sibling file, in the same change",
+      "at": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:183",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "title": "C5's outer IS TRUE wrapper is asserted by nothing: no row can reach it (proved) and no assertion reads C5's definition \u2014 while C1's identical wrapper and migration 114's precedent are both pinned structurally",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:894",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "title": "Three plan-artifact citations that were true at the merge base are stale at HEAD, staled by this change's own edits \u2014 including deviation D8, which exists to correct that exact citation",
+      "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-deviations.md:234",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-05",
+      "severity": "P1",
+      "title": "The terminal purge failure this diff newly makes reachable emits account_offboarding_purge_failed, which no runbook rule row routes \u2014 all six facets MISSING, and neither generic sink covers it",
+      "at": "docs/runbooks/beta-launch-alerting.md:184",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-1008-01"
+    },
+    {
+      "id": "RT-06",
+      "severity": "P2",
+      "title": "\"nine probe rows, all nine now correct\" \u2014 the table immediately below lists eight; repeated verbatim in the arch-review-log entry",
+      "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-deviations.md:125",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-07",
+      "severity": "P2",
+      "title": "CONTEXT.md asserts in the present tense two tabs on /dashboard/analytics \u2014 Metrics and Restraint \u2014 neither of which exists; the page renders AnalyticsContent with no tab UI",
+      "at": "CONTEXT.md:165",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-08",
+      "severity": "P2",
+      "title": "Retry and terminal captures share one constant message and no fingerprint, so any first-seen rule added for RT-05 fires once, on a warning retry, and never on the terminal error",
+      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:114",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-1008-01"
+    },
+    {
+      "id": "RT-09",
+      "severity": "P2",
+      "title": "The in-test comment misattributes the ['different', NULL] rejection to array_position \"plus the outer IS TRUE wrapper\"; with array_position present that row's first arm is FALSE, not NULL, so the wrapper contributes nothing to it",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:913",
+      "duty": 2,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "title": "ADR 0023 maps admin_halt \"on outreach_withheld\", a lane whose rows cannot carry it \u2014 migration 111 permits admin_halt only under delivery_status cancelled",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:89",
+      "duty": 3,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "title": "C5's all_refusal_codes IS NOT NULL and cardinality(...) > 0 are provably redundant \u2014 zero differing rows over the whole value space \u2014 so no row pins them, and the two suite cases whose titles suggest they do actually reject via other clauses",
+      "at": "supabase/migrations/116_refusal_events.sql:160",
+      "duty": 2,
+      "disposition": "rejected",
+      "rejected_reason": "Deliberate defence in depth, not dead weight. `all_refusal_codes IS NOT NULL` and `cardinality(...) > 0` are redundant only GIVEN the sibling clauses that currently stand; each states one fact the reader of supabase/migrations/116_refusal_events.sql:157-166 needs, and removing them would make a later edit to array_position or to C4 silently widen the constraint. The same reasoning is applied to C5's outer IS TRUE, which RT-03 correctly showed is also unreachable by any row and which is now pinned STRUCTURALLY rather than deleted."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "title": "Three minor doc inaccuracies: the 108'S typo; an arch-review-log rule attributed to deployment-guide II.5 which that section does not state; and the intake attributing \"eleven Refusal write sites\" to #1010-#1013 while the migration header and log put the first caller in #1009",
+      "at": ".claude/reference/migrations-log.md:2602",
+      "duty": 3,
+      "disposition": "fixed"
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-1008-01",
+      "date": "2026-08-29",
+      "finding_ids": [
+        "RT-05",
+        "RT-08"
+      ],
+      "approval_text": "Accept the risk, file a follow-up. Rationale: the gap predates this branch, the failure path is only reachable in a window the ship order already closes (production DDL lands before the code), and a runbook rule is a distinct piece of ops work that deserves its own review rather than being appended to a schema PR. Follow-up filed as RepWorth/ai-review-responder#1016."
+    }
+  ],
+  "counts": {
+    "inventory_total": 22,
+    "killed": 4,
+    "survived_confirmed_p0": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 18,
+    "findings_total": 12,
+    "p0_open": 1,
+    "p1_open": 4,
+    "p2_open": 7,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

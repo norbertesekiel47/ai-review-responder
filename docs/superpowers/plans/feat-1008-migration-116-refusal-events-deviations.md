@@ -20,7 +20,7 @@ amendment (D13) and carries explicit owner sign-off.
 | D5 | C1's `IS TRUE` wrapper is not provable by inserting a row | **ACCEPT** | The column CHECK rejects an unmapped lane first, so the assertion had to be structural; title 7 reads `pg_get_constraintdef`. |
 | D6 | Merge-before-promotion terminally fails purges | **ACCEPT** | Verified in `PurgeWorker.ts`; superseded in part by D10a, and the final order is in the plan's Step 8. |
 | D7 | `TENANT_TABLES` membership forces an `rls-inventory.md` row | **ACCEPT** | Auto-approved surface amendment 1 (≤2 files inside a covered tree); `rls-audit` now passes. |
-| D8 | `tenant-tables.ts:158` was a stale citation | **ACCEPT** | Corrected to 154 in both the plan and the intake. |
+| D8 | `tenant-tables.ts:158` was a stale citation | **ACCEPT** | Corrected — and then RE-staled by this very change (see D14). Now cited by symbol, not by line. |
 | D9 | The project bash-write guard blocks read-only `sed -n` | **ACCEPT** | Real, and outside this feature's surface; cost accuracy rather than a round. **Promote at step 8.** |
 | D10 | Round 2 found four defects introduced by my own round-1 fixes | **ACCEPT** (all four) | Each verified against the code before fixing: the runbook for D10a, the inventory parser for D10b, the surface for D10c. |
 | D11 | `TENANT_TABLES` is two structures, and editing one is silently wrong | **ACCEPT** | Typecheck stayed clean while the completeness test stayed red. **Promote at step 8.** |
@@ -29,6 +29,32 @@ amendment (D13) and carries explicit owner sign-off.
 
 **Four lessons queued for step 8 promotion** (D9, D11, D12, and D13's
 generalisable half — the four-registry chain a new tenant table forces).
+
+**D14 added after the red-team pass. See the red-team triage in
+`docs/reviews/red-team/feat-1008-migration-116-refusal-events-cbbac6/`.**
+
+---
+
+## D14 — the citation-fixing deviation staled its own citation
+
+**When:** step 7.5, red-team Duty 3 (RT-04).
+
+D8 exists because `tenant-tables.ts:158` was a stale line citation; it was
+corrected to 154. Then **this change's own `refusal_events` entry shifted that
+line**: `solicitation_batches` moved 154 → 160, `solicitation_suppressions`
+158 → 164, and the disposition row 361 → 368. So the deviation whose entire
+purpose was to fix a stale line number left a stale line number, in the same
+commit that created the staleness.
+
+The lesson is not "check line numbers again". It is that **a line citation
+into a file the same change edits cannot be correct at both ends of the
+change**, so the form is wrong rather than the value. Every such citation in
+the plan and this file now names the SYMBOL — the map key, the `case` label,
+the array entry — which the edit cannot move.
+
+A third lesson for step 8 promotion, alongside D9, D11 and D12.
+
+**Verdict:** ACCEPT, fixed.
 
 ---
 
@@ -122,7 +148,7 @@ surfaced to the owner.
 
 **Proven against real Postgres, not reasoned about.** Two `TEMP` tables in the
 local test container, one carrying #1001's locked C5 and one carrying the
-corrected C5, then nine probe rows:
+corrected C5, then eight probe rows:
 
 | Row | Locked C5 | Corrected C5 | Correct? |
 |---|---|---|---|
@@ -299,8 +325,9 @@ coincide" was ambiguous. Both fixed; Step 8 now names step 7 as the exact
 point #1009 unblocks.
 
 **Appendix finding, accepted anyway:** the intake still cited
-`tenant-tables.ts:158`. Round 1 corrected only the plan's copy. Now 154 in
-both.
+`tenant-tables.ts:158`. Round 1 corrected only the plan's copy. Both now cite
+the `solicitation_batches` KEY rather than a line number — see D14 for why the
+line-number form could not survive this change.
 
 **Verdict:** see the triage table at the top of this file.
 

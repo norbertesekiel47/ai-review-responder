@@ -275,7 +275,7 @@ container holds an unclassified table.
 **Files:** `scripts/ci/tenant-tables.ts`, `docs/security/rls-inventory.md`.
 
 1. Add `refusal_events: ['account_id', 'business_id'],` to `TENANT_TABLES`, on
-   `solicitation_batches`' shape at **line 154**.
+   the `solicitation_batches` entry (cited by key: this change shifts its line).
 2. Add the matching ``| `refusal_events` |`` row to
    `docs/security/rls-inventory.md`. `rls-audit.test.ts:42-49` asserts
    `REQUIRED_RLS_TABLES === TENANT_TABLES` and then requires that row for every
@@ -302,7 +302,7 @@ queries the table cross-tenant.
 Three changes that must land together.
 
 1. **`table-disposition.ts`** — one row, `hard_delete` / `direct_account_id` /
-   `must_be_absent`, on `solicitation_batches`' shape (`:361-366`). The array is
+   `must_be_absent`, on the `solicitation_batches` ENTRY (cited by key, not line — this change shifts it). The array is
    asserted sorted by the inventory test, so insert it in sorted position. The
    `reason` must exceed 20 characters and state the accurate fact: this table's
    only FKs are to `accounts` and `businesses`, **both** `retain_deidentified`
@@ -315,7 +315,7 @@ Three changes that must land together.
 
 2. **`purge-verification.ts`** — one `case 'refusal_events':` in
    `verificationQuery`, counting rows `WHERE account_id = $accountId`, on
-   `solicitation_batches`' branch (`:620-633`). **Account-scoped, never joined
+   the `solicitation_batches` BRANCH (cited by case label, not line). **Account-scoped, never joined
    through `businesses`** — `autonomy_suspended` rows carry `business_id IS
    NULL` and a business join would miss every one of them. Without the branch,
    `verifyAccountOffboardingPurge` throws
