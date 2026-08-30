@@ -142,7 +142,7 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"refusal_events":17');
   });
 
-  it('logs "Nothing to archive" when all 10 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 11 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();

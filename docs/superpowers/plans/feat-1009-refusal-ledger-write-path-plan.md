@@ -163,14 +163,35 @@ Business Profile) is planned; nothing varies here. `writeAccountAuditLog` — th
 precedent this helper is modelled on and the single audit writer for the whole
 codebase — is a bare exported function for the same reason.
 
-**Rejected: a seven-arm discriminated union on `refusalSource`.** It would make
-C1–C5 unrepresentable in TypeScript, which is attractive. It is rejected because
-six of the seven arms would have no caller in this slice, and because #1001
-already decided where those invariants live: *"the five CHECKs each name a bug
-rather than a preference"*. The database owns them. A TypeScript copy would be
-a second authority over the same five facts — the precise defect #1001 cites
-when it declines to CHECK the 22 `AutoApprovalBlockReason` members. The lever
-against a writer bug is the kill switch, which the ticket says in those words.
+**The input IS a per-lane union — and this REVERSES the plan's original
+decision.** Branch review round 1 found the original reasoning wrong, at `high`,
+on two axes independently (adversarial A-01 and standards S3), and the owner
+ratified the reversal on 2026-08-30.
+
+The original text rejected a seven-arm union on the ground that #1001 puts those
+invariants in the database, so a TypeScript copy would be *"a second authority
+over the same five facts"*. **That conflates two different things.** Migration
+116 must stay the STORAGE authority and must keep all five CHECKs — TypeScript
+cannot protect SQL written by another process or by an operational query. None
+of that requires the TypeScript API to *accept states already known to be
+illegal*.
+
+A union is not a competing authority; it is a **compile-time projection** of the
+same one, and it cannot drift silently: adding a lane to `REFUSAL_SOURCES`
+without an arm is a compile error. The implementation is a mapped type over
+`RefusalSource`, so that totality is enforced by the language rather than by
+review.
+
+What the original reasoning got right, and what is kept: the union transcribes
+**C1–C4 only**. `refusalCategory` stays `RefusalCategory` in every arm, because
+#1001 explicitly declined to CHECK `held_draft`'s fixed category — pinning a
+lane's category would make a future re-map migration-bearing, and that decision
+stands.
+
+The cost of being wrong here is what moved it from "nice" to `high`: this module
+deliberately does not catch, so a mis-paired lane raises `23514` and **aborts the
+deciding transaction**. Eleven callers are planned; the type now makes the
+mistake unspellable at all eleven.
 
 ### `src/lib/refusals/vocabulary.ts` — NEW MODULE, deliberately shallow
 
@@ -342,31 +363,56 @@ silent — reproducing the very failure the fix was written to remove, just
 further along. A ceiling counted in *attempts* cannot distinguish "Sentry is
 broken" from "Sentry was briefly broken".
 
-The rule is therefore a **cooldown**, which is counted in time and always
-recovers:
+#### The design above was ALSO wrong, and branch review round 1 found out why
 
-```
-warned = false
-nextAttemptAt = 0            // epoch ms
-WARN_RETRY_COOLDOWN_MS = 300_000   // 5 minutes
+**Adversarial finding A-02, `high` — and it is the strongest finding of this
+whole run.** Rounds 1, 2 and 3 each argued about this five-line path. None of us
+checked whether the SDK call underneath has the semantics the design assumed.
 
-if (!warned && Date.now() >= nextAttemptAt) {
-  try { Sentry.captureMessage(…, { level: 'warning' }); warned = true }
-  catch { nextAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS }   // swallow
-}
-```
+It does not. The reviewer read the installed `@sentry/node` 10.55.0:
+`captureMessage` returns an event id **immediately** — it returns one even with
+no client configured — buffers the event, sends the envelope asynchronously, and
+**catches transport failures internally rather than throwing back**.
 
-Every path is bounded and none is permanently silent:
+So every version of the rule above was built on a false premise:
+
+- "capture succeeded" actually meant "capture was **queued**".
+- The `try/catch` fires only on unusual *synchronous* SDK errors. It never sees
+  the DSN/network delivery failure the whole cooldown was designed to survive.
+- A real Sentry outage therefore latched the flag with the warning never
+  delivered — the exact permanent silence rounds 2 and 3 were chasing, reached
+  by a route none of them examined.
+
+**The shipped design, which is honest about what each transport can promise:**
+
+1. **The structured log line is the PRIMARY, durable signal.** It is emitted
+   FIRST, in its own guard, OUTSIDE the Sentry `try`. No Sentry behaviour can
+   lose it, and a throwing console cannot reject the helper.
+2. **The rate limit is per DISABLED EPISODE, not per process.** The latch clears
+   when the helper next observes the flag ENABLED, so a `false → true → false`
+   sequence warns twice. Under the old rule a second outage in the same process
+   was silent.
+3. **Sentry is a best-effort SECOND transport**, still inside its own swallowing
+   guard. **No `flush()` and no `await` on delivery** — that would put network
+   latency on the deciding transaction's path, which is worse than the problem.
+4. **The cooldown survives only for the synchronous-throw case** and is
+   described as exactly that. Every claim that it retries *delivery* is deleted.
 
 | Sentry behaviour | Result |
 |---|---|
-| always works | **exactly one** warning per process — the latch is set on success |
-| throws once, then recovers | one warning, on the first call after the cooldown |
-| throws three times, then recovers | one warning, on the first call after the cooldown — the case the ceiling lost |
-| always throws | at most one swallowed attempt per five minutes, forever. No spam, negligible work on the decision path, and the structured log line still carries the fact |
+| delivers | one log line + one Sentry warning per disabled episode |
+| queues, then fails in transport | one log line per disabled episode. **The log line is the signal** — Sentry never promised more, and the code no longer pretends it did |
+| throws synchronously | one log line; the Sentry attempt retries after the cooldown |
+| console throws too | the helper still returns cleanly; the suspension is unaffected |
 
-Test 28 pins the recovery case: throw, then succeed, expect exactly one
-successful warning and no rejection.
+Test 28 runs four consecutive capture failures against a settable clock, asserts
+the durable line landed on every attempt, then recovery, then the episode reset.
+Test 8 pins two warnings across a flag toggle. Test 10 covers the throwing
+console.
+
+**The lesson, and it outranks the bug:** three adversarial rounds reasoned very
+carefully about a mechanism, and not one of them read the library. Verify the
+primitive before designing on top of its assumed behaviour.
 
 `REFUSAL_LEDGER_RETENTION_DAYS = 180` is a **code constant, not an env var**
 (#996). No registry rows. It lives beside `AGENT_SPINE_RETENTION_DAYS` and

@@ -1,8 +1,8 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Eighteen entries.** Eighteen ACCEPT, zero RE-PLAN.
+**Twenty-two entries.** Twenty-two ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17 and D18 — there
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D22 — there
 is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
@@ -27,6 +27,10 @@ genuinely bad piece of record-keeping.
 | D16b | T4b's Sentry assertion does not pin the account id's PLACEMENT | **ACCEPT** | Numbered `D16b` on purpose — "D16" in this run means #1008's write-site deviation and nothing else. |
 | D17 | T6's two registry placement calls | **ACCEPT** | The plan left both open. Each went next to its nearest sibling, which is this repo's default. |
 | D18 | A count-asserting neighbour broke a SECOND time — gate round 1 | **ACCEPT** | Same class as D10, different file. Two occurrences make it a class, not an incident. |
+| D19 | Branch review REVERSED the plan's rejection of a per-lane union | **ACCEPT** | Owner-ratified. The original reasoning conflated storage authority with API shape. |
+| D20 | Three plan rounds designed on a Sentry behaviour the SDK does not have | **ACCEPT** | The strongest finding of the run. Verify the primitive before designing on it. |
+| D21 | Arm 11's SQL order is pinned TWICE — a test regex AND the allowlist snippet | **ACCEPT** | One pin removed, the other documented. The reported finding was half the problem. |
+| D22 | A stale count in a THIRD title — "all 10 targets" | **ACCEPT** | Third instance of the D10/D18/D15 class in one run. Swept, not patched. |
 
 ---
 
@@ -595,3 +599,131 @@ insert a statement here knows the position is load-bearing rather than
 incidental.
 
 **Verdict:** ACCEPT. Inside `allowed_edit_surface`; no amendment.
+
+---
+
+## D19 — branch review REVERSED the plan's rejection of a per-lane union
+
+**When:** branch review round 1, adversarial **A-01** (`high`) and standards
+**S3** (`medium`), reached independently. Owner-ratified 2026-08-30.
+Triage: `docs/reviews/feat-1009-refusal-ledger-write-path/triage.md`.
+
+The plan rejected a discriminated union on `refusalSource` because *"a
+TypeScript copy would be a second authority over the same five facts"*, citing
+#1001's placement of those invariants in the database.
+
+**Both reviewers said that conflates two different things, and they are right.**
+Migration 116 must stay the STORAGE authority and keep all five CHECKs, because
+TypeScript cannot protect SQL written by another process or an operational
+query. **None of that requires the TypeScript API to accept states already known
+to be illegal.** A union is a compile-time PROJECTION of the same authority, and
+it cannot drift silently: adding a lane to `REFUSAL_SOURCES` without an arm is a
+compile error.
+
+Shipped as a mapped type over `RefusalSource`, with the totality guard verified
+empirically rather than assumed. `refusalCategory` is deliberately NOT narrowed
+per lane — #1001 declined to pin `held_draft`'s category because that would make
+a future re-map migration-bearing, and that decision stands.
+
+**Why it was `high` rather than a preference:** this module deliberately does
+not catch, so a mis-paired lane raises `23514` and aborts the **deciding
+transaction**. Ten more callers are planned.
+
+**The lesson is about the shape of the error.** The plan's reasoning was not
+sloppy; it was a category confusion between *where a fact is enforced* and
+*what an API may express*. Those look identical when you are defending a
+decision and different the moment someone else states them apart.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D20 — three plan-review rounds designed on a Sentry behaviour the SDK does not have
+
+**When:** branch review round 1, adversarial **A-02** (`high`).
+**This is the strongest finding of the entire run.**
+
+Plan rounds 1, 2 and 3 each found a different bug in the same five-line warning
+path:
+
+| Round | Bug | Fix |
+|---|---|---|
+| 1 | unguarded emission can abort the decision | wrap it |
+| 2 | latch-before-emit ⇒ one blip buys permanent silence | latch on success, cap attempts |
+| 3 | a LIFETIME cap ⇒ three failures then recovery is still silent | cooldown in time |
+
+Round 3's cooldown looked like the end of the chain. It was not, **because all
+three rounds reasoned about a mechanism none of them read.**
+
+The reviewer went to `node_modules` and established that `@sentry/node` 10.55.0's
+`captureMessage` returns an event id immediately — even with no client
+configured — buffers the event, sends the envelope asynchronously, and **catches
+transport failures internally rather than throwing back**. So:
+
+- "capture succeeded" only ever meant "capture was **queued**";
+- the `try/catch` could never see a DSN/network delivery failure; and
+- a real Sentry outage latched the flag with the warning undelivered — the exact
+  permanent silence rounds 2 and 3 were chasing, by a route none examined.
+
+**The shipped design makes each transport promise only what it can keep:** the
+structured log line is primary and durable, emitted first and outside the Sentry
+guard; the rate limit is per disabled EPISODE rather than per process; Sentry is
+best-effort with no `flush()`, because awaiting delivery would put network
+latency on the deciding transaction's path.
+
+**Queued for step 8 promotion, as this run's primary lesson: verify the
+primitive before designing on top of its assumed behaviour.** Three careful
+adversarial rounds are no substitute for reading the library. Note also that the
+review that caught it was reviewing CODE — the plan rounds could not have caught
+it, because a plan does not name a version.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D21 — arm 11's SQL order is pinned TWICE, and the review saw only one pin
+
+**When:** branch review round 1, standards **S4** (`low`); enlarged while fixing.
+
+S4 reported that arm 11 puts `FOR UPDATE SKIP LOCKED` before `LIMIT`, unlike its
+ten siblings, only because a test's capture regex stopped at `LIMIT` — production
+SQL shaped by a test's parser (D9's original cause).
+
+**Fixing it revealed the finding was half the problem.** The regex was widened
+and is now order-independent. But restoring the sibling ordering then failed
+`ci:tenant-scope`: `scripts/ci/tenant-scope-allowlist.ts` matches its
+`sqlSnippet` by exact whitespace-normalised equality, so the allowlist pins the
+order too — and that file was outside the fixing agent's surface.
+
+So the arm's order was constrained by **two** independent pins in two files. One
+is now gone; the other is recorded in the arm's own comment, so the next
+maintainer knows the two files move in lockstep instead of discovering it from a
+red audit.
+
+**The agent stopped and reported rather than reaching outside its surface**,
+which is exactly the behaviour the parallel-wave discipline exists to produce.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D22 — a stale count in a THIRD title, and the sweep that should have caught it
+
+**When:** branch review round 1 fixes; found by the orchestrator while reading a
+sibling agent's diff, not by any reviewer.
+
+`ArchivalPoller.test.ts` still carried
+`'logs "Nothing to archive" when all 10 targets return 0'` after the poller
+reached eleven arms.
+
+**This is the third instance of one class in this run** — D10 (`toHaveBeenCalledTimes(10)`),
+D18 (`toHaveLength(5)`), and now a stale count in prose that no assertion
+checks. It is also the fourth time the branch has been bitten by #1008's D15:
+*in this repo a documentation fix is a SWEEP, never an edit.* Twice the sweep
+was of test assertions; here it is of a test's own title, which nothing
+mechanical validates.
+
+Swept rather than patched: every count in that file was re-checked against the
+eleven arms, not just the one the eye landed on.
+
+**Verdict:** ACCEPT.
