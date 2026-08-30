@@ -1,7 +1,7 @@
 # RepWorth — Migration Inventory
 
 Base schema: `supabase/migrations/001_initial_schema.sql`
-Current head: **115** — next migration is **116**
+Current head: **116** — next migration is **117**
 All tables use UUIDv7 (time-ordered primary keys).
 
 > **LOCAL-ONLY convention:** a migration entry written before its promotion
@@ -49,6 +49,7 @@ LIMIT-5000 batches + saturation warning) unless noted. Decided 2026-06-12
 | `solicitation_suppressions` | **No TTL — an opt-out never expires (§2.1)**; a time limit on an opt-out is a violation with a cron job attached. Splits on **Suppression scope** at offboarding purge (D7): `scope='global'` rows are **retained** with `account_id` intact — the recipient's revocation against our one shared sending identity is not the account's data, and deleting one would let us mail a person who opted out (#535 §6 through a different door) — while `scope='account'` (`owner_manual`) rows hard-delete with the account. The only removal path for a retained row is the admin-only, audited **Correction path** (#645) | ArchivalPoller deliberately untouched; offboarding purge content stage + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention` — ONE entry for both scopes, #643 G2) |
 | `solicitation_unsubscribe_tokens` | **No TTL, no expiry** (§2.2): CAN-SPAM §7704(a)(3) requires the link operate ≥30 days, and there is no expiry value better than none. **Row kept; provenance scrubbed.** The offboarding purge NULLs `account_id`/`business_id`/`ask_id` and keeps `token_hash`, `normalized_handle`, `channel` and `sent_at`, so redemption still works after the sender is gone (§5.2). `outreach_id` nulls independently via `ON DELETE SET NULL` (#643 G1) whenever its outreach row is deleted, account alive or not | ArchivalPoller deliberately untouched; offboarding purge token scrub + `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`) |
 | `solicitation_suppression_corrections` | **No TTL.** The record proves an opt-out was removed and by whom; deleting it would erase the only evidence that the removal was audited. Retains `normalized_handle` indefinitely — the minimum needed to identify WHICH opt-out was removed, since `suppression_id` points at a deleted row — matching the retention posture of the `scope='global'` ledger rows it describes (spec D7). **Row kept WHOLE**, including the corrected row's `account_id`, `created_by_user_id` and `note` (D-A11): those are the evidence the removed assertion was legitimate, and for a `scope='account'` row `account_id` is the **Suppression scope** key rather than provenance | No poller touches it; the offboarding purge neither deletes nor scrubs it. Classified in `TABLE_DISPOSITIONS` (`retain_compliance_limited_pii`, `compliance_handle_hash`, `allowed_limited_retention`), and its purge-verification arm inverts the siblings above — it counts a record that survived having LOST its evidence, not one that survived at all |
+| `refusal_events` | `occurred_at` > 180 days → deleted. **ONE clock, and it is `occurred_at`** — the decision time, supplied by the writer. `created_at` is the insert stamp and is explicitly NOT a retention candidate: the skew between the two is the only measurement that would catch a writer stamping `occurred_at` with insert time, which is otherwise unmeasurable. Hard-deletes with the account on offboarding purge, and **no cascade reaches it** — its only FKs are to `accounts` and `businesses`, both `retain_deidentified` and neither carrying a referential action | **NOT YET ENFORCED.** The retention index `idx_refusal_events_archival (occurred_at, id)` ships with migration 116, but the `ArchivalPoller` arm that uses it — and the `tenant-scope-allowlist` exemption a cross-tenant sweep requires — land in **#1009**. Offboarding purge: `runContentPurgeStage` account-scoped DELETE + `TABLE_DISPOSITIONS` (`hard_delete`, `direct_account_id`, `must_be_absent`), both in migration 116's PR |
 | `solicitation_send_breaker` | **No TTL** — a **Send breaker trip** and its reset are the audit record for a platform-wide sending halt, and this table is the only sink that can hold one (`account_audit_log` is account-scoped, this event is not). Append-only: a trip row is never updated except by the single admin reset that closes it, and never deleted. **Not in `TABLE_DISPOSITIONS`**: the table carries no `account_id` and no customer data, so account offboarding has nothing to purge and purge verification has nothing to assert | No poller touches it; the offboarding purge neither deletes nor scrubs it. Not a `TENANT_TABLES` member (no `account_id`) — deny-all RLS instead, migration 110 |
 
 Revisit triggers:
@@ -2490,6 +2491,115 @@ Revisit triggers:
   `pg_index WHERE NOT indisvalid`, DROP, and re-run. Apply staging first, then
   production, both projects in lockstep. Supports the 180-day retention arms
   added in the same PR.
+
+- **116** — `refusal_events`: the **Refusal ledger**'s table (#1008; map #994,
+  schema locked in #1001). Slice 1 of 7 and the only one that is pure schema.
+  **New table**, twelve columns, five named CHECKs, three column-level enum
+  CHECKs, three indexes, deny-all RLS. Additive; nothing existed before it.
+  **NOTHING WRITES IT.** The insert helper, its `REFUSAL_LEDGER_ENABLED` kill
+  switch, the `ArchivalPoller` retention arm and the first caller are #1009;
+  the other ten write sites #1010–#1013; the **Restraint tab** #1014.
+  **WHY THE TABLE AT ALL.** The parent effort tried to derive this surface by
+  projecting over `flagged_responses`, `account_audit_log`, `solicitation_asks`
+  and four more. It could not be ordered: two of the seven lanes have no
+  immutable timestamp of their own, and one (`account_audit_log`) has no
+  location key, so joining it through `businesses` multiplied a single
+  account-wide suspension by the location count. `occurred_at` and the
+  biconditional C3 exist because of those two defects specifically.
+  **THE FIVE CHECKs, each naming a bug that is otherwise merely unlikely.**
+  C1 `refusal_events_source_subject_pairing` — the lane determines the subject
+  type totally, as a `CASE` with **no `ELSE`** wrapped in `IS TRUE`. The
+  wrapper is 114's lesson: a `CASE` that falls through returns NULL and a CHECK
+  is SATISFIED by NULL, so an eighth lane admitted by the `refusal_source`
+  CHECK and forgotten here would accept ANY subject type, silently. It also
+  cannot be proven by inserting a row — the column CHECK rejects an unmapped
+  lane first — so the suite asserts `pg_get_constraintdef` instead.
+  C2 subject completeness. C3 `business_id IS NOT NULL` ⇔ not
+  `autonomy_suspended`, biconditional so that both "account-wide but not a
+  suspension" and "a suspension pinned to one location" are unrepresentable.
+  C4 `refusal_code IS NULL` ⇔ `held_draft`.
+  C5 the code array belongs to `policy_gate_held` and contains the winner.
+  **C5 CORRECTS THE SHAPE #1001 LOCKED, and the correction is load-bearing.**
+  As locked, C5 **ADMITTED** the row it exists to forbid: with
+  `refusal_code = 'winner'` and `all_refusal_codes = ARRAY['different', NULL]`,
+  `= ANY(…)` finds no TRUE and one NULL so it returns NULL, the first arm
+  collapses to NULL, `NULL OR FALSE` is NULL, and the CHECK passes. Reproduced
+  against a live database before the fix was written. Two clauses close it:
+  `array_position(all_refusal_codes, NULL) IS NULL` forbids a NULL member
+  outright, and an outer `IS TRUE` applies C1's wrapper to the same NULL class.
+  The array's MEMBERS are deliberately NOT checked against the 22
+  `AutoApprovalBlockReason` values — that enum lives in TypeScript with no
+  migration owner, and spelling it here would create a second authority that
+  drifts.
+  **INDEXES.** `idx_refusal_events_archival (occurred_at, id)` for the #1009
+  sweep — the sweep's `ORDER BY` must match an index or it is unbounded.
+  `idx_refusal_events_account_window (account_id, occurred_at DESC)` for the
+  owner read AND the purge delete; `account_id` leads because PG16 has no skip
+  scan and the purge filters account-first, and it covers `business_id IS NULL`
+  rows without a second index. `refusal_events_subject_uniq` UNIQUE on
+  `(refusal_source, subject_id) WHERE subject_id IS NOT NULL` — **partial**, so
+  `autonomy_suspended`'s NULL subject is never deduplicated and two suspensions
+  of one account stay two distinct **Refusals**. #1009's helper must re-spell
+  that predicate BYTE-FOR-BYTE in its `ON CONFLICT`, which cannot infer a
+  partial index otherwise. Plain `CREATE INDEX`, never `CONCURRENTLY` (cannot
+  run in a migration transaction; the table holds zero rows everywhere — 112's
+  precedent).
+  **DENY-ALL RLS, and it is load-bearing rather than a default.**
+  `all_refusal_codes` is explicitly non-owner-facing (ADR 0023) and **RLS
+  filters ROWS, not COLUMNS** — an owner-readable policy would need a view or a
+  column GRANT to withhold it. Deny-all keeps the guarantee at the table.
+  **ONE TRANSACTION with `SET LOCAL lock_timeout = '10s'`** (110's and 114's
+  reasoning): psql autocommits each statement, so a partial re-run must not
+  leave the table without its indexes or its RLS posture.
+  **FOUR FILES CHANGE WITH IT, none of them optional.**
+  `scripts/ci/tenant-tables.ts` (both the `TENANT_TABLES` array **and** the
+  scope-column map — two structures, and editing only one fails the live-DB
+  completeness test); `docs/security/rls-inventory.md`, forced by that
+  membership (`rls-audit.test.ts` asserts `REQUIRED_RLS_TABLES ===
+  TENANT_TABLES` then requires a row per member);
+  `src/lib/account-offboarding/table-disposition.ts`
+  (`hard_delete`/`direct_account_id`/`must_be_absent`), forced because
+  `accountLinkedTablesFromMigrations()` parses this very file for
+  `account_id … REFERENCES accounts(id)`; and, forced in turn by THAT, a
+  `verificationQuery` arm plus an account-scoped `DELETE` in
+  `runContentPurgeStage`. **No cascade reaches this table** — its only FKs are
+  to `accounts` and `businesses`, both `retain_deidentified` and neither
+  carrying a referential action — so without the explicit DELETE the
+  `must_be_absent` classification is one the purge cannot honour. Both are
+  account-scoped and must never join through `businesses`:
+  `autonomy_suspended` rows carry `business_id IS NULL`.
+  **ORDERING IS LOAD-BEARING — 116 MUST REACH A DATABASE BEFORE THE CODE THAT
+  NAMES IT.** This is the 105/114 class. That purge `DELETE` raises `42P01` at
+  PLAN time against a database without this migration, which aborts the purge
+  transaction — and `PurgeWorker` then TERMINALIZES the offboarding after
+  bounded retries (`markPurgeTerminalFailure` + `markOutboxFailed`). Promoting
+  116 afterwards does **not** reopen it; it needs a manual re-drive. A feature
+  flag would not save you: a flag protects ROWS, a missing relation fails the
+  PARSE. Issue #1008 prescribed merge-then-promote on the assumption that no
+  deployed code names the table; that assumption did not survive the forced
+  disposition row, so this migration ships on the standard RISK=high lane
+  instead — and never ahead of CI, which is the second half of the rule:
+  **CI green → staging DDL → staging ride → owner approval → production DDL →
+  merge.** Applying production DDL before the PR exists trades one hazard for
+  a worse one.
+  **ROLLBACK IS A PR REVERT, NOT A DOWN MIGRATION.**
+  `accountLinkedTablesFromMigrations()` reads `CREATE` statements, not net
+  schema, so a 117 `DROP` would NOT release the disposition row: removing the
+  row while 116 is checked in fails CI, and keeping it while the table is
+  dropped leaves purge code naming a missing relation. The revert removes the
+  migration file and every dependent row together. An empty table with no
+  reader, writer or registry entry is inert, so leaving `refusal_events` in the
+  database is the default; any `DROP` happens out of band AFTER the revert has
+  deployed, never before.
+  **LOCAL-ONLY** — applied and verified only against the local test container
+  database (`pnpm test:db:setup`); not yet applied to staging or production.
+  Verify promotion by schema introspection (`information_schema.columns`,
+  `pg_constraint`, `pg_indexes`, `pg_class.relrowsecurity` with zero
+  `pg_policies` rows), **never** via `list_migrations`.
+  **NO `SchemaRequirement` GAP, deliberately**: the table, all three index
+  names and all five constraint names are brand new, so naming them in the
+  suite's requirement is an honest proof rather than the false-proof hazard
+  105's, 108'S, 110's and 111's entries describe.
 
 - **115** — `qr_scan_analytics_event`: widens the `analytics_events`
   `event_name` CHECK with `qr_scan_redirected` (feat-qr-review-request;

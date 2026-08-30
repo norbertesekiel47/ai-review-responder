@@ -623,6 +623,16 @@ export function verificationQuery(
         FROM solicitation_batches
         WHERE account_id = ${accountId}::uuid
       `;
+    // Account-scoped, and deliberately NOT absentByBusiness: the account-wide
+    // autonomy_suspended lane carries business_id IS NULL, so a join through
+    // businesses would report zero violations while every one of those rows
+    // survived the purge (migration 116).
+    case 'refusal_events':
+      return exec<VerificationRow[]>`
+        SELECT COUNT(*) AS violation_count
+        FROM refusal_events
+        WHERE account_id = ${accountId}::uuid
+      `;
     case 'solicitation_asks':
       return exec<VerificationRow[]>`
         SELECT COUNT(*) AS violation_count

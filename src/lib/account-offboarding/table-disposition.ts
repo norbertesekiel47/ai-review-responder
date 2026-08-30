@@ -323,6 +323,13 @@ export const TABLE_DISPOSITIONS = [
     reason: 'Judge verdict attribution has no retention rationale and is removed by the response/review FK cascades during content purge.',
   },
   {
+    table: 'refusal_events',
+    disposition: 'hard_delete',
+    scopeEvidence: 'direct_account_id',
+    purgeVerification: 'must_be_absent',
+    reason: "The Refusal ledger records the account's own workflow decisions and has no retention rationale once the account is gone. NO CASCADE REACHES IT, unlike every other hard_delete row here: its only foreign keys are to accounts and businesses, both retain_deidentified and neither carrying a referential action, so nothing removes these rows unless runContentPurgeStage deletes them explicitly (migration 116). The delete is account-scoped and must never join through businesses — autonomy_suspended rows carry business_id IS NULL and a business join would leave every one of them behind.",
+  },
+  {
     table: 'account_offboardings',
     disposition: 'scrub_in_place',
     scopeEvidence: 'direct_account_id',

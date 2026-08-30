@@ -771,11 +771,19 @@ describeWithDb(
         );
       }
 
-      // No ELSE arm — which is exactly why the wrapper is load-bearing. An
-      // eighth lane admitted by the source CHECK falls through to NULL, and a
-      // CHECK is SATISFIED by NULL. `IS TRUE` is what turns that into a
-      // rejection.
-      expect(definition).not.toContain('ELSE');
+      // The fall-through arm yields NULL, and the wrapper converts that NULL
+      // to FALSE. Together these two assertions ARE the proof: an eighth lane
+      // admitted by the source CHECK but forgotten in the CASE lands on the
+      // ELSE, a CHECK is SATISFIED by NULL, and `IS TRUE` is the only reason
+      // it is rejected instead.
+      //
+      // The migration writes NO `ELSE` — Postgres normalises the CASE and
+      // deparses the implicit fall-through as `ELSE NULL::boolean`. Asserting
+      // its ABSENCE would test pg's deparser rather than this constraint (it
+      // failed for exactly that reason on the first run). Asserting the NULL
+      // is present is the stronger claim, because it names the value the
+      // wrapper exists to defeat.
+      expect(definition).toContain('ELSE NULL::boolean');
       expect(definition).toMatch(/END\)?\s*IS TRUE/);
     });
 
