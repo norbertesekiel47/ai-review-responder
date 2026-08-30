@@ -143,6 +143,37 @@ stale against HEAD by then. This spends the two-round cap by design. A P0
 found in round 2 has no round 3 behind it — take it to the user, the same
 answer the cap has always given.
 
+## Pin the fork — do not take main after the wave opens
+
+The single most expensive event measured in a `/feature` run was not a slow
+reviewer. It was a rebase. On feat/1008, **67 of red team's 174 minutes** went
+to one post-rebase re-run (23:51 → 00:58, commit "post-rebase red-team"),
+re-proving work that had already been proven.
+
+The rule, and it is mechanical:
+
+- **Take main BEFORE step 7.** The moment to rebase or merge `origin/main` is
+  the step 3→4 checkpoint, or immediately before the review gate that opens
+  the wave. Never between.
+- **From the moment the wave dispatches, the fork point is FROZEN.**
+  `blast-radius.sh`, the review axes and the red-team pass all pin
+  fork/merge-base/head once; every later command uses those recorded SHAs, not
+  a ref that can move.
+- **If main genuinely must be taken mid-review, the round is void — say so and
+  restart it.** Do not patch around it. Every piece of evidence behind the wave
+  (gate result, fingerprint, red-team sidecar, blast radius) was derived from a
+  tree that no longer exists, and `red-team-status.mjs` will refuse the
+  `reviewed` transition on exactly that basis. Take main, re-run the full gate,
+  then open a fresh round under the same caps.
+
+Cost asymmetry is the whole argument: taking main before the wave costs one
+gate run (95 s). Taking it during the wave costs a full adversarial pass.
+
+A branch far behind main still rots, so the pre-wave check stays — it just has
+a deadline. `/feature-resume` reports main drift on resume for this reason; act
+on it while the phase is `plan_approved`, `executing` or `gate_green`, never
+once the wave is open.
+
 ## Conditional verification rounds
 
 A verification-only round (plan rounds 2-3, branch rounds 2-3) exists to

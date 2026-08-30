@@ -66,6 +66,13 @@ continue: the handoff doc's claims are hints; git state is the truth.
      resumed session that trusts a stale ref reconciles against fiction.
    - Main drift: `git rev-list --count HEAD..origin/main`. A branch far
      behind main rots — flag it and propose a rebase/merge before new work.
+     **But the phase decides whether that is still allowed.** At
+     `plan_approved`, `executing` or `gate_green`, take main now — it costs one
+     gate run. Once the review wave has opened (or the phase is `reviewed`), a
+     rebase voids the gate result, the fingerprint, the blast radius and the
+     red-team sidecar together; on feat/1008 that cost 67 minutes. Report the
+     drift, do NOT rebase, and finish the round first. See
+     `.agents/skills/feature/references/execution-lanes.md` § Pin the fork.
    - **A `reviewed` phase is a claim, not evidence — revalidate the red-team
      sidecar before trusting it or taking ANY external action:**
      `cd <worktree-root> && node .agents/skills/feature/scripts/red-team-status.mjs`.
