@@ -1,8 +1,8 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Twenty-three entries.** Twenty-three ACCEPT, zero RE-PLAN.
+**Twenty-four entries.** Twenty-four ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D23 — there
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D24 — there
 is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
@@ -32,6 +32,7 @@ genuinely bad piece of record-keeping.
 | D21 | Arm 11's SQL order is pinned TWICE — a test regex AND the allowlist snippet | **ACCEPT** | One pin removed, the other documented. The reported finding was half the problem. |
 | D22 | A stale count in a THIRD title — "all 10 targets" | **ACCEPT** | Third instance of the D10/D18/D15 class in one run. Swept, not patched. |
 | D23 | Red team: 9/9 mutants killed, no P0 — and the sweep class recurred a FIFTH and SIXTH time | **ACCEPT** | My own post-fix sweep was short by four. The class is now the run's defining finding. |
+| D24 | Surface amendment **2 of 2** — `docs/runbooks/beta-launch-alerting.md` (RT-1) | **ACCEPT** | Owner-approved. The budget is now SPENT: a third amendment triggers the abort criteria. |
 
 ---
 
@@ -798,3 +799,40 @@ and never once — the re-grep is what caught four of the six.
 
 **Verdict:** ACCEPT. Six of seven findings fixed; RT-1's routing decision is the
 owner's and is recorded in the PR description.
+
+---
+
+## D24 — surface amendment 2 of 2: `docs/runbooks/beta-launch-alerting.md`
+
+**When:** step 7.5, in response to red-team **RT-1**. Owner-approved 2026-08-30.
+**Counted mechanically** with the owner's reason:
+`feature-state.sh incr-amendment --reason "…"` → `surfaceAmendments=2`.
+
+RT-1 found that both new Sentry signals reach Sentry and stop there. The fix the
+owner chose is to correct the overstated intake claim and add both tags to the
+alerting runbook's pending checklist. That file is under `docs/runbooks/`, a tree
+the declared surface does not cover, so it needed the amendment.
+
+**Verifying the finding sharpened it.** RT-1 said neither signal pages anyone.
+Checking what the code actually emits shows that is true of only one:
+
+| Signal | Emitted as | Reaches |
+|---|---|---|
+| `subsystem:refusal_ledger` | `captureMessage(…, level: 'warning')` | **captured, not paged** — a warning-level message does not reliably classify as high priority |
+| `subsystem:autonomy_governor` | `captureException(error, …)` — defaults to level `error` | the existing default high-priority rule, i.e. email to issue owners |
+
+This is **CONFIG-1's shape exactly**, already recorded in that runbook for
+`feature:stripe_reconciliation`. CONFIG-1's own remedy — option (b), raise the
+level — is deliberately NOT applied here: a flipped kill switch is an operator's
+deliberate state, not an error, so raising it to `error` would be lying about
+severity to buy routing. The tag-based rule is the correct fix, and it waits on
+the Discord route the runbook already lists as pending.
+
+### The amendment budget is now SPENT
+
+Two of two used (D2, D24). **A third amendment triggers the abort criteria**, at
+which point the correct move is a post-mortem and a restart rather than another
+widening. Recorded here so a resumed session sees the limit before reaching for
+it.
+
+**Verdict:** ACCEPT.

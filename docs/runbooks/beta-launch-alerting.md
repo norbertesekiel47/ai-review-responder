@@ -51,6 +51,28 @@ email shares the Resend provider with the product.
 - [ ] **Cost-cap alert routed to Discord** — issues tagged
   `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
   Discord channel.
+- [ ] **Refusal ledger disabled routed to Discord** — issues tagged
+  `subsystem:refusal_ledger` at level `warning`. Emitted by `writeRefusalEvent`
+  (`src/lib/refusals/write.ts`) once per **disabled episode** whenever
+  `REFUSAL_LEDGER_ENABLED=false` and a write is attempted. **This is the only
+  signal that the ledger has a gap** — the ledger structurally cannot show its
+  own absence, since an absent row and a decision that never happened look
+  identical at read time. **It is CONFIG-1's shape exactly** (see the audit note
+  below): a `warning`-level `captureMessage` does not reliably classify as high
+  priority, so today it is captured-but-not-paged. CONFIG-1's option (b) —
+  raising the level — is **wrong here**: a flipped kill switch is a deliberate
+  operator state, not an error, so this one needs the tag-based rule rather than
+  a level change. The structured log line (`refusals:write`) is the durable
+  second transport meanwhile. Added by #1009 (red-team RT-1).
+- [ ] **Autonomy Governor candidate failure routed to Discord** — issues tagged
+  `subsystem:autonomy_governor`, emitted by `AutonomyGovernorScheduler`'s
+  per-candidate `catch`. **Unlike the row above this one is a `captureException`,
+  so it defaults to level `error` and the existing high-priority rule should
+  already reach email** — the Discord route is an upgrade, not a gap. It matters
+  because that scheduler is **not** a BullMQ worker, so `attachJobFailureSink`
+  never sees it: before #1009 a failed suspension there reached `logger.error`
+  and nothing else, leaving an account un-suspended silently on every 15-minute
+  cycle. Added by #1009.
 - [ ] **Import consent analytics drift routed to Discord** — issues tagged
   `subsystem:import_consent_analytics` at level `warning`. Emitted by
   `emitConsentEvent` (`src/lib/reviews/import-consent.ts`) when an **Import

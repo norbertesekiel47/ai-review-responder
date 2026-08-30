@@ -77,6 +77,7 @@
     "worker/background/schedulers/AutonomyGovernorScheduler.ts",
     "worker/background/schedulers/__tests__/**",
     "scripts/ci/tenant-scope-allowlist.ts",
+    "docs/runbooks/beta-launch-alerting.md",
     "docs/eservices-variables.md",
     ".claude/reference/env-vars.md",
     ".claude/reference/arch-review-log.md",
