@@ -919,4 +919,45 @@ new mutation sweep beyond re-confirming M10 dies, its sole job to re-record
 recorded here explicitly rather than quietly, because a cap that can be exceeded
 without a written reason is not a cap.
 
+### What round 3 established, by measurement
+
+M10 re-planted at HEAD: **test 29 FAILS** (30016 ms against the block's 30 s
+timeout) where the baseline passes. The kill mechanism was reproduced in
+isolation rather than assumed — connection B's insert needs `FOR KEY SHARE` on
+the `accounts` row that `account-lock.ts` holds `FOR UPDATE`, giving **55P03**
+under `lock_timeout`. All five documentation fixes were verified against source,
+including both postgres.js citations read at the installed 3.4.9.
+
+Sidecar: **status CLEAR**, 24 inventory rows, 10 killed, **zero open**. RT-1
+`accepted-risk` under the owner's authorization; RT-2 … RT-11 `fixed`.
+
+### The override, stated plainly
+
+`red-team-status.mjs` still refuses, on **exactly one** ground:
+`round must be 1 or 2 (hard cap)` (`:253`). Every other check passes — forcing
+`round: 2` in memory yields zero shape errors, recomputed counts that match, and
+a recomputed status of `CLEAR`.
+
+**The attesting agent declined to lower the number, and that was correct.**
+Writing `round: 2` over a round that genuinely happened would be a claim that
+does not match reality, which is the exact defect class this run caught nine
+times. The integrity of the record is worth more than a green checker.
+
+**Owner decision, 2026-08-30: proceed to `reviewed` with the override
+documented.** The transition is taken with the checker reporting this single
+structural objection, because the evidence it guards is genuinely current and
+self-consistent, and the objection is to a number rather than to a fact.
+
+### The tooling gap this exposes, which is NOT this branch's
+
+The cap makes an **owner-authorized late fix unshippable**: fixing a P1 in round
+2 voids round 2's own evidence, and the round that would re-establish it is over
+cap. The workflow has no attestation mode and `set-phase` has no override flag,
+so honouring the checker is discipline rather than mechanism.
+
+Patching `red-team-status.mjs` here was **rejected**: it would change a workflow
+control from inside a feature branch, spend a third surface amendment (which
+triggers the abort criteria), and set a bad precedent — a branch loosening its
+own gate. Filed as a workflow issue instead.
+
 **Verdict:** ACCEPT.
