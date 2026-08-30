@@ -19,7 +19,15 @@ fi
 # a missing .feature/ path (logs/, progress.json). The full tree is created
 # here, so a resumed or hand-armed worktree self-heals instead of failing at
 # step 5 with "no such file or directory".
-mkdir -p .feature/logs .feature/live
+#
+# review-staging/ is where the review wave's axes write while a red-team
+# mutation may be live. It sits inside gitignored .feature/ on purpose. Not
+# because a checker rejects an untracked report — red-team-status.mjs reads
+# porcelain with --untracked-files=no deliberately — but because red-team's
+# post-restore assertion is AGENT judgement made while deciding whether a
+# mutation was restored, and a sibling's file makes that call ambiguous. The
+# root copies the reports into docs/reviews/ once the finalizer returns.
+mkdir -p .feature/logs .feature/live .feature/review-staging
 
 # The step ladder is required run state, not optional decoration — a run
 # without .feature/progress.json reports progress from memory (the 1008 run

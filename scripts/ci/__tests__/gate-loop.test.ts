@@ -131,4 +131,107 @@ describe('gate-summary.sh', () => {
     expect(result.stdout).toContain('line-40');
     expect(result.stdout).not.toContain('line-35\n');
   });
+
+  // Speed lane build 5: the loop alternates full and fast runs, which write to
+  // two different files on purpose (a fast green must never reach the Stop
+  // hook). The briefing has to describe the run that JUST happened, so it
+  // picks by the recorded timestamp, never by argument order or file mtime.
+  function writeFastStatus(
+    passed: boolean,
+    checks: Array<{ name: string; result: string }>,
+    timestamp: number,
+  ): void {
+    mkdirSync(join(repo, '.feature', 'logs'), { recursive: true });
+    writeFileSync(
+      join(repo, '.feature', 'gate-fast.json'),
+      JSON.stringify({ passed, mode: 'fast', timestamp, checks }),
+    );
+  }
+
+  it('reports the fast result when it is the newer of the two', () => {
+    writeGateStatus(false, [{ name: 'test', result: 'FAIL' }]);
+    writeFastStatus(true, [{ name: 'test', result: 'PASS' }], Math.floor(Date.now() / 1000) + 30);
+    const result = run('scripts/gate-summary.sh');
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain('mode fast');
+    expect(result.stdout).toContain('proves the fix, not the branch');
+  });
+
+  it('reports the full result when the fast one is older', () => {
+    writeFastStatus(true, [{ name: 'test', result: 'PASS' }], Math.floor(Date.now() / 1000) - 600);
+    writeGateStatus(false, [{ name: 'lint', result: 'FAIL' }]);
+    const result = run('scripts/gate-summary.sh');
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('mode full');
+    expect(result.stdout).toContain('=== lint ===');
+  });
+
+  it('never tells the loop a fast green is enough', () => {
+    writeFastStatus(true, [{ name: 'test', result: 'PASS' }], Math.floor(Date.now() / 1000));
+    const result = run('scripts/gate-summary.sh');
+    expect(result.stdout).toContain('run the full gate before review');
+  });
+});
+
+// Speed lane build 5, lever B: a verification-only round exists to confirm the
+// round-1 fixes did not break what round 1 approved. When the fixes moved
+// nothing the artifact contracts on, that round re-reads unchanged prose at
+// full cost. The decision is mechanical so it is never a judgement call.
+describe('feature-state.sh plan-contract hash', () => {
+  const PLAN = 'plan.md';
+
+  function writeIntake(surface: string[], tests: string[]): void {
+    mkdirSync(join(repo, '.feature'), { recursive: true });
+    writeFileSync(
+      join(repo, '.feature', 'intake.json'),
+      JSON.stringify({ allowed_edit_surface: surface, tests_to_add: tests }),
+    );
+  }
+
+  function writePlan(body: string): void {
+    writeFileSync(join(repo, PLAN), body);
+  }
+
+  beforeEach(() => {
+    writeIntake(['src/lib/a.ts', 'src/lib/b.ts'], ['holds the veto window']);
+    writePlan('# Plan\n\n## T1 gate constant\n\n## T2 veto window\n');
+  });
+
+  it('reads UNCHANGED when nothing moved', () => {
+    expect(run('scripts/feature-state.sh', 'record-contract', PLAN).status).toBe(0);
+    const result = run('scripts/feature-state.sh', 'contract-changed', PLAN);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain('UNCHANGED');
+  });
+
+  it('reads UNCHANGED for a prose-only plan edit', () => {
+    run('scripts/feature-state.sh', 'record-contract', PLAN);
+    writePlan('# Plan\n\nNew prose that changes no structure.\n\n## T1 gate constant\n\n## T2 veto window\n');
+    expect(run('scripts/feature-state.sh', 'contract-changed', PLAN).stdout).toContain('UNCHANGED');
+  });
+
+  it('reads CHANGED when a tracer heading appears', () => {
+    run('scripts/feature-state.sh', 'record-contract', PLAN);
+    writePlan('# Plan\n\n## T1 gate constant\n\n## T2 veto window\n\n## T3 judge precondition\n');
+    expect(run('scripts/feature-state.sh', 'contract-changed', PLAN).stdout).toContain('CHANGED');
+  });
+
+  it('reads CHANGED when allowed_edit_surface widens', () => {
+    run('scripts/feature-state.sh', 'record-contract', PLAN);
+    writeIntake(['src/lib/a.ts', 'src/lib/b.ts', 'src/lib/c.ts'], ['holds the veto window']);
+    expect(run('scripts/feature-state.sh', 'contract-changed', PLAN).stdout).toContain('CHANGED');
+  });
+
+  it('reads CHANGED when a promised test title changes', () => {
+    run('scripts/feature-state.sh', 'record-contract', PLAN);
+    writeIntake(['src/lib/a.ts', 'src/lib/b.ts'], ['holds the veto window', 'refuses a stale hash']);
+    expect(run('scripts/feature-state.sh', 'contract-changed', PLAN).stdout).toContain('CHANGED');
+  });
+
+  it('reads CHANGED with no snapshot, so the failure direction is "review it"', () => {
+    const result = run('scripts/feature-state.sh', 'contract-changed', PLAN);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('CHANGED');
+    expect(result.stdout).toContain('no contract recorded');
+  });
 });
