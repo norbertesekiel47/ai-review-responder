@@ -121,6 +121,10 @@ Fix reality → Protect data → Prove value.** Pillar 1 is the centerpiece.
   "seamless," "supercharge."
 - **Honest about autonomy.** We say "runs inside your rules," never "set it
   and forget it."
+- **"AI employee" is category language, not a differentiator.** Competitors
+  already print it (Vendasta's MARiO, RingCentral's AI Receptionist). Say
+  it to name the category; prove it with governance (the Judge, the veto
+  window, the audit trail) and measured hours saved.
 
 ## 6. Channel playbook
 
