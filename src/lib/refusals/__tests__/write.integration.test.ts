@@ -51,7 +51,11 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
-import { writeRefusalEvent, type WriteRefusalEventInput } from '../write';
+import {
+  writeRefusalEvent,
+  type RefusalOccurredAt,
+  type WriteRefusalEventInput,
+} from '../write';
 
 /**
  * Declared locally rather than added to `schema-ready.ts`: that helper lives
@@ -90,9 +94,17 @@ function locationId(): string {
   return seededBusinessId;
 }
 
-/** The account-wide lane: `business_id` NULL (C3), no subject (C1/C2). */
+/**
+ * The account-wide lane: `business_id` NULL (C3), no subject (C1/C2).
+ *
+ * The override is `occurredAt` ALONE, and deliberately not a
+ * `Partial<WriteRefusalEventInput>`: the input is now a discriminated union with
+ * one arm per lane, so a partial over it would let a case override this lane's
+ * shape into another lane's — exactly the pairing the union exists to make
+ * unspellable. The decision time is the only axis these cases vary.
+ */
 function autonomySuspended(
-  overrides: Partial<WriteRefusalEventInput> = {},
+  overrides: { occurredAt?: RefusalOccurredAt } = {},
 ): WriteRefusalEventInput {
   return {
     accountId: accountId(),

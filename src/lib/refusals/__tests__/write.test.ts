@@ -93,6 +93,30 @@ function squash(value: string): string {
 }
 
 /**
+ * The warning's PRIMARY transport.
+ *
+ * `logger.warn` ends at `console.warn` with one JSON line
+ * (`src/lib/shared/logger.ts`), and that line — not the Sentry capture — is the
+ * durable half of the disabled-ledger signal: `@sentry/node`'s `captureMessage`
+ * returns an event id as soon as the event is QUEUED and swallows a failed
+ * transport send internally, so a returning capture proves nothing was
+ * delivered. Spying here is how a case asserts the signal actually landed.
+ * Silencing it also keeps the output readable now that cases warn more than once.
+ */
+function spyOnConsoleWarn() {
+  return vi.spyOn(console, 'warn').mockImplementation(() => {});
+}
+
+let consoleWarn: ReturnType<typeof spyOnConsoleWarn>;
+
+/** The disabled-ledger lines only, so another module's warning cannot inflate a count. */
+function ledgerWarnings(): unknown[] {
+  return consoleWarn.mock.calls.filter((call) =>
+    JSON.stringify(call).includes('refusal ledger disabled'),
+  );
+}
+
+/**
  * `refusal_events_subject_uniq`'s predicate, read off the migration that owns
  * it. Parsed rather than typed out: "byte-for-byte" is a claim about two
  * artifacts agreeing, and a hand-copied expectation only ever proves the copy.
@@ -113,10 +137,11 @@ beforeEach(() => {
   harness = createMockSql();
   sentryStub.captureMessage.mockReset();
   sentryStub.captureException.mockReset();
-  // Both module-level pieces of the warn-once latch — the `warned` flag and the
+  consoleWarn = spyOnConsoleWarn();
+  // Both module-level pieces of the warn latch — the episode flag and the
   // cooldown deadline — start clean, on `circuit-breaker.ts`'s `reset()`
-  // precedent. Without this, title 9's "exactly one per process" would be
-  // satisfied by whichever case ran first.
+  // precedent. Without this, title 9's "exactly one" would be satisfied by
+  // whichever case ran first.
   resetRefusalLedgerWarningForTests();
   delete process.env[LEDGER_FLAG];
 });
@@ -124,6 +149,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env[LEDGER_FLAG];
   resetRefusalLedgerWarningForTests();
+  consoleWarn.mockRestore();
 });
 
 describe('writeRefusalEvent', () => {
@@ -157,6 +183,66 @@ describe('writeRefusalEvent', () => {
     // omission.
     const withSentinel: WriteRefusalEventInput = { ...withoutOccurredAt, occurredAt: 'transaction_time' };
     expect(withSentinel.occurredAt).toBe('transaction_time');
+
+    // THE LANE NOW DETERMINES THE REST, and the same inversion is the assertion:
+    // each `@ts-expect-error` below becomes the error the day its pairing starts
+    // to compile. `WriteRefusalEventInput` is a discriminated union on
+    // `refusalSource` — one arm per lane, transcribed from migration 116's
+    // C1–C5 — so a pairing the database answers with 23514 is a type error here
+    // instead. That matters because this module deliberately does not catch: a
+    // 23514 aborts the DECIDING transaction, and the ledger would break the very
+    // decision it exists to record.
+    //
+    // Each probe is built as its OWN variable and then assigned, so the failure
+    // is one whole-object error at the assignment rather than one per field.
+    const subjectBearingSuspension = {
+      accountId: '00000000-0000-4000-8000-0000000000a1',
+      businessId: null,
+      refusalSource: 'autonomy_suspended',
+      refusalCode: 'judge_flag',
+      allRefusalCodes: null,
+      refusalCategory: 'autonomy_paused',
+      subjectType: 'response',
+      subjectId: '00000000-0000-4000-8000-0000000000c1',
+      occurredAt: 'transaction_time',
+    } as const;
+    // @ts-expect-error — C1/C2: the account-wide lane points at nothing.
+    const rejectedSubject: WriteRefusalEventInput = subjectBearingSuspension;
+
+    const codedHeldDraft = {
+      accountId: '00000000-0000-4000-8000-0000000000a1',
+      businessId: '00000000-0000-4000-8000-0000000000b1',
+      refusalSource: 'held_draft',
+      refusalCode: 'moderation_high',
+      allRefusalCodes: null,
+      refusalCategory: 'unsafe_content',
+      subjectType: 'response',
+      subjectId: '00000000-0000-4000-8000-0000000000c1',
+      occurredAt: 'transaction_time',
+    } as const;
+    // @ts-expect-error — C4: `held_draft` is the one lane with no code axis at all.
+    const rejectedCode: WriteRefusalEventInput = codedHeldDraft;
+
+    const emptyCodeSet = {
+      accountId: '00000000-0000-4000-8000-0000000000a1',
+      businessId: '00000000-0000-4000-8000-0000000000b1',
+      refusalSource: 'policy_gate_held',
+      refusalCode: 'below_min_star',
+      allRefusalCodes: [],
+      refusalCategory: 'owner_review_required',
+      subjectType: 'response',
+      subjectId: '00000000-0000-4000-8000-0000000000c1',
+      occurredAt: 'transaction_time',
+    } as const;
+    // @ts-expect-error — C5: `'{}'` is a different fact from NULL, so the array
+    // is a non-empty tuple type and an empty one is not spellable.
+    const rejectedEmptySet: WriteRefusalEventInput = emptyCodeSet;
+
+    // The probes are compile-time; these keep them referenced and prove each one
+    // is the lane it claims to be rather than a typo that would compile anyway.
+    expect(rejectedSubject.refusalSource).toBe('autonomy_suspended');
+    expect(rejectedCode.refusalSource).toBe('held_draft');
+    expect(rejectedEmptySet.refusalSource).toBe('policy_gate_held');
   });
 
   it('writeRefusalEvent writes nothing and returns when REFUSAL_LEDGER_ENABLED is the literal string false', async () => {
@@ -196,6 +282,14 @@ describe('writeRefusalEvent', () => {
     process.env[LEDGER_FLAG] = 'false';
     await writeRefusalEvent(tx(), autonomySuspended());
     expect(harness.sqlCalls, 'off again: the toggle works in BOTH directions').toHaveLength(1);
+
+    // TWO warnings, not one. The rate-limit unit is the DISABLED EPISODE, not
+    // the process: the enabled call in the middle ends the first episode, so the
+    // second outage is reported. Under a process-lifetime latch this sequence
+    // warns once and every later outage is silent for the life of the worker —
+    // and this warning is the only evidence a ledger gap exists at all.
+    expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+    expect(ledgerWarnings()).toHaveLength(2);
   });
 
   it('writeRefusalEvent emits exactly one Sentry warning per process while the kill switch stays off', async () => {
@@ -212,6 +306,8 @@ describe('writeRefusalEvent', () => {
     // at read time.
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
     expect(sentryStub.captureMessage.mock.calls[0]?.[1]).toMatchObject({ level: 'warning' });
+    // The durable transport is bounded on the same terms — one line, not five.
+    expect(ledgerWarnings()).toHaveLength(1);
     expect(harness.sqlCalls).toHaveLength(0);
   });
 
@@ -228,7 +324,26 @@ describe('writeRefusalEvent', () => {
     await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
 
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+    // …and the warning is NOT lost with it. The structured log line is emitted
+    // BEFORE the capture and OUTSIDE its `try`, in its own guard, so it is the
+    // one transport no Sentry behaviour can take away.
+    expect(ledgerWarnings()).toHaveLength(1);
     expect(harness.sqlCalls).toHaveLength(0);
+
+    // THE OTHER DIRECTION, and the one three plan-review rounds did not cover: a
+    // throwing CONSOLE. It has its own guard, so it can take neither the Sentry
+    // capture nor the helper's return with it. Under a single `try` around both
+    // transports the capture never runs and the warning leaves no trace at all.
+    // The reset clears the cooldown the first failure just bought.
+    resetRefusalLedgerWarningForTests();
+    consoleWarn.mockImplementationOnce(() => {
+      throw new Error('the log sink is gone');
+    });
+    await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
+    expect(
+      sentryStub.captureMessage,
+      'the second transport is still attempted after the first one throws',
+    ).toHaveBeenCalledTimes(2);
   });
 
   it('writeRefusalEvent re-spells the refusal_events_subject_uniq predicate byte-for-byte in its ON CONFLICT clause', async () => {
@@ -264,46 +379,80 @@ describe('writeRefusalEvent', () => {
   });
 
   it('a first Sentry capture that throws does not suppress the refusal-ledger warning permanently', async () => {
-    // Round 2 defect 3 and round 3 defect 2, pinned. Setting the once-per-process
-    // latch BEFORE the attempt trades one network blip for permanent silence
-    // about a ledger gap; a LIFETIME attempt ceiling trades three blips for the
-    // same silence. The rule is a COOLDOWN, counted in time — and time always
-    // recovers.
+    // Round 2 defect 3 and round 3 defect 2, pinned — and pinned against MANY
+    // consecutive failures, not one. Setting the latch BEFORE the attempt trades
+    // one blip for permanent silence about a ledger gap; a LIFETIME attempt
+    // ceiling (`MAX_WARN_ATTEMPTS = 3`, the defect plan review round 3 removed)
+    // trades a handful of blips for the same silence — and a single-failure
+    // fixture cannot tell the two apart, because one failure is under every
+    // plausible ceiling. FOUR failures then a recovery can. The rule is a
+    // COOLDOWN counted in time, and time always recovers.
+    const failures = 4;
     const nowSpy = vi.spyOn(Date, 'now');
     try {
-      const start = 1_800_000_000_000;
-      nowSpy.mockReturnValue(start);
-      sentryStub.captureMessage.mockImplementationOnce(() => {
-        throw new Error('sentry transport blipped');
+      let clock = 1_800_000_000_000;
+      nowSpy.mockImplementation(() => clock);
+      sentryStub.captureMessage.mockImplementation(() => {
+        throw new Error('sentry transport is down');
       });
       process.env[LEDGER_FLAG] = 'false';
 
-      // Attempt 1 throws and is swallowed. The latch is NOT set — it is set on a
-      // SUCCESSFUL capture and never before the attempt.
-      await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
-      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+      for (let attempt = 1; attempt <= failures; attempt++) {
+        // Each attempt throws and is swallowed. The episode latch is NOT set —
+        // it is set only when the capture call RETURNS, and never before it.
+        await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
+        expect(sentryStub.captureMessage, `attempt ${attempt} runs`).toHaveBeenCalledTimes(attempt);
 
-      // Inside the cooldown: no re-attempt, so a broken Sentry costs at most one
-      // swallowed call per window rather than one per decision.
-      nowSpy.mockReturnValue(start + WARN_RETRY_COOLDOWN_MS - 1);
-      await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
-      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
+        // Inside the cooldown: no re-attempt, so a broken Sentry costs at most
+        // one swallowed call per window rather than one per decision.
+        clock += WARN_RETRY_COOLDOWN_MS - 1;
+        await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
+        expect(
+          sentryStub.captureMessage,
+          `attempt ${attempt}: the window still suppresses`,
+        ).toHaveBeenCalledTimes(attempt);
 
-      // Cooldown elapsed and Sentry has recovered: the warning arrives. This is
-      // the case a lifetime ceiling loses.
-      nowSpy.mockReturnValue(start + WARN_RETRY_COOLDOWN_MS + 1);
-      await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
-      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
-      expect(sentryStub.captureMessage.mock.calls[1]?.[1]).toMatchObject({ level: 'warning' });
+        clock += 1; // window elapsed — the next iteration is allowed to attempt
+      }
 
-      // EXACTLY ONE successful warning, forever after. The latch is now set, so
-      // a further cooldown's worth of calls adds nothing.
-      nowSpy.mockReturnValue(start + WARN_RETRY_COOLDOWN_MS * 10);
+      // THE DURABLE SIGNAL LANDED ON EVERY ATTEMPT. The log line is emitted
+      // before the capture and outside its `try`, so four un-acknowledged
+      // captures still leave four operator-visible warnings. That is what makes
+      // "Sentry is best-effort with no delivery guarantee" survivable.
+      expect(ledgerWarnings()).toHaveLength(failures);
+
+      // Sentry recovers: the warning arrives. This is the case a lifetime
+      // ceiling of 3 loses, and it is why the bound is time rather than a count.
+      sentryStub.captureMessage.mockImplementation(() => 'event-id');
+      await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
+      expect(sentryStub.captureMessage.mock.calls[failures]?.[1]).toMatchObject({
+        level: 'warning',
+      });
+
+      // Exactly one acknowledged warning for the REST OF THIS EPISODE: the latch
+      // is set now, so a further cooldown's worth of decisions adds nothing.
+      clock += WARN_RETRY_COOLDOWN_MS * 10;
       await writeRefusalEvent(tx(), autonomySuspended());
       await writeRefusalEvent(tx(), autonomySuspended());
-      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(2);
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 1);
+      expect(ledgerWarnings()).toHaveLength(failures + 1);
+      expect(harness.sqlCalls, 'every call so far was on the disabled path').toHaveLength(0);
 
-      expect(harness.sqlCalls).toHaveLength(0);
+      // …but the latch belongs to the EPISODE, not the process. One enabled call
+      // ends it, and the NEXT outage warns again. A process-lifetime latch would
+      // leave that second outage silent for the life of the worker, which is the
+      // failure this design exists to avoid — the warning is the only evidence a
+      // ledger gap exists.
+      process.env[LEDGER_FLAG] = 'true';
+      await writeRefusalEvent(tx(), autonomySuspended());
+      expect(harness.sqlCalls, 'the enabled call writes and ends the episode').toHaveLength(1);
+
+      process.env[LEDGER_FLAG] = 'false';
+      await writeRefusalEvent(tx(), autonomySuspended());
+      expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 2);
+      expect(ledgerWarnings()).toHaveLength(failures + 2);
+      expect(harness.sqlCalls).toHaveLength(1);
     } finally {
       nowSpy.mockRestore();
     }

@@ -35,15 +35,17 @@
  *     the ticket says so in those words. The `.claude/CLAUDE.md` rule about
  *     best-effort work needing its own `try/catch` is about work AFTER a primary
  *     side effect; this write is INSIDE the decision, not beside it.
- *   * It does not VALIDATE its input against C1–C5. The database owns those five
- *     facts (#1001); a TypeScript copy would be a second authority that drifts —
- *     the precise defect #1001 cites when it declines to CHECK the 22
+ *   * It does not REVALIDATE its input at run time. `WriteRefusalEventInput`
+ *     projects C1–C5 into the type system and migration 116 still enforces them
+ *     in storage; a THIRD, run-time copy would be the second authority that
+ *     drifts — the precise defect #1001 cites when it declines to CHECK the 22
  *     `AutoApprovalBlockReason` members.
  *   * It does not READ. The read path is #1014.
  *
- * THE TWO `try/catch` DECISIONS BELOW LOOK CONTRADICTORY AND ARE NOT. The ledger
- * INSERT is not caught because it CARRIES the fact. The Sentry warning is caught
- * because it merely OBSERVES it. Facts propagate; observations swallow.
+ * THE `try/catch` DECISIONS BELOW LOOK CONTRADICTORY AND ARE NOT. The ledger
+ * INSERT is not caught because it CARRIES the fact. Both transports of the
+ * disabled-ledger warning are caught because they merely OBSERVE it. Facts
+ * propagate; observations swallow.
  */
 
 import * as Sentry from '@sentry/node';
@@ -64,7 +66,7 @@ const logger = createWorkerLogger('[refusals:write]');
 const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /**
- * How long a FAILED warning attempt suppresses the next one.
+ * How long a SYNCHRONOUSLY-THROWN capture suppresses the next warning attempt.
  *
  * Exported because the eval pins the recovery case on it: a cooldown counted in
  * TIME is the whole point (see `warnLedgerDisabled` below), and a test that
@@ -76,28 +78,30 @@ export const WARN_RETRY_COOLDOWN_MS = 300_000;
  * The decision time.
  *
  * `'transaction_time'` is a SENTINEL, not a default — a lane must say it. See
- * `WriteRefusalEventInput.occurredAt`.
+ * `RefusalEventBase.occurredAt`.
  */
 export type RefusalOccurredAt = Date | 'transaction_time';
 
-export interface WriteRefusalEventInput {
+// ---------------------------------------------------------------------------
+// The input — ONE ARM PER LANE.
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields every lane carries, whatever it points at.
+ *
+ * `refusalCategory` is DELIBERATELY NOT NARROWED PER LANE. #1001 considered
+ * pinning `held_draft`'s fixed category in the schema and DECLINED, because a
+ * lane whose category is fixed by its type makes a future re-map
+ * migration-bearing; narrowing it here would re-introduce in TypeScript exactly
+ * what the schema rejected. It would also make the eval's forced-`23514` case
+ * unwritable — that case bends one vocabulary entry to produce a REAL
+ * constraint violation through the real helper, and a per-lane category type
+ * would turn that into a compile error instead of the run-time abort it exists
+ * to prove.
+ */
+interface RefusalEventBase {
   accountId: string;
-  /** NULL for `autonomy_suspended` and ONLY for it — CHECK C3 is biconditional. */
-  businessId: string | null;
-  refusalSource: RefusalSource;
-  /** The code verbatim, never normalised. NULL exactly for `held_draft` — C4. */
-  refusalCode: string | null;
-  /**
-   * Non-empty, NULL-member-free, and containing `refusalCode`, for
-   * `policy_gate_held` only; NULL for every other lane — C5. NULL and `'{}'` are
-   * DIFFERENT FACTS (#1001): NULL means "this lane has no code axis" and must
-   * never collide with an empty array.
-   */
-  allRefusalCodes: readonly string[] | null;
   refusalCategory: RefusalCategory;
-  /** NULL together, or both present — C2. The lane decides which — C1. */
-  subjectType: RefusalSubjectType | null;
-  subjectId: string | null;
   /**
    * REQUIRED, never optional, and there is no default.
    *
@@ -110,60 +114,180 @@ export interface WriteRefusalEventInput {
   occurredAt: RefusalOccurredAt;
 }
 
-// ---------------------------------------------------------------------------
-// The warn-once latch — bounded in BOTH directions.
-// ---------------------------------------------------------------------------
+/** C3 — every lane but `autonomy_suspended` names the location it happened at. */
+type AtLocation = { businessId: string };
 
 /**
- * Set on a SUCCESSFUL capture, never before the attempt. Setting it first stops
- * spam but trades one transient network blip for permanent silence, and this
- * warning is the ONLY evidence a ledger gap exists.
+ * C3's other half. NULL is the STATEMENT "this is account-wide", not a missing
+ * value: the parent effort joined the audit log through `businesses` and
+ * multiplied one account-level event by the location count.
  */
-let warned = false;
+type AccountWide = { businessId: null };
+
+/** C1 fixes the subject TYPE from the lane; C2 makes the pair whole. */
+type Subject<Type extends RefusalSubjectType> = { subjectType: Type; subjectId: string };
+
+/** C1's `IS NULL` arm — the one lane that points at nothing. C2 holds either way. */
+type NoSubject = { subjectType: null; subjectId: null };
+
+/** C4 — a code, verbatim and never normalised. C5 — no array outside one lane. */
+type WithCode = { refusalCode: string; allRefusalCodes: null };
 
 /**
- * Epoch ms before which no further capture is attempted. A FAILURE sets this; it
- * is a cooldown counted in TIME, not a lifetime attempt ceiling. A ceiling
- * cannot tell "Sentry is broken" from "Sentry was briefly broken" — three
- * failures then a recovery stay silent forever under one, and recover under
- * this. Time always recovers.
+ * C4's sole exception. `held_draft` has no code axis AT ALL:
+ * `flagged_responses.reason` is moderation prose that may never leave the
+ * server, so the lane itself is the whole fact.
+ */
+type WithoutCode = { refusalCode: null; allRefusalCodes: null };
+
+/**
+ * C5 — `policy_gate_held` alone carries the co-occurring codes.
+ *
+ * `readonly [string, ...string[]]` rather than `readonly string[]` because C5
+ * requires `cardinality > 0`: NULL means "this lane has no code axis" and `'{}'`
+ * would be a different fact, so an empty array must not be spellable. (C5 also
+ * requires `refusalCode` to be a MEMBER of the array — that half stays in the
+ * database, because a type cannot express it.)
+ */
+type WithCodeSet = { refusalCode: string; allRefusalCodes: readonly [string, ...string[]] };
+
+/**
+ * The per-lane half of the input: the five fields C1–C5 pin the moment a lane is
+ * chosen — the location, both halves of the subject, and both code columns.
+ * Lanes in migration 116's order, same as `REFUSAL_SOURCES`.
+ *
+ * A COMPILE-TIME PROJECTION OF MIGRATION 116, NEVER A REPLACEMENT FOR IT. Every
+ * CHECK stays in the database and none of them is relaxed: TypeScript cannot
+ * protect a row written by another process, a `psql` session or an operational
+ * query, and #1001 locked the five CHECKs for exactly that reason. What the arms
+ * remove is a DIFFERENT failure, and one the database cannot remove — a caller
+ * pairing its lane with the wrong subject, code or location. That pairing
+ * compiles under a flat nine-field input, raises `23514`, and (because this
+ * module deliberately does not catch) ABORTS THE DECIDING TRANSACTION, so the
+ * ledger breaks the very decision it exists to record. Eleven call sites land
+ * across #1009–#1013; each now states its lane and has the rest checked for it.
+ */
+interface RefusalLaneShapes {
+  held_draft: AtLocation & Subject<'response'> & WithoutCode;
+  auto_post_revoked: AtLocation & Subject<'response'> & WithCode;
+  autonomy_suspended: AccountWide & NoSubject & WithCode;
+  ask_withheld: AtLocation & Subject<'solicitation_ask'> & WithCode;
+  outreach_withheld: AtLocation & Subject<'solicitation_outreach'> & WithCode;
+  batch_halted: AtLocation & Subject<'solicitation_batch'> & WithCode;
+  policy_gate_held: AtLocation & Subject<'response'> & WithCodeSet;
+}
+
+/**
+ * One arm per lane, discriminated on `refusalSource`.
+ *
+ * THE INDEXED ACCESS IS THE TOTALITY GUARD, and that is the whole reason this is
+ * a mapped type rather than seven hand-written arms: `RefusalLaneShapes[Lane]`
+ * is only legal while every `RefusalSource` is a key of `RefusalLaneShapes`, so
+ * an eighth lane added to `REFUSAL_SOURCES` without a shape here is `TS2536`
+ * right on this line. Adding a lane is already migration-bearing (the column
+ * CHECK and C1 must admit it first), and this makes the TypeScript half fail in
+ * the same change rather than at the first INSERT.
+ */
+export type WriteRefusalEventInput = {
+  [Lane in RefusalSource]: RefusalEventBase & { refusalSource: Lane } & RefusalLaneShapes[Lane];
+}[RefusalSource];
+
+// ---------------------------------------------------------------------------
+// The disabled-ledger warning — bounded per EPISODE, on two transports.
+// ---------------------------------------------------------------------------
+
+/**
+ * Set once the current disabled episode has warned. CLEARED the moment
+ * `writeRefusalEvent` sees the flag enabled again, because the rate-limit unit
+ * is the EPISODE and not the process: a worker outlives many flag flips, and a
+ * process-lifetime latch makes every outage after the first one silent.
+ */
+let warnedThisEpisode = false;
+
+/**
+ * Epoch ms before which no further warning attempt is made. Set ONLY when
+ * `Sentry.captureMessage` threw SYNCHRONOUSLY, and cleared with the episode.
+ *
+ * A cooldown counted in TIME, never a lifetime attempt ceiling: a ceiling cannot
+ * tell "Sentry is broken" from "Sentry was briefly broken" — three throws then a
+ * recovery stay silent forever under one, and recover under this.
  */
 let nextWarnAttemptAt = 0;
 
 /**
  * Clears BOTH halves of the latch. Test-only, on `circuit-breaker.ts`'s
  * `reset()` precedent: the state is module-level and process-local, so without
- * this the first case to run would satisfy "exactly one per process" for all the
+ * this the first case to run would satisfy "exactly one warning" for all the
  * others.
  */
 export function resetRefusalLedgerWarningForTests(): void {
-  warned = false;
+  warnedThisEpisode = false;
   nextWarnAttemptAt = 0;
 }
 
 /**
- * One warning per process while the kill switch stays off.
+ * The enabled path's one side effect: it ENDS the disabled episode.
+ *
+ * Two unconditional assignments and no I/O — cheaper than reading the state to
+ * decide whether to clear it, and this is what makes the NEXT disabled episode
+ * warn instead of inheriting the last one's silence.
+ */
+function endDisabledEpisode(): void {
+  warnedThisEpisode = false;
+  nextWarnAttemptAt = 0;
+}
+
+/**
+ * One warning per DISABLED EPISODE, on two transports.
  *
  * WHY IT EXISTS AT ALL: the ledger structurally cannot show its own gap. An
  * absent row and a decision that never happened look identical at read time, so
- * without this line a disabled ledger is invisible.
+ * without this a disabled ledger is invisible.
  *
- * WHY IT IS BOUNDED ONCE PER PROCESS: a suspended fleet would otherwise emit one
- * capture per decision and drown the signal it exists to give.
+ * THE STRUCTURED LOG LINE IS THE PRIMARY, DURABLE SIGNAL. It is emitted FIRST,
+ * in its OWN guard, OUTSIDE the Sentry attempt — it is the transport this
+ * process controls (`createWorkerLogger` writes one JSON line synchronously),
+ * and no Sentry behaviour can take it away. Its own catch exists so that a
+ * throwing console cannot take the Sentry capture with it, and cannot reject
+ * this helper: a suspension that failed BECAUSE THE LEDGER WAS TURNED OFF is the
+ * exact opposite of what a kill switch promises.
  *
- * WHY THE CATCH SWALLOWS: an unguarded emission that throws rejects before the
- * helper returns, and a suspension then fails BECAUSE THE LEDGER WAS TURNED OFF
- * — the exact opposite of what a kill switch promises. Telemetry observes the
- * path; it never carries it.
+ * SENTRY IS A BEST-EFFORT SECOND TRANSPORT WITH NO DELIVERY GUARANTEE. That is a
+ * statement about the installed SDK, not a preference: `@sentry/node` 10.55.0's
+ * `captureMessage` returns an event id immediately — it returns one even with no
+ * client configured — buffers the event, sends the envelope asynchronously, and
+ * catches a failed transport send INTERNALLY rather than throwing back. So a
+ * capture that returns means QUEUED, never DELIVERED, and a bad DSN or a dead
+ * network is indistinguishable from success at this call. Nothing here claims
+ * otherwise. Awaiting `Sentry.flush()` WOULD tell us and is deliberately not
+ * done: it would put network latency inside the deciding transaction, which is
+ * worse than an unacknowledged warning. This is why the log line, not the
+ * capture, is the signal an operator should be searching for.
  *
- * The structured log line goes FIRST so it survives even when Sentry does not.
+ * WHAT THE COOLDOWN ACTUALLY BUYS, stated accurately: it rate-limits the retry
+ * of a capture call that threw SYNCHRONOUSLY — an unusual SDK or programming
+ * failure. It does NOT retry delivery, because a delivery failure never reaches
+ * this catch. It is kept because it is cheap and because it recovers.
+ *
+ * SO THE BOUND IS: one attempt per disabled episode once the capture returns,
+ * and at most one attempt per cooldown window while capture keeps throwing —
+ * every attempt emitting the durable log line. A suspended fleet cannot drown
+ * the signal with one capture per decision, and a second outage is never silent.
  */
 function warnLedgerDisabled(): void {
-  if (warned || Date.now() < nextWarnAttemptAt) return;
+  if (warnedThisEpisode || Date.now() < nextWarnAttemptAt) return;
+
   try {
     logger.warn('refusal ledger disabled — no decisions are being recorded', {
       flag: REFUSAL_LEDGER_FLAG,
     });
+  } catch {
+    // Swallowed on purpose: a throwing console must not take the capture below
+    // with it, and must never reject the helper (see the docblock). There is by
+    // definition nothing left to log the failure with.
+  }
+
+  try {
     Sentry.captureMessage(
       `${REFUSAL_LEDGER_FLAG}=false — the Refusal ledger is not recording decisions`,
       {
@@ -171,10 +295,13 @@ function warnLedgerDisabled(): void {
         tags: { subsystem: 'refusal_ledger', flag: REFUSAL_LEDGER_FLAG },
       },
     );
-    warned = true;
+    // The episode is warned once the capture call RETURNS — which means queued,
+    // not delivered. The log line above is what makes that acceptable.
+    warnedThisEpisode = true;
   } catch {
-    // Swallowed on purpose (see the docblock). A failure buys a cooldown rather
-    // than the latch, so a recovered Sentry still gets to carry the warning.
+    // Swallowed on purpose (see the docblock). A synchronous throw buys a
+    // cooldown rather than the latch, so a recovered Sentry still gets to carry
+    // the warning within this same episode.
     nextWarnAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS;
   }
 }
@@ -232,10 +359,24 @@ export async function writeRefusalEvent(
     return;
   }
 
+  // The flag is on, so any disabled episode is over. Clearing here — rather than
+  // never — is what makes a second outage warn again.
+  endDisabledEpisode();
+
   // Column order follows migration 116 exactly. `created_at` is `DEFAULT NOW()`
   // and is deliberately NOT written: it is the INSERT stamp, and the skew
   // between it and `occurred_at` is the only measurement that would catch a
   // writer stamping the decision time wrong.
+  //
+  // BOTH HALVES OF THE `all_refusal_codes` LINE ARE LOAD-BEARING, and a
+  // "simplification" to `${input.allRefusalCodes}` breaks one or the other. The
+  // SPREAD copies a `readonly string[]` into the mutable array postgres.js's
+  // serializer requires. The explicit `null` arm keeps `null::text[]` distinct
+  // from `'{}'::text[]`: NULL means "this lane has no code axis" and is a
+  // different fact from an empty array (#1001), which C5 rejects outright.
+  // (Nothing may be commented INSIDE the template — a `--` comment would eat the
+  // rest of the squashed statement, and an interpolation inside one would emit a
+  // bind parameter Postgres never consumes.)
   await tx`
     INSERT INTO refusal_events (
       id,

@@ -321,21 +321,22 @@ export async function suspendAccountAutonomy(
   // and a violation must abort this decision rather than be hidden in the one
   // place the ledger cannot report it. The lever against a writer bug is the
   // helper's own kill switch, not a catch here.
+  //
+  // ONE ROW PER ACCOUNT, never one per location. The `autonomy_suspended` arm of
+  // `WriteRefusalEventInput` fixes the whole shape below — the null location,
+  // the absent subject, the absent code array — so this call site no longer
+  // restates C1–C5. What the type cannot say: the per-location fan-out is the
+  // precise defect the parent effort hit when it joined the audit log through
+  // `businesses` and multiplied one account-level event by the location count.
   await writeRefusalEvent(tx, {
     accountId: input.accountId,
-    // Account-wide: a suspension has no location key (CHECK C3, biconditional).
-    // The parent effort joined the audit log through `businesses` and
-    // multiplied one account-level event by the location count.
     businessId: null,
     refusalSource: 'autonomy_suspended',
-    // The trigger VERBATIM, never normalised — C4 requires a code for every
-    // lane but `held_draft`, and the verbatim code keeps skew re-derivable.
+    // The trigger VERBATIM, never normalised — the verbatim code is what keeps
+    // skew re-derivable later.
     refusalCode: input.trigger,
-    // This lane has no code axis (CHECK C5); NULL is that statement, not '{}'.
     allRefusalCodes: null,
     refusalCategory: AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES[input.trigger],
-    // This lane points at nothing, by design — C1 pairs it with a NULL subject
-    // type, C2 keeps the subject whole or absent.
     subjectType: null,
     subjectId: null,
     // The sentinel, never a JS `Date`: `NOW()` is `transaction_timestamp()` and
