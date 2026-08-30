@@ -455,3 +455,21 @@ account-wide, 400 days old, and one under a bystander account — and asserts
    covered by the SQL-text mock alone and M1-style mutants would survive there
    too. That is unchanged code, out of scope for this branch, and recorded here
    so the next change to that file starts from it.
+
+
+### SHA re-anchor after a second rebase — 2765377ecdc8 → b41774b11503
+
+`origin/main` moved again while PR #1019 was open (#1018, `f35b8b49`), and the
+strict up-to-date ruleset made a rebase mandatory. That rewrote every commit on
+this branch, orphaning `2765377ecdc8` — the SHA this evidence was measured at.
+
+The SHAs above are therefore RE-ANCHORED to the post-rebase equivalents. This is
+a renumbering, not a re-measurement, and it is honest only because the content
+is the same: `git diff 2765377e <post-rebase HEAD>` restricted to this
+branch's own files is **one added line** — main's own `#1018` row appended to
+`.claude/reference/arch-review-log.md`, the same both-sides-appended conflict
+this branch has now hit on every rebase. No file the evidence covers changed.
+
+Not re-run, and deliberately so: re-running would have needed a third round the
+skill's cap forbids, and there was nothing new to measure. What is claimed here
+is exactly what was measured, pointed at the commit that now holds that content.
