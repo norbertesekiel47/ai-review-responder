@@ -1,8 +1,8 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Twenty-two entries.** Twenty-two ACCEPT, zero RE-PLAN.
+**Twenty-three entries.** Twenty-three ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D22 — there
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D23 — there
 is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
@@ -31,6 +31,7 @@ genuinely bad piece of record-keeping.
 | D20 | Three plan rounds designed on a Sentry behaviour the SDK does not have | **ACCEPT** | The strongest finding of the run. Verify the primitive before designing on it. |
 | D21 | Arm 11's SQL order is pinned TWICE — a test regex AND the allowlist snippet | **ACCEPT** | One pin removed, the other documented. The reported finding was half the problem. |
 | D22 | A stale count in a THIRD title — "all 10 targets" | **ACCEPT** | Third instance of the D10/D18/D15 class in one run. Swept, not patched. |
+| D23 | Red team: 9/9 mutants killed, no P0 — and the sweep class recurred a FIFTH and SIXTH time | **ACCEPT** | My own post-fix sweep was short by four. The class is now the run's defining finding. |
 
 ---
 
@@ -727,3 +728,73 @@ Swept rather than patched: every count in that file was re-checked against the
 eleven arms, not just the one the eye landed on.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D23 — the red team: 9/9 mutants killed, no P0, and the sweep class recurred twice more
+
+**When:** step 7.5, red-team round 1, against committed HEAD `fc00bb9b`.
+Report: `docs/reviews/red-team/feat-1009-refusal-ledger-write-path-29ea70/`.
+
+### What it could not disprove
+
+**Mutation score: 10 planted, 9 killed, 1 survived and was arbiter-reclassified
+as EQUIVALENT** (see below), then killed by a follow-up mutant. Every mutation
+the brief demanded was planted, and the kills were by measurement rather than
+inspection: the `ON CONFLICT` predicate mutant died on a real `42P10`, the
+lane-pairing mutant died at compile time on `TS2345`, and the crossed-clock,
+episode-reset, log-placement and log-object mutants each died on this branch's
+own live-DB cases.
+
+It also verified TRUE, independently: the flag-OFF byte-identical path, "no
+migration 117", `NOW()` = `transaction_timestamp()`, all seven CI audits, and a
+PII/secret-logging sweep.
+
+### RT-4 — a mutant survived because the CLAIM was wrong, not the code
+
+M9 swallowed the helper's INSERT error and the suspension test still passed.
+That looked like fake coverage. It is not: postgres.js records `uncaughtError`
+per query inside `scope()` and **rethrows after the callback returns**
+(`index.js:290-296`), so the transaction aborts whether or not the helper
+swallows. The mutation is genuinely equivalent.
+
+**What was wrong was the test's comment**, which claimed a swallowing helper
+"would leave all three behind and a green caller". A reader would have trusted a
+guarantee the assertion does not provide. Corrected in place, and the comment now
+states plainly what the test does and does not discriminate.
+
+### RT-1 — both new Sentry signals page nobody
+
+`beta-launch-alerting.md`'s six rules key on explicit tag values with no
+catch-all, so `subsystem:refusal_ledger` and `subsystem:autonomy_governor` reach
+Sentry and stop there. **The gap is pre-existing and documented** — that runbook
+already records that no Discord route is configured, and every `warning`-level
+capture in the repo shares it — but the intake called this warning "the only
+evidence a ledger gap exists", which overstated what it delivers. The claim is
+corrected; the routing decision is the owner's.
+
+### RT-2, RT-3, and my own sweep being short a FOURTH, FIFTH and SIXTH time
+
+- **RT-3** — the fourth D16 sweep miss, and the brief predicted it. T7 appended
+  the CLOSED paragraph to `## D16`'s section and never touched the summary TABLE
+  ROW 470 lines above, which still read "unsettled". That file's own rule, 13
+  lines below the row, is *"A new deviation adds a ROW here, not just a
+  section."* The same file had already been a casualty of this twice.
+- **RT-2** — `docs/directory.md` still said "once-per-process Sentry warning"
+  while `env-vars.md`, corrected in the SAME commit, said the opposite. **That
+  commit was mine**, and its message claimed a sweep.
+- **Then my sweep of RT-2 was itself short by four**: re-running the grep found
+  three more "per process" claims in the intake and one in the plan.
+
+**This class has now bitten this branch six times** (D12 ×3, RT-2, RT-3, and the
+miss inside RT-2's own fix). It is the defining finding of the run.
+
+**The rule that actually works, and it is mechanical rather than attentive:**
+after changing a fact, grep for the FACT across every artifact and re-grep after
+fixing, in the same breath. Not the cited line, not the file the finding named,
+and never once — the re-grep is what caught four of the six.
+
+**Queued for step 8 promotion** as this run's second lesson, beside D20's.
+
+**Verdict:** ACCEPT. Six of seven findings fixed; RT-1's routing decision is the
+owner's and is recorded in the PR description.

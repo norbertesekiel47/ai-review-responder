@@ -28,7 +28,7 @@ amendment (D13) and carries explicit owner sign-off.
 | D13 | Surface amendment 2 tripped the abort criterion | **ACCEPT** | Surfaced to the owner, who chose amend-and-continue; all three added paths are forced registry rows, and the gate was otherwise green when it fired. |
 | D14 | The citation-fixing deviation staled its own citation | **ACCEPT** | A line citation edited by the same commit that moved the line; now cited by symbol. |
 | D15 | The fix for D14 reproduced D14, five times | **ACCEPT** | The meta-pattern: a fact stated in two artifacts, corrected in only one — five times over. A doc fix here is a SWEEP. |
-| D16 | The write-site split point is unsettled, and two attempts to settle it were wrong | **ACCEPT** | 3-to-3, not 3-to-1; resolved by DECLINING to resolve it — #1009's PR is what knows. |
+| D16 | The write-site split point is unsettled, and two attempts to settle it were wrong | **ACCEPT** | 3-to-3, not 3-to-1; resolved by DECLINING to resolve it — #1009's PR is what knows. **SETTLED 2026-08-30 by #1009: the first write site lands in #1009** (`autonomy_suspended`, 1 of 11). See the closing paragraph of `## D16` below. |
 
 **Five lessons queued for step 8 promotion** (D9, D11, D12, D13's
 generalisable half — the four-registry chain a new tenant table forces — and

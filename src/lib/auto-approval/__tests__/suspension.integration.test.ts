@@ -571,9 +571,19 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
       Object.assign(autonomySuspendedCategories, original);
     }
 
-    // EVERYTHING the transaction wrote is gone. A helper that swallowed the
-    // insert error would leave all three behind and a green caller; one that
-    // opened its own connection would leave them behind too.
+    // EVERYTHING the transaction wrote is gone.
+    //
+    // What this DOES discriminate: a helper that opens its own connection
+    // instead of using the caller's `tx` — its row would survive this rollback.
+    //
+    // What it does NOT discriminate, corrected after red-team RT-4: a helper
+    // that CATCHES its own insert error. postgres.js records `uncaughtError`
+    // per query inside `scope()` and rethrows it after the callback returns
+    // (`index.js:290-296`), so the transaction aborts even when the helper
+    // swallows — that mutation is EQUIVALENT, not killed. An earlier version of
+    // this comment claimed the opposite, which would have let a reader trust a
+    // guarantee this assertion does not provide. The no-catch policy is held by
+    // `write.ts`'s own comment and by review, not by this test.
     const [policy] = await sql()<{ id: string }[]>`
       SELECT id FROM auto_approval_policies
       WHERE account_id = ${requireTenant().accountId}::uuid

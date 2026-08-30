@@ -150,7 +150,7 @@ Plus four facts that are part of the interface and not of the type signature:
 
 **Implementation hidden behind that interface** — the twelve-column INSERT, the
 byte-for-byte `ON CONFLICT` predicate, the `uuidv7()` mint, the
-`'transaction_time'` sentinel resolution, the flag read, the once-per-process
+`'transaction_time'` sentinel resolution, the flag read, the per-episode
 Sentry latch.
 
 **Deletion test.** Delete this module and all five reappear at eleven call

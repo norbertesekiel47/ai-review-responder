@@ -292,18 +292,20 @@ describe('writeRefusalEvent', () => {
     expect(ledgerWarnings()).toHaveLength(2);
   });
 
-  it('writeRefusalEvent emits exactly one Sentry warning per process while the kill switch stays off', async () => {
+  it('writeRefusalEvent emits exactly one Sentry warning per disabled episode while the kill switch stays off', async () => {
     process.env[LEDGER_FLAG] = 'false';
 
     for (let call = 0; call < 5; call++) {
       await writeRefusalEvent(tx(), autonomySuspended());
     }
 
-    // ONCE per process, not once per decision: a suspended fleet would
+    // ONCE per DISABLED EPISODE, not once per decision: a suspended fleet would
     // otherwise emit one capture per refusal and drown the signal it exists to
-    // give. The warning matters because the ledger structurally cannot show its
-    // own gap — an absent row and a decision that never happened look identical
-    // at read time.
+    // give. Per EPISODE rather than per process is the point — the latch clears
+    // when the flag is next seen enabled, so a second outage in the same worker
+    // still warns (test 8 pins that). The warning matters because the ledger
+    // structurally cannot show its own gap: an absent row and a decision that
+    // never happened look identical at read time.
     expect(sentryStub.captureMessage).toHaveBeenCalledTimes(1);
     expect(sentryStub.captureMessage.mock.calls[0]?.[1]).toMatchObject({ level: 'warning' });
     // The durable transport is bounded on the same terms — one line, not five.
