@@ -276,3 +276,77 @@ point #1009 unblocks.
 both.
 
 **Verdict:** _pending step 6._
+
+---
+
+## D11 — `TENANT_TABLES` is two structures, and editing one is silently wrong
+
+**When:** Task 2.
+
+`scripts/ci/tenant-tables.ts` exports the `TENANT_TABLES` **array** of table
+names and, separately, a **scope-column map**. The first edit added only the
+map entry. Everything typechecked, and the live-DB completeness test stayed
+red with `expected [ … 43 tables ] to include 'refusal_events'`.
+
+Both structures need the entry. The plan said "add to `TENANT_TABLES`" and
+cited the map's line, which is exactly the ambiguity that produced the miss.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D12 — the C1 wrapper test asserted the absence of something Postgres adds
+
+**When:** Task 1, first run of the eval against the real migration.
+
+Task 0 authored title 7 as `expect(definition).not.toContain('ELSE')`, on the
+reasoning that the migration writes no `ELSE` and the fall-through is what
+`IS TRUE` defends. The migration indeed writes none — but **Postgres
+normalises the `CASE` and deparses the implicit fall-through as
+`ELSE NULL::boolean`**, so `pg_get_constraintdef` always contains it.
+
+Asserting its ABSENCE tests pg's deparser rather than this constraint.
+Asserting its PRESENCE is the stronger claim, because it names the exact
+value the wrapper exists to defeat. Changed to
+`expect(definition).toContain('ELSE NULL::boolean')`, keeping the
+`END … IS TRUE` assertion beside it. The two together are the proof.
+
+A test defect, not a migration defect — and one that only a real database
+could have surfaced.
+
+**Verdict:** _pending step 6._
+
+---
+
+## D13 — surface amendment 2, and the abort criterion firing as a false positive
+
+**When:** the first full green-path gate run, after Tasks 1–4.
+
+`ci:merge-ledger` requires any PR touching production or governance files to
+add a line to `.claude/reference/arch-review-log.md`. That file was outside
+`allowed_edit_surface`, so the edit-surface guard blocked the edit and
+demanded sign-off.
+
+**This is surface amendment 2, which trips the workflow's abort criterion**
+("a 2nd amendment of `allowed_edit_surface` → stop patching, post-mortem,
+tear the branch down, restart at step 1").
+
+**Surfaced to the owner rather than routed around, and the owner chose to
+amend and continue.** The reasoning recorded for audit: the abort rule exists
+to catch a feature whose scope was mis-declared. This is not that. All three
+added paths — `docs/security/rls-inventory.md`,
+`worker/jobs/account-offboarding/__tests__/PurgeWorker.test.ts` and
+`.claude/reference/arch-review-log.md` — are forced consequences of the one
+decision the owner approved during grilling (add the table), each surfaced by
+a CI audit rather than by scope creep, and each is a registry row rather than
+behaviour. The gate was otherwise fully green at the moment it fired.
+
+**The generalisable lesson, for promotion at step 8:** a new tenant table in
+this repo forces a chain of four registry files, and the chain is not
+discoverable from any one document. `TENANT_TABLES` (two structures) →
+`docs/security/rls-inventory.md` → `TABLE_DISPOSITIONS` → a
+`verificationQuery` arm and a `runContentPurgeStage` DELETE, plus
+`arch-review-log.md` for the merge itself. An intake that declares a new
+table should list all of them up front.
+
+**Verdict:** _pending step 6._
