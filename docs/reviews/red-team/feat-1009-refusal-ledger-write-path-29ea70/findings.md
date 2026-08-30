@@ -1,377 +1,319 @@
-# Red team — #1009 the Refusal ledger's write path
+# Red team — #1009 the Refusal ledger's write path — ROUND 2 (final)
 
-- **Mode:** feature · **Round:** 1 · **Risk:** high
+- **Mode:** feature · **Round:** 2 of a hard cap of 2 · **Risk:** high
 - **Branch:** `feat/1009-refusal-ledger-write-path`
 - **fork / merge-base:** `0494297a0de3a9131fae1e6f2f641eb487ae7a58`
-- **head:** `fc00bb9b7aa5a5f9ba9c65ee3afc97c54e4d5ec6`
-- **intake sha256:** `c9490646205be56c60b7c35889d0b17c5252645d04330eda1a4f420d4288a69e`
+- **head:** `2f57af488515d764b25bc8ab6f9e5342faef534f` (round 1 ran at `fc00bb9b7aa5a5f9ba9c65ee3afc97c54e4d5ec6`)
+- **intake sha256:** `2d04d7353300d4b544d1b8e2687bc0e48d2ca8e8a931af7ecc5d1bae96583eaf`
+  (round 1's `c9490646…` is superseded; the intake was amended twice since)
 
-**Mutation score — 10 planted / 9 killed / 1 survived (arbiter-reclassified equivalent).**
+**Status: OPEN_P1.** No P0. Round 1's seven findings: **5 fixed, 1 accepted-risk
+(owner-authorized), 1 open (half-fixed).** Four NEW findings, all inside the fix
+hunks or the artifacts they were supposed to sweep: **1 P1, 3 P2.**
 
-**Status: OPEN_P1.** No P0. Three P1, four P2. All dispositions `open`.
+Round 2 is verification-only by instruction: it may report on whether round 1's
+findings were resolved, and on defects introduced BY the fixes. It did not
+re-run round 1's mutation sweep and did not open new fronts against unchanged
+code. Anything else is in the out-of-scope appendix.
 
----
-
-## Run preconditions — two deviations, recorded rather than waived
-
-**W1 — the `watchers` precondition fired and was overridden on evidence.**
-`mutation-runner.mjs watchers` aborted on four processes (`pnpm dev`, `next dev`,
-two `next-server`). Its scan is a host-global `ps` pattern match with no worktree
-discrimination. `lsof -a -p <pid> -d cwd` resolved every one outside this
-worktree — three at `/Users/norbertesekiel/Developer/startups/RepWorth` (the
-parent checkout) and one at `…/RepWorth-worktrees/refactor-globals-css-extraction`
-(a different sibling worktree). No process serves or watches this worktree, so
-the precondition holds in substance and the run proceeded. Worth telling the tool
-owner: on a machine with sibling worktrees this check is unsatisfiable in
-practice and will be routinely overridden, which is how a real guard rots.
-
-**W2 — `mutation-runner run` silently disarms the live-DB lane.**
-`commandEnv` sets `TEST_DATABASE_POOL_URL` only when `--test-db` is passed to
-`run` itself; passing it to `dotenv-swap` is not enough, because
-`REPWORTH_DISABLE_LIVE_DB_SUITES` is switched on first. My first baseline of
-`write.integration.test.ts` reported **exit 0 with 4 pending and 0 executed**.
-That is this run's deviation D14 reproduced inside the red-team tooling. Every
-live-DB measurement below was re-run with `--test-db` and its executed/pending
-counts read from the JSON report, never from the exit code.
+**This report replaces round 1's at the same derived path.** Round 1's mutation
+log and duty summaries are preserved below and in `findings.json`'s inventory
+reasons, so nothing measured in round 1 is lost.
 
 ---
 
-## Findings
+## What changed since round 1 — and it is not what the diffstat suggests
 
-| ID | Sev | file:line | Finding |
+Two commits (`ec5b9485`, `2f57af48`) over ten files. **Zero production bytes.**
+Verified, not assumed: `git diff fc00bb9b..HEAD` with `docs/`, `__tests__/` and
+`*.test.ts` excluded returns nothing. That is why round 1's nine kills carry
+forward verbatim — they describe production files that are byte-identical at
+HEAD — and why round 2's measurement budget went to the fix hunks instead.
+
+---
+
+## Preconditions
+
+- **Worktree clean at a committed SHA** before the run. ✅
+- **Journal:** closed with every round-1 mutation `restored` and `dotenv.open:
+  false`; `round-start` opened **round 2** and reset the budget to 30 runs. ✅
+- **W1 recurs, and it is the same tool defect round 1 recorded.**
+  `mutation-runner.mjs watchers` aborted on four processes. `lsof -a -p <pid> -d
+  cwd` resolved every one OUTSIDE this worktree — three at the parent checkout
+  `/Users/…/RepWorth`, one at the sibling worktree
+  `…/RepWorth-worktrees/refactor-globals-css-extraction`. No process serves or
+  watches this worktree, so the precondition holds in substance and the run
+  proceeded. Two rounds in a row is now evidence, not an anecdote: on a machine
+  with sibling worktrees this check is unsatisfiable and will be routinely
+  overridden, which is how a real guard rots.
+- **Live-DB lane armed, not assumed.** Every live run exported BOTH
+  `TEST_DATABASE_POOL_URL` and `DATABASE_POOL_URL` at localhost and its
+  executed/pending counts were read from the run output, never from an exit
+  code. `suspension.integration.test.ts` reported **11 executed, 11 passed** —
+  not 11 pending.
+
+---
+
+## Round 1's seven findings — one disposition each
+
+| ID | Sev | Disposition | Evidence |
 |---|---|---|---|
-| RT-1 | **P1** | `AutonomyGovernorScheduler.ts:112` · `write.ts:291` | Both new Sentry signals have no alert-rule row — neither pages anyone |
-| RT-2 | **P1** | `docs/directory.md:890` | "the once-per-process Sentry warning" is FALSE and contradicts `env-vars.md` from the same commit |
-| RT-3 | **P1** | `feat-1008-…-deviations.md:31` | The D16 sweep is short a FOURTH time — the summary row still says "unsettled" |
-| RT-4 | P2 | `suspension.integration.test.ts:576` · `write.ts:31` | "A helper that swallowed the insert error would leave all three behind" is false; the test cannot discriminate it |
-| RT-5 | P2 | `ArchivalPoller.ts:45` · intake `observability[3]` | The reconciliation query is prose-only AND wrong past day 180 by design |
-| RT-6 | P2 | intake `rollback_plan` | Layers 2 and 3 contradict: the revert removes the sweep layer 3 relies on |
-| RT-7 | P2 | `write.test.ts:295` | Promised title says "per process"; the shipped semantic is per disabled episode |
+| RT-1 | P1 | **accepted-risk** (AUTH-1) | Both tags now carry an unchecked pending row in `beta-launch-alerting.md` (`:54`, `:66`); the intake no longer claims the warning pages anyone. Routing gap unchanged and owner-accepted. Wording defect in the new rows → **RT-9**. |
+| RT-2 | P1 | **fixed** | `docs/directory.md:890` now says "one per **disabled episode**, NEVER per process" with the queue-vs-delivery reason. Agrees with `env-vars.md:551` and with `write.ts:277-300`. |
+| RT-3 | P1 | **fixed** | `feat-1008-…-deviations.md:31` — the summary TABLE ROW now carries "SETTLED 2026-08-30 by #1009". |
+| RT-4 | P2 | **open — half fixed** | The test comment is corrected. `write.ts:32-35`'s "Catching would hide a writer bug…" — round 1's *second* false claim — is untouched, because no production byte changed. And the new comment now defers to it by name. |
+| RT-5 | P2 | **fixed** | `observability[3]` now bounds the equality to inside `REFUSAL_LEDGER_RETENTION_DAYS`, says the counts diverge past 180 days **by design** and why, and says it is prose with no runnable artifact. |
+| RT-6 | P2 | **fixed at the cited artifact** | The intake's `rollback_plan` is corrected in terms ("must not be described as self-cleaning"). The plan still states it the old way → **RT-11**. |
+| RT-7 | P2 | **fixed** | Title renamed in the test, both intake copies and the inner comment. Measured: the new title selects exactly one case and passes; promised-tests re-derived PASS over all 28. One stale *quotation* survives → **RT-10**. |
 
 ---
 
-### RT-1 (P1) — two new Sentry signals, zero alert-rule rows
+## Round 2's four new findings
 
-This branch adds two Sentry emissions:
+### RT-8 (P1) — the RT-4 fix replaced one false claim with another, and this one is measurable
 
-- `AutonomyGovernorScheduler.ts:112` — `Sentry.captureException(error, { tags: { subsystem: 'autonomy_governor' }, … })`
-- `write.ts:291` — `Sentry.captureMessage(…, { level: 'warning', tags: { subsystem: 'refusal_ledger', flag: … } })`
+`suspension.integration.test.ts:573-575`, added by the fix:
 
-`docs/runbooks/beta-launch-alerting.md` is **unchanged by this branch**
-(`git diff --stat` on that path is empty). Its §1a-do table carries exactly six
-rules and every one keys on an explicit tag VALUE — `subsystem` = `health_alert`,
-`cost_event` = `limit_exceeded`, `feature` = `stripe_reconciliation`, `subsystem`
-= `import_consent_analytics`, `finding` = `solicitation_send_breaker_tripped`,
-`feature` = `solicitation_lane`. There is no catch-all rule, and no §1 checklist
-bullet was added. Neither `subsystem:autonomy_governor` nor
-`subsystem:refusal_ledger` matches anything.
+> *What this **DOES** discriminate: a helper that opens its own connection
+> instead of using the caller's `tx` — its row would survive this rollback.*
 
-This is Duty 5's emitted-signal-with-no-rule-row half. Each signal's own stated
-rationale sharpens it:
+**It does not, and I measured it.** M10 rerouted `writeRefusalEvent`'s INSERT and
+its `occurredAtFragment` onto a freshly constructed postgres.js client instead of
+the caller's `tx`.
 
-- The Governor comment (`AutonomyGovernorScheduler.ts:99-105`) justifies the
-  capture with *"nothing else pages for it"*. With no rule row, adding the
-  capture changes nothing about paging — the account still stays un-suspended,
-  silently, every 15-minute cycle, on the autonomy safety lane.
-- `env-vars.md`'s flag row calls the ledger warning *"the ONLY evidence a ledger
-  gap exists, because the ledger structurally cannot show its own absence."* An
-  un-routed warning is not evidence anyone sees.
+- Baseline at HEAD: **1 executed, 10 skipped, passed.**
+- Under the mutant: **1 executed, 10 skipped, passed. SURVIVED.**
 
-**All six facets compared.** Signal identity and filter: no matching rule.
-Level: `error` (Governor), `warning` (ledger). Grouping title: the Governor's is
-the error message (varies); the ledger's is a constant string. Threshold/cadence:
-the Governor rule needs a FREQUENCY trigger, not first-seen — the runbook already
-spells out this reasoning for rules 4/5/6, and a repeated identical candidate
-failure groups into one issue, so first-seen fires once then stays silent through
-exactly the repetition that is the signal. Destination: the `#repworth-alerts`
-Discord action every existing rule uses.
+**Arbiter — not equivalent, not unexecuted.** The mutation is exactly the
+invariant #15 violation the comment names, and in the general case a successful
+insert on an independent connection commits regardless of the caller's rollback.
+The mutated line is the very INSERT this fixture forces to fail. It survives for
+one reason: the fixture forces a CHECK violation (an invalid `refusal_category`),
+so **no row is produced on either connection** and nothing can survive a
+rollback — which is precisely why the assertion cannot see the difference.
 
-Comparison is STATIC, per the skill. No staging delivery drill was run.
+**This was already on the record.** Round 1's RT-4 wrote: *"The test's other
+claim — 'one that opened its own connection would leave them behind too' — is
+also not discriminated by this fixture, since the forced insert fails on either
+connection and leaves nothing behind either way."* The fix deleted the catch half
+and **promoted the connection half into a positive coverage claim.**
 
----
+**P1, not P0**, and the reasoning is on the record so the owner can re-rate:
+production code is correct; M9b proves the case is not a could-not-fail test; and
+the likeliest real shape of the defect — importing `@/lib/db/server` — is blocked
+mechanically by `ci:db-imports` strict. **But note the residue:**
+`scripts/ci/db-imports-audit.ts` matches only the `db/server` specifier
+(`:24-34`), so a direct `postgres(…)` construction inside `src/lib/refusals/` is
+caught by nothing today — no ESLint boundary (invariant #1 covers `src/app/**`
+and `src/components/**`), no static-policy rule.
 
-### RT-2 (P1) — `docs/directory.md` states the opposite of `env-vars.md`, in one commit
+**Behavioural replacement.** Say what is true: this assertion discriminates a
+helper that does not write at all (M9b killed it); the own-connection property is
+held by invariant #15 and `ci:db-imports`, not by this test. Or make it real —
+let the insert SUCCEED and assert the row is gone after the rollback, which
+discriminates the connection but not the catch.
 
-`docs/directory.md:890` (the new `write.ts` row):
+### RT-9 (P2) — the new Governor row calls an email-only route "not a gap", inside the section that forbids exactly that
 
-> …and **the once-per-process Sentry warning** with its cooldown latch…
+`beta-launch-alerting.md:69-71`:
 
-`.claude/reference/env-vars.md:551`, added by the same commit:
+> *…so it defaults to level `error` and the existing high-priority rule should
+> already reach email — the Discord route is an upgrade, **not a gap**.*
 
-> Off also emits **one warning per DISABLED EPISODE** — **not per process**: the
-> latch clears the next time the helper observes the flag enabled, so a
-> `false → true → false` sequence warns twice.
+It sits under **`## 1. Non-email paging route (mandatory)`**, whose premise is
+(`:25-26`) *"Alerts must reach a **non-email** channel because admin email shares
+the Resend provider with the product."* By §1's own definition an email-only
+route **is** the gap. The checkbox is correctly left unchecked, so nothing is
+operationally lost — but the sentence invites an operator to deprioritise it.
 
-The code implements per-episode: `write.ts:235-238` (`endDisabledEpisode`) called
-unconditionally on the enabled path at `write.ts:364`. Two tests pin it
-(`write.test.ts:268` and `:442-454`), and mutation **M4** — removing that call —
-was killed by `write.test.ts:268`, so the behaviour is measured, not asserted.
+**Both factual halves check out**, so this is wording and not a false mechanism:
 
-Per CLAUDE.md's "Where things live" table `env-vars.md` is the authority for
-per-flag behaviour, so `directory.md` is the wrong one. But per-process silence
-is *precisely the defect a branch-review round corrected*, and `directory.md` is
-the code map — the file a future agent reads before touching `refusals/`. A
-reader taking it at face value concludes the second outage is silent for the life
-of the worker.
+- `AutonomyGovernorScheduler.ts:116` is `captureException(error, { tags: {
+  subsystem: 'autonomy_governor' } })` with **no** level override, so Sentry's
+  event default (`error`) applies — genuinely unlike `write.ts:291-295`, whose
+  `captureMessage` overrides `eventFromMessage`'s `"info"` default to
+  `'warning'`. The distinction the runbook draws is real.
+- The `refusal_ledger` row's "**CONFIG-1's shape exactly**" claim matches the
+  audit note it cites (`:152-158`): a `warning`-level `captureMessage`, no
+  Discord route, the only rule being the default high-priority → email one.
+- `The structured log line (refusals:write)` matches
+  `createWorkerLogger('[refusals:write]')` at `write.ts:63`.
 
-P1 rather than P0 because `directory.md` is not the authoritative owner of this
-fact and the correct statement is present in the same commit. The owner may
-reasonably escalate.
+**Second, smaller half:** CONFIG-1's evidence is a 2026-06-24 audit of
+`repworth-nv/repworth-**staging**`. The new row asserts "the existing
+high-priority rule should already reach email" without scoping it to a project or
+environment. The hedge ("should") carries it, but production was never audited.
 
----
+### RT-10 (P2) — RT-7's rename left a dangling quotation of the old title
 
-### RT-3 (P1) — the D16 sweep is short a fourth time
+`feat-1009-…-deviations.md:276` still reads *"without it **title 9's "exactly one
+per process"** is satisfied by whichever case ran first."* Title 9 no longer
+contains that phrase. The sentence's mechanism claim stays true; only the quoted
+text is stale. Found by grepping the FACT, not the cited line — the rule the
+deviations file itself proposes.
 
-D12 records the sweep table being short three times. There is a fourth.
+### RT-11 (P2) — the SEVENTH sweep miss
 
-`docs/superpowers/plans/feat-1008-migration-116-refusal-events-deviations.md:31`
-— that file's own summary table, at HEAD, unchanged by this branch:
+`feat-1009-…-plan.md:1057-1060`, `## 8. Rollback`:
 
-> `| D16 | The write-site split point is **unsettled**, and two attempts to
-> settle it were wrong | **ACCEPT** | 3-to-3, not 3-to-1; resolved by DECLINING
-> to resolve it — #1009's PR is what knows. |`
+> *Per the intake: flag flip first (no deploy), PR revert second, and **no
+> migration 117**. **Rows already written are retired by the 180-day sweep**;
+> #1002 forbids any backfill that would re-create them.*
 
-The branch appended its "CLOSED by #1009" paragraph to the `## D16` **section**
-(line ~497), roughly 470 lines below the row that indexes it. The plan's §0
-sweep table gives this file the disposition **"APPEND ONE CLOSING LINE"**, so the
-branch executed its plan faithfully — the *disposition itself* is the incomplete
-instruction, which is exactly D12's lesson recurring.
+The intake it claims to be quoting now says the opposite in terms: layer 2
+*"REMOVES THE SWEEP THAT WOULD RETIRE THEM"*, surviving rows have *"no writer, no
+reader and no pruner"*, and it *"must not be described as self-cleaning, **which
+an earlier draft of this field wrongly did**."* RT-6's fix swept the intake and
+both copies, not the plan — and the plan is the operator-facing artifact at
+revert time.
 
-The strongest evidence that this is a miss rather than a judgement call sits
-thirteen lines below the stale row, in the same file:
-
-> **This table has itself been a D15 casualty twice** — it claimed "Thirteen
-> entries" while D14 and D15 sat below it untriaged, and the count went stale
-> again when D16 landed. **A new deviation adds a ROW here, not just a section.**
-
-The sweep's stated goal — plan §0 and the arch-review-log entry — is that *"a
-reader following any pointer above lands here and must find the answer."* A
-reader landing on this file reads the summary table first and is told the point
-is unsettled.
-
-**The rest of the sweep verified clean.** All five living docs
-(`arch-review-log.md`, `migrations-log.md`, `lab-notes.md`, `currents.md`,
-`progresstracking.md`) state the settlement consistently and on the same two
-grounds (#1004's slice order, #1009 ticket §5). The arch-review-log's count word
-**"Six artifacts were swept and eight deliberately left alone"** checks out
-against §0's table (5 living docs + 1 appended paragraph; 8 do-not-touch rows).
-`feat-1008-…-plan.md:436` still says "unsettled" but sits inside `## Not in this
-PR` under a correct do-not-touch disposition.
+Rated **P2 for consistency with round 1's rating of the identical fact** (RT-6);
+the operational consequence is the same modest one — UUIDs, enum strings and
+timestamps only, deny-all RLS, offboarding purge unaffected.
 
 ---
 
-### RT-4 (P2) — a false rationale, and a guard that cannot be measured
+## The sweep — the seventh miss exists, and two more with it
 
-Mutation **M9** wrapped `write.ts`'s INSERT in `try { … } catch { return; }` —
-the exact behaviour the module docblock (`write.ts:29-37`) forbids. The covering
-test at `suspension.integration.test.ts:555` **still passed.**
+Per instruction, I grepped the **facts that changed**, not the lines that were
+cited, across the whole worktree at HEAD.
 
-**Arbiter finding: the mutation is observably EQUIVALENT**, so it is not a P0.
-postgres.js 3.4.9's `scope`
-(`node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js:290-296`)
-attaches `q.catch(e => uncaughtError || (uncaughtError = e))` to **every** query
-issued on the transaction handle and then does `if (uncaughtError) throw
-uncaughtError` after the caller's callback resolves. A catch inside the callback
-is structurally a no-op: the original `PostgresError` is re-raised and `rollback`
-runs regardless. Read at source, not assumed.
+| Fact swept | Patterns | Result |
+|---|---|---|
+| Warning scope (per-episode) | `once[- ]per[- ]process`, `per process`, `per-process`, `process lifetime`, `lifetime of the (worker\|process)` | **Clean** for the ledger. Every surviving hit belongs to another subsystem (`admission.ts`, `unsubscribe.ts`, `poller-heartbeat.ts`, `startup-assert.ts`, `billing/portal`). `CONTEXT.md`, `docs/currents.md`, `docs/progresstracking.md`, `.claude/reference/*` carry **no** ledger per-process claim. One examined-and-cleared case below. |
+| D16 settlement | `D16`, `unsettled`, `split point is unsettled` | **Clean.** `progresstracking.md:5422-5425`, `handoff.md:63`, migration 116's header and the deviations row + section all agree. `feat-1008-…-plan.md:436` still says "unsettled" but stays inside `## Not in this PR` under its recorded do-not-touch disposition (round 1 cleared this; re-confirmed). The `D16` hits in `CONTEXT.md` and the solicitation spec are a different, unrelated D16. |
+| Reconciliation window | `Reconciliation query`, `COUNT\(\*\) of refusal_events`, `must equal COUNT`, `reconcil` | **Clean.** The intake is the only artifact that states the query, and it now carries the ≤180-day bound. |
+| Rollback contradiction | `sweep retires`, `180-day sweep`, `retires them`, `self-cleaning` | **MISS → RT-11**, at `feat-1009-…-plan.md:1059`. |
+| The renamed test title | the full old title, and `exactly one per process` | **MISS → RT-10**, at `feat-1009-…-deviations.md:276`. The full old title survives only in round 1's own `findings.json`, which is a historical record and correct to leave. |
 
-Two claims are therefore false:
-
-1. `suspension.integration.test.ts:576-578` — *"A helper that swallowed the
-   insert error would leave all three behind and a green caller."* It would not,
-   and this test would not notice.
-2. `write.ts:31-36` — *"Catching would hide a writer bug in the one place the
-   ledger cannot report it."* Catching cannot hide it; the library re-raises.
-
-The test's other claim — *"one that opened its own connection would leave them
-behind too"* — is also not discriminated by this fixture, since the forced insert
-fails on either connection and leaves nothing behind either way.
-
-**Behavioural replacement:** none needed — the invariant is unfalsifiable under
-postgres.js, which is a *good* property. Delete the two false sentences and state
-what is true: the no-catch style is a readability decision and postgres.js
-enforces the outcome.
-
-The candidate row was resolved by **M9b** (deleting the `writeRefusalEvent` call
-from `suspension.ts`), which killed the same test — so it is not a
-could-not-fail test.
+**Examined and CLEARED — `feat-1009-…-plan.md:336-338`.** §2.3 states the
+per-process rule prescriptively (*"emit **one** …per process. Once per process,
+because a suspended fleet would otherwise emit one per decision"*). It is not a
+finding: a `####` subsection **inside the same §2.3**, twenty-six lines below,
+is titled *"The design above was ALSO wrong, and branch review round 1 found out
+why"* and the shipped-design list at `:391` says *"The rate limit is per DISABLED
+EPISODE, not per process… Under **the old rule** a second outage in the same
+process was silent."* The text is explicitly superseded in place. This is the
+same test round 1 applied to clear `feat-1008-…-plan.md:436`. If the owner wants
+belt-and-braces, an in-line "(superseded below)" marker at `:336` is a one-line
+fix — recorded here so the choice is visible, not filed as a finding.
 
 ---
 
-### RT-5 (P2) — the reconciliation query is prose-only and diverges by design
+## The three verifications the brief asked for by name
 
-The intake's `observability[3]` promises a per-account equality between
-`refusal_events` (`refusal_source = 'autonomy_suspended'`) and
-`account_audit_log` (`event_type = 'autonomy_suspended'`), and asserts *"A
-divergence means either the flag is off or a write is failing."*
+**Intake copies — byte-identical.** `cmp .feature/intake.json
+docs/superpowers/plans/feat-1009-refusal-ledger-write-path-intake.json` returns
+clean, and both hash to
+`2d04d7353300d4b544d1b8e2687bc0e48d2ca8e8a931af7ecc5d1bae96583eaf`. Both amendments
+(the RT-7 title, the surface entry, and the four prose fields) landed in both.
 
-**It exists nowhere runnable.** `rg "refusal_source = 'autonomy_suspended'"`
-across the repo returns only two test files and the intake itself — no runbook
-section, no `scripts/` artifact, no admin surface. A reviewer already flagged
-this; confirmed.
+**Surface amendment 2 of 2.** `docs/runbooks/beta-launch-alerting.md` is present
+in `allowed_edit_surface` in both copies, and `pnpm ci:feature-surface` re-derived
+**PASS** at HEAD: *"39 changed file(s) within the declared surface; every surface
+entry matches a file."*
 
-**As written it is wrong past 180 days.** `refusal_events` is swept at
-`REFUSAL_LEDGER_RETENTION_DAYS = 180` (`ArchivalPoller.ts:45`).
-`account_audit_log` has **no** `ArchivalPoller` arm and is retained indefinitely
-(`rg "account_audit_log" worker/background/pollers/ArchivalPoller.ts` → no
-match). Over any window older than 180 days the counts diverge *by design*, and
-the quoted sentence is false there. `ArchivalPoller.ts:36-38` acknowledges the
-ledger is shorter-lived than its sources, but the query's ≤180-day bound is
-stated nowhere.
+**Promised tests — all 28 still match byte-for-byte.** I re-derived the
+verify-gate row's exact rule (fixed-string `grep -rF` over `src worker scripts`,
+`--include='*.test.ts' --include='*.test.tsx'`) against the current intake: **28
+titles, 0 missing.** The renamed title additionally selects **exactly one**
+executed case under `vitest -t` with the runner's own regex escaping.
 
-Judgement: modest. The lane ships two real observability halves — the `Archived`
-count and the batch-limit name — both mutation-verified (M7 killed). The
-reconciliation query blocks nothing today, but the bound should be written down
-wherever it lands.
-
----
-
-### RT-6 (P2) — the rollback plan contradicts itself
-
-- Layer 2: *"PR revert on main plus a redeploy — this removes the helper, the
-  caller, **the poller arm** and the scheduler's Sentry sink together."*
-- Layer 3: *"Rows already written are not deleted by a rollback; **the 180-day
-  sweep retires them**."*
-
-After the layer-2 revert there is no 180-day sweep — layer 2 deleted it. Rows
-written before the revert sit in `refusal_events` with unbounded retention.
-
-P2 rather than P1: the rows are UUIDs, enum strings and timestamps only (no free
-text, no PII), the table has deny-all RLS, and #1008's offboarding purge still
-hard-deletes `refusal_events` per account, so an owner deletion request is
-unaffected. The rest of the rollback claim verified TRUE — layer 1's flag flip is
-byte-identical for suspension, audit and notification
-(`suspension.integration.test.ts:524` asserts the policy, the audit row and both
-outbox rows survive with zero refusal rows), and "no migration 117" is correct.
+**RT-4's postgres.js citation — substance TRUE, line range half-wrong.** The
+comment says postgres.js *"records `uncaughtError` per query inside `scope()` and
+rethrows it after the callback returns (`index.js:290-296`)"*. Read at source in
+the installed `postgres@3.4.9`: the RECORDING half is `handler(q)` at
+**`src/index.js:291-296`**, whose body is
+`q.catch(e => uncaughtError || (uncaughtError = e))` at `:292` — inside the cited
+range. The RETHROW half is `if (uncaughtError) throw uncaughtError` at
+**`:265-266`**, followed by the `catch` that issues `rollback` at `:267-273` —
+**outside** the cited range. So the mechanism claim is correct and the equivalence
+argument for M9 holds; only the citation attributes both halves to one range.
+Recorded here rather than as a separate finding because it is a sub-clause of
+RT-8's hunk; the precise correction is `:291-296` records, `:260-266` rethrows.
 
 ---
 
-### RT-7 (P2) — a promised test title names the semantic the branch replaced
+## Did any fix introduce a new defect? — the fix hunks, one by one
 
-`write.test.ts:295` — *"…emits exactly one Sentry warning **per process** while
-the kill switch stays off"*. The shipped bound is per DISABLED EPISODE. The body
-exercises only one episode (five disabled calls, no toggle), so the case is
-correct as written and is not fake coverage. But the title is frozen by
-`promised-tests` and by the intake's `observability[0]` (*"once per process"*),
-and it is the same stale phrase that produced RT-2's false `directory.md` claim.
-The intake is sha-locked; a deviation entry noting the divergence is the fix.
-
----
-
-## Duty 2 — fragile assertions: sound search, nothing found
-
-Scanned all nine changed test files for absence-of-tag proxies, exact string
-counts on rendered output, order assertions with no ordering contract,
-`toContain` where `toEqual` is meant, `toBeGreaterThan` where "exactly one" is
-the claim, and fixtures whose values coincide. Nothing qualifying. Specifically
-checked and cleared:
-
-- **Every SQL-text assertion has a live partner.** `write.test.ts:349`
-  (byte-for-byte `ON CONFLICT`) pairs with `write.integration.test.ts:202`, and
-  M1 killed the live one with a real `42P10`.
-  `ArchivalPoller.integration.test.ts:573` (source-text `ORDER BY`) pairs with
-  the crossed-clock case at `:554`, and M6 killed that one.
-- **`toBeGreaterThan` is explicitly rejected where it would mask.**
-  `suspension.integration.test.ts:469` uses `toHaveLength(1)` against a
-  two-business fixture and names `toBeGreaterThan` as the defect it exists to
-  catch.
-- **Fixture values are distinct.** `ArchivalPoller.test.ts:120` gives all eleven
-  targets distinct counts (10/20/5/100/50/7/3/9/11/13/17), so a dropped key
-  cannot be masked by a sibling's value.
-- **Both migration parsers throw on no-match.** `vocabulary.test.ts:90`, `:102`
-  and `write.test.ts:130` raise rather than returning `undefined`, so a parse
-  that silently matched nothing cannot make a case vacuous.
-- **The eval-completeness guard is not self-defeating.** `EVAL_FILES` is pinned
-  to 9 and deduped, the scan runs and throws at module scope independently of the
-  case, its nine entries match `git diff --name-only` exactly, and a positive
-  control proves the marker pattern can match.
-
-## Duty 4 — missed sibling cases: patterns, scope, exclusions
-
-**Patterns searched:** `toHaveLength\(`, `toHaveBeenCalledTimes\(`, `Ten
-|Eleven |ten arms|eleven|seven lanes|eight categories|six rules|all six|eleven
-call sites`, `ALLOWLIST_BASELINE`, `D16`, `refusal_source =
-'autonomy_suspended'`, `account_audit_log` (against `ArchivalPoller.ts`),
-`subsystem'`. **Scope:** whole worktree at HEAD. **Exclusions:** `node_modules/`,
-`.feature/`.
-
-**Result — one hit (RT-3).** Everything else cleared:
-
-- `ArchivalPoller` 10 → 11: the prose at `ArchivalPoller.ts:55`, three test
-  titles, the `queueArchivalResults` fixture and
-  `expect(mockSql).toHaveBeenCalledTimes(11)` all moved together.
-- `suspendAccountAutonomy` 5 → 6 statements: `suspension.test.ts:38` moved. The
-  five other `toHaveLength` assertions in that file are on unaffected paths and
-  the suite is green. No other caller (`JudgeWorker`,
-  `AutonomyGovernorScheduler`, `solicitation-settings.ts`,
-  `/api/admin/autonomy/unsuspend`) carries a statement-count assertion crossing
-  this transaction.
-- `ALLOWLIST_BASELINE` 370 → 371 with a matching `sqlSnippet`; `ci:tenant-scope`
-  re-derived PASS at HEAD.
-- Count words "eleven call sites" / "ten remain" / "seven lanes" / "eight
-  categories" / "Six swept, eight left alone" all cross-check.
-- No test or audit script enumerates Sentry `subsystem` tag values — which is why
-  nothing would have caught RT-1.
-
-## Duty 3 — docs vs reality
-
-`grill-me-codex/scripts/prevalidate-plan.py` was **not** used; every citation was
-hand-checked against HEAD, and I say so here as the skill requires.
-
-- `env-vars.md` `REFUSAL_LEDGER_ENABLED`: per-episode claim TRUE (code + M4);
-  "byte-identical suspension/audit/notification" TRUE
-  (`suspension.integration.test.ts:524`); the `@sentry/node` "queued, not
-  delivered" claim matches the installed 10.55.0 behaviour and the no-`flush()`
-  decision; `REFUSAL_LEDGER_RETENTION_DAYS` correctly described as a code
-  constant with no registry row, and `ci:env-registry` PASSes.
-- `docs/directory.md` `refusals/` rows: accurate except RT-2.
-- The plan's §2.2b claim that `NOW()` is `transaction_timestamp()`: **TRUE, now
-  measured twice** — `write.integration.test.ts:242` asserts it against a live
-  Postgres, and M2 (`NOW()` → `statement_timestamp()`) killed that case.
-- D16 sweep: consistent across all five living docs; incomplete only at RT-3.
-- CI audits re-derived at HEAD, all PASS: `ci:tenant-scope`, `ci:directory-map`,
-  `ci:env-registry`, `ci:static-policy`, `ci:outbox-seam`, `ci:db-imports`,
-  `ci:live-db-suites`.
-
-## Duty 5 — operational completeness
-
-- **Alert path:** RT-1. Both halves checked in both directions; no orphan rule
-  row was introduced either.
-- **Rollback:** RT-6. Flag flip and "no migration 117" verified TRUE.
-- **Flag OFF byte-identical:** TRUE for suspension, audit and notification. Not
-  byte-identical in *observability* — the OFF path now emits a log line and a
-  Sentry capture that did not exist before — but every document scopes the claim
-  to behaviour, correctly.
-- **Logging of review bodies, tokens or PII — sound search, nothing found.**
-  `write.ts:281` logs only the flag name. `AutonomyGovernorScheduler.ts:97` logs
-  `account_id` (a UUID) and `error_name` (a class), never `error.message`. The
-  new `Sentry.captureException(error, …)` does carry the error, and postgres.js
-  `PostgresError` can hold bound values in `detail`/`where` — but
-  `worker/sentry.ts` enables no `extraErrorDataIntegration`, so Sentry serializes
-  only `message` + `stack`, and Postgres puts failing-row values in `DETAIL`, not
-  in the message. `refusal_events` itself stores only UUIDs, enum strings and
-  timestamps. No finding.
+| Fix hunk | Verdict |
+|---|---|
+| `beta-launch-alerting.md` +22 lines | Two factual claims verified against code (level defaults, logger prefix, CONFIG-1 shape) — all TRUE. One wording defect → **RT-9**. |
+| `docs/directory.md:890` | Rewritten row verified against `write.ts:63, 277-300, 364` and `env-vars.md:551`. No new defect. |
+| `feat-1008-…-deviations.md:31` | Row now matches its own section. No new defect. |
+| `suspension.integration.test.ts:571-586` | **New defect → RT-8**, measured. Suite re-run at HEAD: 11 executed, 11 passed, so the comment change broke nothing executable. |
+| intake `observability`/`rollback_plan`/`edge_cases` | Verified against `ArchivalPoller.ts:36-45` and the absence of an `account_audit_log` arm. No new defect; the un-swept twin is RT-11. |
+| `write.test.ts:295-310` rename | **Measured**: selects exactly one case, passes, promised-tests PASS. No new defect; the un-swept quotation is RT-10. |
+| `plan.md:150` | Correct. No new defect. |
 
 ---
 
 ## Mutation log
 
-| # | Mutation | Target case | Outcome |
-|---|---|---|---|
-| M1 | `write.ts:406` — drop `WHERE subject_id IS NOT NULL` from `ON CONFLICT` | `write.integration.test.ts:202` | **killed** (live `42P10`) |
-| M2 | `write.ts:336` — `NOW()` → `statement_timestamp()` | `write.integration.test.ts:242` | **killed** |
-| M3 | `suspension.ts:333` — `businessId: null` → a uuid string | `pnpm typecheck` | **killed** (`TS2345`) |
-| M4 | `write.ts:364` — remove `endDisabledEpisode()` | `write.test.ts:268` | **killed** |
-| M5 | `write.ts:280-307` — fold `logger.warn` inside the Sentry `try` | `write.test.ts:314` | **killed** |
-| M6 | `ArchivalPoller.ts:394-396` — sweep `created_at` in WHERE + ORDER BY | `ArchivalPoller.integration.test.ts:554` | **killed** |
-| M7 | `ArchivalPoller.ts:433` — drop `refusal_events` from the Archived log | `ArchivalPoller.integration.test.ts:614` | **killed** |
-| M8 | `AutonomyGovernorScheduler.ts:111-118` — remove the swallowing guard | `AutonomyGovernorScheduler.test.ts:433` | **killed** |
-| M9 | `write.ts:380-408` — catch the INSERT error and return | `suspension.integration.test.ts:555` | **SURVIVED → equivalent** (RT-4) |
-| M9b | `suspension.ts:319-345` — delete the write site | `suspension.integration.test.ts:555` | **killed** (resolves M9's row) |
+Round 1's ten mutations are unchanged in force — every target file is
+byte-identical at HEAD. Round 2 planted one.
 
-The full inventory, including the fourteen excluded candidates and their reasons,
-is in `findings.json`.
+| # | Round | Mutation | Target case | Outcome |
+|---|---|---|---|---|
+| M1 | 1 | `write.ts:406` — drop `WHERE subject_id IS NOT NULL` | `write.integration.test.ts:202` | killed (live `42P10`) |
+| M2 | 1 | `write.ts:336` — `NOW()` → `statement_timestamp()` | `write.integration.test.ts:242` | killed |
+| M3 | 1 | `suspension.ts:333` — `businessId: null` → a uuid | `pnpm typecheck` | killed (`TS2345`) |
+| M4 | 1 | `write.ts:364` — remove `endDisabledEpisode()` | `write.test.ts:268` | killed |
+| M5 | 1 | `write.ts:280-307` — fold `logger.warn` inside the Sentry `try` | `write.test.ts:314` | killed |
+| M6 | 1 | `ArchivalPoller.ts:394-396` — sweep `created_at` | `ArchivalPoller.integration.test.ts:554` | killed |
+| M7 | 1 | `ArchivalPoller.ts:433` — drop the `refusal_events` key | `ArchivalPoller.integration.test.ts:614` | killed |
+| M8 | 1 | `AutonomyGovernorScheduler.ts:111-118` — remove the swallowing guard | `AutonomyGovernorScheduler.test.ts:433` | killed |
+| M9 | 1 | `write.ts:380-408` — catch the INSERT error and return | `suspension.integration.test.ts:555` | SURVIVED → equivalent (RT-4) |
+| M9b | 1 | `suspension.ts:319-345` — delete the write site | `suspension.integration.test.ts:555` | killed (resolves M9's row) |
+| **M10** | **2** | `write.ts:380/404` — run the INSERT and its fragment on a **separate postgres.js client** instead of `tx` | `suspension.integration.test.ts:555` | **SURVIVED → confirmed non-equivalent (RT-8)** |
+
+All planted mutations were journaled before the write and restored by
+`mutation-runner.mjs finalize`, which reported *"restored 1 mutated file(s) and 0
+dotenv file(s); journal closed"*. `git status --porcelain` was **empty** after
+restoration and before the first report byte was written.
+
+---
+
+## Out of scope — not triaged
+
+Round 2's brief limits it to round-1 dispositions and defects inside the fix
+hunks. The following were noticed and are recorded WITHOUT triage:
+
+- The round-1 W1 tool defect (`watchers` cannot discriminate sibling worktrees)
+  belongs to the red-team skill, not this branch.
+- `ci:db-imports` matching only the `db/server` specifier — noted inside RT-8 as
+  context for its severity, not filed as a repo finding.
+- The wider question of whether ANY `warning`-level Sentry capture in this repo
+  is routed is a pre-existing, repo-wide gap explicitly covered by AUTH-1.
+
+---
 
 ## Authorizations
 
-None.
+*Rendered from `findings.json`'s `authorizations` array — never parsed back out
+of this Markdown.*
+
+**AUTH-1** · 2026-08-30 · names **RT-1**
+
+> RT-1's disposition is accepted-risk, owner-authorized 2026-08-30: the routing
+> gap is pre-existing, documented in beta-launch-alerting.md, and shared with
+> every warning-level capture in the repo. The owner chose to correct the
+> overstated claim and add both tags to the pending checklist rather than block
+> the PR on a Sentry dashboard action this PR cannot contain.
+
+---
+
+## What the checker says, and why
+
+`red-team-status.mjs` validated the schema, deduped the rows and **recomputed the
+counts and status to match** the sidecar. It reports three blocks, all expected:
+
+1. `status is OPEN_P1` — every non-CLEAR status blocks the `reviewed` transition.
+2. `finding RT-8: a high-risk run cannot ship an open P1` — the round cap is
+   reached, so this is **user adjudication**, per the skill: any high-risk
+   `OPEN_P1` requires the user, not the orchestrator.
+3. `the worktree carries 1 tracked modification outside this run's report` — this
+   is the sidecar itself, still uncommitted at the time the checker ran. It
+   clears when the report is committed, which is step 3 of the skill's ordering.
+
+RT-4, RT-9, RT-10 and RT-11 are P2 and do not block.

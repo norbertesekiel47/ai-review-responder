@@ -1,8 +1,8 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Twenty-four entries.** Twenty-four ACCEPT, zero RE-PLAN.
+**Twenty-six entries.** Twenty-six ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D24 — there
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D26 — there
 is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
@@ -33,6 +33,8 @@ genuinely bad piece of record-keeping.
 | D22 | A stale count in a THIRD title — "all 10 targets" | **ACCEPT** | Third instance of the D10/D18/D15 class in one run. Swept, not patched. |
 | D23 | Red team: 9/9 mutants killed, no P0 — and the sweep class recurred a FIFTH and SIXTH time | **ACCEPT** | My own post-fix sweep was short by four. The class is now the run's defining finding. |
 | D24 | Surface amendment **2 of 2** — `docs/runbooks/beta-launch-alerting.md` (RT-1) | **ACCEPT** | Owner-approved. The budget is now SPENT: a third amendment triggers the abort criteria. |
+| D25 | Red-team round 2: my RT-4 fix replaced one false claim with ANOTHER, measured | **ACCEPT** | Owner chose to close the real gap. Test 29 kills the mutant that survived. Seventh and eighth instances of the class. |
+| D26 | Red-team round 3 is attestation-only and exceeds the documented cap of two | **ACCEPT** | Recorded explicitly, because a cap that can be exceeded without a written reason is not a cap. |
 
 ---
 
@@ -834,5 +836,87 @@ Two of two used (D2, D24). **A third amendment triggers the abort criteria**, at
 which point the correct move is a post-mortem and a restart rather than another
 widening. Recorded here so a resumed session sees the limit before reaching for
 it.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D25 — the RT-4 fix replaced one false claim with another, and the fix for THAT closed a real gap
+
+**When:** step 7.5, red-team **round 2** (the final round), finding **RT-8**
+(P1, measured). Owner-adjudicated 2026-08-30.
+
+### What happened
+
+Round 1's RT-4 said a test comment claimed coverage the test did not provide. I
+corrected it. **My correction asserted something else that was equally false** —
+that the test *does* discriminate a helper opening its own connection.
+
+Round 2 planted exactly that mutant (INSERT plus `occurredAtFragment` rerouted
+onto a fresh postgres.js client), baseline green, and **it SURVIVED**. It
+survives because that case's fixture forces a CHECK violation, so the INSERT
+fails on either connection and **no row exists to survive the rollback**.
+
+So: fixing a finding about a false claim, I wrote a false claim, in the same
+comment. That is the **seventh** instance of this run's defining class. The
+**eighth** turned up minutes later — the plan's §1 code sample still showed the
+pre-union flat `WriteRefusalEventInput` while the prose beneath it described the
+union.
+
+### Why it was fixed rather than accepted
+
+The owner's call. Underneath the bad comment sat a **real gap**: nothing on this
+branch discriminated an own-connection helper on the SUCCESS path, and
+`ci:db-imports` matches only the `@/lib/db/server` specifier, so a direct
+`postgres(…)` inside `src/lib/refusals/` was caught by nothing.
+
+Test 29 closes it — a successful ledger write, then a caller-owned rollback,
+then an assertion of zero rows. **It makes the comment true instead of merely
+quieter**, which is the difference between fixing a claim and deleting it.
+
+### The proof is a measurement, which is the whole point
+
+M10 was re-planted and **test 29 killed it**. The kill mechanism was itself
+verified rather than assumed: the private connection's INSERT blocks on
+`lockAutonomyAccount`'s `accounts FOR UPDATE`, reproduced in isolation under
+`lock_timeout` as `55P03`. The test's comment now records both the mechanism and
+the fact that the ASSERTION, not the hang, carries the property for any future
+caller that does not take the account lock.
+
+The RT-8 work also exposed a **third** false claim in the same file's header,
+which said an own-connection helper "would pass all of them" — untrue the moment
+test 29 existed. Swept in the same pass.
+
+### The lesson, and it is not "be more careful"
+
+Three false claims about one test, across three rounds, each written while
+fixing the previous one. What broke the chain was not attention — it was
+**planting the mutant**. A claim about what a test discriminates is checkable in
+about a minute, and none of the three authors checked it.
+
+**Queued for step 8 promotion:** a comment asserting that a test catches
+something is a claim to MEASURE, not to reason about. Plant the mutant.
+
+**Verdict:** ACCEPT.
+
+---
+
+## D26 — red-team round 3 is attestation-only, and it exceeds the documented cap
+
+**When:** after the RT-8 fix.
+
+The protocol caps red-team at **two rounds**, and both were spent. But
+`red-team-status.mjs` recomputes rather than trusts, and it correctly refuses the
+`reviewed` transition whenever the tree or the intake hash has moved since the
+sidecar was written — which the RT-8 fix did, by design and with owner approval.
+
+That leaves a genuine corner: the fix the owner authorized is the very thing that
+voids the evidence, and the round that would re-establish it is over cap.
+
+**Resolution:** a third pass that is **attestation-only** — no new findings, no
+new mutation sweep beyond re-confirming M10 dies, its sole job to re-record
+`head_sha`, `intake_sha256` and every disposition at the current HEAD. It is
+recorded here explicitly rather than quietly, because a cap that can be exceeded
+without a written reason is not a cap.
 
 **Verdict:** ACCEPT.

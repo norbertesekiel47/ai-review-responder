@@ -115,29 +115,34 @@ caller must know:
 ```ts
 export type RefusalOccurredAt = Date | 'transaction_time';
 
-export interface WriteRefusalEventInput {
-  accountId: string;
-  /** NULL for autonomy_suspended and ONLY for it — CHECK C3 is biconditional. */
-  businessId: string | null;
-  refusalSource: RefusalSource;
-  /** NULL exactly for held_draft — CHECK C4. */
-  refusalCode: string | null;
-  /** Non-empty, NULL-member-free, and containing refusalCode, for
-   *  policy_gate_held only; NULL for every other lane — CHECK C5. */
-  allRefusalCodes: readonly string[] | null;
-  refusalCategory: RefusalCategory;
-  /** NULL together, or both present — CHECK C2. The lane decides which — C1. */
-  subjectType: RefusalSubjectType | null;
-  subjectId: string | null;
-  /** REQUIRED, never optional. See §2. */
-  occurredAt: RefusalOccurredAt;
-}
+// A PER-LANE UNION, not a flat record. Built as a mapped type over
+// RefusalSource, so an eighth lane added to REFUSAL_SOURCES without a shape is
+// a compile error rather than a runtime 23514:
+//
+//   WriteRefusalEventInput =
+//     { [L in RefusalSource]:
+//         RefusalEventBase & { refusalSource: L } & RefusalLaneShapes[L]
+//     }[RefusalSource]
+//
+// The seven shapes transcribe CHECKs C1–C4 from named fragments — AtLocation /
+// AccountWide, Subject<T> / NoSubject, WithCode / WithoutCode / WithCodeSet.
+// So `autonomy_suspended` cannot carry a subject, `held_draft` cannot carry a
+// code, and `policy_gate_held`'s array is `readonly [string, ...string[]]`,
+// which makes `'{}'` unspellable.
+//
+// refusalCategory is deliberately NOT narrowed per lane — #1001 declined to pin
+// a lane's category, because that would make a future re-map migration-bearing.
 
 export async function writeRefusalEvent(
   tx: TransactionSql,
   input: WriteRefusalEventInput,
 ): Promise<void>;
 ```
+
+**This block showed the pre-union flat record until after branch review**, which
+is the eighth instance of this run's defining class — a fact corrected in the
+code and in this section's prose, and left stale in the code sample directly
+above that prose. See D25.
 
 Plus four facts that are part of the interface and not of the type signature:
 
