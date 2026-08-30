@@ -40,6 +40,8 @@ The durable artifacts win after compaction or resume:
 - `.feature/intake.json` — machine-readable scope and acceptance contract.
 - `.feature/state.json` — phase, branch, hashes, and review counters.
 - `.feature/gate-status.json` — underlying repository gate result.
+- `.feature/gate-heartbeat.json` — present only while a gate run is alive;
+  `verify-gate.sh --status` reads it to answer RUNNING / DEAD / last result.
 - `.feature/codex-gate-fingerprint.json` — proof that the gate matches the
   current HEAD, intake, staged/unstaged diff, and untracked files.
 - `.feature/progress.json` — the step ladder and tracer bullets.
@@ -47,6 +49,9 @@ The durable artifacts win after compaction or resume:
 - `docs/superpowers/plans/<branch>-intake.json` — committed audit copy when the
   user has authorized a commit.
 - The referenced spec, plan, deviations, and accepted review findings.
+- `docs/reviews/finding-checklists/<axis>.md` — committed, cross-feature:
+  every ACCEPT triage appends here, and future reviews on that axis receive
+  the file as input.
 
 Do not create a handoff merely because context is growing. Create one only when
 work is actually pausing, moving to another task, or waiting at an authority
@@ -134,10 +139,14 @@ Require `scripts/arm-check.sh` to report `ARMED`. Prefix every shell command
 with an explicit worktree `cd` and use absolute paths for edits. Do not edit the
 parent checkout from a feature worktree.
 
-Steps 0 and 1 ran in the parent checkout, so the ladder is still there. Carry
-it into the armed worktree — the command also marks the `armed` step:
+Steps 0 and 1 ran in the parent checkout, so the ladder is still there.
+`feature-setup.sh` carries it into the armed worktree mechanically, and
+`arm-check.sh` initializes a stub from the intake when no ladder exists at
+all — a run can no longer proceed without `.feature/progress.json`. Verify
+the carried ladder (or carry it yourself on an older setup script):
 
 ```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs render
 cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
 ```
 
@@ -148,7 +157,9 @@ worktree. A lane that uses no worktree skips this step instead.
 
 Use tracer bullets: each task delivers one vertical behavior slice, names its
 test seam, declares blocking edges, cites the precedent it follows, and stays
-inside `allowed_edit_surface`. Consult `codebase-design` before introducing or
+inside `allowed_edit_surface`. When the surface must widen, count the
+amendment mechanically — `bash scripts/feature-state.sh incr-amendment` —
+which refuses a second amendment without a recorded owner reason. Consult `codebase-design` before introducing or
 widening an interface.
 
 Write a plan only for standard/high work. For high-risk work, dispatch one
@@ -213,6 +224,12 @@ Before final review, run review mode:
 bash .agents/skills/feature/scripts/verified-gate.sh --review
 ```
 
+Check on a possibly-running gate with `bash
+.agents/skills/feature/scripts/verified-gate.sh --status` (RUNNING / DEAD /
+last result — never blocking-wait blind, never launch a second gate over a
+RUNNING one). To prove the tree green without advancing the phase, run
+`--baseline`.
+
 The wrapper runs the repository gate and writes a content fingerprint. After
 any edit, commit, intake change, or generated review artifact, the fingerprint
 is stale. Confirm freshness with:
@@ -243,6 +260,11 @@ fixed merge-base only after the review gate is green:
 - standard: parallel spec/correctness and maintainability reviews
 - high: the standard pair plus only the applicable risk axis
 
+Give each reviewer its axis checklist
+(`docs/reviews/finding-checklists/<axis>.md`, when it exists) with the
+instruction to check the diff against every line — accepted findings from
+past branches are the highest-yield defect classes.
+
 Require findings to include a file and line, evidence, and a concrete failure
 scenario or named violated standard. Keep speculative advice outside the
 actionable table. The root reproduces or verifies each finding, records
@@ -250,7 +272,9 @@ actionable table. The root reproduces or verifies each finding, records
 verified gate.
 
 Log every round in the transcript, one axis per round. A triage verdict that
-only exists in conversation is lost at the next compaction:
+only exists in conversation is lost at the next compaction. `round-end`
+refuses a round with no logged content, and an ACCEPT triage appends the
+finding to the axis checklist automatically:
 
 ```bash
 node .agents/skills/feature/scripts/review-log.mjs round-start --axis spec-correctness
@@ -297,8 +321,9 @@ node .agents/skills/red-team/scripts/mutation-runner.mjs finalize
    separately recorded explicit authorization, then commit only
    `docs/reviews/red-team/<slug>/findings.md` and `findings.json`.
 5. Re-run the wrapper gate last, so the fingerprint regenerates over the
-   committed report, then transition. The transition itself re-runs the status
-   check, so a stale or self-inconsistent sidecar fails the phase change:
+   committed report, then transition. The transition re-runs the red-team
+   status check AND parses the deviations file — an entry without a resolved
+   **Verdict:** ACCEPT, or any RE-PLAN, fails the phase change:
 
 ```bash
 bash .agents/skills/feature/scripts/verified-gate.sh --review

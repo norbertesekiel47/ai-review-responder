@@ -55,10 +55,81 @@
 set -uo pipefail
 
 REVIEW_MODE=false
-[ "${1:-}" = "--review" ] && REVIEW_MODE=true
+BASELINE_MODE=false
+HEARTBEAT=".feature/gate-heartbeat.json"
+
+# --status: report on a running/dead/finished gate WITHOUT running anything.
+# Three sessions burned 10-minute blocking waits on a gate that was hung or
+# never launched (2026-07-24, 2026-07-31); this answers in one command.
+#   RUNNING — the gate process is alive; shows rows done and elapsed time.
+#   DEAD    — a heartbeat exists but its pid is gone: the run crashed or was
+#             killed mid-gate and wrote no final result. Exit 3.
+#   otherwise — the last completed result (or "never ran").
+if [ "${1:-}" = "--status" ]; then
+  if [ -f "$HEARTBEAT" ]; then
+    HB_PID=$(jq -r '.pid // empty' "$HEARTBEAT")
+    HB_STARTED=$(jq -r '.startedAt // 0' "$HEARTBEAT")
+    HB_MODE=$(jq -r '.mode // "full"' "$HEARTBEAT")
+    ELAPSED=$(( $(date +%s) - HB_STARTED ))
+    TOTAL=$(jq -r '.rows | length' "$HEARTBEAT")
+    DONE=0; RUNNING_ROWS=""
+    while IFS= read -r ROW; do
+      [ -n "$ROW" ] || continue
+      if [ -f ".feature/logs/${ROW}.rc" ]; then
+        DONE=$((DONE + 1))
+      else
+        RUNNING_ROWS="${RUNNING_ROWS} ${ROW}"
+      fi
+    done < <(jq -r '.rows[]?' "$HEARTBEAT")
+    # pid-alive alone is not enough: the OS reuses pids. Require the live
+    # process to actually be a verify-gate run (same trick as live-view.mjs).
+    if [ -n "$HB_PID" ] && kill -0 "$HB_PID" 2>/dev/null \
+       && ps -o command= -p "$HB_PID" 2>/dev/null | grep -q "verify-gate"; then
+      echo "GATE STATUS: RUNNING (pid ${HB_PID}, mode ${HB_MODE}, ${ELAPSED}s elapsed)"
+      echo "  rows done: ${DONE}/${TOTAL}; still running:${RUNNING_ROWS:- (none launched yet)}"
+      exit 0
+    fi
+    echo "GATE STATUS: DEAD — pid ${HB_PID:-?} is no live verify-gate process and no final result was written (started ${ELAPSED}s ago)."
+    echo "  The run crashed or was killed mid-gate. Rows done before death: ${DONE}/${TOTAL}."
+    echo "  Tail .feature/logs/<row>.log for the last row, then re-run the gate."
+    exit 3
+  fi
+  if [ -f .feature/gate-status.json ]; then
+    LAST_TS=$(jq -r '.timestamp // 0' .feature/gate-status.json)
+    LAST_AGE=$(( $(date +%s) - LAST_TS ))
+    LAST_PASSED=$(jq -r '.passed' .feature/gate-status.json)
+    LAST_MODE=$(jq -r '.mode // "full"' .feature/gate-status.json)
+    echo "GATE STATUS: NOT RUNNING — last result passed=${LAST_PASSED} (mode ${LAST_MODE}, ${LAST_AGE}s ago)"
+    exit 0
+  fi
+  echo "GATE STATUS: NEVER RAN — no heartbeat, no .feature/gate-status.json"
+  exit 0
+fi
+
+case "${1:-}" in
+  --review) REVIEW_MODE=true ;;
+  # --baseline: run every check but NEVER advance the phase. For proving a
+  # worktree green at plan time — a baseline run once auto-advanced the phase
+  # to gate_green and had to be hand-rolled back (2026-08-08).
+  --baseline) BASELINE_MODE=true ;;
+  "") ;;
+  *) echo "usage: verify-gate.sh [--review|--baseline|--status]"; exit 2 ;;
+esac
 
 INTAKE=".feature/intake.json"
 mkdir -p .feature/logs
+
+# Heartbeat: written FIRST (before anything that can gate_abort), extended per
+# row in launch(), removed on every exit path. While it exists,
+# `verify-gate.sh --status` can tell a live run from a crashed one. Per-row
+# completion is a .rc marker written by the row's own subshell, so status
+# stays accurate while the main shell blocks in wait.
+rm -f .feature/logs/*.rc
+GATE_MODE_LABEL="full"
+[ "$REVIEW_MODE" = true ] && GATE_MODE_LABEL="review"
+[ "$BASELINE_MODE" = true ] && GATE_MODE_LABEL="baseline"
+jq -n --argjson pid "$$" --arg mode "$GATE_MODE_LABEL" --argjson now "$(date +%s)" \
+  '{pid: $pid, mode: $mode, startedAt: $now, rows: []}' > "$HEARTBEAT"
 
 # Fatal abort taken before the results table exists. Records a RED
 # gate-status.json on the way out: leaving the previous run's green file on
@@ -68,6 +139,9 @@ mkdir -p .feature/logs
 # every later failure exits THROUGH here rather than around it.
 gate_abort() {
   local row="$1" message="$2"
+  # ${HEARTBEAT:-}: the gate-rows test harness runs this body standalone
+  # under `set -u` without the heartbeat wiring.
+  [ -n "${HEARTBEAT:-}" ] && rm -f "$HEARTBEAT"
   # Best effort: TERM the launched subshells so an abort does not leave a pile
   # of visibly running rows. Their own children (pnpm → node) share this
   # shell's process group and are NOT reaped — building per-row process groups
@@ -168,7 +242,16 @@ launch() {
   while [ "$(jobs -rp | wc -l)" -ge "$MAX_PARALLEL" ]; do
     sleep 0.5
   done
-  ( "$@" ) > ".feature/logs/${name}.log" 2>&1 &
+  if [ -n "${HEARTBEAT:-}" ] && [ -f "$HEARTBEAT" ]; then
+    jq --arg row "$name" '.rows += [$row]' "$HEARTBEAT" > "${HEARTBEAT}.tmp" \
+      && mv "${HEARTBEAT}.tmp" "$HEARTBEAT"
+  fi
+  (
+    "$@" > ".feature/logs/${name}.log" 2>&1
+    RC=$?
+    echo "$RC" > ".feature/logs/${name}.rc"
+    exit "$RC"
+  ) &
   NAMES+=("$name")
   PIDS+=("$!")
 }
@@ -393,6 +476,7 @@ GATE_MODE="full"
 [ "$DOCS_ONLY" = true ] && GATE_MODE="docs_only"
 printf '{"passed":%s,"mode":"%s","timestamp":%s,"checks":%s}\n' \
   "$PASSED" "$GATE_MODE" "$(date +%s)" "$CHECKS_JSON" > .feature/gate-status.json
+rm -f "$HEARTBEAT"
 
 echo "VERIFY GATE:"
 if [ "$DOCS_ONLY" = true ]; then
@@ -417,6 +501,10 @@ if [ -n "$RECLASSIFY_MSG" ]; then
 fi
 
 if [ "$PASSED" = "true" ]; then
+  if [ "$BASELINE_MODE" = true ]; then
+    echo "GATE: GREEN (baseline — phase NOT advanced)"
+    exit 0
+  fi
   # Record the green gate in the machine-readable state (lastGreenGateSha
   # snapshot) when this is an armed feature run.
   if [ -f .feature/intake.json ] && [ -f scripts/feature-state.sh ]; then

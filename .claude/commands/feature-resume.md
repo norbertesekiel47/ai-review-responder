@@ -17,7 +17,11 @@ continue: the handoff doc's claims are hints; git state is the truth.
    from feature.md step 2 (`cd <worktree-root> && …` on every Bash call).
    If the worktree is missing, STOP and ask — never recreate it silently.
 2. **Re-arm**: `cd <worktree-root> && bash scripts/arm-check.sh`.
-   DISARMED → STOP and report instead of continuing.
+   DISARMED → STOP and report instead of continuing. arm-check also
+   self-heals the `.feature/` tree (`logs/`, `live/`) and auto-initializes
+   the step ladder from the intake when `.feature/progress.json` is missing
+   — a resumed pre-ladder worktree arms cleanly instead of failing at the
+   gate with "no such file or directory".
 3. **Reconcile claimed state against git state** (do this BEFORE trusting
    the handoff doc):
    - Read `.feature/state.json` FIRST — the machine-readable phase record
@@ -46,6 +50,10 @@ continue: the handoff doc's claims are hints; git state is the truth.
    - Staleness: is `.feature/gate-status.json` missing, red, or older than
      HEAD? Does `state.json`'s `lastGreenGateSha` match HEAD? Say so now —
      don't leave it for the Stop hook to catch later.
+   - A gate may still be (or claim to be) running from the prior session:
+     `bash scripts/verify-gate.sh --status` answers RUNNING / DEAD / last
+     result in one command. Never blocking-wait for a gate you have not
+     confirmed alive, and never launch a second gate over a RUNNING one.
    - Stale commit refs in the handoff: every SHA the handoff doc cites must
      still resolve (`git cat-file -e <sha>^{commit}`), and any `HEAD is
      <sha>` claim must equal `git rev-parse HEAD`. Run it mechanically —

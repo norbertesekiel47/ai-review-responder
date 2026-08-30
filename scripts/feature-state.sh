@@ -3,6 +3,7 @@
 #
 #   bash scripts/feature-state.sh set-phase <phase>
 #   bash scripts/feature-state.sh incr-round <plan|branch>
+#   bash scripts/feature-state.sh incr-amendment [--reason "<owner-approved reason>"]
 #
 # Phases (forward-only by convention; the enum is the contract):
 #   worktree_ready  plan_approved  executing  gate_green  reviewed  shipped
@@ -18,9 +19,15 @@
 # new count. Review-round caps live in feature.md; the counter lives HERE so
 # a resumed session continues the count instead of resetting to round 1 —
 # uncounted rounds are how #628 reached a round-5 review under a "max 3" cap.
+#
+# incr-amendment: counts allowed_edit_surface amendments in the same durable
+# place, and ENFORCES the abort criteria instead of narrating them — feat-898
+# recorded "AMENDMENT 3 of 2" with the budget tracked only in prose. The 1st
+# amendment passes; the 2nd and later refuse unless --reason records the
+# owner's explicit sign-off (same shape as the ALLOW_DESTRUCTIVE_GIT escape).
 set -uo pipefail
 
-COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch>}
+COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch> | incr-amendment [--reason "..."]}
 
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
@@ -81,8 +88,37 @@ case "$COMMAND" in
     echo "feature-state: ${KEY}=${COUNT} → .feature/state.json"
     ;;
 
+  incr-amendment)
+    REASON=""
+    if [ "${2:-}" = "--reason" ]; then
+      REASON=${3:-}
+      [ -n "$REASON" ] || { echo "incr-amendment: --reason needs a value"; exit 1; }
+    elif [ -n "${2:-}" ]; then
+      echo "usage: feature-state.sh incr-amendment [--reason \"<owner-approved reason>\"]"
+      exit 1
+    fi
+
+    COUNT=$(printf '%s' "$PREV" | jq -r '.surfaceAmendments // 0')
+    NEXT=$((COUNT + 1))
+    if [ "$NEXT" -ge 2 ] && [ -z "$REASON" ]; then
+      echo "feature-state: REFUSED — surface amendment ${NEXT} hits the abort criteria (2nd amendment of allowed_edit_surface)."
+      echo "Stop and re-plan with the owner (feature.md step 5 abort criteria), or record their explicit sign-off:"
+      echo "  bash scripts/feature-state.sh incr-amendment --reason \"<owner-approved reason>\""
+      exit 1
+    fi
+    [ -n "$REASON" ] || REASON="auto-approved (1st amendment)"
+
+    printf '%s' "$PREV" | jq --arg reason "$REASON" --arg now "$NOW" \
+      '.surfaceAmendments = ((.surfaceAmendments // 0) + 1)
+       | .surfaceAmendmentLog = ((.surfaceAmendmentLog // []) + [{n: .surfaceAmendments, reason: $reason, at: $now}])
+       | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+
+    echo "feature-state: surfaceAmendments=${NEXT} → .feature/state.json"
+    ;;
+
   *)
-    echo "unknown command '$COMMAND' (set-phase | incr-round)"
+    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment)"
     exit 1
     ;;
 esac

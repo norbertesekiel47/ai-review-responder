@@ -15,6 +15,35 @@ if [ ! -f .feature/intake.json ]; then
   exit 1
 fi
 
+# Bootstrap (2026-08-29 skill hardening): four runs across six weeks failed on
+# a missing .feature/ path (logs/, progress.json). The full tree is created
+# here, so a resumed or hand-armed worktree self-heals instead of failing at
+# step 5 with "no such file or directory".
+mkdir -p .feature/logs .feature/live
+
+# The step ladder is required run state, not optional decoration — a run
+# without .feature/progress.json reports progress from memory (the 1008 run
+# shipped with no ladder and no live view). When missing, initialize it from
+# the intake; feature-setup.sh carries the parent checkout's ladder over this
+# stub when one exists (the parent copy has the real orient/intake history).
+PROGRESS_MJS=".agents/skills/feature/scripts/progress.mjs"
+if [ ! -f .feature/progress.json ]; then
+  if [ -f "$PROGRESS_MJS" ] && command -v node >/dev/null 2>&1; then
+    LADDER_RISK=$(jq -r '.classification // "normal"' .feature/intake.json)
+    [ "$LADDER_RISK" = "high" ] || LADDER_RISK="normal"
+    LADDER_SURFACE=$(jq -r '.surface // "backend"' .feature/intake.json)
+    case "$LADDER_SURFACE" in ui|backend|mixed) ;; *) LADDER_SURFACE="backend" ;; esac
+    LADDER_SIZE=$(jq -r '.size // "standard"' .feature/intake.json)
+    case "$LADDER_SIZE" in trivial|small|standard|epic) ;; *) LADDER_SIZE="standard" ;; esac
+    node "$PROGRESS_MJS" init --size "$LADDER_SIZE" --risk "$LADDER_RISK" --surface "$LADDER_SURFACE" >/dev/null \
+      && node "$PROGRESS_MJS" step intake done --note "ladder auto-initialized by arm-check" >/dev/null \
+      && echo "ladder: .feature/progress.json initialized from the intake (no parent ladder carried)"
+  else
+    echo "DISARMED: no .feature/progress.json and the ladder scripts are unavailable — carry or init the step ladder first (see .agents/skills/feature/references/progress-and-live-view.md)."
+    exit 1
+  fi
+fi
+
 # Surface spelling (#867): a pre-escaped bracket ('\[id\]', '[[]id[]]') in
 # allowed_edit_surface matches NOTHING in either hook or ci:feature-surface —
 # the matchers escape '[' ']' themselves — so the guard is NOT armed for that
@@ -46,6 +75,10 @@ else
 fi
 
 if [ "$GUARD" -eq 2 ] && [ "$STOP" -eq 2 ]; then
+  # Keep the ladder true: an ARMED report and a pending `armed` step cannot
+  # both be right. Idempotent — re-marking a done step only refreshes its note.
+  [ -f "$PROGRESS_MJS" ] && command -v node >/dev/null 2>&1 \
+    && node "$PROGRESS_MJS" step armed done --note "ARMED" >/dev/null 2>&1
   echo "ARMED: edit-surface guard + stop gate live for $ROOT"
   exit 0
 fi

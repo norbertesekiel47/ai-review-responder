@@ -17,7 +17,8 @@
 // output. Claude's turns and triage verdicts have no other sink, so they are
 // written here.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -109,6 +110,72 @@ function append(entry) {
   return record;
 }
 
+// The feedback loop: every ACCEPT verdict lands in a durable per-axis
+// checklist that future reviews on that axis receive as input. Two months of
+// runs kept re-finding the same defect classes (tests that pass before the
+// fix, mocks that blind a suite, silent live-DB skips) because each review
+// started from zero. docs/reviews/ is committed, so the checklist rides the
+// branch PR onto main and accumulates across features.
+function recordAcceptedFinding(finding, reason) {
+  const roundStart = entries()
+    .filter((entry) => entry.kind === 'round-start' && entry.round === finding.round)
+    .pop();
+  const axis = roundStart?.axis;
+  if (!axis) return null;
+
+  const checklistDir = join(root, 'docs', 'reviews', 'finding-checklists');
+  const checklistPath = join(checklistDir, `${axis}.md`);
+  mkdirSync(checklistDir, { recursive: true });
+  if (!existsSync(checklistPath)) {
+    writeFileSync(checklistPath, [
+      `# Accepted findings — ${axis}`,
+      '',
+      'Defect classes a /feature review ACCEPTED on a real branch. Reviewers on',
+      'this axis receive this file and check the diff against every line. Lines',
+      'are appended by review-log.mjs triage; edit only to prune entries that no',
+      'longer apply.',
+      '',
+      '',
+    ].join('\n'));
+  }
+
+  const existing = readFileSync(checklistPath, 'utf8');
+  if (finding.title && existing.includes(finding.title)) return { axis, deduped: true };
+
+  let branch = '';
+  try {
+    branch = execFileSync('git', ['branch', '--show-current'], {
+      cwd: root, encoding: 'utf8',
+    }).trim();
+  } catch { /* detached HEAD: omit the branch */ }
+
+  const oneLine = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
+  const location = finding.location ? ` (${oneLine(finding.location)})` : '';
+  const suffix = [branch, new Date().toISOString().slice(0, 10)]
+    .filter(Boolean).join(' · ');
+  appendFileSync(
+    checklistPath,
+    `- [${finding.severity ?? '-'}] ${oneLine(finding.title)}${location} — ${oneLine(reason)} · ${suffix}\n`,
+  );
+  return { axis, deduped: false };
+}
+
+// The live view is a viewer, so its absence never blocks a write — but the
+// skill says to start it before the first review round, and the 1008 run
+// proved the instruction alone gets skipped. Warn loudly instead.
+function liveViewRunning() {
+  try {
+    const registry = JSON.parse(
+      readFileSync(join(dir, 'live', 'server.json'), 'utf8'),
+    );
+    if (!registry?.pid) return false;
+    process.kill(registry.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const [command, ...rest] = process.argv.slice(2);
 const flags = parseFlags(rest);
 const all = entries();
@@ -123,6 +190,11 @@ switch (command) {
     const next = flags.round ? Number(flags.round) : (started.length ? Math.max(...started) + 1 : 1);
     append({ kind: 'round-start', round: next, axis: flags.axis });
     console.log(`review round ${next} open (${flags.axis})`);
+    if (!liveViewRunning()) {
+      console.log(
+        'note: live view is NOT running — start it: node .agents/skills/feature/scripts/live-view.mjs start',
+      );
+    }
     break;
   }
 
@@ -184,11 +256,32 @@ switch (command) {
     if (!known) fail(`no logged finding ${id}; log the finding before triaging it`);
     append({ kind: 'triage', round, id, verdict: flags.verdict, reason: flags.reason });
     console.log(`${id} ${flags.verdict}`);
+    if (flags.verdict === 'ACCEPT') {
+      const finding = all.findLast?.((entry) => entry.kind === 'finding' && entry.id === id)
+        ?? [...all].reverse().find((entry) => entry.kind === 'finding' && entry.id === id);
+      const recorded = finding ? recordAcceptedFinding(finding, flags.reason) : null;
+      if (recorded?.deduped) {
+        console.log(`checklist: ${recorded.axis} already lists this finding`);
+      } else if (recorded) {
+        console.log(`checklist: recorded under docs/reviews/finding-checklists/${recorded.axis}.md`);
+      }
+    }
     break;
   }
 
   case 'round-end': {
     if (!VERDICTS.includes(flags.verdict)) fail(`--verdict must be one of ${VERDICTS.join('|')}`);
+    // A round with no logged content is invisible to the transcript and the
+    // live view — closing it would bless a review that left no record.
+    const content = all.filter(
+      (entry) => entry.round === round
+        && ['turn', 'finding', 'codex-job'].includes(entry.kind),
+    );
+    if (content.length === 0) {
+      fail(
+        `round ${round} has no logged turns, findings, or codex jobs — log the round (say / finding / attach-codex) before closing it`,
+      );
+    }
     append({ kind: 'round-end', round, verdict: flags.verdict });
     console.log(`review round ${round} closed: ${flags.verdict}`);
     break;
