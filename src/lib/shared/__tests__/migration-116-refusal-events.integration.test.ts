@@ -339,12 +339,18 @@ function resolveRefusalRow(input: RefusalInput): ResolvedRefusalRow {
 }
 
 /**
+ * ONE writer, two callers. The column list and its bindings are spelled once:
+ * the two forms differ only by a trailing `ON CONFLICT`, and three copies of an
+ * eleven-column INSERT would need three lockstep edits the moment #1009–#1013
+ * touch the shape, with nothing linking them at compile time.
+ *
  * `created_at` is deliberately absent from the column list: letting the DEFAULT
  * fire is what proves the default exists (title 14 reads it back).
  */
-async function insertRefusal(
+async function insertRefusalRow(
   input: RefusalInput,
-  exec: SqlExecutor = sql(),
+  exec: SqlExecutor,
+  onConflict: ReturnType<SqlExecutor> | undefined,
 ): Promise<string> {
   const row = resolveRefusalRow(input);
   await exec`
@@ -357,34 +363,35 @@ async function insertRefusal(
       ${row.refusalCategory}, ${row.vocabularyVersion},
       ${row.subjectType}, ${row.subjectId}::uuid, ${row.occurredAt}
     )
+    ${onConflict ?? exec``}
   `;
   return row.id;
+}
+
+async function insertRefusal(
+  input: RefusalInput,
+  exec: SqlExecutor = sql(),
+): Promise<string> {
+  return insertRefusalRow(input, exec, undefined);
 }
 
 /**
  * The same INSERT under the idempotency clause #1009's helper will ship. The
  * predicate is re-spelled BYTE-FOR-BYTE from the migration — `ON CONFLICT`
  * cannot infer a partial index any other way, and that inference is what
- * titles 16–18 are about.
+ * titles 16–18 are about. It is written INLINE here rather than built from a
+ * constant, deliberately: a byte-for-byte claim is only meaningful if the bytes
+ * are visible next to the assertion that depends on them.
  */
 async function insertRefusalIgnoringConflict(
   input: RefusalInput,
   exec: SqlExecutor = sql(),
 ): Promise<string> {
-  const row = resolveRefusalRow(input);
-  await exec`
-    INSERT INTO refusal_events (
-      id, account_id, business_id, refusal_source, refusal_code, all_refusal_codes,
-      refusal_category, vocabulary_version, subject_type, subject_id, occurred_at
-    ) VALUES (
-      ${row.id}::uuid, ${row.accountId}::uuid, ${row.businessId}::uuid,
-      ${row.refusalSource}, ${row.refusalCode}, ${row.allRefusalCodes}::text[],
-      ${row.refusalCategory}, ${row.vocabularyVersion},
-      ${row.subjectType}, ${row.subjectId}::uuid, ${row.occurredAt}
-    )
-    ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL DO NOTHING
-  `;
-  return row.id;
+  return insertRefusalRow(
+    input,
+    exec,
+    exec`ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL DO NOTHING`,
+  );
 }
 
 /** Asserts the DATABASE rejected the row, and names the constraint that did it. */
@@ -557,6 +564,11 @@ describeWithDb(
       `;
       expect(relation?.relrowsecurity).toBe(true);
 
+      // FORCE is deliberately OFF, and asserting that is not pedantry: the
+      // workers reach this table through the RLS-bypassing `postgres` role, so
+      // turning FORCE on would lock out the only writers the table has.
+      expect(relation?.relforcerowsecurity).toBe(false);
+
       // Deny-all is the guarantee, not a convention: `all_refusal_codes` is
       // never owner-facing (ADR 0023), and RLS filters ROWS rather than
       // columns — so an owner-readable policy could not withhold that column.
@@ -622,6 +634,14 @@ describeWithDb(
       // alone would not distinguish `text[]` from a domain over it.
       const allCodes = columns.find((column) => column.column_name === 'all_refusal_codes');
       expect(allCodes?.data_type).toBe('ARRAY');
+
+      // The one default in the table is pinned to its EXPRESSION, not merely to
+      // its presence. `hasDefault: true` above stays green if `NOW()` becomes a
+      // constant — and a constant created_at destroys the occurred_at skew
+      // measurement ADR 0023 names as the only way to catch a writer stamping
+      // the decision clock with insert time.
+      const createdAt = columns.find((column) => column.column_name === 'created_at');
+      expect(createdAt?.column_default).toMatch(/^now\(\)$/i);
     });
 
     it('migration 116 creates foreign keys only to accounts and businesses, both with no referential action, and leaves subject_id unreferenced', async () => {
@@ -735,13 +755,18 @@ describeWithDb(
       // confuse, so each comment must name WHICH ONE the sweep uses. The skew
       // between them is also the only measurement that would catch a writer
       // stamping occurred_at with insert time instead of decision time.
+      // Each assertion must be able to FAIL on the opposite claim. A bare
+      // /retention/i matches a comment saying created_at IS swept just as
+      // happily as one saying it is not, which makes the word "only" in this
+      // title unfalsifiable — and nothing else guards the one-clock rule until
+      // #1009 gives it a TypeScript owner.
       const occurredAt = byColumn.get('occurred_at') ?? '';
-      expect(occurredAt).toMatch(/retention/i);
-      expect(occurredAt).toContain('occurred_at');
+      expect(occurredAt).toMatch(/\bONE retention clock\b/);
+      expect(occurredAt).toMatch(/deletes on occurred_at and on nothing else/i);
 
       const createdAt = byColumn.get('created_at') ?? '';
-      expect(createdAt).toMatch(/retention/i);
-      expect(createdAt).toContain('occurred_at');
+      expect(createdAt).toMatch(/NOT a retention candidate/i);
+      expect(createdAt).toMatch(/retention is occurred_at alone/i);
     });
 
     it('C1 wraps its total source-to-subject CASE in IS TRUE so a fall-through rejects instead of passing on NULL', async () => {
@@ -892,6 +917,22 @@ describeWithDb(
           refusalSource: 'policy_gate_held',
           refusalCode: 'winner',
           allRefusalCodes: ['different', null],
+        }),
+        C5_ALL_CODES_PAIRING,
+      );
+
+      // The SAME NULL member, with the winner PRESENT. This case is what pins
+      // `array_position(all_refusal_codes, NULL) IS NULL`, and without it that
+      // clause is enforced by nothing: the row above is already rejected by the
+      // outer `IS TRUE` alone (the winner is absent, so `= ANY(...)` is NULL),
+      // so deleting `array_position` from the migration leaves every other case
+      // in this suite green while THIS row inserts. A reviewer proved exactly
+      // that on postgres:16. Two clauses, two rows — one each.
+      await expectRejectedBy(
+        insertRefusal({
+          refusalSource: 'policy_gate_held',
+          refusalCode: 'winner',
+          allRefusalCodes: ['winner', null],
         }),
         C5_ALL_CODES_PAIRING,
       );

@@ -327,7 +327,7 @@ export const TABLE_DISPOSITIONS = [
     disposition: 'hard_delete',
     scopeEvidence: 'direct_account_id',
     purgeVerification: 'must_be_absent',
-    reason: "The Refusal ledger records the account's own workflow decisions and has no retention rationale once the account is gone. NO CASCADE REACHES IT, unlike every other hard_delete row here: its only foreign keys are to accounts and businesses, both retain_deidentified and neither carrying a referential action, so nothing removes these rows unless runContentPurgeStage deletes them explicitly (migration 116). The delete is account-scoped and must never join through businesses — autonomy_suspended rows carry business_id IS NULL and a business join would leave every one of them behind.",
+    reason: "The Refusal ledger records the account's own workflow decisions and has no retention rationale once the account is gone. NO CASCADE REACHES IT: its only foreign keys are to accounts and businesses, both retain_deidentified and neither carrying a referential action, so nothing removes these rows unless runContentPurgeStage deletes them explicitly (migration 116) — the same reason review_escalations, contact_csv_uploads and agent_outcomes each carry an explicit DELETE rather than relying on a parent. The delete is account-scoped and must never join through businesses: autonomy_suspended rows carry business_id IS NULL and a business join would leave every one of them behind.",
   },
   {
     table: 'account_offboardings',

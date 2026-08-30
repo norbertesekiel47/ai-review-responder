@@ -3,6 +3,33 @@
 Every entry is something the ticket or the plan did not anticipate. Step 6
 reads this file end to end and logs an ACCEPT / RE-PLAN verdict per entry.
 
+## Step 6 triage — read back 2026-08-29 at HEAD `f005ded8`, gate GREEN 30/30
+
+**Thirteen entries. Thirteen ACCEPT, zero RE-PLAN.** No deviation invalidates a
+locked intake decision, so the abort criteria are not met on that arm. Two
+entries reversed a stated step of ticket #1008 (D6, D10a) and both were
+surfaced to the owner rather than absorbed; one spent the second surface
+amendment (D13) and carries explicit owner sign-off.
+
+| # | What it was | Verdict | Why, in one line |
+|---|---|---|---|
+| D1 | The ticket's "nothing that names the table in code" cannot hold | **ACCEPT** | Forced by a migration-file parser, not by scope creep; owner approved both purge arms during grilling, and the gate is green with them. |
+| D2 | The four LOCKED terms and ADR 0023 live only on the parked branch | **ACCEPT** | Owner approved carrying them; all three stale claims corrected in place and flagged as corrections. |
+| D3 | "Sixteen columns" is wrong; the table has twelve | **ACCEPT** | The locked DDL block declares twelve, and test title 2 now pins the twelve-column contract exactly — an extra column fails. |
+| D4 | The LOCKED C5 expression admits the row it exists to forbid | **ACCEPT** | Strengthens the lock's stated intent rather than changing it; reproduced against a live database, and titles 12 and 13 pin both directions. |
+| D5 | C1's `IS TRUE` wrapper is not provable by inserting a row | **ACCEPT** | The column CHECK rejects an unmapped lane first, so the assertion had to be structural; title 7 reads `pg_get_constraintdef`. |
+| D6 | Merge-before-promotion terminally fails purges | **ACCEPT** | Verified in `PurgeWorker.ts`; superseded in part by D10a, and the final order is in the plan's Step 8. |
+| D7 | `TENANT_TABLES` membership forces an `rls-inventory.md` row | **ACCEPT** | Auto-approved surface amendment 1 (≤2 files inside a covered tree); `rls-audit` now passes. |
+| D8 | `tenant-tables.ts:158` was a stale citation | **ACCEPT** | Corrected to 154 in both the plan and the intake. |
+| D9 | The project bash-write guard blocks read-only `sed -n` | **ACCEPT** | Real, and outside this feature's surface; cost accuracy rather than a round. **Promote at step 8.** |
+| D10 | Round 2 found four defects introduced by my own round-1 fixes | **ACCEPT** (all four) | Each verified against the code before fixing: the runbook for D10a, the inventory parser for D10b, the surface for D10c. |
+| D11 | `TENANT_TABLES` is two structures, and editing one is silently wrong | **ACCEPT** | Typecheck stayed clean while the completeness test stayed red. **Promote at step 8.** |
+| D12 | The C1 test asserted the absence of something Postgres adds | **ACCEPT** | A test defect, not a migration defect; the fix asserts the deparsed NULL is PRESENT, which is the stronger claim. **Promote at step 8.** |
+| D13 | Surface amendment 2 tripped the abort criterion | **ACCEPT** | Surfaced to the owner, who chose amend-and-continue; all three added paths are forced registry rows, and the gate was otherwise green when it fired. |
+
+**Four lessons queued for step 8 promotion** (D9, D11, D12, and D13's
+generalisable half — the four-registry chain a new tenant table forces).
+
 ---
 
 ## D1 — the ticket's "nothing that names the table in code" cannot hold
@@ -26,7 +53,7 @@ migration SQL for `account_id … REFERENCES accounts(id)`. The moment
 
 **Resolution:** owner-approved, both arms land in this slice.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -41,7 +68,7 @@ categories (now eight), and "adds no migration".
 
 **Resolution:** owner-approved, both carried here, corrected.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -52,7 +79,7 @@ categories (now eight), and "adds no migration".
 Issues #1008 and #1001 both say sixteen. The locked DDL block in #1001
 declares twelve. The DDL block is code-shaped and complete, so it wins.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -116,7 +143,7 @@ C1–C4 were checked for the same NULL class and are clean. C1 already carries
 the `IS TRUE` wrapper. C2, C3 and C4 compare two expressions that are each
 never NULL (`refusal_source` is `NOT NULL`, and `IS NULL` never yields NULL).
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -134,7 +161,7 @@ every behavioural test.
 `pg_get_constraintdef` and matching the `IS TRUE` wrapper, not behaviourally.
 Test title 7 in the amended `tests_to_add`.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -175,7 +202,7 @@ of the PR, which fixed the 42P01 window by creating a worse one. The final
 order is in the plan's Step 8: CI green first, then staging DDL, then the
 staging ride, then owner approval, then production DDL, then merge.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -196,7 +223,7 @@ mocks `sql` for the purge stages and may need the new `DELETE`). Both sit
 inside directory trees the surface already covers, so this is auto-approved
 under step 2's amendment rule. Both intake copies updated.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -208,7 +235,7 @@ under step 2's amendment rule. Both intake copies updated.
 `solicitation_suppressions`. The 158 figure came from `.claude/CLAUDE.md` and
 issue #1001 and was carried forward without checking. Plan corrected.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -227,7 +254,7 @@ the round.
 Not fixed here: the guard is outside this feature's edit surface. Recorded so
 the lesson can be promoted at step 8.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -275,7 +302,7 @@ point #1009 unblocks.
 `tenant-tables.ts:158`. Round 1 corrected only the plan's copy. Now 154 in
 both.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -291,7 +318,7 @@ red with `expected [ … 43 tables ] to include 'refusal_events'`.
 Both structures need the entry. The plan said "add to `TENANT_TABLES`" and
 cited the map's line, which is exactly the ambiguity that produced the miss.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -314,7 +341,7 @@ value the wrapper exists to defeat. Changed to
 A test defect, not a migration defect — and one that only a real database
 could have surfaced.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
 
 ---
 
@@ -349,4 +376,4 @@ discoverable from any one document. `TENANT_TABLES` (two structures) →
 `arch-review-log.md` for the merge itself. An intake that declares a new
 table should list all of them up front.
 
-**Verdict:** _pending step 6._
+**Verdict:** see the triage table at the top of this file.
