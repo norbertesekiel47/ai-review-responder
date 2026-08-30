@@ -4,6 +4,8 @@
 #   bash scripts/feature-state.sh set-phase <phase>
 #   bash scripts/feature-state.sh incr-round <plan|branch>
 #   bash scripts/feature-state.sh incr-amendment [--reason "<owner-approved reason>"]
+#   bash scripts/feature-state.sh incr-gate-round [--reason "<owner-approved reason>"]
+#   bash scripts/feature-state.sh reset-gate-rounds
 #
 # Phases (forward-only by convention; the enum is the contract):
 #   worktree_ready  plan_approved  executing  gate_green  reviewed  shipped
@@ -25,6 +27,14 @@
 # recorded "AMENDMENT 3 of 2" with the budget tracked only in prose. The 1st
 # amendment passes; the 2nd and later refuse unless --reason records the
 # owner's explicit sign-off (same shape as the ALLOW_DESTRUCTIVE_GIT escape).
+#
+# incr-gate-round: the gate-loop budget (speed lane build 3). Call it before
+# each unattended execute→gate→fix iteration after a RED gate. Rounds 1-3
+# pass; the 4th refuses without --reason — the "after 3 full gate-fail
+# rounds, stop patching" abort criterion, enforced instead of narrated, so an
+# unattended loop cannot thrash past its budget while nobody watches.
+# reset-gate-rounds zeroes the counter after a green gate (a NEW red streak
+# gets a fresh budget; one long-lived counter would refuse forever).
 set -uo pipefail
 
 COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch> | incr-amendment [--reason "..."]}
@@ -117,8 +127,41 @@ case "$COMMAND" in
     echo "feature-state: surfaceAmendments=${NEXT} → .feature/state.json"
     ;;
 
+  incr-gate-round)
+    REASON=""
+    if [ "${2:-}" = "--reason" ]; then
+      REASON=${3:-}
+      [ -n "$REASON" ] || { echo "incr-gate-round: --reason needs a value"; exit 1; }
+    elif [ -n "${2:-}" ]; then
+      echo "usage: feature-state.sh incr-gate-round [--reason \"<owner-approved reason>\"]"
+      exit 1
+    fi
+
+    COUNT=$(printf '%s' "$PREV" | jq -r '.gateFailRounds // 0')
+    NEXT=$((COUNT + 1))
+    if [ "$NEXT" -ge 4 ] && [ -z "$REASON" ]; then
+      echo "feature-state: REFUSED — gate-fail round ${NEXT} hits the abort criteria (3 full gate-fail rounds)."
+      echo "Stop patching: run the diagnosing-bugs loop or re-plan with the owner. To continue anyway:"
+      echo "  bash scripts/feature-state.sh incr-gate-round --reason \"<owner-approved reason>\""
+      exit 1
+    fi
+
+    printf '%s' "$PREV" | jq --arg now "$NOW" \
+      '.gateFailRounds = ((.gateFailRounds // 0) + 1) | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+
+    echo "feature-state: gateFailRounds=${NEXT} → .feature/state.json"
+    ;;
+
+  reset-gate-rounds)
+    printf '%s' "$PREV" | jq --arg now "$NOW" \
+      '.gateFailRounds = 0 | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+    echo "feature-state: gateFailRounds=0 → .feature/state.json"
+    ;;
+
   *)
-    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment)"
+    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment | incr-gate-round | reset-gate-rounds)"
     exit 1
     ;;
 esac

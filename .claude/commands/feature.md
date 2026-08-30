@@ -225,8 +225,12 @@ cd <worktree-root> && bash scripts/feature-setup.sh <path-to-locked-intake.json>
 It installs the intake (committed `docs/superpowers/plans/` audit copy +
 ephemeral `.feature/intake.json` arming copy — gitignored by design, #512),
 deletes the parent draft, proves the hooks are armed (`scripts/arm-check.sh`
-— any DISARMED output means STOP and report, do not implement), and prints
-cross-worktree surface overlaps. On overlap, surface it to me BEFORE
+— any DISARMED output means STOP and report, do not implement), writes the
+worktree-scoped **autonomy profile** (`.claude/settings.local.json`:
+acceptEdits + the workflow's own command allowlist, so steps 4-6 run without
+permission prompts; the shipping boundary — commit, push, PR, flags — still
+prompts; gitignored, worktree-only, `FEATURE_AUTONOMY_PROFILE=off` opts
+out), and prints cross-worktree surface overlaps. On overlap, surface it to me BEFORE
 planning: agree a merge order (noted in both deviations files) or narrow a
 surface. Surface amendments mid-run: an amendment that only NARROWS the surface,
 or adds ≤2 files inside a directory tree the surface already covers, is
@@ -415,6 +419,17 @@ mechanically instead of hoping a reviewer notices.
 Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
 after every fix round is cheap; do it.
 
+**GATE LOOP — fix rounds run unattended, budget-enforced.** After a RED
+gate, do not hand back to me per round. Loop: read `bash
+scripts/gate-summary.sh` (failing rows + log tails only — never the full
+logs), fix, run `bash scripts/feature-state.sh incr-gate-round`, re-run the
+gate. The counter REFUSES round 4 without an owner reason — that is the
+"3 full gate-fail rounds" abort criterion enforced mechanically, so an
+unattended loop cannot thrash past its budget. A green gate resets the
+budget. The anti-thrash rule below still applies INSIDE the loop: same
+failure class twice → diagnosing-bugs, not another patch. I review once, at
+review-ready — not per red row.
+
 **Never blocking-wait on a gate blind.** The gate writes a heartbeat
 (`.feature/gate-heartbeat.json`) while it runs; `bash scripts/verify-gate.sh
 --status` answers RUNNING (rows done, elapsed), DEAD (crashed mid-run, exit
@@ -542,6 +557,14 @@ automatically:
   with the other axes removes a full review phase from the wall clock. A
   valid approach-level finding may mean revisiting the plan (step 3), not
   just patching code.
+
+**Dispatch mechanics (speed lane build 4)**: launch every review axis in
+ONE message (parallel tool calls), the moment the review gate is green —
+never serially, never "spec first, then standards". Route the mechanical
+passes (transcript logging, checklist sweeps, doc-claim greps, blast-radius
+reading) to Haiku subagents (`Agent(model: "haiku")`); the axes themselves
+keep the strong model. Reviews are wall-clock ≈ the slowest axis, not the
+sum.
 
 **Round protocol (counter-enforced)**: before dispatching ANY review wave,
 run `bash scripts/feature-state.sh incr-round branch` — the counter lives

@@ -127,6 +127,11 @@ For `small`, `standard`, and `high` work, create the sibling worktree with
 `pnpm worktree:new <branch>`. Do not create or switch branches when unrelated
 dirty changes make the target ambiguous.
 
+Setup also writes the worktree-scoped autonomy profile
+(`.claude/settings.local.json`: acceptEdits + workflow command allowlist) so
+execution runs without permission prompts; the shipping boundary still
+prompts. `FEATURE_AUTONOMY_PROFILE=off` opts out.
+
 Run the repository setup from the worktree only after warning that the current
 repository script creates an intake commit and removes the parent draft. That
 commit/removal requires explicit user authorization:
@@ -224,6 +229,11 @@ Before final review, run review mode:
 bash .agents/skills/feature/scripts/verified-gate.sh --review
 ```
 
+After a RED gate, loop unattended: `bash scripts/gate-summary.sh` (failing
+rows + tails only), fix, `bash scripts/feature-state.sh incr-gate-round`,
+re-run. The counter refuses round 4 without an owner reason — the gate-fail
+abort criterion enforced mechanically; a green gate resets it.
+
 Check on a possibly-running gate with `bash
 .agents/skills/feature/scripts/verified-gate.sh --status` (RUNNING / DEAD /
 last result — never blocking-wait blind, never launch a second gate over a
@@ -254,6 +264,9 @@ as its note before you stop.
 
 Read [review-prompts.md](references/review-prompts.md). Review the diff from a
 fixed merge-base only after the review gate is green:
+
+Dispatch every required axis in one parallel wave; route mechanical passes
+(logging, checklist sweeps, doc greps) to cheaper subagents.
 
 - trivial: one compact root review
 - small: one fresh spec/correctness review
