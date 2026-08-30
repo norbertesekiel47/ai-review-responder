@@ -2596,11 +2596,24 @@ Revisit triggers:
   reader, writer or registry entry is inert, so leaving `refusal_events` in the
   database is the default; any `DROP` happens out of band AFTER the revert has
   deployed, never before.
-  **LOCAL-ONLY** — applied and verified only against the local test container
-  database (`pnpm test:db:setup`); not yet applied to staging or production.
-  Verify promotion by schema introspection (`information_schema.columns`,
+  Applied to **STAGING** (`kubdiqdhqbhwmqfditeg`) and **PRODUCTION**
+  (`udeyaqnvpojbwgoaxwdg`) on **2026-08-30**, staging first, both ahead of the
+  merge (#1019) per the ship order — the purge names this table, so a `42P01`
+  would terminalize an offboarding.
+  Verified on both by schema introspection (`information_schema.columns`,
   `pg_constraint`, `pg_indexes`, `pg_class.relrowsecurity` with zero
-  `pg_policies` rows), **never** via `list_migrations`.
+  `pg_policies` rows), **never** via `list_migrations`: 12 columns, 5 named
+  CHECKs, 3 indexes, RLS enabled, 0 policies on each. The two databases were
+  additionally proven IDENTICAL rather than merely both-correct — `md5` over
+  `pg_get_constraintdef` matches (`57e33ddc…`), as does `md5` over `indexdef`
+  (`9ac8eae6…`). That fingerprint comparison is load-bearing: production was
+  applied through the Supabase MCP rather than the file, so the schema was
+  verified instead of the transcription. C5's NULL-member defence was
+  live-fired on staging — `refusal_code = 'winner'` against
+  `all_refusal_codes = ARRAY['different', NULL]` was REJECTED, the row the
+  locked #1001 shape admitted.
+  No longer LOCAL-ONLY, so `migration-immutability-guard.sh` now protects it —
+  **116 is immutable; any change is a new migration.**
   **NO `SchemaRequirement` GAP, deliberately**: the table, all three index
   names and all five constraint names are brand new, so naming them in the
   suite's requirement is an honest proof rather than the false-proof hazard
