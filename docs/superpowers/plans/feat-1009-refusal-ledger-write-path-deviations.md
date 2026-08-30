@@ -1,9 +1,9 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Seventeen entries.** Seventeen ACCEPT, zero RE-PLAN.
+**Eighteen entries.** Eighteen ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17 — there is no
-plain "D16" in this file. In this run that label means #1008's write-site
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17 and D18 — there
+is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
 
@@ -26,6 +26,7 @@ genuinely bad piece of record-keeping.
 | D15 | `DATABASE_POOL_URL` in the worktree's `.env.local` points at the LIVE Supabase pooler | **ACCEPT** | Copied in by `worktree:new`. Both vars must be overridden for any local test run, not just one. |
 | D16b | T4b's Sentry assertion does not pin the account id's PLACEMENT | **ACCEPT** | Numbered `D16b` on purpose — "D16" in this run means #1008's write-site deviation and nothing else. |
 | D17 | T6's two registry placement calls | **ACCEPT** | The plan left both open. Each went next to its nearest sibling, which is this repo's default. |
+| D18 | A count-asserting neighbour broke a SECOND time — gate round 1 | **ACCEPT** | Same class as D10, different file. Two occurrences make it a class, not an incident. |
 
 ---
 
@@ -553,3 +554,44 @@ Both are the "put it next to its nearest sibling" call, which is this repo's
 default. Either is a one-line move if a reviewer disagrees.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D18 — a count-asserting neighbour broke a SECOND time, and that makes it a class
+
+**When:** gate round 1. The only red row in a 27-row, 13,721-test full gate.
+
+`src/lib/auto-approval/__tests__/suspension.test.ts` asserts
+`expect(sqlCalls).toHaveLength(5)`. The ledger insert makes six, so the whole
+suite failed on one number.
+
+**This is D10 again, in a different file, from a different task.**
+
+| | D10 | D18 |
+|---|---|---|
+| Change | `ArchivalPoller` gained an eleventh arm | `suspendAccountAutonomy` gained a sixth statement |
+| Broke | `ArchivalPoller.test.ts`, `toHaveBeenCalledTimes(10)` | `suspension.test.ts`, `toHaveLength(5)` |
+| Found by | the implementing task, which could not reach the file | the verify gate |
+| Missed by | the eval, which extended only the *integration* suite | the same |
+
+**Two occurrences is a class, not an incident, and the class is specific:**
+adding one item to an enumerated sequence falsifies any neighbour that asserts
+the sequence's LENGTH — and an eval-first discipline does not surface it,
+because the eval is written against the behaviour being added, while the broken
+assertion is about the behaviour already there.
+
+**The generalisable rule, queued for step 8 promotion:** when a change appends
+to an enumerated list — a poller's arms, a transaction's statements, a
+registry's entries — grep the sibling UNIT suites for `toHaveLength`,
+`toHaveBeenCalledTimes` and their kin *before* running the gate. Both times, the
+fix was one number; both times, it cost a full gate cycle to find.
+
+**The fix does more than renumber.** Shifting indices 3 and 4 to 4 and 5 would
+have left the new statement at index 3 completely unasserted — a silent hole
+where the slice's whole subject sits. The repair adds four assertions on it:
+the target table, the byte-for-byte `ON CONFLICT` predicate, `DO NOTHING`, and
+the lane. It also records WHY the ordering is what it is, so the next person to
+insert a statement here knows the position is load-bearing rather than
+incidental.
+
+**Verdict:** ACCEPT. Inside `allowed_edit_surface`; no amendment.
