@@ -1,6 +1,6 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Four entries.** Four ACCEPT, zero RE-PLAN.
+**Five entries.** Five ACCEPT, zero RE-PLAN.
 
 | # | What | Verdict | One line |
 |---|---|---|---|
@@ -8,6 +8,7 @@
 | D2 | Surface amendment 1 of 2 — `AutonomyGovernorScheduler.ts` | **ACCEPT** | Owner-approved. The intake's observability claim was false; the code changed rather than the claim. |
 | D3 | `tests_to_add` grew 19 → 26 → 28 across plan review rounds 1 and 2 | **ACCEPT** | Test-title additions are deviations, not amendments. Nine wrong implementations passed the first nineteen. |
 | D4 | Round 2 found four defects that round 1's own FIXES introduced | **ACCEPT** | Two of them are one mistake twice: a lesson applied to the code that prompted it, not to the code the fix wrote. |
+| D5 | Round 3 disproved a claim a rejection rested on, and found the SAME warning path wrong a third time | **ACCEPT** | Three rounds, three different bugs in one five-line warning. The pattern, not any one bug, is the lesson. |
 
 ---
 
@@ -170,3 +171,67 @@ table.
 review finding, re-run the finding's own rule against the fix.
 
 **Verdict:** ACCEPT. All four corrected; `tests_to_add` 26 → 28.
+
+---
+
+## D5 — round 3 disproved a claim a rejection rested on, and found the same warning path wrong a third time
+
+**When:** plan review round 3, the protocol's final round, against `5dbe8efa`.
+Full report: `docs/reviews/feat-1009-refusal-ledger-write-path/plan-review-r3.md`.
+Triage: plan §5d.
+
+Three defects: one `high`, one `medium`, one `low`. All accepted.
+
+### The `high` is against reasoning, not design
+
+Round 2's defect 1 was fixed partly by asserting that
+`verify-gate.sh --review`'s `diff-coverage` row independently catches an inert
+eval, and that assertion was used to **reject** a proposed CI audit.
+
+**The assertion is false.** `scripts/diff-coverage.ts` excludes `__tests__` and
+`.test.*` files and measures only ADDED PRODUCTION lines. So it passes at T1
+with nothing to cover, and passes later off the other twenty-seven tests'
+coverage while test 26 alone sits `.todo`. It catches a *wholly* inert eval,
+never a *single* inert test — and a single inert test is the entire hole.
+
+The lesson is specific: **a claim used to reject a reviewer's fix carries more
+weight than an ordinary claim, and has to be verified rather than reasoned.**
+The rejection may still be right — it is, on a better ground — but it was
+resting on something untrue, and nothing in rounds 1 or 2 would have caught
+that, because only round 3 was asked to check it.
+
+The replacement guard is a **module-scope** check in test 26's own file. Vitest
+loads a module even when its tests are `.todo`, so the check runs regardless of
+whether test 26 does. That is the property the audit script was wanted for,
+without a permanent `package.json` / `ci.yml` / `lefthook.yml` obligation.
+
+### The `medium` is the third bug in one five-line warning
+
+| Round | The bug | The fix |
+|---|---|---|
+| 1 | unguarded emission can abort the decision transaction | wrap it |
+| 2 | latch-before-emit ⇒ one transient failure buys permanent silence | latch on success, bound attempts at 3 |
+| 3 | a LIFETIME ceiling of 3 ⇒ three failures then recovery is still permanently silent | cooldown in TIME, not a counter |
+
+Every fix was correct about the failure it addressed and created the next one.
+**The pattern is the finding, not any single bug.** The cooldown ends the chain
+for a structural reason worth keeping: it is counted in **time**, and time
+always recovers, whereas an attempt counter cannot distinguish "Sentry is
+broken" from "Sentry was briefly broken".
+
+Why so much scrutiny for one warning: it is the **only** evidence that the
+ledger has a gap. The ledger cannot show its own absence, so silencing this
+warning silences the only thing that could.
+
+### Queued for step 8 promotion
+
+1. **After fixing a review finding, re-run the finding's own rule against the
+   fix.** (D4's lesson, confirmed again here.)
+2. **Verify — do not reason about — any claim used to reject a reviewer's
+   proposed fix.**
+3. **Bound a retry in time, not in attempts,** when the thing being retried is
+   the only evidence of a fault.
+
+**Verdict:** ACCEPT. All three corrected. One disagreement remains open and is
+the owner's call: plan §5d, the module-scope check versus a new `ci:*` audit
+script.

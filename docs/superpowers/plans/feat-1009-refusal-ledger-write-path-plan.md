@@ -320,23 +320,39 @@ the entire process life — and this warning is the **only** evidence a ledger g
 exists. One network blip would buy permanent silence about the thing the ledger
 structurally cannot show.
 
-The rule instead:
+**A lifetime attempt ceiling was tried and rejected — round 3, defect 2.** The
+first version of this rule bounded attempts at `MAX_WARN_ATTEMPTS = 3`. Three
+consecutive transient failures then exhaust the counter forever, and if Sentry
+recovers while the kill switch is still off, the warning is permanently
+silent — reproducing the very failure the fix was written to remove, just
+further along. A ceiling counted in *attempts* cannot distinguish "Sentry is
+broken" from "Sentry was briefly broken".
+
+The rule is therefore a **cooldown**, which is counted in time and always
+recovers:
 
 ```
-attempts = 0
-if (!warned && attempts < MAX_WARN_ATTEMPTS) {   // MAX_WARN_ATTEMPTS = 3
-  attempts += 1
+warned = false
+nextAttemptAt = 0            // epoch ms
+WARN_RETRY_COOLDOWN_MS = 300_000   // 5 minutes
+
+if (!warned && Date.now() >= nextAttemptAt) {
   try { Sentry.captureMessage(…, { level: 'warning' }); warned = true }
-  catch { /* swallow; the next call retries until the bound */ }
+  catch { nextAttemptAt = Date.now() + WARN_RETRY_COOLDOWN_MS }   // swallow
 }
 ```
 
-Both failure modes stay bounded. A working Sentry emits **exactly one** warning
-per process (the latch is set on success). A permanently broken Sentry makes at
-most three swallowed attempts and then stops — no spam, and no unbounded work on
-the decision path. A transient failure recovers, which is the case that
-motivated the change. Test 28 pins it: throw once, then succeed, expect exactly
-one successful warning.
+Every path is bounded and none is permanently silent:
+
+| Sentry behaviour | Result |
+|---|---|
+| always works | **exactly one** warning per process — the latch is set on success |
+| throws once, then recovers | one warning, on the first call after the cooldown |
+| throws three times, then recovers | one warning, on the first call after the cooldown — the case the ceiling lost |
+| always throws | at most one swallowed attempt per five minutes, forever. No spam, negligible work on the decision path, and the structured log line still carries the fact |
+
+Test 28 pins the recovery case: throw, then succeed, expect exactly one
+successful warning and no rejection.
 
 `REFUSAL_LEDGER_RETENTION_DAYS = 180` is a **code constant, not an env var**
 (#996). No registry rows. It lives beside `AGENT_SPINE_RETENTION_DAYS` and
@@ -410,22 +426,37 @@ things close that, and neither is test 26:
 
 1. **Test 26's scan set includes its OWN file.** All seven files, not the other
    six. It asserts each file contains at least one active `it(`/`test(` call and
-   zero `.todo`/`.skip`/`.fails` markers. That makes the circularity visible in
-   one file rather than hidden across seven.
-2. **`verify-gate.sh --review`'s `diff-coverage` row is the independent guard,
-   and it already exists.** An eval that executes nothing covers no changed
-   line, so changed-line coverage collapses and the review gate fails
-   mechanically. It is a different mechanism, in a different process, that
-   cannot be satisfied by a title.
+   zero `.todo`/`.skip`/`.fails` markers.
+2. **The scan runs at MODULE SCOPE and throws, not inside the `it()` body.**
+   This is what actually closes the self-certification hole, and it is the fix
+   round 3's `high` forced. A `.todo` test never runs — but vitest still
+   **loads the module**, so a module-scope check executes and fails collection
+   whether or not test 26 itself is marked. The `it()` body then re-asserts the
+   same computed result, so the failure is legible as a test rather than only as
+   a collection error.
 
-**Rejected: a new syntax-aware CI audit script**, which round 2 proposed. A new
-`ci:*` entry has to be added to `package.json`, `ci.yml`'s lint job and
-`lefthook.yml` together, and `src/__tests__/ci-audit-wiring.test.ts` fails if
-those three drift — a permanent repo-wide obligation bought for a
-single-branch concern that `diff-coverage` already catches.
+**A false claim was removed here, and it is worth recording why it was
+tempting.** An earlier draft named `verify-gate.sh --review`'s `diff-coverage`
+row as the independent guard. **That claim is false**, and round 3 graded it
+`high` because a rejection rested on it. `scripts/diff-coverage.ts` excludes
+`__tests__` and `.test.*` files and measures only ADDED PRODUCTION lines, so:
 
-| File | Tests |
-|---|---|
+- at T1, before any production line exists, it passes with nothing to cover; and
+- later, if tests 1–25 and 27–28 are active and cover the production lines, it
+  passes **while test 26 alone is `.todo`** — which is the exact hole.
+
+What `diff-coverage` really catches is a *wholly* inert eval, never a *single*
+inert test. That is a useful backstop and it is not a guard on test 26. It is
+described that way now.
+
+**Still rejected: a new syntax-aware `ci:*` audit script.** A new entry must be
+added to `package.json`, `ci.yml`'s lint job and `lefthook.yml` together, and
+`src/__tests__/ci-audit-wiring.test.ts` fails when those three drift — a
+permanent repo-wide obligation. The module-scope check above is independent of
+whether test 26 runs, which is the property the audit script was wanted for, at
+none of that cost. **This substitution is the one disagreement carried out of
+plan review; see §5d.**
+
 | File | Tests | New? |
 |---|---|---|
 | `src/lib/refusals/__tests__/vocabulary.test.ts` | 1–5 | new |
@@ -448,9 +479,10 @@ accounts, businesses and policy rows tests 16–20 need, so a sibling
 one lane's coverage across two files.
 
 **`eval-completeness.test.ts` is the one new test file that needs a
-justification.** Test 26 asserts a property of the six test files *as a set*.
-Putting that assertion inside one of the six is circular — a `.todo`-filled file
-would be asserting about itself. The natural home for a repo-wide meta test is
+justification.** Test 26 asserts a property of the seven test files *as a set*,
+including its own. Putting that assertion inside one of the other six would make
+it partial; putting it at module scope in its own file is what makes it
+self-inclusive. The natural home for a repo-wide meta test is
 `src/__tests__/` (`ci-audit-wiring.test.ts`, `claude-md-shape.test.ts`), but
 that path is outside `allowed_edit_surface` and widening to reach it would spend
 the last amendment on a test file. This branch's own directory is the correct
@@ -471,7 +503,7 @@ concurrent suites (`ci:live-db-suites`, #573). Seed with `INSERT`, never with
 
 **The eval's own adversarial question — can it pass while the feature is wrong?**
 Every test below exists because a specific wrong implementation would otherwise
-pass. Round 1 found six more of these; all six are now in the list.
+pass. Round 1 found seven more and round 2 another two; all nine are in the list.
 
 | Wrong implementation | Killed by |
 |---|---|
@@ -572,9 +604,9 @@ vocabulary_version, subject_type, subject_id, occurred_at`. `created_at` is
   `${date}::timestamptz` for a `Date`. Two SQL fragments, one statement.
 
 Kill switch and warn-once latch per §2.3, including its guarded emission and its
-**bounded retry** — the latch is set on a SUCCESSFUL capture, never before the
-attempt, and a counter bounds the attempts at `MAX_WARN_ATTEMPTS = 3`. Both are
-module-level; export a test-only reset that clears both, on
+**cooldown retry** — the latch is set on a SUCCESSFUL capture, never before the
+attempt, and a failure sets `nextAttemptAt` rather than consuming a lifetime
+budget. Both are module-level; export a test-only reset that clears both, on
 `circuit-breaker.ts`'s `reset()` precedent.
 
 The flag is read **inside the function body on every call**, never at module
@@ -851,7 +883,7 @@ the PostgreSQL documentation that `NOW()` is transaction-start time and equal to
 
 | # | Sev | The defect my fix created | Where the correction landed |
 |---|---|---|---|
-| 1 | med | Finding 1's fix said "six files" over a seven-row map, and test 26 can certify itself with `it.todo` | §4 T1 — seven files; test 26 scans its OWN file; `diff-coverage` named as the independent guard; the proposed new CI script rejected |
+| 1 | med | Finding 1's fix said "six files" over a seven-row map, and test 26 can certify itself with `it.todo` | §4 T1 — seven files; test 26 scans its OWN file. The first correction also named `diff-coverage` as the independent guard, which round 3 disproved; see §5d |
 | 2 | med | Finding 2's fix put an UNGUARDED `captureException` inside the very `catch` whose job is containment — a throwing Sentry would abort the cycle and skip every later candidate | §4 T4b — nested swallowing guard, `logger.error` first; **test 27** |
 | 3 | med | Finding 9's fix set the warn-once latch BEFORE the capture, so one transient failure permanently silences the only evidence a ledger gap exists | §2.3 — bounded retry, latch on SUCCESS, `MAX_WARN_ATTEMPTS = 3`; **test 28** |
 | 4 | low | D3 said "six" wrong implementations over a seven-row table and omitted finding 2 | deviations D3 |
@@ -864,6 +896,64 @@ silence in exchange for safety. This is #1008's D15 — *a fix is a sweep, never
 an edit* — recurring in code rather than prose. Queued for step 8 promotion.
 
 `tests_to_add` 26 → 28.
+
+---
+
+## 5d. Plan review round 3 — the last round, and the one open disagreement
+
+Full report:
+`docs/reviews/feat-1009-refusal-ledger-write-path/plan-review-r3.md`.
+**VERDICT: REVISE.** Under review: commit `5dbe8efa`. Round 3 is the protocol's
+cap; there is no round 4.
+
+**Verification of round 2: two ADDRESSED, two PARTIAL.** Three new defects, all
+accepted.
+
+| # | Sev | The defect | Correction |
+|---|---|---|---|
+| 1 | **high** | The `diff-coverage` claim justifying a rejection is **false** | §4 T1 — claim removed and replaced with what is true; the guard is now a MODULE-SCOPE check |
+| 2 | med | `MAX_WARN_ATTEMPTS = 3` is a LIFETIME ceiling — throw ×3 then recover is permanently silent | §2.3 — cooldown, not a ceiling |
+| 3 | low | The seven-row map carried two stacked Markdown headers | §4 T1 — fixed |
+
+**Defect 1 is the strongest finding of all three rounds, and it is a finding
+against my reasoning rather than my design.** I rejected a proposed CI audit on
+the ground that `diff-coverage` already caught an inert eval. It does not:
+`scripts/diff-coverage.ts` excludes `__tests__` and `.test.*` and measures only
+added PRODUCTION lines. So it passes at T1 with nothing to cover, and passes
+later from the other twenty-seven tests' coverage while test 26 alone is
+`.todo`. The claim was plausible, load-bearing, and wrong — which is why the
+round graded it `high` rather than `medium`.
+
+**Defect 2 is the third consecutive round to find the same class of error in
+this one warning path**, and that is worth naming. Round 1: unguarded emission
+can abort the decision. Round 2: latch-before-emit buys permanent silence.
+Round 3: an attempt ceiling buys permanent silence three failures later. Each
+fix was correct about the failure it addressed and introduced the next one. The
+cooldown ends it because it is counted in **time**, and time always recovers,
+whereas a lifetime counter cannot tell a broken Sentry from a briefly broken
+one.
+
+### The one disagreement carried to the owner
+
+Round 3's proposed correction for defect 1 is *"add an independent syntax-aware
+gate outside the seven-file test set"* — a new `ci:*` audit script.
+
+**Reviewer's position.** Only a guard outside the test files can prove the test
+files are active. Test 26 living among the files it checks is inherently
+circular.
+
+**My position, and what the plan implements.** A **module-scope** check in test
+26's own file has the property the audit script was wanted for, at none of its
+cost. A `.todo` test does not run, but vitest still **loads the module** — so a
+module-scope check executes and fails collection whether or not test 26 itself
+is marked. It is therefore already independent of test 26 running. Against
+that, a new `ci:*` entry must be added to `package.json`, `ci.yml`'s lint job
+and `lefthook.yml` together, with `src/__tests__/ci-audit-wiring.test.ts`
+failing whenever those three drift — a permanent repo-wide obligation bought for
+one branch's eval hygiene.
+
+**Status:** owner-decided. Recorded per the round-3 stop rule, which makes the
+owner's call substitute for `APPROVED`.
 
 ---
 
