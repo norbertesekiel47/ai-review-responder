@@ -89,6 +89,13 @@ if [ -n "$PARENT_ROOT" ] && [ "$PARENT_ROOT" != "$ROOT" ] \
     || echo "ladder: carry from $PARENT_ROOT failed — keeping the auto-initialized stub."
 fi
 
+# Speed lane build 2: write the worktree-scoped autonomy profile so
+# execution runs without permission prompts (acceptEdits + workflow command
+# allowlist; the shipping boundary still prompts). Worktree-only, gitignored;
+# opt out with FEATURE_AUTONOMY_PROFILE=off.
+bash scripts/feature-autonomy-profile.sh \
+  || echo "autonomy profile not written — runs will prompt per action (slower, still correct)."
+
 bash scripts/feature-state.sh set-phase worktree_ready
 
 if ! bash scripts/feature-surface-check.sh; then

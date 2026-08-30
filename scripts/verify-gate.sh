@@ -506,9 +506,11 @@ if [ "$PASSED" = "true" ]; then
     exit 0
   fi
   # Record the green gate in the machine-readable state (lastGreenGateSha
-  # snapshot) when this is an armed feature run.
+  # snapshot) when this is an armed feature run, and zero the gate-loop
+  # fail-round budget — a NEW red streak gets a fresh budget.
   if [ -f .feature/intake.json ] && [ -f scripts/feature-state.sh ]; then
     bash scripts/feature-state.sh set-phase gate_green || true
+    bash scripts/feature-state.sh reset-gate-rounds >/dev/null 2>&1 || true
   fi
   echo "GATE: GREEN"
   exit 0
