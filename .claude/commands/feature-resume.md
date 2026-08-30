@@ -49,7 +49,10 @@ continue: the handoff doc's claims are hints; git state is the truth.
      amendment updated one copy only — reconcile with me before any edit.
    - Staleness: is `.feature/gate-status.json` missing, red, or older than
      HEAD? Does `state.json`'s `lastGreenGateSha` match HEAD? Say so now —
-     don't leave it for the Stop hook to catch later.
+     don't leave it for the Stop hook to catch later. **Ignore
+     `.feature/gate-fast.json` entirely for this question**: a fast run is the
+     fix loop's own signal, never evidence, and a green one beside a red or
+     absent `gate-status.json` means the branch has NO gate evidence.
    - A gate may still be (or claim to be) running from the prior session:
      `bash scripts/verify-gate.sh --status` answers RUNNING / DEAD / last
      result in one command. Never blocking-wait for a gate you have not

@@ -83,10 +83,15 @@ first while the others still execute):
 
 1. Deviations read-back for that branch (verdict every entry — the reviewed
    transition enforces it).
-2. Dispatch that branch's review axes in ONE parallel wave (feature.md step
-   7 mechanics: axis checklists in, Haiku for mechanical passes).
+2. Dispatch that branch's review axes AND its red-team pass in ONE parallel
+   wave (feature.md step 7 mechanics: axis checklists in, Haiku for mechanical
+   passes, reports staged in `.feature/review-staging/`). Read
+   `.agents/skills/feature/references/execution-lanes.md` § The review wave —
+   with a live mutation in the wave, an untracked report file under `docs/`
+   breaks the red-team preconditions.
 3. Triage findings; the root fixes accepted ones IN THAT WORKTREE via its
-   gate loop; red-team pass (step 7.5); `reviewed` transition.
+   gate loop (`verify-gate.sh --fast` per round, full gate at the boundary);
+   then step 7.5 — finalize, commit, scoped round 2, `reviewed` transition.
 
 The gates' SUBAGENT BARRIER holds per-worktree: never run a worktree's gate
 while ITS subagent is in flight; other worktrees' work is irrelevant to it.

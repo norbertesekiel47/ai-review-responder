@@ -52,11 +52,26 @@
 # `--review` mode (run once before step 7): the test row runs with
 # coverage, then diff-coverage enforces changed-line coverage (default min
 # 80%, override with DIFF_COVERAGE_MIN) via scripts/diff-coverage.ts.
+#
+# `--fast` mode (the unattended fix loop ONLY, speed lane build 5): the same
+# row set, with exactly two rows narrowed against the last green SHA —
+#   test  — `vitest run --changed <since>` instead of the full suite
+#   build — skipped when no UI path changed since <since>, because the last
+#           green gate already proved the build at that SHA
+# It writes .feature/gate-fast.json and NEVER .feature/gate-status.json, so a
+# fast green can never be mistaken for review evidence: the Stop hook reads
+# only gate-status.json's `passed` + `timestamp` and ignores `mode`, so a fast
+# result written there would silently authorize finishing. Fast mode also
+# never advances the phase. Run the full gate before review, always.
 set -uo pipefail
 
 REVIEW_MODE=false
 BASELINE_MODE=false
+FAST_MODE=false
 HEARTBEAT=".feature/gate-heartbeat.json"
+# Every write of the results file goes through this variable. Fast mode
+# repoints it; nothing else may hard-code the path.
+STATUS_FILE=".feature/gate-status.json"
 
 # --status: report on a running/dead/finished gate WITHOUT running anything.
 # Three sessions burned 10-minute blocking waits on a gate that was hung or
@@ -112,8 +127,9 @@ case "${1:-}" in
   # worktree green at plan time — a baseline run once auto-advanced the phase
   # to gate_green and had to be hand-rolled back (2026-08-08).
   --baseline) BASELINE_MODE=true ;;
+  --fast) FAST_MODE=true; STATUS_FILE=".feature/gate-fast.json" ;;
   "") ;;
-  *) echo "usage: verify-gate.sh [--review|--baseline|--status]"; exit 2 ;;
+  *) echo "usage: verify-gate.sh [--review|--baseline|--fast|--status]"; exit 2 ;;
 esac
 
 INTAKE=".feature/intake.json"
@@ -128,6 +144,7 @@ rm -f .feature/logs/*.rc
 GATE_MODE_LABEL="full"
 [ "$REVIEW_MODE" = true ] && GATE_MODE_LABEL="review"
 [ "$BASELINE_MODE" = true ] && GATE_MODE_LABEL="baseline"
+[ "$FAST_MODE" = true ] && GATE_MODE_LABEL="fast"
 jq -n --argjson pid "$$" --arg mode "$GATE_MODE_LABEL" --argjson now "$(date +%s)" \
   '{pid: $pid, mode: $mode, startedAt: $now, rows: []}' > "$HEARTBEAT"
 
@@ -149,8 +166,8 @@ gate_abort() {
   # fan-out depends on. A duplicate row name is a gate bug that should never
   # reach a user; this is tidiness, not a guarantee.
   kill $(jobs -p) 2>/dev/null || true
-  printf '{"passed":false,"mode":"full","timestamp":%s,"checks":[{"name":"%s","result":"FAIL"}]}\n' \
-    "$(date +%s)" "$row" > .feature/gate-status.json
+  printf '{"passed":false,"mode":"%s","timestamp":%s,"checks":[{"name":"%s","result":"FAIL"}]}\n' \
+    "${GATE_MODE_LABEL:-full}" "$(date +%s)" "$row" > "${STATUS_FILE:-.feature/gate-status.json}"
   echo "VERIFY GATE:"
   printf '  %-24s %s\n' "$row" "FAIL"
   echo "GATE: RED — $message"
@@ -192,6 +209,38 @@ if [ -n "$CHANGED_PATHS" ] && \
   DOCS_ONLY=true
 fi
 
+# --- fast mode: what "since" means ---------------------------------------
+# The narrowing anchor is the SHA the last FULL gate went green at. Every row
+# passed there, so a fast run only has to prove what changed after it. Without
+# a recorded green (first run of a branch) fall back to the fork point, which
+# narrows nothing that matters and is never wrong. A fast run is never review
+# evidence, so an over-broad anchor costs time, never correctness.
+FAST_SINCE=""
+FAST_CHANGED=""
+FAST_UI_CHANGED=true
+if [ "$FAST_MODE" = true ]; then
+  FAST_SINCE=$(jq -r '.lastGreenGateSha // empty' .feature/state.json 2>/dev/null || true)
+  # A recorded SHA that no longer resolves (rebase, amend) narrows against
+  # nothing — fall back rather than hand vitest a dead ref.
+  if [ -z "$FAST_SINCE" ] || ! git cat-file -e "${FAST_SINCE}^{commit}" 2>/dev/null; then
+    FAST_SINCE="$BASE"
+  fi
+  if [ -n "$FAST_SINCE" ]; then
+    FAST_CHANGED=$(
+      {
+        git diff --name-only "$FAST_SINCE" HEAD
+        git status --porcelain --untracked-files=all | cut -c4-
+      } 2>/dev/null | sort -u | grep -v '^$' || true
+    )
+    # `pnpm build` is skipped only when nothing it compiles moved since the
+    # anchor. An empty change list means the build result at the anchor still
+    # holds; grep -q on empty input is false, which is the answer we want.
+    printf '%s\n' "$FAST_CHANGED" \
+      | grep -qE '^src/|^next\.config|^tailwind|^postcss|^package\.json$' \
+      || FAST_UI_CHANGED=false
+  fi
+fi
+
 # Resolve TEST_DATABASE_POOL_URL so changed integration suites never SKIP on
 # a machine that has the DB configured (#643: the gate itself reported SKIP
 # and then declared its own result not review-ready).
@@ -204,11 +253,23 @@ fi
 # every DB row downstream of a failed provision is noise.
 DB_PROVISION_RESULT=""
 if [ "$DOCS_ONLY" = false ] && [ "$DB_TOUCHING" = "true" ] && [ -n "${TEST_DATABASE_POOL_URL:-}" ]; then
-  if pnpm test:db:setup > .feature/logs/db-provision.log 2>&1; then
-    DB_PROVISION_RESULT="PASS"
+  # Fast mode re-provisions only when a migration moved since the anchor. The
+  # last full gate provisioned to head, and `pnpm test:db:setup` replays every
+  # migration from a dropped schema — the single most expensive serial step in
+  # a DB-touching gate, and pure waste when no migration changed.
+  PROVISION_NEEDED=true
+  if [ "$FAST_MODE" = true ] && [ -n "$FAST_SINCE" ]; then
+    printf '%s\n' "$FAST_CHANGED" | grep -q '^supabase/migrations/' || PROVISION_NEEDED=false
+  fi
+  if [ "$PROVISION_NEEDED" = true ]; then
+    if pnpm test:db:setup > .feature/logs/db-provision.log 2>&1; then
+      DB_PROVISION_RESULT="PASS"
+    else
+      gate_abort "db-provision" \
+        "test-DB provisioning failed (tail .feature/logs/db-provision.log); parallel checks not started."
+    fi
   else
-    gate_abort "db-provision" \
-      "test-DB provisioning failed (tail .feature/logs/db-provision.log); parallel checks not started."
+    DB_PROVISION_RESULT="SKIP"
   fi
 fi
 
@@ -276,6 +337,14 @@ run_full_suite() {
 if [ "$DOCS_ONLY" = false ]; then
   if [ "$REVIEW_MODE" = true ]; then
     launch test run_full_suite pnpm test:coverage --maxWorkers="$VITEST_WORKERS"
+  elif [ "$FAST_MODE" = true ] && [ -n "$FAST_SINCE" ]; then
+    # Same `vitest run` the full row uses, narrowed by --changed so the row
+    # keeps the project config, setup files and live-DB switches identical.
+    # --passWithNoTests is fast-only and load-bearing: an empty change set is
+    # the CORRECT answer here (nothing moved since the anchor), but vitest
+    # exits 1 on "No test files found" and would report a red gate for it.
+    launch test run_full_suite pnpm test --changed "$FAST_SINCE" \
+      --passWithNoTests --maxWorkers="$VITEST_WORKERS"
   else
     launch test run_full_suite pnpm test --maxWorkers="$VITEST_WORKERS"
   fi
@@ -286,8 +355,13 @@ while IFS= read -r SCRIPT; do
   launch "${SCRIPT#ci:}" pnpm "$SCRIPT"
 done < <(jq -r '.scripts | keys[] | select(startswith("ci:")) | select(startswith("ci:fallow") | not)' package.json)
 
+BUILD_SKIPPED=false
 if { [ "$SURFACE" = "ui" ] || [ "$SURFACE" = "mixed" ]; } && [ "$DOCS_ONLY" = false ]; then
-  launch build pnpm build
+  if [ "$FAST_MODE" = true ] && [ "$FAST_UI_CHANGED" = false ]; then
+    BUILD_SKIPPED=true
+  else
+    launch build pnpm build
+  fi
 fi
 
 # Extra commands declared in the intake (each entry is one shell command).
@@ -464,6 +538,13 @@ if [ "$INTEGRATION_SKIPPED" -gt 0 ]; then
   RESULTS+=("SKIP")
 fi
 
+# A skipped build is reported, never silent: the row is why this run is cheap,
+# and a reader must be able to see it did not run.
+if [ "$BUILD_SKIPPED" = true ]; then
+  NAMES+=("build")
+  RESULTS+=("SKIP")
+fi
+
 PASSED=true
 CHECKS_JSON="["
 for i in "${!NAMES[@]}"; do
@@ -474,11 +555,16 @@ CHECKS_JSON="${CHECKS_JSON%,}]"
 
 GATE_MODE="full"
 [ "$DOCS_ONLY" = true ] && GATE_MODE="docs_only"
+[ "$FAST_MODE" = true ] && GATE_MODE="fast"
 printf '{"passed":%s,"mode":"%s","timestamp":%s,"checks":%s}\n' \
-  "$PASSED" "$GATE_MODE" "$(date +%s)" "$CHECKS_JSON" > .feature/gate-status.json
+  "$PASSED" "$GATE_MODE" "$(date +%s)" "$CHECKS_JSON" > "$STATUS_FILE"
 rm -f "$HEARTBEAT"
 
 echo "VERIFY GATE:"
+if [ "$FAST_MODE" = true ]; then
+  echo "  (fast mode: test narrowed to --changed ${FAST_SINCE:0:8}; build skipped when"
+  echo "   nothing it compiles moved. Written to ${STATUS_FILE} — NOT review evidence.)"
+fi
 if [ "$DOCS_ONLY" = true ]; then
   echo "  (docs-only mode: every changed path is docs/, .claude/, or *.md —"
   echo "   test/build/promised-tests/reclassify/diff-coverage rows skipped)"
@@ -503,6 +589,13 @@ fi
 if [ "$PASSED" = "true" ]; then
   if [ "$BASELINE_MODE" = true ]; then
     echo "GATE: GREEN (baseline — phase NOT advanced)"
+    exit 0
+  fi
+  # Fast mode proves the fix, never the branch. It advances no phase, resets
+  # no budget, and leaves gate-status.json untouched, so the Stop hook still
+  # demands a full green newer than HEAD before this session can finish.
+  if [ "$FAST_MODE" = true ]; then
+    echo "GATE (FAST): GREEN — run the full gate before review; phase NOT advanced."
     exit 0
   fi
   # Record the green gate in the machine-readable state (lastGreenGateSha
