@@ -3,9 +3,9 @@
 Every entry is something the ticket or the plan did not anticipate. Step 6
 reads this file end to end and logs an ACCEPT / RE-PLAN verdict per entry.
 
-## Step 6 triage — read back 2026-08-29 at HEAD `f005ded8`, gate GREEN 30/30
+## Step 6 triage — re-read 2026-08-30 post-rebase, gate GREEN 28/28
 
-**Thirteen entries. Thirteen ACCEPT, zero RE-PLAN.** No deviation invalidates a
+**Sixteen entries. Sixteen ACCEPT, zero RE-PLAN.** No deviation invalidates a
 locked intake decision, so the abort criteria are not met on that arm. Two
 entries reversed a stated step of ticket #1008 (D6, D10a) and both were
 surfaced to the owner rather than absorbed; one spent the second surface
@@ -26,12 +26,22 @@ amendment (D13) and carries explicit owner sign-off.
 | D11 | `TENANT_TABLES` is two structures, and editing one is silently wrong | **ACCEPT** | Typecheck stayed clean while the completeness test stayed red. **Promote at step 8.** |
 | D12 | The C1 test asserted the absence of something Postgres adds | **ACCEPT** | A test defect, not a migration defect; the fix asserts the deparsed NULL is PRESENT, which is the stronger claim. **Promote at step 8.** |
 | D13 | Surface amendment 2 tripped the abort criterion | **ACCEPT** | Surfaced to the owner, who chose amend-and-continue; all three added paths are forced registry rows, and the gate was otherwise green when it fired. |
+| D14 | The citation-fixing deviation staled its own citation | **ACCEPT** | A line citation edited by the same commit that moved the line; now cited by symbol. |
+| D15 | The fix for D14 reproduced D14, five times | **ACCEPT** | The meta-pattern: a fact stated in two artifacts, corrected in only one — five times over. A doc fix here is a SWEEP. |
+| D16 | The intake attaches the write-site count to the wrong issue list | **ACCEPT** | Resolved 3-to-1 toward the three artifacts; the sha-locked intake's phrasing is superseded, not edited. |
 
-**Four lessons queued for step 8 promotion** (D9, D11, D12, and D13's
-generalisable half — the four-registry chain a new tenant table forces).
+**Five lessons queued for step 8 promotion** (D9, D11, D12, D13's
+generalisable half — the four-registry chain a new tenant table forces — and
+**D15**, the strongest: in this repo a documentation fix is a SWEEP, never an
+edit, because the artifacts duplicate facts deliberately.)
 
-**D14 added after the red-team pass. See the red-team triage in
+**D14, D15 and D16 were added after the red-team passes and are triaged in the
+rows above. Full findings:
 `docs/reviews/red-team/feat-1008-migration-116-refusal-events-cbbac6/`.**
+
+**This table has itself been a D15 casualty twice** — it claimed "Thirteen
+entries" while D14 and D15 sat below it untriaged, and the count went stale
+again when D16 landed. A new deviation adds a ROW here, not just a section.
 
 ---
 
@@ -439,3 +449,41 @@ discoverable from any one document. `TENANT_TABLES` (two structures) →
 table should list all of them up front.
 
 **Verdict:** see the triage table at the top of this file.
+
+
+## D16 — the intake attaches the write-site count to the wrong issue list
+
+**Found by:** red-team round 1 (RT-12, P2), post-rebase.
+
+`.feature/intake.json` `non_goals[1]` reads "Any of the eleven Refusal write
+sites (#1010, #1011, #1012, #1013)", while three other artifacts — the
+migration header, `.claude/reference/migrations-log.md:2500` and the
+`arch-review-log.md` branch row — put the FIRST caller in #1009 and the other
+ten in #1010-#1013. The total is eleven in both readings; they disagree only
+about where the first one lands.
+
+**Resolved toward the three, not the one.** Three reasons. The intake is
+sha-locked (`intakeSha256`) and cannot be edited inside this run without
+voiding the red-team evidence. `non_goals[0]` already gives #1009 the insert
+helper and its kill switch, and a helper shipping with zero callers is dead
+code this repo gates on (fallow unused-exports). And a 3-to-1 split across
+artifacts written at different times is better explained by one imprecise
+phrase than by three independent errors.
+
+**What was corrected:** nothing in `#1010-#1013`'s content — only the
+migration header, which now states the split explicitly and points here. The
+intake's phrasing stands as written and is superseded by this entry.
+
+**Blast radius: none.** This is forward sequencing inside a declared non-goal.
+No code in this diff reads it, which is why the pass graded it P2 rather than
+P1.
+
+**A first correction went the wrong way, and the sweep is what caught it.**
+The initial fix edited the migration header to match the intake — the reverse
+of this verdict — because it treated the locked contract as authoritative
+without first checking whether the claim had other copies. Two more copies
+existed. This is D15 recurring: in this repo a documentation fix is a SWEEP,
+never an edit, and the sweep must run BEFORE the edit direction is chosen,
+not after.
+
+**Verdict: ACCEPT.**

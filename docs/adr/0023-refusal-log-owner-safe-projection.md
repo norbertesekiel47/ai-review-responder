@@ -181,7 +181,7 @@ sets intersect:
 | `render_failed` | `ask-generation.ts` only — inserts the row already withheld | `rendered_at` — `NOT NULL`, never updated |
 | `lint_failed`, `moderation_high` | **BOTH.** `ask-generation.ts` at render time, and `dispatch.ts` `commitWithhold` at dispatch time — they are members of `OutreachWithheldReason` (`dispatch.ts:149-155`) and are emitted by the dispatch gate (`:254-255`) | **depends on which writer wrote the row**, not on the reason |
 | `suppressed`, `no_consent`, `no_postal_address`, `postal_address_mismatch` | `dispatch.ts` `commitWithhold`, which sets `agent_run_id` atomically | `COALESCE(agent_runs.started_at, updated_at)` |
-| `unsubscribed` | neither of the two above — written by the unsubscribe lane, not by the send pipeline | that lane's own decision time |
+| `unsubscribed` | **NEITHER — and no other site: it has NO WRITER TODAY.** Every production `disposition_reason` write is one of the arms above or a cancelled/failed arm; `OutreachWithheldReason` (`dispatch.ts:149-155`) has six members and excludes it, and `worker/ingress/unsubscribe.ts` and `suppression.ts` never name `solicitation_outreach`. Migration 111 ADMITS the value in the withheld arm; nothing yet emits it. | none to choose until a writer exists |
 
 Eight members, and the eighth is easy to lose: an earlier draft of this table
 counted "the other five" and a later one listed only seven, because

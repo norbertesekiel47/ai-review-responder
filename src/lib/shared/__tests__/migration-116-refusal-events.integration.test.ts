@@ -1045,17 +1045,21 @@ describeWithDb(
     });
 
     it('the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member', async () => {
-      // Members AND order, read off the rendered `= ANY (ARRAY[…])`: a closed
-      // vocabulary is only closed if nothing extra is in it.
-      expect(checkMembers(await constraintDefinition(SOURCE_ENUM_CHECK))).toEqual([
-        ...REFUSAL_SOURCES,
-      ]);
-      expect(checkMembers(await constraintDefinition(CATEGORY_ENUM_CHECK))).toEqual([
-        ...REFUSAL_CATEGORIES,
-      ]);
-      expect(checkMembers(await constraintDefinition(SUBJECT_TYPE_ENUM_CHECK))).toEqual([
-        ...SUBJECT_TYPES,
-      ]);
+      // MEMBERSHIP, read off the rendered `= ANY (ARRAY[…])`: a closed
+      // vocabulary is only closed if nothing extra is in it. Both sides are
+      // SORTED on purpose — the migration's own `refusal_category` comment says
+      // reordering is presentation and is NOT migration-bearing, so an
+      // order-sensitive compare would turn red for an edit the schema
+      // documents as meaningless. Same treatment as the canonical-row case.
+      expect(checkMembers(await constraintDefinition(SOURCE_ENUM_CHECK)).sort()).toEqual(
+        [...REFUSAL_SOURCES].sort(),
+      );
+      expect(checkMembers(await constraintDefinition(CATEGORY_ENUM_CHECK)).sort()).toEqual(
+        [...REFUSAL_CATEGORIES].sort(),
+      );
+      expect(checkMembers(await constraintDefinition(SUBJECT_TYPE_ENUM_CHECK)).sort()).toEqual(
+        [...SUBJECT_TYPES].sort(),
+      );
 
       // Every category is reachable: the eighth (owner_review_required) is the
       // one #998 added, and a stale CHECK would reject it here.

@@ -1405,6 +1405,46 @@ describeWithDb('owner offboarding — DB-backed lifecycle (integration)', { enab
     }
   });
 
+
+  // The read side needs its own oracle. The covering case in
+  // purge-verification.test.ts replaces `sql` with a mock that fabricates the
+  // count, so it pins this branch by SQL TEXT and nothing else: a WHERE clause
+  // that narrows the row set, or a renamed count alias, both satisfy every one
+  // of its assertions while reporting a CLEAN purge over surviving rows. This
+  // arm reads the count back out of a real database instead (#643's pattern).
+  it('purge verification counts BOTH surviving refusal_events shapes, the account-wide row included', async () => {
+    const seed = await seedOwnerOffboardingAccount({ zernioConnection: false });
+
+    try {
+      // One per-location Refusal and one ACCOUNT-WIDE one. The account is NOT
+      // purged, so both survive and the load-bearing assertion is the exact
+      // count. A query narrowed by `subject_id IS NOT NULL` reports 1, because
+      // C2 forces the `autonomy_suspended` row to carry neither a
+      // `subject_type` nor a `subject_id`; a renamed count alias reports none
+      // at all, because `countViolations` reads `violation_count` by name.
+      await seedRefusalEvent({ accountId: seed.accountId, businessId: seed.businessId });
+      await seedRefusalEvent({ accountId: seed.accountId, businessId: null });
+
+      const result = await verifyAccountOffboardingPurge(
+        { accountId: seed.accountId, offboardingId: randomUUID() },
+        getE2eSql(),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          table: 'refusal_events',
+          disposition: 'hard_delete',
+          purgeVerification: 'must_be_absent',
+          violationCount: 2,
+        }),
+      );
+    } finally {
+      await cleanupRefusalEvents(seed.accountId);
+      await cleanupOwnerOffboardingSeed(seed);
+    }
+  });
+
   // ── #643 Suppression ledger retention + Unsubscribe token scrub (§6.3) ─────
   //
   // Retention splits on the Suppression scope axis (D7): global rows are the

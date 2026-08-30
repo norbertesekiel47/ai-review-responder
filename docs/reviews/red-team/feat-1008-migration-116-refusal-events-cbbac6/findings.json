@@ -3,170 +3,175 @@
   "mode": "feature",
   "run_id": "feature-feat-1008-migration-116-refusal-events-cbbac6",
   "branch": "feat/1008-migration-116-refusal-events",
-  "fork_sha": "5ab6bfeeef9bce1d389cf9c75ec87eeeefad9d64",
-  "merge_base_sha": "5ab6bfeeef9bce1d389cf9c75ec87eeeefad9d64",
-  "head_sha": "6a7fc65010c301644b796fd49cda9d3294ccab3a",
-  "intake_sha256": "3a53e31f4da91a9ccdbe2f805c761214e386e59ba73664f4f6815fe77d1a561f",
+  "fork_sha": "888f196bed2ec5b5ae4a781afbeb2a12090e10ed",
+  "merge_base_sha": "888f196bed2ec5b5ae4a781afbeb2a12090e10ed",
+  "head_sha": "1179187637d4f15c7f3832f896a56c5be01fd71f",
+  "intake_sha256": "10f30e5f8edf3501d5b27a730b9ca692711810fe7f0e90a7459376e0839b5482",
   "risk": "high",
-  "round": 2,
-  "generated_at": "2026-08-30T06:41:50.418Z",
+  "round": 1,
+  "generated_at": "2026-08-30T07:28:33.750Z",
   "inventory": [
     {
       "id": "INV-01",
-      "test": "migration 116 runs as one transaction and bounds its lock acquisition with SET LOCAL lock_timeout",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:459",
-      "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Round 1 verified the assertions by reading the migration text directly."
+      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:170",
+      "outcome": "killed",
+      "reason": "Baseline green. Two mutations of src/lib/account-offboarding/table-disposition.ts, both KILLED. M1 rewrote the reason string to its semantic negation while deliberately retaining the word \"cascade\" (060c260bd434 -> 73bcd3564ba3): killed by /NO CASCADE REACHES IT/ and /deletes them explicitly/i, the polarised replacements for the retired /cascade/i. M2 flipped scopeEvidence direct_account_id -> direct_business_id (-> 44f0c183c5ac): killed."
     },
     {
       "id": "INV-02",
-      "test": "TENANT_TABLES scopes refusal_events by account_id and business_id",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:487",
-      "outcome": "killed"
+      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:214",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-17",
+      "reason": "Baseline green. Two mutations of src/lib/account-offboarding/purge-verification.ts, BOTH SURVIVED. M1 appended \"AND subject_id IS NOT NULL\" to the refusal_events verification query (fcdf7603a694 -> 26c66bb10d69), which excludes every account-wide autonomy_suspended row - the exact behaviour the title claims to guard - and the test still passed. M2 renamed the count alias violation_count -> violations (-> 1743905e7287), which makes countViolations read undefined and report zero violations over surviving rows, and the test still passed. No other test in the repository covers this branch: only four test files name refusal_events, and the one live-DB file calls runContentPurgeStage, never verifyAccountOffboardingPurge."
     },
     {
       "id": "INV-03",
-      "test": "migration 116 enables row level security on refusal_events and defines zero policies",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:560",
-      "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads."
+      "test": "TENANT_TABLES scopes refusal_events by account_id and business_id",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:487",
+      "outcome": "killed",
+      "reason": "Baseline green (runs without a database, by design). Two mutations of scripts/ci/tenant-tables.ts, both KILLED. M1 narrowed TENANT_SCOPE_COLUMNS.refusal_events to [account_id] (4fbdb3237593 -> 7028035a4649). M2 un-registered the table from BOTH TENANT_TABLES and TENANT_SCOPE_COLUMNS, type-consistently (-> 20667f7d5cfc)."
     },
     {
       "id": "INV-04",
-      "test": "migration 116 creates the twelve locked columns with their exact types, nullability and defaults, and no others",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:583",
-      "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads."
+      "test": "the content purge stage deletes refusal_events rows for the purged account, account-wide rows included, and leaves another account's rows untouched",
+      "file": "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1379",
+      "outcome": "killed",
+      "reason": "Baseline green against the local test container at migrations head (148ms, one executed test). Two mutations of worker/jobs/account-offboarding/purge-stages.ts, both KILLED. M1 rewrote the DELETE to join through businesses (c3a230ef3285 -> 36617db605a4): failed with \"expected 1 to be +0\" at :1397 - exactly the surviving account-wide row. M2 removed the DELETE entirely (-> 5743c30f4579): failed with \"expected 2 to be +0\", which independently corroborates the branch claim that no cascade reaches this table."
     },
     {
       "id": "INV-05",
-      "test": "migration 116 creates foreign keys only to accounts and businesses, both with no referential action, and leaves subject_id unreferenced",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:647",
+      "test": "migration 116 runs as one transaction and bounds its lock acquisition with SET LOCAL lock_timeout",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row. Reads the checked-in migration file text."
     },
     {
       "id": "INV-06",
-      "test": "migration 116 creates the archival, account-window and partial-unique indexes with their exact keys, ordering, uniqueness and predicate",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:688",
+      "test": "migration 116 enables row level security on refusal_events and defines zero policies",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Index properties were audited by hand against pg_indexes in round 1; every property is pinned by an exact-substring or set-equality assertion."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-07",
-      "test": "migration 116 comments the table and all twelve columns, and names occurred_at as the only retention clock",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:732",
+      "test": "migration 116 creates the twelve locked columns with their exact types, nullability and defaults, and no others",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. The two polarised timestamp assertions were re-derived by hand in round 1 and do fail on the negated comment; re-checked in round 2 as part of the Duty 2 sibling sweep."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-08",
-      "test": "C1 wraps its total source-to-subject CASE in IS TRUE so a fall-through rejects instead of passing on NULL",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:772",
+      "test": "migration 116 creates foreign keys only to accounts and businesses, both with no referential action, and leaves subject_id unreferenced",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Replaced by the TEMP-table clause probe: variant c1_nowrap changes the verdict on zero suite rows, which is why this title is structural, and the structural assertion does pin the wrapper."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-09",
-      "test": "C1 rejects every lane paired with a subject_type the locked mapping does not give it",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:817",
+      "test": "migration 116 creates the archival, account-window and partial-unique indexes with their exact keys, ordering, uniqueness and predicate",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Probe variant c1_gone flips all seven of this title rows from rejected to ACCEPTED, so the title is load-bearing."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-10",
-      "test": "C2 rejects a typed subject with no id, and an id with no subject_type",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:842",
+      "test": "migration 116 comments the table and all twelve columns, and names occurred_at as the only retention clock",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Probe variant c2_gone flips both of this title rows to ACCEPTED."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-11",
-      "test": "C3 rejects an account-wide row that is not autonomy_suspended, and an autonomy_suspended row pinned to a location",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:860",
+      "test": "C1 wraps its total source-to-subject CASE in IS TRUE so a fall-through rejects instead of passing on NULL",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Probe variant c3_gone flips both of this title rows to ACCEPTED."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-12",
-      "test": "C4 rejects a held_draft row carrying a refusal_code, and a non-held_draft row carrying none",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:877",
+      "test": "C5 carries both NULL defences structurally, including the one no row can reach",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Probe variant c4_gone flips both of this title rows to ACCEPTED."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-13",
-      "test": "C5 rejects policy_gate_held rows whose all_refusal_codes is null, empty, contains NULL, or omits refusal_code, and any other lane carrying an array",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:894",
+      "test": "C1 rejects every lane paired with a subject_type the locked mapping does not give it",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Replaced by a per-clause TEMP-table probe plus exhaustive brute force; results raised RT-03 (fixed in round 2) and RT-11 (rejected)."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-14",
-      "test": "C5 admits a policy_gate_held row whose all_refusal_codes carries codes the database does not know, because the member vocabulary is owned by TypeScript",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:961",
+      "test": "C2 rejects a typed subject with no id, and an id with no subject_type",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. The covered hunk is C5 deliberate absence of a member CHECK."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-15",
-      "test": "a canonical valid row for every one of the seven lanes satisfies all five CHECK constraints",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:982",
+      "test": "C3 rejects an account-wide row that is not autonomy_suspended, and an autonomy_suspended row pinned to a location",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. All seven canonical rows were reproduced in the probe and are ACCEPTED under the shipped constraint set."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-16",
-      "test": "the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1021",
+      "test": "C4 rejects a held_draft row carrying a refusal_code, and a non-held_draft row carrying none",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Members and order are pinned structurally off the rendered = ANY (ARRAY[...])."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-17",
-      "test": "an ON CONFLICT clause re-spelling the partial predicate byte-for-byte infers refusal_events_subject_uniq and does not abort the caller transaction",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1075",
+      "test": "C5 rejects policy_gate_held rows whose all_refusal_codes is null, empty, contains NULL, or omits refusal_code, and any other lane carrying an array",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. A predicate change would raise 42P10 and fail this title."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-18",
-      "test": "the same (refusal_source, subject_id) inserted twice yields one row, and the same subject under a different refusal_source yields two",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1094",
+      "test": "C5 admits a policy_gate_held row whose all_refusal_codes carries codes the database does not know, because the member vocabulary is owned by TypeScript",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-19",
-      "test": "two autonomy_suspended rows for one account both persist because the unique index is partial on subject_id IS NOT NULL",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1118",
+      "test": "a canonical valid row for every one of the seven lanes satisfies all five CHECK constraints",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-20",
-      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
-      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:170",
-      "outcome": "killed"
+      "test": "the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-21",
-      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
-      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:214",
-      "outcome": "killed"
+      "test": "an ON CONFLICT clause re-spelling the partial predicate byte-for-byte infers refusal_events_subject_uniq and does not abort the caller transaction",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-22",
-      "test": "the content purge stage deletes refusal_events rows for the purged account, account-wide rows included, and leaves another account rows untouched",
-      "file": "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1379",
-      "outcome": "killed"
+      "test": "the same (refusal_source, subject_id) inserted twice yields one row, and the same subject under a different refusal_source yields two",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
+      "outcome": "excluded",
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     },
     {
       "id": "INV-23",
-      "test": "C5 carries both NULL defences structurally, including the one no row can reach",
-      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:815",
+      "test": "two autonomy_suspended rows for one account both persist because the unique index is partial on subject_id IS NOT NULL",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts",
       "outcome": "excluded",
-      "reason": "Covering production hunk is supabase/migrations/116_refusal_events.sql, which is out of mutation scope per the skill: the test database is provisioned before the run, so editing the migration file changes nothing the suite reads. Green baseline confirmed at HEAD (exactly one test executed against the live database). Verified instead by rendering the wrapper-free C5 through Postgres in a rolled-back TEMP table: /\\)\\s*IS TRUE/ matches the shipped definition exactly once and does not match the unwrapped rendering, and /array_position\\(.*NULL.*\\) IS NULL/ fails when that clause is deleted or negated."
+      "reason": "Out of mutation scope (skill Step 2): the only production surface this case covers is supabase/migrations/116_refusal_events.sql, and the database is provisioned to migrations head before the run, so mutating the migration file changes nothing under test. No mutation was run for this row."
     }
   ],
   "findings": [
@@ -176,17 +181,17 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:180",
-      "title": "ADR 0023 withheld writer/anchor table was false for two of eight reasons, and the partition-is-exactly-RenderWithholdReason claim was false \u2014 following it would stamp occurred_at, the single retention clock, with a render timestamp",
-      "reason": "Round 2 verified every cell of the replacement writers-not-reasons table against the code. RenderWithholdReason (outreach.ts:525) and OutreachWithheldReason (dispatch.ts:149-155) intersect in exactly {lint_failed, moderation_high}, which is the row marked BOTH; render_failed is written only by ask-generation.ts (:425, :1699) and rendered_at is NOT NULL (091:210) with no assignment anywhere in src/ or worker/; commitWithhold (dispatch.ts:1365-1380) sets agent_run_id in the same UPDATE. The ADR citations dispatch.ts:149-155 and :254-255 resolve exactly at HEAD, and dispatch.ts is not a file this change edits. The #1009 occurredAt claim resolves against issue #1009 verbatim. One residual gap is recorded separately as RT-13."
+      "title": "ADR 0023 anchor table asserted a writer/reason partition that was false for two of eight reasons, and following it would stamp occurred_at - the single retention clock - with a render timestamp",
+      "reason": "Re-verified cell by cell at HEAD on my own evidence. OutreachWithheldReason is defined at src/lib/solicitation/dispatch.ts:149-155 with exactly the six members the ADR names, and its own comment at :145-148 says render_failed and unsubscribed are written by other lanes. The dispatch gate emits lint_failed at dispatch.ts:254 and moderation_high at :255 - the ADR cites :254-255 exactly. RenderWithholdReason is at src/lib/solicitation/outreach.ts:525 with three members, so the intersection is exactly {lint_failed, moderation_high} - the row marked BOTH. render_failed is written only by src/lib/solicitation/ask-generation.ts (:425, :1699). rendered_at is NOT NULL at supabase/migrations/091_send_mode_spine_lifecycle.sql:210 and no assignment to it exists anywhere under src/ or worker/. The rewritten table is a writers table, not a reasons partition. One residual claim in the same table does not hold and is filed separately as RT-13."
     },
     {
       "id": "RT-02",
       "severity": "P1",
       "duty": 2,
       "disposition": "fixed",
-      "at": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:190",
+      "at": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:188",
       "title": "Fragile assertion: expect(entry?.reason).toMatch(/cascade/i) passed on the exact negation of the claim it guarded",
-      "reason": "Killed by mutation at HEAD. The reason string was rewritten to its semantic negation (A CASCADE REACHES IT / accounts FK carries ON DELETE CASCADE / removes these rows without any explicit statement) while deliberately retaining the word cascade; the title reports status failed. Regex discriminator: the negated text matches the retired /cascade/i but neither /NO CASCADE REACHES IT/ nor /deletes them explicitly/i."
+      "reason": "Killed by mutation at HEAD (INV-01 M1) on my own evidence. The reason string was rewritten to its semantic negation - \"A CASCADE REACHES IT\", accounts FK carries ON DELETE CASCADE, the parent removal takes these rows with it - while deliberately keeping the word \"cascade\", and the test FAILED. The retired /cascade/i would have passed on that text; the replacement pair /NO CASCADE REACHES IT/ and /deletes them explicitly/i does not."
     },
     {
       "id": "RT-03",
@@ -194,8 +199,8 @@
       "duty": 2,
       "disposition": "fixed",
       "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:815",
-      "title": "C5 outer IS TRUE wrapper was asserted by nothing: no row can reach it and no assertion read C5 definition",
-      "reason": "The new structural title is real and specific enough. constraintDefinition filters pg_constraint to refusal_events_all_codes_pairing alone, so C1 identical wrapper cannot mask C5. ) IS TRUE occurs exactly once in the shipped definition and zero times in the wrapper-free rendering produced by Postgres itself in a rolled-back TEMP table, so /\\)\\s*IS TRUE/ fails on the wrapper removal. The companion /array_position\\(.*NULL.*\\) IS NULL/ fails when that clause is deleted or negated."
+      "title": "C5 outer IS TRUE wrapper was asserted by nothing: no row can reach it and no assertion read C5’s definition",
+      "reason": "Verified at HEAD. src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:815-834 reads pg_get_constraintdef for refusal_events_all_codes_pairing alone and asserts /\\)\\s*IS TRUE/ plus /array_position\\(.*NULL.*\\) IS NULL/. Both clauses exist in the shipped definition at supabase/migrations/116_refusal_events.sql:158-165, the constraint is filtered by name so C1's identical wrapper cannot mask it, and the case's own comment states why a row can never reach the wrapper (C4 forbids the only rows whose verdict it changes)."
     },
     {
       "id": "RT-04",
@@ -203,7 +208,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json:46",
-      "title": "The stale-citation fix converted the plan but not the intake, and the deviations assert twice that both were converted \u2014 tenant-tables.ts:154 now lands on a one-column entry while claiming to show the two-column shape, and table-disposition.ts:361-366 now lands on the wrong entry"
+      "title": "The stale-citation fix converted the plan but not the intake, leaving two citations landing on the wrong entries",
+      "reason": "Verified at HEAD. .feature/intake.json and docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json are byte-identical (both sha256 10f30e5f8edf3501d5b27a730b9ca692711810fe7f0e90a7459376e0839b5482, matching the pinned intake hash), so the two copies cannot disagree. All 162 path:line citations on added doc lines were re-resolved against HEAD by script; none is out of range and none names a missing file. Spot-checked: plan-review-r1.md cites scripts/ci/tenant-tables.ts:158, which resolves inside a 240-line file."
     },
     {
       "id": "RT-05",
@@ -211,16 +217,18 @@
       "duty": 5,
       "disposition": "accepted-risk",
       "authorization": "AUTH-1008-01",
-      "at": "docs/runbooks/beta-launch-alerting.md:184",
-      "title": "The terminal purge failure this diff newly makes reachable emits account_offboarding_purge_failed, which no runbook rule row routes \u2014 all six facets MISSING, and neither generic sink covers it"
+      "at": "docs/runbooks/beta-launch-alerting.md:177",
+      "title": "The terminal purge failure this diff newly makes reachable emits account_offboarding_purge_failed, which no runbook rule row routes - all six facets missing, and neither generic sink covers it",
+      "reason": "Re-derived at HEAD. worker/jobs/account-offboarding/PurgeWorker.ts:107-125 emits Sentry.captureMessage(\"account_offboarding_purge_failed\") with tags subsystem=account_offboarding, step=purge, terminal=true|false. docs/runbooks/beta-launch-alerting.md carries exactly six rule rows (:179-184) and not one of their _If_ filters matches: rule 1 filters subsystem=health_alert, rule 2 cost_event=limit_exceeded, rule 3 feature=stripe_reconciliation, rule 4 subsystem=import_consent_analytics, rule 5 finding=solicitation_send_breaker_tripped, rule 6 feature=solicitation_lane. All six facets - signal identity, filter, level, grouping title, threshold/cadence, destination action - are absent. This diff makes the path newly reachable: DELETE FROM refusal_events in runContentPurgeStage raises 42P01 at plan time against a database without migration 116, which aborts the purge transaction and terminalizes the offboarding. Accepted under AUTH-1008-01; follow-up RepWorth/ai-review-responder#1016."
     },
     {
       "id": "RT-06",
       "severity": "P2",
       "duty": 3,
       "disposition": "fixed",
-      "at": ".claude/reference/arch-review-log.md:1420",
-      "title": "Only one of the two nine-probe-rows copies was corrected: the deviations now say eight, the arch-review-log entry still says nine probe rows, all nine now correct"
+      "at": ".claude/reference/arch-review-log.md:1421",
+      "title": "Only one of the two nine-probe-rows copies was corrected: the deviations said eight, the arch-review-log entry still said nine",
+      "reason": "Verified at HEAD: the arch-review-log branch row (the file’s last line, :1421) now reads \"eight probe rows\"; grep finds no remaining \"nine probe\" anywhere in the changed docs."
     },
     {
       "id": "RT-07",
@@ -228,8 +236,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "CONTEXT.md:165",
-      "title": "CONTEXT.md asserted in the present tense two tabs on /dashboard/analytics \u2014 Metrics and Restraint \u2014 neither of which exists",
-      "reason": "The term now says the tabs are what the route WILL carry and marks the surface Not built yet, naming #1014. Verified: the analytics page renders <AnalyticsContent /> with no tab markup and no role=tab/tablist anywhere under that route, and gh issue view 1014 returns OPEN, Restraint tab: report, archived-location footnote, archived-period line."
+      "title": "CONTEXT.md asserted in the present tense two tabs on /dashboard/analytics - Metrics and Restraint - neither of which exists",
+      "reason": "Verified at HEAD: the Restraint tab term now says the tabs are what the route WILL carry, marks the surface \"Not built yet\" and names #1014. src/app/(authenticated)/dashboard/analytics/ contains only page.tsx, which renders <AnalyticsContent /> with no route-level tab markup, and there is no restraint/ subdirectory and no occurrence of \"Restraint\" anywhere under src/app or src/components. A separate imprecision introduced by the replacement wording is filed as RT-19."
     },
     {
       "id": "RT-08",
@@ -237,8 +245,9 @@
       "duty": 5,
       "disposition": "accepted-risk",
       "authorization": "AUTH-1008-01",
-      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:114",
-      "title": "Retry and terminal captures share one constant message and no fingerprint, so any first-seen rule added for RT-05 fires once, on a warning retry, and never on the terminal error"
+      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:113",
+      "title": "Retry and terminal captures share one constant message and no fingerprint, so any first-seen rule added for RT-05 fires once, on a warning retry, and never on the terminal error",
+      "reason": "Re-derived at HEAD. alertPurgeFailure (PurgeWorker.ts:107-125) passes the SAME constant message string \"account_offboarding_purge_failed\" for both arms and sets no fingerprint; only level (error vs warning) and the terminal tag differ. Sentry groups captureMessage by message, so both arms land in one issue, and the first-seen trigger shape used by rule rows 1-3 of beta-launch-alerting.md would fire on the first retryable warning and never again for the terminal error. Accepted under AUTH-1008-01; follow-up RepWorth/ai-review-responder#1016."
     },
     {
       "id": "RT-09",
@@ -247,7 +256,7 @@
       "disposition": "fixed",
       "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:929",
       "title": "The in-test comment misattributed the [different, NULL] rejection to array_position plus the outer IS TRUE wrapper",
-      "reason": "The corrected comment claims the rejection comes from array_position(all_refusal_codes, NULL) IS NULL alone. Proven against real Postgres: inserting (policy_gate_held, winner, ARRAY[different, NULL]) into a TEMP table carrying C5 minus the wrapper still raises a check-constraint violation, so the wrapper contributes nothing to that row."
+      "reason": "Verified at HEAD: the comment at src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:929-941 now attributes the rejection to array_position(all_refusal_codes, NULL) IS NULL ALONE and states explicitly that the outer wrapper never has to do anything for that row, cross-referencing the structural case above it."
     },
     {
       "id": "RT-10",
@@ -255,8 +264,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:87",
-      "title": "ADR 0023 mapped admin_halt on outreach_withheld, a lane whose rows cannot carry it \u2014 migration 111 permits admin_halt only under delivery_status cancelled",
-      "reason": "All three claims in the replacement text resolve: migration 111:97-100 admits admin_halt and platform_halt on the cancelled arm only and the withheld arm (:92-96) does not; latchHalt (approval.ts:543-552) sets delivery_status cancelled with disposition_reason from the batch halt reason for rows IN (rendered, queued); and the same function writes solicitation_batches.halt_reason (:529-531), which is the two-tables claim."
+      "title": "ADR 0023 mapped admin_halt on outreach_withheld, a lane whose rows cannot carry it",
+      "reason": "Verified at HEAD on my own evidence. supabase/migrations/111 admits admin_halt only under the delivery_status = cancelled arm; the withheld arm lists moderation_high, render_failed, lint_failed, no_consent, suppressed, unsubscribed, no_postal_address, postal_address_mismatch and does not include it. latchHalt (src/lib/solicitation/approval.ts:525-553) sets delivery_status = cancelled with disposition_reason = the batch halt reason for rows IN (rendered, queued), and the same function writes solicitation_batches.halt_reason at :529-532 - the two-tables claim."
     },
     {
       "id": "RT-11",
@@ -264,32 +273,35 @@
       "duty": 2,
       "disposition": "rejected",
       "at": "supabase/migrations/116_refusal_events.sql:160",
-      "title": "C5 all_refusal_codes IS NOT NULL and cardinality(...) > 0 are provably redundant \u2014 zero differing rows over the whole value space \u2014 so no row pins them",
-      "reason": "Deliberate defence in depth, not dead weight. The two clauses at supabase/migrations/116_refusal_events.sql:160-161 are redundant only GIVEN the sibling clauses that currently stand; each states one fact the reader needs, and removing them would let a later edit to array_position or to C4 silently widen the constraint. The same reasoning applies to C5 outer IS TRUE, which RT-03 showed is equally unreachable by any row and which is now pinned STRUCTURALLY rather than deleted."
+      "title": "C5 all_refusal_codes IS NOT NULL and cardinality(...) > 0 are provably redundant - zero differing rows over the whole value space - so no row pins them",
+      "reason": "REJECTED: deliberate defence in depth, not dead weight - the two clauses are redundant only GIVEN the sibling clauses that currently stand, and removing them would let a later edit to array_position or to C4 silently widen the constraint. Evidence: supabase/migrations/116_refusal_events.sql:160 (all_refusal_codes IS NOT NULL) and :161 (cardinality(all_refusal_codes) > 0) sit beside :162 (array_position(..., NULL) IS NULL) and :163 (refusal_code = ANY(all_refusal_codes)); the same reasoning is applied in the codebase to C5’s outer IS TRUE at :166, which the suite pins STRUCTURALLY at src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:833 rather than deleting, and whose own comment records that it is currently redundant WITH C4 and kept anyway."
     },
     {
       "id": "RT-12",
       "severity": "P2",
       "duty": 3,
-      "disposition": "fixed",
+      "disposition": "open",
       "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json:8",
-      "title": "One of the three doc inaccuracies is fixed: the 108S typo. The arch-review-log deployment-guide II.5 attribution is untouched at :1420, and the intake still puts all eleven Refusal write sites in #1010-#1013 while migration 116 header line 14 puts the first caller in #1009 and the other ten in #1010-#1013"
+      "title": "The intake still puts all ELEVEN Refusal write sites in #1010-#1013 while migration 116’s header puts the first caller in #1009 and the other TEN in #1010-#1013",
+      "reason": "The prior artifact recorded this finding as fixed; it does not hold at HEAD. .feature/intake.json non_goals[1] reads \"Any of the eleven Refusal write sites (#1010, #1011, #1012, #1013)\", while supabase/migrations/116_refusal_events.sql:14-15 reads \"The insert helper, its kill switch and the first caller land in #1009; the other ten write sites in #1010-#1013\". One of the two is wrong. NOTE the constraint: the intake is sha-locked (intake_sha256) and cannot be edited inside this run, so the resolution is to correct the migration header or record the split as a deviation. Kept P2: this is forward sequencing inside a non-goal and has no bearing on any code in the diff. The second half of the same prior finding IS fixed - the arch-review-log branch row now carries the corrected deployment-guide II.5 attribution, identical to the migrations-log entry."
     },
     {
       "id": "RT-13",
-      "severity": "P2",
+      "severity": "P1",
       "duty": 3,
-      "disposition": "fixed",
-      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:180",
-      "title": "The rewritten anchor table enumerates seven withheld reasons and silently drops unsubscribed, the eighth member of migration 111 withheld arm (111:92-96) \u2014 the superseded table covered all eight; unsubscribed has no writer today, so the fix is to say so rather than to add an anchor"
+      "disposition": "open",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:184",
+      "title": "The ADR’s eighth anchor row asserts a writer for `unsubscribed` that does not exist - no production site writes solicitation_outreach.disposition_reason = ‘unsubscribed’",
+      "reason": "The prior artifact recorded this as fixed by adding the eighth row; the row that was added asserts a writer rather than recording its absence, and that assertion does not hold at HEAD. docs/adr/0023-refusal-log-owner-safe-projection.md:184 reads \"written by the unsubscribe lane, not by the send pipeline\" with anchor \"that lane’s own decision time\". Evidence: every disposition_reason write in production code is enumerated - src/lib/solicitation/release.ts:620, approval.ts:370/:546/:1276, ask-generation.ts:1508/:1561, dispatch.ts:1155/:1375, outreach.ts:638, worker/jobs/solicitation-send/failed-hook.ts:234 - and none can produce the value: dispatch.ts:1375 is typed OutreachWithheldReason (six members, excludes it), ask-generation is typed RenderWithholdReason (three), and the rest are cancelled/failed-arm reasons. worker/ingress/unsubscribe.ts and src/lib/solicitation/suppression.ts never name solicitation_outreach or disposition_reason. supabase/migrations/111 admits the value in the withheld arm but nothing produces it. Graded P1 rather than P0: the claim is false, but no action taken on it writes a wrong VALUE the way RT-01 would have - it sends a reader looking for a lane that is not there. The correction the prior round itself prescribed still applies: say it has no writer today."
     },
     {
       "id": "RT-14",
       "severity": "P2",
       "duty": 3,
       "disposition": "fixed",
-      "at": ".claude/reference/arch-review-log.md:1420",
-      "title": "The 23rd tests_to_add title added by this commit staled two count claims the same commit did not update: arch-review-log:1420 says 22 promised tests and plan.md:54 instructs Author all twenty-two tests_to_add titles \u2014 D14 own lesson, applied to a count instead of a line number"
+      "at": ".claude/reference/arch-review-log.md:1421",
+      "title": "The 23rd tests_to_add title staled two count claims the same commit did not update",
+      "reason": "Verified at HEAD. The intake carries 23 tests_to_add entries; the arch-review-log branch row now says \"23 promised tests\"; docs/superpowers/plans/feat-1008-migration-116-refusal-events-plan.md:54 now reads \"Twenty-two at authoring time; a twenty-third - C5’s structural case - was added by red-team finding RT-03\", which is accurate and self-consistent. The four changed test files contain exactly 23 added cases (1 + 1 + 20 + 1)."
     },
     {
       "id": "RT-15",
@@ -297,7 +309,8 @@
       "duty": 3,
       "disposition": "fixed",
       "at": ".claude/reference/migrations-log.md:2584",
-      "title": "The II.5 correction trades one misattribution for a smaller one: deployment-guide II.5 (:1142-1180) establishes PR-first and staging-DDL-before-PRODUCTION-DDL, never staging-DDL-before-the-staging-DEPLOY, and neither does II.2a"
+      "title": "The II.5 correction traded one misattribution for a smaller one",
+      "reason": "Verified at HEAD against docs/runbooks/deployment-guide.md:1142-1180. §II.5 step 1 establishes PR-first (\"Branch off main, build the feature, open a PR\"), and step 3’s sub-bullet establishes staging-DDL-before-prod-DDL (\"New migration? Apply it to the staging Supabase first and verify there before it ever runs against prod\"), reinforced by the section’s closing \"Two databases in lockstep ... staging first\". The section does NOT state production-DDL-before-MERGE. Both the migrations-log 116 entry and the arch-review-log branch row now say exactly that, and explicitly attribute the merge-ordering step to this branch’s own inference plus the 42P01 hazard."
     },
     {
       "id": "RT-16",
@@ -305,7 +318,45 @@
       "duty": 3,
       "disposition": "fixed",
       "at": "docs/reviews/red-team/feat-1008-migration-116-refusal-events-cbbac6/findings.json:1",
-      "title": "The round-1 sidecar committed at HEAD fails the checker on four shape errors (rejected_reason and approval_text are not schema fields), six count mismatches and a wrong status, and findings.md was never updated alongside it \u2014 its table marks all twelve findings open and its Authorizations section says None while the JSON records nine fixed, two accepted-risk and one rejected"
+      "title": "The committed red-team sidecar fails its own checker: counts disagree with the findings array it ships beside",
+      "reason": "Confirmed at HEAD and resolved by this round. The sidecar committed at 1179187637d4f15c7f3832f896a56c5be01fd71f declares counts.fixed = 6, counts.p1_open = 1 and counts.p2_open = 6, but its findings array holds 13 fixed, 2 accepted-risk, 1 rejected and ZERO open - so recomputeCounts would reject it and the declared status OPEN_P1 is not derivable from its own rows. It also anchors to pre-rebase SHAs (fork 5ab6bfee.., head 6a7fc650..) and a superseded intake hash, none of which exist on the branch after today’s rebase. Both artifacts are overwritten by this pass with counts computed from the arrays rather than typed by hand."
+    },
+    {
+      "id": "RT-17",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "at": "src/lib/account-offboarding/purge-verification.ts:626",
+      "title": "The refusal_events purge-verification branch is pinned by SQL TEXT only - two semantically meaningful mutants survived, including one that makes the verification blind to exactly the account-wide rows the case is named for",
+      "arbiter_reasoning": "Both survivors were inspected before confirmation. M1 (append \"AND subject_id IS NOT NULL\") is NOT an equivalent mutation: autonomy_suspended is the one lane whose rows carry subject_type IS NULL and, by CHECK C2, subject_id IS NULL, so the mutant query cannot see any account-wide Refusal - which is the precise behaviour the case title (\"including account-wide rows\") and its inline comment claim to guard. It is not on an unexecuted branch either: it is the only statement the case executes. M2 (rename the count alias violation_count -> violations) is likewise not equivalent - countViolations reads Number(rows[0]?.violation_count ?? 0) at purge-verification.ts:70, so the mutant reports zero violations over any number of surviving rows, silently converting a must_be_absent failure into a clean purge. It executes on the same single branch. Both survive because the covering test replaces sql with a mock that fabricates [{violation_count: 2}] for any query containing \"FROM refusal_events\", so nothing in the case constrains either the query’s row set or the shape of the row it reads back; the two not.toContain guards are absence-of-token proxies that the mutants simply do not trip. Direction B was checked before confirming: only four test files in the repository name refusal_events, and the only live-DB one (offboarding-lifecycle.integration.test.ts:1379) exercises runContentPurgeStage and never calls verifyAccountOffboardingPurge, so no other candidate kills either mutant.",
+      "reason": "Behavioural replacement, and the repo already has the pattern: the #643 suppression arm proves its verification query against a real database by SEEDING a survivor and asserting the specific issue and its exact count (worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1420-1452 and :1454-1484). The refusal_events arm needs the same - seed one per-location Refusal and one account-wide (business_id IS NULL) Refusal under a purged account, run verifyAccountOffboardingPurge against the live test database, and assert issues contains { table: refusal_events, violationCount: 2 }. That single case kills both mutants: the subject_id filter would report 1, and the aliased column would report none at all. The existing mock case can stay as a cheap shape guard; it is not sufficient on its own for a must_be_absent table that nothing else deletes."
+    },
+    {
+      "id": "RT-18",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1056",
+      "title": "The closed-vocabulary cases assert the ORDER of the rendered CHECK members, which migration 116 itself calls presentation",
+      "reason": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1056-1064 compares checkMembers(pg_get_constraintdef(...)) against the locally declared arrays with toEqual, which is order-sensitive, and the case comment justifies it as \"Members AND order ... a closed vocabulary is only closed if nothing extra is in it\" - a justification about MEMBERSHIP that order does not add to. Migration 116’s own refusal_category comment (supabase/migrations/116_refusal_events.sql, COMMENT ON COLUMN refusal_category) says the closed set is \"migration-bearing on ADD and on nothing else: retiring softly needs no migration, renaming is forbidden, reordering is presentation\" - so a future migration inserting a lane alphabetically rather than at the end turns this case red for a change the schema documents as meaningless. Deliberately graded P2, not P1: the failure mode is a false RED on a semantically neutral edit, which is the opposite of the false-GREEN harm the skill’s three fragile-assertion examples describe. The behavioural replacement, if it is wanted, is to sort both sides - the same treatment the canonical-row case at :1030-1033 already applies for the collation reason."
+    },
+    {
+      "id": "RT-19",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "at": "CONTEXT.md:165",
+      "title": "The Restraint tab term says \"the route today has no tab UI\"; the route renders two role=\"tablist\" controls today",
+      "reason": "src/app/(authenticated)/dashboard/analytics/page.tsx renders <AnalyticsContent />, which dispatches to AnalyticsAggregateView; that view imports AggregateVelocityCard and AggregateRankingCard (AnalyticsAggregateView.tsx:10-11), and both render CardViewTabs (AggregateVelocityCard.tsx:13/:62, AggregateRankingCard.tsx:11/:55), which emits role=\"tablist\" / role=\"tab\" / role=\"tabpanel\" (CardViewTabs.tsx:74, :85, :97). So the account-scope view of the route does carry tab UI - per-card view toggles, not the Metrics/Restraint page tabs. The load-bearing claim (\"Not built yet: #1014 ships it\") is TRUE and is verified separately under RT-07, which is why this is P2 and not P0: nothing a reader does on the strength of it goes wrong. The precise correction is \"no Metrics/Restraint page-level tabs\"."
+    },
+    {
+      "id": "RT-20",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "open",
+      "at": "src/lib/account-offboarding/table-disposition.ts:330",
+      "title": "The disposition reason’s analogy set is off: two of the three tables it names as needing an explicit DELETE for \"the same reason\" DO carry ON DELETE CASCADE to both tenant roots",
+      "reason": "The reason string says \"...neither carrying a referential action, so nothing removes these rows unless runContentPurgeStage deletes them explicitly (migration 116) - the same reason review_escalations, contact_csv_uploads and agent_outcomes each carry an explicit DELETE rather than relying on a parent.\" Catalogue evidence from the local test container at migrations head: refusal_events account_id -> accounts and business_id -> businesses are both confdeltype a (NO ACTION), and review_escalations matches (a / a); but contact_csv_uploads (account_id -> accounts c, business_id -> businesses c) and agent_outcomes (account_id -> accounts c, business_id -> businesses c) both carry ON DELETE CASCADE. The CONCLUSION still holds for all three - accounts and businesses are retain_deidentified and are never deleted by a purge, so an inert cascade is not a removal path - but the stated MECHANISM (\"neither carrying a referential action\") is true of only one of the three analogues. P2: the load-bearing claim about refusal_events itself is verified true, independently by catalogue query and by the killed INV-04 M2 mutation. The branch’s own test comment sets the bar at \"state the accurate fact rather than gesture at one\", which is why this is recorded rather than waved through."
     }
   ],
   "authorizations": [
@@ -321,18 +372,18 @@
   ],
   "counts": {
     "inventory_total": 23,
-    "killed": 4,
-    "survived_confirmed_p0": 0,
+    "killed": 3,
+    "survived_confirmed_p0": 1,
     "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 19,
-    "findings_total": 16,
-    "p0_open": 0,
+    "findings_total": 20,
+    "p0_open": 1,
     "p1_open": 1,
-    "p2_open": 6,
+    "p2_open": 4,
     "accepted_risk": 2,
-    "fixed": 6,
+    "fixed": 11,
     "rejected": 1
   },
-  "status": "OPEN_P1"
+  "status": "OPEN_P0"
 }
