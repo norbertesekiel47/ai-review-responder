@@ -70,6 +70,10 @@ channel, with eight named verification checks recorded.
    ledger" rule at the top of `migrations-log.md`.
 4. `.claude/CLAUDE.md` → Environments & branches — same sentence, same fix. (This file is
    edited again at §7 anyway, to delete the standing 078 exception.)
+5. `docs/runbooks/beta-production-standup.md` Phase B — the boot-gate list is wrong in
+   five places. Owner of the correct list, derived from code at `f6695494`:
+   `docs/runbooks/infisical-production-manifest.md` §7. Fix Phase B by pointing at it,
+   not by restating it.
 
 ---
 

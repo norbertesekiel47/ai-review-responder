@@ -24,8 +24,9 @@ at **§6**.
 | 1 | `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` | **The state of record.** Roles, zero-state proof, migration state, owner decisions, verified Stripe readings, phase log for §§6–8. Start here. |
 | 2 | `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` | The predecessor run. **Read it to the END** — the 077 apply is at the bottom, and reading only partway is what caused a month of contradictory docs. |
 | 3 | `docs/runbooks/ws8-tier-cutover.md` §§5–8 | The cutover protocol. §§1, 5, 8 are **verify-only** in prod; §§2–4 are satisfied by the zero-state proof. |
-| 4 | `docs/runbooks/beta-production-standup.md` | Phase structure A–H. Note its boot-gate list has two known errors — see "Traps" below. |
+| 4 | `docs/runbooks/beta-production-standup.md` | Phase structure A–H. Its Phase B boot-gate list is wrong — read the manifest at row 6 instead. |
 | 5 | `docs/launch-checklist.md` | Gates and hard blockers. |
+| 6 | `docs/runbooks/infisical-production-manifest.md` | **The Phase I input.** Every variable, its gate, its platform, its value source, and what stays out. Derived from code, so it supersedes trap #2 below and the stand-up's Phase B list. |
 
 Ops mechanics live in `docs/runbooks/deployment-guide.md`. Do not duplicate them.
 
@@ -71,12 +72,13 @@ Ops mechanics live in `docs/runbooks/deployment-guide.md`. Do not duplicate them
    compares URL origins, so **21 routes** fail on it — login-attempt, reset-password,
    finish-signup, onboarding/select-plan among them. `plan-activation.ts:323` also
    concatenates it raw, so the slash double-slashes every generated link. Fix in Phase C.
-2. **The stand-up runbook's boot-gate list is wrong in both directions.**
-   `SERPAPI_API_KEY` is listed as boot-gated and is **not** (`src/lib/config/worker.ts:50`
-   types it optional). It **omits** `SESSION_COOKIE_SECRET` (≥32 bytes) and
-   `NEXT_PUBLIC_APP_URL`, which **are** hard gates via `assertUnsubscribeIngressConfigured`
-   (`worker/index.ts:596`). A gate you did not plan for is a crash loop that exhausts
-   `restartPolicyMaxRetries = 10` and stays down.
+2. **The stand-up runbook's boot-gate list is wrong in five places.** Owner of the correct
+   list: `docs/runbooks/infisical-production-manifest.md` §7, derived from code at
+   `f6695494`. It names three variables as boot-gated that are not — `SERPAPI_API_KEY`,
+   `DATABASE_URL`, `REDIS_CACHE_URL` — and omits two that are: `SESSION_COOKIE_SECRET`
+   (≥32 bytes) and `NEXT_PUBLIC_APP_URL`, both hard gates via
+   `assertUnsubscribeIngressConfigured` (`worker/index.ts:596`). A gate you did not plan
+   for is a crash loop that exhausts `restartPolicyMaxRetries = 10` and stays down.
 3. **The local Stripe CLI 401s on live** while the same login's test key works. Most likely
    the browser authorized a **Sandbox**. Not a blocker — use
    `railway run --environment production --service repworth-worker -- <cmd>`, the pattern
@@ -85,12 +87,22 @@ Ops mechanics live in `docs/runbooks/deployment-guide.md`. Do not duplicate them
    it looks created and delivers nothing. Confirm it in the live dashboard.
 4. **Vercel does not redeploy on an env change.** After Phase C and after every Infisical
    sync, redeploy — `NEXT_PUBLIC_*` is baked into the client bundle at build time.
-5. **Sync Infisical only once it is complete.** Railway restarts on a variable change, so a
-   partial sync is a boot-gate crash loop. Start both syncs as **Import (Infisical
-   priority)**, verify the name lists, then switch to Overwrite.
+5. **Sync Infisical only once it is complete, and do NOT switch to Overwrite.** Railway
+   restarts on a variable change, so a partial sync is a boot-gate crash loop. Start both
+   syncs as **Import (Infisical priority)** and leave them there. Overwrite deletes every
+   destination variable Infisical does not manage — which includes the seven legacy
+   `STRIPE_PRICE_*` names the WS8 rollback window depends on, and `DB_POOL_MAX`. Enable
+   **Disable Secret Deletion** on **both** syncs, not only Railway's. Manifest §8, §9.1.
 6. **Keep `REDIS_QUEUE_URL` Railway-native** — its value is a Railway reference expression.
    Enable "Disable Secret Deletion" on that sync so it cannot remove `RAILWAY_*`.
-7. **`?family=0` on the queue URL is mandatory.** Railway's private network is IPv6-only;
+7. **`DB_POOL_MAX` cannot live in Infisical.** Its correct value is `20` on Railway and `3`
+   on Vercel, and one key in one environment cannot hold both. Keep it native on each
+   platform. Manifest §9.1 — this is the one Phase I design problem the plan does not cover.
+8. **`ZERNIO_API_KEY` is required on Vercel and appears in no Phase C list.** The Next
+   connect routes call `zernioClient` under the ADR 0001 exception; without it every
+   onboarding connect call sends `Bearer ` and 401s, with nothing in the boot log.
+   Manifest §7.7.
+9. **`?family=0` on the queue URL is mandatory.** Railway's private network is IPv6-only;
    without it every BullMQ connection fails with `ENOTFOUND *.railway.internal` while the
    worker still reports healthy.
 
