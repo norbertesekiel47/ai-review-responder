@@ -581,7 +581,15 @@ describeWithDb(
       expect(keyColumns, `could not read ${ARCHIVAL_INDEX}'s key columns`).toBeDefined();
 
       const pollerSource = readFileSync(join(process.cwd(), POLLER_SOURCE_FILE), 'utf8');
-      const arm = /SELECT id FROM refusal_events([\s\S]*?)LIMIT/.exec(pollerSource)?.[1];
+      // Capture the WHOLE candidates CTE — up to the `deleted AS (` that closes
+      // it — not merely up to the first `LIMIT`. An earlier draft stopped at the
+      // limit keyword, which made every clause written after it invisible here
+      // and pushed arm 11's `FOR UPDATE SKIP LOCKED` in front of its `LIMIT`
+      // purely to stay inside the capture. A test's parser must never dictate
+      // the shape of production SQL; widening the capture is the fix, so the arm
+      // is free to be ordered however it reads best beside its ten siblings.
+      const arm = /SELECT id FROM refusal_events([\s\S]*?)\)\s*,\s*deleted AS \(/
+        .exec(pollerSource)?.[1];
       expect(arm, `${POLLER_SOURCE_FILE} has no refusal_events retention arm`).toBeDefined();
       const armSql = arm!.replace(/\s+/g, ' ').trim();
 
@@ -596,8 +604,11 @@ describeWithDb(
       expect(armSql).toContain('occurred_at <');
       expect(armSql).not.toContain('created_at');
 
-      // Same concurrent-cycle count-accuracy contract as every sibling arm.
+      // Same concurrent-cycle count-accuracy contract as every sibling arm, and
+      // the same batch bound. Both are now inside the capture regardless of the
+      // order they are written in, which is the point of widening it.
       expect(armSql).toContain('FOR UPDATE SKIP LOCKED');
+      expect(armSql).toContain('LIMIT 5000');
     });
 
     it('the archival log line and the saturation list both carry refusal_events', async () => {

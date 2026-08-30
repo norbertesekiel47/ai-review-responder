@@ -16,9 +16,19 @@
 // result, so the failure reads as a failing test rather than only as a
 // collection error.
 //
-// WHY THE SCAN SET INCLUDES THIS FILE. Title 26 is a claim about the seven
-// files AS A SET. Scanning only the other six would make it partial and would
+// WHY THE SCAN SET INCLUDES THIS FILE. Title 26 is a claim about the nine
+// files AS A SET. Scanning only the other eight would make it partial and would
 // leave the one file whose job is completeness unchecked.
+//
+// WHY THE SCAN SET IS WIDER THAN TITLE 26'S WORDING. The title says "every test
+// file this branch ADDS"; the set below also covers the two files the branch
+// EXTENDED (`suspension.test.ts`, `ArchivalPoller.test.ts`), which were edited
+// after this list was first frozen and which carry the only unit assertions on
+// this slice's subject statement. The title is LOCKED — `scripts/verify-gate.sh`
+// matches it byte-for-byte against `.feature/intake.json` — and a scan that is a
+// SUPERSET of its title is strictly safer than one that is a subset. So this is
+// deliberate, not drift: do NOT "fix" the scan down to match the title's
+// narrower wording. If anything moves, it is the title, in a contract change.
 //
 // WHAT WAS REJECTED, AND WHY. Round 3 proposed a new syntax-aware `ci:*` audit
 // script instead. `scripts/diff-coverage.ts` — the guard an earlier draft
@@ -37,8 +47,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Every test file this branch adds or extends. Seven rows, seven distinct
- * files, and this file is one of them.
+ * Every test file this branch adds OR EXTENDS. Nine rows, nine distinct files,
+ * and this file is one of them.
+ *
+ * The last two are the extended ones. They were edited after the first seven
+ * were frozen, and they hold the only unit assertions of this slice's subject
+ * statement — so leaving them out let a marked-out case in either satisfy this
+ * guard while asserting nothing.
  */
 const EVAL_FILES = [
   'src/lib/refusals/__tests__/vocabulary.test.ts',
@@ -48,6 +63,8 @@ const EVAL_FILES = [
   'worker/background/schedulers/__tests__/AutonomyGovernorScheduler.test.ts',
   'worker/background/pollers/__tests__/ArchivalPoller.integration.test.ts',
   'src/lib/refusals/__tests__/eval-completeness.test.ts',
+  'src/lib/auto-approval/__tests__/suspension.test.ts',
+  'worker/background/pollers/__tests__/ArchivalPoller.test.ts',
 ] as const;
 
 /**
@@ -77,7 +94,7 @@ export interface EvalFileFinding {
 }
 
 /**
- * Reads all seven files and returns every violation. Pure, so the module-scope
+ * Reads all nine files and returns every violation. Pure, so the module-scope
  * guard and the case below assert the identical computed result rather than two
  * separately-derived ones.
  */
@@ -121,9 +138,12 @@ if (MODULE_SCOPE_FINDINGS.length > 0) {
 
 describe('#1009 eval completeness', () => {
   it('every test file this branch adds is free of .todo, .skip and .fails markers', () => {
-    // Seven rows and seven distinct files: the row count and the file count have
+    // Nine rows and nine distinct files: the row count and the file count have
     // to agree, because round 2's first defect was exactly these drifting apart.
-    expect(EVAL_FILES).toHaveLength(7);
+    // The count is pinned rather than derived so that DROPPING a file is a
+    // failure here and not a silently narrower scan — which is how the two
+    // extended files went unscanned in the first place.
+    expect(EVAL_FILES).toHaveLength(9);
     expect(new Set(EVAL_FILES).size).toBe(EVAL_FILES.length);
 
     // The same computed result the module-scope guard already enforced. If the

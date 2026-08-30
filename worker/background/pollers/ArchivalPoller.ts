@@ -357,12 +357,21 @@ export async function runArchival(logger: WorkerLogger): Promise<void> {
     //
     // FOR UPDATE SKIP LOCKED: same concurrent-cycle count-accuracy rationale as
     // notification_deliveries above. Unlike arms 1-10 it sits BEFORE the row
-    // limit, and that is deliberate: the 116 shape suite reads this arm's clause
-    // text out of this file up to the limit keyword, so a locking clause written
-    // after it would be invisible to the assertion that the sweep is bounded.
-    // Postgres accepts the locking clause on either side of the limit and both
-    // orderings produce a byte-identical plan (Limit → LockRows → Sort), MEASURED
-    // against a live Postgres 16 rather than assumed.
+    // limit. Postgres accepts the locking clause on either side of the limit and
+    // both orderings produce a byte-identical plan (Limit → LockRows → Sort),
+    // MEASURED against a live Postgres 16 rather than assumed — so this is a
+    // readability difference from its ten siblings, not a behavioural one.
+    //
+    // NORMALISING IT TO THE SIBLINGS' ORDER IS A TWO-FILE CHANGE. The original
+    // reason for the inversion — that the 116 shape suite's capture stopped at
+    // the limit keyword — is GONE: that regex now captures the whole candidates
+    // CTE, so it no longer constrains this arm's clause order (a test's parser
+    // must not dictate production SQL shape). What still pins the order is
+    // `ci:tenant-scope`, which compares this statement against a byte-pinned
+    // `sqlSnippet` in `scripts/ci/tenant-scope-allowlist.ts` after whitespace
+    // normalisation only. Move the clause and that snippet MUST move with it in
+    // the same commit, or the audit reports the entry unused and the statement
+    // unscoped.
     //
     // This arm shares the ten arms above's single try/catch, which is why it
     // could not ride migration 116's own slice: a ledger table that does not yet
