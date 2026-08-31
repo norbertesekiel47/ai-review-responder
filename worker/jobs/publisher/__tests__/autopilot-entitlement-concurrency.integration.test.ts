@@ -414,6 +414,14 @@ describeWithDb('WS8 Autopilot publisher entitlement linearization (live Postgres
     await dbA`DELETE FROM job_outbox WHERE aggregate_id IN (SELECT id FROM responses WHERE business_id = ${businessId}::uuid)`;
     await dbA`DELETE FROM notification_deliveries WHERE business_id = ${businessId}::uuid`;
     await dbA`DELETE FROM approval_audit_log WHERE business_id = ${businessId}::uuid`;
+    // #1012's rows. `refusal_events.business_id` REFERENCES `businesses(id)`
+    // with NO cascade (migration 116), and this suite reaches
+    // `downgradeAutoApprovedResponseForManualReviewInTx` through the judge
+    // gate, which now writes an `auto_post_revoked` Refusal. Without this the
+    // business DELETE below fails with `refusal_events_business_id_fkey`.
+    // Production purge hard-deletes this table for the same reason
+    // (`purge-stages.ts`).
+    await dbA`DELETE FROM refusal_events WHERE business_id = ${businessId}::uuid`;
     await dbA`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
     await dbA`DELETE FROM auto_approval_policies WHERE id = ${policyId}::uuid`;
     await dbA`DELETE FROM zernio_connections WHERE business_id = ${businessId}::uuid`;
