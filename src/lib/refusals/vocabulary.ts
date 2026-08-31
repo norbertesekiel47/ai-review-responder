@@ -506,7 +506,27 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
  *
  * ORDER WITHIN A TIER changes the stored `refusal_code` only, never the
  * `refusal_category` — so it is a support-detail choice and carries no
- * `vocabulary_version` obligation (#1003).
+ * `vocabulary_version` obligation (#1003). That is also why a within-tier
+ * reorder is deliberately NOT pinned by any test: there is no contract to
+ * break. A CROSS-tier move is pinned, and must be.
+ *
+ * FIVE OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY (red-team round 1,
+ * recorded so nobody reads their rank as tested behaviour):
+ *
+ *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
+ *     each is a STRUCTURAL block, so `runtimeState` is null and
+ *     `isGenuineAutoCandidate` returns false before the resolver is called.
+ *     They stay in the map as #998's recorded decisions, not as live entries.
+ *   * `review_content_changed_before_persist` — the content-freshness gate
+ *     (ADR 0017) returns from the persist BEFORE the gate runs, so this member
+ *     never co-occurs with a write. It is the ONLY member of precedence tier 5,
+ *     which makes `below_our_bar` currently unreachable on this lane.
+ *   * `policy_not_enabled` — a null threshold fails the narrowing first.
+ *
+ * None of the five is dead code to delete: each is a real
+ * `AutoApprovalBlockReason` the gate can still emit, and the map must stay
+ * TOTAL or the `satisfies` guard stops protecting the others. What is recorded
+ * here is only that their POSITION is untested by construction.
  */
 export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
   // 1 — unsafe_content

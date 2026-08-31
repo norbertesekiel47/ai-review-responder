@@ -70,6 +70,35 @@ import { persistResponseAndNotify, type PersistResponseInput } from '../persist'
 
 const poison = { heldDraftCategory: null as string | null, breakC5: false };
 
+/**
+ * A PLAIN JavaScript failure from the ledger writer, for the rethrow oracle.
+ *
+ * DISTINCT FROM THE TWO CONSTRAINT CASES, and the distinction is the whole
+ * point. Those inject a real `23514`, which poisons the Postgres transaction —
+ * so the rollback they observe comes from Postgres and would happen even if
+ * `withLedgerAttribution` SWALLOWED the error. Red-team round 2 proved exactly
+ * that: swapping its `throw error` for a swallow survived all 75 tests, and the
+ * A/B showed a swallowed plain error COMMITS the response row with no Refusal.
+ *
+ * A plain `Error` leaves the transaction healthy, so the only thing that can
+ * roll it back is the rethrow. That makes this the one oracle guarding an
+ * invariant #4 dependency the round-1 fix introduced.
+ */
+const ledgerPoison = { throwOnLane: null as null | 'held_draft' | 'policy_gate_held' };
+
+vi.mock('@/lib/refusals/write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/refusals/write')>();
+  return {
+    ...actual,
+    async writeRefusalEvent(tx: unknown, input: { refusalSource: string }) {
+      if (ledgerPoison.throwOnLane === input.refusalSource) {
+        throw new Error('ledger_write_failed_plain_js');
+      }
+      return (actual.writeRefusalEvent as (t: unknown, i: unknown) => Promise<void>)(tx, input);
+    },
+  };
+});
+
 vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/refusals/vocabulary')>();
   return {
@@ -366,6 +395,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     }
     poison.heldDraftCategory = null;
     poison.breakC5 = false;
+    ledgerPoison.throwOnLane = null;
   });
 
   afterAll(async () => {
@@ -686,7 +716,8 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     await seedReview(reviewId, { triageSeverity: 'high' });
     // isAutoApprovalCandidate reads the flag BEFORE the transaction
     // (`isAutoApprovalCandidate`); `evaluateAutoApprovalCandidate` reads it again
-    // INSIDE (:360). A flip between the two is the member's ONLY live path, and
+    // INSIDE (`evaluateAutoApprovalCandidate`'s own `autoApprovalRuntimeEnabled()`
+    // read). A flip between the two is the member's ONLY live path, and
     // it is why auto_approval_disabled stays in the precedence list rather than
     // being dead weight (deviation D4).
     const flippingSql = new Proxy(sql(), {
@@ -817,6 +848,32 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     expect(
       await sql()`SELECT id FROM flagged_responses WHERE review_id = ${reviewId}::uuid`,
     ).toHaveLength(0);
+  });
+
+  it('a plain ledger error is rethrown rather than swallowed, so the response row rolls back on both lanes', async () => {
+    // The oracle for `withLedgerAttribution`'s rethrow. A plain `Error` leaves
+    // the Postgres transaction HEALTHY, so nothing but the rethrow can roll it
+    // back — unlike the two constraint cases, whose `23514` poisons the
+    // transaction and would roll back even under a swallow. Red-team round 2
+    // planted that swallow and it survived all 75 tests; this is what kills it.
+    for (const [lane, moderation] of [
+      ['held_draft', HIGH_MODERATION],
+      ['policy_gate_held', CLEAN_MODERATION],
+    ] as const) {
+      const reviewId = randomUUID();
+      await seedReview(reviewId, lane === 'policy_gate_held' ? { triageSeverity: 'high' } : {});
+      ledgerPoison.throwOnLane = lane;
+
+      await expect(
+        persistResponseAndNotify(sql(), makeInput(reviewId, { moderation })),
+        `${lane}: a ledger failure must reject the persist`,
+      ).rejects.toThrow(/ledger_write_failed_plain_js/);
+
+      // The claim that matters: a swallow would leave THIS row committed, with
+      // no Refusal recorded against it — a draft the ledger silently lost.
+      expect(await responseIdFor(reviewId), `${lane}: the response must not commit`).toBeUndefined();
+      ledgerPoison.throwOnLane = null;
+    }
   });
 
   it('a policy_gate_held C5 constraint failure rolls back the response insert and spine checkpoints', async () => {

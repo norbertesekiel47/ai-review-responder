@@ -99,8 +99,8 @@
     "docs/reviews/feat-1013-refusal-policy-gate-held/spec-correctness.md",
     "docs/reviews/feat-1013-refusal-policy-gate-held/standards.md",
     "docs/reviews/feat-1013-refusal-policy-gate-held/adversarial-approach.md",
-    "docs/reviews/red-team/feat-1013-refusal-policy-gate-held/findings.md",
-    "docs/reviews/red-team/feat-1013-refusal-policy-gate-held/findings.json"
+    "docs/reviews/red-team/feat-1013-refusal-policy-gate-held-841054/findings.md",
+    "docs/reviews/red-team/feat-1013-refusal-policy-gate-held-841054/findings.json"
   ],
   "tests_to_add": [
     "every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list",

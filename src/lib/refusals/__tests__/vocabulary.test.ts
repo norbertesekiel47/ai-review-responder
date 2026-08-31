@@ -579,13 +579,20 @@ describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
 
   it('resolvePolicyGateRefusal returns the winner as a member of the co-occurring set it won', () => {
     const precedence = blockPrecedence();
-    const input = [precedence[6]!, precedence[1]!, precedence[13]!];
+    // DELIBERATELY NEITHER ALPHABETICAL NOR PRECEDENCE-ORDERED. An earlier
+    // version used indices [6, 1, 13], which happened to be alphabetical
+    // ascending — so a resolver that SORTED the set passed the order assertion
+    // below (red-team round 2, RT-8). This ordering is descending by precedence
+    // rank and unsorted alphabetically, so `.sort()` and `.reverse()` both die.
+    const input = [precedence[13]!, precedence[6]!, precedence[1]!];
     const resolved = resolve(input);
 
     // C5 requires membership in the DATABASE. This is the same claim one layer
     // up, so a row can never be rejected at INSERT for a resolver bug.
     expect(resolved).not.toBeNull();
     expect(resolved!.allRefusalCodes).toContain(resolved!.refusalCode);
+    // The winner is the highest-ranked member present, not the first supplied.
+    expect(resolved!.refusalCode).toBe(precedence[1]);
     // The set is the input VERBATIM, in its own order — the evaluation order is
     // itself evidence for support, and reordering it would discard that.
     expect(resolved!.allRefusalCodes).toEqual(input);

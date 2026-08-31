@@ -1,0 +1,418 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1013-refusal-policy-gate-held-841054",
+  "branch": "feat/1013-refusal-policy-gate-held",
+  "fork_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
+  "merge_base_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
+  "head_sha": "ccaeb196c8919adf395a2cba32482ed630dbc8d3",
+  "intake_sha256": "d486d8f5807dd04f88f0f73f7c5f20d641106937c2d49f4ea198a7fcda0f5f61",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-08-31T23:33:24Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Deleted `if (held) return;` (persist.ts:728). SURVIVED, and arbiter-confirmed EQUIVALENT: evaluateAutoApprovalCandidate emits `when(input.held, 'moderation_held')` unconditionally (auto-approval.ts:360) and moderation_held is mapped null (vocabulary.ts:449), so the veto rule suppresses the row without this guard. The only other held===true path is a structural non-candidate, where runtimeState is null and guard 3 rejects. No behavioural change, therefore not a P0. Raised as RT-1 because the docblock asserts the opposite mechanism."
+    },
+    {
+      "id": "M1b",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Changed `moderation_held: null` to 'watchdog_unavailable' (vocabulary.ts:449). SURVIVED, arbiter-confirmed EQUIVALENT: the `if (held) return;` guard at persist.ts:728 short-circuits before the resolver is called, so the map entry cannot be observed on this path. The mutual masking with M1 is the substance of RT-1."
+    },
+    {
+      "id": "M1c",
+      "file": "worker/jobs/response-generation/persist.ts + src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "Both M1 and M1b applied together. KILLED (expected length 0, received 1). Proves the test discriminates the CONJUNCTION of the two redundant mechanisms, and nothing weaker."
+    },
+    {
+      "id": "M2",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a review with no spine run still writes its policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "Wrapped the recordPolicyGateRefusal call (persist.ts:217) in `if (activeRun) { … }` — the exact #997 resolution-1 defect the intake names as the highest-risk error. KILLED."
+    },
+    {
+      "id": "M3",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"resolvePolicyGateRefusal returns null when any veto member is present, whatever its position\"",
+      "outcome": "killed",
+      "reason": "Deleted `if (categories[code] === null) return null;` (vocabulary.ts:577) so the veto loses to precedence. KILLED (threw unranked_auto_approval_block_reason on a veto-only input)."
+    },
+    {
+      "id": "M3b",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts -t \"invariants: any block reason set containing a veto member resolves to no Refusal\"",
+      "outcome": "killed",
+      "reason": "Weakened the veto to a position-dependent rank: `if (categories[code] === null && code === blockReasons[0]) return null;` (vocabulary.ts:577). KILLED by a fast-check counterexample — the property genuinely tests position, not just presence."
+    },
+    {
+      "id": "M4a",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts (25) AND npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (24)",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Swapped provider_moderation_error and provider_moderation_disabled WITHIN precedence tier 2 (vocabulary.ts:497-498). SURVIVED all 49 tests, and arbiter-confirmed EQUIVALENT BY DESIGN: vocabulary.ts:489-491 states 'ORDER WITHIN A TIER changes the stored refusal_code only, never the refusal_category — so it is a support-detail choice and carries no vocabulary_version obligation (#1003)'. The category is unchanged and no test claims the within-tier order. Survival is the CORRECT sensitivity; M4b proves the cross-tier order IS pinned."
+    },
+    {
+      "id": "M4b",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category tiers in order\"",
+      "outcome": "killed",
+      "reason": "Moved rating_below_threshold from tier 6 to position 0 — an ACROSS-tier reorder (vocabulary.ts:493-509). KILLED by the tier-contiguity assertion."
+    },
+    {
+      "id": "M5",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a held draft's refusal_events occurred_at equals its flagged_responses created_at\"",
+      "outcome": "killed",
+      "reason": "held_draft occurredAt 'transaction_time' -> new Date() (persist.ts:827). KILLED — the in-database full-precision equality catches the JS round trip (#520)."
+    },
+    {
+      "id": "M5b",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a policy_gate_held refusal occurred_at equals the persisted response created_at to the microsecond\"",
+      "outcome": "killed",
+      "reason": "policy_gate_held occurredAt 'transaction_time' -> new Date() (persist.ts:747). KILLED."
+    },
+    {
+      "id": "M6",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts -t \"invariants: a resolved winner is always a member of its own co-occurring set\"",
+      "outcome": "killed",
+      "reason": "Sorted allRefusalCodes (vocabulary.ts:604). KILLED by the property suite's `allRefusalCodes.every((code, index) => code === codes[index])` (property.test.ts:123). It SURVIVED both example-based order oracles — the integration test at refusal-write.integration.test.ts:502 and the vocabulary test at vocabulary.test.ts:582 — which is findings RT-7 and RT-8. Recorded as killed because a covering test did catch it."
+    },
+    {
+      "id": "M7",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"HELD_DRAFT_REFUSAL_CATEGORY is the frozen unsafe_content literal\"",
+      "outcome": "killed",
+      "reason": "HELD_DRAFT_REFUSAL_CATEGORY 'unsafe_content' -> 'below_our_bar', another VALID member of migration 116's CHECK (vocabulary.ts:238). KILLED by the vocabulary test AND independently by the integration stored-value test 'a held_draft row persists unsafe_content with refusal_code null and all_refusal_codes null'."
+    },
+    {
+      "id": "M8",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"an auto-approved draft writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Deleted `if (autoDecision.approved) return;` (persist.ts:729). SURVIVED, arbiter-confirmed EQUIVALENT: auto-approval.ts:376 sets `approved: blockReasons.length === 0` and structurallyBlockedDecision never approves (:327), while resolvePolicyGateRefusal returns null for an empty list (vocabulary.ts:567). approved therefore implies no row with or without the guard. Feeds RT-11."
+    },
+    {
+      "id": "M9",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (24) AND npx vitest run worker/jobs/response-generation/__tests__/persist.test.ts (51)",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Dropped `originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW` from isGenuineAutoCandidate (persist.ts:687). SURVIVED all 75 tests, arbiter-confirmed EQUIVALENT: STRUCTURAL_GATES[1] (auto-approval.ts:273-276) raises bad_origin_lane for any other lane, so isAutoApprovalCandidate is false and resolveAutoApprovalDecision short-circuits to runtimeState: null (persist.ts:296-301), which guard 3’s `runtimeState !== null` already rejects. Feeds RT-11."
+    },
+    {
+      "id": "M10",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a structurally eligible draft with no configured policy threshold writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "finding_id": "RT-2",
+      "reason": "Dropped `runtimeState.effectivePolicy.threshold !== null` from isGenuineAutoCandidate (persist.ts:688). SURVIVED its dedicated test AND all 24 integration + 51 persist unit cases. Arbiter-confirmed EQUIVALENT: with threshold null, starMeetsThreshold returns false (src/lib/auto-approval/policy.ts:117) so thresholdBlockReason returns policy_not_enabled (auto-approval.ts:389-393), which is mapped null (vocabulary.ts:438) and vetoes the row. The condition can never decide anything, so this is not a P0 — but the test named for it cannot fail for its removal, which is RT-2."
+    },
+    {
+      "id": "M11",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a structural non-candidate draft writes no policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "Let a NULL runtimeState through the candidacy guard (persist.ts:730). KILLED — the flag-off/structural-non-candidate half of the narrowing IS falsifiable, unlike the two halves M9 and M10 probe."
+    },
+    {
+      "id": "M12",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a stale-content skip writes no refusal_events row on either lane\"",
+      "outcome": "killed",
+      "reason": "Deleted the content-freshness gate's early `return { kind: 'skipped_stale_content' };` (persist.ts:138). KILLED, and it failed on the laneCount('held_draft') assertion — the ledger-specific half, not merely the outcome shape."
+    },
+    {
+      "id": "M13",
+      "file": "src/lib/refusals/write.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"REFUSAL_LEDGER_ENABLED=false preserves a policy-held response, spine checkpoints, and send_notification outbox row while writing no policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "Short-circuited the REFUSAL_LEDGER_ENABLED guard so it never fires (write.ts:369). KILLED. Entered the inventory through Direction B: write.ts is unchanged by this branch but is the covering production surface for two promised titles."
+    },
+    {
+      "id": "M14",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a policy_gate_held row carries the full co-occurring block reason set in all_refusal_codes\"",
+      "outcome": "killed",
+      "reason": "Replaced allRefusalCodes with just the winner, `[refusal.refusalCode]` (persist.ts:740). KILLED."
+    },
+    {
+      "id": "M15",
+      "file": "src/lib/refusals/write.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"replaying held_draft and replaying policy_gate_held for the same subject each leave one row on that lane and neither aborts the caller transaction\"",
+      "outcome": "killed",
+      "reason": "Deleted `ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL DO NOTHING` (write.ts:420-421). KILLED — the byte-for-byte partial-index inference is genuinely pinned."
+    },
+    {
+      "id": "M16",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a draft whose flag flips off mid-persist writes auto_approval_disabled as autonomy_paused\"",
+      "outcome": "killed",
+      "reason": "Remapped auto_approval_disabled from 'autonomy_paused' to 'watchdog_unavailable' (vocabulary.ts:453). KILLED — deviation D4's claim that title 26 pins the member's only live path holds."
+    },
+    {
+      "id": "M17",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a non-high moderation flag writes no held_draft row and records policy_gate_held as unsafe_content when otherwise eligible\"",
+      "outcome": "killed",
+      "reason": "Weakened the hold predicate from `moderation.flagged && moderation.severity === 'high'` to `moderation.flagged` (persist.ts:771). KILLED — the severity boundary is pinned."
+    },
+    {
+      "id": "R2-1",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (24) AND npx vitest run worker/jobs/response-generation/__tests__/persist.test.ts (51)",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT-15",
+      "reason": "Replaced `throw error;` with `return undefined as T;` in withLedgerAttribution (persist.ts:800). SURVIVED all 75 tests. Non-equivalence established by R2-2. See RT-15."
+    },
+    {
+      "id": "R2-2",
+      "file": "src/lib/refusals/write.ts + worker/jobs/response-generation/persist.ts",
+      "outcome": "excluded",
+      "reason": "A/B DIAGNOSTIC, not a mutation verdict: injected a plain-JS throw inside writeRefusalEvent (a failure that does not poison the transaction) and ran it with and without the R2-1 swallow. Variant A committed a response row with no Refusal (failed at test:404); variant B propagated and rolled back (failed at test:399). Recorded as excluded because its purpose was to establish R2-1 non-equivalence, not to score an oracle.",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes one held_draft row with refusal_code null\" (run twice: with and without the R2-1 swallow)"
+    },
+    {
+      "id": "R2-3",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a structurally eligible draft with no configured policy threshold writes no policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "Re-planted round-1 M10 (dropped the `threshold !== null` arm of isGenuineAutoCandidate, persist.ts:688) against the RT-2 fix. Now KILLED at test:681 by the fallback-log assertion. The fix is genuine."
+    },
+    {
+      "id": "R2-4",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a policy_gate_held row stores the precedence winner as refusal_code, stores its mapped category, includes the winner in all_refusal_codes, and preserves blockReasons order verbatim\"",
+      "outcome": "killed",
+      "reason": "Re-planted round-1 M6 as `.sort()` on allRefusalCodes (vocabulary.ts:604) against the RT-7 fix. Now KILLED by the literal expected array."
+    },
+    {
+      "id": "R2-5",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a policy_gate_held row stores the precedence winner as refusal_code, stores its mapped category, includes the winner in all_refusal_codes, and preserves blockReasons order verbatim\"",
+      "outcome": "killed",
+      "reason": "Same site as R2-4 but `.reverse()`, which a de-duplication check could never catch. KILLED."
+    },
+    {
+      "id": "R2-6",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Re-planted round-1 M1 (delete `if (held) return;`). SURVIVED, still equivalent — and that is now the DOCUMENTED behaviour rather than a contradiction. The corrected docblock predicts this survival explicitly (\"deleting guards 1, 2 or 3 individually changes no outcome and kills no test\"), which is what RT-1 asked for. Row stays inconclusive/oracle because the condition remains unfalsifiable, not because anything is wrong."
+    },
+    {
+      "id": "R2-7",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "inconclusive",
+      "inconclusive_class": "oracle",
+      "reason": "Re-planted round-1 M1b (moderation_held null -> 'watchdog_unavailable'). SURVIVED, still equivalent, and the corrected map bullet now states the true mechanism (the entry ALONE suffices via the veto, and the !held guard is defence in depth)."
+    },
+    {
+      "id": "R2-8",
+      "file": "worker/jobs/response-generation/persist.ts + src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a high-severity moderation flag writes no policy_gate_held row\"",
+      "outcome": "killed",
+      "reason": "R2-6 and R2-7 together. KILLED — confirms the corrected prose that guard 4 is the load-bearing one and the other two are redundant with each other."
+    },
+    {
+      "id": "R2-9",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx tsc --noEmit -p tsconfig.json",
+      "outcome": "killed",
+      "reason": "S1 verification: mapped the precedence member moderation_flagged to null (vocabulary.ts:441). KILLED AT COMPILE TIME — `vocabulary.ts(623,5): error TS2322 … Type 'null' is not assignable`. Baseline tsc is clean, so the deleted veto_member_won_precedence runtime throw is genuinely replaced by the type system."
+    },
+    {
+      "id": "R2-10",
+      "file": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts (24)",
+      "outcome": "killed",
+      "reason": "S2 verification: injected a failure inside the archived_at withTemporary body. WITH the try/finally: 1 failure, 23 pass, fixture restored. WITHOUT it (the pre-fix shape): 7 failures, every extra one a POSITIVE test, because the leaked archived_at veto suppresses all later rows — while the \"writes no row\" tests kept passing vacuously. The guard is load-bearing."
+    },
+    {
+      "id": "R2-11",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run worker/jobs/response-generation/__tests__/policy-gate-precedence.property.test.ts -t \"invariants: any block reason set containing a veto member resolves to no Refusal\"",
+      "outcome": "killed",
+      "reason": "Made the veto position-dependent AFTER the S1 rewrite (vocabulary.ts:594), to confirm the direct-map read preserved veto semantics. KILLED."
+    },
+    {
+      "id": "R2-12",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"resolvePolicyGateRefusal throws on a code in neither the veto set nor the precedence list\"",
+      "outcome": "killed",
+      "reason": "Deleted the Object.hasOwn unmapped-code throw AFTER the S1 rewrite, to confirm the fault path still fires at run time for a value outside the union. KILLED."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "FALSE mechanism claim in three places: \"mapping moderation_held to null is not sufficient on its own\" — the veto rule makes it sufficient, and the test cannot fail for either mechanism alone",
+      "at": "worker/jobs/response-generation/persist.ts:701",
+      "reason": "VERIFIED FIXED (round 2, R2-6/R2-7/R2-8): the corrected prose predicts exactly what mutation shows — deleting guard 1 survives, remapping moderation_held survives, doing both kills. Guard 4 is load-bearing, as the new docblock now states."
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "fixed",
+      "title": "Test \"a structurally eligible draft with no configured policy threshold writes no policy_gate_held row\" passes vacuously: policy_not_enabled is a veto member, so its stated defect is impossible and M10 deletes the whole threshold narrowing with 75 tests green",
+      "at": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:592",
+      "reason": "VERIFIED FIXED (round 2, R2-3): re-planting M10 now FAILS at refusal-write.integration.test.ts:681 on the fallback-log assertion. The fix is a real oracle, not theatre."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "\"Ten sites remain across #1010-#1013\" is FALSE at HEAD — this branch lands the last two of eleven, contradicting its own edits to docs/directory.md:889 and CONTEXT.md:161",
+      "at": "docs/directory.md:892",
+      "reason": "VERIFIED FIXED: docs/directory.md:892 now reads \"All eleven sites now exist: three solicitation lanes (#1010), four outreach_withheld render writers (#1011), auto_post_revoked (#1012)…\"."
+    },
+    {
+      "id": "RT-4",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "rejected",
+      "title": "WITHDRAWN: I claimed handoff.md:156 cites a findActiveReviewRun.mockResolvedValue(null) precedent that does not exist",
+      "at": "docs/superpowers/plans/feat-1013-refusal-policy-gate-held-handoff.md:156",
+      "reason": "REJECTED — the claim is false and the error was mine. vi.mocked(findActiveReviewRun).mockResolvedValue(null) exists at worker/jobs/response-generation/__tests__/persist.test.ts:799 at HEAD and at EXACTLY line 768 at the merge base, which is the line the handoff cites; the citation was correct when written. My enumerating grep was `grep -n \"findActiveReviewRun\" … | head -10`, which truncated twelve matches at line 771 and hid line 799, and I asserted non-existence from a search I had myself truncated. Re-verified with an untruncated grep and `git show origin/main:…`. The residual stale line number is tracked as RT-14."
+    },
+    {
+      "id": "RT-5",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "open",
+      "title": "Three file:line citations SHIPPED in the branch's own test file resolve at the merge base, not HEAD: persist.ts:198 -> :203, auto-approval.ts:310 -> :296, :360 -> :346, persist.ts:228 -> :249",
+      "at": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:564",
+      "reason": "PARTIALLY FIXED — stays OPEN. Two of the three citations became symbols and resolve. The third was half-converted: refusal-write.integration.test.ts:689 still reads \"INSIDE (:360)\", and at HEAD auto-approval.ts:360 is `when(input.held, 'moderation_held')`, not a flag read — the in-transaction read is :346. This is the only surviving path:line citation in any shipped source file on the branch."
+    },
+    {
+      "id": "RT-6",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "handoff.md:152 cites persist.ts:196 for the `activeRun && !held` spine guard — wrong at BOTH refs (merge base :198, HEAD :203)",
+      "at": "docs/superpowers/plans/feat-1013-refusal-policy-gate-held-handoff.md:152",
+      "reason": "VERIFIED FIXED: handoff.md:152 now says `persistResponseAndNotify`; the symbol resolves to exactly one `if (activeRun && !held)` in persist.ts."
+    },
+    {
+      "id": "RT-7",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "fixed",
+      "title": "Fragile assertion: `toEqual([...new Set(self)])` labelled \"VERBATIM order\" is a de-duplication check that compares the array to itself and can never detect reordering; M6 survives it while the title promises order",
+      "at": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:502",
+      "reason": "VERIFIED FIXED (round 2, R2-4/R2-5): the literal expected array kills BOTH a sort and a reverse of all_refusal_codes."
+    },
+    {
+      "id": "RT-8",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "Fragile assertion: the order oracle's input [precedence[6], precedence[1], precedence[13]] is accidentally already alphabetical, so a sort mutation (M6) survives it too",
+      "at": "src/lib/refusals/__tests__/vocabulary.test.ts:582",
+      "reason": "NOT ADDRESSED — src/lib/refusals/__tests__/vocabulary.test.ts is untouched by the round-2 diff; the accidentally-alphabetical input still makes a sort mutation invisible to that oracle."
+    },
+    {
+      "id": "RT-9",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "open",
+      "title": "review_content_changed_before_persist is unreachable through the write path — its predicate is exactly hasStaleReviewContent, and the content-freshness gate returns with zero writes first — so precedence tier 5 (below_our_bar), its sole member, is permanently dead on this lane",
+      "at": "src/lib/refusals/vocabulary.ts:444",
+      "reason": "NOT ADDRESSED — the unreachability of review_content_changed_before_persist through the write path is unchanged."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "open",
+      "title": "bad_origin_lane, unsupported_version and suppressed_notification never reach resolvePolicyGateRefusal (structural blocks force runtimeState: null), so their null mapping is inert — 4 of the 22 members cannot reach the resolver on a live path",
+      "at": "src/lib/refusals/vocabulary.ts:440",
+      "reason": "NOT ADDRESSED — the four members inert at the resolver are unchanged."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "\"FOUR GUARDS, IN THIS ORDER, and each answers a different question\" is two-thirds untrue: guards 1 and 2 and both non-null halves of guard 3 cannot change the outcome (M1, M8, M9, M10)",
+      "at": "worker/jobs/response-generation/persist.ts:696",
+      "reason": "VERIFIED FIXED: the docblock now says \"FOUR GUARDS, AND ONLY THE LAST ONE DECIDES ANYTHING\" and names each redundancy; R2-6/R2-7/R2-8 confirm the new text is true."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "\"six maps\" / \"four of the six\" is now seven — POLICY_GATE_HELD_REFUSAL_CATEGORIES is the seventh `satisfies Record<…>` map, and vocabulary.ts:226 is a line this branch ADDED with the stale count",
+      "at": "src/lib/refusals/vocabulary.ts:226",
+      "reason": "VERIFIED FIXED: vocabulary.ts:214 and :232 now say \"seven maps\"; docs/directory.md no longer says \"four of the six\". (vocabulary.ts:312's \"six\" is the OUTREACH_WITHHELD_DISPATCH members — a different, correct six.)"
+    },
+    {
+      "id": "RT-13",
+      "severity": "P2",
+      "duty": 5,
+      "disposition": "open",
+      "title": "\"the highest-volume lane\" is stated unqualified in three production comments beside deviation D4's finding that the lane is silent in production today",
+      "at": "src/lib/refusals/vocabulary.ts:416",
+      "reason": "PARTIALLY FIXED — stays OPEN. vocabulary.ts:101, vocabulary.ts:422 and CONTEXT.md:163 now carry the flag-off qualifier; worker/jobs/response-generation/persist.ts:215 still reads \"the highest-volume lane\" with no caveat."
+    },
+    {
+      "id": "RT-14",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "title": "handoff.md:156's persist.test.ts:768 is correct at the merge base and stale at HEAD (:799) — same merge-base-frame class as RT-5, split out from the rejected RT-4",
+      "at": "docs/superpowers/plans/feat-1013-refusal-policy-gate-held-handoff.md:156",
+      "reason": "VERIFIED FIXED: handoff.md:156 now references \"persist.test.ts's run-spine describe … the sole findActiveReviewRun.mockResolvedValue(null)\". Both halves check out: exactly one occurrence, inside describe('persistResponseAndNotify run-spine instrumentation')."
+    },
+    {
+      "id": "RT-15",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "withLedgerAttribution's rethrow has NO oracle: replacing `throw error` with a swallow survives all 75 tests, and a non-Postgres failure then COMMITS a response row whose Refusal was never recorded",
+      "at": "worker/jobs/response-generation/persist.ts:800",
+      "reason": "The shipped code is CORRECT — it rethrows, and I verified the rollback holds. What is missing is any test that would fail if the rethrow were removed. Both forced-failure cases inject a migration-116 23514, which puts the Postgres transaction into aborted state, so the rollback they observe is produced by Postgres rather than by the throw. Round 1 had no try/catch on this path at all, so the A3 fix introduced an editable catch block guarding an invariant #4 dependency and left it unpinned. Remedy is one test, not a code change: mock @/lib/refusals/write so writeRefusalEvent rejects with a plain Error, then assert persistResponseAndNotify rejects AND responses has no row for that review.",
+      "arbiter_reasoning": "NOT an equivalent mutation, established by A/B (round-2 row R2-2). Variant A (swallow + a plain-JS throw inside writeRefusalEvent, which does not poison the transaction): persistResponseAndNotify RETURNED, expect(responseId).toBeDefined() PASSED, and the test failed at refusal-write.integration.test.ts:404 with `expected [] to have a length of 1` — a response row committed with no held_draft Refusal. Variant B (shipped code, same injected throw): the error propagated out of persistResponseAndNotify at :399 and the transaction rolled back with no response row. The two variants differ in committed database state. NOT an unexecuted branch: the catch runs on every ledger write failure and is already reached by the two constraint tests. Trigger class is any non-Postgres failure inside writeRefusalEvent — a TypeError in the helper, an encoding fault, a future validation throw."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 34,
+    "killed": 24,
+    "survived_confirmed_p0": 1,
+    "inconclusive": 8,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 15,
+    "p0_open": 1,
+    "p1_open": 1,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 8,
+    "rejected": 1
+  },
+  "status": "OPEN_P0"
+}

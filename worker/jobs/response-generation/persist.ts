@@ -212,8 +212,9 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
     // guard, deliberately OUTSIDE the block above — it inherits that guard's
     // `!held` arm and NOT its `activeRun` arm. A legacy pre-spine review has no
     // run (`recordDraftSpineCheckpoints` returns null), and inheriting
-    // `!activeRun` would silently drop rows from the highest-volume lane
-    // (#997 resolution 1).
+    // `!activeRun` would silently drop rows from the lane with the highest
+    // design capacity — silent in production until `AUTO_APPROVAL_ENABLED` is
+    // on, but the one that dominates once it is (#997 resolution 1).
     await recordPolicyGateRefusal(tx, {
       accountId,
       businessId,
