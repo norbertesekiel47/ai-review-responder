@@ -239,3 +239,77 @@ have silently falsified every one of them. `3b` keeps the existing references
 true and puts the new step where the plan requires — after the audit row, before
 the spine call. That preserves both `latchHalt`'s ordered contract and the
 advisory-lock → batch-row → `agent_runs` lock order its header describes.
+
+## D7 — AMENDMENT 3: the same cleanup class as D4, in the file D4 did not reach
+
+**Found by the pre-push hook, after `reviewed`.** `vitest --changed` selected
+`src/lib/solicitation/__tests__/release.integration.test.ts` and it failed:
+
+```
+PostgresError: update or delete on table "businesses" violates foreign key
+constraint "refusal_events_business_id_fkey" on table "refusal_events"
+  → release.integration.test.ts:894  DELETE FROM businesses WHERE id = ...
+```
+
+`runReleaseCycle` reaches `latchHalt` through `isolateItem` → `latchSystemHalt`,
+so this suite now writes a `batch_halted` Refusal, and its `afterAll` deletes the
+businesses those rows point at. **This is D4's class exactly** — "a test that
+deletes a location out from under a Refusal now has to say so" — in a file D4
+never looked at.
+
+**Three separate gates all had reason to catch it and none did:**
+
+1. The **feature gate** runs only this branch's five OWN promised integration
+   suites. It never runs the full live-DB lane. `pnpm test` in CI does.
+2. **Red team, both rounds.** Duty 4 is "missed siblings". D4 established the
+   class ON THIS BRANCH and neither round swept the other `DELETE FROM
+   businesses` teardowns for it. Round 2 additionally spent almost its whole
+   budget on poller code that `c4bfa647` then reverted.
+3. The **surface itself.** The file was outside `allowed_edit_surface`, so the
+   author could fix the four suites they owned and could not fix this one — the
+   constraint that keeps swarm branches disjoint also hid the fifth instance.
+
+**Fix:** one `DELETE FROM refusal_events WHERE business_id = …` before the
+existing business delete, in the same loop, with the FK reason written at it.
+Same order the ledger's own suites use. **No production code changed**, and this
+is not a production defect: offboarding already hard-deletes `refusal_events`
+(`table-disposition.ts:326`, `purge-stages.ts:435`, verified `must_be_absent`).
+
+**Verdict:** ACCEPT. The owner authorized surface amendment 3 explicitly on
+2026-08-31, having been offered — and declined — a separate-PR path that would
+have spent no amendment. `surfaceAmendments` is now **3**, and the log records
+that the 2nd was spent on work that was subsequently reverted in full. The
+counter never decrements.
+
+**The lesson, and it is the branch's fourth instance of one shape:** a fix
+applied to the cases in front of you is not applied to the class. D4 named the
+class and fixed four files; the sweep for the fifth never ran. The same shape
+produced RT2-1 on #1012 (a prohibition written using the phrase it prohibited)
+and the round-1/round-2 bound split on #1011 (a better technique applied to the
+new cases but not to the one that motivated it). **The check that finds these is
+mechanical, not attentive: grep the class across every file, fix, then RE-GREP.**
+
+### The sweep D4 owed, run now and recorded
+
+Fixing the one file would repeat the exact mistake. Predicate: a test that
+(a) `DELETE FROM businesses`, (b) has no `refusal_events` cleanup, and (c) reaches
+a lane this branch writes on. Five files matched (b)+(c); four are **safe by the
+vocabulary, not by luck**:
+
+| File | Reaches | Writes a Refusal? |
+|---|---|---|
+| `release.integration.test.ts` | `runReleaseCycle` → `latchSystemHalt` → `latchHalt` | **YES — `platform_halt` → `autonomy_paused`. FIXED.** |
+| `auto-approval.integration.test.ts` | `haltBatch` (:1020), `approveBatch` (:698) | No. `haltBatch` latches `ownerHaltReason(state)` → `owner_veto`/`owner_halt`, both `null` in `BATCH_HALTED_REFUSAL_CATEGORIES`. `approveBatch` is not a write site. |
+| `ask-generation.integration.test.ts` | `approveBatch` (:655) | No — not a write site on this branch. |
+| `batch-purge-concurrency.integration.test.ts` | — | No invocation; the grep hits are imports. |
+| `batch-view.integration.test.ts` | — | No invocation; the grep hits are imports. |
+
+The four safe files are safe **only because their halt reasons map to `null`.**
+Anything that later maps `owner_halt` or `send_window_elapsed` to a category
+turns all of them red at once. That is the tripwire to remember, and it is why
+the table records the reason rather than just the verdict.
+
+The same sweep was run against #1011 and #1012 and both are clear:
+`outreach-render.integration.test.ts` calls none of #1011's three writers, and
+#1012's publisher suites reach the downgrade only through paths their own
+`--changed` run exercised green.

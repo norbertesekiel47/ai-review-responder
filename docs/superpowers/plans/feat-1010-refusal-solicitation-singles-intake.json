@@ -81,6 +81,7 @@
     "src/lib/solicitation/__tests__/approval.test.ts",
     "src/lib/solicitation/__tests__/approval.integration.test.ts",
     "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
+    "src/lib/solicitation/__tests__/release.integration.test.ts",
     ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
