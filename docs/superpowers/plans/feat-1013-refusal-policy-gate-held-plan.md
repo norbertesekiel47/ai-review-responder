@@ -312,7 +312,13 @@ statements — `input.flaggedHigh` already pushes one `[]` for the
 push in that same branch, or EVERY existing test using the helper consumes the
 wrong row and fails.
 
-**Turns green:** 13, 14, 15, 16, 17. Contributes to 27, 30, 32, 34, 36.
+**Turns green:** 12, 13, 15, 16, 30, 32, 34.
+
+Titles 14 and 17 are DELIBERATELY NOT claimed here, and the distinction is the
+kind a "turns green" list exists to make honest. Title 14 ("a high-severity flag
+writes no `policy_gate_held` row") passes VACUOUSLY at T3 — nothing writes that
+lane yet — so it proves the `!held` suppression only once T5 exists. Title 17
+asserts a fact about BOTH lanes in one run. Both belong to T5.
 
 **Evidence:** those titles green; `persist.test.ts` unchanged elsewhere.
 
@@ -368,7 +374,8 @@ runtime graph the **Restraint tab** would bundle.
 #1014's, and say plainly that write-time precedence lands here. It already
 promises both #1013 maps.
 
-**Turns green:** 1–11, and 12 jointly with T3.
+**Turns green:** 1–11. Title 12 is `HELD_DRAFT_REFUSAL_CATEGORY`'s literal and
+belongs to T3, which adds that constant.
 
 **Evidence:** those titles green, including both `fast-check` property tests;
 `pnpm lint` and `pnpm typecheck` green.
@@ -414,7 +421,10 @@ non-structural branch: one more `txQueue.push([])` for the `policy_gate_held`
 INSERT, positioned exactly where the helper issues it, and only on the paths that
 actually write.
 
-**Turns green:** 18–29, 31, 33, 35. Completes 27, 30, 32, 34, 36.
+**Turns green:** 14, 17, 18–29, 31, 33, 35, 36.
+
+Together with T3's seven and T4's eleven this accounts for all 36 titles exactly
+once, with no title claimed by two tracers and none unclaimed.
 
 **Evidence:** the full integration suite green; `pnpm test` green.
 
