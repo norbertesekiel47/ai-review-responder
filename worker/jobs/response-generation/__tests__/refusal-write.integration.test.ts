@@ -613,7 +613,8 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
 
     const responseId = await responseIdFor(reviewId);
     // #997 resolution 1, and the single most likely thing to get wrong: the
-    // ledger write must NOT inherit the activeRun half of persist.ts:198's
+    // ledger write must NOT inherit the activeRun half of the `policy_gate`
+    // step's `activeRun && !held` guard in `persistResponseAndNotify`'s
     // `activeRun && !held` guard. Inheriting it silently drops rows from the
     // highest-volume lane.
     // `agent_runs.subject_id` is TEXT, not uuid — a `::uuid` cast here raises
@@ -684,7 +685,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     const reviewId = randomUUID();
     await seedReview(reviewId, { triageSeverity: 'high' });
     // isAutoApprovalCandidate reads the flag BEFORE the transaction
-    // (auto-approval.ts:310); evaluateAutoApprovalCandidate reads it again
+    // (`isAutoApprovalCandidate`); `evaluateAutoApprovalCandidate` reads it again
     // INSIDE (:360). A flip between the two is the member's ONLY live path, and
     // it is why auto_approval_disabled stays in the precedence list rather than
     // being dead weight (deviation D4).
@@ -795,7 +796,8 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
 
   // -------------------------------------------------------------------------
   // Atomicity. Four cases, each on a path that can actually occur — a held
-  // draft returns before the notification enqueue (persist.ts:228), and
+  // draft returns at `if (suppressNotification || held)` before the
+  // notification enqueue, and
   // policy_gate_held requires held === false, so no single run has both a
   // flagged_responses row and a send_notification enqueue.
   // -------------------------------------------------------------------------

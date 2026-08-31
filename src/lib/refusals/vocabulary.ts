@@ -39,8 +39,11 @@
  * pure, so the file remains the client-safe leaf the tab can import.
  *
  * (An earlier wording of this paragraph said the file holds no
- * `refusalCategoryFor` resolver at all. That was written before #1013 and read
- * more broadly than it meant; the rule was always about owner-facing labels.)
+ * `refusalCategoryFor` resolver at all. #1013 revisited that and moved the line
+ * to presentation. Be honest about what changed: #1009's intake listed
+ * `refusalCategoryFor` as its own non-goal, SEPARATE from the label table, so
+ * this is a decision reversed with reasons rather than a re-reading of what the
+ * rule always meant.)
  *
  * WHY THE OTHER FIVE MAPS ARRIVE TOGETHER, AHEAD OF THEIR WRITE SITES. #1009
  * said each map would land with the slice that writes its lane, and that was
@@ -95,7 +98,10 @@ import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
  * carry the old spelling and there is never a backfill (#1002).
  *
  * `policy_gate_held` sits LAST because it joined the parent effort's six in
- * #1003, not because it matters least — it is in fact the highest-volume lane.
+ * #1003, not because it matters least — it is the highest-volume lane BY
+ * DESIGN CAPACITY. Its actual volume is zero while `AUTO_APPROVAL_ENABLED` is
+ * off, which is production today; see `recordPolicyGateRefusal` and #1013's
+ * deviation D4.
  */
 export const REFUSAL_SOURCES = [
   'held_draft', // A high-severity moderation flag. No code axis at all (C4).
@@ -205,7 +211,7 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 // ABOUT WHAT THAT BUYS, because an earlier wording of this paragraph — and of
 // `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` below — claimed it stops an OMISSION
 // from type-checking, which is false. `satisfies Record<Enum, V>` demands every
-// key whatever `V` is, so a missing key is a compile error in all six maps
+// key whatever `V` is, so a missing key is a compile error in all seven maps
 // either way. What the narrower value type controls is whether `null` is
 // SPELLABLE: in a lane where every code is a Refusal, `Record<Enum,
 // RefusalCategory>` makes "not a Refusal" unwritable, so nobody can silence a
@@ -223,8 +229,8 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
  * server, and the row exists only for a `high`-severity flag — so the lane
  * itself is the whole fact.
  *
- * `satisfies RefusalCategory` is the guard, and it is the same one the six maps
- * get from their `Record` constraint: a value migration 116's
+ * `satisfies RefusalCategory` is the guard, and it is the same one the seven
+ * maps get from their `Record` constraint: a value migration 116's
  * `refusal_category` CHECK would reject is a COMPILE error here rather than a
  * `23514` inside a deciding transaction.
  *
@@ -413,7 +419,9 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
 
 /**
  * `policy_gate_held` — why the auto-approval gate held a draft for the owner.
- * Written by `recordPolicyGateRefusal` (#1013), the highest-volume lane.
+ * Written by `recordPolicyGateRefusal` (#1013). The highest-volume lane by
+ * design capacity, and SILENT in production until `AUTO_APPROVAL_ENABLED` is
+ * turned on — see that function's guards and #1013's deviation D4.
  *
  * All 22 `AutoApprovalBlockReason` members, values harvested verbatim from
  * #998's locked map. SEVEN ARE `null`, and each is a recorded decision that this

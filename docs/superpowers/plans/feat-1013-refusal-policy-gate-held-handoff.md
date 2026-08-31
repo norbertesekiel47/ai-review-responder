@@ -149,9 +149,9 @@ that shape.
 
 ## The one thing most likely to be got wrong
 
-`persist.ts:196` guards the spine step on `activeRun && !held`. The ledger write
+`persistResponseAndNotify` guards the spine step on `activeRun && !held`. The ledger write
 inherits **`!held` only**. Inheriting `!activeRun` silently drops rows from the
 highest-volume lane for every legacy pre-spine review (#997 resolution 1).
 Test title 18 is the regression pin, and
-`persist.test.ts:768` already has the `findActiveReviewRun.mockResolvedValue(null)`
+`persist.test.ts`'s run-spine describe already has the sole `findActiveReviewRun.mockResolvedValue(null)`
 precedent to build it on.
