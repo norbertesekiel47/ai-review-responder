@@ -97,3 +97,77 @@ changes, and `AutoPolicyDowngradeReason` itself is not touched.
 **Verdict:** ACCEPT
 
 ---
+
+## D4 — AUTHORITY RULING: the flag-off `policy_gate_held` lane writes nothing
+
+**Raised:** step 1 grilling, 2026-08-31. **Decided by the OWNER in session**,
+2026-08-31, choosing "Keep the narrowing" over two alternatives. Recorded here as
+a formal ruling because codex plan round 1 (finding F1, HIGH) correctly observed
+that a decision contradicting a CLOSED ticket needs one.
+
+**What two closed rulings claim.** #1013's "Volume" section and #1003's
+"Operational consequence for #1001" both state: with the `AUTO_APPROVAL_ENABLED`
+kill switch off, **every** generated draft on a policy-configured account writes
+an `autonomy_paused` row.
+
+**Why the code cannot do that.** Verified at HEAD:
+
+1. The flag off makes `auto_approval_disabled` a STRUCTURAL gate —
+   `STRUCTURAL_GATES[0]` is `[(input) => !input.runtimeEnabled,
+   'auto_approval_disabled']` (`worker/jobs/response-generation/auto-approval.ts:286`).
+2. So `isAutoApprovalCandidate` returns false for every draft
+   (`auto-approval.ts:309-311`, called at `persist.ts:105`).
+3. So `resolveAutoApprovalDecision` returns `runtimeState: null` and reads no
+   policy row at all (`persist.ts:275-279`).
+4. #998's narrowing needs `runtimeState.effectivePolicy.threshold !== null`
+   (`persist.ts:563-565`).
+
+"On a policy-configured account" is therefore **unknowable** on the very path the
+claim describes. Migration 074's own header states the short-circuit is
+deliberate: "safe ONLY while AUTO_APPROVAL_ENABLED is off — persist.ts
+short-circuits structural non-candidates before any 074-column read (no policy
+SELECT, no runtime-state projection)".
+
+**The ruling.** #998's narrowing is inherited VERBATIM. A structural
+non-candidate writes no `policy_gate_held` row. The two prose claims above are
+FALSE against this code and are corrected on this branch; neither is implemented.
+
+**Rejected alternative 1 — add a policy SELECT for non-candidates.** It would
+honour #1003's wording literally, at the price of reversing migration 074's
+documented short-circuit and adding a read to every generated draft while the
+flag is off. Rejected by the owner.
+
+**Rejected alternative 2 — move `auto_approval_disabled` into the veto set.**
+Cleaner in isolation, but it reverses #998 on a member and would need a
+`vocabulary_version` decision. Rejected by the owner.
+
+**`auto_approval_disabled` is NOT dead weight in the precedence list.**
+`isAutoApprovalCandidate` reads the flag before the transaction
+(`auto-approval.ts:310`) and `evaluateAutoApprovalCandidate` reads it again
+inside (`auto-approval.ts:360`). A flip between the two yields `blockReasons`
+carrying `auto_approval_disabled` with a REAL `runtimeState`. That is the
+member's only live path, and test title 25 pins it.
+
+**Codex F1's second half is REJECTED, and the reason is recorded.** F1 asked for
+a durable monitored counter for flag-off exclusions, on the grounds that the
+ledger cannot distinguish "no decision" from "the lane was excluded". The
+distinction is real. A counter is still wrong here:
+
+* `AUTO_APPROVAL_ENABLED=false` is the DELIBERATE, DOCUMENTED pre-launch
+  production state — the design doc's §8.4 ordered go-live turns every autonomy
+  flag on later — so an alert on it would fire continuously on the intended
+  configuration.
+* The signal that the LEDGER is dark already exists and is a different fact:
+  `REFUSAL_LEDGER_ENABLED`'s once-per-episode warning
+  (`src/lib/refusals/write.ts`).
+* Auto-approval observability is not this slice's to own. #1013 records a
+  decision; it does not instrument the gate.
+
+**What IS accepted from F1:** the intake's reconciliation bullet was vacuous as
+written. It now states explicitly that the query is meaningful only with
+`AUTO_APPROVAL_ENABLED` ON, that both sides are zero by construction otherwise,
+and that a green flag-off reconciliation is never evidence.
+
+**Verdict:** ACCEPT
+
+---

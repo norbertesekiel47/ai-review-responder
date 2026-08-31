@@ -32,7 +32,7 @@ Both write `subject_type = 'response'`, `subject_id = responseId`, and
 
 ### Rule 1 — the write must NOT inherit the `activeRun` guard
 
-`persist.ts:196` today reads `if (activeRun && !held)`. That guard is correct for
+`persist.ts:198` today reads `if (activeRun && !held)`. That guard is correct for
 the **spine step** and wrong for the **ledger**. A legacy pre-spine review makes
 `recordDraftSpineCheckpoints` return `null` (`persist.ts:432-453`), and
 inheriting `!activeRun` would silently drop rows from the highest-volume lane —
@@ -86,7 +86,7 @@ veto set derived instead of restated.
 ### 3.2 The candidacy narrowing gets ONE owner
 
 `logAutoApprovalFallbackIfNeeded` already spells the narrowing at
-`persist.ts:561-563`. The ledger write inherits it (#998, "unchanged"). That is
+`persist.ts:563-565`. The ledger write inherits it (#998, "unchanged"). That is
 the **second** use, so the anti-slop rule's "no abstraction before the second
 use" is now satisfied and a shared predicate is owed:
 
@@ -104,7 +104,7 @@ never exceed the fallback log line count, because one predicate gates both.
 
 **This is also the answer to the flag-off question.** With
 `AUTO_APPROVAL_ENABLED` off, every draft is a structural non-candidate,
-`resolveAutoApprovalDecision` returns `runtimeState: null` (`persist.ts:261-266`),
+`resolveAutoApprovalDecision` returns `runtimeState: null` (`persist.ts:275-279`),
 and the predicate is false. No row is written. Owner decision, 2026-08-31.
 
 > **CORRECTION — the ticket's "Volume" section and #1003's "Operational
@@ -112,7 +112,7 @@ and the predicate is false. No row is written. Owner decision, 2026-08-31.
 > not implement them.** Both say that with the kill switch off, every generated
 > draft on a policy-configured account writes an `autonomy_paused` row. The code
 > cannot know "policy-configured" on that path: the flag off makes
-> `auto_approval_disabled` a STRUCTURAL gate (`auto-approval.ts:40`), so
+> `auto_approval_disabled` a STRUCTURAL gate (`auto-approval.ts:286`), so
 > `isAutoApprovalCandidate` is false (`persist.ts:105`), so no policy row is ever
 > read. Migration 074's own header states this short-circuit is deliberate: "a
 > flag-off deploy never touches the new columns." Reading the policy row for a
@@ -121,7 +121,7 @@ and the predicate is false. No row is written. Owner decision, 2026-08-31.
 > `auto_approval_disabled` remains REACHABLE, and stays in the precedence list
 > for that reason rather than as dead weight: `isAutoApprovalCandidate` reads the
 > flag before the transaction and `evaluateAutoApprovalCandidate` reads it again
-> inside (`auto-approval.ts:333`, `:360`). A flip between the two yields
+> inside (`auto-approval.ts:310`, `:360`). A flip between the two yields
 > `blockReasons` carrying `auto_approval_disabled` with a real `runtimeState`.
 > Title 20 pins that path.
 >
@@ -195,7 +195,7 @@ parallel fan-out is planned, and the step 4 first-task spot check still applies.
 
 ---
 
-### T1 — the eval: 26 failing tests
+### T1 — the eval: 36 failing tests
 
 **Blocking edges:** none. First task.
 
@@ -212,9 +212,9 @@ parallel fan-out is planned, and the step 4 first-task spot check still applies.
 describe block) · `src/lib/refusals/__tests__/vocabulary.test.ts` (the existing
 migration-116 parse).
 
-**Contract.** Every one of the intake's 26 `tests_to_add` titles exists VERBATIM,
+**Contract.** Every one of the intake's 36 `tests_to_add` titles exists VERBATIM,
 with a real body. Titles 1–12 and the two `invariants:` property tests are pure
-and run without a database. Titles 13–26 are live-DB and go in the new
+and run without a database. Titles 13–36 are live-DB and go in the new
 integration suite.
 
 **Import paths are FINAL from the first line.** The eval imports
@@ -260,7 +260,7 @@ single test consumer repoints instead.
 mentions the name in a COMMENT and imports nothing, so it is untouched.
 
 **Also in this task (deviation D3):** correct the stale clause at
-`worker-types.ts:135-137` claiming `auto-policy-downgrade.ts` "re-exports this
+`worker-types.ts:137-139` claiming `auto-policy-downgrade.ts` "re-exports this
 type". It does not, and `auto-policy-downgrade.ts:16-23` says so. T2 writes a new
 docblock directly beneath that paragraph and must not cite a false sentence. The
 correction is bounded to that clause.
@@ -304,7 +304,15 @@ resolve to `transaction_timestamp()` — identical to the microsecond. Reading i
 back would truncate microseconds on decode (#520) and lose the equality title 15
 asserts.
 
-**Turns green:** 13, 14, 15. Contributes to 22, 24, 25, 26.
+**`persist.test.ts`'s fake transaction is STATEMENT-ORDER-SENSITIVE, and this
+task must fix the helper, not merely add cases.** `queuePersistRows` (~line 110)
+pushes fake result rows onto `txQueue` in the exact order `persist.ts` issues
+statements — `input.flaggedHigh` already pushes one `[]` for the
+`flagged_responses` INSERT. The new `INSERT INTO refusal_events` needs a matching
+push in that same branch, or EVERY existing test using the helper consumes the
+wrong row and fails.
+
+**Turns green:** 13, 14, 15, 16, 17. Contributes to 27, 30, 32, 34, 36.
 
 **Evidence:** those titles green; `persist.test.ts` unchanged elsewhere.
 
@@ -319,7 +327,7 @@ asserts.
 **Precedent:** the six existing lane maps in the same file, each
 `as const satisfies Record<Enum, RefusalCategory | null>` with `| null` present
 only where a `null` member exists · `STRUCTURAL_GATES`
-(`auto-approval.ts:285`) for the readonly-tuple table idiom ·
+(`auto-approval.ts:285-291`) for the readonly-tuple table idiom ·
 `WITHHOLD_REASONS` (`src/lib/solicitation/restraint-policy.ts`), which
 `vocabulary.ts` names as its model.
 
@@ -360,7 +368,7 @@ runtime graph the **Restraint tab** would bundle.
 #1014's, and say plainly that write-time precedence lands here. It already
 promises both #1013 maps.
 
-**Turns green:** 1–11.
+**Turns green:** 1–11, and 12 jointly with T3.
 
 **Evidence:** those titles green, including both `fast-check` property tests;
 `pnpm lint` and `pnpm typecheck` green.
@@ -387,7 +395,7 @@ reconciliation query true by construction.
 OUTSIDE it. Guards, in order:
 
 1. `held` → return. Recorded on `held_draft`, never here (#998's suppression
-   rule). **This is the only condition inherited from `persist.ts:196`.**
+   rule). **This is the only condition inherited from `persist.ts:198`.**
 2. `autoDecision.approved` → return. Nothing was refused.
 3. `!isGenuineAutoCandidate(...)` → return.
 4. `resolvePolicyGateRefusal(autoDecision.blockReasons)` returns `null` → return.
@@ -401,7 +409,12 @@ Then one `writeRefusalEvent` on `tx`, no `try/catch`, per the #1012 precedent an
 goes in the private helper, never inline — `.claude/CLAUDE.md` invariant #12,
 "entry points orchestrate; modules own failure behaviour".
 
-**Turns green:** 16–21, 23, 24. Completes 22, 25, 26.
+**The same `queuePersistRows` surgery T3 does applies here**, in the
+non-structural branch: one more `txQueue.push([])` for the `policy_gate_held`
+INSERT, positioned exactly where the helper issues it, and only on the paths that
+actually write.
+
+**Turns green:** 18–29, 31, 33, 35. Completes 27, 30, 32, 34, 36.
 
 **Evidence:** the full integration suite green; `pnpm test` green.
 
@@ -450,5 +463,68 @@ full gate.
 
 ## 7. Review appendix
 
-*(Plan review rounds are recorded here. Round 1 is a read-only codex
-plan-skeptic dispatch, per `/feature` step 3.)*
+### Round 1 — codex plan skeptic, read-only, 2026-08-31
+
+**Session id `01a059b8-2b34-7131-b1cc-d44ba9f3847f`.** A verification round MUST
+resume it (`codex exec resume -o <file> <id> "<delta>"`). Note that
+`codex exec resume` accepts neither `-s` nor `-C`; it inherits the original
+session's read-only sandbox and cwd.
+
+Dispatched with a 2107-line self-contained brief (`.feature/plan-brief-1013.md`)
+carrying the intake, this plan, the deviations, ten repository excerpts and the
+three closed rulings verbatim. It cost 9 tool calls against feat/1008's 13–17,
+and 1.25 M of its 1.62 M input tokens were cache hits.
+
+**VERDICT: REVISE.** Ten findings, zero in the low-confidence appendix. Every one
+was re-verified against source before triage; **all ten citations codex disputed
+were correct and mine were wrong.**
+
+| # | Sev | Finding | Verdict |
+|---|---|---|---|
+| F1 | HIGH | Flag-off lane writes nothing AND emits no signal; reconciliation is vacuous at `0 <= 0`; contradicts closed #1003 with no recorded ruling | **PARTIAL** |
+| F2 | HIGH | Title 24 is impossible on one persist path — `held=true` returns before the notification, `policy_gate_held` requires `held=false` so no `flagged_responses` row exists | **ACCEPT** |
+| F3 | HIGH | No live-DB veto test; pure resolver tests pass while the write site ignores a `null` result | **ACCEPT** |
+| F4 | HIGH | No live-DB assertion that the STORED row carries the resolver's winner, its mapped category and verbatim array order | **ACCEPT** |
+| F5 | HIGH | No severity-boundary test; `HELD_DRAFT_REFUSAL_CATEGORY` could be correct yet unused | **ACCEPT** |
+| F6 | MED | Title 25 combines a moderation hold and a notification enqueue, which cannot coexist | **ACCEPT** |
+| F7 | MED | Title 23 is unreachable through the public seam — a fresh response id plus unique `(review_id, version)` fails the responses INSERT before the refusal index | **ACCEPT** |
+| F8 | MED | `occurred_at` pinned only for `held_draft`; the policy writer could pass a JS `Date` and all titles still pass | **ACCEPT** |
+| F9 | MED | No test for the threshold-null narrowing arm, distinct from the structural non-candidate case | **ACCEPT** |
+| F10 | LOW | Six citations do not resolve as claimed | **ACCEPT** |
+
+**F1 — PARTIAL.** The narrowing decision is the owner's, taken in session, and
+stands. What codex correctly identified is that it lacked a recorded authority
+ruling and that the reconciliation was vacuous as written. Both are fixed:
+deviation **D4** records the ruling, the rejected alternatives and the
+reachability of `auto_approval_disabled` through a mid-persist flag flip; the
+intake's observability now states the query is meaningful only with
+`AUTO_APPROVAL_ENABLED` ON. The requested durable counter for flag-off exclusions
+is **REJECTED** — `AUTO_APPROVAL_ENABLED=false` is the deliberate documented
+pre-launch state, so a counter would alert continuously on the intended
+configuration, and auto-approval instrumentation is not this slice's to own. Full
+reasoning in D4.
+
+**F2 is the round's best finding.** Verified at `persist.ts:228`:
+`if (suppressNotification || held) return`. A held draft never reaches
+`enqueueSendNotification`, so title 24's three artifacts cannot coexist. Replaced
+by four path-valid titles (30–33), two of them using the existing non-DDL
+`abortingExecutor` (`src/lib/shared/__tests__/helpers/abort-injection.ts`).
+
+**F10 — my citations were wrong, codex's were right**, confirmed line by line:
+`:196`→`:198` (the guard; `:196` is a comment), `:261-266`→`:275-279`,
+`:561-563`→`:563-565`, `auto-approval.ts:40`→`:286` (`:40` is
+`'unsupported_version'`, a union member), `:333`→`:310`,
+`worker-types.ts:135-137`→`:137-139` (my range stopped before the false clause).
+All corrected in §2, §3.2, T2 and T5.
+
+> **`prevalidate-plan.py` PASSED on all fourteen of these citations, and that is
+> a limitation worth recording rather than a bug.** It resolves whether a
+> `path:line` EXISTS, never whether the line says what the prose claims. A
+> citation audit still needs a reader.
+
+**Net effect on the contract:** `tests_to_add` 26 → 36 (three titles removed,
+thirteen added), `estimated_test_lines` 800 → 1150. Retitles are deviations-file
+entries, not surface amendments, so the amendment count stays at 1.
+
+**A verification round is owed** — the fixes moved `tests_to_add` and this plan's
+heading structure, so `contract-changed` reports CHANGED by construction.
