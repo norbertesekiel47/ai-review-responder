@@ -42,7 +42,7 @@
     "The outbox attempt CAS fails: the function returns no-op and writes no Refusal.",
     "The guarded UPDATE matches no row despite the earlier check: the function returns no-op and writes no Refusal.",
     "The same response is downgraded twice: the partial unique index on (refusal_source, subject_id) leaves one row, and ON CONFLICT DO NOTHING lets the second transaction commit.",
-    "All six AutoPolicyDowngradeReason members reach the write site: four through judge-gate.ts and two through auto-policy-publish.ts.",
+    "All six AutoPolicyDowngradeReason members reach the write site. judge-gate.ts has four CALL SITES carrying two reasons; the remaining four reasons arrive through auto-policy-publish.ts. Round 1 corrected an earlier wording that read the site count as a reason count.",
     "The standalone wrapper opens its own transaction while an InTx caller passes one already open: both reach the same single write site.",
     "REFUSAL_LEDGER_ENABLED is false: the downgrade, its audit row and its notification enqueue are unchanged and the helper emits one warning per disabled episode.",
     "A CHECK violation from a writer bug aborts the downgrade, so the response stays auto-approved and the outbox attempt is not completed. The publisher retries it."
@@ -56,8 +56,9 @@
   ],
   "test_seams": [
     "worker/jobs/publisher/auto-policy-downgrade.ts — downgradeAutoApprovedResponseForManualReview and its InTx form.",
-    "worker/jobs/publisher/judge-gate.ts — the four callers that choose a judge-related reason.",
-    "worker/jobs/publisher/auto-policy-publish.ts — the two callers that choose an entitlement or suspension reason."
+    "worker/jobs/publisher/judge-gate.ts — four CALL SITES carrying two reasons (judge_disabled, judge_unhealthy). Round 1 corrected an earlier wording that read the site count as a reason count.",
+    "worker/jobs/publisher/auto-policy-publish.ts — the remaining reasons, including the entitlement and suspension arms.",
+    "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts — a NEW live-DB suite. No existing suite in that directory runs against real Postgres, and the occurred_at equality, the rollback cases and the partial-index behaviour all require it."
   ],
   "allowed_edit_surface": [
     "worker/jobs/publisher/auto-policy-downgrade.ts",
@@ -76,14 +77,20 @@
     "a no-op downgrade on a response that is not downgradeable writes no refusal_events row",
     "a no-op downgrade on a missing business writes no refusal_events row",
     "a downgrade that loses the outbox attempt CAS writes no refusal_events row",
+    "a no-op downgrade with no review anchor writes no refusal_events row",
+    "a downgrade whose guarded response UPDATE matches no row writes no refusal_events row",
     "downgrading the same response twice leaves one refusal_events row and lets the second transaction commit",
+    "downgrading the same response for two different reasons keeps the first refusal code and category",
     "the standalone wrapper and the in-transaction caller each write exactly one refusal_events row",
+    "the in-transaction downgrade writes the refusal on the caller transaction and an outer rollback removes it",
     "a ledger failure rolls back the downgrade, the approval audit row and the notification enqueue together",
-    "a downgrade still completes when REFUSAL_LEDGER_ENABLED is false"
+    "a ledger failure rolls back completion of the claimed outbox attempt so the publisher can retry",
+    "REFUSAL_LEDGER_ENABLED=false changes only the refusal row and preserves the response downgrade, approval audit, notification enqueue, and outbox completion",
+    "each production gate routes every AutoPolicyDowngradeReason verbatim to the shared downgrade"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 90,
-  "estimated_test_lines": 460,
+  "estimated_test_lines": 700,
   "dependencies_added": [],
   "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops the ledger write with no deploy and leaves the downgrade byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes the call site and the widened business lock together. (3) No down migration: migration 116 stays and rows already written are not deleted. ArchivalPoller's refusal_events arm landed in #1009 and is untouched, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
   "observability": [
