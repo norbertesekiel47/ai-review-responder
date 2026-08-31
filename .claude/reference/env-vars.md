@@ -416,23 +416,28 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 
 ### `BETA_COMP_COUPON_ID` — the admin-invite beta comp
 
-> ⚠️ **PENDING OPS — the coupon does not exist yet.** The code shipped
-> 2026-08-14; creating the Stripe Coupon (test mode AND live mode) and setting
-> this variable in Vercel are **provider actions nobody has performed**. Until
-> then every invited tester's Checkout snapshots `NULL` and renders at **full
-> price** — the one failure a beta tester must never see. The consolidated ops
-> list, with the rest of the feature's outstanding steps, is
-> `docs/runbooks/beta-onboarding-cofounder-guide.md` → **Part 12**; the
-> operator-runnable staging proof is `docs/runbooks/beta-production-standup.md`
-> → **Phase F**. Prod is additionally blocked on the WS8 cutover (see the
-> sequencing note at the end of this section).
+> ✅ **LIVE IN BOTH MODES AND BOTH ENVIRONMENTS, 2026-08-31.** The coupon exists in
+> Stripe **test** and **live** mode under **one id**, and this variable is set on Vercel
+> `staging` (2026-08-21) and Vercel `Production` (2026-08-31, written via the Infisical
+> vault `prod`). Both ends are proven end to end by a real Checkout: staging in **F.3**,
+> production in **F.4** — $0.00 due today, a card still captured, and the 4th cycle at full
+> price. Evidence: `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` →
+> **Phase F.3** and **Phase F.4**.
 
 The Stripe **Coupon** ID (100% off, `duration=repeating`,
 `duration_in_months=3`) applied to an admin-invited beta tester's Checkout
 Session (admin-invite-funnel plan steps 1–2). Create the coupon in Stripe **test
-mode for staging and live mode for prod** — the two IDs differ, and a test-mode
-ID deployed to live fails every invited tester's checkout. Set it on **Vercel,
-staging first**; it is deliberately absent from the worker lane because no
+mode for staging and live mode for prod**.
+
+> ⚠️ **CORRECTED 2026-08-31 (finding F4-F6) — USE ONE ID IN BOTH MODES.** This paragraph
+> used to read *"the two IDs differ, and a test-mode ID deployed to live fails every
+> invited tester's checkout."* **The same id is legal in both Stripe modes**, and using one
+> — `repworth-beta-comp-3mo` — makes that failure **structurally impossible** rather than
+> merely documented. The old wording is what caused a live coupon to be created under a
+> fresh id no environment named (lab note 2026-08-31, *"Created a live Stripe coupon under a
+> fresh id"*). **Read the id the environment already names before creating anything.**
+
+Set it on **Vercel, staging first**; it is deliberately absent from the worker lane because no
 worker code path reaches `applyTierSnapshot` (verified: the only importers are
 `/api/onboarding/select-plan` and `/api/billing/checkout`).
 
@@ -465,8 +470,15 @@ migration **078** and the strict-code deploy remain pending until the WS8 tier
 cutover (`docs/runbooks/ws8-tier-cutover.md`), and the coupon additionally needs
 its own prerequisites — a live-mode Stripe coupon, this variable set, and the
 blocking legacy-`onboarded_by` audit cleared in `docs/launch-checklist.md`
-(`docs/runbooks/beta-production-standup.md` Phase F). Set the staging value now;
-hold the production value until WS8 completes and those prerequisites are met.
+(`docs/runbooks/beta-production-standup.md` Phase F).
+
+> ✅ **ALL PREREQUISITES MET; THE PRODUCTION VALUE IS SET, 2026-08-31.** Migration 078
+> applied in D.7, the freeze lifted in D.8, the live coupon created in F.2, and the blocking
+> legacy-`onboarded_by` audit re-run live returning **0 rows**. The production value was
+> written to the **Infisical vault `prod`**, which syncs to Vercel **and Railway** — so it
+> triggers a worker redeploy even though no worker path reads this key. Follow any vault
+> write with `redeploy --from-source` and confirm `tsx worker/index.ts` **plus a poller
+> cycle** (trap 2). Full flip record: evidence file → **Phase F.4**.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.

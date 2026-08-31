@@ -2513,6 +2513,212 @@ knows to distrust it.
 
 ---
 
+## Phase F.4 — the PRODUCTION walk. COMPLETE 2026-08-31. **The D.6 debt is closed.**
+
+Run by the owner at a browser against `https://repworth.net`, immediately after F.3, with
+every assertion verified from the **live** Stripe API and the production database rather
+than read off a screen. Repo HEAD at the time of the run: **`bea758fc`** (the F.3 record,
+`#1046`). Production Supabase `udeyaqnvpojbwgoaxwdg`; Stripe `acct_1TUcR7IhPBLaM6xA`,
+**live mode**.
+
+**The owner was charged $0.00.** `amount_paid: 0` on the only invoice. No money moved.
+
+### The flip that gated it — `BETA_COMP_COUPON_ID` in production
+
+The owner chose the vault route with an explicit Vercel readback, over a Vercel-only write,
+after being shown the tradeoff. Recorded per the `flag-flip` skill step 7.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Vault write, project `1735b0d0-…`, env `prod` | via the CLI's `@file` form — the value was never a shell argument |
+| 2 | Sync side effect | **predicted and observed** — it triggered Railway deploy `aaa79eae` |
+| 3 | `redeploy --from-source` | `b46c1f0a` — `$ tsx worker/index.ts`, worker listening on the production lane, **four poller cycles**, readiness cure complete |
+| 4 | Vercel Production readback | key present (type `Config`); value pulled back as `repworth-beta-comp-3mo` |
+| 5 | Vercel production redeploy | `rep-worth-f50nb80tr…`, aliased to `repworth.net` |
+| 6 | Health after | app `ok` @ commit `bea758fc`; worker `ok`, uptime 222 s |
+
+**On trap 2, second data point.** The sync-triggered deploy `aaa79eae` was itself
+config-resolved and booted the worker correctly — the benign G-F1 case again, because it
+copied the `#1046` merge deploy from eight minutes earlier. The from-source redeploy ran
+anyway. **Keep running it:** a from-source deploy *resolves* configuration, where a redeploy
+only *inherits* whatever the copied deployment had. Two benign observations do not make the
+rule conditional in the safe direction.
+
+### Preconditions, all verified in production by introspection
+
+| Gate | Method | Result |
+|---|---|---|
+| Migration 105 column + constraint | introspection | present; `accounts_checkout_attempt_complete_check` carries the coupon branch |
+| Migration 106 event allowlist | introspection | admits `checkout_coupon_decision` |
+| Migration 078 | introspection | `accounts.subscription_tier` NOT NULL |
+| Live-mode coupon | Stripe API | `repworth-beta-comp-3mo` · `percent_off=100` · `repeating` · `duration_in_months=3` · `valid=true` · `livemode=true` · `times_redeemed=0` |
+| Blocking legacy-`onboarded_by` audit | live query | **0 rows** |
+| Owner email collision | `public.users` + `auth.users` | none |
+
+### The objects the run created
+
+| Object | Id |
+|---|---|
+| Production admin **users** row | `01a0596a-4cd3-7248-aa02-27fba8886d5a` (UUIDv7) → auth `506fa3c7-71fa-4b63-bf67-461b0a80779b` |
+| Admin MFA factor | `37ffc97e-6551-4013-9c61-b2ba1e757aeb` · `totp` · `verified` |
+| **Business** | `01a05975-309d-7578-b684-6abfe6492e83` — *Tanicia Resort* |
+| **Account** | `01a05975-309f-7317-a002-b6fb26bf58d1` |
+| **Checkout attempt** | `ccde4d4c-c660-4b6b-b532-e80cad366898` |
+| Checkout session | `cs_live_a1viDmqFYmwiSulmWEjXhfRmrlOTxoexml4WrBGnyOZhjNTnDjAPUs7MBQ` |
+| Stripe customer | `cus_VAxn9cbOQJGzz2` |
+| Stripe subscription | `sub_1UAbs7IhPBLaM6xASGkfGz2V` |
+| First (and only) invoice | `in_1UAbs5IhPBLaM6xA0uqtVYAB` |
+| Discount | `di_1UAbs5IhPBLaM6xAz6UqzTuJ` |
+| Payment method | `pm_1UAbs5IhPBLaM6xATs0bfxxG` — visa **debit** ·6733 |
+
+### Step results
+
+| Assertion | Verdict | Evidence |
+|---|---|---|
+| **Admin invite** created, email sent | **PASS** | Business 20:14:07.54Z; owner invited 20:14:08.47Z — *after* two blockers were cleared, below |
+| Invite accepted; sign-in works | **PASS** | `confirmed_at` 20:27:31Z, `last_sign_in_at` 20:28:24Z |
+| **Funnel entry** = `/onboarding/start` | **PASS** | `pending_payment` + demo on + no place — the precedence held |
+| **Total due today $0.00** | **PASS** | session `amount_subtotal: 1900` → `amount_total: 0`; invoice `total: 0`, `status: paid` |
+| **A card IS collected** | **PASS** | `pm_1UAbs5…` · visa ·6733 · `cvc_check: pass` · `address_postal_code_check: pass` — captured on a **$0.00** invoice |
+| `payment_method_collection` | **PASS** | **`"always"`** — read off the Checkout Session object itself |
+| `allow_promotion_codes` | **PASS** | **`null` — OMITTED, not `false`.** The D-16 fix holds in live mode |
+| Subscription active, discount attached | **PASS** | `sub_1UAbs7…` `active`; discount `di_1UAbs5…` `source.coupon='repworth-beta-comp-3mo'` |
+| **4th cycle at full price** | **PASS** | discount `end` = **1796070721 = 2026-11-30T20:32:01Z**, the cycle-4 anchor to the second |
+| `checkout_coupon_decision` = `applied` | **PASS** | 20:29:52.05Z · `reason='applied'` · `coupon_applied=true` |
+| Immediate cancellation | **PASS** | `canceled_at` = `ended_at` = 20:46:01Z · `cancel_at_period_end: false` · `reason='cancellation_requested'`; account `cancelled` 20:46:02Z |
+
+**Live cycle map.** 1 `2026-08-31` $0.00 (paid) · 2 `2026-09-30` $0.00 · 3 `2026-10-31`
+$0.00 · **4 `2026-11-30` $19.00**. Span exactly 91 days, same shape as staging. Method and
+its limit are identical to F.3's step 8: a boundary proof from the discount's own `end`, not
+a rendered 4th invoice — which needs a Stripe **test clock** a real Checkout cannot have.
+
+### THE LIVE STRIPE WEBHOOK IS PROVEN — three event types, zero errors
+
+Since D.3 the live endpoint had been armed and **never delivered to**. That ended tonight.
+
+| Event | Status | Latency |
+|---|---|---|
+| `invoice.paid` | `processed` | 110 ms |
+| `checkout.session.completed` | `processed` | 1.5 s |
+| `customer.subscription.deleted` | `processed` | 426 ms |
+
+The third arrived from the cancellation and proves `apply-subscription-state.ts` on the
+live lane: the account moved `active` → `cancelled` 426 ms after the event landed.
+
+### What F.4 settles, and what it deliberately did not do
+
+- **D.6 is closed.** Production has completed a live-mode Checkout, and it was the owner's.
+  The first live Checkout is no longer waiting to be a customer's.
+- **No Google Business Profile was connected.** Deliberate — F.4 proves the Checkout path;
+  connecting a real profile would start live review ingestion. `onboarding_wizard_completed_at`
+  is NULL and the account was cancelled before the wizard.
+- **The Stripe customer was NOT deleted.** The dashboard offered "delete customer" more
+  prominently than "cancel subscription"; deleting would have orphaned
+  `accounts.stripe_customer_id` and discarded this record. Flagged before the click.
+- **Production is no longer zero-state.** It holds one admin, one cancelled **Account**, one
+  **Business**, two auth users. See the PITR ordering note — this makes the drill stronger.
+
+## Findings from Phase F.4
+
+**Two of these would each have stopped beta tester one dead, and neither was on any list.**
+Both share one cause: the freeze meant production was provisioned but never *commissioned*.
+
+### F4-F1 — production had no admin user at all
+
+`/admin/businesses/new` requires a `public.users` row with `role='admin'` whose `auth_id`
+matches a Supabase Auth identity (`src/lib/auth/page-gate.ts:67`). Production held **zero**
+rows in `public.users` **and** `auth.users`. The **Admin invite** funnel — the entire beta
+onboarding mechanism — was unreachable.
+
+`deployment-guide.md` §2 documents the procedure ("Seed admin user"). It was never run
+against production. Staging has had an admin since May, which is exactly why nobody noticed.
+
+Fixed in-session: auth user created by the owner in the dashboard, `users` row inserted with
+a **UUIDv7** PK (per the migrations-log convention; the guide's `gen_random_uuid()` predates
+it), then verified by running the gate's own query. MFA enrolled at `/admin/security` —
+which is deliberately the one admin page that does NOT require AAL2, precisely so a fresh
+admin can reach it.
+
+### F4-F2 — production Supabase Auth Site URL was `http://localhost:3000`
+
+The first invite email resolved to `http://localhost:3000/login?error=auth_callback_failed`.
+
+**Diagnosis by elimination, everything on our side correct:** `NEXT_PUBLIC_APP_URL` =
+`https://repworth.net`; `NEXT_PUBLIC_SUPABASE_URL` = the production project;
+`buildInviteRedirectTo()` emits `https://repworth.net/api/auth/callback?flow=owner&next=/reset-password`;
+and the callback's failure redirect is built from the **request `origin`** — which proved
+the request had reached localhost, not us. Supabase substitutes its configured **Site URL**
+when a `redirect_to` is not in the allowlist. The owner's local dev server on port 3000
+answered, could not verify a production token, and emitted our own error string.
+
+Confirmed visually by the owner: Site URL **was** `localhost:3000`. Fixed to
+`https://repworth.net` with `https://repworth.net/**` added to Redirect URLs.
+
+`deployment-guide.md` line 1332 records this configuration **for staging**
+("Site URL `https://staging.repworth.net`") and has **no production equivalent**. Corrected
+in this change.
+
+> **The token survived.** `confirmed_at` and `last_sign_in_at` were both still NULL, so the
+> account needed no repair — the **Resend invite** button was the correct recovery, and it
+> is the same gate F.3 step 10 Part A proved hours earlier.
+
+### F4-F3 — the app OVERRIDES the Stripe dashboard's portal cancellation setting
+
+The owner had configured a Stripe billing-portal configuration with
+`subscription_cancel.enabled: true` and made it Stripe's **default**
+(`bpc_1Td3ORIhPBLaM6xAJ73i2jem`, test mode). The app never uses it.
+
+`resolvePortalConfigurationId` calls `.find(isCancellationSafePortalConfiguration)`, whose
+predicate requires `subscription_cancel?.enabled !== true`. It selects
+`bpc_1TiUikIhPBLaM6xAY5uXdcc0` (cancel disabled) instead — a configuration created *later*,
+whose `business_profile.headline` matches the string the app's own create-path writes. The
+app made its own and ignored the dashboard's.
+
+This is by design — cancellation routes through owner-offboarding, not the portal — but it
+is worth recording, because **the Stripe dashboard will keep looking as though it permits
+something the application suppresses.**
+
+### F4-F4 — production has NO self-serve cancellation, by two independent mechanisms
+
+1. `ACCOUNT_OFFBOARDING_ENABLED` is **off in production** and **on in staging** — read from
+   runtime, not config: production's five offboarding pollers log
+   `!= true — not starting`; staging's five log `Starting`.
+2. The billing portal withholds cancellation (F4-F3).
+
+So a production beta tester who wants out **must email the owner**. Defensible for a beta,
+but it should be a recorded decision rather than something a tester discovers.
+
+> **Method note, and it is trap 5.** Vercel's `env pull` returns staging's
+> `ACCOUNT_OFFBOARDING_ENABLED` as `[SENSITIVE]` because it is `Secret`-type. Reading that
+> as "off" is the F8 mistake. The worker boot log is the authority.
+
+### F4-F5 — production has ZERO live-mode billing portal configurations
+
+`GET /v1/billing_portal/configurations` (livemode) returns an empty list. The first owner to
+click "Manage billing" in production triggers `resolvePortalConfigurationId`'s
+create-on-the-fly branch. Not a blocker — the branch exists for exactly this — but it is an
+untrodden path, now known, and it will create the configuration under whichever request
+happens to be first.
+
+### F4-F6 — two stale claims in `env-vars.md`, one of which already caused an incident
+
+The `flag-flip` skill mandates reading `.claude/reference/env-vars.md` before any flip. Its
+`BETA_COMP_COUPON_ID` section said:
+
+1. *"⚠️ PENDING OPS — the coupon does not exist yet"* — false since F.2, the same morning.
+2. *"Create the coupon … **the two IDs differ**, and a test-mode ID deployed to live fails
+   every invited tester's checkout."*
+
+**The second sentence is the wording the F.2 lab note already blames** for a live coupon
+being created under a fresh id that no environment named. The same id is used in both modes,
+deliberately, because that makes the "test id deployed to live" failure *structurally
+impossible* rather than merely documented. Leaving the sentence in place invites the same
+mistake a third time. Both corrected in this change.
+
+General lesson, and it is the one worth keeping: **a mandatory-reading document that is
+stale is worse than no document** — the skill guarantees someone reads it at the exact
+moment they are about to act.
+
 ## Phase G.4 — provider moderation. FLIPPED and VALIDATED in production, 2026-08-31.
 
 Owner approved the production flip. All three runbook checks pass against the live
