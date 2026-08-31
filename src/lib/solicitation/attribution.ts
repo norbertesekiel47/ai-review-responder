@@ -39,7 +39,11 @@ const ATTRIBUTION_WINDOW_DAYS = 14;
 // edge into server code — which reached `node:async_hooks` once #1010 wired the
 // Refusal ledger into `batch-builder.ts`. Read the leaf's header. The client
 // must import the LEAF; do not move the definition back.
-export { ATTRIBUTION_DISPLAY_WINDOW_DAYS } from './attribution-display';
+import { ATTRIBUTION_DISPLAY_WINDOW_DAYS } from './attribution-display';
+// Re-exported as well as imported: this module USES the constant (the read
+// model's window) AND is the name every existing server caller already
+// imports, so a bare `export ... from` would compile here but break them.
+export { ATTRIBUTION_DISPLAY_WINDOW_DAYS };
 
 /** Stamped into attribution_detail so a stored verdict stays attributable to
  *  the ruleset that produced it — the ASK_LINT_VERSION precedent. */
