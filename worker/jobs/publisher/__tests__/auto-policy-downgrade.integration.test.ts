@@ -23,6 +23,7 @@
 // re-typed, so every other case runs against the production vocabulary.
 
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -55,7 +56,6 @@ vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
 });
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** Postgres' CHECK-violation SQLSTATE. */
 const CHECK_VIOLATION = '23514';
@@ -304,12 +304,12 @@ describeWithDb('auto-policy downgrade Refusal against live local Postgres', { ti
   beforeEach(async () => {
     // The ledger is default-ON. A 'false' leaked from the kill-switch case
     // would turn every other Refusal assertion into a silently-passing no-op.
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
     await cleanDomainRows();
   });
 
   afterEach(() => {
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
   });
 
   afterAll(async () => {
@@ -728,7 +728,7 @@ describeWithDb('auto-policy downgrade Refusal against live local Postgres', { ti
   });
 
   it('REFUSAL_LEDGER_ENABLED=false changes only the refusal row and preserves the response downgrade, approval audit, notification enqueue, and outbox completion', async () => {
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     const { responseId } = await seedAutoApprovedResponse();
     const outboxId = await seedDispatchedPublishRow(responseId);
 

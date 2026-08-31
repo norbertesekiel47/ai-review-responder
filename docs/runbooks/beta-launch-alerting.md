@@ -52,8 +52,10 @@ email shares the Resend provider with the product.
   `cost_event:limit_exceeded` (emitted from `generate-draft.ts`) page the same
   Discord channel.
 - [ ] **Refusal ledger disabled routed to Discord** — issues tagged
-  `subsystem:refusal_ledger` at level `warning`. Emitted by `writeRefusalEvent`
-  (`src/lib/refusals/write.ts`) once per **disabled episode** whenever
+  `subsystem:refusal_ledger` at level `warning`. Emitted by **both** insert
+  helpers — `writeRefusalEvent` and the set-based `writeRefusalEvents`
+  (`src/lib/refusals/write.ts`) — through the shared `warnLedgerDisabled()`, once
+  per **disabled episode** whenever
   `REFUSAL_LEDGER_ENABLED=false` and a write is attempted. **This is the only
   signal that the ledger has a gap** — the ledger structurally cannot show its
   own absence, since an absent row and a decision that never happened look
