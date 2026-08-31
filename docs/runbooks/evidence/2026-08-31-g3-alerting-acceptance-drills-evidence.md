@@ -187,6 +187,8 @@ confirmation closes the chain end to end:
 | **§4.1** Stuck outbox | — | — | — | **BLOCKED** (D-1) |
 | **§4.2** Failed publish | ✅ `outbox_failed:publish_response` | ✅ `REPWORTH-STAGING-9` | ✅ **after the D-2 fix** | **PASS** |
 | **§4.3** Zero-delivery | ✅ `zero_delivery_notifications` | ✅ `REPWORTH-STAGING-G` | ✅ **after the D-2 fix** | **PASS** |
+| **§4.5** Send breaker re-page | ✅ `solicitation_send_breaker_tripped`, **13 emissions at exact 300 s cadence** | ✅ `REPWORTH-STAGING-11` — a group first seen **ten days earlier**, so no first-seen event was available | ✅ **TWICE — 22:32:07Z and 23:37:07Z, 65 min apart.** Both owner-confirmed; both footers name the issue and the rule | **PASS** |
+| **§4.6** Unattributed suppression | — | — | — | **BLOCKED** (D-3 — rule 6 does not exist) |
 
 > Both were a **QUALIFIED FAIL** on the first run at 21:11Z/21:16Z — the finding fired and
 > reached Sentry, but no page was produced. They pass on the 21:36Z re-run, **after** D-2 was
@@ -416,6 +418,31 @@ That single table settles both halves of what §4.5 is really asking:
 The fixture stayed intact throughout: `solicitation_send_breaker` still one row,
 `reset_at IS NULL`.
 
+### Cycle 13 — PAGE 2. §4.5 PASSES.
+
+| Guard signal (recorded BEFORE the observation) | Result |
+|---|---|
+| 1. `lastTriggered` moves to within ~20 s of a breaker cycle | 22:32:07.769Z → **23:37:07.061Z** — **17 s** after the 23:36:50Z cycle ✅ |
+| 2. No other staging issue took an event in the window | Sentry event search, `timestamp:>2026-08-31T22:32:07Z`: **13 events, every one `REPWORTH-STAGING-11`** (`issue.id 7685097414`). Nothing else fired at all — the rule-level confound is excluded by data, not by argument ✅ |
+| 3. **Owner confirms the Discord message and its TITLE** | ✅ **CONFIRMED 2026-08-31T23:37Z / 4:37 PM PDT.** Title is the exact `openTripFinding` string. Footer: **`REPWORTH-STAGING-11 via Send a notification for high priority issues • Today at 4:36PM`** ✅ |
+
+**Two pages — 22:32:07Z and 23:37:07Z, 65 minutes apart — across 13 emissions of the same
+finding, on an issue group whose first-seen was ten days earlier.**
+
+That is the whole assertion. A rule triggering only on first-seen produces **one** page and
+then silence for as long as the halt stands; this produced a second, at the Action Throttle
+cadence, on a group that could not supply a first-seen event. The drill fails on a count, and
+the count is 2 where the broken configuration could only ever reach 1.
+
+**Both Discord footers name the rule and the issue.** That is better evidence than
+`lastTriggered`, which is a rule-level field and cannot say *which* issue fired it — the
+confound §4.5's guard was written to survive. Here the footer settles it directly, and
+signal 2 settles it independently.
+
+**Verdict: §4.5 PASS.** The D-2 fix is now proven from two independent angles — the T4–T6
+regression re-run (identical fixtures, same groups, trigger set the only changed variable)
+and this drill (a level-triggered finding paging twice across a throttle window).
+
 ### A confound in the page-2 measurement, and the guard against it
 
 `lastTriggered` is a **rule-level** field, not a per-issue one. The Action Throttle, by
@@ -517,6 +544,50 @@ return **plaintext values for every variable** and must not be used here.
 `e511a725e5bd0bf7a8b7f4eebf03deab7cbea6b3`, matching the local `staging` worktree — so the
 process under test is the branch tip, not a stale deploy.
 
+### D-5 (2026-08-31T23:38Z) — staging's UI was behind a Vercel SSO wall, and a 302 read as "normal"
+
+**Not a G.3 finding — found while verifying staging for a demo — but it belongs here, because
+it is the same failure shape as D-2 and D-3 and it invalidated one of this session's own
+checks.**
+
+`https://staging.repworth.net` returned **302 to `vercel.com/sso-api`** on *every* path,
+including `/`, `/login`, `/admin`, `/dashboard` and `/api/health`. Production returned 200.
+Project setting, read back from the Vercel API:
+
+```
+ssoProtection: { enabled: true, deploymentType: "all_except_custom_domains" }
+```
+
+That exemption covers **production** custom domains only. `staging.repworth.net` sits on a
+preview-type Custom Environment, so the wall applied to it.
+
+**How it was nearly missed.** An earlier check in this session ran
+`curl -o /dev/null -w "%{http_code}"` against the staging root, got `302`, and recorded it as
+"normal — a redirect to `/login`". The status code alone was consistent with both the benign
+reading and the real one; **only the `location` header distinguishes them**, and it was not
+requested. A second, independent verification pass caught it by following the redirect.
+
+CORRECT → when a check's PASS and FAIL states share a status code, the status code is not the
+check. Assert on the discriminating field — here, `location`.
+
+**Resolved 2026-08-31T23:40Z, owner-directed:** `ssoProtection.enabled` set to `false`;
+readback confirms it, and `/` and `/login` both return **200**. ⚠️ **Staging and every preview
+deployment are publicly reachable by URL until this is re-enabled.**
+
+**A second lesson, from trying to work around it.** With the wall down, an unauthenticated
+probe of `/api/account/offboarding/status` was used to infer whether
+`ACCOUNT_OFFBOARDING_ENABLED` is set on the **Vercel** surface — the route checks the flag
+*before* auth and returns `200 {enabled:false}` when it is off, so a `401` should have proven
+the flag on. It returned 401 on staging **and** on production, where the flag is known off.
+Cause: `src/proxy.ts` matches `/((?!_next/static|_next/image|favicon.ico).*)` and returns 401
+**before the route runs**, so the inference was invalid in both directions. The flag's
+Vercel-side value remains **unverified by API**; the ten-second definitive check is to load
+`/settings/billing` and see whether the Cancel section renders.
+
+CORRECT → before inferring a flag from a status code, confirm the response actually came from
+the handler you reasoned about. A middleware/proxy matcher that catches everything makes every
+such inference worthless.
+
 ## Teardown ledger
 
 **Three fixtures, all created 2026-08-31T21:08Z for §4.2 and §4.3.** Rows written to this
@@ -580,14 +651,14 @@ these findings join the **same pre-existing Sentry groups** that stayed silent a
 | §4.2 Failed publish | ✅ **PASS** | Fires, reaches Sentry, **pages** |
 | §4.3 Zero-delivery | ✅ **PASS** | Fires, reaches Sentry, **pages** |
 | §4.4 Cost-cap hit | open | Not attempted |
-| §4.5 Send breaker re-page | open | **Now runnable.** It asserts *more than the opening two* notifications — impossible before D-2 was fixed, possible now |
+| §4.5 Send breaker re-page | ✅ **PASS** | Two pages 65 min apart across 13 emissions; owner-confirmed in Discord. Original note kept: **Now runnable.** It asserts *more than the opening two* notifications — impossible before D-2 was fixed, possible now |
 | §4.6 Unattributed suppression | open | **Now runnable**, same reason. Leaves one permanent ledger row — read the teardown note first |
 | §4.7 Killed worker | open | Pairs with §4.1 under D-1's reordering |
 | §4.8 Probe stopped | open | Cron-monitor path — was never affected by D-2 |
 | §4.9 Backlog over threshold | open | Not attempted |
 | §4.10 Capacity burst headroom | open | Not attempted |
 
-**2 of 10 pass. 7 remain unattempted, 1 blocked.** G.3 is **not** complete.
+**3 of 10 pass. 5 remain unattempted, 2 blocked (§4.1 by D-1, §4.6 by D-3).** G.3 is **not** complete.
 
 ---
 
