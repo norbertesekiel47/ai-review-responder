@@ -22,9 +22,10 @@
 // lazy would not have helped — `log-context.ts` instantiates `AsyncLocalStorage`
 // at module scope, so the bare `import` is the drag.
 //
-// KEEP THIS FILE IMPORT-FREE. `attribution.ts` re-exports the constant, so every
-// server caller is unchanged and there is only ever ONE definition — which is
-// the drift this constant was created to stop in the first place.
+// KEEP THIS FILE IMPORT-FREE. This is the ONLY definition — `attribution.ts`
+// imports it like any other consumer and does NOT re-export it (a re-export had
+// no consumer and `fallow` failed the PR on it). One definition is the drift
+// this constant was created to stop in the first place.
 
 /** How far back the owner-facing Attributed-review list reaches. Presentation
  *  only, and a DIFFERENT number from the matcher's `ATTRIBUTION_WINDOW_DAYS`:
