@@ -1,6 +1,10 @@
 # Handoff — beta launch, the last four items
 
 > **Written:** 2026-08-31 · **Owner:** @norbertesekiel
+> **⚠️ SUPERSEDED 2026-08-31 by `2026-08-31-remaining-three-handoff.md`.** F.3 and F.4 are
+> both done; three items remain (G.3 → PITR → rotation). Read the successor first — this file
+> is kept for its F.3 preparation record.
+>
 > **Supersedes** `2026-08-31-phase-e-handoff.md`, which covered Phases E–H.
 >
 > **This is a pointer, not a source of truth.** Every fact it cites lives in exactly one
