@@ -1,0 +1,138 @@
+# Deviations — #1011, the `outreach_withheld` render lane
+
+Plan: `docs/superpowers/plans/feat-1011-refusal-outreach-render-plan.md`.
+Intake: `docs/superpowers/plans/feat-1011-refusal-outreach-render-intake.json`.
+
+---
+
+## D1 — the `solicitation_outreach.rendered_at` reader audit (REQUIRED by plan §0)
+
+The plan's §0 owner decision moves `rendered_at` from **persist time** (minted
+inside `persistChildRender`'s transaction, after the per-Business advisory lock
+had been waited on) to **decision time** (read where `generateChildRender`
+returns, before the transaction opens). The plan requires every reader of that
+column to be audited BEFORE the value moves, and a reader that depends on it
+meaning persist time to STOP the work.
+
+Method: `rg -n "rendered_at|renderedAt" src worker supabase e2e scripts docs -g '!**/__tests__/**'`
+at the branch's base, then read each hit in place. Doc hits and this branch's
+own plan/intake are excluded below; every production and schema hit is listed.
+
+| # | Reader | What it needs from the column | Survives the move? |
+|---|---|---|---|
+| 1 | `worker/background/pollers/ArchivalPoller.ts:307-333` — the never-sent-terminal arm of body redaction | An AGE clock for rows with no `sent_at`, compared against `NOW() - BODY_RETENTION_DAYS` (90 days), plus `NOT NULL` and never-updated | **Yes.** The move shifts the value EARLIER by the advisory-lock wait — milliseconds to seconds against a 90-day window. `NOT NULL` and immutability are unchanged. The rule the poller's own comment states ("the moment the copy came into existence") is *better* served by decision time, not worse. |
+| 2 | `scripts/ci/tenant-scope-allowlist.ts:972` | A byte-identical copy of #1's SQL for the audit allowlist | **Yes.** No SQL changes in this branch, so the snippet stays matched. |
+| 3 | `src/lib/solicitation/batch-view.ts:492` — `o.rendered_at::text AS "renderedAt"` in the owner batch payload | A displayable per-attempt timestamp | **Yes.** It is projected and passed through (`:333`), never compared against a write clock or used to derive anything. Decision time is the more accurate thing to show an owner. |
+| 4 | `src/lib/solicitation/batch-view.ts:511` — `ORDER BY o.rendered_at, o.id` | A stable ordering of a batch's attempts | **Yes.** Children generate SEQUENTIALLY, so decision order equals persist order. The one case where several rows now share ONE instant — `settleBudgetStop`, which reads the clock once when the budget exception decides the remaining rows — falls through to the `o.id` tiebreak, and `insertOutreachRender` mints UUIDv7 (time-ordered), so the order is still insertion order. |
+| 5 | `src/lib/solicitation/release.ts:1642-1657` (`selectRenderedOutreach`) — `ORDER BY o.rendered_at ASC`, no tiebreak | Oldest-first release ordering within one approved batch | **Yes**, and the shared-instant case cannot reach it: the query filters `delivery_status = 'rendered'`, while the only rows that now share ONE instant are `withheld` (`settleBudgetStop`'s settled rows and `settleGenerationExhaustion`'s fills). Genuinely rendered children are generated sequentially and each reads its own clock, so no two `rendered` rows tie. |
+| 6 | `supabase/migrations/092_terminal_outreach_body_redaction.sql:50-110` — `idx_solicitation_outreach_rendered_at_redaction` | An indexable `TIMESTAMPTZ` column feeding #1 | **Yes.** Index definition untouched; only the values written change. |
+| 7 | `supabase/migrations/091_send_mode_spine_lifecycle.sql:210` — `rendered_at TIMESTAMPTZ NOT NULL` | `NOT NULL` | **Yes.** The value is still always supplied by the writer; no CHECK in 091 relates `rendered_at` to `created_at`, `sent_at` or any other column. |
+
+**Result: no reader depends on `rendered_at` meaning persist time.** The audit
+found no blocker and the work continued. Every reader wants one of three things
+— an age, a display value, or an ordering — and all three are preserved or
+improved. Recorded per plan §0; the intake invariant that a persist-time reader
+"stops the work" was never triggered.
+
+**Verdict:** ACCEPT. This is the deliverable §0 asked for and it is evidenced
+reader by reader rather than summarised. The method is stated and repeatable,
+and the two ORDERING readers — the ones that could actually break — are argued
+from the data rather than waved through. Rows 4 and 5 carry the real finding:
+reading the clock ONCE for a multi-row settle gives several rows one instant,
+which an untiebroken `ORDER BY rendered_at` would scramble. `batch-view` survives
+on its `o.id` tiebreak with UUIDv7's time ordering; `release.ts` has no tiebreak
+and survives only because its `delivery_status = 'rendered'` filter excludes
+every shared-instant row, all of which are `withheld`. That is a genuine
+near-miss identified and closed, not an absence of risk.
+
+**Standing consequence, recorded because it is not obvious from the code:** a
+future writer that gives several `rendered` rows one shared instant breaks
+`selectRenderedOutreach`'s ordering silently. The protection is the `withheld`
+filter, not the clock.
+
+---
+
+## D2 — negative titles cannot be RED before the writers exist
+
+Six of the intake's twenty-three titles assert that **nothing** is written (the
+two "successful render writes no row" titles, the four guard titles) and two
+more assert the kill switch writes nothing. Those eight are vacuously green in
+T1's RED phase, because there is no writer yet to write the row they forbid.
+They become load-bearing the moment T2–T5 land the writers, and each was
+re-confirmed green after every tracer rather than only at the end.
+
+The fifteen titles that assert a write were RED at T1 as required: 5 of 9 in the
+unit seam and 10 of 14 in the live-DB seam.
+
+**Verdict:** ACCEPT, on the same reasoning as #1012's D1 — an absence assertion
+cannot fail before the thing it forbids can exist, and demanding a RED phase for
+one is demanding a broken test. Two details make this the stronger write-up: the
+counts are measured and split by seam, and the eight were **re-confirmed green
+after every tracer** rather than only at the end, which is what turns a vacuous
+title into a live regression pin. 15 of 23 genuinely red→green is the honest
+number.
+
+---
+
+## D3 — W2 lands with W1, because they are ONE call site
+
+The plan's §0.2 records that there are **three physical ledger call sites, not
+four**: `settleBudgetStop` settles its rows through `persistChildRender`. So the
+code for W2 necessarily lands in T2 with W1 — a `decidedAt` parameter cannot be
+added to `persistChildRender` for one caller and not the other. The T3 tracer
+still owns W2's EVIDENCE (the multi-row "one Refusal per outreach" title), which
+is what the plan's tracer split is actually protecting.
+
+**Verdict:** ACCEPT. The plan's own §0.2 records the three-call-site count, so
+this is the plan being followed rather than departed from — a `decidedAt`
+parameter cannot reach `persistChildRender` for one caller and not the other.
+The distinction that matters is preserved: the CODE moves to T2, the EVIDENCE
+stays in T3, and the multi-row fixture is the whole reason review added that
+title.
+
+---
+
+## D4 — the vocabulary module is mocked in the live-DB suite
+
+`src/lib/solicitation/__tests__/ask-generation.integration.test.ts` now mocks
+`@/lib/refusals/vocabulary`, deriving the stand-in map from the real one inside
+the factory. This is the
+`src/lib/auto-approval/__tests__/suspension.integration.test.ts` precedent named
+by plan §5, and it exists so the two forced-failure titles can raise a REAL
+`23514` out of the REAL helper inside the REAL persist transaction. Every other
+title in that file runs against the production map.
+
+**Verdict:** ACCEPT. The mock is on the VOCABULARY, not on the helper or the
+transaction, so what the forced-failure titles exercise is still the real INSERT
+hitting a real CHECK — which is the property plan §5 demanded and a mocked
+rejection cannot give. Deriving the stand-in from the real map inside the factory
+keeps it from drifting into a fixture that tests nothing. The blast radius is
+stated and narrow: two titles, one file.
+
+---
+
+## D5 — the rollback twin needs a `Sql` wrapper, not a mocked rejection
+
+Plan §5's success-then-rollback twin requires a transaction that writes a valid
+Refusal and THEN aborts for a reason unrelated to the ledger. Unlike
+`suspendAccountAutonomy` — which the suspension suite can call from inside its
+own `sql.begin` — all three render call sites open their own transactions from a
+`Sql` they receive as a parameter (invariant #15), so there is no outer
+transaction for a test to abort.
+
+`abortAfterLedgerWrite` (live-DB suite) is a `Proxy` over the real `Sql` whose
+`begin` runs the caller's callback, reads the ledger count **on that same `tx`**,
+and throws when a Refusal is visible. It is not a mocked rejection: the helper,
+the INSERT and the transaction are all real, and reading inside the transaction
+is what makes the assertion discriminate a helper that opened its own connection
+(whose row would already be committed) from one that used the caller's.
+
+**Verdict:** ACCEPT, and the in-transaction read is the part that earns it. The
+suspension precedent could abort from an outer `sql.begin`; these three call
+sites own their transactions (invariant #15 requires the `Sql` be a parameter),
+so there is no outer scope to abort from and the precedent does not transfer
+directly. Reading the ledger count on the SAME `tx` before throwing is what makes
+this a real discriminator rather than a rearranged mock: a helper that opened its
+own connection would have committed a row the caller's transaction cannot see,
+and the twin would fail. That is the invariant #15 hole review found on two of
+the three branches, closed here by construction.

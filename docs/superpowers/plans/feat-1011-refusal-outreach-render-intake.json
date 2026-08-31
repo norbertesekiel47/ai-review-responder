@@ -17,19 +17,21 @@
     "The held_draft and policy_gate_held lanes. #1013 owns them.",
     "The Restraint tab and any read over refusal_events. #1014 owns the read path.",
     "The lane category maps. The feat/refusal-lane-vocabulary prerequisite lands them on main before this branch arms.",
-    "The set-based arm of writeRefusalEvent. #1010 adds it; every writer in this lane writes exactly one row.",
+    "The set-based arm of writeRefusalEvent. #1010 adds it; this lane writes one row per withheld outreach with the single-row helper. Note settleBudgetStop and settleGenerationExhaustion each settle SEVERAL outreach rows per invocation, so 'one row' is per outreach, never per call.",
     "Any migration, and any change to which renders are withheld or why."
   ],
   "user_visible_behavior": [
     "No owner-visible change. Nothing reads refusal_events until #1014.",
     "A withheld child render writes one refusal_events row against the outreach id, in the same transaction as the outreach insert.",
-    "A regenerated ask writes its Refusal against the replacement outreach id, so the row it replaced keeps its own Refusal.",
+    "A regenerated ask writes its Refusal against the replacement outreach id, and only when that replacement is withheld. The row it replaces has NO Refusal to keep: regeneration requires the current row to be rendered, and a rendered row was never withheld. Round 1 killed the earlier claim as a state the code forbids.",
     "A budget stop and a generation exhaustion each write one refusal_events row per outreach they settle as withheld.",
     "Setting REFUSAL_LEDGER_ENABLED=false stops all four without a deploy and leaves generation behaviour byte-identical to today."
   ],
   "invariants": [
-    "occurredAt is the renderedAt the same call passes to insertOutreachRender, so refusal_events.occurred_at equals solicitation_outreach.rendered_at exactly. One Date object, both columns.",
-    "The transaction-time sentinel is never used in this lane. It would stamp persist time, and the equality with rendered_at is the property this lane trades on.",
+    "The clock is read immediately after the render DECISION and before the transaction opens or waits, and the same Date instance reaches both solicitation_outreach.rendered_at and refusal_events.occurred_at. The two columns are equal exactly, and both are decision time. Round 1 rejected the earlier design, which read the clock inside the transaction and made both columns persist time.",
+    "The transaction-time sentinel is never used in this lane. NOW() freezes at transaction start, and this lane's transaction waits on the per-Business advisory lock before it decides anything.",
+    "The timestamp is a parameter or a local. It is never added as a field on ChildRenderOutcome.",
+    "Moving the clock changes what solicitation_outreach.rendered_at records. Every reader of that column is audited BEFORE the value moves, and the audit is recorded in the deviations file. A reader that depends on persist time stops the work; it is never adapted to fit.",
     "Every writer passes the outreach id the render just minted as subject_id. regenerateAsk's replacement row has a new id and is a distinct subject.",
     "One Refusal per withheld outreach, never one per attempt and never one per batch.",
     "A rendered outcome writes nothing. Only status withheld is a Refusal.",
@@ -41,7 +43,7 @@
   "edge_cases": [
     "The LLM round trip is slow and the advisory lock then blocks: occurred_at is still renderedAt, which is minted once and written to both tables.",
     "A render succeeds: no Refusal, because nothing was withheld.",
-    "regenerateAsk replaces a withheld outreach with another withheld outreach: two Refusals, one per outreach id, because two decisions were made.",
+    "regenerateAsk replaces a RENDERED outreach, never a withheld one, and inserts a replacement whether the new render succeeded or was withheld. A withheld replacement gets one Refusal against its own id; a successful replacement gets none; the replaced rendered row gets none either way.",
     "A stale outbox attempt loses the ownership CAS: persistChildRender returns before any insert, so no Refusal is written.",
     "The batch halted or expired while the LLM call was in flight: the lifecycle re-check refuses the insert, so no Refusal is written either.",
     "settleBudgetStop settles several outreach rows in one call: one Refusal per outreach, each with its own subject id.",
@@ -52,12 +54,14 @@
   "existing_patterns_to_follow": [
     "src/lib/auto-approval/suspension.ts — the #1009 call-site precedent: writeRefusalEvent on the deciding transaction, after the guard that proves a decision was made, with no try/catch.",
     "src/lib/refusals/write.ts — the single-row helper and its per-lane input union.",
-    "src/lib/solicitation/ask-generation.ts toInsertInput — the one place renderedAt is minted, and the value both tables must share.",
+    "src/lib/solicitation/ask-generation.ts toInsertInput — where renderedAt is minted TODAY, inside the transaction. Under the decided design it stops minting the value and starts RECEIVING it from the caller, which reads the clock when the render decision is made. Reusing the Date it builds today would rebuild the post-lock timestamp round 1 rejected.",
     "src/lib/solicitation/outreach.ts insertOutreachRender — the insert this write accompanies, and the owner of RenderWithholdReason.",
     "src/lib/refusals/vocabulary.ts — the render lane map landed by the feat/refusal-lane-vocabulary prerequisite."
   ],
   "test_seams": [
-    "src/lib/solicitation/ask-generation.ts — the batch generation entry point, through which all four writers are reached.",
+    "src/lib/solicitation/ask-generation.ts — the batch generation entry point, which reaches persistChildRender and settleBudgetStop ONLY. Round 1 corrected an earlier claim that it reaches all four writers.",
+    "src/lib/solicitation/ask-generation.ts — regenerateAsk, a separate exported entry point needing its own fixture.",
+    "src/lib/solicitation/ask-generation.ts — settleGenerationExhaustion, a separate exported entry point needing its own fixture.",
     "src/lib/solicitation/outreach.ts — insertOutreachRender, whose rendered_at the ledger row must equal."
   ],
   "allowed_edit_surface": [
@@ -65,6 +69,7 @@
     "src/lib/solicitation/__tests__/ask-generation.test.ts",
     "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
     "src/lib/solicitation/__tests__/outreach-render.integration.test.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
@@ -75,19 +80,28 @@
     "every render-lane refusal_events row carries occurred_at equal to the solicitation_outreach rendered_at of the same insert",
     "the render lane never stamps occurred_at from the transaction, so a slow lock does not move the decision time",
     "a budget stop writes one refusal_events row per outreach it settles as withheld",
-    "a generation exhaustion writes one refusal_events row for the outreach it withholds, not one per attempt",
+    "a generation exhaustion writes one refusal_events row per outreach hole it settles as withheld",
     "a regenerated ask writes its refusal_events row against the replacement outreach id",
-    "a regenerated ask leaves the replaced outreach row's own refusal_events row untouched",
+    "a successful regenerated ask writes no refusal_events row for its rendered replacement",
+    "a withheld regeneration writes no refusal_events row against the rendered outreach it replaces",
     "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
     "every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context",
+    "every render-lane refusal_events row carries refusal_source outreach_withheld and refusal_code equal to its solicitation_outreach disposition_reason",
+    "all four render writers carry the paired outreach's tenant category subject and occurred_at shape",
+    "a forced clock advance between outreach insertion and refusal writing cannot change occurred_at from the outreach rendered_at",
     "a stale outbox attempt writes neither an outreach row nor a refusal_events row",
     "a batch halted during the LLM round trip writes neither an outreach row nor a refusal_events row",
+    "a regeneration rejected by swap revalidation writes neither a replacement outreach row nor a refusal_events row",
+    "a stale generation-exhaustion attempt writes neither outreach hole rows nor refusal_events rows",
     "a ledger failure rolls back the outreach render insert it accompanies",
-    "every writer still persists its render when REFUSAL_LEDGER_ENABLED is false"
+    "a ledger failure at each of persistChildRender, regenerateAsk, and settleGenerationExhaustion rolls back the outreach insert it accompanies",
+    "a refusal written by each render writer does not survive a later rollback of its outreach transaction",
+    "every writer still persists its render when REFUSAL_LEDGER_ENABLED is false",
+    "REFUSAL_LEDGER_ENABLED=false writes zero refusal_events rows across all four render writers"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 140,
-  "estimated_test_lines": 520,
+  "estimated_prod_lines": 180,
+  "estimated_test_lines": 900,
   "dependencies_added": [],
   "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy and leaves generation byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes all four call sites together. (3) No down migration: migration 116 stays and rows already written are not deleted. ArchivalPoller's refusal_events arm landed in #1009 and is untouched, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
   "observability": [
