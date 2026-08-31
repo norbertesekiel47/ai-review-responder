@@ -40,7 +40,7 @@ inheriting `!activeRun` would silently drop rows from the highest-volume lane �
 
 **Therefore the ledger write is a SEPARATE statement with its own guard**, not an
 extra `await` inside the existing `if`. T5 places it outside that block, and
-title 18 is the regression test that pins it.
+title 23 is the regression test that pins it.
 
 ### Rule 2 — `null` is a veto, not a rank
 
@@ -123,7 +123,7 @@ and the predicate is false. No row is written. Owner decision, 2026-08-31.
 > flag before the transaction and `evaluateAutoApprovalCandidate` reads it again
 > inside (`auto-approval.ts:310`, `:360`). A flip between the two yields
 > `blockReasons` carrying `auto_approval_disabled` with a real `runtimeState`.
-> Title 20 pins that path.
+> Title 26 pins that path.
 >
 > **Consequence to carry into step 8:** `AUTO_APPROVAL_ENABLED` is off in
 > production, so `policy_gate_held` writes zero rows there until the go-live
@@ -232,7 +232,7 @@ until T2. That is the intended red: a collection failure, for the right reason.
 the gate's `promised-tests` row while asserting nothing — the exact defect
 `src/lib/refusals/__tests__/eval-completeness.test.ts` was written to catch.
 
-**Evidence:** all 26 titles present; `pnpm vitest run` red on every one of them
+**Evidence:** all 36 titles present; `pnpm vitest run` red on every one of them
 and green on every pre-existing test in the two edited files.
 
 ---
@@ -392,7 +392,7 @@ belongs to T3, which adds that constant.
 
 **(a) One owner for the candidacy narrowing.** Extract
 `isGenuineAutoCandidate(originLane, runtimeState): runtimeState is
-AutoApprovalRuntimeState` from `logAutoApprovalFallbackIfNeeded:561-563`. Both
+AutoApprovalRuntimeState` from `logAutoApprovalFallbackIfNeeded:563-565`. Both
 that function and the new ledger helper call it. This is the second use, so the
 extraction is owed rather than speculative, and it is what makes the intake's
 reconciliation query true by construction.
@@ -538,3 +538,44 @@ entries, not surface amendments, so the amendment count stays at 1.
 
 **A verification round is owed** — the fixes moved `tests_to_add` and this plan's
 heading structure, so `contract-changed` reports CHANGED by construction.
+
+> **Title numbers in the F-table above are PRE-TRIAGE**, i.e. against the
+> 26-title list round 1 read. The list is now 36 and renumbered. Post-triage
+> numbers are used everywhere outside this table.
+
+### Round 2 — codex verification only, resumed session, 2026-08-31
+
+Resumed `01a059b8-…` rather than dispatched cold, so it carried round 1's full
+context. Scoped to three questions: does each accepted finding now have a title
+that FORCES the behaviour, did renumbering break the tracer mapping, and is the
+F1 rejection defensible.
+
+**VERDICT: REVISE**, but the shape matters: **eight of ten round-1 findings
+VERIFIED**, plus the tracer renumbering verified. Four residues, all mechanical,
+none opening a new front.
+
+| # | Sev | Residue | Fix applied |
+|---|---|---|---|
+| R2-1 | HIGH | Title 21's "before or after" permits a body covering only ONE position, so an order-sensitive write bug still passes | Retitled to force BOTH orderings in one test |
+| R2-2 | MED | Title 29's "held_draft or policy_gate_held" permits testing one lane only | Retitled so each lane is asserted separately |
+| R2-3 | MED | T5 still cited `logAutoApprovalFallbackIfNeeded:561-563`; §3.2 and D4 carried stale post-renumber title numbers | `:563-565`; flag-flip references now title 26 |
+| R2-4 | LOW | T1's evidence sentence still said "all 26 titles present" | 36 |
+
+**R2-1 is the substantive one.** "before or after" is satisfiable by a single
+fixture, and the whole point of the veto rule is that position must not matter —
+so the weaker title would have let a precedence-position implementation pass. It
+is the same class of defect as round 1's F2: a title that reads correct and
+proves less than it claims.
+
+**Found independently by the root, not by round 2:** line 43 still said "title 18
+is the regression test" for the no-spine-run case, which is title 23 after
+renumbering. Round 2 caught two of the three stale title references; this was the
+third. Corrected.
+
+**F1's rejection was VERIFIED as defensible**, in round 2's words: D4 "supplies
+explicit owner authority, preserves the deliberate migration-074 no-read posture,
+records both rejected alternatives, and acknowledges that flag-off reconciliation
+proves nothing … No remaining F1 gap within this slice."
+
+**Round 3 is the last available** (cap: three plan rounds). It is spent
+confirming these four fixes and nothing else.

@@ -146,7 +146,7 @@ Cleaner in isolation, but it reverses #998 on a member and would need a
 (`auto-approval.ts:310`) and `evaluateAutoApprovalCandidate` reads it again
 inside (`auto-approval.ts:360`). A flip between the two yields `blockReasons`
 carrying `auto_approval_disabled` with a REAL `runtimeState`. That is the
-member's only live path, and test title 25 pins it.
+member's only live path, and test title 26 pins it.
 
 **Codex F1's second half is REJECTED, and the reason is recorded.** F1 asked for
 a durable monitored counter for flag-off exclusions, on the grounds that the
