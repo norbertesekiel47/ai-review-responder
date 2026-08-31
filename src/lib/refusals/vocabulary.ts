@@ -27,12 +27,20 @@
  * ban covers `src/app/**` and `src/components/**`, not this file. `import type`
  * erases at compile time, so nothing here can reach a runtime graph at all.
  *
- * WHAT THIS FILE DELIBERATELY DOES NOT HOLD. There is no `refusalCategoryFor`
- * resolver and no owner label table — the **Restraint tab** (#1014) owns
- * presentation — and no map for the two lanes #1013 writes: `policy_gate_held`
- * carries #1003's 22-member precedence order and veto set, and `held_draft`
- * carries the fixed category #1001 declined to pin in the schema. Both arrive
- * with that slice.
+ * WHAT THIS FILE DELIBERATELY DOES NOT HOLD, and the boundary is PRESENTATION
+ * rather than "no functions". There is no owner label table and no sentence
+ * copy — the **Restraint tab** (#1014) owns all of that, and a label map here
+ * would make a wording change a vocabulary change.
+ *
+ * WRITE-TIME precedence is the other side of that line and DOES live here
+ * (#1013): `resolvePolicyGateRefusal` reduces a gate decision's block reasons to
+ * the one **Refusal category** a row records. It is vocabulary, not
+ * presentation — it decides what is STORED, never what is shown — and it stays
+ * pure, so the file remains the client-safe leaf the tab can import.
+ *
+ * (An earlier wording of this paragraph said the file holds no
+ * `refusalCategoryFor` resolver at all. That was written before #1013 and read
+ * more broadly than it meant; the rule was always about owner-facing labels.)
  *
  * WHY THE OTHER FIVE MAPS ARRIVE TOGETHER, AHEAD OF THEIR WRITE SITES. #1009
  * said each map would land with the slice that writes its lane, and that was
@@ -55,6 +63,7 @@
  */
 
 import type {
+  AutoApprovalBlockReason,
   AutoPolicyDowngradeReason,
   AutonomySuspensionTrigger,
 } from '@/lib/shared/worker-types';
@@ -399,3 +408,197 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
   autopilot_entitlement_lost: 'autonomy_paused',
   policy_suspended: 'autonomy_paused',
 } as const satisfies Record<AutoPolicyDowngradeReason, RefusalCategory>;
+
+/**
+ * `policy_gate_held` — why the auto-approval gate held a draft for the owner.
+ * Written by `recordPolicyGateRefusal` (#1013), the highest-volume lane.
+ *
+ * All 22 `AutoApprovalBlockReason` members, values harvested verbatim from
+ * #998's locked map. SEVEN ARE `null`, and each is a recorded decision that this
+ * code is not a **Refusal** rather than an omission:
+ *
+ *   * `policy_not_enabled` — no autonomy was granted, so nothing was declined.
+ *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
+ *     structural. The draft was never a candidate.
+ *   * `moderation_held` — the `held_draft` lane already records it. Mapping this
+ *     one alone is NOT sufficient, which is why `recordPolicyGateRefusal` guards
+ *     on `!held`: `moderation_flagged` fires at EVERY severity including `high`,
+ *     so a held draft would still write an `unsafe_content` row here.
+ *   * `archived_location` — the owner archived it. An owner act is not our
+ *     restraint.
+ *   * `autopilot_tier_required` — the account never held Autopilot, so there was
+ *     no autonomy to pause.
+ *
+ * `| null` in the constraint is therefore load-bearing here in a way it is not
+ * in `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES`: seven members genuinely need it.
+ */
+export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
+  policy_not_enabled: null,
+  rating_below_threshold: 'owner_review_required',
+  bad_origin_lane: null,
+  unsupported_version: null,
+  suppressed_notification: null,
+  review_content_hash_missing: 'missing_information',
+  review_content_changed_before_persist: 'below_our_bar',
+  current_rating_missing: 'missing_information',
+  provider_moderation_disabled: 'watchdog_unavailable',
+  provider_moderation_error: 'watchdog_unavailable',
+  moderation_flagged: 'unsafe_content',
+  moderation_held: null,
+  publisher_subscription_denied: 'autonomy_paused',
+  archived_location: null,
+  active_zernio_connection_missing: 'missing_information',
+  auto_approval_disabled: 'autonomy_paused',
+  triage_high_severity: 'owner_review_required',
+  triage_fallback: 'watchdog_unavailable',
+  rating_below_positive_quadrant: 'owner_review_required',
+  daily_cap_exhausted: 'owner_review_required',
+  policy_suspended: 'autonomy_paused',
+  autopilot_tier_required: null,
+} as const satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>;
+
+/**
+ * The order that decides WHICH of several co-occurring codes a row records.
+ * Locked by #1003. Fifteen members — the 22 minus the seven `null`s above.
+ *
+ * AN EXPLICIT MEMBER CONSTANT, NEVER `REFUSAL_CATEGORIES` ORDER, and that is the
+ * whole reason it exists rather than being derived. #995 ruled that reordering
+ * `REFUSAL_CATEGORIES` is PRESENTATION ONLY and does not bump
+ * `vocabulary_version`. A resolver that read its rank from that array would make
+ * a reorder silently change what future rows record, and #995's ruling would be
+ * false. The two orders are independent on purpose, and they legitimately
+ * DISAGREE: `below_our_bar` is 3rd there and 5th here, `missing_information`
+ * last there and 4th here.
+ *
+ * #998 proposed a test pinning the two in agreement and #1003 REJECTED it for
+ * exactly that reason — it fails on day one, and making it pass re-couples the
+ * arrays. Do not add one.
+ *
+ * ORDERING PRINCIPLE: most durable veto first — rank by which reason still holds
+ * when every other reason is fixed. A flagged draft stays unpostable with
+ * autonomy on, a fresh cap and a met threshold; owner-choice reasons rank last
+ * because they are the only ones that evaporate when the rest are fixed.
+ *
+ * The case that decides it: autonomy suspended for a week, 45 drafts each
+ * carrying `policy_suspended` AND `rating_below_threshold`. This order reports
+ * "Autonomy paused — 45". Reusing `evaluateAutoApprovalCandidate`'s evaluation
+ * order would report "Sent to you — 45", which is false.
+ *
+ * ORDER WITHIN A TIER changes the stored `refusal_code` only, never the
+ * `refusal_category` — so it is a support-detail choice and carries no
+ * `vocabulary_version` obligation (#1003).
+ */
+export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
+  // 1 — unsafe_content
+  'moderation_flagged',
+  // 2 — watchdog_unavailable
+  'provider_moderation_error',
+  'provider_moderation_disabled',
+  'triage_fallback',
+  // 3 — autonomy_paused
+  'policy_suspended',
+  'publisher_subscription_denied',
+  'auto_approval_disabled',
+  // 4 — missing_information
+  'active_zernio_connection_missing',
+  'current_rating_missing',
+  'review_content_hash_missing',
+  // 5 — below_our_bar
+  'review_content_changed_before_persist',
+  // 6 — owner_review_required
+  'triage_high_severity',
+  'rating_below_positive_quadrant',
+  'rating_below_threshold',
+  'daily_cap_exhausted',
+] as const satisfies readonly AutoApprovalBlockReason[];
+
+/**
+ * One draft's Refusal, or `null` when the draft is not one.
+ *
+ * `allRefusalCodes` is a NON-EMPTY tuple because migration 116's C5 rejects an
+ * empty array outright — NULL means "this lane has no code axis" and `'{}'`
+ * would be a different fact.
+ */
+export interface PolicyGateRefusal {
+  refusalCode: AutoApprovalBlockReason;
+  refusalCategory: RefusalCategory;
+  allRefusalCodes: readonly [AutoApprovalBlockReason, ...AutoApprovalBlockReason[]];
+}
+
+/**
+ * Reduce a gate decision's block reasons to ONE **Refusal**, or to nothing.
+ *
+ * PURE, and it must stay so: no DB handle, no clock, no flag read. That is what
+ * keeps this module a client-safe leaf the **Restraint tab** (#1014) can import,
+ * and what makes the whole thing table-testable.
+ *
+ * THE ORDER OF THE THREE STEPS IS THE CONTRACT:
+ *
+ *   1. EMPTY IN, NOTHING OUT. An approved draft refused nothing.
+ *   2. ANY `null`-MAPPED MEMBER VETOES THE WHOLE ROW, whatever its position
+ *      (#1003). `null` never competes in precedence — it removes the draft from
+ *      the ledger. A downgraded Autopilot account keeps its policy row, so a
+ *      2-star review there yields `['autopilot_tier_required',
+ *      'rating_below_positive_quadrant']`; if `null` merely LOST a ranking, the
+ *      owner would read "We wanted you to decide this one" about a draft that
+ *      was always going to them and that we chose nothing about.
+ *   3. ONLY THEN does precedence pick a winner.
+ *
+ * A code in NEITHER list THROWS. An unrecognised code is a fault, not a
+ * category: a default would file an unmapped refusal under a plausible-looking
+ * heading and the owner could not tell the difference. `Object.hasOwn` and not
+ * truthiness is the test, because `null` is a decision and `undefined` is not.
+ * The `satisfies` clause above makes this unreachable while the map is total —
+ * it is an assertion of an impossible state, which `working-rules.md` prefers to
+ * defensive handling that would hide the bug.
+ *
+ * IT MAY THROW INSIDE A DECIDING TRANSACTION, and that is deliberate on the same
+ * terms as `write.ts`'s uncaught INSERT: a writer bug aborts the decision, and
+ * the lever against it is `REFUSAL_LEDGER_ENABLED`, not a silent default.
+ */
+export function resolvePolicyGateRefusal(
+  blockReasons: readonly AutoApprovalBlockReason[],
+): PolicyGateRefusal | null {
+  const [first, ...rest] = blockReasons;
+  // Destructured rather than length-checked: this is what gives the non-empty
+  // tuple type C5 requires, from the same check that handles the empty case.
+  if (first === undefined) return null;
+
+  const categories: Record<string, RefusalCategory | null> = POLICY_GATE_HELD_REFUSAL_CATEGORIES;
+  // ONE pass over EVERY member before any ranking — the veto is about presence,
+  // never position, so a short-circuit on the first ranked member would let a
+  // later `null` through.
+  for (const code of blockReasons) {
+    if (!Object.hasOwn(categories, code)) {
+      throw new Error(`unmapped_auto_approval_block_reason:${code}`);
+    }
+    if (categories[code] === null) return null;
+  }
+
+  const winner = AUTO_APPROVAL_BLOCK_PRECEDENCE.find((member) => blockReasons.includes(member));
+  if (winner === undefined) {
+    // Unreachable while the map is total and the partition holds — every
+    // non-`null` member is in the precedence list, and `vocabulary.test.ts`
+    // asserts that. Reaching it means a member was mapped to a category and
+    // never ranked, so the row would have no code to record.
+    throw new Error(`unranked_auto_approval_block_reason:${blockReasons.join(',')}`);
+  }
+
+  const refusalCategory = categories[winner];
+  if (refusalCategory === null || refusalCategory === undefined) {
+    // Also unreachable: a `null` member returned above. Asserted rather than
+    // narrowed with a cast, so a future map edit cannot silently write NULL into
+    // a NOT NULL column.
+    throw new Error(`veto_member_won_precedence:${winner}`);
+  }
+
+  return {
+    refusalCode: winner,
+    refusalCategory,
+    // The input VERBATIM, in its own order — the evaluation order is itself
+    // evidence for whoever debugs the gate, and sorting or de-duplicating here
+    // would discard it. C5 requires the winner to be a member, and it is: the
+    // `find` above drew it from this very array.
+    allRefusalCodes: [first, ...rest],
+  };
+}
