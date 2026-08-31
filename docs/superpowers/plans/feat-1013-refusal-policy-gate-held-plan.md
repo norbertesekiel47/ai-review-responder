@@ -579,3 +579,25 @@ proves nothing … No remaining F1 gap within this slice."
 
 **Round 3 is the last available** (cap: three plan rounds). It is spent
 confirming these four fixes and nothing else.
+
+### Round 3 — codex confirmation only, resumed session, 2026-08-31
+
+**VERDICT: APPROVED.** All four round-2 residues confirmed fixed, each against
+the 36-title list rather than against the round-2 prose:
+
+| Item | Fixed | Evidence |
+|---|---|---|
+| R2-1 title 21 | Yes | The title explicitly requires both cases — a null-mapped member preceding a precedence member and following one — so one ordering alone cannot satisfy T1's verbatim-title contract |
+| R2-2 title 29 | Yes | Independently names replaying each lane, requires each to leave one row, requires neither to abort |
+| R2-3 citations | Yes | `plan.md:395` → `:563-565`; `plan.md:126` and `deviations.md:149` → title 26; `plan.md:43` → title 23. All four match the intake list |
+| R2-4 T1 count | Yes | `plan.md:198`, `:215`, `:235` consistently say 36 |
+
+**The plan is APPROVED and the three-round cap is spent.** A further plan-level
+disagreement goes to the owner, not to a fourth round.
+
+**What the three rounds bought, recorded because it justifies the cost.** Two
+test titles that would have been written, passed, and proved nothing: round 1's
+title 24 described a state that cannot exist on any persist path, and round 2's
+title 21 was satisfiable by a body that tested one ordering when the whole rule
+is that ordering must not matter. Both were caught with zero production lines
+written.
