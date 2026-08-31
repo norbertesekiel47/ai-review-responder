@@ -365,6 +365,15 @@ function toCandidate(
       row.suppression_source !== null && row.suppressed_at !== null
         ? { source: row.suppression_source, suppressedAt: row.suppressed_at }
         : null,
+    // HARD-CODED NULL, which starves `evaluateAsk`'s `already_reviewed` gate
+    // (`restraint-policy.ts:377`) so one of six closed withhold reasons can
+    // never fire. This is a MISSING PRODUCER, not a dead gate: the gate is
+    // correct and tested, and `ASK_WITHHELD_REFUSAL_CATEGORIES` already maps
+    // `already_reviewed -> wrong_moment`, so the Refusal lands with no ledger
+    // change the moment something sets this. Wiring it needs a matching design
+    // — which window, what an ambiguous match means, whether a sibling
+    // location counts — and that is #1048, not a line here. The owner-facing
+    // copy in `GhostPipeline.tsx` was corrected to stop promising it.
     matchedReview: null,
     priorBatch:
       priorSend !== undefined &&
