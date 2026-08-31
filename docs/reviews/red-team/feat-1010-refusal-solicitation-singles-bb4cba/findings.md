@@ -8,7 +8,7 @@ Mode `feature` · risk `high` · round **2 of 2 (the cap)** · generated 2026-08
 | Fork | `06a163f0b4b102c88687c95862999e38a1c3f517` |
 | Merge base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
 | Head (this pass) | `426ccf77fc2b1248161e466fbf26d15bb7332f8a` — the state EXAMINED |
-| Head pinned | `c4bfa647e548b519003091b5fa736f35e01a00a5` — see § Round-2 closure |
+| Head pinned | `6f447b01fdb903820af45eb076fa0485d70f1517` — see § Round-2 closure and § Rebase |
 | Round-1 head | `e9a6a50b21710d28209ebed7023704a21159a53a` |
 | Round-2 scope | `git diff e9a6a50b..426ccf77` — the fix hunks and their direct callers only |
 | Intake sha256 | `d8c75e211ed0bb4ab1e5334494e20522674e268c784b6b03844280e9d6174c7f` — NARROWED by the revert; the examined state was `5fdcdb49` |
@@ -382,3 +382,17 @@ the three `src/lib/solicitation/` write sites — was mutation-tested by **round
 only**, and round 1 ended `INCOMPLETE_BUDGET` with **21 of 39 candidates unrun**
 at the 30-run cap. The two-round cap is spent, so that coverage debt cannot be
 paid on this branch. It is carried to the owner, not resolved here.
+
+## Rebase — feat-1010-refusal-solicitation-singles onto `main` at `cfddfad4`
+
+This branch was rebased after the closure section above was written. `main` had
+advanced by one docs-only commit (#1040, WS8 Phase E) with **zero file overlap**
+against this branch's surface, so the rebase was conflict-free.
+
+Every commit SHA named above is therefore the **pre-rebase** form and no longer
+resolves on the branch. The one that matters maps as
+`c4bfa647` → `6f447b01`; the narrative is unchanged by the
+rewrite because no content moved, only the parent chain.
+
+`head_sha` is re-pinned to `6f447b01fdb903820af45eb076fa0485d70f1517`, the post-rebase HEAD. The
+gate was re-run serially at that HEAD after this note landed.

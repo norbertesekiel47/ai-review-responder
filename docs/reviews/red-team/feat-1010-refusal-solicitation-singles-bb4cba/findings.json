@@ -5,7 +5,7 @@
   "branch": "feat/1010-refusal-solicitation-singles",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "c4bfa647e548b519003091b5fa736f35e01a00a5",
+  "head_sha": "6f447b01fdb903820af45eb076fa0485d70f1517",
   "intake_sha256": "d8c75e211ed0bb4ab1e5334494e20522674e268c784b6b03844280e9d6174c7f",
   "risk": "high",
   "round": 2,
