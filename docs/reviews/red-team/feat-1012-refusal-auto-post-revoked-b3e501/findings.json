@@ -5,212 +5,78 @@
   "branch": "feat/1012-refusal-auto-post-revoked",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "7c9bd9cdf80004d8f610e3fd27cccf56cc7b6580",
-  "intake_sha256": "ddee04e0d647f248b7b2a578d8e31b237e9e130a3cf5f2c50bafd90a5e724293",
+  "head_sha": "c9f2f6bbf4ccdfad40bc47dde94399da73f30ef2",
+  "intake_sha256": "9304040c9b9a1b5dde05a5d4e2a5b2936a534535aab90c73ac7c7c23c34a7b90",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-08-31T06:34:10.261842Z",
+  "round": 2,
+  "generated_at": "2026-08-31T07:30:00.000000Z",
   "inventory": [
     {
-      "id": "RT-INV-01",
-      "test": "does no durable work when a newer outbox attempt owns the response",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
+      "id": "RT2-INV-01",
+      "test": "locks reviews, business, and response before attempt ownership and durable writes",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade-lock-order.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "finding_id": "RT2-1"
     },
     {
-      "id": "RT-INV-02",
-      "test": "claims the dispatched attempt before mutating the response and writing follow-ups",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-03",
-      "test": "uses a distinct bounded marker and reason for Autopilot entitlement loss",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "excluded",
-      "reason": "Modified by this diff only through the shared `pushDowngradeQueue` mock fixture (a mocked business row gaining `account_id`). Every assertion it makes targets pre-existing audit-marker behaviour that this diff does not change, and the reason axis it shares with the new write site is measured by RT-INV-05."
-    },
-    {
-      "id": "RT-INV-04",
+      "id": "RT2-INV-02",
       "test": "a downgrade's refusal_events row carries the account_id read by the transaction's existing business lock",
       "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
       "outcome": "killed"
     },
     {
-      "id": "RT-INV-05",
-      "test": "every AutoPolicyDowngradeReason maps to a Refusal category and the downgrade writes it",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-06",
-      "test": "a no-op downgrade on a missing business writes no refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-07",
-      "test": "a downgrade whose guarded response UPDATE matches no row writes no refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-08",
-      "test": "each production gate routes every AutoPolicyDowngradeReason verbatim to the shared downgrade",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-09",
-      "test": "a downgrade writes exactly one refusal_events row against the response id",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-10",
-      "test": "a downgrade's refusal_events row carries subject_type response, never the approval audit row id",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-11",
-      "test": "a downgrade's refusal_events row carries occurred_at equal to the approval_audit_log created_at written by the same transaction",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-12",
-      "test": "a downgrade records the AutoPolicyDowngradeReason verbatim, so judge_disabled and judge_unhealthy stay two codes",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-13",
-      "test": "a no-op downgrade on a response that is not downgradeable writes no refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-14",
-      "test": "a downgrade that loses the outbox attempt CAS writes no refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-15",
-      "test": "a no-op downgrade with no review anchor writes no refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-16",
-      "test": "downgrading the same response twice leaves one refusal_events row and lets the second transaction commit",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-17",
-      "test": "downgrading the same response for two different reasons keeps the first refusal code and category",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-18",
-      "test": "the standalone wrapper and the in-transaction caller each write exactly one refusal_events row",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-19",
+      "id": "RT2-INV-03",
       "test": "the in-transaction downgrade writes the refusal on the caller transaction and an outer rollback removes it",
       "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-20",
-      "test": "a ledger failure rolls back the downgrade, the approval audit row and the notification enqueue together",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-21",
-      "test": "a ledger failure rolls back completion of the claimed outbox attempt so the publisher can retry",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "RT-INV-22",
-      "test": "REFUSAL_LEDGER_ENABLED=false changes only the refusal row and preserves the response downgrade, approval audit, notification enqueue, and outbox completion",
-      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
-      "outcome": "killed"
+      "outcome": "excluded",
+      "reason": "Its hunk inside round 2's range (7c9bd9cd..c9f2f6bb) is comment-only: no assertion and no production behaviour changed, so a mutation would measure round 1's surface rather than this round's fix. Round 1 mutated and killed this case. The comment's factual accuracy, which is what the fix actually changed, is verified statically under Duty 3: refusal_events.business_id REFERENCES businesses(id) (116_refusal_events.sql:77), the caller holds that row FOR UPDATE (auto-policy-downgrade.ts:114-119), and FOR UPDATE conflicts with the FK's FOR KEY SHARE, so the independent-connection insert blocks."
     }
   ],
   "findings": [
     {
-      "id": "RT-1",
+      "id": "RT2-1",
       "severity": "P0",
-      "duty": 3,
-      "title": "The \"13 of 19 red-to-green\" test arithmetic is false, in the deviations doc and in the durable arch-review-log",
-      "at": "docs/superpowers/plans/feat-1012-refusal-auto-post-revoked-deviations.md:8",
-      "disposition": "open"
-    },
-    {
-      "id": "RT-2",
-      "severity": "P2",
       "duty": 1,
-      "title": "No test pins the \"the ledger write is never caught at the call site\" invariant; a call-site try/catch survives (equivalent mutation, measured)",
-      "at": "worker/jobs/publisher/auto-policy-downgrade.ts:182",
-      "arbiter_reasoning": "Reclassified from P0-candidate to equivalent. postgres.js records an uncaughtError per query inside the transaction scope and rethrows it after the callback returns, so a call-site catch cannot save the deciding transaction. Measured directly rather than argued: under the mutant the test's rejects.toMatchObject({ code: '23514' }) still matched, and every database-observable consequence (response state, audit row, notification enqueue, outbox attempt status) was identical. Recorded as P2 because the documented invariant genuinely has no oracle, not because a defect was proven.",
-      "disposition": "open"
+      "title": "The fix for the FROM businesses comment-resolution defect reintroduces it: the new prohibition comment contains the literal it prohibits, businessLock still resolves to a comment (:108, not the query at :116), and an arbiter-confirmed mutation that stops the business rung locking businesses SURVIVES the lock-order test; deleting the six comment lines kills the same mutant",
+      "at": "worker/jobs/publisher/auto-policy-downgrade.ts:108",
+      "arbiter_reasoning": "NOT EQUIVALENT: the mutation changes the table the business rung locks (FROM businesses -> FROM accounts at :116, FOR UPDATE retained), so at HEAD the function body contains no 'FROM businesses' outside the prohibition comment and the documented reviews->businesses->responses ladder loses its middle rung. That is exactly the property the test's own title asserts ('locks reviews, business, and response before attempt ownership and durable writes'). NOT AN UNEXECUTED BRANCH: the test's oracle is the source TEXT of the file (readFileSync at auto-policy-downgrade-lock-order.test.ts:6), so it reads the mutated region unconditionally on every run; there is no conditional path that could skip it. CAUSATION PROVEN BY CONTROL: the identical mutant with the six prohibition-comment lines (:108-113) deleted is KILLED with 'AssertionError: expected -1 to be greater than 1143', so the surviving assertion is masked by the comment and by nothing else. Resolution measured directly by executing the test's own indexOf chain: businessLock lands at offset 2477 (:108, the comment) rather than 2998 (:116, the query); at the fork point 06a163f0 it landed correctly on the query. SEVERITY BOUND, recorded for honesty: the same mutant IS killed by auto-policy-downgrade.test.ts:171, whose ordered-ladder equality is a runtime-SQL oracle unaffected by comments, so no production correctness defect escapes the branch's overall surface. The P0 is that the lock-order test's business rung is a proven-fake assertion and that the fix's own prohibition comment states a rule it violates.",
+      "disposition": "fixed",
+      "reason": "The prohibition no longer spells the phrase it forbids: it now reads \"NO COMMENT ABOVE THIS STATEMENT MAY SPELL THIS QUERY'S `FROM` CLAUSE\", with the double-catch recorded so the indirection is not \"clarified\" back into a quotation. Verified by MEASUREMENT rather than inspection, running the test's own indexOf chain over the file at HEAD: all six rungs now resolve to statements — anchor :86, businessLock :122 ('FROM businesses'), responseLock :133, attemptClaim :142, responseMutation :152, auditWrite :170 — with none landing on a comment line."
     },
     {
-      "id": "RT-3",
-      "severity": "P2",
-      "duty": 2,
-      "title": "The invariant-#15 test's stated mechanism is not the one that fires: an independent-transaction write blocks on the caller's businesses FOR UPDATE rather than surviving the rollback",
-      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:602",
-      "disposition": "open"
+      "id": "RT2-2",
+      "severity": "P1",
+      "duty": 3,
+      "title": "The restated per-round plan-review counts are not resolvable at HEAD: only round 1's 'Eight findings' has an in-repo artifact (plan:237); round 2's 4 findings and round 3's 0/APPROVED have none, and the new sum of 12 silently replaces this branch's own earlier durable 'fourteen'",
+      "at": ".claude/reference/arch-review-log.md:1444",
+      "disposition": "fixed",
+      "reason": "The finding was right that the counts named no artifact: rounds 2 and 3 happened but were recorded only in the intake and in conversation, never in the plan. Fixed at the source rather than by softening the claim — the plan's review appendix now carries a Round 2 section (VERDICT REVISE, four findings, all amendment drift, with the specific HIGH and MEDIUM named) and a Round 3 section (VERDICT APPROVED, the cap). All three per-round counts in the log row now resolve to plan artifacts."
     },
     {
-      "id": "RT-4",
+      "id": "RT2-3",
       "severity": "P2",
-      "duty": 2,
-      "title": "Positional bound-value indices (values[1], values[2], the ten-element toEqual) couple the unit suite to the column order of src/lib/refusals/write.ts, a file this diff does not own",
-      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:198",
-      "disposition": "open"
-    },
-    {
-      "id": "RT-5",
-      "severity": "P2",
-      "duty": 2,
-      "title": "expect(refusal.text).toContain('NOW()') is a substring proxy for the transaction-time sentinel",
-      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:251",
-      "disposition": "open"
-    },
-    {
-      "id": "RT-6",
-      "severity": "P2",
-      "duty": 2,
-      "title": "The gate source-scrape hard-codes two file paths (a third gate would be invisible), and two of the four judge-gate sites it counts sit in applyJudgeGate, which has no production importer at HEAD",
-      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:300",
-      "disposition": "open"
+      "duty": 3,
+      "title": "A third variant of the corrected test arithmetic survives in gitignored session state that /feature-resume reads back: tracer T1's note still says '19 titles, 13 RED; 6 are negative-space/preservation assertions', matching neither the old claim (13/7) nor the corrected one (12/7)",
+      "at": ".feature/progress.json:44",
+      "disposition": "fixed",
+      "reason": "Tracer T1's note now reads \"19 titles, 12 RED; 7 are negative-space regression pins (red team planted each forbidden defect; all seven died)\", matching the corrected 12/7/19. The finding's real point is kept: gitignored session state is still state a resumed run reads back, so a count corrected in tracked artifacts alone leaves a third variant alive where the next session will find it first."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 22,
-    "killed": 21,
-    "survived_confirmed_p0": 0,
+    "inventory_total": 3,
+    "killed": 1,
+    "survived_confirmed_p0": 1,
     "inconclusive": 0,
     "skipped_budget": 0,
     "excluded": 1,
-    "findings_total": 6,
-    "p0_open": 1,
+    "findings_total": 3,
+    "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 5,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 3,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "CLEAR"
 }

@@ -105,12 +105,18 @@ export async function downgradeAutoApprovedResponseForManualReviewInTx(
     // case can never reach the ledger. `businesses.account_id` is NOT NULL with
     // an FK to `accounts`, so a locked row cannot carry a null or dangling key.
     //
-    // NO COMMENT ABOVE THIS STATEMENT MAY CONTAIN THE LITERAL `FROM businesses`.
+    // NO COMMENT ABOVE THIS STATEMENT MAY SPELL THIS QUERY'S `FROM` CLAUSE.
     // `auto-policy-downgrade-lock-order.test.ts` resolves each rung of the lock
-    // ladder with `body.indexOf(...)` from the previous rung, so that string in
-    // a comment resolves the business rung to the COMMENT rather than to the
-    // query — the test keeps passing while measuring the wrong line. Red team
-    // caught exactly that in an earlier wording of the paragraph above.
+    // ladder with `body.indexOf(...)` from the previous rung, anchored on that
+    // exact phrase — so writing it in a comment resolves the business rung to
+    // the COMMENT instead of the query, and the test keeps passing while
+    // measuring the wrong line.
+    //
+    // RED TEAM CAUGHT THIS TWICE: once in the original rationale paragraph
+    // above, and once in the FIX for it, which stated the prohibition using the
+    // very phrase it forbids and so re-resolved the rung to itself. Hence the
+    // indirection in the sentence above; do not "clarify" it by quoting the
+    // clause.
     const [lockedBusiness] = await tx<{ id: string; account_id: string }[]>`
       SELECT id, account_id
       FROM businesses

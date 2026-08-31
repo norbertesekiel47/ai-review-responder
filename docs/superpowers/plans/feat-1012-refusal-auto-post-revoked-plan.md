@@ -314,6 +314,30 @@ reasons arrive elsewhere. Corrected in the intake.
 
 **Added:** `each production gate routes every AutoPolicyDowngradeReason verbatim to the shared downgrade`
 
+### Round 2 — verification-only, resumed session
+
+**VERDICT: REVISE.** Four findings, all one class: **amendment drift** — a fact
+corrected in this appendix and left contradicting an instruction elsewhere. One
+HIGH (T1 still commanded "all thirteen" titles while the intake held 19, and
+§§3–5's "turns green" lists omitted the additions), one MEDIUM (the corrected
+caller inventory did not replace the stale `edge_cases` wording), two LOW (§6 said
+"no new file" against §7's one new live-DB suite; this appendix said seven
+findings while enumerating eight).
+
+All four accepted and fixed. The counts were then removed from the prose
+entirely: **`.feature/intake.json` is the authority for the title list and this
+plan does not restate its length**, because a stale number here is precisely how
+an implementer stops short.
+
+### Round 3 — final, and the cap
+
+**VERDICT: APPROVED.** No surviving contradictions. All 19 titles map to tracers,
+no tracer names a title the intake lacks, and both intake copies are
+byte-identical. The one stale phrase found was quoted historical context in this
+appendix, not an active instruction.
+
+Round 3 is the cap. Nothing followed it; the branch went to implementation.
+
 ### Correction the skeptic did not raise, found while applying its findings
 
 §5's forced-failure precedent cited

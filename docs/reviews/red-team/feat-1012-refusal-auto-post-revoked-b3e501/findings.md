@@ -406,3 +406,72 @@ of scope for mutation and were handled under Duty 3.
 
 `unit` = `worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts` ·
 `integration` = `worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts`
+
+---
+
+# Round 2 — scoped to round 1's fix hunks
+
+`git diff 7c9bd9cd..c9f2f6bb`. Round 2 is the cap; nothing follows it.
+
+**Written by the ORCHESTRATOR, not by the pass.** The harness blocked the
+round-2 subagent from writing report files, so it recorded its evidence verbatim
+in `findings.json`'s `arbiter_reasoning`. Round 1's text above is untouched —
+overwriting it would falsify what round 1 said. Every claim below is the pass's
+recorded evidence or a measurement re-run by the orchestrator and named as such.
+
+**Mutations: 5 of 30 runs** — 1 baseline, 3 mutants, 1 control. All journaled,
+all restored, no dotenv swap.
+
+## RT2-1 · P0 · `auto-policy-downgrade.ts:108` · FIXED
+
+**The round-1 fix reintroduced the defect it fixed.** Round 1 found a rationale
+comment containing the literal `FROM businesses`, which made
+`auto-policy-downgrade-lock-order.test.ts` resolve its business rung to the
+COMMENT rather than the query. The fix added a prohibition that itself read
+`NO COMMENT ABOVE THIS STATEMENT MAY CONTAIN THE LITERAL FROM businesses` —
+**containing the phrase it forbids**, so the rung still resolved to a comment,
+now the prohibition at `:108` instead of the query at `:116`.
+
+Evidence: M2 (business rung stops locking `businesses`) **SURVIVED**; the
+identical mutant with the six prohibition lines deleted was **killed**
+(`expected -1 to be greater than 1143`), proving the comment was the mask. At
+fork point `06a163f0` resolution was correct — the branch introduced this twice.
+
+**Severity bound, recorded by the pass rather than left implied:** the same
+mutant IS killed by `auto-policy-downgrade.test.ts:171`, a runtime-SQL oracle
+unaffected by comments, so **no production correctness defect escaped.** The P0
+is a proven-fake rung plus a rule that broke itself.
+
+**Fix, re-measured at HEAD by running the test's own `indexOf` chain** — all six
+rungs now resolve to statements: `anchor` :86 · `businessLock` :122 ·
+`responseLock` :133 · `attemptClaim` :142 · `responseMutation` :152 ·
+`auditWrite` :170.
+
+## RT2-2 · P1 · `arch-review-log.md` · FIXED
+
+Per-round counts named no artifact: rounds 2 and 3 existed only in the intake and
+in conversation. Fixed at the source — the plan's appendix now carries Round 2
+(REVISE, four findings, all amendment drift) and Round 3 (APPROVED, the cap).
+
+## RT2-3 · P2 · `.feature/progress.json` · FIXED
+
+A THIRD arithmetic variant survived in gitignored state `/feature-resume` reads
+back. Corrected to 12/7/19. The finding's point is kept: a count corrected only
+in tracked artifacts leaves a live variant where the next session looks first.
+
+## Verified TRUE — no finding
+
+The 12/7/19 counts, re-counted independently; the `<=` restatement of the staging
+reconciliation query; the lock-wait explanation; the date correction; the other
+ladder rungs; a duty-4 sibling scan of 8 comment hits with 7 cleared by
+measurement.
+
+## Tooling defects, neither a branch defect
+
+1. **`red-team-status.mjs` mis-slices porcelain paths** — it `.trim()`s the
+   output, so an unstaged report file loses its leading space and `slice(3)` cuts
+   into the path, falsely reporting an unrestored mutation. Clears once staged.
+2. **The `watchers` precondition false-positives on every swarm run** — its
+   machine-wide scan matches `…/RepWorth` as a prefix of
+   `…/RepWorth-worktrees/…`. Resolved by `lsof` and documented, not waived, in
+   both rounds and on both sibling branches.
