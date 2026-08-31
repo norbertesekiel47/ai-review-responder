@@ -33,7 +33,10 @@ import {
   recordOutcome,
   recordStep,
 } from '../../../src/lib/agents/run-spine';
-import { HELD_DRAFT_REFUSAL_CATEGORY } from '../../../src/lib/refusals/vocabulary';
+import {
+  HELD_DRAFT_REFUSAL_CATEGORY,
+  resolvePolicyGateRefusal,
+} from '../../../src/lib/refusals/vocabulary';
 import { writeRefusalEvent } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
@@ -204,6 +207,22 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         detail: { decision: autoDecision.approved ? 'auto_approved' : 'held_for_owner' },
       });
     }
+
+    // The `policy_gate_held` Refusal (#1013). A SEPARATE statement with its OWN
+    // guard, deliberately OUTSIDE the block above — it inherits that guard's
+    // `!held` arm and NOT its `activeRun` arm. A legacy pre-spine review has no
+    // run (`recordDraftSpineCheckpoints` returns null), and inheriting
+    // `!activeRun` would silently drop rows from the highest-volume lane
+    // (#997 resolution 1).
+    await recordPolicyGateRefusal(tx, {
+      accountId,
+      businessId,
+      responseId,
+      originLane,
+      held,
+      runtimeState,
+      autoDecision,
+    });
 
     if (autoDecision.approved) {
       if (!runtimeState) {
@@ -556,16 +575,7 @@ function logAutoApprovalFallbackIfNeeded(input: {
     return;
   }
 
-  // Narrow to genuine auto candidates: a draft on the auto-eligible lane whose
-  // account has a policy configured, so the only thing standing between it and
-  // an auto-post is a runtime prerequisite (provider moderation, subscription,
-  // active connection/location, review-hash freshness, or the runtime flag).
-  // Bad-lane / no-policy drafts were never going to auto and would otherwise log
-  // on every generated draft while AUTO_APPROVAL_ENABLED is on (spec §15).
-  const isAutoCandidate =
-    originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
-    && runtimeState.effectivePolicy.threshold !== null;
-  if (!isAutoCandidate) {
+  if (!isGenuineAutoCandidate(originLane, runtimeState)) {
     return;
   }
 
@@ -642,6 +652,100 @@ function buildAutoApprovalDecisionSummary(input: {
     runtime_enabled: autoDecision.runtimeEnabled,
     provider_moderation_enabled: autoDecision.providerModerationEnabled,
   };
+}
+
+/**
+ * A GENUINE auto candidate: a draft on the auto-eligible lane whose account has
+ * a policy configured, so the only thing standing between it and an auto-post is
+ * a runtime prerequisite (provider moderation, subscription, active
+ * connection/location, review-hash freshness, or the runtime flag). Bad-lane and
+ * no-policy drafts were never going to auto (spec §15).
+ *
+ * ONE OWNER FOR THE NARROWING, and that is the point rather than a tidy-up. The
+ * fallback LOG and the `policy_gate_held` ledger write must select exactly the
+ * same drafts: the intake's reconciliation query asserts that the row count can
+ * never exceed the log-line count, and two copies of these three conditions
+ * would let that drift silently. #998 says the ledger write inherits the
+ * narrowing "unchanged" — this is what makes that literally true.
+ *
+ * A TYPE PREDICATE, so the ledger site gets its non-null `runtimeState` for free
+ * rather than re-asserting it.
+ *
+ * THIS IS ALSO WHERE THE FLAG-OFF ANSWER LIVES (deviation D4). With
+ * `AUTO_APPROVAL_ENABLED` off, every draft is a STRUCTURAL non-candidate,
+ * `resolveAutoApprovalDecision` returns `runtimeState: null` and reads no policy
+ * row at all — so this returns false and no Refusal is written. #1013's "Volume"
+ * section and #1003's operational note both claim a row on that path; both are
+ * false against this code, because "on a policy-configured account" is not
+ * knowable without a read migration 074's header deliberately avoids.
+ */
+function isGenuineAutoCandidate(
+  originLane: GenerateResponseOriginLane | null,
+  runtimeState: AutoApprovalRuntimeState | null,
+): runtimeState is AutoApprovalRuntimeState {
+  return runtimeState !== null
+    && originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
+    && runtimeState.effectivePolicy.threshold !== null;
+}
+
+/**
+ * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
+ * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
+ * with the decision it records (#1013).
+ *
+ * FOUR GUARDS, IN THIS ORDER, and each answers a different question:
+ *
+ *   1. `held` — a high-severity flag is recorded on the `held_draft` lane and
+ *      never here. #998's suppression rule, and the ONLY condition inherited
+ *      from the `policy_gate` step's guard. Mapping `moderation_held` to `null`
+ *      is not sufficient on its own: `moderation_flagged` fires at EVERY
+ *      severity including `high`, so a held draft would still write an
+ *      `unsafe_content` row duplicating the other lane.
+ *   2. `approved` — nothing was refused.
+ *   3. the candidacy narrowing — see `isGenuineAutoCandidate`.
+ *   4. the resolver returned nothing — the set was empty, or a `null`-mapped
+ *      member vetoed it.
+ *
+ * NOT CAUGHT, on the same terms as the `held_draft` write and `write.ts`'s own
+ * contract: a CHECK violation is a writer bug, it aborts this transaction, and
+ * the lever against it is `REFUSAL_LEDGER_ENABLED` rather than a `try/catch`
+ * that would hide the bug from the only place that cannot report it.
+ */
+async function recordPolicyGateRefusal(
+  tx: postgres.TransactionSql,
+  args: {
+    accountId: string;
+    businessId: string;
+    responseId: string;
+    originLane: GenerateResponseOriginLane | null;
+    held: boolean;
+    runtimeState: AutoApprovalRuntimeState | null;
+    autoDecision: AutoApprovalDecision;
+  },
+): Promise<void> {
+  const { accountId, businessId, responseId, originLane, held, runtimeState, autoDecision } = args;
+
+  if (held) return;
+  if (autoDecision.approved) return;
+  if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
+
+  const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
+  if (!refusal) return;
+
+  await writeRefusalEvent(tx, {
+    accountId,
+    businessId,
+    refusalSource: 'policy_gate_held',
+    refusalCode: refusal.refusalCode,
+    allRefusalCodes: refusal.allRefusalCodes,
+    refusalCategory: refusal.refusalCategory,
+    subjectType: 'response',
+    subjectId: responseId,
+    // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
+    // why `occurred_at` is writer-supplied. The gate decided inside this
+    // transaction, so its transaction timestamp IS the decision time.
+    occurredAt: 'transaction_time',
+  });
 }
 
 /**

@@ -49,6 +49,7 @@ import {
 } from '@/lib/shared/__tests__/helpers/schema-ready';
 import { abortingExecutor } from '@/lib/shared/__tests__/helpers/abort-injection';
 import { GENERATE_RESPONSE_ORIGIN_LANE } from '@/lib/shared/worker-types';
+import { TRIAGE_SOURCE } from '@/lib/reviews/triage-schema';
 // The flag NAME comes from the module that READS it. Six test files each
 // carried their own `'REFUSAL_LEDGER_ENABLED'` literal before the #1010
 // follow-up centralised it; a rename would have left them green while testing a
@@ -150,19 +151,35 @@ interface ReviewOverrides {
   triageSource?: string | null;
 }
 
+/**
+ * `reviews_triage_consistency` makes the triage columns ALL-OR-NOTHING:
+ * `triage_severity` NOT NULL demands `triage_source`, `triage_suggested_action`
+ * AND `triaged_at` alongside it. Setting severity alone raises a CHECK
+ * violation, so the whole group moves together here.
+ *
+ * `triage_source` defaults to `llm_triage_v1`, NOT `fallback_high_v1`, and the
+ * choice is load-bearing: the fallback source raises `triage_fallback`, which is
+ * precedence tier 2 (`watchdog_unavailable`) and would OUTRANK the
+ * `triage_high_severity` these cases mean to isolate.
+ */
 async function seedReview(id: string, overrides: ReviewOverrides = {}): Promise<void> {
+  const severity = overrides.triageSeverity ?? null;
   await sql()`
     INSERT INTO reviews (
       id, business_id, provider, provider_review_id, provider_review_name,
       provider_location_name, reviewer_name, star_rating, review_text, status,
-      review_content_hash, triage_severity, triage_source
+      review_content_hash, triage_severity, triage_source,
+      triage_suggested_action, triaged_at
     ) VALUES (
       ${id}::uuid, ${businessId}::uuid, 'zernio', ${`refusal-${id}`},
       ${`zernio://refusal/reviews/${id}`}, 'zernio://refusal/locations/1',
       'Refusal Reviewer', ${overrides.starRating === undefined ? 5 : overrides.starRating},
       'A review the gate will weigh.', 'pending',
       ${overrides.contentHash === undefined ? 'hash-loaded' : overrides.contentHash},
-      ${overrides.triageSeverity ?? null}, ${overrides.triageSource ?? null}
+      ${severity},
+      ${severity === null ? null : (overrides.triageSource ?? TRIAGE_SOURCE.LLM)},
+      ${severity === null ? null : 'escalate'},
+      ${severity === null ? null : new Date()}
     )
   `;
 }
@@ -547,7 +564,9 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     // ledger write must NOT inherit the activeRun half of persist.ts:198's
     // `activeRun && !held` guard. Inheriting it silently drops rows from the
     // highest-volume lane.
-    expect(await sql()`SELECT id FROM agent_runs WHERE subject_id = ${reviewId}::uuid`).toHaveLength(0);
+    // `agent_runs.subject_id` is TEXT, not uuid — a `::uuid` cast here raises
+    // `operator does not exist: text = uuid` rather than returning no rows.
+    expect(await sql()`SELECT id FROM agent_runs WHERE subject_id = ${reviewId}`).toHaveLength(0);
     expect(await refusals(responseId!, 'policy_gate_held')).toHaveLength(1);
   });
 

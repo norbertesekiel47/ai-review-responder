@@ -182,6 +182,21 @@ function queuePersistRows(input: {
   } else if (input.notify ?? true) {
     txQueue.push([]); // INSERT send_notification outbox
   }
+  // NO push for the `policy_gate_held` Refusal (#1013), and that is deliberate
+  // rather than an omission. On a HELD path it consumes two entries (the
+  // `tx`NOW()`` fragment plus the INSERT, see the flaggedHigh branch above), but
+  // it runs AFTER every row-CONSUMING read in the flow — the runtime-state
+  // SELECTs, the cap count and the connection lookup are all behind it — and the
+  // only statement after it on that path is the send_notification INSERT, whose
+  // result nothing reads. `mockTx` yields `[]` for an exhausted queue, so the
+  // shift is harmless there.
+  //
+  // It never runs on the APPROVED path at all (guard 2 in
+  // `recordPolicyGateRefusal`), which is the path whose `RETURNING
+  // auto_post_scheduled_at` row a test actually depends on.
+  //
+  // If a future statement is added AFTER the ledger write that reads its result,
+  // this comment stops being true and the branch needs its two pushes.
 }
 
 function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify>[1]> = {}) {
