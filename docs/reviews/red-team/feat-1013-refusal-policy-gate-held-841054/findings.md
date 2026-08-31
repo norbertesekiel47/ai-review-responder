@@ -1058,3 +1058,88 @@ artifacts and nothing else; every mutated source file was restored with a
 named-path `git checkout --`, and the post-restore suites are green (120/120
 unit, 25/25 integration). HEAD is unmoved at
 `35f60e9c054666d9b4f8f3fa0a23462ac1400252`.
+
+---
+---
+
+# FINAL STAMP — bookkeeping only
+
+**HEAD:** `4fe4a7c820a4d3c2f7b5149f85d0310779f8dd8f` · **round stays 2** · no new
+mutations, no new fronts. Two commits landed since the previous stamp
+(`484bb598`, `4fe4a7c8`).
+
+## I agree a doc-only change cannot move a mutation outcome — and I checked rather than assumed
+
+The dispatch invited disagreement, so this was verified two independent ways
+before I accepted it:
+
+1. **Line-level.** Filtering the `35f60e9c..HEAD` delta for `src/lib/refusals/vocabulary.ts`
+   down to lines that are NOT docblock continuations returns nothing — every
+   added and removed line begins ` *` inside the block comment preceding
+   `AUTO_APPROVAL_BLOCK_PRECEDENCE`. No declaration, no value, no type changed.
+2. **Empirically.** The full baseline at the new HEAD is byte-identical in
+   outcome to the previous stamp: **120/120** unit, **25/25** integration.
+
+The one way a comment change *could* have mattered is that this repo has
+source-parsing tests (`vocabulary.test.ts` asserts the
+`REFUSAL_VOCABULARY_VERSION` DECLARATION as text and scans for dynamic imports,
+and `unionMembers` parses `worker-types.ts`). That is exactly why I re-ran rather
+than reasoning alone — those suites are inside the 120 and they are green. So:
+**every existing inventory row stands unchanged, and no re-plant is warranted.**
+
+## RT-16 — FIXED, wording confirmed claim by claim
+
+`vocabulary.ts:513` now reads "SIX OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER
+TODAY" and adds `moderation_held` with the masking nuance. Each claim
+re-checked against the code:
+
+| Claim in the new wording | Verification |
+|---|---|
+| "its sole emitter is `when(input.held, 'moderation_held')`" | Confirmed — `auto-approval.ts:360` is the only production emitter. |
+| "guard 1 returns before the resolver on exactly that condition" | Confirmed — `if (held) return;` sits three statements ahead of the resolver call. |
+| "THE TWO MASK EACH OTHER … deleting EITHER alone is behaviour-preserving" | Confirmed by four independent runs: M1 and M1b (round 1), R2-6 and R2-7 (round 2) — all survivors. |
+| "deleting BOTH writes a duplicate `unsafe_content` row for every held draft" | Confirmed. `held` is `flaggedHigh = moderation.flagged && severity === 'high'` (`persist.ts:830`), so `held` ALWAYS implies `moderation_flagged` (`auto-approval.ts:359`), which is `precedence[0]` in tier 1 `unsafe_content`. M1c and R2-8 both killed with `expected 0, received 1`. |
+
+I also re-derived the full 22-member reachability table to confirm **six** is now
+*exhaustive* rather than merely larger than five: the sixteen unlisted members
+are each reachable on a live path. The list is complete.
+
+## Final counts
+
+| Count | Value |
+|---|---|
+| `inventory_total` | 37 |
+| `killed` | 27 |
+| `survived_confirmed_p0` | 1 (RT-15, disposition `fixed`) |
+| `inconclusive` (all `oracle`) | 8 |
+| `excluded` | 1 |
+| `findings_total` | 16 |
+| `p0_open` / `p1_open` / `p2_open` | **0 / 0 / 0** |
+| `fixed` | 15 |
+| `rejected` | 1 |
+
+**status = `INCOMPLETE_ORACLE`**, with every severity class at zero open.
+
+## The residual status, stated one last time for the owner
+
+Nothing is open. Fifteen findings are fixed, one is rejected as my own error, and
+no finding of any severity remains unaddressed. The status is `INCOMPLETE_ORACLE`
+solely because eight inventory rows are `inconclusive`/`oracle`, and that
+outranks `CLEAR` in `recomputeStatus`.
+
+Those eight are truthfully inconclusive. Six are equivalent mutants — deleting a
+guard or remapping an entry that changes no observable behaviour, so **no test
+can kill them, and none should be written to try**. The branch's own docblocks
+now say the same thing in prose, including the `moderation_held` masking pair
+this stamp confirms. Two more (M10, M9) are of the same class from round 1.
+Reclassifying any of them `killed` would assert that a test caught something no
+test can catch, so I have not, across three requests to finalise.
+
+The gap is in the status vocabulary, not the evidence: `recomputeStatus` cannot
+distinguish "no verdict because the run was cut short" from "no verdict because
+the mutant is provably equivalent" — the second being a completed, informative
+result. Until an `equivalent-confirmed` outcome exists (or an authorization can
+clear oracle-class rows), no branch containing deliberate redundant
+defence-in-depth can reach `CLEAR` through this gate, however good its tests are.
+That is the finding to take to the owner, and it is a tooling limitation rather
+than a fact about this branch.

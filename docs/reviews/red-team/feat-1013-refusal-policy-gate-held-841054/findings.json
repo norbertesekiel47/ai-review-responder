@@ -5,11 +5,11 @@
   "branch": "feat/1013-refusal-policy-gate-held",
   "fork_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
   "merge_base_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
-  "head_sha": "35f60e9c054666d9b4f8f3fa0a23462ac1400252",
+  "head_sha": "4fe4a7c820a4d3c2f7b5149f85d0310779f8dd8f",
   "intake_sha256": "d486d8f5807dd04f88f0f73f7c5f20d641106937c2d49f4ea198a7fcda0f5f61",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-08-31T23:45:53Z",
+  "generated_at": "2026-08-31T23:54:12Z",
   "inventory": [
     {
       "id": "M1",
@@ -422,10 +422,10 @@
       "id": "RT-16",
       "severity": "P2",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "The new unreachability disclosure says FIVE members cannot reach resolvePolicyGateRefusal; it is SIX — moderation_held is omitted, and it is the one whose exclusion depends on a guard the branch itself documents as redundant",
       "at": "src/lib/refusals/vocabulary.ts:511",
-      "reason": "Verified, not reasoned from memory: moderation_held has exactly ONE production emitter, when(input.held, moderation_held) at auto-approval.ts:360, so it is in blockReasons iff held is true; and recordPolicyGateRefusal guard 1 is \"if (held) return;\", three statements before the resolver call. So whenever the member exists, the resolver is not reached. It differs from the listed five in a way that argues FOR listing it: those five are blocked by structural or narrowing failures, whereas moderation_held is blocked only by guard 1 — which persist.ts:704-709 documents as redundant defence in depth and which round-2 mutation R2-6 confirmed is deletable with no behavioural change. Delete guard 1 and moderation_held reaches the resolver and vetoes there, so its map entry is load-bearing under a change the branch’s own prose invites. Doc-only; no code change implied."
+      "reason": "VERIFIED FIXED (final stamp, commit 484bb598). vocabulary.ts:513 now reads \"SIX OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY\" and adds moderation_held with the masking nuance. I re-checked every claim in the new wording against the code rather than accepting the summary: (a) \"its sole emitter is when(input.held, moderation_held)\" — confirmed, auto-approval.ts:360 is the only production emitter; (b) \"guard 1 returns before the resolver on exactly that condition\" — confirmed, persist.ts guard 1 is \"if (held) return;\", three statements ahead of the resolver call; (c) \"THE TWO MASK EACH OTHER … deleting EITHER alone is behaviour-preserving\" — confirmed by four independent mutation runs, M1 and M1b in round 1 and R2-6 and R2-7 in round 2, all survivors; (d) \"deleting BOTH writes a duplicate unsafe_content row for every held draft\" — confirmed: held is flaggedHigh = moderation.flagged AND severity === high (persist.ts:830), so held true always implies moderation_flagged (auto-approval.ts:359), which is precedence[0] in tier 1 unsafe_content, and M1c and R2-8 both killed with expected 0 received 1. I also re-derived the full 22-member reachability table to check that SIX is now complete rather than merely larger than five: the sixteen unlisted members are all reachable, so the list is exhaustive."
     }
   ],
   "authorizations": [],
@@ -439,9 +439,9 @@
     "findings_total": 16,
     "p0_open": 0,
     "p1_open": 0,
-    "p2_open": 1,
+    "p2_open": 0,
     "accepted_risk": 0,
-    "fixed": 14,
+    "fixed": 15,
     "rejected": 1
   },
   "status": "INCOMPLETE_ORACLE"
