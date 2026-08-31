@@ -1214,6 +1214,59 @@ service** rather than update the existing one, and (b) silently **drops
 `restartPolicyType` and `restartPolicyMaxRetries`**, carrying over only
 build/start/healthcheck.
 
+#### The recurrence guard — because the mirror alone does NOT stop this happening again
+
+Recording this because the obvious reading of the fix above is wrong. Mirroring the config
+onto the service restored the worker; **it does not prevent recurrence.** The proof is in
+the root-cause section: redeploy `32a54658` ran with `startCommand` set explicitly on the
+service and *still* ran `next start`. A `redeploy` ignores the service settings too.
+
+So the fault is still armed. Every secret rotation and every flag flip on this service
+fires a `redeploy`, and each one would bring the impostor back — silently, reporting
+Online. A worker that is correct today and wrong after the next `flag-flip` run is not
+fixed.
+
+**What actually disarms it: make the impostor fail the healthcheck.**
+
+`healthcheckPath` was `/api/health`. That route exists in the Next.js app as well as the
+worker, which is the entire reason the impostor looked healthy. Changed to **`/ready`**,
+which `worker/index.ts:638` serves and Next.js does not — Next's nearest route is
+`/api/health/ready`, a different path.
+
+| Deployment | `/ready` | Result |
+|---|---|---|
+| Real worker | 200 `{"status":"ready","service":"worker"}` | Deploy succeeds |
+| `next start` impostor | 404 — no such Next.js route | **Healthcheck fails → deployment marked FAILED → Railway keeps the last good deployment live** |
+
+The silent failure becomes a loud one that cannot reach production. Set on **both**
+environments, each with `environmentId` passed explicitly.
+
+**Verified before switching, not after.** The path was exercised against a live worker
+first — staging's public Railway domain, which has no certificate problem:
+
+```
+GET https://repworth-worker-staging.up.railway.app/ready → HTTP 200
+{"status":"ready","service":"worker",
+ "checks":{"postgres":"ok","queue_redis":"ok","cache_redis":"ok"}}
+```
+
+> **This REVERSES a deliberate documented choice, and the tradeoff is accepted knowingly.**
+> `railway.toml` described `/api/health` as a *"dependency-light endpoint (no DB/queue/
+> external calls); 200 = ready"*. `/ready` runs three live probes — `postgres`,
+> `queue_redis`, `cache_redis` — so a deploy now fails if any of them is unreachable at
+> deploy time.
+>
+> Accepted because the direction of failure is **fail-safe**: a failed healthcheck leaves
+> the running deployment up, whereas the old posture let a dead worker replace a live one
+> and report green. This incident is the evidence that a false POSITIVE costs far more
+> than a false negative here — a worker that was not running, through a production
+> cutover, on a dashboard showing Online.
+>
+> **Follow-up that restores the light posture:** add a worker-only, dependency-free `GET`
+> (e.g. `/healthz/worker`) in `worker/index.ts` and point the healthcheck at it. Not done
+> in this run — it is a change to the worker's boot surface that cannot be verified until
+> it merges, which is the wrong shape of risk mid-cutover.
+
 #### The clean boot — deployment `2e9a5dc4`, 2026-08-31T06:10:47Z
 
 ```

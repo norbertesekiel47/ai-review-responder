@@ -3801,6 +3801,36 @@ under either. `railway.toml`'s header says CHANGE ONE, CHANGE BOTH.
 Railway's `update-service` API defaults to *all* environments when `environmentId` is
 omitted. Always pass it, or a production fix silently rewrites staging.
 
+### [2026-08-31] Mirroring the config did NOT stop recurrence → the healthcheck path had to stop identifying the wrong process
+FAIL → the obvious fix for the entry above — mirror `startCommand`/`buildCommand` onto the
+Railway service — restores the worker but leaves the fault armed. Redeploy `32a54658` ran
+with `startCommand` set explicitly on the service and **still** ran `next start`. Since a
+`redeploy` is what Railway fires on ANY variable change, every future secret rotation or
+`flag-flip` would bring the impostor back, silently, reporting Online.
+
+WHY the impostor could report healthy at all → `healthcheckPath` was `/api/health`, and
+**that route exists in the Next.js app as well as the worker**. Railway probed it, got
+200, and could not tell which process answered.
+
+CORRECT → point the healthcheck at a path only the worker serves: **`/ready`**
+(`worker/index.ts:638`). Next.js's nearest route is `/api/health/ready`, a different path,
+so a `next start` deployment 404s the probe, the deployment is marked FAILED, and Railway
+keeps the last good deployment live. The silent failure becomes a loud one that cannot
+reach production. Verify the path against a running worker BEFORE switching — staging's
+public Railway domain answered `{"status":"ready","checks":{"postgres":"ok",
+"queue_redis":"ok","cache_redis":"ok"}}`.
+
+**This reverses a deliberate choice and the tradeoff is the point.** `railway.toml` called
+`/api/health` a "dependency-light endpoint (no DB/queue/external calls)". `/ready` runs
+three live probes, so a deploy now fails if Postgres or either Redis is unreachable at
+deploy time. Accepted because that direction is **fail-safe** — the running deployment
+stays up — whereas the old posture let a dead worker replace a live one and report green.
+General lesson: **a healthcheck that any other process in the repo can also answer is not
+a healthcheck, it is a liveness coin-flip.** Ask what else could be listening on that port
+before trusting a 200. Follow-up to restore the light posture: a worker-only,
+dependency-free `GET` (e.g. `/healthz/worker`) — a boot-surface change, so not done
+mid-cutover.
+
 ### [2026-08-31] Railway deprecated Config as Code — `railway.toml` stops being read on 2026-12-01
 FAIL → not yet a live failure, but it will be. Railway has **deprecated Config as Code**
 (`railway.toml` / `railway.json`) in favour of Infrastructure as Code
