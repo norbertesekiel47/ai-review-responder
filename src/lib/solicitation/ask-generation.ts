@@ -657,6 +657,16 @@ interface ChildIdentity {
  * interface and that nothing varies across call sites — this is a local
  * argument-shaping function, not an indirection layer.
  *
+ * THE OTHER HALF OF THIS LANE LIVES IN `dispatch.ts` (`commitWithhold`, #1010).
+ * Both write `outreach_withheld` keyed on the SAME `solicitation_outreach.id`,
+ * so they share one partial unique index and only a `delivery_status` filter
+ * keeps them apart: this side withholds a render BEFORE the row is sendable,
+ * that side withholds a row that already rendered. The two closed enums overlap
+ * on `lint_failed` and `moderation_high` because the dispatch gate re-lints and
+ * re-moderates the stored copy at send time — which is why they are TWO maps and
+ * must not be merged. Change either side's subject or code axis and check the
+ * other.
+ *
  * @param tx        the DECIDING transaction — the same one the outreach INSERT
  *                  this Refusal records ran on. Never `@/lib/db/server`
  *                  (invariant #15): a helper on its own connection would stamp

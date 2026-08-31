@@ -22,6 +22,7 @@
 // intake names as a non-goal.
 
 import { readFileSync } from 'node:fs';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TransactionSql } from 'postgres';
@@ -55,7 +56,6 @@ vi.mock('@sentry/node', () => sentryStub);
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 let harness: MockSqlHarness;
 
@@ -206,11 +206,11 @@ beforeEach(() => {
   // precedent. Without this, title 9's "exactly one" would be satisfied by
   // whichever case ran first.
   resetRefusalLedgerWarningForTests();
-  delete process.env[LEDGER_FLAG];
+  delete process.env[REFUSAL_LEDGER_FLAG];
 });
 
 afterEach(() => {
-  delete process.env[LEDGER_FLAG];
+  delete process.env[REFUSAL_LEDGER_FLAG];
   resetRefusalLedgerWarningForTests();
   consoleWarn.mockRestore();
 });
@@ -314,7 +314,7 @@ describe('writeRefusalEvent', () => {
     await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
     expect(harness.sqlCalls).toHaveLength(1);
 
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     await expect(writeRefusalEvent(tx(), autonomySuspended())).resolves.toBeUndefined();
 
     // Still one: the disabled call returned BEFORE touching the deciding
@@ -323,7 +323,7 @@ describe('writeRefusalEvent', () => {
 
     // Only the literal 'false' disables. Anything else is on, the
     // LLM_CIRCUIT_BREAKER_ENABLED / DB_ADMISSION_ENABLED shape.
-    process.env[LEDGER_FLAG] = 'FALSE';
+    process.env[REFUSAL_LEDGER_FLAG] = 'FALSE';
     await writeRefusalEvent(tx(), autonomySuspended());
     expect(harness.sqlCalls).toHaveLength(2);
   });
@@ -334,15 +334,15 @@ describe('writeRefusalEvent', () => {
     // readFlagEnabledByDefault(...)` evaluated at module construction passes
     // title 7 and fails here, because it can never see the second toggle.
 
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     await writeRefusalEvent(tx(), autonomySuspended());
     expect(harness.sqlCalls, 'off: nothing may reach the transaction').toHaveLength(0);
 
-    process.env[LEDGER_FLAG] = 'true';
+    process.env[REFUSAL_LEDGER_FLAG] = 'true';
     await writeRefusalEvent(tx(), autonomySuspended());
     expect(harness.sqlCalls, 'on: the write lands without a restart').toHaveLength(1);
 
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     await writeRefusalEvent(tx(), autonomySuspended());
     expect(harness.sqlCalls, 'off again: the toggle works in BOTH directions').toHaveLength(1);
 
@@ -356,7 +356,7 @@ describe('writeRefusalEvent', () => {
   });
 
   it('writeRefusalEvent emits exactly one Sentry warning per disabled episode while the kill switch stays off', async () => {
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
     for (let call = 0; call < 5; call++) {
       await writeRefusalEvent(tx(), autonomySuspended());
@@ -380,7 +380,7 @@ describe('writeRefusalEvent', () => {
     sentryStub.captureMessage.mockImplementation(() => {
       throw new Error('sentry transport is down');
     });
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
     // An UNGUARDED emission rejects before the helper returns, and a suspension
     // then fails BECAUSE THE LEDGER WAS TURNED OFF — the exact opposite of what
@@ -460,7 +460,7 @@ describe('writeRefusalEvent', () => {
       sentryStub.captureMessage.mockImplementation(() => {
         throw new Error('sentry transport is down');
       });
-      process.env[LEDGER_FLAG] = 'false';
+      process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
       for (let attempt = 1; attempt <= failures; attempt++) {
         // Each attempt throws and is swallowed. The episode latch is NOT set —
@@ -509,11 +509,11 @@ describe('writeRefusalEvent', () => {
       // leave that second outage silent for the life of the worker, which is the
       // failure this design exists to avoid — the warning is the only evidence a
       // ledger gap exists.
-      process.env[LEDGER_FLAG] = 'true';
+      process.env[REFUSAL_LEDGER_FLAG] = 'true';
       await writeRefusalEvent(tx(), autonomySuspended());
       expect(harness.sqlCalls, 'the enabled call writes and ends the episode').toHaveLength(1);
 
-      process.env[LEDGER_FLAG] = 'false';
+      process.env[REFUSAL_LEDGER_FLAG] = 'false';
       await writeRefusalEvent(tx(), autonomySuspended());
       expect(sentryStub.captureMessage).toHaveBeenCalledTimes(failures + 2);
       expect(ledgerWarnings()).toHaveLength(failures + 2);
@@ -613,7 +613,7 @@ describe('writeRefusalEvents', () => {
     await refusalWrite.writeRefusalEvents(tx(), inputs);
     expect(harness.sqlCalls).toHaveLength(1);
 
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     await expect(refusalWrite.writeRefusalEvents(tx(), inputs)).resolves.toBeUndefined();
 
     // Still one: the disabled call returned BEFORE touching the deciding
@@ -626,7 +626,7 @@ describe('writeRefusalEvents', () => {
 
     // Only the literal 'false' disables — the LLM_CIRCUIT_BREAKER_ENABLED /
     // DB_ADMISSION_ENABLED shape, and the same rule the single-row arm follows.
-    process.env[LEDGER_FLAG] = 'FALSE';
+    process.env[REFUSAL_LEDGER_FLAG] = 'FALSE';
     await refusalWrite.writeRefusalEvents(tx(), inputs);
     expect(harness.sqlCalls).toHaveLength(2);
   });
