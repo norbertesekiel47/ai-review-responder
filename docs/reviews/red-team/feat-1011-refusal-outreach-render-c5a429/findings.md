@@ -6,7 +6,7 @@
 | Risk | high (from the intake) |
 | Fork / merge-base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
 | Head examined | `bd83caf22b91a3347fcc6b346c737f18a8d1c92f` (pre-rebase; equivalent to `063858da`) |
-| Head pinned | `d0ba72fb3b0d33f4ccb688baad62168612604499` — see § Round-2 closure |
+| Head pinned | `ff6b336f1306cb64de1e0781ab4f5223adccbec3` — see § Round-2 closure and § Rebase |
 | Round 1 head | `535e0763ac6c3361db3caf08a965e7567854f350` |
 | Intake SHA-256 | `21d5549cc4520cf184f12ebc3385a50db02c6bf90a3dcad47818c0aa2176e633` |
 | **Status** | **`CLEAR`** — F1 fixed in `d0ba72fb`; the two P2s accepted as recorded |
@@ -229,3 +229,17 @@ arriving with the rebase.
 **Residual risk, stated rather than hidden:** the two-round cap is spent, so no
 red-team round verified `d0ba72fb` by mutation. F1's fix is confirmed by reading
 the assertion at HEAD, not by a re-planted mutant.
+
+## Rebase — feat-1011-refusal-outreach-render onto `main` at `cfddfad4`
+
+This branch was rebased after the closure section above was written. `main` had
+advanced by one docs-only commit (#1040, WS8 Phase E) with **zero file overlap**
+against this branch's surface, so the rebase was conflict-free.
+
+Every commit SHA named above is therefore the **pre-rebase** form and no longer
+resolves on the branch. The one that matters maps as
+`d0ba72fb` → `ff6b336f`; the narrative is unchanged by the
+rewrite because no content moved, only the parent chain.
+
+`head_sha` is re-pinned to `ff6b336f1306cb64de1e0781ab4f5223adccbec3`, the post-rebase HEAD. The
+gate was re-run serially at that HEAD after this note landed.

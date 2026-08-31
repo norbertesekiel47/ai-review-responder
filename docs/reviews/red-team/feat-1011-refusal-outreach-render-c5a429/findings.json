@@ -5,7 +5,7 @@
   "branch": "feat/1011-refusal-outreach-render",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "d0ba72fb3b0d33f4ccb688baad62168612604499",
+  "head_sha": "ff6b336f1306cb64de1e0781ab4f5223adccbec3",
   "intake_sha256": "21d5549cc4520cf184f12ebc3385a50db02c6bf90a3dcad47818c0aa2176e633",
   "risk": "high",
   "round": 2,
