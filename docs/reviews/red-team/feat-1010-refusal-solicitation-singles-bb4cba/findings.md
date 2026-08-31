@@ -396,3 +396,32 @@ rewrite because no content moved, only the parent chain.
 
 `head_sha` is re-pinned to `6f447b01fdb903820af45eb076fa0485d70f1517`, the post-rebase HEAD. The
 gate was re-run serially at that HEAD after this note landed.
+
+## Amendment 3 — the fifth teardown, found after this report was written
+
+The pre-push hook (`vitest --changed`) failed on
+`src/lib/solicitation/__tests__/release.integration.test.ts`: the suite reaches
+`latchHalt` via `runReleaseCycle` -> `isolateItem` -> `latchSystemHalt`, writes a
+`platform_halt` Refusal, and its `afterAll` then deletes the businesses those
+rows reference — `refusal_events_business_id_fkey`, no cascade.
+
+**This report should have found it.** Duty 4 is missed siblings, and the branch's
+own deviation D4 had already established the class ("a test that deletes a
+location out from under a Refusal now has to say so") and fixed four files.
+Neither round swept the remaining `DELETE FROM businesses` teardowns for it.
+Round 2 compounded that by spending nearly its whole budget on
+`SolicitationReleasePoller` code that `c4bfa647` then reverted in full.
+
+The gate could not have caught it either: it runs only this branch's five own
+promised integration suites, never the full live-DB lane that CI runs.
+
+Fixed under owner-authorized surface amendment 3. The sweep the class owed is now
+run and recorded in the deviations file (D7): five files match the predicate, and
+the four unfixed ones are safe only because their halt reasons map to `null` in
+`BATCH_HALTED_REFUSAL_CATEGORIES`.
+
+`head_sha` -> `b2556c7a81b48dca3a310bc296656d31338cd461`
+`intake_sha256` -> `735e4dfeaa3444521725005662ec81ae6ef0a6d8bb711849f618be42ed9563f9` (the surface gained the one test path)
+
+**No round 3 was run.** The cap is spent, and this section is a record of a
+defect found downstream of the report, not a new pass.
