@@ -467,7 +467,25 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       **Until then, treat production as unmonitored by Sentry crons and uptime.**
       Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
       `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
-- [ ] **G3.** **Mutating acceptance drills run on STAGING only**
+- [ ] **G3. STARTED 2026-08-31 — 2 of 10 drills run, and they found a PRODUCTION
+      alerting defect.** ⚠️ **A recurring ops finding pages nobody.** §4.2 and §4.3 both
+      fired correctly and both reached Sentry; **neither produced a page**. Cause is issue
+      GROUPING: `emitHealthFindings` uses `Sentry.captureMessage`, so a repeat finding joins
+      its existing group, and **both** alert rules trigger only on *First seen / Resolved /
+      Reappeared / Regression*. An ongoing group is none of those. **Production rule
+      `3925256` — created in G.1 — has the identical trigger set**, so its four ops signals
+      page on a signal's FIRST occurrence and are silent thereafter. G.1 verified routing
+      with a **test notification**, which is by construction a first-seen event, so its
+      "four signals reach Discord" holds for the first occurrence only.
+      **Fix before further drills:** add a frequency trigger (e.g. *seen more than 0 times in
+      one hour*) to `3608329` **and** `3925256`; UI work, no MCP tool. Then re-run §4.2/§4.3
+      as the regression test. Also **D-1: §4.1 is unrunnable as written** — the OutboxPoller
+      claims the fixture (5 s) 60× faster than the health check reads it (300 s), so it must
+      fold into the §4.7 worker-stop drill. Teardown complete, staging clean, production
+      untouched. Evidence:
+      `docs/runbooks/evidence/2026-08-31-g3-alerting-acceptance-drills-evidence.md`.
+      Original text follows.
+      **Mutating acceptance drills run on STAGING only**
       (beta-launch-alerting §4). Production gets routing verification via safe
       synthetic canaries — never failure injection, worker stops, or cost-cap
       exhaustion against the live stack.
