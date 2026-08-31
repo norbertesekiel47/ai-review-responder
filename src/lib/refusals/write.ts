@@ -71,7 +71,13 @@ import {
 const logger = createWorkerLogger('[refusals:write]');
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
+/**
+ * The kill switch's NAME, exported so nothing re-spells it (#1010 follow-up).
+ * Six test files each carried their own `'REFUSAL_LEDGER_ENABLED'` literal; a
+ * rename would have left them green while testing a flag that no longer
+ * exists. This module reads the flag, so it owns the name.
+ */
+export const REFUSAL_LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /**
  * How long a SYNCHRONOUSLY-THROWN capture suppresses the next warning attempt.

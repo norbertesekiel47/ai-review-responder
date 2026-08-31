@@ -1454,6 +1454,13 @@ async function commitWithhold(
   // re-using it here would collide two different decisions on one partial-index
   // key.
   //
+  // THE OTHER HALF OF THIS LANE LIVES IN `ask-generation.ts`
+  // (`recordOutreachWithheldRefusal`, #1011). Both write `outreach_withheld`
+  // keyed on the SAME `solicitation_outreach.id`, so they share one partial
+  // unique index and only a `delivery_status` filter keeps them apart: a render
+  // withholds BEFORE the row is sendable, this gate withholds a row that already
+  // rendered. Change either side's subject or code axis and check the other.
+  //
   // THE DISPATCH MAP, never the render one. The two halves write the same
   // `refusal_source` over different closed enums and overlap on `lint_failed`
   // and `moderation_high` because this gate re-lints and re-moderates the stored

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -776,7 +777,6 @@ function instrumentedExecutor(base: postgresType.Sql): InstrumentedExecutor {
 // ── #1010 T5 fixtures: the Refusal ledger ───────────────────────────────────
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** Postgres' CHECK-violation SQLSTATE. */
 const CHECK_VIOLATION = '23514';
@@ -949,7 +949,7 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
     // The kill switch is default-ON and one case turns it off; a leak would
     // silently turn every ledger assertion in this file into a no-op that still
     // passes.
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
     // #1010's rows. Cleared per case so "exactly one Refusal" means this case's,
     // and swept BEFORE teardown deletes the account and location this table's
     // two no-action foreign keys point at.
@@ -3313,7 +3313,7 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
       expect(ledgerOn.refusalCount).toBe(1);
       await sql()`DELETE FROM refusal_events WHERE account_id = ${accountId()}::uuid`;
 
-      process.env[LEDGER_FLAG] = 'false';
+      process.env[REFUSAL_LEDGER_FLAG] = 'false';
       const ledgerOff = await haltAndSnapshot();
 
       // The latch, the cancellations, the audit receipt, the spine step and the

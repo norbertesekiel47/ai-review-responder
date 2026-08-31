@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -112,7 +113,6 @@ let flagBefore: string | undefined;
 let ledgerFlagBefore: string | undefined;
 
 /** The Refusal ledger's default-ON kill switch. Only 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** The category migration 116's `refusal_category` CHECK will never admit. */
 const UNKNOWN_CATEGORY = 'a_category_the_ledger_never_named';
@@ -598,7 +598,7 @@ describeWithDb(
 
       flagBefore = process.env.SOLICITATION_SEND_ENABLED;
       process.env.SOLICITATION_SEND_ENABLED = 'true';
-      ledgerFlagBefore = process.env[LEDGER_FLAG];
+      ledgerFlagBefore = process.env[REFUSAL_LEDGER_FLAG];
     }, LIVE_DB_LOCK_HOOK_TIMEOUT_MS);
 
     beforeEach(() => {
@@ -628,8 +628,8 @@ describeWithDb(
       // The kill switch is per-test state (#1011); restore it before anything
       // else so a failing assertion cannot leave the ledger dark for the rest
       // of the file.
-      if (ledgerFlagBefore === undefined) delete process.env[LEDGER_FLAG];
-      else process.env[LEDGER_FLAG] = ledgerFlagBefore;
+      if (ledgerFlagBefore === undefined) delete process.env[REFUSAL_LEDGER_FLAG];
+      else process.env[REFUSAL_LEDGER_FLAG] = ledgerFlagBefore;
       if (!db) return;
       // `refusal_events.subject_id` is a bare UUID with no FK to
       // solicitation_outreach, so nothing here cascades — the ledger is
@@ -1695,7 +1695,7 @@ describeWithDb(
       });
 
       it('every writer still persists its render when REFUSAL_LEDGER_ENABLED is false', async () => {
-        process.env[LEDGER_FLAG] = 'false';
+        process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
         const drive = await driveAllFourRenderWriters();
 
@@ -1720,7 +1720,7 @@ describeWithDb(
         // bypasses the helper with a raw insert (round 1, R1-4). The point of
         // the kill switch is that NO row is written — and the five withheld
         // rows below are what makes this zero non-vacuous.
-        process.env[LEDGER_FLAG] = 'false';
+        process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
         await driveAllFourRenderWriters();
 

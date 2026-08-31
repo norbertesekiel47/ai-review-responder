@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import postgres from 'postgres';
@@ -93,7 +94,6 @@ vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
 });
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** Postgres' CHECK-violation SQLSTATE. */
 const CHECK_VIOLATION = '23514';
@@ -732,7 +732,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     // The kill switch is default-ON and one case turns it off; a leak would
     // silently turn every ledger assertion in this file into a no-op that still
     // passes.
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
     enqueueFailure.error = null;
     // #1010's rows. Cleared per case so "exactly N Refusals" means this case's,
     // and swept BEFORE teardown deletes the account and location this table's
@@ -2598,7 +2598,7 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     expect(await readRefusals()).toHaveLength(3);
     await sql()`DELETE FROM refusal_events WHERE account_id = ${tenant!.accountId}::uuid`;
 
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
     const offBatch = await seedBatch();
     const ledgerOff = builtBatch(await build(offBatch));
 

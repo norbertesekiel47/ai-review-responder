@@ -34,6 +34,7 @@
 // means retiring the previous one — the fixture already does this.
 
 import { randomUUID } from 'node:crypto';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -174,7 +175,6 @@ vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
 });
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** Postgres' CHECK-violation SQLSTATE. */
 const CHECK_VIOLATION = '23514';
@@ -2831,7 +2831,7 @@ describeWithDb(
         const ledgerOn = await dispatchAndSnapshot('dispatch-refusal-flag-on');
         expect(ledgerOn.refusalCount).toBe(1);
 
-        process.env[LEDGER_FLAG] = 'false';
+        process.env[REFUSAL_LEDGER_FLAG] = 'false';
         try {
           const ledgerOff = await dispatchAndSnapshot('dispatch-refusal-flag-off');
 
@@ -2845,7 +2845,7 @@ describeWithDb(
           // …and the ONLY difference is the Refusal that was not recorded.
           expect(ledgerOff.refusalCount).toBe(0);
         } finally {
-          delete process.env[LEDGER_FLAG];
+          delete process.env[REFUSAL_LEDGER_FLAG];
         }
       });
     });

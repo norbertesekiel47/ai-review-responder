@@ -1651,7 +1651,18 @@ async function selectRenderedOutreach(
        AND o.account_id = ${batch.account_id}::uuid
        AND o.business_id = ${batch.business_id}::uuid
        AND o.delivery_status = 'rendered'
-     ORDER BY o.rendered_at ASC
+     -- The trailing o.id is the TIEBREAK, and it is load-bearing under a
+     -- LIMIT: rows sharing a rendered_at would otherwise come back in an
+     -- arbitrary order, so which ones fall inside scanLimit could differ
+     -- between two identical calls. #1011 made shared instants ORDINARY rather
+     -- than freakish -- it moved rendered_at to DECISION time, and both
+     -- settleGenerationExhaustion and settleBudgetStop stamp EVERY row they
+     -- settle with ONE shared decidedAt. Those rows are all withheld, which the
+     -- delivery_status filter above excludes, so the hazard is latent rather
+     -- than live; this makes it unreachable instead of merely unlikely.
+     -- NO BACKTICKS IN THIS COMMENT: it sits inside a tagged template literal,
+     -- and one backtick ends the query.
+     ORDER BY o.rendered_at ASC, o.id ASC
      LIMIT ${scanLimit}
   `;
   return rows.map((row) => row.id);

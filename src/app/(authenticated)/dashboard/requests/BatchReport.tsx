@@ -32,6 +32,9 @@ const REASON_META: Record<
 > = {
   no_consent: { label: 'Not covered by your consent attestation', tone: 'hold' },
   suppressed: { label: 'Marked never-contact', tone: 'hold' },
+  // Correct copy, and deliberately unchanged: this chip renders only when the
+  // reason actually fires, and today it cannot — nothing feeds `matchedReview`
+  // (#1048). The label is right for the day the producer lands.
   already_reviewed: { label: 'Already left a review', tone: 'hold' },
   stale_visit: { label: 'Visit is too old to ask about', tone: 'hold' },
   over_contacted: { label: 'Asked too recently', tone: 'hold' },

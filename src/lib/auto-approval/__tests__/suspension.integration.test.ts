@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -52,7 +53,6 @@ vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
 });
 
 /** The default-ON kill switch. Only the literal string 'false' disables it. */
-const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
 
 /** Postgres' CHECK-violation SQLSTATE. */
 const CHECK_VIOLATION = '23514';
@@ -215,12 +215,12 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
   beforeEach(async () => {
     // The ledger is default-ON. A 'false' leaked from title 18 would turn every
     // other Refusal assertion into a silently-passing no-op.
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
     await cleanTaskRows();
   });
 
   afterEach(() => {
-    delete process.env[LEDGER_FLAG];
+    delete process.env[REFUSAL_LEDGER_FLAG];
   });
 
   afterAll(async () => {
@@ -525,7 +525,7 @@ describeWithDb('autonomy suspension against live local Postgres', { timeout: 30_
   });
 
   it('suspendAccountAutonomy still suspends, still writes its audit row and still enqueues its notices when REFUSAL_LEDGER_ENABLED is false', async () => {
-    process.env[LEDGER_FLAG] = 'false';
+    process.env[REFUSAL_LEDGER_FLAG] = 'false';
 
     await expect(suspend()).resolves.toEqual({ newlySuspended: true });
 
