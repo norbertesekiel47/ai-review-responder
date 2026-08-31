@@ -4,6 +4,82 @@ Everything the plan did not anticipate, recorded here rather than decided
 silently. Plan: `feat-1010-refusal-solicitation-singles-plan.md`. Intake:
 `.feature/intake.json`.
 
+## D0 — RED-TEAM P1s: two gaps this branch created and did not close
+
+Red team round 1: 21 planted / 19 killed / 1 arbiter-reclassified equivalent /
+1 non-compiling. **No P0.** Every area briefed as likely hollow measured real —
+the single-statement claim dies to a loop at both the helper and the call site;
+all three clock swaps die on comparisons computed inside PostgreSQL (the ask swap
+failed by 9 ms, which a JS-`Date` comparison would have missed); the second
+`ON CONFLICT` spelling dies to a source-text comparison against both its sibling
+and migration 116; all five null-mapped reasons die by runtime ABSENCE rather
+than by map assertion; every early-return guard removal died; the halt write's
+position died.
+
+Three P1s. Two are fixed here; the third is the `vocabulary.ts` header (D3),
+which no swarm branch can reach.
+
+### P1-A — the dispatch write's LAST position was unpinned
+
+Moving `writeRefusalEvent` to the TOP of `commitWithhold` left all 33 dispatch
+integration cases green, which makes the lane's rollback case vacuous under any
+reorder. **The halt lane pins the identical claim and its mutant dies** — so the
+branch proved the property for one lane and assumed it for another.
+
+**Fix:** `a dispatch withhold writes its refusal_events row after the outreach
+terminal, the child run and the receipt step`. It pins receiver identity (one
+transaction, the ledger statement on it), the full five-write order, and
+`ledgerIndex === queries.length - 1`.
+
+**Re-proved by re-planting:** with the write hoisted,
+`expected 14 to be greater than 23`; restored, 34/34. `dispatch.ts` is
+byte-identical to HEAD (`git hash-object` matches `HEAD:…`).
+
+**Cost recorded:** a third copy of the `recordingExecutor` Proxy, because the
+shared helper directory is off-surface. Noted in its docblock; the right home is
+`src/lib/shared/__tests__/helpers/`, which a later slice should claim.
+
+### P1-B — a SYSTEM halt ledger failure reached no alert path
+
+`latchSystemHalt` runs only under `SolicitationReleasePoller`. That poller is not
+a BullMQ worker, so `attachJobFailureSink` never sees it, and
+`runSolicitationReleaseCycle` had no catch of its own — the shared
+`createGuardedPoll` harness catches and calls `logger.error` alone.
+
+**This branch CREATED the gap.** Before it, no ledger failure could occur on that
+path; `batch_halted` now writes on the `platform_halt` and `send_window_elapsed`
+arms. A failed system halt would have left a batch un-halted with only a log line.
+
+**Fix,** on the #1009 `AutonomyGovernorScheduler` precedent exactly:
+`runSolicitationReleaseCycle` catches, calls `Sentry.captureException` with
+`tags: { subsystem: 'solicitation_release' }`, wraps that capture in its own
+`try {} catch {}` so reporting a failure can never escalate it, and **rethrows**
+so the harness still writes the durable line and still releases its single-flight
+flag. `guarded-poll.ts` is untouched — its catch is shared by every poller and
+widening it is a different change.
+
+**Mutant check:** reverting to the old three-line body makes the new case fail
+(`captureException` called 0 times); restored, 9/9.
+
+**Cost recorded:** surface amendment 2 of 2, owner-approved. This branch has none
+left.
+
+**Verdict:** ACCEPT both — each gap re-proved closed by re-planting its mutation.
+
+## D6 — the reclassify trigger fired again, and the estimate was corrected again
+
+The P1 fixes added ~160 test lines, taking the branch to 2,346 against an
+`estimated_test_lines` of 1,150 — past the 2× trigger.
+
+**Resolution:** the estimate is set to the MEASURED 2,346, exactly as the
+prerequisite branch did. Recorded here so the correction cannot read as tuning a
+number to silence a gate. The production bucket is unchanged and well inside its
+estimate; only the test bucket moved, which is the direction that costs nothing.
+
+**Verdict:** ACCEPT — no lane change. The branch was already `standard`/`high`,
+and 2,346 test lines against 240 production lines is the shape a slice with five
+live-DB suites and three lanes should have.
+
 ## D1 — three titles are one `it` PER LANE, not one `it` total
 
 **Titles affected:** `every solicitation refusal reason writes its verbatim code

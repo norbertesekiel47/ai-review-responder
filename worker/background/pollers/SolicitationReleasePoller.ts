@@ -20,6 +20,7 @@
 // releaser is ever parallelized, the single-choke-point cap resolution must be
 // revisited.
 
+import * as Sentry from '@sentry/node';
 import type { Sql } from 'postgres';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { sql } from '@/lib/db/server';
@@ -53,8 +54,56 @@ function getIntervalMs(): number {
   return withinContract ? parsed : DEFAULT_INTERVAL_MS;
 }
 
+/**
+ * One release cycle, plus the ONE thing this composition root owns beyond
+ * handing over the singleton: the cycle's alert path.
+ *
+ * WHY IT EXISTS (#1010 red-team P1-B). This poller is a guarded poll, NOT a
+ * BullMQ worker, so `attachJobFailureSink` never sees a failure here and
+ * `createGuardedPoll`'s shared catch emits `logger.error` alone. Before this
+ * branch nothing terminal could happen in the cycle. This branch routes a NEW
+ * terminal failure into it: `latchSystemHalt` — reached only from
+ * `runReleaseCycle`'s `platform_halt` and `send_window_elapsed` paths — now
+ * writes a `batch_halted` Refusal, and a writer bug there aborts the halt. Left
+ * at the log line alone, the batch stays UN-halted and the same abort repeats
+ * silently every minute, on the lane that stops sending. Issue shape follows
+ * `worker/job-failure-sink.ts`, and the whole shape follows
+ * `AutonomyGovernorScheduler`'s #1009 precedent.
+ *
+ * IT RETHROWS, and that is the difference from the Governor. That catch
+ * CONTAINS a failure to one candidate and therefore swallows; this one only
+ * OBSERVES. Rethrowing leaves the guarded-poll harness owning what it already
+ * owned — the structured `Poll cycle failed` line and, in `finally`, the
+ * single-flight flag — so the durable line survives even when Sentry does not,
+ * and a swallow here would instead report a cycle to Sentry while telling the
+ * loop it succeeded.
+ *
+ * THE CAPTURE IS ITSELF WRAPPED, and it swallows. Reporting a failure must
+ * never escalate it: a throwing transport would replace the cycle's real error
+ * with its own on the way out, and the log line and Sentry issue would then
+ * disagree about what failed.
+ *
+ * NO NEW RULE LANDS HERE. This adds a sink, not behaviour — the phase order,
+ * the governor order, the Judge split and the per-tick budget all stay in
+ * `release.ts` (invariant #15, and this file's header).
+ */
 export async function runSolicitationReleaseCycle(exec: Sql): Promise<void> {
-  const report = await runReleaseCycle(exec);
+  let report: Awaited<ReturnType<typeof runReleaseCycle>>;
+  try {
+    report = await runReleaseCycle(exec);
+  } catch (error) {
+    try {
+      Sentry.captureException(error, {
+        tags: { subsystem: 'solicitation_release' },
+        // Error CLASS only — a DB error's text can echo bound values, and the
+        // structured line the harness writes carries no more than this either.
+        extra: { error_name: error instanceof Error ? error.name : typeof error },
+      });
+    } catch {
+      // Reporting a failure must never escalate it.
+    }
+    throw error;
+  }
   logger.log('Release cycle complete', { ...report });
 }
 

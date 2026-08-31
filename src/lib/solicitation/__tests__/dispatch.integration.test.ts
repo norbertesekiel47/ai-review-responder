@@ -974,6 +974,98 @@ async function readRefusalsForOutreach(outreachId: string): Promise<RefusalRow[]
   `;
 }
 
+interface RecordedQuery {
+  /** Static template text with every bound value elided. */
+  text: string;
+  /** True when the statement was issued on the TRANSACTION, not the pool. */
+  onTransaction: boolean;
+}
+
+interface RecordingExecutor {
+  executor: postgresType.Sql;
+  queries: RecordedQuery[];
+  /** One entry per `begin` — the exact objects a collaborator should receive. */
+  transactions: postgresType.TransactionSql[];
+}
+
+/**
+ * A `Proxy` over a REAL `Sql` that records every statement and WHICH receiver
+ * issued it — the pooled client or the transaction the writer opened.
+ *
+ * THE THIRD COPY of this helper (`approval.integration.test.ts`'s
+ * `instrumentedExecutor`, `batch-builder.integration.test.ts`'s
+ * `recordingExecutor`), and the batch-builder copy's own note asks whoever needs
+ * a third to unify them. It is NOT unified here because the only home for a
+ * shared version — `src/lib/shared/__tests__/helpers/` — is outside this
+ * branch's edit surface. Unify all three there next.
+ *
+ * It exists for exactly one claim: "inside tx1" is not a POSITION. Red-team
+ * P1-A moved `commitWithhold`'s ledger write to the TOP of the function and all
+ * 33 dispatch cases stayed green — because a row-existence assertion cannot see
+ * order, and the rollback case passes vacuously when the write it aborts on is
+ * the first thing the withhold does.
+ *
+ * A Proxy over a real `Sql`, never a `{ begin } as unknown as Sql` cast, and
+ * every leading `begin` argument is forwarded — same contract, and the same
+ * reasoning, as `helpers/abort-injection.ts`.
+ */
+function recordingExecutor(base: postgresType.Sql): RecordingExecutor {
+  const queries: RecordedQuery[] = [];
+  const transactions: postgresType.TransactionSql[] = [];
+
+  const record = (argArray: unknown[], onTransaction: boolean): void => {
+    const strings = argArray[0] as TemplateStringsArray | undefined;
+    if (strings && Array.isArray(strings.raw)) {
+      queries.push({ text: strings.join(' ? '), onTransaction });
+    }
+  };
+
+  const bindTrap = (target: object, prop: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, prop);
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  };
+
+  const wrapTransaction = (tx: postgresType.TransactionSql): postgresType.TransactionSql => {
+    const proxy = new Proxy(tx, {
+      apply(target, thisArg, argArray) {
+        record(argArray, true);
+        return Reflect.apply(
+          target as unknown as (...args: unknown[]) => unknown,
+          thisArg,
+          argArray,
+        );
+      },
+      get: bindTrap,
+    }) as postgresType.TransactionSql;
+    transactions.push(proxy);
+    return proxy;
+  };
+
+  const executor = new Proxy(base, {
+    apply(target, thisArg, argArray) {
+      record(argArray, false);
+      return Reflect.apply(target as unknown as (...args: unknown[]) => unknown, thisArg, argArray);
+    },
+    get(target, prop) {
+      if (prop !== 'begin') return bindTrap(target, prop);
+      return (...args: unknown[]) => {
+        const callback = args[args.length - 1] as (
+          tx: postgresType.TransactionSql,
+        ) => Promise<unknown>;
+        const leading = args.slice(0, -1);
+        return (target.begin as (...forwarded: unknown[]) => Promise<unknown>)(
+          ...leading,
+          (tx: postgresType.TransactionSql) => callback(wrapTransaction(tx)),
+        );
+      };
+    },
+  }) as postgresType.Sql;
+
+  return { executor, queries, transactions };
+}
+
 /**
  * Holds the per-Business advisory lock for `holdFor`, resolving once it is
  * actually held.
@@ -2472,6 +2564,78 @@ describeWithDb(
           disposition_reason: null,
         });
         expect(await readRefusalsForOutreach(flagDefer.outreachId)).toEqual([]);
+      });
+
+      it('a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step', async () => {
+        // Red-team P1-A. "Inside tx1" is not a POSITION: the write was moved to
+        // the TOP of `commitWithhold` and all 33 dispatch cases stayed green.
+        // Row-existence assertions cannot see order, and the rollback case below
+        // is the one that most looks like it can — it passes VACUOUSLY when the
+        // statement it aborts on is the first thing the withhold does, because
+        // then there is nothing earlier for the abort to take with it. This case
+        // is what makes that one a claim about all five earlier writes.
+        //
+        // Technique copied from the halt lane's identical claim in
+        // `approval.integration.test.ts`, whose mutant dies.
+        const fixture = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+        const { executor, queries, transactions } = recordingExecutor(sql());
+
+        await withSendFlagOn(async () => {
+          await dispatchOutreach(executor, {
+            batchId: fixture.batchId,
+            businessId,
+            outreachId: fixture.outreachId,
+            outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+            correlationId: 'dispatch-refusal-write-position',
+          });
+        });
+
+        // The withhold really happened — otherwise every ordering claim below is
+        // about a dispatch that never reached `commitWithhold`.
+        expect(await readOutreach(fixture.outreachId)).toMatchObject({
+          delivery_status: 'withheld',
+          disposition_reason: 'no_postal_address',
+        });
+
+        // RECEIVER IDENTITY first: ONE transaction (a withhold never opens tx2),
+        // and the ledger statement rode it rather than the pooled client the
+        // caller passed in. A Refusal written on the base client commits
+        // independently of the terminal and survives its rollback.
+        expect(transactions).toHaveLength(1);
+        const ledgerQueries = queries.filter((query) =>
+          /INSERT INTO refusal_events/.test(query.text));
+        expect(ledgerQueries).toHaveLength(1);
+        expect(ledgerQueries[0]!.onTransaction).toBe(true);
+
+        const indexOf = (pattern: RegExp): number =>
+          queries.findIndex((query) => pattern.test(query.text));
+        const childIndex = indexOf(/INSERT INTO agent_runs/);
+        // The TERMINAL specifically. `stampConsentSnapshot` issues its own
+        // `UPDATE solicitation_outreach` a few lines earlier, so the bare table
+        // name would match the wrong statement and the claim would be weaker
+        // than it reads.
+        const terminalIndex = indexOf(/delivery_status = 'withheld'/);
+        const stepIndex = indexOf(/INSERT INTO agent_run_steps/);
+        const childTerminalIndex = indexOf(/UPDATE agent_runs/);
+        const outboxIndex = indexOf(/UPDATE job_outbox/);
+        const ledgerIndex = indexOf(/INSERT INTO refusal_events/);
+
+        // `commitWithhold`'s documented order, in full: the Lazy child, the
+        // withheld terminal, the receipt step, the child's own terminal, the
+        // outbox completion — and only then the Refusal.
+        expect(childIndex).toBeGreaterThanOrEqual(0);
+        expect(terminalIndex).toBeGreaterThan(childIndex);
+        expect(stepIndex).toBeGreaterThan(terminalIndex);
+        expect(childTerminalIndex).toBeGreaterThan(stepIndex);
+        expect(outboxIndex).toBeGreaterThan(childTerminalIndex);
+        expect(ledgerIndex).toBeGreaterThan(outboxIndex);
+
+        // LAST OF ALL, which is the stronger form of the same claim and the one
+        // that also pins the settlement join: nothing tx1 issues follows the
+        // ledger write, so every statement this withhold makes is inside the
+        // scope a ledger abort rolls back.
+        expect(ledgerIndex).toBe(queries.length - 1);
       });
 
       it('a ledger failure in the dispatch lane rolls back the outreach withhold, child run, receipt step, outbox completion and batch close together', async () => {

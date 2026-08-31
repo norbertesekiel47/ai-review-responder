@@ -1,0 +1,337 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1010-refusal-solicitation-singles-bb4cba",
+  "branch": "feat/1010-refusal-solicitation-singles",
+  "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "head_sha": "e9a6a50b21710d28209ebed7023704a21159a53a",
+  "intake_sha256": "b6badf4fd9244c9bf2e64eb8cf3008db762fcc2f3afacc2856c4c584379a4ca9",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-08-31T06:32:24Z",
+  "inventory": [
+    {
+      "id": "i01",
+      "test": "the set-based arm re-spells the refusal_events_subject_uniq predicate byte-for-byte, identically to the single-row arm",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i02",
+      "test": "the set-based arm issues no statement for an empty input set",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i03",
+      "test": "the set-based arm issues exactly one INSERT statement for every non-empty input set",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i04",
+      "test": "the set-based arm writes nothing when REFUSAL_LEDGER_ENABLED is the literal string false",
+      "file": "src/lib/refusals/__tests__/write.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i05",
+      "test": "the set-based arm writes one row per input and leaves one row when the same subject appears twice in one call",
+      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i06",
+      "test": "the set-based arm commits when an input subject already exists from an earlier call",
+      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i07",
+      "test": "a set-based ledger write does not survive its caller's deciding transaction rolling back after the insert succeeds",
+      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i08",
+      "test": "candidate history query pre-aggregates visits and asks before the 5000-contact limit",
+      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "modified only by one positional mock-result slot for the new set INSERT; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i09",
+      "test": "a batch build writes one refusal_events row per withheld ask and none for a send decision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i10",
+      "test": "a batch build writes no refusal_events row for a velocity_banked withhold",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i11",
+      "test": "a batch build stamps every ask Refusal with the batch's decidedAt, never with insert time",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "the same production line is covered by i12, which killed the transaction_time swap; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i12",
+      "test": "an ask Refusal's occurred_at equals solicitation_asks.decided_at inside PostgreSQL at full microsecond precision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i13",
+      "test": "a batch build that withholds nothing writes no refusal_events row",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "the empty-set guard it covers is killed at the unit level by i02; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i14",
+      "test": "two builds evaluating the same contact write two refusal_events rows, one per decision",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i15",
+      "test": "every ask_withheld refusal points to the exact solicitation_ask row whose decision it records",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i16",
+      "test": "a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i17",
+      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i18",
+      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i19",
+      "test": "a ledger failure in the ask lane rolls back the whole batch build",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i20",
+      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i21",
+      "test": "tenant scope: a consent row at business A does not make the same handle eligible at business B in the same account",
+      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "pre-existing case, modified only by an inline refusal_events cleanup in its finally (deviation D4); round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i22",
+      "test": "a dispatch withhold writes one refusal_events row against the outreach id",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i23",
+      "test": "a dispatch withhold stamps occurred_at with the gate's decision clock, not with transaction start",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i24",
+      "test": "a dispatch defer writes no refusal_events row",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i25",
+      "test": "a ledger failure in the dispatch lane rolls back the outreach withhold, child run, receipt step, outbox completion and batch close together",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i26",
+      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i27",
+      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i28",
+      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i29",
+      "test": "an admin halt writes exactly one refusal_events row against the batch id, never one per cancelled outreach",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "the per-row fan-out it names is killed at statement level by i33; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i30",
+      "test": "an owner halt writes no refusal_events row",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i31",
+      "test": "a second halt of an already-halted batch writes no second refusal_events row",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i32",
+      "test": "a halt Refusal carries occurred_at equal to the solicitation_batches halted_at written by the same transaction",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "the same production line is covered by i34, which killed the new Date() swap; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i33",
+      "test": "a halt writes its Refusal after cancelling outreach and writing any audit row, but before the run-spine step and settlement join",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i34",
+      "test": "a halt Refusal's occurred_at equals solicitation_batches.halted_at inside PostgreSQL at full microsecond precision",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i35",
+      "test": "a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i36",
+      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "i37",
+      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "HALT instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i38",
+      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
+      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "HALT instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+    },
+    {
+      "id": "i39",
+      "test": "a platform halt writes a refusal_events row even though it writes no account_audit_log row",
+      "file": "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
+      "outcome": "killed"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P1",
+      "title": "the dispatch lane's ledger-write POSITION is unpinned: moving it to the top of commitWithhold leaves the whole 33-case dispatch integration suite green, and makes the rollback case pass vacuously",
+      "at": "src/lib/solicitation/dispatch.ts:1467",
+      "duty": 1,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "the SYSTEM halt lane adds a terminal ledger-failure path with no Sentry signal and no alerting rule row: latchSystemHalt runs under SolicitationReleasePoller, whose guarded-poll catch only calls logger.error, so attachJobFailureSink never sees it",
+      "at": "worker/background/guarded-poll.ts:108",
+      "duty": 5,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "vocabulary.ts's header is FALSE at HEAD as a direct result of this diff: it still says five exported lane maps have no production caller, and three of the five now have one",
+      "at": "src/lib/refusals/vocabulary.ts:44",
+      "duty": 3,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-4",
+      "severity": "P2",
+      "title": "the alerting runbook attributes the disabled-ledger warning to writeRefusalEvent alone; writeRefusalEvents now emits the identical signal through the same warnLedgerDisabled()",
+      "at": "docs/runbooks/beta-launch-alerting.md:55",
+      "duty": 5,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "fragile comparator: expected rows are sorted with localeCompare and compared against a Postgres ORDER BY on a uuid column, which is a different collation from the one the query establishes",
+      "at": "src/lib/refusals/__tests__/write.integration.test.ts:184",
+      "duty": 2,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "evaluateAsk's already_reviewed gate has no producer, so one of the six WithholdReason members and its Refusal mapping are unreachable end-to-end through buildSolicitationBatch",
+      "at": "src/lib/solicitation/batch-builder.ts:368",
+      "duty": 4,
+      "disposition": "open"
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 39,
+    "killed": 18,
+    "survived_confirmed_p0": 0,
+    "inconclusive": 0,
+    "skipped_budget": 21,
+    "excluded": 0,
+    "findings_total": 6,
+    "p0_open": 0,
+    "p1_open": 3,
+    "p2_open": 3,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "INCOMPLETE_BUDGET"
+}

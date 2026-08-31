@@ -81,6 +81,8 @@
     "src/lib/solicitation/__tests__/approval.test.ts",
     "src/lib/solicitation/__tests__/approval.integration.test.ts",
     "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
+    "worker/background/pollers/SolicitationReleasePoller.ts",
+    "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
     ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
@@ -117,11 +119,13 @@
     "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
     "a ledger failure in the ask lane rolls back the whole batch build",
     "a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together",
-    "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false"
+    "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
+    "a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step",
+    "a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 240,
-  "estimated_test_lines": 1150,
+  "estimated_test_lines": 2346,
   "dependencies_added": [],
   "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy and leaves ask, dispatch and halt behaviour byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes the three call sites and the set-based arm together. (3) No down migration: migration 116 stays, and rows already written are not deleted by a revert. ArchivalPoller's refusal_events arm landed in #1009 and is not touched here, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
   "observability": [
