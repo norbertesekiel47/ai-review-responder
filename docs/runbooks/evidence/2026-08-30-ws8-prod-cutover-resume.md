@@ -1239,7 +1239,23 @@ well as presence — across the whole deploy log:
 **The six previously-unexercised boot gates are now CLOSED.** The 2026-08-30 record split
 the claim into "twelve proven by execution, six present but untested", because
 `assertWorkerStartupEnv` throws on the first failure and `STRIPE_WEBHOOK_SECRET` sat in
-the second check. This boot ran the assertion to completion, so all six executed:
+`assertStripeWorkerEnv`, its **third** check.
+
+Two call sites carry the six, so the proof is stated per site rather than as one sweep:
+
+- **Four of them sit after the old throw inside `assertWorkerStartupEnv`**
+  (`worker/config/startup-assert.ts:294`), whose order is
+  `assertProductionMockModeEnv → assertCoreInfraEnv → assertStripeWorkerEnv →
+  assertTierDailyCostLimitsConfigured → assertAdminNotificationEmail → assertAlertSinkEnv
+  → assertServerOnlyFeatureOptionalBooleansEnv`. Reaching the end of that function proves
+  the last four ran.
+- **The other two are a different call site.** `SESSION_COOKIE_SECRET` and
+  `NEXT_PUBLIC_APP_URL` are gated by `assertUnsubscribeIngressConfigured`, called from
+  `worker/index.ts:596` — separately from `assertWorkerStartupEnv`, and alongside
+  `assertWorkerConfig()` at line 583. Both sit **above** the `Worker listening` log at
+  line 717, so that log line is the proof they ran.
+
+All six executed:
 
 | Gate | Closed by this boot |
 |---|---|
