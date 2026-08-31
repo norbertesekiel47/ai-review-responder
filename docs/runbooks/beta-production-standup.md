@@ -382,10 +382,21 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       acceptance criteria, then flip `OPENAI_MODERATION_ENABLED=true`.
       (`AUTO_APPROVAL_PROVIDER_MODERATION_READY` stays false — it is the
       later, auto-approval-gate marker.)
-- [ ] **G5.** Walk `launch-flag-readiness.md`; append a fresh dated snapshot —
-      Railway AND Vercel reads, including every Phase B audited flag.
-- [ ] **G6.** Doc hygiene: correct env-vars.md's stale `ZERNIO_PUBLISHING_ENABLED`
-      prod row; tick resolved launch-checklist items (only genuinely done ones).
+- [x] **G5. DONE 2026-08-31.** Four-surface snapshot appended to
+      `launch-flag-readiness.md` — Railway prod/stg **and** Vercel prod/stg, 26 flags.
+      **Production autonomy posture is correct and consistent on both surfaces.**
+      `ONBOARDING_DEMO_ENABLED` is already `true` everywhere — that rollout step was
+      **not** owed. No staging drift: four blank Vercel staging reads are `Secret`-type,
+      not empty (the F8 mistake, avoided). **Finding G5-F1:** the Infisical Secret Sync
+      does NOT preserve Vercel's Sensitive flag — Production went 9 `Secret` → 4, and the
+      4 survivors are exactly the 4 the vault does not manage. That turns the owed
+      "re-add three vars as `--sensitive`" action into an owed **decision**.
+- [x] **G6. DONE 2026-08-31.** `env-vars.md`'s `ZERNIO_PUBLISHING_ENABLED` prod row
+      corrected — the `2026-04-28` date was wrong, because the 2026-06-26 worker read
+      recorded prod **off**; the row now cites the four-surface re-verification instead.
+      Two launch-checklist items ticked, both genuinely done: the
+      `ONBOARDING_DEMO_ENABLED` production rollout step (already true) and the
+      flag-readiness snapshot walk (G5).
 
 ### Phase H — Prove it (deployment-guide §9–§10)
 

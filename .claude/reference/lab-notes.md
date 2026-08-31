@@ -3981,3 +3981,33 @@ from subscriptions already carrying it**, so an unused-looking legacy coupon wit
 
 General lesson: **a plan that describes an object's shape has not told you its name.** When
 an env var already points somewhere, that variable — not the plan — is the specification.
+
+### [2026-08-31] An Infisical Secret Sync silently downgrades Vercel `Secret` variables to `Config`
+FAIL → a prior finding (F8) established that nine Vercel production variables were type
+`Secret` (write-only, so `vercel env pull` returns them zero-length **by design**), and left
+an open question: does an Infisical Secret Sync preserve that type? It does not. After the
+first sync, Vercel Production went from **9 `Secret` / 26 `Config`** to **4 `Secret` /
+59 `Config`**. `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET`, `WORKER_INTERNAL_SECRET`,
+`DB_POOL_MAX` and `ONBOARDING_DEMO_ENABLED` all lost the flag.
+
+WHY it is the sync and not a coincidence → the four that kept `Secret` are **exactly** the
+four the vault does not manage (`OWNER_LEADS_GOOGLE_SHEET_ID`,
+`OWNER_LEADS_GOOGLE_SHEET_RANGE`, `GOOGLE_SHEETS_CLIENT_EMAIL`,
+`GOOGLE_SHEETS_PRIVATE_KEY`). Every synced key was rewritten as an ordinary encrypted
+variable. Nothing else survived.
+
+CORRECT → **do not treat "re-add it as `--sensitive`" as an action you can just take.** A
+sync writes `Config`, so the flag drifts back on the next write of that key, and a
+half-applied posture is worse than a recorded one. Decide first: accept `Config` for synced
+keys and write down why; or drop those keys from the vault and manage them on Vercel alone,
+losing single-source truth; or find a sync option that sets the destination type.
+
+Two reading rules that fall out of this, and both are traps:
+
+- **A zero-length `vercel env pull` value means `Secret`, not empty.** Reading it as "off"
+  is how F8 produced a month of wrong conclusions, including an alarming one about live
+  payments. Confirm with the type column before concluding anything.
+- **The type column needs `npx vercel@latest`.** The installed CLI (54.14.5 against a
+  current 59.10.0) has no `type` column at all and prints a fixed `Encrypted` on every row,
+  which cannot distinguish the two types. General lesson: **when a tool shows one fixed
+  value in a column, suspect the tool before you believe the column.**

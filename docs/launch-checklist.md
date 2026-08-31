@@ -224,7 +224,12 @@ Pre-invite actions from these decisions:
   `NEXT_PUBLIC_*` companion. Until it is set, every attempt snapshots NULL and
   invitees are charged full price — the failure is a **charged founding
   customer**, not an error.
-- [ ] **Set `ONBOARDING_DEMO_ENABLED=true` in Vercel production** and redeploy —
+- [x] **Set `ONBOARDING_DEMO_ENABLED=true` in Vercel production** and redeploy —
+  ✅ **VERIFIED ALREADY TRUE 2026-08-31, on all four surfaces** (Railway prod/stg,
+  Vercel prod/stg). No flip was needed. Read by `vercel env pull` to a mode-600 file;
+  the running production deployment carries it. This box was open against a step that
+  was already done — exactly the silent failure mode it warns about, inverted.
+  Snapshot: `launch-flag-readiness.md` → 2026-08-31 four-surface read. Original text follows.
   stand-up Phase B flag audit / Phase F. **This is a required rollout step, not
   an optional enhancement, and its failure mode is SILENT.** With it off the
   invited owner still gets their password, still pays $0, still reaches the
@@ -235,8 +240,12 @@ Pre-invite actions from these decisions:
   the journey degrades to password → `/onboarding/pay` → legacy 3-step wizard.
   **Vercel-only**: 15 read sites under `src/**`, zero under `worker/**` — a
   Railway flip changes nothing. Flip via the `flag-flip` skill.
-- [ ] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
-  live snapshot — Railway AND the still-missing Vercel-side read — stand-up
+- [x] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
+  live snapshot — Railway AND the still-missing Vercel-side read — ✅ **DONE
+  2026-08-31.** All four surfaces, 26 flags. It also discharged the open F8
+  re-check and produced finding **G5-F1**: the Infisical Secret Sync does NOT
+  preserve Vercel's Sensitive flag — production went from 9 `Secret` to 4, and
+  the 4 survivors are exactly the 4 the vault does not manage. Original text: stand-up
   Phase G5.
 - [ ] Validate provider moderation on a representative corpus with recorded
   false-positive/negative acceptance criteria
