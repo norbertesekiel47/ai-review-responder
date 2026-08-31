@@ -13,6 +13,22 @@
 
 ## 🔴 Hard blockers — do not launch without these
 
+- [ ] **Refusal ledger: the staging ride the merges skipped** — #1010, #1011 and
+  #1012 (slices 3-5 of map #994) landed on `main` 2026-08-31 **without riding
+  `staging` first**, against `CLAUDE.md`'s rule that anything touching the worker
+  rides staging then lands via PR. The waiver was deliberate and the reasoning is
+  recorded: production was **provably empty** at merge time — 0 accounts, 0
+  `zernio_connections`, 0 **Solicitation batches**, 0 **Outreach rows**, 0 **Asks**,
+  0 `job_outbox` rows — so nothing could execute. **That stops being true the moment
+  a location connects.** `REFUSAL_LEDGER_ENABLED` is **default-ON** (only the literal
+  `false` disables), and migration 116's five CHECK constraints each **abort the
+  deciding transaction** on a writer bug — so a mis-mapped category would fail a real
+  batch build, halt, dispatch or auto-post downgrade rather than just losing a row.
+  **Ride all three through the full staging pipeline, one at a time, before the first
+  location connects and before any autonomy flag flips.** Every CI check passed on
+  each PR, including the full live-DB lane; this item is about the pipeline never
+  having run them end to end, not about test coverage.
+
 - [ ] **First PITR restore drill** (Spec 08) — PITR is *enabled* but has **never
   been restored end-to-end**. Runbook now exists:
   `docs/runbooks/pitr-restore-drill.md`. Remaining: **run** the clone-to-new-project
