@@ -510,7 +510,7 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
  * reorder is deliberately NOT pinned by any test: there is no contract to
  * break. A CROSS-tier move is pinned, and must be.
  *
- * FIVE OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY (red-team round 1,
+ * SIX OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY (red-team rounds 1-2,
  * recorded so nobody reads their rank as tested behaviour):
  *
  *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
@@ -522,8 +522,19 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
  *     never co-occurs with a write. It is the ONLY member of precedence tier 5,
  *     which makes `below_our_bar` currently unreachable on this lane.
  *   * `policy_not_enabled` — a null threshold fails the narrowing first.
+ *   * `moderation_held` — and this one is DIFFERENT from the five above, which
+ *     is why an earlier version of this paragraph said "five" and was wrong.
+ *     Its sole emitter is `when(input.held, 'moderation_held')`, so it exists
+ *     iff `held` is true — and `recordPolicyGateRefusal`'s guard 1 returns
+ *     before the resolver on exactly that condition. The other five are blocked
+ *     by a structural or narrowing failure; this one is blocked only by a guard
+ *     that same function documents as redundant defence in depth. THE TWO MASK
+ *     EACH OTHER: the map entry is what makes guard 1 redundant, and guard 1 is
+ *     what makes the map entry unreachable. Deleting EITHER alone is
+ *     behaviour-preserving; deleting BOTH writes a duplicate `unsafe_content`
+ *     row for every held draft. Red team proved that pair directly.
  *
- * None of the five is dead code to delete: each is a real
+ * None of the six is dead code to delete: each is a real
  * `AutoApprovalBlockReason` the gate can still emit, and the map must stay
  * TOTAL or the `satisfies` guard stops protecting the others. What is recorded
  * here is only that their POSITION is untested by construction.

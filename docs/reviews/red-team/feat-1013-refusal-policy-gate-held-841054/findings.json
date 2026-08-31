@@ -5,11 +5,11 @@
   "branch": "feat/1013-refusal-policy-gate-held",
   "fork_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
   "merge_base_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
-  "head_sha": "ccaeb196c8919adf395a2cba32482ed630dbc8d3",
+  "head_sha": "35f60e9c054666d9b4f8f3fa0a23462ac1400252",
   "intake_sha256": "d486d8f5807dd04f88f0f73f7c5f20d641106937c2d49f4ea198a7fcda0f5f61",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-08-31T23:33:24Z",
+  "generated_at": "2026-08-31T23:45:53Z",
   "inventory": [
     {
       "id": "M1",
@@ -258,6 +258,27 @@
       "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"resolvePolicyGateRefusal throws on a code in neither the veto set nor the precedence list\"",
       "outcome": "killed",
       "reason": "Deleted the Object.hasOwn unmapped-code throw AFTER the S1 rewrite, to confirm the fault path still fires at run time for a value outside the union. KILLED."
+    },
+    {
+      "id": "R3-1",
+      "file": "worker/jobs/response-generation/persist.ts",
+      "test": "npx vitest run --project integration worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts -t \"a plain ledger error is rethrown rather than swallowed, so the response row rolls back on both lanes\" (then the full 25 integration + 51 persist unit)",
+      "outcome": "killed",
+      "reason": "Re-planted the round-2 R2-1 swallow (throw error -> return undefined as T, persist.ts:800) against the new rethrow oracle. KILLED: exactly one of 25 integration cases fails, with \"promise resolved { kind: persisted } instead of rejecting\", and 51 persist unit tests stay green. In round 2 this identical mutation survived all 75 tests. The oracle injects a plain JS Error rather than a 23514, so the transaction stays healthy and only the rethrow can roll it back — which is what makes it discriminating rather than incidentally green."
+    },
+    {
+      "id": "R3-2",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"resolvePolicyGateRefusal returns the winner as a member of the co-occurring set it won\"",
+      "outcome": "killed",
+      "reason": "Re-planted M6 as .sort() on allRefusalCodes (vocabulary.ts:604) against the RT-8 fix. Now KILLED at the vocabulary suite itself: expected [auto_approval_disabled, ...(2)] to deeply equal [rating_below_threshold, ...(2)]. In round 1 the input indices were accidentally alphabetical and this mutation was invisible here."
+    },
+    {
+      "id": "R3-3",
+      "file": "src/lib/refusals/vocabulary.ts",
+      "test": "npx vitest run src/lib/refusals/__tests__/vocabulary.test.ts -t \"resolvePolicyGateRefusal returns the winner as a member of the co-occurring set it won\"",
+      "outcome": "killed",
+      "reason": "Same site as R3-2 but .reverse(), which a de-duplication check could never catch. KILLED: expected [provider_moderation_error, ...(2)] to deeply equal [rating_below_threshold, ...(2)]. Confirms the new [13, 6, 1] ordering is neither alphabetical nor precedence-ordered."
     }
   ],
   "findings": [
@@ -301,10 +322,10 @@
       "id": "RT-5",
       "severity": "P1",
       "duty": 3,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "Three file:line citations SHIPPED in the branch's own test file resolve at the merge base, not HEAD: persist.ts:198 -> :203, auto-approval.ts:310 -> :296, :360 -> :346, persist.ts:228 -> :249",
       "at": "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts:564",
-      "reason": "PARTIALLY FIXED — stays OPEN. Two of the three citations became symbols and resolve. The third was half-converted: refusal-write.integration.test.ts:689 still reads \"INSIDE (:360)\", and at HEAD auto-approval.ts:360 is `when(input.held, 'moderation_held')`, not a flag read — the in-transaction read is :346. This is the only surviving path:line citation in any shipped source file on the branch."
+      "reason": "VERIFIED FIXED (re-verification): the surviving (:360) is now the symbol reference to evaluateAutoApprovalCandidate’s own autoApprovalRuntimeEnabled() read. A sweep of every .ts file the branch changed, for path.ts:NNN / (:NNN) / backtick-colon-NNN, returns no output — no path:line citation remains in any shipped source file on this branch."
     },
     {
       "id": "RT-6",
@@ -328,28 +349,28 @@
       "id": "RT-8",
       "severity": "P2",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "Fragile assertion: the order oracle's input [precedence[6], precedence[1], precedence[13]] is accidentally already alphabetical, so a sort mutation (M6) survives it too",
       "at": "src/lib/refusals/__tests__/vocabulary.test.ts:582",
-      "reason": "NOT ADDRESSED — src/lib/refusals/__tests__/vocabulary.test.ts is untouched by the round-2 diff; the accidentally-alphabetical input still makes a sort mutation invisible to that oracle."
+      "reason": "VERIFIED FIXED (re-verification, R3-2/R3-3): indices are now [13, 6, 1], descending by precedence rank and unsorted alphabetically. Re-planting M6 as .sort() and as .reverse() now KILLS at vocabulary.test.ts itself, not only in the property suite. The added expect(refusalCode).toBe(precedence[1]) additionally pins that the winner is the highest-RANKED member present rather than the first supplied."
     },
     {
       "id": "RT-9",
       "severity": "P2",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "review_content_changed_before_persist is unreachable through the write path — its predicate is exactly hasStaleReviewContent, and the content-freshness gate returns with zero writes first — so precedence tier 5 (below_our_bar), its sole member, is permanently dead on this lane",
       "at": "src/lib/refusals/vocabulary.ts:444",
-      "reason": "NOT ADDRESSED — the unreachability of review_content_changed_before_persist through the write path is unchanged."
+      "reason": "VERIFIED FIXED (re-verification): vocabulary.ts:509-529 now records that review_content_changed_before_persist cannot reach the resolver because the content-freshness gate (ADR 0017) returns from the persist first, and that this makes precedence tier 5 below_our_bar unreachable on this lane as its only member. Accurate on every point I re-checked, and it correctly explains why the entry is not dead code to delete: the map must stay TOTAL or the satisfies guard stops protecting the other members."
     },
     {
       "id": "RT-10",
       "severity": "P2",
       "duty": 4,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "bad_origin_lane, unsupported_version and suppressed_notification never reach resolvePolicyGateRefusal (structural blocks force runtimeState: null), so their null mapping is inert — 4 of the 22 members cannot reach the resolver on a live path",
       "at": "src/lib/refusals/vocabulary.ts:440",
-      "reason": "NOT ADDRESSED — the four members inert at the resolver are unchanged."
+      "reason": "VERIFIED FIXED (re-verification): the same docblock records bad_origin_lane, unsupported_version and suppressed_notification as structural blocks that leave runtimeState null, so isGenuineAutoCandidate returns false before the resolver is called. It also adds policy_not_enabled, which I had not listed as an unreachable member in round 1 — accurate: thresholdBlockReason emits it only when threshold === null (auto-approval.ts:389-393), the same condition that fails the narrowing. The disclosure is more complete than the finding that prompted it. Residual precision gap tracked separately as RT-16."
     },
     {
       "id": "RT-11",
@@ -373,10 +394,10 @@
       "id": "RT-13",
       "severity": "P2",
       "duty": 5,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "\"the highest-volume lane\" is stated unqualified in three production comments beside deviation D4's finding that the lane is silent in production today",
       "at": "src/lib/refusals/vocabulary.ts:416",
-      "reason": "PARTIALLY FIXED — stays OPEN. vocabulary.ts:101, vocabulary.ts:422 and CONTEXT.md:163 now carry the flag-off qualifier; worker/jobs/response-generation/persist.ts:215 still reads \"the highest-volume lane\" with no caveat."
+      "reason": "VERIFIED FIXED (re-verification): all four sites now carry the flag-off qualifier — persist.ts:216 (\"the lane with the highest design capacity — silent in production until AUTO_APPROVAL_ENABLED is on\"), vocabulary.ts:101, vocabulary.ts:422-423, and CONTEXT.md:163."
     },
     {
       "id": "RT-14",
@@ -391,28 +412,37 @@
       "id": "RT-15",
       "severity": "P0",
       "duty": 1,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "withLedgerAttribution's rethrow has NO oracle: replacing `throw error` with a swallow survives all 75 tests, and a non-Postgres failure then COMMITS a response row whose Refusal was never recorded",
       "at": "worker/jobs/response-generation/persist.ts:800",
-      "reason": "The shipped code is CORRECT — it rethrows, and I verified the rollback holds. What is missing is any test that would fail if the rethrow were removed. Both forced-failure cases inject a migration-116 23514, which puts the Postgres transaction into aborted state, so the rollback they observe is produced by Postgres rather than by the throw. Round 1 had no try/catch on this path at all, so the A3 fix introduced an editable catch block guarding an invariant #4 dependency and left it unpinned. Remedy is one test, not a code change: mock @/lib/refusals/write so writeRefusalEvent rejects with a plain Error, then assert persistResponseAndNotify rejects AND responses has no row for that review.",
+      "reason": "VERIFIED FIXED (re-verification, R3-1) — INDEPENDENTLY, not on the coordinator’s word. The new case mocks @/lib/refusals/write to reject with a PLAIN Error (ledger_write_failed_plain_js, not a 23514), so the Postgres transaction stays healthy and only the rethrow can roll it back; it asserts the persist rejects AND responseIdFor is undefined, for BOTH lanes. Re-planting the identical swallow (throw error -> return undefined as T, persist.ts:800) now fails exactly that one case with \"promise resolved { kind: persisted } instead of rejecting\" — the precise round-2 variant-A behaviour — while the other 24 integration and all 51 persist unit tests stay green. In round 2 the same mutation survived all 75 tests.",
       "arbiter_reasoning": "NOT an equivalent mutation, established by A/B (round-2 row R2-2). Variant A (swallow + a plain-JS throw inside writeRefusalEvent, which does not poison the transaction): persistResponseAndNotify RETURNED, expect(responseId).toBeDefined() PASSED, and the test failed at refusal-write.integration.test.ts:404 with `expected [] to have a length of 1` — a response row committed with no held_draft Refusal. Variant B (shipped code, same injected throw): the error propagated out of persistResponseAndNotify at :399 and the transaction rolled back with no response row. The two variants differ in committed database state. NOT an unexecuted branch: the catch runs on every ledger write failure and is already reached by the two constraint tests. Trigger class is any non-Postgres failure inside writeRefusalEvent — a TypeError in the helper, an encoding fault, a future validation throw."
+    },
+    {
+      "id": "RT-16",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "The new unreachability disclosure says FIVE members cannot reach resolvePolicyGateRefusal; it is SIX — moderation_held is omitted, and it is the one whose exclusion depends on a guard the branch itself documents as redundant",
+      "at": "src/lib/refusals/vocabulary.ts:511",
+      "reason": "Verified, not reasoned from memory: moderation_held has exactly ONE production emitter, when(input.held, moderation_held) at auto-approval.ts:360, so it is in blockReasons iff held is true; and recordPolicyGateRefusal guard 1 is \"if (held) return;\", three statements before the resolver call. So whenever the member exists, the resolver is not reached. It differs from the listed five in a way that argues FOR listing it: those five are blocked by structural or narrowing failures, whereas moderation_held is blocked only by guard 1 — which persist.ts:704-709 documents as redundant defence in depth and which round-2 mutation R2-6 confirmed is deletable with no behavioural change. Delete guard 1 and moderation_held reaches the resolver and vetoes there, so its map entry is load-bearing under a change the branch’s own prose invites. Doc-only; no code change implied."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 34,
-    "killed": 24,
+    "inventory_total": 37,
+    "killed": 27,
     "survived_confirmed_p0": 1,
     "inconclusive": 8,
     "skipped_budget": 0,
     "excluded": 1,
-    "findings_total": 15,
-    "p0_open": 1,
-    "p1_open": 1,
-    "p2_open": 4,
+    "findings_total": 16,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 1,
     "accepted_risk": 0,
-    "fixed": 8,
+    "fixed": 14,
     "rejected": 1
   },
-  "status": "OPEN_P0"
+  "status": "INCOMPLETE_ORACLE"
 }

@@ -821,3 +821,240 @@ once RT-15 is closed.
 The third line is the coordinator's own uncommitted round-1 sidecar-path edit to
 the intake, not a stranded mutant — the same one round 1 reported, still
 uncommitted. It clears on commit.
+
+---
+---
+
+# ROUND 2 — disposition re-verification (not a new round)
+
+**HEAD:** `35f60e9c054666d9b4f8f3fa0a23462ac1400252` · tree clean, everything committed.
+**Baseline re-derived:** 120/120 unit, **25/25 integration** (was 24 — the new
+rethrow oracle). **Round stays 2.** Scope: re-plant only mutations already used.
+
+**Re-plant scoreboard: 3 planted, 3 killed, 0 survived.**
+
+## 1. RT-15 (the P0) — FIXED, verified independently
+
+The new case `'a plain ledger error is rethrown rather than swallowed, so the
+response row rolls back on both lanes'` is a genuine oracle, and I confirmed it
+without relying on the coordinator's own run.
+
+Re-planting the identical swallow (`throw error;` → `return undefined as T;` at
+`persist.ts:800`):
+
+```
+AssertionError: promise resolved "{ kind: 'persisted', …(1) }" instead of rejecting
+ Tests  1 failed | 24 passed (25)     ← integration
+ Tests  51 passed (51)                ← persist unit
+```
+
+**The failure message is the proof, not just the failure.** `promise resolved
+"{ kind: 'persisted' }"` is precisely the round-2 variant-A behaviour: under a
+swallow the persist COMPLETES and returns a persisted outcome. In round 2 that
+same mutation survived all 75 tests; it now dies against exactly one case, with
+24 + 51 still green — no collateral, so the oracle is targeted rather than a
+blunt instrument.
+
+Two properties I checked beyond "it fails": the mock throws a plain `Error`
+(`ledger_write_failed_plain_js`), NOT a `23514`, so the Postgres transaction
+stays healthy and only the rethrow can roll it back — which is the distinction
+the round-2 finding turned on. And it covers BOTH lanes in one body, asserting
+`responseIdFor(reviewId)` is `undefined` per lane, so the data-loss claim itself
+is asserted rather than merely the rejection.
+
+## 2. RT-5 — FIXED
+
+`(:360)` is now `` `evaluateAutoApprovalCandidate`'s own `autoApprovalRuntimeEnabled()`
+read ``. Sweeping every `.ts` file the branch changed for
+`path.ts:NNN`, `(:NNN)` or `` `:NNN ``:
+
+```
+$ git diff --name-only origin/main..HEAD -- 'src/**/*.ts' 'worker/**/*.ts' | xargs grep -nHE '…'
+(no output)
+```
+
+No `path:line` citation remains in any shipped source file on this branch.
+
+## 3. RT-8 — FIXED
+
+Indices `[13, 6, 1]` are descending by precedence rank and unsorted
+alphabetically. Re-planting M6 at `vocabulary.ts:604` now dies **at this case**,
+not only in the property test:
+
+| Mutation | Result at `vocabulary.test.ts` |
+|---|---|
+| `.sort()` | `expected [ 'auto_approval_disabled', …(2) ] to deeply equal [ 'rating_below_threshold', …(2) ]` — **KILLED** |
+| `.reverse()` | `expected [ 'provider_moderation_error', …(2) ] to deeply equal [ 'rating_below_threshold', …(2) ]` — **KILLED** |
+
+The added `expect(resolved!.refusalCode).toBe(precedence[1])` also pins that the
+winner is the highest-RANKED member present rather than the first supplied.
+
+## 4. RT-13 — FIXED, all four sites
+
+| Site | Qualifier |
+|---|---|
+| `worker/jobs/response-generation/persist.ts:216` | "the lane with the highest design capacity — silent in production until `AUTO_APPROVAL_ENABLED` is on" |
+| `src/lib/refusals/vocabulary.ts:101` | "BY DESIGN CAPACITY … zero while `AUTO_APPROVAL_ENABLED` is off" |
+| `src/lib/refusals/vocabulary.ts:422-423` | "by design capacity, and SILENT in production until…" |
+| `CONTEXT.md:163` | "BY DESIGN CAPACITY, though silent in production until…" |
+
+## 5. RT-9 / RT-10 — FIXED, and the disclosure is more complete than my finding
+
+`vocabulary.ts:509-529`. I checked each claim rather than accepting the summary:
+
+- The three structural members — accurate; matches RT-10 exactly.
+- `review_content_changed_before_persist` and the resulting unreachability of
+  precedence tier 5 `below_our_bar` — accurate; matches RT-9 exactly, including
+  that it is the tier's only member.
+- `policy_not_enabled` — accurate, and it is an addition I had NOT listed as an
+  unreachable member in round 1 (I had only used the fact inside RT-2's
+  reasoning). `thresholdBlockReason` emits it only when `threshold === null`
+  (`auto-approval.ts:389-393`), and that same condition fails
+  `isGenuineAutoCandidate`, so it cannot reach the resolver.
+- "None of the five is dead code to delete … the map must stay TOTAL or the
+  `satisfies` guard stops protecting the others" — correct, and it is the right
+  reason: deleting an entry would break the `Record` totality that makes every
+  OTHER member's omission a compile error.
+- The added note that a within-tier reorder is deliberately unpinned while a
+  cross-tier move is pinned — accurate, and it is exactly the M4a/M4b result.
+
+Both findings are closed. One precision gap remains, below.
+
+## 6. RT-16 (NEW, P2) — the disclosure says FIVE; it is SIX
+
+`src/lib/refusals/vocabulary.ts:511`
+
+> FIVE OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY
+
+`moderation_held` also cannot, and it is not in the list. Verified rather than
+reasoned-from-memory:
+
+- `moderation_held` has exactly ONE production emitter,
+  `when(input.held, 'moderation_held')` at `auto-approval.ts:360`, so it is in
+  `blockReasons` **iff** `held` is true.
+- `recordPolicyGateRefusal`'s guard 1 is `if (held) return;`, three statements
+  before `resolvePolicyGateRefusal` is called.
+
+So whenever the member exists, the resolver is not reached.
+
+**Why it is worth a sentence rather than a silent omission.** `moderation_held`
+is a genuinely different case from the other five, and the difference cuts
+toward listing it: the other five are blocked by conditions this same docblock
+calls structural or narrowing failures, whereas `moderation_held` is blocked
+only by guard 1 — which `persist.ts:704-709` explicitly documents as *redundant
+defence in depth*, and which round-2 mutation R2-6 confirmed can be deleted with
+no behavioural change. Remove guard 1 and `moderation_held` immediately reaches
+the resolver and vetoes there. Its map entry is therefore load-bearing under a
+change the branch's own prose invites, which is precisely the RT-1 mechanism.
+
+P2, open. Doc-only; no code change implied.
+
+## 7. Dispositions carried forward unchanged
+
+RT-1, RT-2, RT-3, RT-6, RT-7, RT-11, RT-12, RT-14 — verified fixed by mutation
+in round 2, unchanged here. RT-4 stays **rejected** (my own false finding).
+
+## Re-plant journal
+
+| # | File | Mutation | Oracle | Outcome |
+|---|---|---|---|---|
+| R3-1 | `persist.ts:800` | `throw error;` → `return undefined as T;` | `-t "a plain ledger error is rethrown rather than swallowed…"`, then full 25 + 51 | **KILLED** (1 of 25 fails, 51 unit green) |
+| R3-2 | `vocabulary.ts:604` | `.sort()` on `allRefusalCodes` | `vocabulary.test.ts -t "resolvePolicyGateRefusal returns the winner as a member of the co-occurring set it won"` | **KILLED** |
+| R3-3 | `vocabulary.ts:604` | `.reverse()` on `allRefusalCodes` | same | **KILLED** |
+
+## Status — still `INCOMPLETE_ORACLE`, and I am not laundering it
+
+With RT-15 and RT-5 closed, `p0_open` and `p1_open` are both **0**. The status is
+nonetheless `INCOMPLETE_ORACLE`, because eight inventory rows remain
+`inconclusive` / `oracle` and that outranks `OPEN_P1` and `CLEAR` in
+`recomputeStatus`.
+
+**Those eight are truthfully inconclusive and must not be reclassified.** Six are
+the equivalent mutants — M1, M1b, M4a, M8, M9 (round 1) and R2-6, R2-7
+(round 2) — where deleting a guard or remapping an entry changes no observable
+behaviour, so no oracle can kill them. Marking them `killed` would assert a test
+caught something no test can catch. The branch's own docblock now says the same
+thing in prose ("deleting guards 1, 2 or 3 individually changes no outcome and
+kills no test"), so the code and the sidecar agree; it is the STATUS VOCABULARY
+that cannot express "unfalsifiable by design, and deliberately so".
+
+**One row is arguably resolvable and I still left it alone.** M10 survived in
+round 1 and its re-plant R2-3 was KILLED in round 2 once the fallback-log oracle
+landed. The skill's own wording says an inconclusive row is forced "unless a
+later valid mutation resolves that row", so M10 could defensibly flip to
+`killed`. I left it `inconclusive` because the row is the round-1 record, R2-3 is
+its own row carrying the resolution, and flipping it would not change the status
+anyway — five genuinely-equivalent rows remain. Recording that I considered it
+and declined, so the choice is visible rather than silent.
+
+**The tooling limitation, stated for the owner.** `recomputeStatus` treats any
+`inconclusive` row as incompleteness. It has no way to distinguish "no verdict
+because the run was cut short" from "no verdict because the mutant is provably
+equivalent". The second is a completed, informative result. Until the schema can
+express it — an `equivalent-confirmed` outcome, or an authorization that clears
+oracle-class rows — a branch containing any redundant defence-in-depth cannot
+reach `CLEAR` through this gate no matter how good its tests are.
+
+## Re-verification checker output
+
+```
+$ node .agents/skills/feature/scripts/red-team-status.mjs
+red-team-status: FAILED (2 issue(s))
+  - red-team status is INCOMPLETE_ORACLE — every non-CLEAR status blocks the transition
+  - the worktree carries 1 tracked modification(s) outside this run's report — a mutation may not have been restored: M docs/reviews/red-team/feat-1013-refusal-policy-gate-held-841054/findings.json
+```
+
+Shape validation passes. `intake_sha256` matches `.feature/intake.json`
+(`d486d8f5…`, unchanged), `merge_base_sha` recomputes from `fork_sha`, `run_id`
+matches the derived slug, and all thirteen `COUNT_KEYS` match the checker's own
+recomputation.
+
+| Count | R1 | R2 | Now |
+|---|---|---|---|
+| `inventory_total` | 22 | 34 | **37** |
+| `killed` | 16 | 24 | **27** |
+| `survived_confirmed_p0` | 0 | 1 | 1 (RT-15, now `fixed`) |
+| `inconclusive` (all `oracle`) | 6 | 8 | 8 |
+| `excluded` | 0 | 1 | 1 |
+| `findings_total` | 14 | 15 | **16** |
+| `p0_open` | 0 | 1 | **0** |
+| `p1_open` | 5 | 1 | **0** |
+| `p2_open` | 8 | 4 | **1** |
+| `fixed` | 0 | 8 | **14** |
+| `rejected` | 1 | 1 | 1 |
+
+## Appendix — a checker bug, untriaged, not a branch finding
+
+**The second line is spurious.** `findings.json` is one of this run's own two
+artifacts and IS excluded by the checker's filter — but only from the second
+porcelain line onward. `makeGit` (`red-team-status.mjs:441-450`) calls `.trim()`
+on the WHOLE `git status --porcelain` output, which strips the leading space of
+the FIRST line only. The filter then does `line.slice(3)`, which is correct for
+`" M path"` but mis-slices the de-spaced first line to `"ocs/reviews/…"`, so it
+never matches the exclusion. Demonstrated directly:
+
+```
+--- WITHOUT the whole-output trim (correct) ---
+" M …/findings.json" -> slice(3): "docs/…/findings.json" | excluded: true
+" M …/findings.md"   -> slice(3): "docs/…/findings.md"   | excluded: true
+--- WITH .trim() as the checker does ---
+"M …/findings.json"  -> slice(3): "ocs/…/findings.json"  | excluded: false   ← spurious
+" M …/findings.md"   -> slice(3): "docs/…/findings.md"   | excluded: true
+```
+
+Git sorts `findings.json` before `findings.md`, so the JSON artifact always
+takes the first slot and always misreports while both are uncommitted. It
+clears the moment the artifacts are committed.
+
+This also explains why the same line looked correct in rounds 1 and 2: the first
+porcelain entry then was the intake, which WAS a genuine uncommitted
+modification, so the warning was accidentally right for the wrong reason.
+
+Fix if you want it: drop the `.trim()` in `makeGit` for this call, or split on
+`\n` before trimming. Outside this branch's scope — recorded, not triaged.
+
+**Nothing is unrestored.** `git status --porcelain` lists exactly the two report
+artifacts and nothing else; every mutated source file was restored with a
+named-path `git checkout --`, and the post-restore suites are green (120/120
+unit, 25/25 integration). HEAD is unmoved at
+`35f60e9c054666d9b4f8f3fa0a23462ac1400252`.
