@@ -1262,6 +1262,14 @@ GET https://repworth-worker-staging.up.railway.app/ready → HTTP 200
 > than a false negative here — a worker that was not running, through a production
 > cutover, on a dashboard showing Online.
 >
+> **The cost is bounded, and this was checked rather than assumed.** Railway's docs:
+> *"Railway calls the endpoint at deploy time, **not continuously** after the deployment is
+> live"*, and *"if the endpoint never returns 200 in that window, the deployment is marked
+> failed and **the previous one keeps serving traffic**"* — a 300-second window by default.
+> So the three probes gate one moment per deploy; they are never a runtime restart risk,
+> and a transient blip has five minutes to clear. That turns the tradeoff from
+> "defensible" into "clearly correct".
+>
 > **Follow-up that restores the light posture:** add a worker-only, dependency-free `GET`
 > (e.g. `/healthz/worker`) in `worker/index.ts` and point the healthcheck at it. Not done
 > in this run — it is a change to the worker's boot surface that cannot be verified until

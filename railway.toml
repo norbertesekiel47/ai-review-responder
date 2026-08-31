@@ -80,6 +80,13 @@ startCommand = "pnpm worker"
 # cutover. Verified before switching: staging returned
 # {"status":"ready","checks":{"postgres":"ok","queue_redis":"ok","cache_redis":"ok"}}.
 #
+# BOUNDED COST, confirmed against Railway's docs rather than assumed: the
+# healthcheck runs at DEPLOY TIME ONLY — "Railway calls the endpoint at deploy
+# time, not continuously after the deployment is live". So the three probes are
+# never a runtime restart risk; they gate one moment. And the window is 300s by
+# default: "if the endpoint never returns 200 in that window, the deployment is
+# marked failed and the previous one keeps serving traffic".
+#
 # FOLLOW-UP that restores the light posture: add a worker-only, dependency-free
 # GET (e.g. /healthz/worker) in worker/index.ts and point this at it. Not done
 # mid-cutover — it is an unverifiable-until-merged change to the boot surface.

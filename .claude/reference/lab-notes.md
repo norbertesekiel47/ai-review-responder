@@ -3825,7 +3825,10 @@ public Railway domain answered `{"status":"ready","checks":{"postgres":"ok",
 three live probes, so a deploy now fails if Postgres or either Redis is unreachable at
 deploy time. Accepted because that direction is **fail-safe** — the running deployment
 stays up — whereas the old posture let a dead worker replace a live one and report green.
-General lesson: **a healthcheck that any other process in the repo can also answer is not
+**The cost is bounded — checked, not assumed.** Railway's docs say the healthcheck runs
+at DEPLOY TIME ONLY ("not continuously after the deployment is live") with a 300s default
+window, and a failure leaves the previous deployment serving traffic. So the added probes
+gate one moment per deploy and are never a runtime restart risk. General lesson: **a healthcheck that any other process in the repo can also answer is not
 a healthcheck, it is a liveness coin-flip.** Ask what else could be listening on that port
 before trusting a 200. Follow-up to restore the light posture: a worker-only,
 dependency-free `GET` (e.g. `/healthz/worker`) — a boot-surface change, so not done
