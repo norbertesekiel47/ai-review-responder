@@ -1769,6 +1769,7 @@ The worker is single-replica by invariant, and that is DETECTED, not enforced. F
 
 ### [2026-08-03] TEST_DATABASE_POOL_URL fallback — unsetting it does NOT sleep live-DB suites (moved from CLAUDE.md, context diet)
 `resolveTestDatabaseUrl()` (`live-db-lock.ts`) falls back to reading `.env.local` off disk, so the six suites gating on it (ingest, batch-builder, run-spine, live-db-lock, migrations 088/090) run even under `env -u`. That matters because a whole-repo `pnpm test` with the DB awake breaks the suites that set the `src/lib/db/server` singleton at import time — whichever file initializes it first wins and the rest get `ECONNREFUSED :5432` (the #520 class). CI never sees it because CI's DB *is* on :5432, so the singleton default happens to be right. Kill switch: `REPWORTH_DISABLE_LIVE_DB_SUITES=1`, honoured by both gates; `scripts/verify-gate.sh`'s full-suite row sets it alongside `env -u` (#563).
+**[2026-08-31, #1009 — the MIRROR half, and it is the dangerous one.]** Unsetting the var does not put the suites to sleep; **setting it in `.env.local` does not wake them either.** `describeWithDb` reads `process.env.TEST_DATABASE_POOL_URL` DIRECTLY, and the off-disk fallback never hydrates `process.env` for it — so a suite present in the file and absent from the environment **self-skips and reports GREEN having executed nothing**. #1009 nearly shipped on that: five live-DB cases carrying the slice's entire safety argument passed without running, caught only by re-running with `--reporter=verbose` and checking the cases actually executed. CORRECT → `export` the var, never rely on `.env.local`, and confirm execution rather than exit code. And export `DATABASE_POOL_URL` to the same local URL in the same breath: `pnpm worktree:new` copies `.env*.local`, so a fresh worktree inherits the developer's **live Supabase pooler** there, and any accidental singleton import during a test run reaches production. Both halves of CLAUDE.md's "export BOTH first" are load-bearing — one decides whether the tests run, the other decides what they run against.
 
 ### [2026-08-03] fallow coverage input is DB-complete as of #581 (moved from CLAUDE.md, context diet)
 *(2026-08-16 update: `fallow.yml` no longer exists — the CI cost pass folded it into `ci.yml`, where the `test` job's own `pnpm test:coverage` run (live-DB lane included) is uploaded as an artifact and consumed by the `fallow` job. DB-completeness is unchanged; the second Postgres and second suite run are gone. History below describes the pre-fold layout.)*
@@ -2482,6 +2483,21 @@ the caller's client as a union — `SubscriptionSql` in
   already-asserted table, run the full sweep explicitly:
   `pnpm vitest run --project integration` with `TEST_DATABASE_POOL_URL` set.
   Changed-file selection is the wrong granularity for schema shape. (D-15)
+  **[2026-08-31, #1009 — a SECOND trigger through the same mechanism, and it is
+  not a migration.]** #1009 changed only production code: `suspendAccountAutonomy`
+  began writing a `refusal_events` row. `AutonomyGovernorScheduler.integration.test.ts`
+  was **unchanged**, so the local gate never ran it, and it went red in CI —
+  `refusal_events.account_id` has no `ON DELETE` action (deliberate, migration 116:
+  nothing may take a Refusal away on another table's clock) while that suite's
+  teardown deletes accounts. `SET CONSTRAINTS ALL DEFERRED` does not save it; that
+  FK is not DEFERRABLE. So the trigger list is wider than "a migration that alters
+  a column set" — it is **any change that makes an existing suite write a new row
+  to a table with a restrictive FK**, which no diff of that suite reveals.
+  CORRECT → when a change adds the FIRST writer to such a table, grep the live-DB
+  suites for teardowns deleting the parent, in or out of the diff. Corollary that
+  cost three rounds: CI names ONE failing path; that file had **three** (two named
+  cleanup helpers plus an inline `finally` for a second seeded account), and only
+  re-running after each fix surfaced the next.
 
 - [2026-08-14] **A "durable signal" emitted post-commit is not durable.** FAILED →
   the `checkout_coupon_decision` event — which migration 106's own header calls
@@ -3663,3 +3679,69 @@ signal that the deciding evidence sits OUTSIDE the artifacts being counted — h
 verbatim slice order and #1009's own ticket body §5, two locked decisions that predate every
 copy in the dispute. Count the copies to learn how many places a fix must reach; look to the
 locked decision upstream of them to learn which way it goes.
+
+
+## 2026-08-31 — #1009 the Refusal ledger's write path (three promotions; two more folded into the entries they belong to)
+
+### [2026-08-31] Three adversarial rounds designed on a library behaviour none of them read → verify the PRIMITIVE before designing on top of it
+FAIL → the `REFUSAL_LEDGER_ENABLED` kill switch emits one Sentry warning, and that
+warning is the ONLY evidence a ledger gap exists (the ledger structurally cannot
+show its own absence). Plan review rounds 1, 2 and 3 each found a different bug in
+that five-line path — unguarded emission can abort the decision; latch-before-emit
+buys permanent silence after one blip; a LIFETIME attempt ceiling buys it three
+failures later — and each fix was correct about the failure it addressed. Round 3's
+cooldown looked like the end of the chain. It was not, because **every version
+assumed `Sentry.captureMessage` throws when delivery fails.** WHY → it does not.
+`@sentry/node` 10.55.0 returns an event id immediately (`scope.js`), even with no
+client configured, buffers the event, sends the envelope asynchronously, and
+**catches transport failures internally rather than throwing back** (`client.js`).
+So "capture succeeded" only ever meant "capture was QUEUED", the `try/catch` could
+never see a DSN or network failure, and a real Sentry outage latched the flag with
+the warning undelivered — the exact permanent silence rounds 2 and 3 were chasing,
+reached by a route none of them examined. CORRECT → the structured log line is the
+PRIMARY, durable transport, emitted first and OUTSIDE the Sentry guard; the rate
+limit is per **disabled episode** (the latch clears when the flag is next seen
+enabled) rather than per process; Sentry is best-effort with no `flush()`, because
+awaiting delivery would put network latency on the deciding transaction's path.
+**General rule: three careful adversarial rounds are no substitute for reading the
+library.** Note also WHICH round caught it — the branch review, reading code. A
+plan review structurally could not: a plan does not name a version.
+
+### [2026-08-31] A comment asserting that a test CATCHES something is a claim to MEASURE, not to reason about → plant the mutant
+FAIL → three false claims about one test, across three rounds, each written while
+fixing the previous one. Red-team round 1 found a comment claiming the suspension
+rollback test discriminated a helper that swallows its own insert error; the fix
+replaced it with a claim that the test discriminates a helper opening its OWN
+CONNECTION; round 2 planted exactly that mutant and **it survived**, because that
+case's fixture forces a CHECK violation, so the insert fails on either connection
+and no row exists to survive the rollback. WHY the chain persisted → each author
+reasoned about what the assertion ought to catch, from the assertion's shape. None
+of them ran the mutation, which takes about a minute. CORRECT → underneath the bad
+comment sat a REAL gap (nothing discriminated an own-connection helper on the
+SUCCESS path, and `ci:db-imports` matches only the `@/lib/db/server` specifier, so
+a direct `postgres(…)` inside a domain folder is caught by nothing). It was closed
+with a test that writes successfully, rolls the caller's transaction back for an
+unrelated reason, and asserts zero rows — then PROVEN by re-planting the mutant and
+watching it die. **General rule: a comment claiming coverage is a testable claim.
+Test it, or do not write it.** Corollary worth keeping: when a mutant survives, ask
+whether the CODE is wrong or the CLAIM is — the first surviving mutant here was
+genuinely equivalent (postgres.js rethrows a per-query `uncaughtError` after the
+`scope()` callback returns, so a swallowing helper still aborts the transaction),
+and the defect was purely the comment.
+
+### [2026-08-31] The gate's `promised-tests` row proves a title EXISTS, never that it RUNS → an entire eval can be `it.todo` and pass
+FAIL → `scripts/verify-gate.sh`'s `promised-tests` row greps each `tests_to_add`
+title against the test files. It does not reject `.todo`, `.skip` or `.fails`, so a
+run can satisfy its whole eval with inert stubs and show a green gate. Every
+`/feature` run is exposed, not just this one. WHY the obvious backstop does NOT
+close it → `diff-coverage` (review mode) excludes `__tests__` and `.test.*` and
+measures only added PRODUCTION lines: it catches a WHOLLY inert eval, but passes
+happily while ONE test — including the one guarding this very property — sits
+`.todo` covered by its neighbours' coverage. CORRECT (branch-local, no new CI
+surface) → a scan that runs at **module scope** in its own test file, so vitest
+executes it when it LOADS the module whether or not the test itself is marked, and
+whose scan set includes its own file plus every file the branch adds or extends.
+Rejected: a new `ci:*` audit script — it must be wired into `package.json`,
+`ci.yml` and `lefthook.yml` together with `ci-audit-wiring.test.ts` failing on
+drift, a permanent repo-wide obligation for one run's hygiene. **The general gap in
+the tooling stands and is worth fixing at the workflow level, not per branch.**
