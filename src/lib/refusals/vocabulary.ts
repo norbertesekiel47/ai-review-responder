@@ -204,6 +204,29 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 // ---------------------------------------------------------------------------
 
 /**
+ * `held_draft` — the ONE lane with no map, because it has no code axis at all.
+ *
+ * A single frozen literal rather than a `Record`: C4 makes `refusal_code IS
+ * NULL` biconditional with this lane, so there is nothing to key a map on.
+ * `flagged_responses.reason` is moderation prose that may never leave the
+ * server, and the row exists only for a `high`-severity flag — so the lane
+ * itself is the whole fact.
+ *
+ * `satisfies RefusalCategory` is the guard, and it is the same one the six maps
+ * get from their `Record` constraint: a value migration 116's
+ * `refusal_category` CHECK would reject is a COMPILE error here rather than a
+ * `23514` inside a deciding transaction.
+ *
+ * #1001 CONSIDERED PINNING THIS IN THE SCHEMA AND DECLINED, and the reasoning is
+ * why this constant exists in TypeScript instead: a CHECK tying `held_draft` to
+ * `unsafe_content` is true today, but it would make a future re-map
+ * migration-bearing, and #995 ruled the category set is migration-bearing on ADD
+ * only. Two owners, one fact each — the vocabulary owns the mapping, the
+ * database owns the closed set.
+ */
+export const HELD_DRAFT_REFUSAL_CATEGORY = 'unsafe_content' satisfies RefusalCategory;
+
+/**
  * `autonomy_suspended` — every `AutonomySuspensionTrigger` is the same
  * owner-facing fact: we stopped acting on your behalf.
  *

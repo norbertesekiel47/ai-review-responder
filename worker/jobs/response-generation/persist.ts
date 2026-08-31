@@ -33,6 +33,8 @@ import {
   recordOutcome,
   recordStep,
 } from '../../../src/lib/agents/run-spine';
+import { HELD_DRAFT_REFUSAL_CATEGORY } from '../../../src/lib/refusals/vocabulary';
+import { writeRefusalEvent } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
@@ -693,6 +695,33 @@ async function recordModerationAndHold(
         ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${FLAGGED_RESPONSE_STATUS_OPEN}
       )
     `;
+
+    // The `held_draft` Refusal, on the SAME transaction as the hold it records
+    // (#1013). Not caught: migration 116's CHECKs each name a writer bug, and a
+    // violation aborting this transaction is the designed behaviour — the lever
+    // against a writer bug is REFUSAL_LEDGER_ENABLED, not a try/catch here.
+    //
+    // `occurredAt` is the transaction-time sentinel because
+    // `flagged_responses.created_at` above is `DEFAULT NOW()` in this same
+    // transaction, and in Postgres `NOW()` is `transaction_timestamp()` — so the
+    // two agree to the microsecond. Reading that column back and passing a JS
+    // `Date` would truncate the microseconds on decode (#520) and lose exactly
+    // the equality that makes the two rows joinable.
+    //
+    // No candidacy narrowing and no `activeRun` condition: a high-severity flag
+    // is a moderation decision on every lane, and it is recorded wherever it
+    // happens.
+    await writeRefusalEvent(tx, {
+      accountId,
+      businessId,
+      refusalSource: 'held_draft',
+      refusalCode: null,
+      allRefusalCodes: null,
+      refusalCategory: HELD_DRAFT_REFUSAL_CATEGORY,
+      subjectType: 'response',
+      subjectId: responseId,
+      occurredAt: 'transaction_time',
+    });
   }
 
   return flaggedHigh;

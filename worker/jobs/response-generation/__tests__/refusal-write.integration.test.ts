@@ -255,6 +255,23 @@ async function refusals(subjectId: string, source?: string): Promise<RefusalRow[
       `;
 }
 
+/**
+ * Rows on one lane for THIS account.
+ *
+ * A time window (`occurred_at > NOW() - INTERVAL '5 seconds'`) was tried first
+ * and is wrong: the positive cases above write real rows seconds earlier in the
+ * same suite, so the window counts THEM and a rolled-back transaction reads as
+ * five surviving rows. Every "wrote nothing" assertion whose subject was rolled
+ * back therefore takes a BEFORE count and compares.
+ */
+async function laneCount(source: string): Promise<number> {
+  const [row] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM refusal_events
+    WHERE account_id = ${accountId()}::uuid AND refusal_source = ${source}
+  `;
+  return row!.n;
+}
+
 async function responseIdFor(reviewId: string): Promise<string | undefined> {
   const [row] = await sql()<{ id: string }[]>`
     SELECT id FROM responses WHERE review_id = ${reviewId}::uuid
@@ -611,6 +628,8 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
   it('a stale-content skip writes no refusal_events row on either lane', async () => {
     const reviewId = randomUUID();
     await seedReview(reviewId, { contentHash: 'hash-current', triageSeverity: 'high' });
+    const heldBefore = await laneCount('held_draft');
+    const policyBefore = await laneCount('policy_gate_held');
     const outcome = await persistResponseAndNotify(
       sql(),
       makeInput(reviewId, { loadedReviewContentHash: 'hash-loaded', moderation: HIGH_MODERATION }),
@@ -620,11 +639,8 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     // reached, with zero writes. No response row exists, so no subject does.
     expect(outcome).toEqual({ kind: 'skipped_stale_content' });
     expect(await responseIdFor(reviewId)).toBeUndefined();
-    const [count] = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM refusal_events WHERE account_id = ${accountId()}::uuid
-        AND occurred_at > NOW() - INTERVAL '5 seconds'
-    `;
-    expect(count?.n).toBe(0);
+    expect(await laneCount('held_draft')).toBe(heldBefore);
+    expect(await laneCount('policy_gate_held')).toBe(policyBefore);
   });
 
   it('replaying held_draft and replaying policy_gate_held for the same subject each leave one row on that lane and neither aborts the caller transaction', async () => {
@@ -726,6 +742,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     // The persist callback runs to COMPLETION, then a real Postgres error
     // poisons the transaction. Non-DDL, so nothing strands on the shared
     // container if this test times out.
+    const before = await laneCount('held_draft');
     const executor = abortingExecutor(sql(), (tx) => tx`SELECT 1 / 0`);
 
     await expect(
@@ -736,12 +753,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     expect(
       await sql()`SELECT id FROM flagged_responses WHERE review_id = ${reviewId}::uuid`,
     ).toHaveLength(0);
-    const [count] = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM refusal_events
-      WHERE account_id = ${accountId()}::uuid AND refusal_source = 'held_draft'
-        AND occurred_at > NOW() - INTERVAL '5 seconds'
-    `;
-    expect(count?.n).toBe(0);
+    expect(await laneCount('held_draft')).toBe(before);
   });
 
   it('an abort after a completed policy_gate_held persist rolls back the response, policy_gate_held row, spine checkpoints, and send_notification outbox row', async () => {
@@ -756,6 +768,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
       SELECT count(*)::int AS n FROM job_outbox
       WHERE topic = 'send_notification' AND payload->>'business_id' = ${businessId}
     `;
+    const before = await laneCount('policy_gate_held');
     const executor = abortingExecutor(sql(), (tx) => tx`SELECT 1 / 0`);
 
     await expect(persistResponseAndNotify(executor, makeInput(reviewId))).rejects.toThrow();
@@ -769,12 +782,7 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
       WHERE topic = 'send_notification' AND payload->>'business_id' = ${businessId}
     `;
     expect(outboxAfter[0]!.n).toBe(outboxBefore[0]!.n);
-    const [count] = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM refusal_events
-      WHERE account_id = ${accountId()}::uuid AND refusal_source = 'policy_gate_held'
-        AND occurred_at > NOW() - INTERVAL '5 seconds'
-    `;
-    expect(count?.n).toBe(0);
+    expect(await laneCount('policy_gate_held')).toBe(before);
   });
 
   // -------------------------------------------------------------------------
