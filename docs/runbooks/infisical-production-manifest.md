@@ -374,7 +374,13 @@ second is a blocker.
 
 **`DB_POOL_MAX` cannot live in Infisical.** Its correct production value is `20`
 on the Railway worker and `3` on Vercel. One key in one environment cannot hold
-both. It is already correct on both platforms today.
+both.
+
+It is correct on Railway (`20`) and **empty on Vercel**, verified 2026-08-30
+(§11). An empty value is not "unset and harmless": `readPoolMax()`
+(`src/lib/db/server.ts:15`) falls back to **10**, so Vercel production runs at 10
+connections per serverless instance against one PgBouncer today. Set it to `3`
+natively during Phase C.
 
 > **Decision: keep `DB_POOL_MAX` native on each platform**, exactly like
 > `REDIS_QUEUE_URL`. Add it to the §8 exclusion list. Enable **Disable Secret
@@ -435,3 +441,78 @@ Freshly minted in this pass: `SESSION_COOKIE_SECRET`, `CSRF_SECRET`,
 Rotated at their provider: `SUPABASE_SERVICE_KEY`, `STRIPE_SECRET_KEY`, and the
 Supabase database password inside `DATABASE_POOL_URL`. That set is exactly the
 rotation owed for the 2026-08-30 transcript exposure.
+
+---
+
+## 11. Live state, verified 2026-08-30
+
+A name-and-hash comparison of the two platforms, taken after the manifest
+merged. No value was printed. Secrets were compared by SHA-256 prefix; only
+non-secret values are quoted.
+
+Counts match the record: **27 application variables on the Railway production
+worker** (plus 8 `RAILWAY_*`), **34 on the Vercel production project** (the "56
+names" figure in earlier notes counts the `VERCEL_*`, `TURBO_*` and `NX_DAEMON`
+values a `vercel env pull` adds).
+
+### Shared values agree, with three exceptions
+
+Every value present on both platforms hashes identically — `SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY`, `DATABASE_POOL_URL`, `DATABASE_URL`, all six current
+`STRIPE_PRICE_*`, all seven legacy `STRIPE_PRICE_*`, both
+`DAILY_COST_LIMIT_CENTS_*`, `FOUNDING_DEADLINE`, `AUTOPILOT_PURCHASABLE`,
+`SELF_SERVE_SIGNUP_ENABLED`. The exceptions are `DB_POOL_MAX`,
+`STRIPE_SECRET_KEY` and `WORKER_INTERNAL_SECRET`, all three because the Vercel
+side is empty.
+
+### Nine Vercel production variables have an empty value
+
+`STRIPE_SECRET_KEY`, `WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`,
+`DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`, `GOOGLE_SHEETS_CLIENT_EMAIL`,
+`GOOGLE_SHEETS_PRIVATE_KEY`, `OWNER_LEADS_GOOGLE_SHEET_ID`,
+`OWNER_LEADS_GOOGLE_SHEET_RANGE`.
+
+The name exists in each case; `vercel env pull` returns a zero-length value.
+
+**One alternative explanation, and how to settle it.** Vercel's *Sensitive*
+variable type is write-only, and a pull returns it empty. Two facts argue
+against that here. `vercel env ls` reports every one of the 34 as `Encrypted`,
+not `Sensitive`. And `SUPABASE_SERVICE_KEY` — at least as sensitive as any name
+on the list — pulled a 219-character value that hashes identically to Railway's.
+
+**Settle it in the dashboard, for one variable only: `STRIPE_SECRET_KEY`.** An
+empty variable opens as empty; a Sensitive one says the value cannot be viewed.
+It matters because `getStripe()` (`src/lib/payments/stripe-client.ts`) throws on
+a falsy key, so a genuinely empty value means production Checkout has been broken
+since it was set — a defect independent of the WAF freeze, and one the freeze has
+been hiding.
+
+The other eight need no investigation. Four are replaced in Phase I
+(`WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`) or Phase B/C
+(`DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`). The four Google Sheets and
+owner-leads names drive the optional owner-lead mirror, which is inert either
+way and is not a launch gate.
+
+### Three findings confirmed against the live platforms
+
+| Finding | Verified value |
+|---|---|
+| `NEXT_PUBLIC_APP_URL` is wrong on Vercel | `https://rep-worth.vercel.app/` — wrong host and a trailing slash, exactly as recorded |
+| `PAST_REPLIES_VIEW_ENABLED` is still set | `true` on Vercel production, read by no code (§7.10) |
+| `ZERNIO_RECENT_REVIEW_POLL_DISABLED` is still set | `true` on Railway — the §2 producer denial, removed at WS8 §7 |
+
+`EXTERNAL_REPLY_IMPORT_ENABLED` is `true` on Railway. Carry that value; do not
+drop it in the sync.
+
+### Rotate during the freeze — the window is open now
+
+The WAF rule denies every production `/api/*`, so no request reaches Postgres,
+Supabase Auth or Stripe from the Vercel deployment. Rotating
+`SUPABASE_SERVICE_KEY`, the Supabase database password and `STRIPE_SECRET_KEY`
+therefore breaks nothing that is currently reachable. **This is the safest
+moment in the whole cutover to rotate**, and it closes the moment the deny rule
+is lifted at WS8 §7.
+
+One dependency to watch: if the Supabase key rotation rolls the project JWT
+secret, `NEXT_PUBLIC_SUPABASE_ANON_KEY` changes with it. Re-read both keys after
+rotating rather than assuming the anon key survives.
