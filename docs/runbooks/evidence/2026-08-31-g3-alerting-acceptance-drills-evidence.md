@@ -204,6 +204,191 @@ have been distinguishable from a non-matching fixture.
 
 ---
 
+---
+
+# Session 2 — resume, 2026-08-31T22:23Z
+
+**Git SHA at resume:** `566b8583a42ef7037d25a7eb8f0387d48ff948c0`
+**Owner order:** §4.5 and §4.6 first — both assert repeat-notification *counts*, so both
+re-test the D-2 fix from a second angle.
+
+## Resume preflight
+
+| # | Check | Result | UTC |
+|---|---|---|---|
+| P13 | Staging worker alive | ✅ `/api/health` `ok`, `uptime_seconds` 4900 — same process that ran session 1 (boot ≈ 21:01Z), never restarted | 22:23:21Z |
+| P14 | `/ready` on the staging worker | ✅ `200` | 22:23Z |
+| P15 | Session-1 teardown holds — baselines byte-identical to P7/P8/P9 | ✅ `job_outbox` pending **0** / failed **0** / total **49**; `solicitation_send_breaker` **0 open, 0 total**; `solicitation_suppressions` **5** | 22:23:03Z |
+| P16 | `HealthAlertPoller` still cycling | ✅ worker log shows continuous poller cycles through 22:22:55Z; **no** `Health alert findings` line since teardown, which is the clean baseline stated positively | 22:10–22:23Z |
+| P17 | Staging alert rule unchanged since the D-2 fix | ✅ rule `3608329`, `frequencyMinutes` **60**, triggers include **`Every event`**, `lastTriggered` **2026-08-31T21:37:05.753Z** | 22:24Z |
+| P18 | **The §4.5 target Sentry group already exists** | ✅ `REPWORTH-STAGING-11` — *"Solicitation sending is STILL halted — the hard_bounce_rate breaker trip is open and has not been reset"*, 1 event, first seen 10 days ago. A **pre-existing** group, so a page can only come from `Every event`, never from first-seen — the same controlled shape as T4–T6 | 22:24Z |
+| P19 | **Rules 5 and 6 exist in either Sentry project** | ❌ **BLOCKED — see D-3** | 22:25Z |
+
+### D-3 (2026-08-31T22:25Z) — **RULES 5 AND 6 DO NOT EXIST. §4.6 cannot pass, and production has a live gap.**
+
+**§4.5 and §4.6 assert the behaviour of runbook rules 5 and 6 (§1a-do). Neither rule
+exists, in staging or in production.** Read back from the Sentry API:
+
+| Project | Rules that exist | Action filters |
+|---|---|---|
+| `repworth-staging` | **one** — `3608329` *"Send a notification for high priority issues"* | **none.** No tag filter at all; actions are Email + Discord `1517968864724385822` |
+| `repworth-production` | `3925256` *"Prod — four ops signals to Discord"* | four `Tagged event`: `subsystem=health_alert`, `cost_event=limit_exceeded`, `feature=stripe_reconciliation`, `subsystem=import_consent_analytics` |
+| `repworth-production` | `3920752` *"Send a notification for high priority issues"* | none; triggers are **New/Existing high priority issue** only, `frequencyMinutes` **0** |
+
+The runbook §1a-do specifies **six** rules. Rule 5 (`finding = solicitation_send_breaker_tripped`)
+and rule 6 (`feature = solicitation_lane`) are in **neither** project.
+
+**Consequence for §4.5 — runnable, because the signal is covered by a different route.**
+`emitHealthFindings` tags every finding `subsystem:health_alert`, so the breaker finding is
+caught by staging's unfiltered `3608329` and by production's `3925256`. What rule 5 was
+specified to add — the *repeat* — is now supplied by the `Every event` trigger the D-2 fix
+added. **The drill can run; it is exercising the catch-all, not rule 5.** Recorded so the
+pass is not misread as "rule 5 verified".
+
+**Consequence for §4.6 — the drill's core assertion is falsified by construction.**
+§4.6 requires that **fewer than four POSTs produce nothing**, which needs a
+frequency-conditioned rule. Staging's only rule has **no filter and an `Every event`
+trigger**, so the **first** POST pages. The target group already exists
+(`REPWORTH-STAGING-12`, `solicitation_suppression_without_attribution`, 2 events, first seen
+5 days ago), so first-seen is not even required — `Every event` alone fires it, and the
+60-minute throttle then swallows POSTs 2–4. The observable outcome is **one page, caused by
+POST #1** — the precise thing the drill exists to prove does *not* happen.
+**§4.6 is BLOCKED until rule 6 exists and the catch-all is scoped.**
+
+**And the part that is not about the drills — production rule 6 is missing.**
+`reportUnattributedSuppression` emits at `level: 'warning'` tagged `feature:solicitation_lane`.
+In production that matches **none** of `3925256`'s four filters, and CONFIG-1 already
+established that a `warning` `captureMessage` does not reliably classify as high priority, so
+`3920752` does not catch it either. **The capture reaches Sentry and pages nobody** — which is
+verbatim the failure the runbook §1 predicts: *"Until rule 6 exists the capture lands in
+Sentry and pages nobody."* It is not yet live-harmful (solicitation sending is off in
+production), and it becomes harmful the moment sending is enabled.
+
+**This is D-2's shape a second time.** G.1 shipped **four** signals and was verified by a test
+notification; the runbook specifies **six**. The two it omits are exactly the two whose
+triggers are *frequency*, not *first-seen* — the same class of condition D-2 turned out to
+have got wrong.
+
+**Owner decisions, 2026-08-31T22:33Z.** (a) Create **rule 6** in both projects **and** scope
+staging's catch-all `3608329` with the same four `Tagged event` filters production `3925256`
+carries. (b) **Do not** build rule 5 — the `Every event` trigger the D-2 fix added already
+supplies the repeat it was specified for, on `subsystem:health_alert`, which the breaker
+finding carries; a separate rule would only duplicate every breaker page.
+
+**What scoping `3608329` costs, stated before it is done.** Staging currently pages on
+**every** issue, because the rule has no filter. After scoping, these stop reaching staging
+Discord:
+
+| Issue | Signal | Disposition |
+|---|---|---|
+| `REPWORTH-STAGING-16` | *REFUSAL_LEDGER_ENABLED=false — the Refusal ledger is not recording decisions* | `subsystem:refusal_ledger` — **an open §1 box in BOTH projects.** Needs its own rule; §1 already says a `warning` `captureMessage` will not classify as high priority, and that raising the level is the wrong fix here because a flipped kill switch is a deliberate operator state |
+| `REPWORTH-STAGING-E` | *autonomy suspended* | `subsystem:autonomy_governor` — **an open §1 box in BOTH projects.** A `captureException`, so `error` level, so today it reaches issue owners by **email** — which §1's own premise rules out as an acceptable route |
+| 8 application errors | `PostgresError` on four `/admin/*` routes, two `CONNECT_TIMEOUT`, a Server Components render error, a Stripe `allow_promotion_codes` conflict | Not ops signals. They page staging Discord today **by accident**, purely because the rule is unfiltered |
+| `REPWORTH-STAGING-12` | `solicitation_suppression_without_attribution` | Covered by the new **rule 6** |
+
+**Net:** scoping is right — it makes staging match production instead of paging on everything
+— but it converts two accidental coverages into the honest gaps they already are in
+production. Recorded here so neither is later read as a regression this change introduced.
+
+### D-4 (2026-08-31T22:26Z) — §4.5's stated duration contradicts the runbook's own §3 note
+
+§4.5 says *"leave it open across at least three `HEALTH_ALERT_POLL_INTERVAL_MS` intervals"*
+(≈ 15 min) and *"confirm Discord receives more than the opening two notifications"*.
+
+Those cannot both hold. §1's own rule-5 paragraph states the cadence correctly:
+
+> *"Expect one Discord message when the trip opens and roughly one per hour after that —
+> Sentry's default action interval is 60 minutes per issue, so a 5-minute poll interval does
+> not mean a 5-minute page."*
+
+Three poll intervals is 15 minutes against a **60-minute** Action Throttle, so 15 minutes can
+only ever yield **one** page. "More than two" needs **>2 hours**. The phrase *"the opening
+two"* also does not map onto a hand-inserted fixture: it counts the trip finding **and** the
+open-trip re-page finding as two constant titles, but inserting the row directly means
+`evaluateSendBreaker` never runs its breach arm, so only the re-page title is ever emitted.
+
+**Corrected assertion, used for this run:** *an open breaker trip must produce **more than
+one** Discord notification while it stands, at the rule's Action Throttle cadence (60 min),
+not at the poll cadence.* Two pages ~60 minutes apart refute silence, which is the failure
+rule 5 exists to close. The finding's **level-triggered** half is proven separately and more
+cheaply, by the Sentry issue's event count rising once per 5-minute cycle.
+
+## §4.5 — Send breaker re-page (#907). Assertion as corrected by D-4.
+
+**What is under test.** An open `solicitation_send_breaker` trip must keep paging while it
+stands. `evaluateSendBreaker` is **level-triggered**: it probes for an open trip before it
+measures anything and returns `openTripFinding` on **every** poller tick. The failure this
+drill exists to refute is *"one page, then silence"* — indistinguishable from the halt having
+cleared, on a condition that **never self-clears**.
+
+**Fixture.** T7 — one row, `reset_at IS NULL`, `trip_reason='hard_bounce_rate'`, breaching
+metrics (`hardBounceRate` 0.0452 against the 0.02 bar, 420 sends against the 100 floor).
+Inserted directly, so `evaluateSendBreaker` never runs its breach arm and only the
+**re-page** title is ever emitted — which is the point: that title's group
+(`REPWORTH-STAGING-11`) **already existed**, first seen 2026-08-21T16:19:05Z with **1**
+occurrence. A page on it therefore cannot come from `First seen event`. **`Every event` is
+the only trigger that can fire, so a page proves the D-2 fix and nothing else could** — the
+same controlled shape as T4–T6, from a second angle.
+
+**Predicate verified against the DB before the wait**, run verbatim from `readSendBreaker`
+(`src/lib/solicitation/send-breaker.ts:181-184`):
+
+```sql
+SELECT id, tripped_at, trip_reason, metrics
+  FROM solicitation_send_breaker
+ WHERE reset_at IS NULL;
+```
+
+→ exactly **1** row, `01a05a00-0000-7000-9000-000000000045`. A non-firing poller is therefore
+distinguishable from a non-matching fixture.
+
+### Cycle 1
+
+| Step | Evidence | UTC |
+|---|---|---|
+| Fixture created | breaker row `…045`, `tripped_at 22:29:01.805662+00`, `reset_at NULL` | 22:29:01.805Z |
+| Predicate verbatim | returns 1 row | 22:29Z |
+| **Poller cycle** | `HealthAlertPoller` → `Health alert findings {"count":1}` at `level:error`. **Count is 1**, matching a clean baseline plus this one fixture | 22:31:50.228Z |
+| **Sentry** | `REPWORTH-STAGING-11` occurrences **1 → 2**, last seen 22:31:50Z. Event `4634ca134e7a4b1c868d614b2b88c40c` carries `trip_id: "01a05a00-0000-7000-9000-000000000045"` and `tripped_at: "2026-08-31T22:29:01.805Z"` — **attribution to this fixture is exact, not inferred** | 22:31:50.227Z |
+| **Rule fired** | `3608329` `lastTriggered` **21:37:05.753Z → 22:32:07.769Z**, 17 s after the cycle | 22:32:07.769Z |
+| **Discord** | ⏳ owner confirmation pending | — |
+
+**An unplanned second proof, worth keeping.** On the same cycle `SolicitationReleasePoller`
+flipped `releasePhaseStoppedBy` from `null` — its value on every cycle from 22:10Z to
+22:26Z — to **`"breaker_open"`**. That is the breaker's **gate** half (`readSendBreaker` on
+the send loop) observed independently of its **alert** half (`evaluateSendBreaker` on the
+health poller). The drill was scoped to the alert; it evidenced both.
+
+### Cycles 2..n — the level-triggered half, proven cheaply
+
+| Cycle | UTC | `REPWORTH-STAGING-11` occurrences | Rule `3608329` `lastTriggered` |
+|---|---|---|---|
+| 1 | 22:31:50.227Z | 1 → **2** | 21:37:05.753Z → **22:32:07.769Z** — ✅ fired |
+| 2 | 22:36:50.257Z | 2 → **3** | **22:32:07.769Z** — unmoved |
+
+**Occurrences rise on every 5-minute cycle; the page does not repeat.** That is byte-for-byte
+the pattern D-2 recorded, and it now means the opposite thing. Before the fix it meant *the
+trigger set cannot see a repeat*. After the fix it means *the 60-minute Action Throttle is
+holding the page* — the intended posture, and the reason the fix pairs `Every event` with a
+throttle rather than shipping `Every event` alone.
+
+Both events carry `trip_id: "01a05a00-0000-7000-9000-000000000045"` and
+`tripped_at: "2026-08-31T22:29:01.805Z"` in `extra`, so each is attributable to **this**
+fixture rather than to any prior breaker state.
+
+### Cycle 2 — the assertion that actually distinguishes pass from fail
+
+Page 1 alone does not close this drill: a first-seen rule would also have produced one page.
+**The drill passes on a second page, at the rule's Action Throttle cadence.** The throttle is
+**60 minutes per issue**, so the next notification for `REPWORTH-STAGING-11` is due on the
+first poller cycle after **23:32:07Z** — i.e. the **23:36:50Z** cycle.
+
+Between the two, the finding's **level-triggered** half is proven separately and more
+cheaply: the issue's occurrence count must rise by one on **every** 5-minute cycle
+(22:36:50Z, 22:41:50Z, … ) while the page stays throttled. Rising occurrences with a static
+`lastTriggered` is exactly the shape D-2 described; the difference now is that the throttle,
+not the trigger set, is what holds it.
+
 ## Teardown ledger
 
 **Three fixtures, all created 2026-08-31T21:08Z for §4.2 and §4.3.** Rows written to this
@@ -217,6 +402,7 @@ ledger BEFORE the fixtures existed, per the contract.
 | **T4** | **REGRESSION run** — `job_outbox` §4.2 failed publish | `01a059c9-0000-7000-9000-000000000042` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000042'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T5** | **REGRESSION run** — `responses` fresh `pending_approval` | `01a059c9-0000-7000-9000-000000000043` | `DELETE FROM responses WHERE id = '01a059c9-0000-7000-9000-000000000043'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T6** | **REGRESSION run** — `job_outbox` completed `send_notification` | `01a059c9-0000-7000-9000-000000000044` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000044'` | ✅ **removed 21:38Z, verified 0 rows** |
+| **T7** | **§4.5** — one OPEN `solicitation_send_breaker` trip (`reset_at IS NULL`, `trip_reason='hard_bounce_rate'`) | `01a05a00-0000-7000-9000-000000000045` | **Clear it at `/admin/solicitation`, NOT by SQL** — the breaker never self-clears and `resetSendBreaker` is the only sanctioned arm (it writes `reset_at`, `reset_by`, a mandatory `reset_note`, and migration 110's `reset_consistency` CHECK enforces the note). The drill row is then a normal closed trip and is **left in place** as its own record | ⏳ **OPEN — created 2026-08-31T22:29:01Z** |
 
 **T4–T6 are the D-2 regression test**, created 21:36Z after both alert rules gained the
 `Every event` trigger and a 60-minute throttle. Same shapes as T1–T3, same review

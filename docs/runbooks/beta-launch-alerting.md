@@ -210,8 +210,44 @@ _If_ (filter), _Then_ (action) → name it → Save.
 | 2 | `cost-cap → discord` | `cost_event` equals `limit_exceeded` | issue is **first seen** | any |
 | 3 | `stripe-reconcile-drift → discord` | `feature` equals `stripe_reconciliation` | issue is **first seen** | `error` + `warning` |
 | 4 | `import-consent-analytics-drift → discord` | `subsystem` equals `import_consent_analytics` | **seen more than 3 times in one hour** | `warning` |
-| 5 | `solicitation-send-breaker → discord` | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
+| 5 | ~~`solicitation-send-breaker → discord`~~ **SUPERSEDED — do not build** | `finding` equals `solicitation_send_breaker_tripped` | **seen more than 3 times in one hour** | `error` |
 | 6 | `solicitation-unattributed-suppression → discord` | `feature` equals `solicitation_lane` | **seen more than 3 times in one hour** | `warning` |
+
+> **What actually exists, read back from the Sentry API 2026-08-31T22:25Z (G.3 D-3).**
+> This table is the design; these are the rules. Re-read them before assuming a signal
+> routes.
+>
+> | Project | Rule | Filters |
+> |---|---|---|
+> | `repworth-staging` | `3608329` *"Send a notification for high priority issues"* | four `Tagged event` filters matching production, added 2026-08-31 |
+> | `repworth-production` | `3925256` *"Prod — four ops signals to Discord"* | `subsystem=health_alert`, `cost_event=limit_exceeded`, `feature=stripe_reconciliation`, `subsystem=import_consent_analytics` |
+> | `repworth-production` | `3920752` *"Send a notification for high priority issues"* | none; **New/Existing high priority issue** triggers only, throttle `0` |
+>
+> **Rules 1–3 are not separate rules.** Their three signals are three of the four
+> `Tagged event` filters on the single rule each project carries. That is the named
+> tradeoff G.1 recorded — one rule, not four — and it is why rule 4's
+> `subsystem:import_consent_analytics`, specified as *frequency*-conditioned, currently
+> shares a first-seen-plus-`Every event` rule. Split it if it proves noisy.
+>
+> **Rule 5 is SUPERSEDED, by owner decision 2026-08-31T22:33Z.** Its whole purpose was
+> the *repeat* page on an open breaker. D-2's fix supplies that on every rule via the
+> `Every event` trigger, and the breaker finding carries `subsystem:health_alert`, which
+> both surviving rules filter on. Building rule 5 now would deliver a **second** Discord
+> message for every breaker tick and buy nothing. Proven by G.3 §4.5, which exercised
+> exactly that route.
+>
+> **Rule 6 is the one still genuinely owed, and it is owed in PRODUCTION.**
+> `reportUnattributedSuppression` emits `level:'warning'` tagged `feature:solicitation_lane`.
+> That matches none of `3925256`'s four filters, and CONFIG-1 already established that a
+> `warning` `captureMessage` does not reliably classify as high priority, so `3920752`
+> does not catch it either. **The capture reaches Sentry and pages nobody** — verbatim
+> the failure this section predicts. Not yet harmful, because solicitation sending is off
+> in production; harmful the moment it is on.
+>
+> **Two §1 signals have no rule in either project** and are named here so the absence is
+> not rediscovered: `subsystem:refusal_ledger` (the ledger's only gap detector) and
+> `subsystem:autonomy_governor` (a `captureException`, so today it reaches issue owners by
+> **email** — which §1's own premise rules out as an acceptable route).
 
 _Then_ action for all six: **Send a notification to the Discord integration** →
 your server → the `#repworth-alerts` channel ID from step 0.
@@ -236,7 +272,14 @@ before #630 commits `provider_message_id` — is why the trigger is frequency an
 not first-seen; its alarming cause is #965, an unexplained loss of Outreach rows
 that is still open. §1's bullet carries the response procedure.
 
-**Rule 5 does not replace rule 1, and the overlap is intended (#907).** The
+**Rule 5 does not replace rule 1, and the overlap is intended (#907).**
+> ⚠️ **Superseded 2026-08-31 — kept because the reasoning below is still the correct
+> account of WHY the repeat matters; only the remedy changed.** The paragraph reasons
+> from a rule set that triggers on first-seen only. Once `Every event` is on the rule
+> (see §4's precondition), rule 1's own route already delivers the repeat, so rule 5
+> would duplicate it. Read the analysis; do not build the rule.
+
+The
 breaker finding carries `subsystem:health_alert` like every other
 `HealthAlertPoller` finding, so rule 1 still delivers the **first** page the
 moment a trip opens — that latency matters and a frequency rule cannot give it.
@@ -354,10 +397,18 @@ reports its real lane.
   **`staging`** environment after the deletion, that IS real: work §2's
   dead-man-switch path.
 
-> **Production needs no cleanup — as of 2026-07-28 there is nothing there to
-> clean.** This monitor lives in the `repworth-staging` Sentry project, which is
-> the only project in the org; there is no production Sentry project, and the
-> production worker has never successfully deployed. The stale `production`
+> **Production needs no cleanup — as of 2026-07-28 there was nothing there to
+> clean.** This monitor lives in the `repworth-staging` Sentry project.
+>
+> ⚠️ **The two claims that follow are STALE and are corrected here rather than
+> deleted, because the relabelling analysis above still stands on its own.**
+> `repworth-staging` is **no longer the only project in the org** and the production
+> worker **has** deployed. As of 2026-08-31 (WS8 G.2) `repworth-production` exists and
+> carries **three active monitors** — `health-alert-poller` (cron, environment
+> `production`), `Prod worker /ready` (8341697) and `Prod app /api/health` (8341701) —
+> after a **Sentry seat**, not a code fault, had been silently rejecting every
+> production check-in. The sentence below about production "getting its own project and
+> its own monitor" has therefore already happened; it is not future work. The stale `production`
 > *environment* on this monitor was written entirely by the **staging** worker
 > mislabelling itself (#610) — no production process ever wrote it. When
 > production is genuinely stood up (see `deployment-guide.md` §5.2, which is a
@@ -372,11 +423,47 @@ reports its real lane.
 
 ## 4. Acceptance drills (run on staging before launch)
 
-Each must produce a page on the **Discord** route (the non-email sink) within one
-poll interval (the cost-cap drill fires immediately at the throw site):
+Each must produce a page on the **Discord** route (the non-email sink). The
+**first** page for a given finding lands within one poll interval; the cost-cap
+drill fires immediately at the throw site. **A repeat page does NOT** — see the
+precondition below.
 
-- [ ] **Stuck outbox** — insert a `job_outbox` row `status='pending',
-  available_at = NOW() - INTERVAL '20 minutes'`; expect `outbox_pending_age`.
+> **PRECONDITION, added 2026-08-31 after G.3's D-2. Check this before running any
+> drill in this section.**
+>
+> **The alert rule must carry the `Every event` trigger.** Sentry groups
+> `captureMessage` by its text, and every health finding has a constant title, so
+> occurrence 2 through ∞ joins an existing group. A rule triggering only on *First
+> seen / Resolved / Reappeared / Regression* sees none of those states and is
+> **silent for every repeat**. Health findings are the recurring kind by nature, so
+> that default is the wrong one for them. In the Sentry UI the trigger is *"An
+> event or issue activity is captured"*; there is **no** *"seen more than 0 times"*
+> option. Pair it with an **Action Throttle** (60 minutes) so repeats page at most
+> hourly per issue.
+>
+> **Without this, §4.5 and §4.6 cannot pass on any code, however correct** — both
+> are written as *count* assertions, and a first-seen-only rule caps the count at
+> one. Verify the trigger set by API readback, not by looking at the rule's name.
+>
+> **A repeat page arrives at the Action Throttle cadence, not the poll cadence.**
+> Five-minute polling with a 60-minute throttle means one page per hour per issue.
+> Budget drill durations from the throttle. Evidence:
+> `docs/runbooks/evidence/2026-08-31-g3-alerting-acceptance-drills-evidence.md`.
+
+- [ ] **Stuck outbox — DO NOT RUN THIS IN ISOLATION. Merged into the killed-worker
+  drill below (G.3 D-1, 2026-08-31).** The fixture the drill describes — a
+  `job_outbox` row `status='pending', available_at = NOW() - INTERVAL '20 minutes'`
+  — is **consumed by the system it is meant to observe**. `checkOldestPendingOutbox`
+  and the `OutboxPoller` claim query use the *identical* predicate
+  (`status = 'pending' AND available_at <= NOW()`), but the dispatcher runs every
+  **5 s** against the health poller's **300 s**. The dispatcher claims the row ~60×
+  faster than the alert can read it, so `outbox_pending_age` never fires. Raising
+  `HEALTH_ALERT_PENDING_AGE_S` does not help — the predicates are identical, so the
+  dispatcher wins at any threshold. The alert exists to catch *"dispatch backed up
+  **or the OutboxPoller has stalled**"*, so the only honest fixture is one where
+  dispatch is actually stopped: **stop the worker, insert the aged row, restart, and
+  confirm `outbox_pending_age` on the first clean cycle.** Run it as part of the
+  killed-worker drill.
 - [ ] **Failed publish** — force a `publish_response` row to `status='failed'`;
   expect `outbox_failed:publish_response`.
 - [ ] **Zero-delivery** — a `send_notification` row `status='completed'` with a
@@ -385,12 +472,30 @@ poll interval (the cost-cap drill fires immediately at the throw site):
 - [ ] **Cost-cap hit** — set `GLOBAL_DAILY_COST_LIMIT_CENTS=1`, trigger a draft;
   expect a `cost_event:limit_exceeded` Sentry message.
 - [ ] **Send breaker re-page (#907)** — insert an open `solicitation_send_breaker`
-  row on staging (`reset_at IS NULL`), leave it open across **at least three**
-  `HEALTH_ALERT_POLL_INTERVAL_MS` intervals, and confirm Discord receives **more
-  than the opening two** notifications. Two and then silence is the exact failure
-  rule 5 exists to close, so this drill fails on a count, not on an absence.
+  row on staging (`reset_at IS NULL`, a breaching `metrics` snapshot), and confirm
+  Discord receives **more than one** notification while the trip stands. Silence
+  after the opening page is the exact failure this drill exists to close, so it
+  fails on a count, not on an absence.
+  **Budget from the Action Throttle, not the poll interval (G.3 D-4, 2026-08-31).**
+  The text used to say *"at least three `HEALTH_ALERT_POLL_INTERVAL_MS` intervals"*
+  (≈ 15 min) and *"more than the opening two"*. Those contradict each other and
+  contradict §1's own rule-5 paragraph: with a **60-minute** throttle, 15 minutes
+  can only ever yield **one** page. Allow **> 60 minutes** for the second page and
+  time it from the first page, not from the insert.
+  *"The opening two"* also does not survive a hand-inserted fixture: it counted the
+  trip finding **and** the open-trip re-page finding as two constant titles, but
+  inserting the row directly means `evaluateSendBreaker` never runs its breach arm,
+  so only the **re-page** title is ever emitted.
+  **Prove the level-triggered half separately and cheaply.** The Sentry issue's
+  occurrence count must rise by one on **every** poll cycle while the page stays
+  throttled. Rising occurrences with a static `lastTriggered` is correct here; it is
+  the throttle holding the page, not the trigger set failing to see it.
+  **Prefer a fixture whose Sentry group already exists** — then `First seen event`
+  cannot fire, so a page proves the `Every event` trigger and nothing else could.
   Clear it through `/admin/solicitation` when done — the breaker never
-  self-clears.
+  self-clears, and `resetSendBreaker` is the only sanctioned arm (a mandatory
+  `reset_note` is enforced by migration 110's `reset_consistency` CHECK). **Do not
+  clear it with SQL.**
 - [ ] **Unattributed suppression (#967, rule 6)** — POST **four** svix-signed
   `email.complained` payloads to the staging worker's `/ingress/resend` within
   one hour, each carrying the `lane: solicitation` tag, an `email_id` that
@@ -408,8 +513,13 @@ poll interval (the cost-cap drill fires immediately at the throw site):
   The `email_id` must differ per request — a repeated `svix-id` is deduped by
   `claimInboundEvent` and a repeated `provider_message_id` is not what varies
   here. Working probe shape: `docs/reviews/fix-967-post-purge-global-optout/staging-smoke.md`.
-- [ ] **Killed worker** — stop the worker process; expect the external `/ready`
-  check to page.
+- [ ] **Killed worker — and the stuck-outbox drill rides on it (G.3 D-1).** Stop the
+  worker process; expect the external `/ready` check to page. **While it is stopped,
+  insert the stuck-outbox fixture** (`job_outbox` row `status='pending',
+  available_at = NOW() - INTERVAL '20 minutes'`), then restart and confirm
+  `outbox_pending_age` fires on the first clean cycle — the row survives to be seen
+  only because dispatch was actually stopped. Folding the two also spends **one**
+  worker interruption instead of two.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
 - [ ] **Backlog depth over threshold (the drill's over-threshold arm)** — via
