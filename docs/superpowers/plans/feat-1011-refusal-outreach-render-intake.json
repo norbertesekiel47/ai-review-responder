@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "Four transactional write sites inside the solicitation generation path, each in a transaction that already holds the batch advisory lock and the batch row lock. A ledger failure aborts the render it records.",
+    "The generation path decides during an LLM round trip and persists afterwards, so a wrong occurred_at compiles, passes every CHECK and records the wrong time silently.",
+    "The solicitation send path reaches real recipients."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "All four outreach render writers in src/lib/solicitation/ask-generation.ts record an outreach_withheld Refusal against the outreach they withhold, stamped with the same renderedAt the outreach row carries.",
+  "non_goals": [
+    "The outreach_withheld DISPATCH site in commitWithhold. #1010 owns it, and it carries a different reason enum.",
+    "The ask_withheld and batch_halted lanes. #1010 owns them.",
+    "The auto_post_revoked lane. #1012 owns it.",
+    "The held_draft and policy_gate_held lanes. #1013 owns them.",
+    "The Restraint tab and any read over refusal_events. #1014 owns the read path.",
+    "The lane category maps. The feat/refusal-lane-vocabulary prerequisite lands them on main before this branch arms.",
+    "The set-based arm of writeRefusalEvent. #1010 adds it; every writer in this lane writes exactly one row.",
+    "Any migration, and any change to which renders are withheld or why."
+  ],
+  "user_visible_behavior": [
+    "No owner-visible change. Nothing reads refusal_events until #1014.",
+    "A withheld child render writes one refusal_events row against the outreach id, in the same transaction as the outreach insert.",
+    "A regenerated ask writes its Refusal against the replacement outreach id, so the row it replaced keeps its own Refusal.",
+    "A budget stop and a generation exhaustion each write one refusal_events row per outreach they settle as withheld.",
+    "Setting REFUSAL_LEDGER_ENABLED=false stops all four without a deploy and leaves generation behaviour byte-identical to today."
+  ],
+  "invariants": [
+    "occurredAt is the renderedAt the same call passes to insertOutreachRender, so refusal_events.occurred_at equals solicitation_outreach.rendered_at exactly. One Date object, both columns.",
+    "The transaction-time sentinel is never used in this lane. It would stamp persist time, and the equality with rendered_at is the property this lane trades on.",
+    "Every writer passes the outreach id the render just minted as subject_id. regenerateAsk's replacement row has a new id and is a distinct subject.",
+    "One Refusal per withheld outreach, never one per attempt and never one per batch.",
+    "A rendered outcome writes nothing. Only status withheld is a Refusal.",
+    "The ledger write is in the same transaction as the outreach insert it records, and is never caught at the call site.",
+    "src/lib/refusals/write.ts is not edited. This lane consumes the single-row helper as shipped by #1009.",
+    "Every row carries the account_id and business_id already on the generation context.",
+    "Tenant isolation: every row carries account_id NOT NULL and the table keeps deny-all RLS."
+  ],
+  "edge_cases": [
+    "The LLM round trip is slow and the advisory lock then blocks: occurred_at is still renderedAt, which is minted once and written to both tables.",
+    "A render succeeds: no Refusal, because nothing was withheld.",
+    "regenerateAsk replaces a withheld outreach with another withheld outreach: two Refusals, one per outreach id, because two decisions were made.",
+    "A stale outbox attempt loses the ownership CAS: persistChildRender returns before any insert, so no Refusal is written.",
+    "The batch halted or expired while the LLM call was in flight: the lifecycle re-check refuses the insert, so no Refusal is written either.",
+    "settleBudgetStop settles several outreach rows in one call: one Refusal per outreach, each with its own subject id.",
+    "settleGenerationExhaustion writes render_failed after every attempt is spent: one Refusal, not one per attempt.",
+    "REFUSAL_LEDGER_ENABLED is false: every render still persists and the helper emits one warning per disabled episode.",
+    "A CHECK violation from a writer bug aborts the persist transaction, so the outreach row does not exist either. The render is retried by its outbox attempt."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/auto-approval/suspension.ts — the #1009 call-site precedent: writeRefusalEvent on the deciding transaction, after the guard that proves a decision was made, with no try/catch.",
+    "src/lib/refusals/write.ts — the single-row helper and its per-lane input union.",
+    "src/lib/solicitation/ask-generation.ts toInsertInput — the one place renderedAt is minted, and the value both tables must share.",
+    "src/lib/solicitation/outreach.ts insertOutreachRender — the insert this write accompanies, and the owner of RenderWithholdReason.",
+    "src/lib/refusals/vocabulary.ts — the render lane map landed by the feat/refusal-lane-vocabulary prerequisite."
+  ],
+  "test_seams": [
+    "src/lib/solicitation/ask-generation.ts — the batch generation entry point, through which all four writers are reached.",
+    "src/lib/solicitation/outreach.ts — insertOutreachRender, whose rendered_at the ledger row must equal."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/solicitation/ask-generation.ts",
+    "src/lib/solicitation/__tests__/ask-generation.test.ts",
+    "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
+    "src/lib/solicitation/__tests__/outreach-render.integration.test.ts",
+    "docs/directory.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "a withheld child render writes one refusal_events row against the outreach id",
+    "a successful child render writes no refusal_events row",
+    "every render-lane refusal_events row carries occurred_at equal to the solicitation_outreach rendered_at of the same insert",
+    "the render lane never stamps occurred_at from the transaction, so a slow lock does not move the decision time",
+    "a budget stop writes one refusal_events row per outreach it settles as withheld",
+    "a generation exhaustion writes one refusal_events row for the outreach it withholds, not one per attempt",
+    "a regenerated ask writes its refusal_events row against the replacement outreach id",
+    "a regenerated ask leaves the replaced outreach row's own refusal_events row untouched",
+    "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
+    "every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context",
+    "a stale outbox attempt writes neither an outreach row nor a refusal_events row",
+    "a batch halted during the LLM round trip writes neither an outreach row nor a refusal_events row",
+    "a ledger failure rolls back the outreach render insert it accompanies",
+    "every writer still persists its render when REFUSAL_LEDGER_ENABLED is false"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 140,
+  "estimated_test_lines": 520,
+  "dependencies_added": [],
+  "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy and leaves generation byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes all four call sites together. (3) No down migration: migration 116 stays and rows already written are not deleted. ArchivalPoller's refusal_events arm landed in #1009 and is untouched, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
+  "observability": [
+    "One warning per disabled episode from the helper whenever REFUSAL_LEDGER_ENABLED is false.",
+    "A ledger failure in this lane reaches Sentry through attachJobFailureSink on the terminal BullMQ attempt, because generation runs inside a BullMQ worker.",
+    "Reconciliation query for staging: COUNT(*) of refusal_events WHERE refusal_source = 'outreach_withheld' AND subject_id IN the batch's outreach ids must equal the count of solicitation_outreach rows with delivery_status withheld and a render disposition_reason, inside the retention window."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}
