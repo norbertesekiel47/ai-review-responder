@@ -1409,10 +1409,197 @@ TLS before reaching Fastify.
       worker. `OutboxPoller`/`HealthAlertPoller`/`JudgeSweepPoller` started;
       `SolicitationReleasePoller` logged `Release cycle complete`. No `NOAUTH`, so the
       `${{Redis.…}}` fix is confirmed by queue behaviour. See **D.4**.
-- [ ] `pnpm ws8:stripe-preflight --require-status-convergence` →
-      `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0` at `____`Z
-- [ ] Checkpoint recorded: deadline-verification UTC `____`, `AUTOPILOT_PURCHASABLE` = `____`
+- [x] `pnpm ws8:stripe-preflight --require-status-convergence` →
+      `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0 fixed_point_notices=0`
+      at **2026-08-31T07:02Z**, preceded by `WS8_PREFLIGHT_PASS blockers=0`. Scanned
+      counts all zero (`subscriptions=0 open_sessions=0 line_items=0 expired_sessions=0
+      status_notices=0`) — a real execution that found nothing, not a skip. See **D.5**.
+- [x] Checkpoint recorded: deadline-verification UTC **2026-08-31T07:02:51Z**
+      (`FOUNDING_DEADLINE=2027-01-01T00:00:00Z`, `now < deadline` = **True**),
+      `AUTOPILOT_PURCHASABLE` = **`false`**. Beta posture intact —
+      `AUTO_APPROVAL_ENABLED`/`SELF_SERVE_SIGNUP_ENABLED`/`TRIAL_ENABLED` all `false`,
+      `ZERNIO_RECENT_REVIEW_POLL_DISABLED` still `true`. See **D.5**.
 - [ ] Copilot list + founding Checkout exercised on a disposable account
+
+### D.4a — the worker certificate ISSUED. The D.5 blocker is cleared.
+
+Carried into this run as the one open blocker. Resolved 2026-08-31T07:00:46Z.
+
+#### Root cause of the 4.5-hour stall
+
+The domain was created at **02:28:14Z** (`railway domain status … --json` →
+`domain.createdAt`). Railway held it at `CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP`
+with `verified: false` for four and a half hours.
+
+Nothing was wrong with DNS. Verified before touching anything:
+
+| Check | Result |
+|---|---|
+| `CNAME worker → rhhe86c1.up.railway.app` | Correct, `DNS_RECORD_STATUS_PROPAGATED` |
+| Resolves to | `69.46.46.110` — identical to the Railway edge target |
+| `CAA` on `repworth.net` | **none** — nothing restricted Let's Encrypt |
+| Cloudflare proxy | off (DNS only), as A.4 recorded |
+| `/.well-known/acme-challenge/…` over HTTP | **404**, not a redirect — the edge was ready to serve a challenge |
+| `syncStatus` | `ACTIVE` |
+
+**Two things were actually missing.**
+
+1. **No healthy deployment to validate against.** The domain was created at 02:28Z. The
+   worker had no healthy deployment until **06:10:55Z** — first crash-looping on
+   `STRIPE_WEBHOOK_SECRET`, then running the Next.js impostor (see D.4). Railway validates
+   a custom domain by routing to a live service, and for those four hours there was
+   nothing to route to.
+2. **The ownership TXT record did not exist.** `dig +short TXT
+   _railway-verify.worker.repworth.net` returned empty. Railway's **API** never surfaced
+   it — `domain-status` lists exactly one required record, the CNAME, with
+   `purpose: DNS_RECORD_PURPOSE_TRAFFIC_ROUTE`. Only the **dashboard** dialog named it.
+   That asymmetry is why it went unnoticed: an API-driven check reports "all required DNS
+   records propagated" while ownership verification is starved.
+
+#### The Cloudflare one-click integration was DECLINED, deliberately
+
+Railway's dashboard offered a Cloudflare integration that would have made three changes:
+
+| Change | Verdict |
+|---|---|
+| **Add** `TXT _railway-verify.worker` | The one useful action |
+| **Add** `CNAME worker` → same target, **Proxied** | **Rejected** |
+| **Delete** the existing `CNAME worker`, DNS only | **Rejected** — unnecessary |
+
+Rejected because the proxy flip is the wrong direction on three counts:
+
+1. **It attacks the thing being fixed.** Proxied means Cloudflare terminates TLS, so
+   Railway's ACME challenge would be answered by Cloudflare's edge and issuance could not
+   complete.
+2. **It contradicts a recorded decision.** A.4 records the CNAME as *"DNS only
+   (unproxied)"*, chosen deliberately.
+3. **It puts Cloudflare's bot rules in front of `/ingress/stripe`** — a live payments
+   webhook path. A new failure surface on the money path, added mid-cutover.
+
+The CNAME needed no change at all: Railway's own API already read it as correct and
+propagated. **Only the TXT was missing, so only the TXT was added**, by hand, DNS only.
+Minimal change beats a bundled one during a cutover.
+
+#### Resolution timeline
+
+| UTC | Event |
+|---|---|
+| 02:28:14 | Domain created. Certificate enters `VALIDATING_OWNERSHIP` |
+| 06:10:55 | First healthy worker deployment (D.4). The routing precondition is met |
+| ~06:56 | Owner adds `TXT _railway-verify.worker`, DNS only, by hand |
+| 06:58 | TXT verified at the authoritative NS (`wally.ns.cloudflare.com`) and on `1.1.1.1` / `8.8.8.8`. One record, no duplicates |
+| **07:00:34** | Status → `CERTIFICATE_STATUS_TYPE_ISSUING`. **Ownership validated** |
+| **07:00:46** | Status → `CERTIFICATE_STATUS_TYPE_VALID` |
+| 07:01:11 | TLS verified end to end from outside |
+
+```
+subject = CN=worker.repworth.net
+issuer  = C=US, O=Let's Encrypt, CN=YR1
+valid   = Aug 31 06:02:11 2026 GMT  →  Nov 29 06:02:10 2026 GMT
+```
+
+**Note the dashboard dialog still showed an amber warning on the TXT row after it had
+already worked.** The UI lags the validator. Trust `dig` and the API status, not the
+dialog.
+
+#### The worker is now publicly reachable, and it is the WORKER
+
+```
+GET https://worker.repworth.net/api/health → HTTP 200, tls_verify=0, 92 ms
+{"status":"ok","service":"worker","uptime_seconds":736}
+
+GET https://worker.repworth.net/ready      → HTTP 200
+{"status":"ready","service":"worker",
+ "checks":{"postgres":"ok","queue_redis":"ok","cache_redis":"ok"}}
+```
+
+`"service":"worker"` on both — the D.4 impostor could not produce that. And `/ready`
+answers all three dependency probes `ok` from **outside** the private network, which is
+the first external proof that the Redis and Postgres wiring is sound.
+
+---
+
+### D.5 — enable the endpoint, run the convergence gate. PASS.
+
+#### The ingress route was probed BEFORE the endpoint was enabled
+
+So that Stripe's first live delivery would not also be the route's first ever test:
+
+```
+POST https://worker.repworth.net/ingress/stripe   (no signature, body {})
+  → HTTP 401  {"error":"missing_signature"}
+
+GET  https://worker.repworth.net/ingress/stripe
+  → HTTP 404   (POST-only route, as registered at worker/index.ts:685)
+```
+
+The 401 is the correct answer and confirms the working rule that a webhook handler
+**verifies the signature FIRST**. An unsigned request is rejected before any parsing.
+
+#### Endpoint enabled 2026-08-31T07:02:09Z
+
+```
+BEFORE: status=disabled url=https://worker.repworth.net/ingress/stripe
+        api_version=2026-05-27.dahlia events=6 livemode=True
+AFTER : status=enabled  url=https://worker.repworth.net/ingress/stripe
+        api_version=2026-05-27.dahlia events=6 livemode=True
+  - checkout.session.completed
+  - customer.subscription.deleted
+  - customer.subscription.updated
+  - invoice.paid
+  - invoice.payment_action_required
+  - invoice.payment_failed
+D5_ENABLE: PASS
+```
+
+Run through `railway run --environment production`, so the `sk_live_` key was used and
+never observed. The read-back re-asserts all four invariants — `enabled`, `livemode`, the
+exact URL, the pinned `api_version`, and six events.
+
+#### The convergence gate
+
+```
+$ railway run --environment production --service repworth-worker -- \
+    pnpm ws8:stripe-preflight --require-status-convergence
+
+SCANNED subscriptions=0 open_sessions=0 line_items=0 expired_sessions=0 status_notices=0
+WS8_PREFLIGHT_PASS blockers=0
+WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0 fixed_point_notices=0
+```
+
+The required literal `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0` is
+present. `fixed_point_notices=0` as well, so there is no `applier_noop_fixed_point`
+evidence to record — §6 asks for it only when such notices exist.
+
+**Every scanned count is zero, and that is the zero-state proof holding.** There are no
+subscriptions to converge, no open Checkout Sessions carrying a legacy Price, and nothing
+expired. The gate is a real execution against live Stripe and the production database, not
+a skip: it enumerated and found nothing.
+
+The script is **non-mutating** here — its only possible write is explicitly expiring open
+Sessions containing a retained legacy Price, and `open_sessions=0`.
+
+#### Post-enable checkpoint, recorded per §6
+
+| Field | Value |
+|---|---|
+| Checkpoint UTC | **2026-08-31T07:02:51Z** |
+| `FOUNDING_DEADLINE` | `2027-01-01T00:00:00Z` |
+| Deadline verification | `now < deadline` → **True** — founding pricing is live |
+| **`AUTOPILOT_PURCHASABLE`** | **`false`** — required, and unchanged |
+| `AUTO_APPROVAL_ENABLED` | `false` |
+| `SELF_SERVE_SIGNUP_ENABLED` | `false` |
+| `TRIAL_ENABLED` | `false` |
+| `ZERNIO_RECENT_REVIEW_POLL_DISABLED` | `true` — the §2 producer denial still in force |
+
+The beta posture of locked decision 7 is intact. Nothing in D.5 touched a flag.
+
+**What D.5 does NOT prove.** No live event has been delivered yet, because a zero-state
+account generates none. The endpoint is armed and the route answers correctly; a real
+signed delivery is first exercised at Phase H. Recording that rather than implying the
+webhook is proven end to end.
+
+---
 
 ### §7 — migration 078, then resume
 
