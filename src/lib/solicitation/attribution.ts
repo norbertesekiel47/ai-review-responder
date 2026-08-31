@@ -33,10 +33,13 @@ import { acquireSolicitationBatchLock } from './batch-builder';
 /** The Attribution window (May §6.4, spec D16b). The ONE owner of this number. */
 const ATTRIBUTION_WINDOW_DAYS = 14;
 
-/** How far back the owner-facing list reaches. Presentation only. EXPORTED
- *  because `AttributedReviews.tsx` renders it — the alternative is re-spelling
- *  30 in the component, which is the drift this constant exists to stop. */
-export const ATTRIBUTION_DISPLAY_WINDOW_DAYS = 30;
+// MOVED to the zero-import leaf `./attribution-display` (#1010) and re-exported
+// here so every server caller is unchanged. `AttributedReviews.tsx` renders this
+// number, and reading it from THIS module gave a 'use client' file a runtime
+// edge into server code — which reached `node:async_hooks` once #1010 wired the
+// Refusal ledger into `batch-builder.ts`. Read the leaf's header. The client
+// must import the LEAF; do not move the definition back.
+export { ATTRIBUTION_DISPLAY_WINDOW_DAYS } from './attribution-display';
 
 /** Stamped into attribution_detail so a stored verdict stays attributable to
  *  the ruleset that produced it — the ASK_LINT_VERSION precedent. */

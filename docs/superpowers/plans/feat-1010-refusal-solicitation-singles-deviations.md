@@ -313,3 +313,64 @@ The same sweep was run against #1011 and #1012 and both are clear:
 `outreach-render.integration.test.ts` calls none of #1011's three writers, and
 #1012's publisher suites reach the downgrade only through paths their own
 `--changed` run exercised green.
+
+## D8 — the build failure, and the client edge that was already there
+
+**Found by CI on PR #1044.** `test` and `lint` passed; `build` failed:
+
+```
+Failed to write app endpoint /(authenticated)/dashboard/requests/page
+- the chunking context (unknown) does not support external modules
+  (request: node:async_hooks)
+```
+
+**The chain, read rather than guessed:**
+
+```
+AttributedReviews.tsx  ('use client')
+  -> @/lib/solicitation/attribution     VALUE import, ATTRIBUTION_DISPLAY_WINDOW_DAYS
+  -> ./batch-builder                    VALUE import, acquireSolicitationBatchLock
+  -> @/lib/refusals/write               VALUE import — ADDED BY THIS BRANCH
+  -> createWorkerLogger -> log-context -> node:async_hooks   (module scope)
+```
+
+**The violation pre-dates #1010.** A `'use client'` component was already
+importing a server module at runtime to read one number — invariant #1. The
+chain was simply too short to reach a Node built-in. #1010 lengthened it by one
+edge and the build broke. Nothing about the Refusal write is wrong.
+
+**Two false starts, recorded because they cost real time.** First I blamed
+Turbopack module merging via `restraint-policy.ts` and built a zero-import leaf
+for `WITHHOLD_REASONS`; the build still failed, so it was reverted (that is the
+withdrawn amendment). The mistake was the same one twice over: I inferred a
+mechanism instead of reading the import statements, and my first sweep for client
+value-imports used a single-line regex that could not see
+`AttributedReviews.tsx`'s multi-line import. A repo-wide multi-line sweep found
+**11** client→server value imports; ten are benign today and exactly one sits on
+this chain.
+
+**Rejected fix — removing the logger from `write.ts`.** It works (measured: 0
+hits) and needs no amendment, but `write.ts`'s own docblock guarantees that log
+line is emitted FIRST and SYNCHRONOUSLY as the kill switch's durable signal, and
+a dynamic import breaks that. A kill switch whose warning is best-effort is worth
+less than the amendment.
+
+**Rejected fix — moving `acquireSolicitationBatchLock` out of `batch-builder`.**
+It would also work, but `ask-generation.ts` imports it and that file is **#1011's
+surface**. Touching it would break the disjointness the whole swarm rests on and
+risk a merge conflict between two RISK=high branches.
+
+**Fix taken:** the repo's own `format-rate.ts` precedent (#910 B3.10) — a
+zero-import leaf, `attribution-display.ts`, holding the presentation constant.
+`attribution.ts` re-exports it, so every server caller is unchanged and one
+definition survives. The client imports the leaf; its type import stays and is
+erased. Build clean, `ci:directory-map` green.
+
+**Verdict:** ACCEPT. Owner authorized the amendment after being shown the two
+rejected options. This also removes a real invariant-#1 violation that was
+sitting in the Requests route before this branch existed.
+
+**The lesson, and it is the same one as D7 and RT2-1:** I reasoned about a
+mechanism when the answer was in the import statements, and my sweep tool could
+not see the case that mattered. **Read the edges. Then check the sweep can see
+every shape of the thing it sweeps for.**
