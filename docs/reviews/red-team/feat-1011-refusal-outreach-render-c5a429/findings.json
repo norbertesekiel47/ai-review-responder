@@ -5,7 +5,7 @@
   "branch": "feat/1011-refusal-outreach-render",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "bd83caf22b91a3347fcc6b346c737f18a8d1c92f",
+  "head_sha": "d0ba72fb3b0d33f4ccb688baad62168612604499",
   "intake_sha256": "21d5549cc4520cf184f12ebc3385a50db02c6bf90a3dcad47818c0aa2176e633",
   "risk": "high",
   "round": 2,
@@ -45,10 +45,11 @@
       "id": "F1",
       "severity": "P1",
       "duty": 2,
-      "disposition": "open",
+      "disposition": "fixed",
       "title": "The W1/W2 position title still carries the end-of-hold bound this branch's own D0 calls too thin - 6ms of kill margin, measured, against ~300ms for the two titles the fix added",
       "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1251",
-      "arbiter_reasoning": "Not equivalent and not unexecuted: round 1's W1 mutant (ask-generation.ts:813) re-planted at HEAD failed this title, so the assertion is real. The defect is its margin. holdBatchAdvisoryLock (:396) calls signalAcquired() INSIDE the transaction callback and only then starts setTimeout(holdMs), while the test samples lockHeldAt after awaiting that promise - so the hold expires around signalAcquiredAt + holdMs, at or BEFORE lockHeldAt + HOLD_MS. The post-lock mutant thus stamps at lockHeldAt + HOLD_MS - hop + commit, and the measured net was 6ms over toBeLessThan(lockHeldAt + HOLD_MS). Grow that acquired-to-sample hop past 6ms, which is precisely what a loaded runner does, and the mutant lands UNDER the bound: the title silently stops catching the regression it exists to catch. This is a false-PASS risk, not a false-failure risk - the pass-side margin is ~595ms, so it will not go red spuriously, it will go quietly blind. D0 makes the argument itself ('at the end-of-hold bound both mutations failed by only ~4 ms - real, but too thin to trust on a loaded runner') and then applies the remedy to only the two new titles. The title is branch code, introduced by 535e0763, not pre-existing repo code. Behavioural replacement is one line and already present twice in this file: const DECIDED_BEFORE_MS = HOLD_MS / 2, as at :1279 and :1362. Scope note for the adjudicator: this line is outside the strict 535e0763..bd83caf2 fix hunk and is reachable only via Duty 4 and via re-resolving D0's own claim."
+      "arbiter_reasoning": "Not equivalent and not unexecuted: round 1's W1 mutant (ask-generation.ts:813) re-planted at HEAD failed this title, so the assertion is real. The defect is its margin. holdBatchAdvisoryLock (:396) calls signalAcquired() INSIDE the transaction callback and only then starts setTimeout(holdMs), while the test samples lockHeldAt after awaiting that promise - so the hold expires around signalAcquiredAt + holdMs, at or BEFORE lockHeldAt + HOLD_MS. The post-lock mutant thus stamps at lockHeldAt + HOLD_MS - hop + commit, and the measured net was 6ms over toBeLessThan(lockHeldAt + HOLD_MS). Grow that acquired-to-sample hop past 6ms, which is precisely what a loaded runner does, and the mutant lands UNDER the bound: the title silently stops catching the regression it exists to catch. This is a false-PASS risk, not a false-failure risk - the pass-side margin is ~595ms, so it will not go red spuriously, it will go quietly blind. D0 makes the argument itself ('at the end-of-hold bound both mutations failed by only ~4 ms - real, but too thin to trust on a loaded runner') and then applies the remedy to only the two new titles. The title is branch code, introduced by 535e0763, not pre-existing repo code. Behavioural replacement is one line and already present twice in this file: const DECIDED_BEFORE_MS = HOLD_MS / 2, as at :1279 and :1362. Scope note for the adjudicator: this line is outside the strict 535e0763..bd83caf2 fix hunk and is reachable only via Duty 4 and via re-resolving D0's own claim.",
+      "reason": "FIXED in d0ba72fb. The W1/W2 position title now bounds on the midpoint of the hold (const DECIDED_BEFORE_MS = HOLD_MS / 2) instead of its end, the same bound the two titles the round-1 fix added already used, with the mechanism written at the assertion so it is not simplified back. Verified present at HEAD in src/lib/solicitation/__tests__/ask-generation.integration.test.ts at the cited line. Margin moves from a measured 6 ms to roughly 300 ms. Recorded in the deviations file as D0b."
     },
     {
       "id": "F2",
@@ -57,7 +58,8 @@
       "disposition": "open",
       "title": "The new discriminator is one-sided by construction: a clock read moved absurdly EARLY is caught by nothing in the repository",
       "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1345",
-      "arbiter_reasoning": "Measured, not inferred. regenerateAsk's decidedAt moved to function entry (ask-generation.ts:1446) - ahead of loadBatchContext, the ask and contact loads, and the whole generateChildRender LLM round trip, so seconds early in production - and the title PASSED. A search for any lower bound on rendered_at/occurred_at across src/lib/solicitation/__tests__ and src/lib/refusals/__tests__ returns nothing: every assertion on those columns is a toBeLessThan or a column equality. Deliberately NOT a P0. The intake invariant has two halves - 'read immediately after the render DECISION' and 'before the transaction opens or waits' - and these titles name only the second ('so a slow lock does not move the decision time'), which they enforce correctly and provably. The assertions are honest about what they claim; the first half is simply unpinned, for all four writers, and was equally unpinned at 535e0763. Recorded so the gap is a decision rather than an accident."
+      "arbiter_reasoning": "Measured, not inferred. regenerateAsk's decidedAt moved to function entry (ask-generation.ts:1446) - ahead of loadBatchContext, the ask and contact loads, and the whole generateChildRender LLM round trip, so seconds early in production - and the title PASSED. A search for any lower bound on rendered_at/occurred_at across src/lib/solicitation/__tests__ and src/lib/refusals/__tests__ returns nothing: every assertion on those columns is a toBeLessThan or a column equality. Deliberately NOT a P0. The intake invariant has two halves - 'read immediately after the render DECISION' and 'before the transaction opens or waits' - and these titles name only the second ('so a slow lock does not move the decision time'), which they enforce correctly and provably. The assertions are honest about what they claim; the first half is simply unpinned, for all four writers, and was equally unpinned at 535e0763. Recorded so the gap is a decision rather than an accident.",
+      "reason": "ACCEPT as recorded, no action — arbiter verdict, deviations file D0b. The finding is true: a clock read moved EARLIER, to function entry ahead of the whole LLM round trip, is caught by nothing in the repository. It is left open rather than fixed because the unsafe direction is the trapped one — reading LATE is the regression this branch exists to prevent, and no code path produces an absurdly early read. A lower bound would pin a number nothing threatens."
     },
     {
       "id": "F3",
@@ -66,7 +68,8 @@
       "disposition": "open",
       "title": "Coverage boundary: the discriminator binds to the lock, not to the transaction, so a clock read moved inside sql.begin but above the lock survives",
       "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1414",
-      "arbiter_reasoning": "settleGenerationExhaustion's decidedAt moved from :1752 into the transaction, below markOutboxFailed and above acquireSolicitationBatchLock: the title PASSED. So the coverage is not all-or-nothing - it is positional relative to the LOCK, not to the transaction, and the intake's literal wording ('before the transaction opens or waits') is pinned only in its 'or waits' half. Deliberately NOT a P0 on two grounds. The shift is one DB round trip, single-digit milliseconds, against the unbounded lock wait this branch exists to defend, so it is near-equivalent for the value being recorded. And the unsafe direction stays trapped: the moment anyone reorders the lock above that read, the mutation becomes the R2 mutation, which dies. The gap is a safe intermediate state that cannot decay into an unsafe one undetected."
+      "arbiter_reasoning": "settleGenerationExhaustion's decidedAt moved from :1752 into the transaction, below markOutboxFailed and above acquireSolicitationBatchLock: the title PASSED. So the coverage is not all-or-nothing - it is positional relative to the LOCK, not to the transaction, and the intake's literal wording ('before the transaction opens or waits') is pinned only in its 'or waits' half. Deliberately NOT a P0 on two grounds. The shift is one DB round trip, single-digit milliseconds, against the unbounded lock wait this branch exists to defend, so it is near-equivalent for the value being recorded. And the unsafe direction stays trapped: the moment anyone reorders the lock above that read, the mutation becomes the R2 mutation, which dies. The gap is a safe intermediate state that cannot decay into an unsafe one undetected.",
+      "reason": "ACCEPT as recorded, no action — arbiter verdict, deviations file D0b. The finding is true: the discriminator binds to the advisory lock rather than to the transaction, so a clock read placed inside sql.begin but ABOVE the lock acquisition survives. Left open because the unsafe direction stays trapped: the property that matters is \"before the lock wait\", and that is exactly what is pinned."
     }
   ],
   "authorizations": [],
@@ -79,11 +82,11 @@
     "excluded": 1,
     "findings_total": 3,
     "p0_open": 0,
-    "p1_open": 1,
+    "p1_open": 0,
     "p2_open": 2,
     "accepted_risk": 0,
-    "fixed": 0,
+    "fixed": 1,
     "rejected": 0
   },
-  "status": "OPEN_P1"
+  "status": "CLEAR"
 }

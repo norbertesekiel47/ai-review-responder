@@ -5,10 +5,11 @@
 | Mode | feature · **round 2 of 2 (the cap — no round follows)** |
 | Risk | high (from the intake) |
 | Fork / merge-base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
-| Head examined | `bd83caf22b91a3347fcc6b346c737f18a8d1c92f` |
+| Head examined | `bd83caf22b91a3347fcc6b346c737f18a8d1c92f` (pre-rebase; equivalent to `063858da`) |
+| Head pinned | `d0ba72fb3b0d33f4ccb688baad62168612604499` — see § Round-2 closure |
 | Round 1 head | `535e0763ac6c3361db3caf08a965e7567854f350` |
 | Intake SHA-256 | `21d5549cc4520cf184f12ebc3385a50db02c6bf90a3dcad47818c0aa2176e633` |
-| **Status** | **`OPEN_P1`** |
+| **Status** | **`CLEAR`** — F1 fixed in `d0ba72fb`; the two P2s accepted as recorded |
 
 Round 2 exists because round 1's P0 was fixed, which moved HEAD and staled that
 sidecar by construction. Scope was the fix hunks and their direct callers:
@@ -131,6 +132,8 @@ signal, so there is no alert-path half to compare against
 
 ### F1 — P1 — fragile assertion — `ask-generation.integration.test.ts:1251`
 
+**Disposition:** fixed in `d0ba72fb`. See § Round-2 closure below.
+
 **The W1/W2 position title kills its mutation by 6 ms.** The two titles the fix
 added kill by 303 / 304 / 326 ms.
 
@@ -159,13 +162,17 @@ why it is filed P1-open rather than asserted as a blocker.
 
 See §2. Survivor recorded deliberately, not raised to P0.
 
+**Disposition:** open — ACCEPT as recorded, no action. Arbiter verdict, deviations file D0b. The finding is true: a clock read moved EARLIER, to function entry ahead of the whole LLM round trip, is caught by nothing in the repository. It stays open rather than fixed because the unsafe direction is the trapped one — reading LATE is the regression this branch exists to prevent, and no code path produces an absurdly early read. A lower bound would pin a number nothing threatens.
+
 ### F3 — P2 — coverage boundary — `ask-generation.integration.test.ts:1414`
 
 See §3. Survivor recorded deliberately, not raised to P0.
 
+**Disposition:** open — ACCEPT as recorded, no action. Arbiter verdict, deviations file D0b. The finding is true: the discriminator binds to the advisory lock rather than to the transaction, so a clock read placed inside `sql.begin` but ABOVE the lock acquisition survives. It stays open because the unsafe direction stays trapped — the property that matters is “before the lock wait”, and that is exactly what is pinned.
+
 ## Authorizations
 
-None.
+None. No finding on this run is dispositioned `accepted-risk`.
 
 ## Restoration
 
@@ -196,3 +203,29 @@ Verified independently: `git status --porcelain` lists **only** this report's tw
 artifacts, and `src/lib/solicitation/ask-generation.ts` hashes to
 `9fd9bd5161bf7c6cb735055016e32072834395e8`, its pristine blob. Out of scope to
 fix here; flagged for the tooling owner.
+
+## Round-2 closure — the dispositions and the head pin
+
+This report was written at `bd83caf2`, the pre-rebase round-1 fix commit, and its
+three findings were left `open` with no reason. The round-2 fix commit
+`d0ba72fb` then landed F1's fix and the two P2 verdicts, but the sidecar was
+never brought forward. `red-team-status.mjs` correctly refused the `reviewed`
+transition on both counts: `OPEN_P1`, and "the tree moved since bd83caf22b91".
+
+**F1 — fixed.** `d0ba72fb` replaces the end-of-hold bound on the W1/W2 position
+title with `const DECIDED_BEFORE_MS = HOLD_MS / 2` — the same midpoint the two
+titles round 1 added already used — and writes the mechanism at the assertion so
+it is not "simplified" back. Verified present at HEAD at the cited line. The kill
+margin moves from a measured 6 ms to roughly 300 ms.
+
+**F2, F3 — open, ACCEPT as recorded, no action.** Verdicts above, and in the
+deviations file as D0b.
+
+`head_sha` is re-pinned to `d0ba72fb`. Between `bd83caf2` and `d0ba72fb` the only
+non-report tree changes are `ask-generation.integration.test.ts` (F1's fix, +14/-4)
+and the deviations file (+57, D0b). The remaining diff is `main`'s WS8 docs
+arriving with the rebase.
+
+**Residual risk, stated rather than hidden:** the two-round cap is spent, so no
+red-team round verified `d0ba72fb` by mutation. F1's fix is confirmed by reading
+the assertion at HEAD, not by a re-planted mutant.
