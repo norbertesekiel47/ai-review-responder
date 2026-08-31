@@ -81,8 +81,6 @@
     "src/lib/solicitation/__tests__/approval.test.ts",
     "src/lib/solicitation/__tests__/approval.integration.test.ts",
     "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
-    "worker/background/pollers/SolicitationReleasePoller.ts",
-    "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
     ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
@@ -120,8 +118,7 @@
     "a ledger failure in the ask lane rolls back the whole batch build",
     "a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together",
     "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
-    "a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step",
-    "a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick"
+    "a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 240,

@@ -39,37 +39,57 @@ byte-identical to HEAD (`git hash-object` matches `HEAD:…`).
 shared helper directory is off-surface. Noted in its docblock; the right home is
 `src/lib/shared/__tests__/helpers/`, which a later slice should claim.
 
-### P1-B — a SYSTEM halt ledger failure reached no alert path
+### P1-B — WITHDRAWN. The gap did not exist, and the fix has been reverted.
 
-`latchSystemHalt` runs only under `SolicitationReleasePoller`. That poller is not
-a BullMQ worker, so `attachJobFailureSink` never sees it, and
-`runSolicitationReleaseCycle` had no catch of its own — the shared
-`createGuardedPoll` harness catches and calls `logger.error` alone.
+**What round 1 claimed, and what I confirmed:** that `latchSystemHalt` runs only
+under `SolicitationReleasePoller`, that the poller is not a BullMQ worker so
+`attachJobFailureSink` never sees it, and that `runSolicitationReleaseCycle` had
+no catch of its own. All three are true. I escalated it as a P1, the owner
+waived an abort criterion to allow surface amendment 2, and the fix landed.
 
-**This branch CREATED the gap.** Before it, no ledger failure could occur on that
-path; `batch_halted` now writes on the `platform_halt` and `send_window_elapsed`
-arms. A failed system halt would have left a batch un-halted with only a log line.
+**What round 2 traced, and neither round 1 nor I did:** `latchSystemHalt` is
+called inside `isolateItem` (`release.ts` → `release-phases.ts`), which **never
+rethrows** and **already** reports through `recordItemFailure` —
+`Sentry.captureException`, guarded by its own `try {} catch {}`, with a log
+fallback, under `tags: { subsystem: 'solicitation-release', phase }`. **The alert
+path existed one layer below the poller the entire time.**
 
-**Fix,** on the #1009 `AutonomyGovernorScheduler` precedent exactly:
-`runSolicitationReleaseCycle` catches, calls `Sentry.captureException` with
-`tags: { subsystem: 'solicitation_release' }`, wraps that capture in its own
-`try {} catch {}` so reporting a failure can never escalate it, and **rethrows**
-so the harness still writes the durable line and still releases its single-flight
-flag. `guarded-poll.ts` is untouched — its catch is shared by every poller and
-widening it is a different change.
+So the fix was worse than nothing, three ways:
 
-**Mutant check:** reverting to the old three-line body makes the new case fail
-(`captureException` called 0 times); restored, 9/9.
+1. **It cannot see the failure it was built for.** `isolateItem` catches below
+   it; nothing reaches the cycle-level catch.
+2. **It split one subsystem across two tag spellings.** Four existing sites use
+   `solicitation-release`; the fix wrote `solicitation_release`.
+3. **One of the two arms I cited writes no Refusal at all** —
+   `send_window_elapsed` maps to `null` in `BATCH_HALTED_REFUSAL_CATEGORIES`.
 
-**Cost recorded:** surface amendment 2 of 2, owner-approved. This branch has none
-left.
+**Reverted in full**, on the owner's decision: `SolicitationReleasePoller.ts` and
+its test are restored to their fork-point state, the title is removed from
+`tests_to_add`, and the two poller paths are removed from
+`allowed_edit_surface` (a narrowing, which is auto-approved).
 
-**Verdict:** ACCEPT both — each gap re-proved closed by re-planting its mutation.
+**The amendment is NOT recovered.** `surfaceAmendments` stays at 2 — the counter
+does not decrement — so this branch spent its last amendment on a change that
+should never have landed. That is the honest cost and it is recorded here rather
+than quietly reset.
+
+**The error was mine and it is specific.** I verified the half of round 1's claim
+that was cheap to verify — the poller's cycle has no catch — and never checked
+whether the CALLER of `latchSystemHalt` already had containment. An escalation
+that reaches the owner deserves the whole trace, not the half that confirms it.
+
+**Verdict:** ACCEPT the withdrawal. P1-A stands and round 2 confirmed it
+genuinely pinned; P1-B is withdrawn with its premise disproved.
 
 ## D6 — the reclassify trigger fired again, and the estimate was corrected again
 
-The P1 fixes added ~160 test lines, taking the branch to 2,346 against an
-`estimated_test_lines` of 1,150 — past the 2× trigger.
+The P1 fixes added **246** test lines (round 2 measured it; an earlier draft of
+this entry said "~160" and that was an estimate presented as a count), taking the
+branch to 2,346 against an `estimated_test_lines` of 1,150 — past the 2× trigger.
+The 2,346 headline is exact: 2,344 added and 2 deleted. **The P1-B withdrawal
+removes some of those lines again**, and the estimate is left at the measured
+2,346 rather than re-tuned per revert — an estimate that chases every commit is
+not an estimate.
 
 **Resolution:** the estimate is set to the MEASURED 2,346, exactly as the
 prerequisite branch did. Recorded here so the correction cannot read as tuning a

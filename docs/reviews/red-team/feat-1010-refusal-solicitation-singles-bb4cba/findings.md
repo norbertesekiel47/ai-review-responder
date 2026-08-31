@@ -1,23 +1,23 @@
-# Red team — #1010, the three solicitation Refusal lanes
+# Red team — `feat/1010-refusal-solicitation-singles` · **ROUND 2**
 
-| | |
+Mode `feature` · risk `high` · round **2 of 2 (the cap)** · generated 2026-08-31.
+
+| Pin | Value |
 |---|---|
-| Mode | `feature` (dispatched inside `/feature` step 7's review wave) |
-| Run id | `feature-feat-1010-refusal-solicitation-singles-bb4cba` |
 | Branch | `feat/1010-refusal-solicitation-singles` |
-| Fork / merge-base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
-| Head | `e9a6a50b21710d28209ebed7023704a21159a53a` |
-| Intake SHA-256 | `b6badf4fd9244c9bf2e64eb8cf3008db762fcc2f3afacc2856c4c584379a4ca9` |
-| Risk | high (from the intake) |
-| Round | 1 of a hard cap of 2 |
-| Generated | 2026-08-31T06:32:24Z |
-| Status | **INCOMPLETE_BUDGET** — 21 in-scope candidates could not be executed inside the 30-run round budget |
+| Fork | `06a163f0b4b102c88687c95862999e38a1c3f517` |
+| Merge base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
+| Head (this pass) | `426ccf77fc2b1248161e466fbf26d15bb7332f8a` |
+| Round-1 head | `e9a6a50b21710d28209ebed7023704a21159a53a` |
+| Round-2 scope | `git diff e9a6a50b..426ccf77` — the fix hunks and their direct callers only |
+| Intake sha256 | `5fdcdb4902ef117560c790b2c0cbf22c617e12d6c5f1e5fc2c34f6077339654e` |
 
-Mutation tally: **21 mutants planted · 19 killed · 1 survived (arbiter-reclassified
-equivalent) · 1 non-compiling (superseded)**, across 27 of the round's 30 runs
-(5 green baselines + 22 mutation runs). Every mutation was reverted before this
-file was created; all four production files are at their HEAD blob and
-`git status --porcelain --untracked-files=no` is empty.
+> **This file REPLACES round 1's report at the same branch-derived slug.** Round 1's
+> six findings are carried forward below with their disposition at this HEAD, so
+> nothing is lost by the overwrite.
+
+**Status: `OPEN_P0`.** One P0 (RT2-1). At the hard cap of two rounds there is no
+round behind this one: RT2-1 goes to the owner.
 
 ---
 
@@ -25,276 +25,293 @@ file was created; all four production files are at their HEAD blob and
 
 | Precondition | Result |
 |---|---|
-| Worktree clean at a committed SHA | PASS — `git status --porcelain --untracked-files=no` empty at `e9a6a50b` |
-| No process serving or watching this worktree | **RESOLVED, not clean.** `mutation-runner.mjs watchers` ABORTED on four processes (`pnpm dev`, `next dev`, two `next-server`). Their working directories were then read with `lsof -a -p <pid> -d cwd`: three are `…/RepWorth` (the parent checkout), one is `…/RepWorth-worktrees/refactor-globals-css-extraction`. **None has a working directory inside this worktree**, so no hot-reload process can execute a mutation here. The runner's check is a repo-agnostic `ps` pattern with no path scoping; the skill's precondition ("no process is serving or watching **this worktree**") holds. |
-| Journal closed, round open | PASS — `round-start` opened round 1 with 30 runs available |
-| Environment isolated | PASS — `env --tmp-home <mktemp -d> --test-db postgres://…@localhost:5499/test_1010`, plus `dotenv-swap` so `.env.local` was a scrubbed replacement for the whole mutation phase. Test database `test_1010` is this pass's alone. |
+| Worktree clean at a committed SHA | PASS — `git status --porcelain` empty at `426ccf77` |
+| No process serving or watching this worktree | **RESOLVED, not clean.** `mutation-runner.mjs watchers` ABORTED on four processes (`pnpm dev`, `next dev`, two `next-server`). Their working directories were read with `lsof -a -p <pid> -d cwd`: PIDs 68547/69387/69738 are `…/RepWorth` (the parent checkout), PID 76253 is `…/RepWorth-worktrees/refactor-globals-css-extraction`. **None has a working directory inside this worktree**, so no hot-reload process can execute a mutation here. The runner's check is a repo-agnostic `ps` pattern with no path scoping; the skill's precondition ("no process is serving or watching **this worktree**") holds. Identical resolution to round 1. |
+| Journal closed, round open | PASS — `round-start` opened **round 2** with 30 runs available and reset the counter |
+| Environment isolated | PASS — `env --tmp-home $(mktemp -d) --test-db <localhost:5499/test_1010>` plus `dotenv-swap`, so `.env.local` was a scrubbed replacement for the whole mutation phase. Test database `test_1010` is this pass's alone. |
 
-**Recorded deviation from the skill's letter.** The skill says "run the INDIVIDUAL
-test at HEAD" for each baseline. Five baselines were run instead — one per suite,
-filtered by a `-t` alternation covering every candidate that suite contributes —
-because each baseline consumes a run from the same 30-run budget as a mutant, and
-per-candidate baselines would have left no budget for mutations at all. Every
-candidate mutated below was observed **green at HEAD inside one of those five
-runs**, which is the guarantee the rule exists for. Baselines: `write.test.ts`
-(11/11), `approval.integration` "Refusal ledger" (10/10), `batch-builder.integration`
-ledger filter (12/12), `dispatch.integration` "Refusal ledger" (7/7),
-`approval-system-halt.integration` (5/5).
+## 2. Restoration
+
+The finalizer's **first** invocation FAILED with 7 aborts. Cause, recorded because
+it is a trap for the next run: mutations of one file were CHAINED (each `mutate`
+records the *current* working blob as that entry's `originalOid`), and the
+operator's own "restore by mutating back to the HEAD blob" step created a journal
+entry whose `originalOid` is the last MUTANT. `finalize` walks entries in array
+order and dutifully restored that entry's "original" — putting the A4 and B4
+mutants back — then aborted on the earlier chained entries because the working
+blob matched neither their original nor their mutant.
+
+Resolved by hand, exactly as the runner's own abort message instructs
+("Resolve by hand"):
+
+1. `git checkout -- src/lib/solicitation/dispatch.ts worker/background/pollers/SolicitationReleasePoller.ts` (named paths only).
+2. The pre-repair journal was copied to the session scratchpad as
+   `journal-before-hand-repair.json`, then the 7 `applied` mutation entries were
+   marked `restored` with a `handRestoredAt` stamp.
+3. `finalize` re-run → `restored 0 mutated file(s) and 0 dotenv file(s); journal closed`, exit 0.
+
+Proof the tree is unmoved, taken after the repair and before any report byte:
+
+```
+git status --porcelain              -> (empty)
+git diff --stat HEAD                -> (empty)
+git hash-object src/lib/solicitation/dispatch.ts                        -> 3ee68e3cdd385059247ea9aab301f6b89052a5c2
+git rev-parse 426ccf77:src/lib/solicitation/dispatch.ts                 -> 3ee68e3cdd385059247ea9aab301f6b89052a5c2
+git hash-object worker/background/pollers/SolicitationReleasePoller.ts  -> 532ef1558e07e8a4d55b8c41bd0d2d28506e78bd
+git rev-parse 426ccf77:worker/.../SolicitationReleasePoller.ts          -> 532ef1558e07e8a4d55b8c41bd0d2d28506e78bd
+.env.local                                                              -> 319 lines, real header, no `.env*.red-team-backup` remains
+```
+
+**A further finalizer run is not required** — the journal is closed, the dotenv
+swap is closed, and the tree is byte-identical to HEAD. Re-running it is
+idempotent and harmless.
+
+## 3. Budget
+
+15 of 30 runs used. **The per-test cap of 2 mutations was exceeded** on both
+candidates (4 mutations each), under explicit orchestrator direction naming those
+specific attacks. Recorded rather than glossed; the global 30-run cap was
+respected and no candidate was left `skipped-budget`.
 
 ---
 
-## 2. Duty 1 — hand-mutation
+## 4. Findings
 
-### 2.1 What was killed
+### RT2-1 — **P0** — the P1-B fix cannot observe the failure it was built for, and the gap it documents never existed
 
-| # | Mutation | Target test | Result |
+`worker/background/pollers/SolicitationReleasePoller.ts:61-107` · duty 3 (docs vs
+reality) · disposition **open**
+
+The fix's premise is a causal chain the code contradicts at three links.
+
+**Link 1 — the failure never reaches the new catch.** `latchSystemHalt` is called
+from exactly one place: `src/lib/solicitation/release.ts:791`, where
+`sql.begin(tx => latchSystemHalt(tx, …))` is the BODY passed to `isolateItem`.
+`isolateItem` (`src/lib/solicitation/release-phases.ts:69-81`) catches, calls
+`recordItemFailure`, and `return undefined` — **it never rethrows**. A
+`batch_halted` ledger abort therefore rolls its batch back, is contained one
+frame below `runReleaseCycle`, and cannot propagate to
+`runSolicitationReleaseCycle`'s new `catch`. Both system-halt sweeps route this
+way (`release.ts:916` and `release.ts:970` both call `sweepSystemHalt`, reached
+under `alertPhaseFailure('send_window_elapsed', …)` at `release.ts:317` and
+`alertPhaseFailure('batch_expired', …)` at `release.ts:325`).
+
+**Link 2 — the alert path it claims to add already existed.**
+`recordItemFailure` (`release-phases.ts:89-108`) already does what the fix does,
+for exactly this failure: `Sentry.captureException(cause, { level: 'warning',
+tags: { subsystem: 'solicitation-release', phase }, extra: { batch_id,
+account_id, business_id } })`, wrapped in its own `try {} catch {}`, with the
+`logger.error` fallback deliberately OUTSIDE that guard. The docblock's assertion
+that "`createGuardedPoll`'s shared catch emits `logger.error` alone" and that a
+failed system halt is "left at the log line alone … repeats silently every
+minute" is false at `426ccf77` and was false at `e9a6a50b`. The repo's own
+existing test says so in plain words —
+`src/lib/solicitation/__tests__/release.integration.test.ts:2162-2163`:
+"the failed item is left exactly as it was, for the next tick **and for the
+Sentry issue the catch raised**."
+
+**Link 3 — one of the two named arms writes no Refusal at all.**
+`SolicitationReleasePoller.ts:65-67` and the deviations file both say
+`batch_halted` "now writes on the `platform_halt` and `send_window_elapsed`
+arms". `BATCH_HALTED_REFUSAL_CATEGORIES` at `src/lib/refusals/vocabulary.ts:336`
+maps `send_window_elapsed: null`, and `approval.ts:635-636` skips the write
+outright on a null category. Only `platform_halt` writes.
+
+**What the new capture actually does.** It fires on what genuinely propagates: a
+phase-level throw. Those are already captured by `alertPhaseFailure`
+(`release-phases.ts:134-151`), which captures *and rethrows* — so every phase
+failure now raises **two** Sentry issues, and the second carries
+`subsystem: 'solicitation_release'` (underscore) where the whole lane already
+uses `subsystem: 'solicitation-release'` (hyphen). One condition, two issues, two
+tag values, and any rule keyed on either value sees half the traffic.
+
+**Why P0 and not P1.** The skill makes "a misleading FALSE claim" a P0. The claim
+is repeated in three places that a reader will treat as authority — a production
+docblock (`SolicitationReleasePoller.ts:61-72`), the deviations record
+(`docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md:42-63`,
+which is where an approver reads the fix's justification), and the test's own
+comment (`worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts:217-220`).
+The new test passes only because it mocks `runReleaseCycle` to reject directly,
+which the named failure mode cannot do. Round 1's RT-2 was itself the
+mis-diagnosis; this is its correction.
+
+**The mutations still measure real assertions.** B1–B4 all died (§5). RT2-1 is
+not "the test is hollow about what it asserts" — it is "what it asserts is not
+the property the branch claims to have bought."
+
+### RT2-2 — **P1** — the newly emitted Sentry signal has no rule row
+
+`docs/runbooks/beta-launch-alerting.md:207-212` · duty 5 · disposition **open**
+
+`subsystem: 'solicitation_release'` appears at exactly three places in the repo
+(`rg -n solicitation_release`): the emitter, its test, and the deviations file.
+It has **no §1 bullet and no row in the §1a-do rule table** (rules 1-6 key on
+`health_alert`, `limit_exceeded`, `stripe_reconciliation`,
+`import_consent_analytics`, `solicitation_send_breaker_tripped`,
+`solicitation_lane`). Duty 5: an emitted signal with no rule row is a P1.
+
+The #1009 `AutonomyGovernorScheduler` precedent the fix names as its model added
+its runbook bullet in the same change (`beta-launch-alerting.md:67-82`). The
+deviations file says the fix follows that precedent "exactly"; on this half it
+does not.
+
+Round 1's RT-2 carried both halves ("no Sentry signal **and no alerting rule
+row**"). The signal half was a mis-diagnosis (RT2-1); this half survives intact
+and is untouched by the fix.
+
+`docs/runbooks/beta-launch-alerting.md` is **not** in `allowed_edit_surface`, and
+D0 records both surface amendments as spent — so this cannot be closed on this
+branch and needs owner adjudication. If RT2-1 resolves by removing the capture,
+this finding resolves with it; if the capture stays, the row is owed.
+
+### RT2-3 — **P2** — the ordering case leaves `closeBatchIfSettled`'s position unpinned
+
+`src/lib/solicitation/__tests__/dispatch.integration.test.ts:2569-2639` · duty 1 ·
+disposition **open**
+
+Mutation A5 hoisted `closeBatchIfSettled` to the top of `commitWithhold` — the
+settlement join then runs before the outreach is marked `withheld`, so a batch
+whose last row is a withhold never closes. The new ordering case **survived**,
+and so did the sibling case that most looks like it should catch it
+(`batch closure closes the batch once the last Outreach row terminalizes across a
+mixed sent, withheld and failed set` — that fixture's last terminalizer is not
+the withhold).
+
+**Arbiter reasoning:** A5 is neither equivalent nor on an unexecuted branch, but
+it is **not semantically meaningful for the tested behaviour**, which is the
+ledger write's position relative to five named writes plus last-of-all. The five
+relative orders and `ledgerIndex === queries.length - 1` all still hold under A5.
+Reclassified from P0-candidate to a recorded P2. It is worth recording because
+the sibling rollback case's own title enumerates "outbox completion **and batch
+close** together", so a reader reasonably expects the settlement join to be
+pinned in position too, and it is not.
+
+### RT2-4 — **P2** — D6's "~160 test lines" understates the measured delta
+
+`docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md:69-71`
+· duty 3 · disposition **open**
+
+`git diff --numstat e9a6a50b..426ccf77` over test paths: 164 + 82 = **246** added
+test lines, 0 deleted. Not ~160. (~160 is defensible if the shared
+`recordingExecutor` helper is excluded from the count, but that reading is
+inconsistent with the same paragraph's 2,346.) Non-load-bearing: the number that
+feeds the 2× reclassify trigger is the total, and that one is exact — see §6.
+
+---
+
+## 5. Mutation ledger — 15 runs, 8 mutations, 8 kills
+
+### P1-A — the dispatch ordering case · `src/lib/solicitation/dispatch.ts`
+
+Baseline at HEAD: PASS.
+
+| # | Mutation (scoped to `commitWithhold`'s body) | Result | Killing assertion |
 |---|---|---|---|
-| M1 | `writeRefusalEvents` set INSERT replaced by a `for` loop over `writeRefusalEvent` | *the set-based arm issues exactly one INSERT statement for every non-empty input set* | **killed** |
-| M2 | set arm's `ON CONFLICT … WHERE subject_id IS NOT NULL` predicate dropped | *…re-spells the refusal_events_subject_uniq predicate byte-for-byte…* | **killed** |
-| M3 | `if (inputs.length === 0) return;` deleted | *…issues no statement for an empty input set* | **killed** |
-| M4 | kill-switch early return deleted from the set arm | *…writes nothing when REFUSAL_LEDGER_ENABLED is the literal string false* | **killed** |
-| M5 | halt lane `occurredAt: 'transaction_time'` → `new Date()` | *a halt Refusal's occurred_at equals solicitation_batches.halted_at … at full microsecond precision* | **killed** |
-| M6 | halt ledger write moved from between the audit row and the spine step to immediately after the CAS | *a halt writes its Refusal after cancelling outreach and writing any audit row, but before the run-spine step…* | **killed** |
-| M7 | `send_window_elapsed` + `batch_expired` given a non-null category | *every solicitation refusal reason … and every null-mapped reason writes nothing* (HALT) | **killed** |
-| M8 | `owner_veto` + `owner_halt` given a non-null category | *an owner halt writes no refusal_events row* | **killed** |
-| M9 | ask lane `occurredAt: decidedAtInstant` → `'transaction_time'` | *an ask Refusal's occurred_at equals solicitation_asks.decided_at … at full microsecond precision* | **killed** (`…04.960276+00 !== …04.969+00` — a 9 ms gap the microsecond comparison caught) |
-| M10 | `ASK_WITHHELD_REFUSAL_CATEGORIES[reason] ?? 'wrong_moment'` (so `velocity_banked` writes) | *a batch build writes no refusal_events row for a velocity_banked withhold* | **killed** |
-| M11 | `subjectId: askIds[index]!` → a fresh `uuidv7()` | *every ask_withheld refusal points to the exact solicitation_ask row…* | **killed** |
-| M12 | `if (decision.decision !== 'withhold') return [];` deleted | *…one refusal_events row per withheld ask and none for a send decision* | **killed** (via a `refusal_category` NOT NULL violation — a send decision carries no `reason`) |
-| M13 | `refusalCode: decision.reason` → the literal `'no_consent'` | *every solicitation refusal reason…* (ASK) | **killed** |
-| M14 | dispatch `occurredAt: input.decidedAt` → `'transaction_time'` | *a dispatch withhold stamps occurred_at with the gate's decision clock…* | **killed** (skew 0, threshold 0.3 s) |
-| M15 | dispatch `subjectId: scope.outreachId` → `input.askId` | *a dispatch withhold writes one refusal_events row against the outreach id* | **killed** |
-| M17 | dispatch ledger write deleted outright | *a ledger failure in the dispatch lane rolls back…* | **killed** |
-| M18 | halt ledger write made conditional on `input.audit !== null` | *a platform halt writes a refusal_events row even though it writes no account_audit_log row* | **killed** |
-| M19 | halt ledger write turned into a loop over the cancelled Outreach rows | *a halt writes its Refusal after cancelling outreach…* | **killed** (2 statements, expected 1 — the per-row fan-out is caught at the STATEMENT level, which matters because `ON CONFLICT DO NOTHING` on the batch subject would have kept the row COUNT at 1) |
-| M20b | `commitAskDecisions` call site converted to a loop over `writeRefusalEvent` | *a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT* | **killed** (5000 statements, expected 1) |
+| A1 | `writeRefusalEvent` hoisted to the TOP — round 1's exact mutation, re-planted | **killed** | `expected 14 to be greater than 23` (`:2632`) — the same failure string D0 records |
+| A2 | `writeRefusalEvent` moved to the MIDDLE (after the terminal `UPDATE`, before `recordStep`) | **killed** | `expected 17 to be greater than 23` (`:2632`) |
+| A3 | `completeRun` and `markOutboxCompletedIfOwned` swapped — two of the OTHER four writes | **killed** | `expected 20 to be greater than 21` (`:2631`, `outboxIndex > childTerminalIndex`) |
+| A4 | Receiver changed: `pool: Sql` threaded through `runDispatchTx` → `commitWithhold`, ledger write issued on the POOLED client instead of `tx` | **killed** | `expected false to be true` (`:2609`, `ledgerQueries[0].onTransaction`) |
+| A5 | `closeBatchIfSettled` hoisted to the top | **survived** → RT2-3 (arbiter: not meaningful for the tested claim) | |
 
-The four questions the brief named as most likely to be hollow are all answered
-"real":
+All three claims D0 makes for this case are real, measured: receiver identity
+(A4), the five-write order (A1/A2/A3), and `ledgerIndex === queries.length - 1`
+(A1/A2).
 
-* **The single-statement claim is measured, not asserted, at BOTH levels.** M1
-  (loop inside the helper) and M20b (loop at the call site) both die — the unit
-  case counts awaited queries through the mock, and the integration case counts
-  `INSERT INTO refusal_events` statements through a recording `Sql` proxy.
-* **The three clocks are distinguishable.** Each of the three swaps (M5, M9, M14)
-  dies, and each dies on a comparison that survives postgres.js's microsecond
-  truncation: two are computed inside PostgreSQL (`occurred_at = ask.decided_at`,
-  `occurred_at = batch.halted_at`), and the third measures skew against
-  `created_at` under a deliberately held advisory lock. The ask-lane swap failed
-  by 9 ms — under a millisecond-resolution JS comparison it could have compared
-  equal.
-* **The `ON CONFLICT` predicate's second spelling is pinned.** M2 dies on a
-  source-text comparison of the two clauses against each other AND against the
-  predicate parsed out of migration 116, so a matched pair of wrong clauses is
-  caught too.
-* **All five null-mapped reasons are pinned by RUNTIME absence, not by a map
-  assertion.** M7 (the two deadline reasons), M8 (the two owner reasons) and M10
-  (`velocity_banked`) each die. The halt lane's exhaustive case really drives all
-  six reasons through three different entry points.
+### P1-B — the release-cycle alert path · `worker/background/pollers/SolicitationReleasePoller.ts`
 
-Every early-return guard removed (M3, M4, M12) died, and the halt write's
-position died (M6).
+Baseline at HEAD: PASS. Full file at HEAD: 9/9 pass.
 
-### 2.2 The one survivor, and why it is recorded as a P1 rather than a P0
-
-**M16 — the dispatch lane's ledger write moved from the END of `commitWithhold`
-to its START — SURVIVED the targeted rollback case and then survived the ENTIRE
-`dispatch.integration.test.ts` suite (33/33 passing).**
-
-Arbiter reasoning, recorded verbatim as the skill requires:
-
-> The mutation executes on exactly the branch the test drives, so it is not an
-> unexecuted-branch survivor. It IS, however, an **equivalent mutant** under the
-> standard definition: no observable output of `dispatchOutreach` differs. On the
-> success path the same row lands on the same transaction with the same
-> `occurred_at` (which is `input.decidedAt`, computed before either position). On
-> the failure path the transaction aborts wholly either way and rethrows the same
-> `PostgresError`. Per the skill's own rule — "a survivor you judge plausibly
-> equivalent … is reclassified" — it is not scored `survived-confirmed-P0`, and
-> the inventory row for that candidate is resolved to `killed` by M17, a
-> non-equivalent mutation of the same production hunk.
->
-> What the survivor DOES prove is an oracle gap, and that is finding RT-1: the
-> production comment at `dispatch.ts:1440-1449` and the row in `docs/directory.md`
-> both declare the LAST position load-bearing ("a write placed earlier would leave
-> the later ones untested by the rollback case that pins exactly that"), and
-> nothing enforces it. The halt lane's identical concern IS enforced — M6, the
-> same reorder in `latchHalt`, dies on a dedicated position case. The asymmetry is
-> the evidence: the authors judged this worth a test in one lane and did not write
-> it in the other.
-
-M20 (the first build of the call-site loop) was a **non-compiling mutation** —
-a trailing comma inside a parenthesized expression — and is recorded as such
-rather than as a kill or a survivor; M20b is its valid replacement and killed.
-
-### 2.3 Budget
-
-21 of 39 in-scope candidates were not executed. The 30-run round budget covers
-at most ~25 mutations once baselines are paid for, and the changed test surface is
-39 cases across seven files, five of them live-DB. Where a skipped candidate's
-production line is covered by an executed sibling, the inventory row says so
-(e.g. i11's `decidedAt` line is the one i12 killed the `transaction_time` swap on;
-i13's empty-set guard is the one i02 killed at the unit level). The rest are
-genuinely unmeasured. **This forces `INCOMPLETE_BUDGET`; a partial run can never
-report CLEAR.**
-
----
-
-## 3. Duty 2 — fragile assertions
-
-One finding (**RT-5**, P2). `write.integration.test.ts` sorts its expected rows
-with `String.prototype.localeCompare` and compares the result against
-`readAskRefusals()`, whose query is `ORDER BY subject_id` on a `uuid` column.
-Postgres orders `uuid` by its 16-byte binary value; `localeCompare` applies an
-ICU collation to the hyphenated hex text. The two agree for lowercase
-hyphenated UUIDs today because the hyphens sit at identical positions and hex
-digits sort before letters in both, but the comparator is locale-sensitive and is
-not the ordering the query establishes. **Behavioural replacement:** either sort
-with a plain `<`/`>` byte comparison, or drop the ordering claim entirely and
-compare as a set — the case's actual claim is "three inputs, two subjects, two
-rows", not an ordering contract.
-
-Nothing else in the changed tests matched the skill's named shapes:
-
-* **Absence-of-tag proxies** — the one `not.toContain('velocity_banked')` is
-  paired with `expect(joins).toHaveLength(4)` and `expect(result.withholdCount).toBe(5)`,
-  and the dedicated `velocity_banked` case asserts `readRefusals()` is `[]`. Not
-  a bare proxy.
-* **Exact string counts on rendered output** — none; the only string-shaped
-  assertions are the two `ON CONFLICT` clauses read out of the module and compared
-  against each other and against migration 116.
-* **Order assertions with no ordering contract** — the order assertions
-  (`ledgerIndex > auditIndex > cancelIndex`, `invocationCallOrder`) are against
-  `latchHalt`'s documented five-step order, which is a real contract; M6 and M19
-  prove they bite.
-
-The two timing thresholds (`skew > 0.3 s` against a 0.5 s advisory-lock hold, in
-both the ask and dispatch clock cases) were examined and are **not** reported: the
-`created_at` side is stamped at transaction START, before the block, so load
-increases the measured skew rather than shrinking it. The direction of error is
-away from a false pass.
-
----
-
-## 4. Duty 3 — docs vs reality, re-resolved against HEAD
-
-`prevalidate-plan.py` was available and run against both changed plan documents:
-`feat-1010-refusal-solicitation-singles-plan.md` — 2 citations checked, 0
-unresolved, 3 fixtures, PASS; the deviations file — 0 citations, PASS. The
-following claims were then hand-checked against `e9a6a50b`:
-
-| Claim | Source | Verdict |
-|---|---|---|
-| `MAX_DATA_ROWS` is 5,000 and bounds the candidate window | intake invariants, `write.ts` docblock | TRUE — `contacts-csv.ts:22`, `batch-builder.ts:490` |
-| `commitAskDecisions` asserts `inserted.count === input.length` (the assertion the set arm deliberately does NOT copy) | `write.ts` docblock, R1-7 | TRUE — `batch-builder.ts:633-636` |
-| `refusal_events_subject_uniq`'s predicate is `WHERE subject_id IS NOT NULL` | both arms' comments | TRUE — `116_refusal_events.sql:227` |
-| `src/lib/refusals/write.ts` is the only module spelling `INSERT INTO refusal_events` | invariant | TRUE — production hits are `write.ts:389` and `write.ts:537`, nothing else |
-| `latchHalt` order: CAS → cancel → audit → **Refusal** → spine step → settlement join; one row per BATCH; unconditional on `audit`; four null-mapped reasons; `'transaction_time'` sentinel | `docs/directory.md` `approval.ts` row | TRUE on every clause; M6/M18/M7/M8/M5 each prove one of them |
-| `commitWithhold` writes one row against the OUTREACH, LAST, and a defer writes nothing | `docs/directory.md` `dispatch.ts` row | TRUE at HEAD (the causal half of the "LAST" sentence is the unenforced one — RT-1) |
-| `toCandidate` hard-codes `matchedReview: null`, so `already_reviewed` is unreachable | deviations D2 | TRUE — `batch-builder.ts:368` |
-| "for as long as this file is ahead of them, five exported constants have no production caller" | `src/lib/refusals/vocabulary.ts` header | **FALSE at HEAD** — see RT-3 |
-
-**RT-3** is the only false claim found. It is in an unchanged production file that
-sits outside this branch's `allowed_edit_surface`, and the branch found it itself
-and recorded it as deviation D3 — including the correct observation that "whichever
-of #1011/#1012 lands last should fix it" does not work, because `vocabulary.ts` is
-outside all three swarm branches' surfaces. It is carried here as an open P1 so it
-cannot be lost with that file: the sentence is false *now*, and a reader who trusts
-it could delete a live export.
-
----
-
-## 5. Duty 4 — missed sibling cases
-
-Patterns searched, with scope and exclusions recorded so the negative results are
-readable as evidence:
-
-| Pattern searched | Scope | Exclusions | Result |
+| # | Mutation | Result | Killing assertion |
 |---|---|---|---|
-| `INSERT INTO refusal_events` | whole repo | `supabase/migrations/**`, `docs/**`, `.feature/**` | Production: only `src/lib/refusals/write.ts` (2). Everything else is a test fixture or an assertion. **Zero siblings.** |
-| `writeRefusalEvents?\(` | `src/`, `worker/` | `**/__tests__/**` | Four call sites: `batch-builder.ts:661` (set), `dispatch.ts:1467`, `approval.ts:637`, `auto-approval/suspension.ts:331` (#1009's, unchanged). **No fifth site this slice missed.** |
-| `subject_id IS NOT NULL` | `src/`, `worker/`, `supabase/` | — | Two production spellings, both inside `write.ts`, plus migration 116. **No third authority.** |
-| `latchHalt(` | `src/`, `worker/` | `**/__tests__/**` | One definition, three callers (`haltBatch`, `adminHaltBatch`, `latchSystemHalt`) — the single-site claim holds. |
-| `commitWithhold(` / `commitAskDecisions(` | `src/` | `**/__tests__/**` | One caller each. Single-site claims hold. |
-| `delivery_status = 'withheld'` (write sites) | `src/`, `worker/` | `**/__tests__/**` | `dispatch.ts:1389` (this lane) and `ask-generation.ts` (the RENDER lane's four writers, an explicit intake non-goal owned by #1011). **Not a missed sibling.** |
-
-**A sound search that found nothing is recorded as that.** The only observation
-that came out of it is RT-6 (P2): `evaluateAsk`'s `already_reviewed` gate is live
-code with no producer, so that one member of `WithholdReason` and its Refusal
-mapping cannot be exercised end-to-end. It is pre-existing, out of this slice's
-scope by the intake's own non-goals, and the branch already escalated it in
-deviation D2; it is repeated here as independent confirmation, not as a new front.
+| B1 | Reverted to the pre-fix three-line body (no capture, no catch, no rethrow) | **killed** | `captureException … called 1 times, but got 0` (`:231`) — the same failure D0 records |
+| B2 | Capture kept, `throw error` DELETED (the failure is swallowed) | **killed** | `loggerCalls.error … 1 times, but got 0` (`:240`) — the harness stops logging, and the case sees it |
+| B3 | The inner `try {} catch {}` around the capture REMOVED (unguarded capture) | **killed** | `expected Error: sentry transport is down to be Error: refusal ledger rejected the halt w…` (`:270`) — telemetry-must-not-poison is genuinely pinned |
+| B4 | `subsystem` tag value changed | **killed** | `toMatchObject` on `tags` (`:234`) |
 
 ---
 
-## 6. Duty 5 — operational completeness
+## 6. Doc claims re-resolved against HEAD `426ccf77`
 
-Scope: operator-actionable terminal or swallowed failure paths this diff adds.
-The diff adds exactly one class — a `refusal_events` CHECK violation from a
-mis-mapped category, which by design aborts the deciding transaction at each of
-the three lanes. Four hosts reach that abort; the intake's `observability` section
-names three of them.
+| Claim | Verdict |
+|---|---|
+| `dispatch.ts` is byte-identical to `e9a6a50b` | **TRUE.** `git diff --stat e9a6a50b..426ccf77 -- src/lib/solicitation/dispatch.ts` is empty; the blob is `3ee68e3cdd385059247ea9aab301f6b89052a5c2` at `e9a6a50b`, at `426ccf77`, and in the worktree |
+| Both new titles exist verbatim in `tests_to_add` | **TRUE.** Byte-for-byte matches at `dispatch.integration.test.ts:2569` and `SolicitationReleasePoller.test.ts:216` |
+| `estimated_test_lines` 1150 → 2346 | **TRUE.** `--numstat` over the 8 touched test files: 2,344 added + 2 deleted = **2,346** total changed test lines. The convention is added+deleted and the figure is exact |
+| D6's "~160 test lines" added by the P1 fixes | **FALSE (RT2-4).** 246 added |
+| D0's "restored, 34/34" and "restored, 9/9" | **TRUE.** 34 `it` blocks in `dispatch.integration.test.ts`, 9 in `SolicitationReleasePoller.test.ts`; the full poller file runs 9/9 green at HEAD |
+| D0's P1-A re-proof "`expected 14 to be greater than 23`" | **TRUE.** Reproduced exactly (A1) |
+| D0's P1-B re-proof "`captureException` called 0 times" | **TRUE.** Reproduced exactly (B1) |
+| `guarded-poll.ts` is untouched | **TRUE.** Last touched by `90408e8d` (#414/#434), long before this branch; not in `06a163f0..426ccf77` |
+| The single-flight flag still releases on the rethrown path | **TRUE.** `worker/background/guarded-poll.ts` `runOnce` releases in `finally { inFlight = false; }`, unconditionally, outside the `catch` — and the case's own next-tick assertion dies under B2 |
+| The `recordingExecutor` docblock's "THIRD COPY", and `src/lib/shared/__tests__/helpers/` being off-surface | **TRUE.** Three copies (`dispatch.integration.test.ts:1012`, `batch-builder.integration.test.ts:603`, `approval.integration.test.ts:723`); the shared helpers directory is not in `allowed_edit_surface` |
+| The docblock's "`latchSystemHalt` — reached only from `runReleaseCycle`'s `platform_halt` and `send_window_elapsed` paths — now writes a `batch_halted` Refusal" | **FALSE (RT2-1).** `send_window_elapsed` maps to `null` and writes nothing |
+| The docblock's "`createGuardedPoll`'s shared catch emits `logger.error` alone" for this failure | **FALSE (RT2-1).** `isolateItem` → `recordItemFailure` already captures to Sentry, and contains the throw before the harness ever sees it |
 
-| Host | Reached by | Surfacing route | Verdict |
+The intake's `observability` array was **not** amended for the new signal. Its
+second entry still reads "The admin halt lane is route-driven and surfaces as a
+failed request" and says nothing about the poller-driven system halt — the very
+lane P1-B is about. Supporting evidence for RT2-1/RT2-2, not a separate finding.
+
+`prevalidate-plan.py` was **not** available at
+`~/.claude/skills/grill-me-codex/scripts/`; every citation above was hand-checked
+against HEAD and is recorded with its `path:line`.
+
+## 7. Sibling search (duty 4)
+
+**Pattern:** a background loop that reaches one of this branch's new
+refusal-ledger write sites with no Sentry sink.
+
+**Scope searched:** `rg -n "writeRefusalEvent|writeRefusalEvents" --glob '!**/__tests__/**' src/ worker/`,
+then the caller chain of each hit; plus every `createGuardedPoll` consumer in
+`worker/` (17 files).
+
+**Result — zero siblings.** The four production write sites resolve to:
+`suspension.ts:331` → `AutonomyGovernorScheduler` (has a capture, #1009);
+`batch-builder.ts:661` → `worker/jobs/solicitation-batch/index.ts`, a BullMQ
+worker covered by `attachJobFailureSink`; `dispatch.ts:1467` → the
+`solicitation_send` BullMQ worker, same sink; `approval.ts:637` → the admin route
+(surfaces as a failed request) and `latchSystemHalt` under the release poller
+(covered by `isolateItem`'s capture — see RT2-1).
+
+**Exclusion recorded:** the other 15 `createGuardedPoll` consumers have no
+Sentry sink at all. That is pre-existing, unchanged by this branch, and a
+property of `createGuardedPoll` rather than of these fix hunks — out of round 2's
+scope and reported here only so the search's boundary is legible.
+
+## 8. Round-1 findings, carried forward
+
+| Id | Sev | Disposition at `426ccf77` | Note |
 |---|---|---|---|
-| `solicitation_batch` BullMQ worker | ask lane | `attachJobFailureSink` raises a Sentry issue on the terminal attempt | complete |
-| `solicitation_send` BullMQ worker | dispatch lane | same | complete |
-| Admin route | `adminHaltBatch` | failed HTTP request | complete |
-| **`SolicitationReleasePoller`** | `latchSystemHalt` → `platform_halt`, the one system halt reason that maps to a category | **`createGuardedPoll`'s catch calls `logger.error` and nothing else — no `Sentry.captureException`, no `captureMessage`. A poller is not a BullMQ worker, so `attachJobFailureSink` never sees it.** | **GAP — RT-2** |
+| RT-1 | P1 | **fixed** | Re-proved closed this round by A1-A4 |
+| RT-2 | P1 | **rejected** | Verdict: the diagnosis was false — `src/lib/solicitation/release-phases.ts:96-107` already raised a Sentry issue for this failure, and `release-phases.ts:69-81` contains it before `runSolicitationReleaseCycle` can see it. Superseded by RT2-1 (signal half) and RT2-2 (rule-row half). **Must be listed in the PR's "Red-team findings rejected" section.** |
+| RT-3 | P1 | open | `vocabulary.ts`'s header; off every swarm branch's edit surface, carried on the orchestrator |
+| RT-4 | P2 | open | `beta-launch-alerting.md` attributes the disabled-ledger warning to `writeRefusalEvent` alone |
+| RT-5 | P2 | open | `localeCompare` comparator vs a Postgres `ORDER BY` on a `uuid` column |
+| RT-6 | P2 | open | `already_reviewed` has no producer |
 
-Both halves of the alert path are missing for that fourth host: no emitted Sentry
-signal, and no rule row in `docs/runbooks/beta-launch-alerting.md`. It is the same
-class the runbook already records as an open gap for `AutonomyGovernorScheduler`,
-and the runbook says so in those words ("that scheduler is **not** a BullMQ
-worker, so `attachJobFailureSink` never sees it"). The infrastructure gap is
-pre-existing; what this diff adds is a new terminal failure path into it — a
-mis-mapped category would make every platform halt fail, leaving batches with
-their `queued` rows, and the only trace would be one `logger.error` line per
-minute-tick. Comparison of the six facets was static, as the skill requires; no
-staging delivery drill was performed.
+Round 1's own inventory (39 rows, 18 killed, 21 `skipped-budget`) is **not**
+re-asserted here: it was measured at `e9a6a50b` and is stale by construction.
+Round 2's inventory covers round 2's scope only, and that coverage debt stands as
+round 1 recorded it.
 
-The disabled-ledger warning path (the diff's other operator-facing signal) was
-compared facet by facet and is **intact**: `writeRefusalEvents` emits through the
-same `warnLedgerDisabled()` as `writeRefusalEvent`, so signal identity
-(`REFUSAL_LEDGER_ENABLED=false — the Refusal ledger is not recording decisions`),
-filter (`subsystem:refusal_ledger`), level (`warning`), grouping title,
-cadence (one per disabled episode — the latch is module-level and shared by both
-arms) and destination action are all unchanged. Only the runbook's *attribution*
-of the emitter is now partial: **RT-4** (P2).
+## 9. Inventory
 
-One nuance worth stating because it is easy to misread as a gap and is not:
-`writeRefusalEvents` returns for an empty input set **before** reading the kill
-switch, so an all-eligible batch build emits no warning. That is deliberate and
-documented — a build that withheld nothing has no ledger gap to warn about.
+| Id | Test | File | Outcome |
+|---|---|---|---|
+| RT2-INV-1 | `a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step` | `src/lib/solicitation/__tests__/dispatch.integration.test.ts` | killed |
+| RT2-INV-2 | `a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick` | `worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts` | killed |
+| RT2-INV-3 … RT2-INV-10 | the 8 pre-existing `SolicitationReleasePoller` cases | `worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts` | excluded — see reason below |
 
----
+The 8 pre-existing poller cases enter the inventory through direction A (the
+file's shared `beforeEach` changed, and a module-level `vi.mock('@sentry/node')`
+was added). They are **excluded** rather than mutated because their production
+targets — `createGuardedPoll` and `getIntervalMs` — are untouched by the fix
+hunks and sit outside round 2's scope, and because the `beforeEach` change is
+purely additive (`mockReset()` placed *before* the existing
+`mockResolvedValue(emptyReport())`) and so cannot neutralise them. Evidence
+rather than assertion: the full file runs **9/9 green** at HEAD under the
+isolated environment.
 
-## 7. Findings
+## Authorizations
 
-| id | Severity | Duty | Location | Finding | Disposition |
-|---|---|---|---|---|---|
-| RT-1 | **P1** | 1 | `src/lib/solicitation/dispatch.ts:1467` | The dispatch lane's ledger-write POSITION is unpinned. Moving the write to the top of `commitWithhold` leaves the targeted rollback case AND all 33 cases of `dispatch.integration.test.ts` green, which makes that case vacuous under any future reorder — the exact vacuity the halt lane pins with a dedicated position case (M6 dies there). **Replacement:** the dispatch sibling of *a halt writes its Refusal after cancelling outreach…*, asserting the `INSERT INTO refusal_events` statement index falls after the outreach `UPDATE`, the receipt step and the outbox completion, using the `recordingExecutor` shape already in these suites. | open |
-| RT-2 | **P1** | 5 | `worker/background/guarded-poll.ts:108` | The SYSTEM halt lane's ledger-failure path has neither half of an alert path. `latchSystemHalt` (`approval.ts:906`) is reached only from `runReleaseCycle` (`release.ts:797`) under `SolicitationReleasePoller`, and `createGuardedPoll` catches the cycle error into `logger.error` alone — no Sentry signal, and no rule row in `docs/runbooks/beta-launch-alerting.md`. `platform_halt` is one of the two mapped halt reasons, so this diff routes a new terminal failure into that log-only lane. The intake's `observability` bullet enumerates the ask, dispatch and admin-halt routes and omits this fourth one. | open |
-| RT-3 | **P1** | 3 | `src/lib/refusals/vocabulary.ts:44` | The module header is FALSE at HEAD as a direct result of this diff: "for as long as this file is ahead of them, five exported constants have no production caller" — three of the five (`ASK_WITHHELD_…`, `OUTREACH_WITHHELD_DISPATCH_…`, `BATCH_HALTED_…`) now have production callers. Already found and disclosed by the branch as deviation D3, which also correctly notes the file is outside all three swarm branches' edit surfaces, so the fix is owed to the orchestrator after the three merge. | open |
-| RT-4 | P2 | 5 | `docs/runbooks/beta-launch-alerting.md:55` | The disabled-ledger rule row attributes the warning to `writeRefusalEvent` alone; `writeRefusalEvents` now emits the identical signal through the same `warnLedgerDisabled()`. Every alerting facet is unchanged, so the path is intact — only the emitter attribution is partial. | open |
-| RT-5 | P2 | 2 | `src/lib/refusals/__tests__/write.integration.test.ts:184` | Expected rows are sorted with `localeCompare` and compared against a Postgres `ORDER BY subject_id` on a `uuid` column — a different collation from the one the query establishes. Latent flake, not a live failure. | open |
-| RT-6 | P2 | 4 | `src/lib/solicitation/batch-builder.ts:368` | `evaluateAsk`'s `already_reviewed` gate has no producer (`toCandidate` hard-codes `matchedReview: null`), so one of the six `WithholdReason` members and its Refusal mapping are unreachable end-to-end. Pre-existing; already escalated by the branch as deviation D2. | open |
-
-**No P0.** No test in this change was proven fake, no changed doc carries a false
-`path:line` claim, and no correctness defect was found in the three lanes.
-
-## 8. Authorizations
-
-None. No finding on this run carries an `accepted-risk` disposition.
-
-## 9. What blocks, and what does not
-
-* `INCOMPLETE_BUDGET` blocks the `reviewed` transition on its own: 21 of 39
-  candidates are unmeasured because the round budget is 30 runs. Round 2, if
-  opened, should spend its budget on the 21 skipped rows rather than on new
-  fronts.
-* The run is **high risk** by the intake, so the checker will additionally refuse
-  each of the three open P1s until it is fixed or a recorded user authorization
-  moves it to `accepted-risk`. RT-1 and RT-2 are the two that change artefacts;
-  RT-3 is a one-sentence correction owed to whoever can edit `vocabulary.ts`.
-* The three P2s are recorded and block nothing.
+None.

@@ -37,23 +37,6 @@ vi.mock('@/lib/shared/logger', async (importOriginal) => {
   return { ...actual, createWorkerLogger: () => loggerCalls };
 });
 
-// ── #1010 red-team P1-B: the release cycle's alert path ─────────────────────
-//
-// The ONE addition to "loop mechanics only", and it is still loop mechanics: a
-// sink, not a rule. This poller is a guarded poll rather than a BullMQ worker,
-// so `attachJobFailureSink` never sees a failure in it and `createGuardedPoll`'s
-// shared catch emits `logger.error` alone. This branch routes a NEW terminal
-// failure here — `latchSystemHalt`'s `batch_halted` Refusal, reached only from
-// `runReleaseCycle` — and a ledger abort that pages nobody leaves the batch
-// UN-halted and repeats every minute in silence.
-const sentryStub = vi.hoisted(() => ({
-  captureException: vi.fn(),
-  captureMessage: vi.fn(),
-  addBreadcrumb: vi.fn(),
-}));
-
-vi.mock('@sentry/node', () => sentryStub);
-
 import { resetWorkerConfigForTests } from '@/lib/config/worker';
 import {
   runSolicitationReleaseCycle,
@@ -82,11 +65,6 @@ const CYCLE_TIMEOUT_MS = 45_000;
 describe('SolicitationReleasePoller', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // `clearAllMocks` clears call history but KEEPS implementations, so the
-    // throwing capture the transport-down half of the Sentry case installs would
-    // leak into every later one. `mockReset` is the form that drops it.
-    sentryStub.captureException.mockReset();
-    mockRunReleaseCycle.mockReset();
     mockRunReleaseCycle.mockResolvedValue(emptyReport());
     // `getIntervalMs()` reads the memoized `getWorkerConfig()`; clear the memo so
     // each case's env override (set after this) is parsed fresh (convention #6).
@@ -211,66 +189,6 @@ describe('SolicitationReleasePoller', () => {
 
     await vi.advanceTimersByTimeAsync(DEFAULT_INTERVAL_MS - 45_000);
     expect(mockRunReleaseCycle).toHaveBeenCalledTimes(2);
-  });
-
-  it('a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick', async () => {
-    // #1010 red-team P1-B. `latchSystemHalt` runs ONLY from `runReleaseCycle`,
-    // driven by this poller, and this branch gives it a way to fail: the
-    // `batch_halted` Refusal on the `platform_halt` and `send_window_elapsed`
-    // paths. A guarded poll is not a BullMQ worker, so nothing else pages for it.
-    vi.useFakeTimers();
-    const ledgerError = new Error('refusal ledger rejected the halt write');
-    mockRunReleaseCycle.mockRejectedValueOnce(ledgerError);
-
-    startSolicitationReleasePoller();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mockRunReleaseCycle).toHaveBeenCalledTimes(1);
-
-    // A real Sentry ISSUE, not a breadcrumb — and the SAME error object, tagged
-    // with the subsystem so the lane is identifiable without reading the frame.
-    expect(sentryStub.captureException).toHaveBeenCalledTimes(1);
-    expect(sentryStub.captureException.mock.calls[0]?.[0]).toBe(ledgerError);
-    expect(sentryStub.captureException.mock.calls[0]?.[1]).toMatchObject({
-      tags: { subsystem: 'solicitation_release' },
-    });
-
-    // The cycle RETHREW, so the guarded-poll harness still owns the durable
-    // line. A swallow here would report the failure to Sentry while telling the
-    // loop the cycle succeeded, and this assertion is what separates the two.
-    expect(loggerCalls.error).toHaveBeenCalledTimes(1);
-    expect(loggerCalls.log).not.toHaveBeenCalledWith(
-      'Release cycle complete',
-      expect.anything(),
-    );
-
-    // …and the single-flight flag was released in the harness's `finally`, so
-    // the loop lives: a failure that wedged the flag would leave every later
-    // tick no-opping at the guard (the #414 shape).
-    await vi.advanceTimersByTimeAsync(DEFAULT_INTERVAL_MS);
-    expect(mockRunReleaseCycle).toHaveBeenCalledTimes(2);
-    expect(loggerCalls.log).toHaveBeenCalledWith('Release cycle complete', expect.anything());
-
-    // The SECOND half: the capture itself throws. Reporting a failure must never
-    // escalate it — an unguarded capture would replace the cycle's real error
-    // with the transport's on the way out, so the log line and the issue would
-    // disagree about what failed, and this loop would still have to survive it.
-    sentryStub.captureException.mockImplementationOnce(() => {
-      throw new Error('sentry transport is down');
-    });
-    const secondAbort = new Error('refusal ledger rejected the halt write again');
-    mockRunReleaseCycle.mockRejectedValueOnce(secondAbort);
-
-    await vi.advanceTimersByTimeAsync(DEFAULT_INTERVAL_MS);
-    expect(mockRunReleaseCycle).toHaveBeenCalledTimes(3);
-    expect(sentryStub.captureException).toHaveBeenCalledTimes(2);
-    // The harness logged the CYCLE's error even though the transport was down,
-    // which is only possible if the capture was swallowed and the original
-    // rethrown.
-    expect(loggerCalls.error).toHaveBeenCalledTimes(2);
-    expect(loggerCalls.error.mock.calls[1]?.[1]).toBe(secondAbort);
-
-    await vi.advanceTimersByTimeAsync(DEFAULT_INTERVAL_MS);
-    expect(mockRunReleaseCycle).toHaveBeenCalledTimes(4);
   });
 
   it('honours a configured interval that sits above the cycle deadline', () => {

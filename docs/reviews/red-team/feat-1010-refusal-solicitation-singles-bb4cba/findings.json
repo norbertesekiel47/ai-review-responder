@@ -5,276 +5,127 @@
   "branch": "feat/1010-refusal-solicitation-singles",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "e9a6a50b21710d28209ebed7023704a21159a53a",
-  "intake_sha256": "b6badf4fd9244c9bf2e64eb8cf3008db762fcc2f3afacc2856c4c584379a4ca9",
+  "head_sha": "426ccf77fc2b1248161e466fbf26d15bb7332f8a",
+  "intake_sha256": "5fdcdb4902ef117560c790b2c0cbf22c617e12d6c5f1e5fc2c34f6077339654e",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-08-31T06:32:24Z",
+  "round": 2,
+  "generated_at": "2026-08-31T07:34:04.723Z",
   "inventory": [
     {
-      "id": "i01",
-      "test": "the set-based arm re-spells the refusal_events_subject_uniq predicate byte-for-byte, identically to the single-row arm",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i02",
-      "test": "the set-based arm issues no statement for an empty input set",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i03",
-      "test": "the set-based arm issues exactly one INSERT statement for every non-empty input set",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i04",
-      "test": "the set-based arm writes nothing when REFUSAL_LEDGER_ENABLED is the literal string false",
-      "file": "src/lib/refusals/__tests__/write.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i05",
-      "test": "the set-based arm writes one row per input and leaves one row when the same subject appears twice in one call",
-      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i06",
-      "test": "the set-based arm commits when an input subject already exists from an earlier call",
-      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i07",
-      "test": "a set-based ledger write does not survive its caller's deciding transaction rolling back after the insert succeeds",
-      "file": "src/lib/refusals/__tests__/write.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i08",
-      "test": "candidate history query pre-aggregates visits and asks before the 5000-contact limit",
-      "file": "src/lib/solicitation/__tests__/batch-builder.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "modified only by one positional mock-result slot for the new set INSERT; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i09",
-      "test": "a batch build writes one refusal_events row per withheld ask and none for a send decision",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i10",
-      "test": "a batch build writes no refusal_events row for a velocity_banked withhold",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i11",
-      "test": "a batch build stamps every ask Refusal with the batch's decidedAt, never with insert time",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "the same production line is covered by i12, which killed the transaction_time swap; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i12",
-      "test": "an ask Refusal's occurred_at equals solicitation_asks.decided_at inside PostgreSQL at full microsecond precision",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i13",
-      "test": "a batch build that withholds nothing writes no refusal_events row",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "the empty-set guard it covers is killed at the unit level by i02; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i14",
-      "test": "two builds evaluating the same contact write two refusal_events rows, one per decision",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i15",
-      "test": "every ask_withheld refusal points to the exact solicitation_ask row whose decision it records",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i16",
-      "test": "a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i17",
-      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i18",
-      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i19",
-      "test": "a ledger failure in the ask lane rolls back the whole batch build",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i20",
-      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i21",
-      "test": "tenant scope: a consent row at business A does not make the same handle eligible at business B in the same account",
-      "file": "src/lib/solicitation/__tests__/batch-builder.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "pre-existing case, modified only by an inline refusal_events cleanup in its finally (deviation D4); round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i22",
-      "test": "a dispatch withhold writes one refusal_events row against the outreach id",
+      "id": "RT2-INV-1",
+      "test": "a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step",
       "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "killed"
+      "outcome": "killed",
+      "reason": "A1 hoist-to-top killed (expected 14 to be greater than 23); A2 middle placement killed (17 > 23); A3 completeRun/markOutboxCompletedIfOwned swap killed (20 > 21); A4 pooled-receiver killed (onTransaction false). A5 closeBatchIfSettled hoist survived and is recorded as P2 RT2-3 after arbiter reclassification."
     },
     {
-      "id": "i23",
-      "test": "a dispatch withhold stamps occurred_at with the gate's decision clock, not with transaction start",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "killed"
+      "id": "RT2-INV-2",
+      "test": "a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "killed",
+      "reason": "B1 pre-fix three-line body killed (captureException 0 times); B2 rethrow deleted killed (logger.error 0 times); B3 unguarded capture killed (transport error replaced the cycle error); B4 tag value changed killed (tags toMatchObject)."
     },
     {
-      "id": "i24",
-      "test": "a dispatch defer writes no refusal_events row",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+      "id": "RT2-INV-3",
+      "test": "hands the sql singleton to runReleaseCycle",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i25",
-      "test": "a ledger failure in the dispatch lane rolls back the outreach withhold, child run, receipt step, outbox completion and batch close together",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "killed"
+      "id": "RT2-INV-4",
+      "test": "start runs one cycle immediately and then one per interval",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i26",
-      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+      "id": "RT2-INV-5",
+      "test": "start is idempotent while the timer is already armed",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i27",
-      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+      "id": "RT2-INV-6",
+      "test": "stop clears the interval so no further cycle runs",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i28",
-      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
-      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "DISPATCH instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+      "id": "RT2-INV-7",
+      "test": "skips a second immediate run while the previous cycle is still in flight",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i29",
-      "test": "an admin halt writes exactly one refusal_events row against the batch id, never one per cancelled outreach",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "the per-row fan-out it names is killed at statement level by i33; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
+      "id": "RT2-INV-8",
+      "test": "frees the single-flight flag when a cycle outruns its deadline",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i30",
-      "test": "an owner halt writes no refusal_events row",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "killed"
+      "id": "RT2-INV-9",
+      "test": "honours a configured interval that sits above the cycle deadline",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     },
     {
-      "id": "i31",
-      "test": "a second halt of an already-halted batch writes no second refusal_events row",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i32",
-      "test": "a halt Refusal carries occurred_at equal to the solicitation_batches halted_at written by the same transaction",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "the same production line is covered by i34, which killed the new Date() swap; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i33",
-      "test": "a halt writes its Refusal after cancelling outreach and writing any audit row, but before the run-spine step and settlement join",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i34",
-      "test": "a halt Refusal's occurred_at equals solicitation_batches.halted_at inside PostgreSQL at full microsecond precision",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i35",
-      "test": "a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i36",
-      "test": "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "killed"
-    },
-    {
-      "id": "i37",
-      "test": "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "HALT instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i38",
-      "test": "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false",
-      "file": "src/lib/solicitation/__tests__/approval.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "HALT instance of the shared title; round budget exhausted at 27/30 runs; green baseline recorded, no mutation executed"
-    },
-    {
-      "id": "i39",
-      "test": "a platform halt writes a refusal_events row even though it writes no account_audit_log row",
-      "file": "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
-      "outcome": "killed"
+      "id": "RT2-INV-10",
+      "test": "rejects a configured interval at or below the cycle deadline and uses the default",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
     }
   ],
   "findings": [
+    {
+      "id": "RT2-1",
+      "severity": "P0",
+      "title": "the P1-B fix cannot observe the failure it was built for, and the gap it documents never existed: latchSystemHalt runs inside isolateItem, which never rethrows and already Sentry-captures the failure, so the new catch in runSolicitationReleaseCycle sees nothing of that class",
+      "at": "worker/background/pollers/SolicitationReleasePoller.ts:61",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "The finding is correct and the P1-B fix has been REVERTED IN FULL on the owner's decision. Verified independently before acting: recordItemFailure (release-phases.ts) already calls Sentry.captureException, guarded, with a log fallback, under tags subsystem 'solicitation-release', and isolateItem never rethrows — so the alert path existed one layer below the poller and the new capture could never observe that failure class. Two further defects the finding names were also confirmed: the fix wrote 'solicitation_release' against four existing 'solicitation-release' sites, splitting one subsystem across two tag spellings; and send_window_elapsed maps to null in BATCH_HALTED_REFUSAL_CATEGORIES, so one of the two arms cited writes no Refusal at all. SolicitationReleasePoller.ts and its test are restored to their fork-point blobs, the promised title is removed from tests_to_add, and the two poller paths are removed from allowed_edit_surface. The amendment counter is NOT decremented: surfaceAmendments stays at 2, so this branch spent its last amendment on a change that should never have landed, and the deviations file records that rather than resetting it."
+    },
+    {
+      "id": "RT2-2",
+      "severity": "P1",
+      "title": "the newly emitted subsystem:'solicitation_release' Sentry signal has no bullet and no rule row in docs/runbooks/beta-launch-alerting.md, while the #1009 precedent it names added both; it also splits the lane's established subsystem:'solicitation-release' tag value",
+      "at": "docs/runbooks/beta-launch-alerting.md:207",
+      "duty": 5,
+      "disposition": "fixed",
+      "reason": "Resolved by the RT2-1 revert rather than by editing the runbook. The signal this finding is about no longer exists: the subsystem 'solicitation_release' capture was removed with the rest of the P1-B fix, so there is no new signal needing a bullet or a rule row, and the tag-value split it identified is gone with it. The runbook stays off allowed_edit_surface and untouched, which is the correct outcome — the finding's premise was the fix, and the fix is withdrawn."
+    },
+    {
+      "id": "RT2-3",
+      "severity": "P2",
+      "title": "the new ordering case leaves closeBatchIfSettled's position unpinned: hoisting it to the top of commitWithhold (so a batch whose last row is a withhold never closes) survives both this case and the sibling batch-closure case",
+      "at": "src/lib/solicitation/__tests__/dispatch.integration.test.ts:2569",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "A5 is neither equivalent nor on an unexecuted branch — closeBatchIfSettled runs on this exact path and the reorder changes real behaviour. It is nevertheless NOT semantically meaningful for the tested behaviour, which is the ledger write's position relative to five named writes plus last-of-all: all five relative orders and ledgerIndex === queries.length - 1 still hold under A5. Reclassified from P0-candidate to a recorded P2."
+    },
+    {
+      "id": "RT2-4",
+      "severity": "P2",
+      "title": "D6 says the P1 fixes added ~160 test lines; git diff --numstat e9a6a50b..426ccf77 over test paths measures 246 added (164 + 82). The headline estimated_test_lines 2346 is exact and unaffected",
+      "at": "docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md:69",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "D6 now states the measured 246 rather than the estimated '~160', and says explicitly that the earlier figure was an estimate presented as a count. It also records that the 2346 headline is exact (2344 added, 2 deleted) and that the estimate is deliberately left at 2346 after the P1-B revert removed lines again, because an estimate that chases every commit is not an estimate."
+    },
     {
       "id": "RT-1",
       "severity": "P1",
       "title": "the dispatch lane's ledger-write POSITION is unpinned: moving it to the top of commitWithhold leaves the whole 33-case dispatch integration suite green, and makes the rollback case pass vacuously",
       "at": "src/lib/solicitation/dispatch.ts:1467",
       "duty": 1,
-      "disposition": "open"
+      "disposition": "fixed"
     },
     {
       "id": "RT-2",
@@ -282,7 +133,8 @@
       "title": "the SYSTEM halt lane adds a terminal ledger-failure path with no Sentry signal and no alerting rule row: latchSystemHalt runs under SolicitationReleasePoller, whose guarded-poll catch only calls logger.error, so attachJobFailureSink never sees it",
       "at": "worker/background/guarded-poll.ts:108",
       "duty": 5,
-      "disposition": "open"
+      "disposition": "rejected",
+      "reason": "The signal half is factually false at both e9a6a50b and 426ccf77: src/lib/solicitation/release-phases.ts:96-107 (recordItemFailure) already raised a Sentry issue for exactly this failure, and release-phases.ts:69-81 (isolateItem) contains the throw before runSolicitationReleaseCycle can see it — see release.ts:791 and the repo's own release.integration.test.ts:2162-2163. Superseded by RT2-1; the surviving rule-row half is carried forward as RT2-2. Must be listed in the PR description's \"Red-team findings rejected\" section."
     },
     {
       "id": "RT-3",
@@ -290,7 +142,8 @@
       "title": "vocabulary.ts's header is FALSE at HEAD as a direct result of this diff: it still says five exported lane maps have no production caller, and three of the five now have one",
       "at": "src/lib/refusals/vocabulary.ts:44",
       "duty": 3,
-      "disposition": "open"
+      "disposition": "accepted-risk",
+      "reason": "OWNER-AUTHORIZED DEFERRAL, recorded rather than fixed. The finding is accepted as true: three of the five maps gain a production caller on this branch, so the header sentence is false at HEAD. It cannot be fixed on ANY of the three swarm branches — src/lib/refusals/vocabulary.ts is outside all three edit surfaces by construction, because disjoint surfaces are the premise of running them in parallel, and #1010 has spent both amendments. #1010's own D3 proposed handing it to whichever of #1011/#1012 lands last; that does not work for the same reason. Carried on the orchestrator as a post-merge documentation sweep together with three sibling staleness findings (env-vars.md, eservices-variables.md and beta-launch-alerting.md all attribute the kill switch to writeRefusalEvent alone) under one true sentence: the ledger now has two writers and its maps have callers. Owner authorized the deferral explicitly on 2026-08-31."
     },
     {
       "id": "RT-4",
@@ -319,19 +172,19 @@
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 39,
-    "killed": 18,
+    "inventory_total": 10,
+    "killed": 2,
     "survived_confirmed_p0": 0,
     "inconclusive": 0,
-    "skipped_budget": 21,
-    "excluded": 0,
-    "findings_total": 6,
+    "skipped_budget": 0,
+    "excluded": 8,
+    "findings_total": 10,
     "p0_open": 0,
-    "p1_open": 3,
-    "p2_open": 3,
-    "accepted_risk": 0,
-    "fixed": 0,
-    "rejected": 0
+    "p1_open": 0,
+    "p2_open": 4,
+    "accepted_risk": 1,
+    "fixed": 4,
+    "rejected": 1
   },
-  "status": "INCOMPLETE_BUDGET"
+  "status": "CLEAR"
 }
