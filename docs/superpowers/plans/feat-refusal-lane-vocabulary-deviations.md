@@ -155,6 +155,36 @@ the one file.
 
 ---
 
+## D7 — A glob star in a block comment closed the comment and broke the file
+
+**What happened.** The F2 fix wrote `` `src/lib/**/__tests__/` `` inside the new
+JSDoc block in `src/lib/shared/worker-types.ts`. The `*/` inside `**/`
+TERMINATES a block comment. Everything after it — the rest of the paragraph and
+then every declaration in the file — was parsed as code. The gate went RED on
+four rows at once: `lint`, `typecheck`, `test` and `diff-coverage`, with 40+
+`TS1005` / `TS1443` errors that all pointed at one broken comment.
+
+**Why it is worth recording.** The failure LOOKS catastrophic and is one
+character wide. The four-row signature is the tell: `lint` reporting a single
+`Parsing error` alongside a `typecheck` flood means a syntax break, not forty
+defects. Read the FIRST error, not the count.
+
+**Resolution.** The path is spelled without a glob star, and the comment now
+says why in one line so the next author does not re-introduce it. A sweep for
+`**/` across every file this branch touches found only one more, in a Markdown
+file, where it is harmless.
+
+**Verdict:** ACCEPT — caught by the gate before push, one-character fix.
+
+**Promote at step 8:** this belongs in `.claude/reference/lab-notes.md` as a
+gotcha. It is not recorded there now because this branch has spent both surface
+amendments and `.claude/reference/lab-notes.md` is outside its surface. Format:
+`[2026-08-30] A repo glob written as `**/…` inside a TS block comment → the
+`*/` closes the comment and every later declaration becomes syntax → spell the
+path without the glob star, or use a line comment.`
+
+---
+
 ## Review triage
 
 One axis (spec & correctness), four findings, none HIGH: two ACCEPT-and-fixed,
