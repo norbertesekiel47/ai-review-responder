@@ -63,6 +63,7 @@
   "allowed_edit_surface": [
     "worker/jobs/publisher/auto-policy-downgrade.ts",
     "worker/jobs/publisher/__tests__/**",
+    ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
