@@ -13,6 +13,29 @@
 
 ## 🔴 Hard blockers — do not launch without these
 
+- [x] **Refusal ledger: staging ride — DONE 2026-08-31.** #1010, #1011 and #1012
+  (slices 3-5 of map #994) merged to `main` **without** riding `staging` first,
+  against `CLAUDE.md`'s worker rule. The waiver was sound only because production
+  was provably empty at merge. The ride was then run retroactively, one commit at
+  a time, in merge order:
+  `220f0364` (#1012) → `7349acc6` (#1011) → `2ef07b4f` (#1010).
+  Each deployed to the Railway staging worker **SUCCESS**, booted clean, and
+  reported `postgres/queue_redis/cache_redis: ok`. No worker errors across the run.
+  **The specific risk is closed:** all **27** lane tuples — every non-null code in
+  all five category maps — were written through the REAL `writeRefusalEvent` and
+  `writeRefusalEvents` helpers against the REAL staging schema, inside one
+  transaction that was rolled back. Every one satisfied migration 116's five CHECK
+  constraints, so no mis-mapped category can abort a deciding transaction. Staging
+  `refusal_events` count before and after: **0**. No residue.
+- [ ] **Refusal ledger: organic pipeline write (smaller residual, not a blocker).**
+  The ride proved constraint conformance and clean boot; it did **not** drive an
+  organic write through the full pipeline — no real batch build, dispatch, halt or
+  auto-post revoke fired a Refusal on staging. Staging had no batch in a haltable
+  state and `AUTO_APPROVAL_ENABLED=false`, so #1012's lane needs a flag flip to
+  reach. Worth doing opportunistically the next time a staging solicitation loop
+  runs; **not** a launch blocker, because the failure mode it would catch (a bad
+  value aborting the transaction) is the one already closed above.
+
 - [ ] **First PITR restore drill** (Spec 08) — PITR is *enabled* but has **never
   been restored end-to-end**. Runbook now exists:
   `docs/runbooks/pitr-restore-drill.md`. Remaining: **run** the clone-to-new-project
