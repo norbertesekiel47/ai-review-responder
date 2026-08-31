@@ -496,3 +496,17 @@ test's business rung resolves to the statement rather than to a comment.
 **Residual risk, stated rather than hidden:** the two-round cap is spent, so no
 red-team round verified `0756a4ab` by mutation. The check above is structural
 (occurrence counting), not a re-planted mutant.
+
+## Rebase — feat-1012-refusal-auto-post-revoked onto `main` at `cfddfad4`
+
+This branch was rebased after the closure section above was written. `main` had
+advanced by one docs-only commit (#1040, WS8 Phase E) with **zero file overlap**
+against this branch's surface, so the rebase was conflict-free.
+
+Every commit SHA named above is therefore the **pre-rebase** form and no longer
+resolves on the branch. The one that matters maps as
+`0756a4ab` → `76fc9a22`; the narrative is unchanged by the
+rewrite because no content moved, only the parent chain.
+
+`head_sha` is re-pinned to `76fc9a227c2b300024473add93b6ed221a465b14`, the post-rebase HEAD. The
+gate was re-run serially at that HEAD after this note landed.
