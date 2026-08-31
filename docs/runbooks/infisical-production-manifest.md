@@ -718,12 +718,26 @@ failure shape as the missing `?family=0`.
 `redis.railway.internal` in both environments. Only the **reference prefix**
 differs, because that is the service name.
 
-### Recommendation: rename the production service to `redis`
+### The name cannot be made to match — this is permanent
 
-Renaming restores parity with staging and makes every documented expression in
-the repo true in both environments. It costs one dashboard rename plus one
-re-set of `REDIS_QUEUE_URL`.
+An earlier draft of this section recommended renaming the production service to
+`redis` for parity. **That is impossible, and the recommendation is withdrawn.**
 
-Leaving it as `Redis` also works — the current value is verified — but it means
-this section must survive as a permanent exception, and two services in one
-project differing only by case is an avoidable trap.
+**Railway service names are unique per PROJECT, not per environment.** Both
+environments live in project `repworth`, and the staging service already holds
+`redis`. Railway rejects the rename with "already taken in the project"
+(observed 2026-08-31).
+
+The capital `Redis` is therefore **forced**, not chosen. This section is a
+permanent part of the production configuration, not a temporary exception.
+
+**Consequence for anyone editing the queue URL.** The lower-case
+`${{redis.…}}` form printed in `deployment-guide.md` (lines 269, 560, 1279,
+1296) is correct **for staging only**. Production must use `${{Redis.…}}`.
+Copying the documented line into production produces a URL with an empty
+password that passes the boot gate and then fails `NOAUTH` on every queue
+operation — see the failure analysis above.
+
+`RAILWAY_PRIVATE_DOMAIN` still resolves to `redis.railway.internal` in both
+environments, because the private network endpoint is derived separately from
+the service name. Only the reference prefix differs.
