@@ -467,7 +467,30 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       **Until then, treat production as unmonitored by Sentry crons and uptime.**
       Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
       `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
-- [ ] **G3.** **Mutating acceptance drills run on STAGING only**
+- [ ] **G3. IN PROGRESS 2026-08-31 — 2 of 10 drills PASS, after they found and fixed a
+      PRODUCTION alerting defect.** ⚠️ **A recurring ops finding pages nobody.** §4.2 and §4.3 both
+      fired correctly and both reached Sentry; **neither produced a page**. Cause is issue
+      GROUPING: `emitHealthFindings` uses `Sentry.captureMessage`, so a repeat finding joins
+      its existing group, and **both** alert rules trigger only on *First seen / Resolved /
+      Reappeared / Regression*. An ongoing group is none of those. **Production rule
+      `3925256` — created in G.1 — has the identical trigger set**, so its four ops signals
+      page on a signal's FIRST occurrence and are silent thereafter. G.1 verified routing
+      with a **test notification**, which is by construction a first-seen event, so its
+      "four signals reach Discord" holds for the first occurrence only.
+      ✅ **FIXED AND PROVEN, same session.** Both rules gained the **`Every event`** trigger
+      (the UI's *"An event or issue activity is captured"* — there is no *"seen more than 0
+      times"* option) plus a **60-minute Action Throttle**, so repeats page at most hourly per
+      issue while a new issue still pages at once. Staging updated 21:30:58Z, production
+      21:34:53Z; **nothing removed from either rule**, verified by API readback.
+      **Controlled re-run proves it:** identical fixtures against the **same pre-existing
+      Sentry groups** — before, `lastTriggered` did not move across two cycles; after, it read
+      **21:37:05Z**, 15 s after the poller cycle. §4.2 and §4.3 now **PASS**. Also **D-1: §4.1 is unrunnable as written** — the OutboxPoller
+      claims the fixture (5 s) 60× faster than the health check reads it (300 s), so it must
+      fold into the §4.7 worker-stop drill. Teardown complete, staging clean, production
+      untouched. Evidence:
+      `docs/runbooks/evidence/2026-08-31-g3-alerting-acceptance-drills-evidence.md`.
+      Original text follows.
+      **Mutating acceptance drills run on STAGING only**
       (beta-launch-alerting §4). Production gets routing verification via safe
       synthetic canaries — never failure injection, worker stops, or cost-cap
       exhaustion against the live stack.

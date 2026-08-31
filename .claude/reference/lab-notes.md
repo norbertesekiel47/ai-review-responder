@@ -4228,3 +4228,66 @@ Two benign observations do not make the rule conditional in the safe direction.
 
 General lesson: **when one store fans out to several platforms, the blast radius of a write
 is the union of them, not the subset that reads the key.**
+
+## 2026-08-31 — WS8 G.3: the alarms fire once
+
+### [2026-08-31] A recurring ops finding pages NOBODY → Sentry issue alerts trigger on state changes, and an ongoing group has none
+FAIL → G.3's first two acceptance drills (§4.2 failed-publish, §4.3 zero-delivery) both fired
+correctly on the first `HealthAlertPoller` cycle and both reached Sentry. **Neither produced
+a page.** The staging rule's `lastTriggered` did not move across two cycles.
+
+WHY → **issue grouping, not routing and not priority.** `emitHealthFindings`
+(`worker/background/pollers/health-alert/emit.ts`) calls `Sentry.captureMessage(finding.title)`,
+and Sentry groups messages by template. The drill's finding therefore joined a group whose
+true first-seen was **2026-06-27** with 29 occurrences. Both alert rules trigger on
+*First seen event / Issue resolved / Reappeared event / Regression event* only. An **ongoing**
+group is none of those, so occurrence 2 through ∞ is silent.
+
+**Production has the identical defect.** Rule `3925256` ("Prod — four ops signals to
+Discord"), created hours earlier in G.1, carries the same four state-change triggers. Its
+tag filters and its Discord action are correct; the triggers are the hole.
+
+**Why the G.1 verification missed it, and this is the reusable part:** G.1 proved routing
+with **Send Test Notification** plus an API readback. A test notification is *by
+construction* a first-seen event — the single case these triggers handle. So the verification
+exercised the one path that works and generalised to all of them.
+
+CORRECT → add the **`Every event`** trigger alongside first-seen — in the UI it is *"An event
+or issue activity is captured"*; there is **no** *"seen more than 0 times in one hour"* option
+— and set an **Action Throttle** (60 minutes) so repeats page at most hourly per issue. Do not
+drop the state-change triggers; first-seen is still the fastest path for a genuinely new
+fault, and the throttle does not delay it because a new issue has no prior notification.
+
+FIXED AND PROVEN 2026-08-31 on both rules. The re-run is a controlled experiment worth
+copying: **re-use the identical fixtures so they land in the SAME Sentry issue groups**, and
+the trigger set becomes the only changed variable. Before: `lastTriggered` unmoved across two
+poller cycles. After: `21:37:05Z`, 15 s after the cycle.
+
+Two general lessons:
+
+- **Health alerts are recurring by nature, so "notify on new" is the wrong default for
+  them.** A growing backlog re-emits the *same* message every interval. One page at the
+  start, then silence — which is indistinguishable from the problem resolving itself.
+- **A test notification proves the sink, never the trigger.** It arrives through the one
+  condition that is always true for a synthetic event. When verifying an alert, produce the
+  signal the *second* time and check it still pages.
+
+### [2026-08-31] The alert and the dispatcher shared a predicate → the "stuck outbox" drill could never fire
+FAIL → §4.1 says: insert a `job_outbox` row `status='pending'`,
+`available_at = NOW() - 20 min`, expect `outbox_pending_age`. It cannot fire.
+
+WHY → `checkOldestPendingOutbox` and the `OutboxPoller` claim query use the **identical**
+predicate — `status = 'pending' AND available_at <= NOW()` — but the dispatcher runs every
+**5 s** and the health poller every **300 s**. The dispatcher claims the fixture ~60× faster
+than the alert can read it; the row then dispatches real work, or for an unregistered topic
+is written to `status='failed'`. Either way it stops being `pending`.
+
+CORRECT → the alert exists to catch *"dispatch backed up **or the OutboxPoller has
+stalled**"*, so the only honest fixture is one where dispatch is actually stopped. Fold the
+drill into the worker-stop drill: stop the worker, insert the aged row, restart, confirm the
+finding on the first clean cycle. Raising `HEALTH_ALERT_PENDING_AGE_S` does **not** help —
+the predicates are identical, so the dispatcher wins at any threshold.
+
+General lesson: **when a drill's fixture is consumed by the very system it is meant to
+observe, the drill is measuring the consumer, not the observer.** Check whether the reader
+and the writer share a predicate before trusting a synthetic fixture.
