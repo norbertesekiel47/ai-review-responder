@@ -160,7 +160,7 @@ without a redeploy changes nothing the browser sees.
 | `OPENAI_API_KEY` | live key | Primary LLM. **No code reads this** — `new OpenAI(LLM_CLIENT_OPTIONS)` lets the SDK read the environment itself. It is therefore invisible to every audit. |
 | `ANTHROPIC_API_KEY` | live key | Fallback LLM. Same implicit SDK read. |
 | `RESEND_API_KEY` | prod key | No approval emails. That is the core product loop. |
-| `RESEND_FROM_EMAIL` | must stay on `send.repworth.net` | Same. The root SPF has no `amazonses.com` include. |
+| `RESEND_FROM_EMAIL` | **root domain**, `Name <addr@repworth.net>` | Same. **Not** `send.repworth.net` — see §12.2. |
 | `RESEND_WEBHOOK_SECRET` | Phase E.1, provider-issued `whsec_…` | No delivery or bounce tracking. Do not generate your own. |
 | `CSRF_SECRET` | MINT | The weekly-report feedback link cannot be signed. **Must match Vercel** — see §6. |
 | `WORKER_INTERNAL_SECRET` | MINT | The admin queue-health panel degrades to unavailable. **Must match Vercel.** |
@@ -319,7 +319,7 @@ Each of the following contradicts a runbook. The code is the evidence.
 
 | Variable | Owner | Reason |
 |---|---|---|
-| `REDIS_QUEUE_URL` | Railway, native | Its value is a Railway reference expression, `redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`. Keeping it native means a Redis re-provision repairs it. `?family=0` is mandatory — Railway's private network is IPv6-only. |
+| `REDIS_QUEUE_URL` | Railway, native | A Railway reference expression. **In production the service is named `Redis`, so the expression is `${{Redis.…}}`, NOT `${{redis.…}}`** — see §13. Keeping it native means a Redis re-provision repairs it. `?family=0` is mandatory — Railway's private network is IPv6-only. |
 | `RAILWAY_*` (8 names) | Railway, injected | `RAILWAY_ENVIRONMENT_NAME` is how `deploymentLane()` resolves the lane (ADR 0013). Sentry tags derive from it. |
 | `VERCEL_*` incl. `VERCEL_GIT_COMMIT_SHA` | Vercel, injected | Same. `/api/health` reports the SHA. |
 | `PORT` | Railway, injected | |
@@ -352,13 +352,21 @@ Secret Deletion** on both syncs, not only the Railway one.
 
 ## 9. Sync configuration
 
-| Sync | Target | First strategy | After the name lists verify |
+> **CORRECTED 2026-08-31 — the strategy is Overwrite, not Import.** The rows
+> below said Import, and the handoff carried "never use Overwrite" as a locked
+> trap. Both were wrong for this topology. **Owner decision, recorded.** Full
+> reasoning: §14.
+
+| Sync | Target | Strategy | Also set |
 |---|---|---|---|
-| production → Vercel | project `rep-worth`, environment **Production** | Import (Infisical priority) | Auto-sync ON. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
-| production → Railway | project `repworth`, environment **production**, service **repworth-worker** | Import (Infisical priority) | Auto-sync ON, **Disable Secret Deletion** ON. |
+| `prod` → Vercel | project `rep-worth`, environment **Production** | **Overwrite Destination Secrets** | Auto-Sync **ON**, **Disable Secret Deletion ON**. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
+| `prod` → Railway | project `repworth`, environment **production**, service **repworth-worker** | **Overwrite Destination Secrets** | Auto-Sync **ON**, **Disable Secret Deletion ON**. |
 
 Three rules that decide whether this goes well.
 
+0. **Target the `prod` slug, not `production`.** `--env production` errors; the
+   environment does not exist under that name (§12.3). A sync aimed at a
+   non-existent slug writes nothing.
 1. **Name the Railway service.** A sync with no service selected writes
    environment-level shared variables instead of service variables.
 2. **Do not sync until Infisical is complete.** Railway restarts the service on a
@@ -465,33 +473,67 @@ Every value present on both platforms hashes identically — `SUPABASE_URL`,
 `STRIPE_SECRET_KEY` and `WORKER_INTERNAL_SECRET`, all three because the Vercel
 side is empty.
 
-### Nine Vercel production variables have an empty value
+### Nine Vercel production variables are SENSITIVE, not empty — F8 REFUTED
 
+> **Corrected 2026-08-31.** The paragraphs this section used to carry concluded
+> the nine were genuinely empty, and that production Checkout had therefore been
+> broken since `STRIPE_SECRET_KEY` was set. **That conclusion is wrong and is
+> withdrawn.** The reasoning was sound; the evidence was corrupted by a stale
+> tool.
+
+`vercel env pull` returns nine production variables as zero-length:
 `STRIPE_SECRET_KEY`, `WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`,
 `DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`, `GOOGLE_SHEETS_CLIENT_EMAIL`,
 `GOOGLE_SHEETS_PRIVATE_KEY`, `OWNER_LEADS_GOOGLE_SHEET_ID`,
 `OWNER_LEADS_GOOGLE_SHEET_RANGE`.
 
-The name exists in each case; `vercel env pull` returns a zero-length value.
+**All nine are Vercel *Sensitive* variables.** That type is write-only: a pull
+returns it empty by design. Settled two ways on 2026-08-31:
 
-**One alternative explanation, and how to settle it.** Vercel's *Sensitive*
-variable type is write-only, and a pull returns it empty. Two facts argue
-against that here. `vercel env ls` reports every one of the 34 as `Encrypted`,
-not `Sensitive`. And `SUPABASE_SERVICE_KEY` — at least as sensitive as any name
-on the list — pulled a 219-character value that hashes identically to Railway's.
+1. The owner opened `STRIPE_SECRET_KEY` in the dashboard. It reports the value
+   exists and **cannot be viewed** — the Sensitive signature, not the empty one.
+2. `vercel@latest env ls production` adds a **`type` column** the installed
+   54.14.5 does not have. It reports **9 `Secret` and 26 `Config`** across 35
+   production variables, and the nine `Secret` names are **exactly** the nine
+   above. A perfect 1:1 match with the "empty" list.
 
-**Settle it in the dashboard, for one variable only: `STRIPE_SECRET_KEY`.** An
-empty variable opens as empty; a Sensitive one says the value cannot be viewed.
-It matters because `getStripe()` (`src/lib/payments/stripe-client.ts`) throws on
-a falsy key, so a genuinely empty value means production Checkout has been broken
-since it was set — a defect independent of the WAF freeze, and one the freeze has
-been hiding.
+**Why the earlier evidence pointed the wrong way.** Both arguments against the
+Sensitive hypothesis were artifacts:
 
-The other eight need no investigation. Four are replaced in Phase I
-(`WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`) or Phase B/C
-(`DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`). The four Google Sheets and
-owner-leads names drive the optional owner-lead mirror, which is inert either
-way and is not a launch gate.
+| Earlier argument | What was actually true |
+|---|---|
+| "`vercel env ls` reports every one of the 34 as `Encrypted`, not `Sensitive`" | CLI **54.14.5 has no `type` column at all**. `Encrypted` was a fixed label on every row, so it could not have distinguished the two types. |
+| "`SUPABASE_SERVICE_KEY` — at least as sensitive — pulled a 219-character value" | It is type **`Config`**, not `Secret`. It pulls because it is not Sensitive. It was never a counterexample. |
+
+**Two consequences, both good, and one that overturns a second finding.**
+
+1. **Production Checkout is not broken.** `getStripe()` receives a real key. The
+   defect this section warned about does not exist.
+2. **Finding F10's operational claim is also wrong.** `DB_POOL_MAX` is
+   `Secret`, not empty, so "Vercel production runs at 10 connections per
+   serverless instance today" is unfounded — `readPoolMax()` never saw a blank.
+   **The Phase C action is unchanged: set it to `3`.** Only the justification
+   changes, from "repair a live defect" to "pin a value we cannot read back".
+3. `ONBOARDING_DEMO_ENABLED` likewise holds a real value. It is set explicitly
+   in Phase C regardless.
+
+**This raises the weight of §9 rule 3.** "Do not import from Vercel — Infisical
+imports variables marked sensitive as empty" is no longer a precaution against a
+hypothetical. **Nine real variables would arrive blank**, three of them
+credentials. The plan types them in, so nothing is at risk — but the rule now has
+a named cost.
+
+**Open question for the first sync.** These nine carry the Sensitive flag today.
+Whether an Infisical Secret Sync preserves that flag or writes them as ordinary
+encrypted variables is unknown. Losing it on `STRIPE_SECRET_KEY`,
+`SESSION_COOKIE_SECRET` and `WORKER_INTERNAL_SECRET` is a small but real posture
+regression. **Re-run `vercel@latest env ls production` after the first sync and
+compare the `type` column.**
+
+**Tooling note.** The installed Vercel CLI is 54.14.5; current is 59.10.0. It
+cannot express variable types and produced a month of wrong conclusions from one
+missing column. Use `npx vercel@latest` for any type-sensitive read until it is
+upgraded.
 
 ### Three findings confirmed against the live platforms
 
@@ -516,3 +558,311 @@ is lifted at WS8 §7.
 One dependency to watch: if the Supabase key rotation rolls the project JWT
 secret, `NEXT_PUBLIC_SUPABASE_ANON_KEY` changes with it. Re-read both keys after
 rotating rather than assuming the anon key survives.
+
+---
+
+## 12. Phase I pass 1 — executed 2026-08-30
+
+### 12.1 Result
+
+The Infisical `prod` environment holds **43 keys**. Every value was compared
+against its source file after the write: no key missing, no value mismatched,
+**no empty secret**, nothing stray. Pre-write validation passed **43/43** on
+format.
+
+| Group | Keys |
+|---|---|
+| Carried from the Railway production worker | 11 |
+| Carried from the Vercel production project | 2 |
+| Fixed literals from this manifest | 9 |
+| **Freshly minted, 32 bytes hex** | 5 |
+| **Rotated at the provider** | 3 |
+| Owner-supplied provider values | 13 |
+
+**Minted:** `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET`,
+`WORKER_INTERNAL_SECRET`, `ZERNIO_WEBHOOK_SECRET`.
+**Rotated:** `SUPABASE_SERVICE_KEY`, `STRIPE_SECRET_KEY`, and the Supabase
+database password inside `DATABASE_POOL_URL`.
+
+That set is exactly the rotation owed for the 2026-08-30 transcript exposure.
+**Finding F4 is closed.**
+
+No secret value passed through a transcript. Carried values were pulled straight
+into a mode-600 gitignored file, minted values were generated into it, and the
+write used `infisical secrets set --file`, whose output table masks values.
+
+Format checks that passed: `sk_live_` prefix; `sb_secret_` prefix; the pooler URL's
+`:6543` plus project-ref username plus `?pgbouncer=true`; `https://repworth.net`
+with no trailing slash; every secret ≥32 bytes; every boolean exactly `true` or
+`false`; `SENTRY_ORG=repworth-nv`.
+
+### 12.2 Supabase now uses a new-format secret key
+
+`SUPABASE_SERVICE_KEY` holds an `sb_secret_…` value, not a legacy `service_role`
+JWT. The variable **name is unchanged** deliberately — renaming would touch both
+config schemas, the registry, `.env.example` and four docs for a cosmetic gain
+mid-cutover. Rename after launch.
+
+Why the new format was chosen over rotating the legacy key: rotating a legacy
+`service_role` key means rolling the project JWT secret, which invalidates the
+`anon` key at the same instant. A new secret key is additive and independent.
+
+Blast radius was checked against the three documented limitations and is **zero**:
+no `pg_net` or Database Webhooks, no Edge Functions, no Realtime usage. The key
+reaches exactly nine call sites, all `auth.admin` — no PostgREST reads, no
+Storage. `@supabase/supabase-js` 2.106.2 supports the format; its own README uses
+it.
+
+> **Still owed:** exercise one `auth.admin` call on staging under a staging secret
+> key before the production worker deploys. The admin invite at
+> `/admin/businesses/new` does it. This is the project's own staging-first rule.
+
+### 12.3 `RESEND_FROM_EMAIL` is on the root domain — correction
+
+Earlier records, including this file's own §4 row, said it must stay on
+`send.repworth.net` because the root SPF has no `amazonses.com` include. That
+conflates the `From:` header with the envelope sender. Live DNS, 2026-08-30:
+
+| Record | Value | Meaning |
+|---|---|---|
+| `MX send.repworth.net` | `feedback-smtp.us-east-1.amazonses.com` | Resend's custom **Return-Path** subdomain |
+| `TXT send.repworth.net` | `v=spf1 include:amazonses.com ~all` | SPF authorises the **envelope** |
+| `TXT resend._domainkey.repworth.net` | present | **DKIM signs the root domain** |
+| `TXT resend._domainkey.send.repworth.net` | **absent** | No DKIM key on the subdomain |
+| `TXT _dmarc` | `p=quarantine; adkim=r; aspf=r` | Relaxed alignment |
+
+The verified sending domain is `repworth.net`. A From address on
+`send.repworth.net` would carry no DKIM key at all. Staging has been sending from
+the root all along. Value in use: `RepWorth <notifications@repworth.net>`, a Zoho
+group with external senders allowed.
+
+### 12.4 The environment slug is `prod`
+
+`--env prod` succeeds; `--env production` errors. `staging` and `dev` work;
+`stg` and `development` do not. Point both Secret Syncs at **`prod`**.
+
+### 12.5 Planned keys deliberately not entered
+
+| Key | Why |
+|---|---|
+| `POSTHOG_API_KEY` | Owner deferred. `AnalyticsDispatchPoller` ships nothing until it lands — rows accumulate unsent, nothing breaks. |
+| `LIST_UNSUBSCRIBE_URL` | By design (§12.6). |
+| `POSTHOG_HOST`, `SERPAPI_TIMEOUT_MS`, `ZERNIO_PROFILE_ID_PREFIX` | Optional with working defaults. |
+| `TELEGRAM_BOT_USERNAME`, `SOLICITATION_UNSUBSCRIBE_MAILTO` | Their features are off for beta. |
+| `GOOGLE_SHEETS_*`, `OWNER_LEADS_*` (4) | Empty on Vercel today (§11), so nothing to carry. The owner-lead mirror is inert either way and is not a launch gate. |
+| `DB_POOL_MAX` | Stays native per §9.1 — the value differs per platform. |
+
+### 12.6 Why `LIST_UNSUBSCRIBE_URL` stays unset
+
+It is a **single shared** URL used on every marketing email. The only unsubscribe
+endpoints that exist — `worker/ingress/unsubscribe.ts` and
+`src/app/api/u/[token]/route.ts` — are **per-recipient token** routes on the
+solicitation lane. There is no valid token for a shared URL.
+
+Set it, and `headers.ts` emits `List-Unsubscribe-Post: One-Click`. A mail client
+POSTs on the recipient's behalf, hits an unknown token, and receives a **503**
+from `replyUnknownToken`. The opt-out silently fails.
+
+Unset is the tested path: `headers.ts` falls back to mailto-only and omits the
+Post header, which its own comment records as accepted by Gmail and Outlook for
+low-volume senders.
+
+`LIST_UNSUBSCRIBE_EMAIL` is `unsubscribe@repworth.net`, a monitored Zoho group.
+**There is no automation behind it.** A human must stop sending to that owner
+within ten business days, per CAN-SPAM.
+
+### 12.7 The Infisical CLI cannot delete a secret
+
+`infisical secrets delete` at **v0.43.128** sends
+`DELETE /api/v3/secrets/raw/<name>` without the environment or workspace, and the
+API returns `404 Secret not found` for a secret the read plainly returns. Tried
+with `--env` before and after the positional argument, with `--path /`, and with a
+`.infisical.json` link file. **Delete through the web UI.** Do not script a
+secret removal against this CLI version.
+
+### 12.8 Still owed before the syncs run
+
+1. Add the four Phase A outputs. **Two are in as of 2026-08-30**, so the
+   environment now holds **45 keys**:
+
+   | Key | State |
+   |---|---|
+   | `SENTRY_DSN` | ✅ written, verified `ee14c7a4175df209` |
+   | `NEXT_PUBLIC_SENTRY_DSN` | ✅ written, same value, same hash |
+   | `WORKER_PUBLIC_URL` | ✅ `https://worker.repworth.net`, format gate checked |
+   | `REDIS_CACHE_URL` | ✅ `sincere-primate-143545.upstash.io:6379`, `PING`→`PONG` before the write, verified `55a91f680d1b55ad` |
+
+   **Count: 47 keys. All four Phase A outputs are in.** Two keys remain held by
+   design: `STRIPE_WEBHOOK_SECRET` (D.3) and `BETA_COMP_COUPON_ID` (F.4).
+
+   `REDIS_CACHE_URL` is confirmed **not** staging's instance — staging's cache is
+   `saving-mongoose-139950.upstash.io`. Compared by host, so no value was read.
+
+   The Sentry project `repworth-production` **already existed** under org
+   `repworth-nv` — the earlier record saying it did not is stale. Its DSN is
+   distinct from staging's in both key and project ID, so §A.1's "never reuse
+   the staging DSN" is satisfied by construction, not by care.
+2. Check `STRIPE_SECRET_KEY` in the Vercel dashboard — empty, or Sensitive? (§11)
+3. Prove the Supabase secret key on staging (§12.2).
+4. Then configure both syncs against `prod`, **Import only**, deletion disabled on
+   both.
+
+
+---
+
+## 13. Finding F14 — the production Redis service is named `Redis`, not `redis`
+
+**Railway reference variables resolve by service name, and the name differs
+between environments.**
+
+`docs/runbooks/deployment-guide.md:1296` records the staging service name as
+lowercase and says why: *"service named `redis` (lowercase, so the
+`${{redis.…}}` reference resolves)"*. That was a deliberate choice.
+
+The Railway dashboard's `+ New → Database → Add Redis` names the service
+**`Redis`**. So the production service created on 2026-08-30 is `Redis`, and
+every copy of the documented expression in this repo spells it lowercase.
+
+| Environment | Service name | Service ID | Image | Correct expression |
+|---|---|---|---|---|
+| staging | `redis` | `2dbd085e-…` | `redis:8.2.1` | `${{redis.…}}` |
+| production | **`Redis`** | `f9573767-…` | `redis:8.2` (`haTemplateCode: redis-ha`) | **`${{Redis.…}}`** |
+
+**Verified, not assumed.** The value set on the production worker was read back
+through a transform that prints structure only, never the value:
+
+```
+REDIS_QUEUE_URL present, length 87
+  still contains an unresolved ${{...}} : False
+  user      : default
+  password  : non-empty, 32 chars
+  host      : redis.railway.internal
+  port/db   : 6379 / 1
+  ?family=0 : present
+```
+
+An unresolved reference would have left the literal `${{...}}` in the string, or
+an empty password segment. Neither is present.
+
+**Why it would have failed silently.** `assertCoreInfraEnv` checks that
+`REDIS_QUEUE_URL` is **present**, not that it is well-formed. A lowercase
+reference resolving to an empty password yields
+`redis://default:@redis.railway.internal:6379/1?family=0` — a syntactically
+valid URL that passes the boot gate and then fails `NOAUTH` on every BullMQ
+operation. The worker reports healthy while no job ever runs. That is the same
+failure shape as the missing `?family=0`.
+
+**The private network endpoint is lowercase either way.** The service's
+`privateNetworkEndpoint` is `redis`, so `RAILWAY_PRIVATE_DOMAIN` resolves to
+`redis.railway.internal` in both environments. Only the **reference prefix**
+differs, because that is the service name.
+
+### The name cannot be made to match — this is permanent
+
+An earlier draft of this section recommended renaming the production service to
+`redis` for parity. **That is impossible, and the recommendation is withdrawn.**
+
+**Railway service names are unique per PROJECT, not per environment.** Both
+environments live in project `repworth`, and the staging service already holds
+`redis`. Railway rejects the rename with "already taken in the project"
+(observed 2026-08-31).
+
+The capital `Redis` is therefore **forced**, not chosen. This section is a
+permanent part of the production configuration, not a temporary exception.
+
+**Consequence for anyone editing the queue URL.** The lower-case
+`${{redis.…}}` form printed in `deployment-guide.md` (lines 269, 560, 1279,
+1296) is correct **for staging only**. Production must use `${{Redis.…}}`.
+Copying the documented line into production produces a URL with an empty
+password that passes the boot gate and then fails `NOAUTH` on every queue
+operation — see the failure analysis above.
+
+`RAILWAY_PRIVATE_DOMAIN` still resolves to `redis.railway.internal` in both
+environments, because the private network endpoint is derived separately from
+the service name. Only the reference prefix differs.
+
+
+---
+
+## 14. Why the sync strategy is Overwrite, not Import — decided 2026-08-31
+
+**Infisical's `Import` copies destination secrets INTO the vault.** Its own
+option text:
+
+> *"Imports secrets from the destination endpoint before syncing, prioritizing
+> values from Infisical over Vercel when keys conflict."*
+
+"Imports **from** the destination" is the operative clause. Import is not merely
+a no-delete setting; it writes back into the Infisical environment.
+
+### What Import would have injected
+
+Measured 2026-08-31 by diffing all three stores by name.
+
+| From | Names pulled into the vault | Broken on arrival |
+|---|---|---|
+| Vercel | 14 | **5 arrive EMPTY** — they are Vercel *Sensitive*, which is write-only (§11) |
+| Railway | 11 | — |
+
+**Two are locked exclusions**, and importing either defeats a recorded decision:
+
+- **`DB_POOL_MAX`** must stay native — `20` on Railway, `3` on Vercel (§9.1). One
+  vault key cannot hold both. From Vercel it imports **empty**.
+- **`REDIS_QUEUE_URL`** must stay native (§8) because its value is the reference
+  expression `${{Redis.…}}`. An import captures the **resolved** password and
+  host, so a Redis re-provision would no longer repair it — which is the whole
+  reason it is native.
+
+Three more contradict §8 or §7: `DATABASE_URL` (ops-only), the seven legacy
+`STRIPE_PRICE_*` (native, rollback window), and `PAST_REPLIES_VIEW_ENABLED`
+(§7.10 says delete it, not adopt it).
+
+**Neither order is safe.**
+
+| Order | Result |
+|---|---|
+| Vercel first | vault gets `DB_POOL_MAX=""` → the Railway sync writes empty over the drill-blessed `20` |
+| Railway first | vault gets `DB_POOL_MAX=20` and a frozen `REDIS_QUEUE_URL` → Vercel gets `20` instead of `3` |
+
+Cleanup afterwards is web-UI only — the CLI cannot delete a secret (§12.7) —
+while auto-sync may already have pushed the bad value.
+
+### Why Overwrite + Disable Secret Deletion is correct
+
+The two settings cancel exactly:
+
+> **Overwrite Destination Secrets:** *"Removes any secrets at the destination
+> endpoint not present in Infisical."*
+> **Disable Secret Deletion:** *"If enabled, Infisical will not remove secrets
+> from the sync destination."*
+
+Overwrite's only destructive act is the removal. The toggle forbids removal.
+What remains is: write the vault's values to the destination, leave
+destination-only names alone, and **import nothing back**. That is precisely the
+behaviour §8 and §9.1 require.
+
+### On overriding the locked trap
+
+The handoff carried "Do NOT switch either Secret Sync to Overwrite" as trap #1.
+That trap exists to protect the seven legacy `STRIPE_PRICE_*` names from
+deletion. **`Disable Secret Deletion` protects them directly.** The trap was
+written without knowing that Import writes back into the vault, so it optimised
+against the smaller risk.
+
+**Residual risk, and how it is bounded.** This configuration relies on two
+settings cancelling. If `Disable Secret Deletion` did not apply to the initial
+Overwrite pass, destination-only names would be removed. Mitigation, in order:
+
+1. **Backups taken before the first sync** — `railway variables --json` (39
+   variables, all values) and `vercel env pull` (56 lines, 44 readable). Both
+   mode-600 under `.scratch/`.
+2. **Vercel syncs first, as a canary.** It restarts nothing and its build is
+   unaffected until a manual redeploy, so a bad result is observable before it
+   can reach the worker.
+3. **Railway proceeds only after the Vercel result is verified** — specifically
+   that the seven legacy `STRIPE_PRICE_*` names and `DATABASE_URL` survive.
+
+The only value that could be lost unrecoverably is the four Google Sheets /
+owner-leads names, which are Vercel *Sensitive* and therefore un-backupable.
+They drive the owner-lead mirror, which §12.5 records as inert and not a launch
+gate.

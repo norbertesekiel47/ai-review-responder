@@ -1,7 +1,7 @@
 # Handoff — WS8 production cutover resume
 
-> **Created:** 2026-08-30 · **Owner:** @norbertesekiel · **Status:** Phase 0 closed,
-> Phase I next · `main` @ `d2cb94e3`
+> **Updated:** 2026-08-31 (Phases A/B/C/I closed) · **Owner:** @norbertesekiel
+> **Status:** Phases 0, I, A, B and C closed. **Phase D next** — the WS8 cutover itself.
 >
 > **This document is a pointer, not a source of truth.** It says where you are, what to
 > read, and what to do next. Every fact it references lives in exactly one owning file,
@@ -13,117 +13,148 @@
 ## The one-line situation
 
 Production is **not un-launched**. It has been **frozen mid-WS8-cutover since 2026-07-17**,
-with a Vercel firewall rule denying every `/api/*` request. Phase 0 preflight is now closed
-and verified. The next work is standing up secrets in Infisical, then resuming the cutover
-at **§6**.
+with a Vercel firewall rule denying every `/api/*` request. The whole production stack now
+exists and both Secret Syncs are live. **17 of the 18 worker boot gates are green.** The
+remaining work is the cutover itself, resuming at **§6**.
 
 ## Read these, in this order
 
 | # | File | Why |
 |---|---|---|
-| 1 | `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` | **The state of record.** Roles, zero-state proof, migration state, owner decisions, verified Stripe readings, phase log for §§6–8. Start here. |
-| 2 | `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` | The predecessor run. **Read it to the END** — the 077 apply is at the bottom, and reading only partway is what caused a month of contradictory docs. |
-| 3 | `docs/runbooks/ws8-tier-cutover.md` §§5–8 | The cutover protocol. §§1, 5, 8 are **verify-only** in prod; §§2–4 are satisfied by the zero-state proof. |
-| 4 | `docs/runbooks/beta-production-standup.md` | Phase structure A–H. Its Phase B boot-gate list is wrong — read the manifest at row 6 instead. |
-| 5 | `docs/launch-checklist.md` | Gates and hard blockers. |
-| 6 | `docs/runbooks/infisical-production-manifest.md` | **The Phase I input.** Every variable, its gate, its platform, its value source, and what stays out. Derived from code, so it supersedes trap #2 below and the stand-up's Phase B list. |
+| 1 | `docs/runbooks/infisical-production-manifest.md` | **Start here.** Every variable, its gate, its platform, its value source. §11 is the live two-platform state; §12 is the Phase I record and what is still owed. Derived from code, so it supersedes the stand-up's Phase B list. |
+| 2 | `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` | **The state of record.** Roles, zero-state proof, migration state, owner decisions, the phase log for §§6–8. |
+| 3 | `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` | The predecessor run. **Read it to the END** — the 077 apply is at the bottom, and reading only partway caused a month of contradictory docs. |
+| 4 | `docs/runbooks/ws8-tier-cutover.md` §§5–8 | The cutover protocol. §§1, 5, 8 are **verify-only** in prod; §§2–4 are satisfied by the zero-state proof. |
+| 5 | `docs/runbooks/beta-production-standup.md` | Phase structure A–H. **Its Phase B boot-gate list is wrong in five places** — use the manifest instead. |
+| 6 | `docs/launch-checklist.md` | Gates and hard blockers. |
 
 Ops mechanics live in `docs/runbooks/deployment-guide.md`. Do not duplicate them.
+
+The ordered plan, with every phase and command:
+**https://claude.ai/code/artifact/44a2ff8f-75d8-48cd-a508-547320b01a2c**
 
 ## Where things stand
 
 | Area | State |
 |---|---|
-| Phase 0 preflight | ✅ **Closed 2026-08-30.** PRs #1025, #1026, #1027 merged |
+| Phase 0 preflight | ✅ Closed. PRs #1025–#1027 merged |
+| **Phase I — Infisical** | ✅ **Closed.** `prod` holds **56 keys**, 0 empty. Manifest §12–§14 |
+| Credential rotation (F4) | ✅ Closed — 5 minted, 3 rotated at their provider |
+| Secret Syncs | ✅ **Both live, `Overwrite` + deletion disabled.** The Vercel one first ran as `Import` and had to be repaired — evidence file, "Phase I sync 1" |
 | Prod database | Zero-state — 52/52 `public` tables empty, `auth.users`=0. Quiescence declared 22:30:03Z |
-| Migrations | Head **116, minus 078**. 077 applied 2026-07-17T02:17:11Z; 105/106/116 applied |
-| Stripe live | ✅ `charges_enabled=True`, `payouts_enabled=True`, `details_submitted=True`. **0** live webhook endpoints. **6** active livemode Prices |
-| Railway prod worker | **0 deployments ever.** 27 vars; 6 hard boot gates missing. No GitHub source connected on the prod env |
-| Railway prod Redis | **Does not exist** — the service is in `staging` only |
-| Upstash prod cache | Does not exist |
-| Sentry prod project | Does not exist |
-| Vercel prod | Live at repworth.net. `NEXT_PUBLIC_APP_URL` is **wrong** (see Traps) |
+| Migrations | Head **116, minus 078**. 077 applied 2026-07-17T02:17:11Z |
+| Stripe live | `charges_enabled=True`. **0** live webhook endpoints. **6** active livemode Prices |
+| Railway prod worker | ✅ Source `main` connected. **70 vars, 17/18 boot gates green.** Crash-loops on `STRIPE_WEBHOOK_SECRET` until D.3 — by design |
+| Railway prod Redis | ✅ Service **`Redis`** (capital R — manifest §13), no TCP proxy. `REDIS_QUEUE_URL` resolves |
+| Upstash prod cache | ✅ `sincere-primate-143545`, `PING`→`PONG`, distinct from staging's |
+| Sentry prod project | ✅ `repworth-production` under `repworth-nv`. DSN distinct from staging's |
+| Vercel prod | 61 vars, 57 `Config` + 4 `Secret`. `NEXT_PUBLIC_APP_URL` corrected, `DB_POOL_MAX=3`. **Redeploy owed** |
 | **WAF** | `ws8-cutover-prod-api-deny` **still Enabled** — every prod `/api/*` returns 403 |
-| Infisical | `RepWorth` project created; CLI v0.43.128 logged in. Environments not yet created |
-| `alerts@repworth.net` | ✅ Zoho group, 5 members, inbound-only |
+| `alerts@repworth.net` | ✅ Zoho group, 5 members |
+| `notifications@` / `unsubscribe@` | ✅ Zoho groups, created for Phase I |
 | Beta comp coupon | Does not exist in either Stripe mode |
 | Hard blockers | PITR drill, legal review, insurance — all 3 open |
 
 ## Locked decisions — do not relitigate
 
-1. **Solo run.** Cutover owner, observer and incident owner are one person, recorded as an
-   owner-approved deviation with the 2026-07-16 precedent. Not a blank field.
-2. **Secret management: Infisical Secret Sync**, not `infisical run` runtime injection.
-   Vercel has no build-time agent, and injection would put Infisical in the boot path of a
-   single-replica worker. The CLI is **optional** for this approach.
-3. **Alert sink: Discord.** Zoho Cliq was checked and rejected — Sentry has no Cliq
-   integration, and Cliq's incoming webhook needs a translator service, which would put a
-   silently-failable component on the paging path.
-4. **`ADMIN_NOTIFICATION_EMAIL` = `alerts@repworth.net`**, a group rather than an alias, so
-   it outlives any one founder.
-5. **Beta posture unchanged** — `AUTO_APPROVAL_ENABLED=false`, `AUTOPILOT_PURCHASABLE=false`,
-   `SELF_SERVE_SIGNUP_ENABLED=false`. Beta lands on Copilot (ADR 0005).
+1. **Solo run.** Cutover owner, observer and incident owner are one person, an
+   owner-approved deviation with the 2026-07-16 precedent.
+2. **Infisical Secret Sync**, not `infisical run` injection. Vercel has no build-time agent,
+   and injection would put Infisical in a single-replica worker's boot path.
+3. **One Infisical environment, union spread accepted.** A key set syncs whole to both
+   platforms. Single-platform secrets land on the platform that ignores them. Owner
+   decision, 2026-08-30. Manifest §9.1.
+4. **Alert sink: Discord.** Zoho Cliq checked and rejected — no Sentry integration, and a
+   translator service would put a silently-failable component on the paging path.
+5. **`ADMIN_NOTIFICATION_EMAIL` = `alerts@repworth.net`**, a group not an alias.
+6. **Supabase moved to a new-format `sb_secret_` key.** Variable name unchanged. Manifest §12.2.
+7. **Beta posture** — `AUTO_APPROVAL_ENABLED=false`, `AUTOPILOT_PURCHASABLE=false`,
+   `SELF_SERVE_SIGNUP_ENABLED=false`, `TRIAL_ENABLED=false`. Beta lands on Copilot (ADR 0005).
 
 ## Traps that will cost you hours
 
-1. **`NEXT_PUBLIC_APP_URL` is wrong in Vercel production.** It reads
-   `https://rep-worth.vercel.app/` — wrong host, trailing slash. Correct value is
-   `https://repworth.net`, no slash. `assertSameOrigin` (`src/lib/shared/csrf.ts:35`)
-   compares URL origins, so **21 routes** fail on it — login-attempt, reset-password,
-   finish-signup, onboarding/select-plan among them. `plan-activation.ts:323` also
-   concatenates it raw, so the slash double-slashes every generated link. Fix in Phase C.
-2. **The stand-up runbook's boot-gate list is wrong in five places.** Owner of the correct
-   list: `docs/runbooks/infisical-production-manifest.md` §7, derived from code at
-   `f6695494`. It names three variables as boot-gated that are not — `SERPAPI_API_KEY`,
-   `DATABASE_URL`, `REDIS_CACHE_URL` — and omits two that are: `SESSION_COOKIE_SECRET`
-   (≥32 bytes) and `NEXT_PUBLIC_APP_URL`, both hard gates via
-   `assertUnsubscribeIngressConfigured` (`worker/index.ts:596`). A gate you did not plan
-   for is a crash loop that exhausts `restartPolicyMaxRetries = 10` and stays down.
-3. **The local Stripe CLI 401s on live** while the same login's test key works. Most likely
-   the browser authorized a **Sandbox**. Not a blocker — use
-   `railway run --environment production --service repworth-worker -- <cmd>`, the pattern
-   from the 2026-07-17 record, so the live key is used but never observed. **But** a
-   Sandbox-defaulted session can create the D.3 webhook endpoint in the wrong context, where
-   it looks created and delivers nothing. Confirm it in the live dashboard.
-4. **Vercel does not redeploy on an env change.** After Phase C and after every Infisical
-   sync, redeploy — `NEXT_PUBLIC_*` is baked into the client bundle at build time.
-5. **Sync Infisical only once it is complete, and do NOT switch to Overwrite.** Railway
-   restarts on a variable change, so a partial sync is a boot-gate crash loop. Start both
-   syncs as **Import (Infisical priority)** and leave them there. Overwrite deletes every
-   destination variable Infisical does not manage — which includes the seven legacy
-   `STRIPE_PRICE_*` names the WS8 rollback window depends on, and `DB_POOL_MAX`. Enable
-   **Disable Secret Deletion** on **both** syncs, not only Railway's. Manifest §8, §9.1.
-6. **Keep `REDIS_QUEUE_URL` Railway-native** — its value is a Railway reference expression.
-   Enable "Disable Secret Deletion" on that sync so it cannot remove `RAILWAY_*`.
-7. **`DB_POOL_MAX` cannot live in Infisical.** Its correct value is `20` on Railway and `3`
-   on Vercel, and one key in one environment cannot hold both. Keep it native on each
-   platform. Manifest §9.1 — this is the one Phase I design problem the plan does not cover.
-8. **`ZERNIO_API_KEY` is required on Vercel and appears in no Phase C list.** The Next
-   connect routes call `zernioClient` under the ADR 0001 exception; without it every
-   onboarding connect call sends `Bearer ` and 401s, with nothing in the boot log.
-   Manifest §7.7.
+1. **REVERSED 2026-08-31 — use `Overwrite`, never `Import`.** This trap previously said the
+   opposite. It was wrong, and following it caused a live incident. **Infisical's `Import`
+   copies destination secrets INTO the vault** ("Imports secrets from the destination
+   endpoint before syncing"). It pulled 14 names from Vercel into `prod`, five of them
+   **empty** because Vercel *Sensitive* variables are write-only — then wrote those empties
+   back and destroyed four production values. `Overwrite` + **Disable Secret Deletion**
+   cancel exactly: the toggle forbids the only destructive act, so nothing is deleted and
+   nothing is imported. That protects the seven legacy `STRIPE_PRICE_*` names better than
+   `Import` did. Full reasoning: `infisical-production-manifest.md` §14; the incident:
+   evidence file, "Phase I sync 1".
+
+   **`Initial Sync Behavior` is its own wizard step — step 4, "How to resolve the first
+   run" — not part of Sync Options.** It has a default already selected. Clicking past it is
+   exactly how the incident happened.
+
+   **A `vercel env pull` is NOT a backup.** It writes the literal string `"[SENSITIVE]"` for
+   every Sensitive variable. Confirm such a value exists elsewhere before overwriting it.
+2. ~~Do NOT run either sync until Phase A is done.~~ **Done — both syncs are live.** The
+   reason still governs any future sync: Railway restarts on a variable change, so a sync
+   run against an incomplete vault is a crash loop that exhausts
+   `restartPolicyMaxRetries = 10` and stays down.
+3. **The Infisical environment slug is `prod`, not `production`.** `--env production` errors.
+   A sync aimed at a non-existent slug writes nothing.
+4. **`DB_POOL_MAX` cannot live in Infisical.** `20` on Railway, `3` on Vercel — one key
+   cannot hold both. **Both are now set natively and verified.** The old claim that Vercel's
+   was *empty* and falling back to 10 is **withdrawn**: it was Vercel *Sensitive*, so a pull
+   returned it blank. Manifest §11.
+5. ~~`NEXT_PUBLIC_APP_URL` is wrong in Vercel production.~~ **Fixed by the sync** — now
+   `https://repworth.net`. **A redeploy is still owed**: `NEXT_PUBLIC_*` is inlined at build
+   time, so no browser sees the corrected value yet.
+6. **`ZERNIO_API_KEY` is required on Vercel** and appears in no Phase C list. Without it
+   every onboarding connect call sends `Bearer ` and 401s, with nothing in the boot log.
+7. **The stand-up's boot-gate list is wrong in five places.** It calls `SERPAPI_API_KEY`,
+   `DATABASE_URL` and `REDIS_CACHE_URL` boot-gated (none are) and omits
+   `SESSION_COOKIE_SECRET` and `NEXT_PUBLIC_APP_URL` (both are). Manifest §7.
+8. **Vercel does not redeploy on an env change.** After Phase C and after every sync,
+   redeploy — `NEXT_PUBLIC_*` is inlined at build time.
 9. **`?family=0` on the queue URL is mandatory.** Railway's private network is IPv6-only;
    without it every BullMQ connection fails with `ENOTFOUND *.railway.internal` while the
    worker still reports healthy.
+10. **The local Stripe CLI 401s on live.** Likely a Sandbox-bound browser authorization. Use
+    `railway run --environment production --service repworth-worker -- <cmd>`. A
+    Sandbox-defaulted session can create the D.3 webhook endpoint in the wrong context, where
+    it looks created and delivers nothing.
+11. **The Infisical CLI cannot delete a secret** at v0.43.128 — it 404s on a secret the read
+    returns. Use the web UI. Manifest §12.7.
 
-## Next action — Phase I
+## Next action — Phase D
 
-1. Create `production` and `staging` environments in the Infisical `RepWorth` project. Do
-   **not** create `development`.
-2. Populate `production` by hand, **minting fresh secrets as you go**. This doubles as the
-   rotation owed for values exposed in a transcript on 2026-08-30 (`SUPABASE_SERVICE_KEY`,
-   `STRIPE_SECRET_KEY`, both DB passwords, `WORKER_INTERNAL_SECRET`). Do not import from
-   Vercel — it imports sensitive values as **empty**.
-3. Two App Connections, two Secret Syncs — Vercel Production, and Railway
-   `production`/`repworth-worker`. Name the service, or it writes environment-level shared
-   variables instead.
-4. Then Phase A (provision), B+C (variables), D (WS8 §6/§7 — the deploy, 078, and lifting
-   the deny rule).
+Phases A, B and C are closed. **B and C completed as a side effect of the two syncs.**
 
-The full ordered plan with every phase, table and command:
-**https://claude.ai/code/artifact/44a2ff8f-75d8-48cd-a508-547320b01a2c**
+**17 of the 18 unconditional worker boot gates are green.** The one missing is
+`STRIPE_WEBHOOK_SECRET`, which D.3 produces. The Zernio conditional gate is satisfied in
+full, and every exact-boolean gate is correct.
+
+Two small items owed first, neither blocking:
+
+- **Redeploy Vercel.** `NEXT_PUBLIC_APP_URL` is correct in the store, but `NEXT_PUBLIC_*` is
+  inlined at build time, so no browser sees it yet.
+- **Delete `PAST_REPLIES_VIEW_ENABLED` from Vercel** — read by no code (manifest §7.10).
+
+Then Phase D, resuming the WS8 runbook at **§6**:
+
+1. **D.1** verify the six live Prices; **D.2** verify migration 077. Both verify-only.
+2. **D.3** create the live Stripe webhook endpoint at
+   `https://worker.repworth.net/ingress/stripe`, disabled, and put its signing secret in the
+   vault as `STRIPE_WEBHOOK_SECRET`. Watch the Sandbox trap — confirm it appears in the
+   **live** dashboard.
+3. **§6** the worker boots for the first time. Until D.3 it crash-loops on that one gate by
+   design; **do not raise `restartPolicyMaxRetries`**.
+4. **§7** apply migration 078, remove `ws8-cutover-prod-api-deny`, restore
+   `ZERNIO_RECENT_REVIEW_POLL_DISABLED` to unset.
+5. **§8** verify migration 105.
+
+Owed after §8 closes: re-add `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET` and
+`WORKER_INTERNAL_SECRET` to Vercel with `--sensitive`. They are `Config` today so that
+Vercel can be verified against the vault by readback — the check that caught the sync-1
+incident. Note that a synced key drifts back to `Config` on every write, so this is a
+post-cutover step, not a permanent state.
 
 ## The moment that matters
 
-Slot 5 of the plan. The first time `curl https://repworth.net/api/health` returns **200** is
-the moment production stops being fenced off. Everything before it is preparation.
+The first time `curl https://repworth.net/api/health` returns **200** is the moment
+production stops being fenced off. It is Phase D.8, three phases away. Everything before it
+is preparation.

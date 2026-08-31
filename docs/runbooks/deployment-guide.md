@@ -270,6 +270,19 @@ so the URL survives a Redis re-provision):**
       ```
       Plain `redis://` — no TLS on the private network (Wireguard already encrypts
       it). `getRedisOptions()` branches on `rediss:` vs `redis:`, so this is correct.
+
+      > **The service-name prefix differs per environment, and it is not
+      > cosmetic.** The reference resolves by **service name**. Staging's service
+      > is `redis`; **production's is `Redis`**, so production must read
+      > `${{Redis.REDISPASSWORD}}` / `${{Redis.RAILWAY_PRIVATE_DOMAIN}}`.
+      > Railway service names are unique per *project*, so the two cannot be made
+      > to match — staging already holds `redis`.
+      >
+      > Copying the lower-case line above into production yields
+      > `redis://default:@redis.railway.internal:6379/1?family=0` — an empty
+      > password. `assertCoreInfraEnv` checks **presence, not shape**, so the
+      > worker boots, reports healthy, and then fails `NOAUTH` on every queue
+      > operation. Full analysis: `infisical-production-manifest.md` §13.
 - [ ] **Worker `REDIS_CACHE_URL`** — the **Upstash** cache URL (below). The worker
       uses the cache for cost guards + zernio-publisher; that traffic is per-work and
       small.
@@ -557,7 +570,7 @@ DATABASE_POOL_URL=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 REDIS_CACHE_URL=rediss://default:...@...upstash.io:6379/0                                                     # Upstash, TLS — cache only
-REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0    # Railway Redis, private net — queue
+REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0    # STAGING. Production service is named `Redis` — use ${{Redis.…}}, manifest §13
 ```
 > `?family=0` is required (Railway private net is IPv6-only; needs the one-line
 > `getRedisOptions()` change flagged in §1.4). Never point the worker's queue URL at
