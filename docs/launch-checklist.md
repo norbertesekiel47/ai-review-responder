@@ -42,9 +42,21 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
 - [ ] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — owner approval is the
   content-safety control for irreversible public posting. Auto-approval go-live is
   a separate gate (prod moderation validation + canary + kill-switch drill).
+- [x] **Stripe live-mode activation** — ✅ **verified 2026-08-30**:
+  `charges_enabled=True`, `payouts_enabled=True`, `details_submitted=True` on
+  `acct_1TUcR7IhPBLaM6xA`, read with the production `sk_live_` key via
+  `railway run --environment production`. **This item is new to this checklist and that
+  is the point.** It was recorded on 2026-07-17 as `charges_enabled=false` — "no live
+  payment (incl. prod smoke checkout) until complete" — inside an evidence file and
+  nowhere else, so it silently stopped being tracked for six weeks while remaining a hard
+  gate on WS8 §6 smoke and the entire beta coupon path. Evidence files are logs, not
+  tracking surfaces; anything still owed at a pause belongs here. Reading recorded in
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` → D1d.
 - [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
   the worker refuses to start without the non-email alert sink.
-- [ ] **Sentry alert routing → Slack/PagerDuty** for `subsystem:health_alert` and
+- [ ] **Sentry alert routing → Discord** (sink decided 2026-08-30; Sentry has no Zoho Cliq
+  integration and a Cliq bridge would put a translator service on the paging path) for
+  `subsystem:health_alert` and
   `cost_event:limit_exceeded`, plus `subsystem:import_consent_analytics` (#697 —
   a P2 whose signal is *repetition*, so route it on an event-frequency
   condition, not on "a new issue is created"; alerting runbook §1).
@@ -136,8 +148,11 @@ Pre-invite actions from these decisions:
   the first prod worker deploy happens before it (§6), which is the live resume
   point.
   **077 and 105 are already applied in prod** (verified 2026-08-14 by the
-  migration lockstep audit, #825): 077 landed unrecorded after the 2026-07-17
-  cutover pause, and 105 was applied deliberately once that audit showed its only
+  migration lockstep audit, #825): 077 was applied 2026-07-17T02:17:11Z and IS
+  recorded — see that date's evidence file, "Quiescence + formal gates + phase 5"
+  (the "landed unrecorded" wording was corrected 2026-08-30; only the Supabase
+  migration ledger lacks it, because the SQL editor does not write there). 105
+  was applied deliberately once that audit showed its only
   blocker — the 077 dependency — was already satisfied. **§5 and §8 are therefore
   verify steps in prod, not apply steps.** Staging has had all three since
   2026-07-16.
@@ -154,8 +169,18 @@ Pre-invite actions from these decisions:
   The 3-months-free offer has **no supported activation path today**;
   dashboard-created subscriptions, raw-SQL binding, and manual invoices are
   forbidden substitutes.
-- [ ] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
-  exists.** The comp's eligibility test is `onboarded_by IS NOT NULL` on the
+- [x] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
+  exists.** ✅ **CLEARED 2026-08-30T22:28:33Z — zero rows, and permanently so.**
+  The checklist query below was run verbatim against prod
+  (`udeyaqnvpojbwgoaxwdg`) and returned **0 rows**. It cannot return rows again:
+  every legacy row migration 025 backfilled was destroyed by the 2026-07-16
+  36-table purge, and prod now holds **0 rows across all 52 `public` tables plus
+  0 `auth.users`**. Any `onboarded_by IS NOT NULL` row created from here on is
+  one you deliberately invited — which is exactly who the comp is for. **This
+  gate is therefore satisfied by construction, not merely satisfied today**, so
+  it does not need re-running before the coupon is created. Full evidence:
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` →
+  "Zero-state proof". Original reasoning preserved below. The comp's eligibility test is `onboarded_by IS NOT NULL` on the
   primary Business, and migration **025** backfilled that column on every row
   that predated it, pointing them all at the oldest admin/sales_partner user.
   Those rows are genuinely admin-onboarded (self-serve signup shipped in the
