@@ -11,12 +11,17 @@
 
 ## The one-line situation
 
-**Phases E, F.2 and G are complete.** Production is live, both remaining webhooks are
-proven, the Beta comp coupon exists in both Stripe modes, provider moderation is on and
-validated, and all four ops signals reach Discord. **Four items remain**, and the owner has
-fixed their order: **F.3 → G.3 → the PITR drill → the secret rotation.**
+**Phases E, F.2, G and now F.3 are complete.** Production is live, both remaining webhooks
+are proven, the Beta comp coupon exists in both Stripe modes, provider moderation is on and
+validated, and all four ops signals reach Discord.
 
-Three of the four need a human at a browser. Only the rotation is mostly scriptable.
+**Updated 2026-08-31 — F.3 passed all ten steps on staging.** The **Beta comp coupon** is
+proven end to end on the real Stripe rails: $0.00 due today, a card still captured, and the
+4th cycle at full price. **Three items remain**, in the owner's order:
+**F.4 → G.3 → the PITR drill → the secret rotation.** F.4 is the production half of the
+smoke and carries the D.6 debt.
+
+Two of the three need a human at a browser. Only the rotation is mostly scriptable.
 
 ## Read these, in this order
 
@@ -106,35 +111,45 @@ The first two are new from this run and both cost real time.
 
 ---
 
-## 1. F.3 — the ten-step staging smoke. **Start here.**
+## 1. F.3 — the ten-step staging smoke. ✅ **DONE 2026-08-31. ALL TEN PASS.**
 
-Standup §Phase F. This is operator work: admin sign-in at AAL2, an invite email, a Stripe
-test card, and eyes on the Stripe dashboard.
+Run at repo HEAD `37a3b49b` against `https://staging.repworth.net`, posture
+`ONBOARDING_DEMO_ENABLED=true` / `AUTOPILOT_PURCHASABLE=false` (Copilot founding,
+$19.00/mo). Owner A `norbert.esekiel@repworth.net` walked steps 2–9; Owner B
+`nsunn@usc.edu` served step 10. **Full record and every id: evidence file → Phase F.3.**
 
-**Preparation is already done and verified:**
+The three weighted steps, and what they returned:
 
-- Migrations 105 + 106 confirmed on staging **by introspection**, not the ledger.
-- `ONBOARDING_DEMO_ENABLED=true` on all four surfaces. No flip needed.
-- `BETA_COMP_COUPON_ID=repworth-beta-comp-3mo` set on Vercel staging; the running staging
-  deployment carries it.
-- **Trial/coupon collision ruled out** — `isTrialEligible` requires `onboarded_by IS NULL`,
-  and an **Admin invite** never has that. So step 5's "$0 due today" can only be the coupon.
+- **Step 6 — a card IS collected. PASS.** `pm_1UAaO0IhPBLaM6xAv6XPwnke`, visa ·4242,
+  captured against an invoice whose **total was $0.00**. That is
+  `payment_method_collection: 'always'` behaving, read from the Stripe API rather than the
+  form.
+- **Step 8 — the 4th cycle is full price. PASS, by boundary proof.** The discount's `end` is
+  2026-11-30T18:56:52Z — the cycle-4 anchor to the second, a 91-day span Stripe derived from
+  `duration_in_months: 3`. **F.2's `repeating` deprecation risk does not materialise.** The
+  limit is stated in the record: this is the discount's own end timestamp, **not** a rendered
+  4th invoice, which would need a Stripe test clock a real Checkout cannot have.
+- **Step 10 — CORRECTED, and it is finding F3-F1.** This step tests the eligibility **gate**
+  and structurally **cannot** reach the provider error mapping: `resendOwnerInvite` throws on
+  `last_sign_in_at` before `inviteUserByEmail` is called. Observed **409 Conflict**,
+  `code: "OWNER_ALREADY_SIGNED_IN"`, and **no third email** (`invited_at` unmoved on
+  re-read). ~~`src/lib/onboarding/resend-invite.ts` shipped staging-unverified.~~ **It did
+  not.** `INVITE_ERROR_CODE_MAP`'s header reads `CONTRACT VERIFIED` and cites the
+  2026-08-14 staging evidence D-13 (`email_exists` / 422 → 409). That sentence was stale when
+  this handoff was written.
 
-**Two things the operator must supply:** the `ONBOARDING_DEMO_ENABLED` posture to record
-(it is `true`, so expect `/onboarding/start`), and **two** owner email addresses — step 10
-needs a second owner who has not signed in.
+**Original preparation notes, all confirmed correct before the run:** migrations 105 + 106
+by introspection; `ONBOARDING_DEMO_ENABLED=true`; `BETA_COMP_COUPON_ID=repworth-beta-comp-3mo`
+on Vercel staging with the running deployment carrying it; and the trial/coupon collision
+ruled out, because `isTrialEligible` requires `onboarded_by IS NULL` and an **Admin invite**
+never has that — so step 5's "$0 due today" could only be the coupon. It was.
 
-**Three steps carry the weight:**
-
-- **Step 6 — a card IS collected.** The `payment_method_collection: 'always'` assertion.
-  Without it, month 4 fails.
-- **Step 8 — the 4th cycle is full price.** The single assertion proving
-  `duration_in_months: 3` behaved. Do not skip it.
-- **Step 10 — record the real Supabase error code** for the already-accepted case.
-  `src/lib/onboarding/resend-invite.ts` shipped staging-unverified.
-
-**Then F.4 — production.** Set `BETA_COMP_COUPON_ID` to the live-mode id on **Vercel
+**Next: F.4 — production.** Set `BETA_COMP_COUPON_ID` to the live-mode id on **Vercel
 Production** and re-run the smoke with a real card and an immediate cancel.
+
+> ⚠️ **The production flip is a vault write, not a Vercel write.** The key is absent from
+> Vercel `Production` **and** from the Infisical vault; adding it to the vault **is** the F.4
+> flip, and the sync propagates it. Invoke the `flag-flip` skill first.
 
 > **This is where the D.6 debt lands.** No Checkout has ever completed in live mode. Walk
 > the production Checkout **before** tester one, or the first live Checkout is a customer's.
@@ -152,8 +167,24 @@ production monitors are live and all four signals route to Discord.
 `docs/runbooks/pitr-restore-drill.md`. Its results table still reads *pending first drill*.
 
 **The runbook wants it run before real customer data exists.** Production still holds
-**zero accounts, zero businesses, zero users** — Phase E added two `inbound_events` rows and
-nothing else. **That window closes the moment tester one signs up.**
+**zero accounts, zero businesses, zero users** — Phase E added `inbound_events` rows (three
+as of 2026-08-31; see the count note in the evidence file) and nothing else.
+
+> **Ordering correction, 2026-08-31.** "That window closes the moment tester one signs up"
+> reads as *drill before F.4*. **Do not read it that way.** Two facts, both checked against
+> the runbook rather than assumed:
+>
+> 1. **The drill is non-destructive** — §3 is *Restore to a New Project*. Nothing about it
+>    needs production empty.
+> 2. **Zero-state makes the drill WEAKER, not safer.** §4's pass criteria are row-count
+>    comparisons, `count(*) as auth_users`, and `max(created_at)` being recent. Against an
+>    empty database every one of those passes **vacuously** — it would prove the clone ran,
+>    not that data came back.
+>
+> **So run F.4 first, then the drill.** F.4's one staff **Account**, **Business**, auth user
+> and Stripe rows are the minimum data that makes §4 a real check, with no customer exposure.
+> The genuine deadline is *before you have to depend on a restore*, not *before any row
+> exists*.
 
 A clone-to-new-project drill, roughly an hour. Creating a Supabase project costs money, so
 confirm the spend before starting.

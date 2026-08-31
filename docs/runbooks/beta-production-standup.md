@@ -299,7 +299,28 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       kill switch and affects NEW attempts only**: an attempt that already
       snapshotted the coupon keeps it, which is the idempotency contract, not a
       bug. Hold the production value until F4 below.
-- [ ] **F3. Staging smoke — the invited-owner loop end to end.** Run it as an
+- [x] **F3. DONE 2026-08-31 — ALL TEN STEPS PASS.** Run against
+      `https://staging.repworth.net` at repo HEAD `37a3b49b`, with every API and
+      database assertion verified independently rather than read off a screen.
+      **Posture tested: `ONBOARDING_DEMO_ENABLED=true`**, so step 4 landed on
+      `/onboarding/start`; `AUTOPILOT_PURCHASABLE=false`, so the run priced
+      against Copilot founding, **$19.00/month**. Owner A
+      `norbert.esekiel@repworth.net` walked steps 2–9; Owner B `nsunn@usc.edu`
+      served step 10. Key artefacts: subscription `sub_1UAaO2IhPBLaM6xA5AI1YZrj`,
+      **Checkout attempt** `aa86f64e-f026-449b-972d-ceebe3d3b890`, first invoice
+      `in_1UAaO0IhPBLaM6xAxTgziJ1B` (**total $0.00** on a $19.00 subtotal), card
+      `pm_1UAaO0IhPBLaM6xAv6XPwnke` (visa ·4242) captured on that $0 invoice, and
+      `checkout_coupon_decision` = `applied` / `coupon_applied: true`.
+      **Step 8 passed by boundary proof:** the discount's `end` is
+      2026-11-30T18:56:52Z, the cycle-4 anchor to the second — a rendered 4th
+      invoice needs a Stripe **test clock**, which a real Checkout cannot have.
+      **Three findings (F3-F1…F3-F3)** — step 10 tests the eligibility gate and
+      **cannot** reach the provider mapping; `resend-invite.ts` has not been
+      staging-unverified since 2026-08-14; and migration 106's own header is the
+      one stale copy of the coupon-event emission point (the owning
+      `migrations-log.md` entry is already correct).
+      Evidence file → **Phase F.3**. Original text follows.
+      Run it as an
       operator, in this order, against staging. Every box is a thing you can
       actually see.
       1. **Migrations.** 105 and 106 are applied to the staging Supabase project.
@@ -343,11 +364,24 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       10. **Resend invite.** While a *second* test owner has not yet signed in,
           `POST /api/admin/businesses/[id]/resend-invite` re-sends. Then accept
           that invite and try again: the resend must be refused cleanly, not
-          duplicated. ⚠️ **This is also the step that validates the provider
+          duplicated. ⚠️ **CORRECTED 2026-08-31 (finding F3-F1) — this step tests
+          the eligibility GATE, and it cannot reach the provider error mapping.**
+          `resendOwnerInvite` throws `OWNER_ALREADY_SIGNED_IN` on
+          `last_sign_in_at` **before** `inviteUserByEmail` is ever called, so the
+          code you observe is always ours, never Supabase's. Observed:
+          **409 Conflict**, `code: "OWNER_ALREADY_SIGNED_IN"`, and **no third
+          email** (`invited_at` unmoved on re-read). Record those.
+          ~~**This is also the step that validates the provider
           error mapping in `src/lib/onboarding/resend-invite.ts`, which shipped
           deliberately staging-unverified** — record the actual Supabase error
           code/status you observe for the already-accepted case, and reconcile
-          the mapping against it before prod.
+          the mapping against it before prod.~~ That mapping was **already
+          verified on 2026-08-14** against this same staging project
+          (`email_exists` / 422 → 409); `INVITE_ERROR_CODE_MAP`'s header says
+          `CONTRACT VERIFIED` and cites
+          `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md`
+          → **D-13**. Reaching that table needs a different test, one that
+          bypasses the gate.
 - [ ] **F4. Production is gated on the WS8 cutover — do not run F2b in prod
       early.** The gate is now **code and Stripe, not schema**: as of 2026-08-14
       migrations 077, 105 and 106 are all applied in production, and **078** is

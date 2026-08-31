@@ -4081,3 +4081,66 @@ variable. A conditional safety rule is not one to lean on. What this changes is 
 blast radius, not the procedure. General lesson: **when a documented failure stops
 reproducing, find the mechanism before relaxing the rule** — "it worked this time" and "it
 is fixed" are different claims.
+
+## 2026-08-31 — WS8 Phase F.3: the invited-owner smoke, and a checklist that named the wrong assertion
+
+### [2026-08-31] A checklist told the operator to record the PROVIDER's error → our own gate returns first, so that code can never appear
+FAIL → `beta-production-standup.md`'s F3 step 10 says the step "validates the provider error
+mapping in `src/lib/onboarding/resend-invite.ts`, which shipped deliberately
+staging-unverified", and instructs: "record the actual Supabase error code/status you
+observe for the already-accepted case". An operator following that literally waits for
+`email_exists` / 422. It never comes. Both halves of the instruction were wrong, and the
+answer to both was already inside the file the instruction names.
+
+WHY → two independent staleness bugs that reinforced each other.
+1. **The mapping was verified six weeks earlier.** `INVITE_ERROR_CODE_MAP`'s header reads
+   `CONTRACT VERIFIED against the staging Supabase project on 2026-08-14`, cites evidence
+   D-13, and records the observation (`AuthApiError { code: 'email_exists', status: 422 }`
+   → 409). The header *used* to say NOT YET VERIFIED; the checklist copied that sentence and
+   never re-read it.
+2. **The step cannot reach the mapping at all.** `resendOwnerInvite` calls
+   `getUserById`, checks `providerUser.user.last_sign_in_at`, and throws
+   `OWNER_ALREADY_SIGNED_IN` **before** `inviteUserByEmail` is ever invoked. The mapping sits
+   behind a gate that refuses first — the module's own header says so: "the accepted-user
+   branch above is normally unreachable in production: the gate refuses first, and this
+   table is the safety net behind it."
+
+Observed on staging 2026-08-31: **409 Conflict**, `code: "OWNER_ALREADY_SIGNED_IN"`, and no
+third email — proven by re-reading `auth.users` and finding `invited_at` unmoved, rather than
+by asking the operator to check an inbox.
+
+CORRECT → **before recording a provider's response, check whether your own code returns
+before the provider is called.** A gate in front of a mapping means the step exercises the
+gate. To exercise the mapping you need a *different* test that bypasses the gate — which is
+worth writing down as a separate item, not smuggling into a step that structurally cannot do
+it.
+
+Two general lessons, and the second is the reusable one:
+
+- **A "NOT YET VERIFIED" caveat copied into a checklist outlives the verification.** The
+  source file was updated; three documents that quoted it were not. When a doc quotes a
+  code comment as a live caveat, the doc has taken on a maintenance obligation it will not
+  honour — cite the file and let the reader open it.
+- **"Record what the provider returns" is only a meaningful instruction when the provider is
+  reachable on that path.** Trace the call to the boundary before writing the assertion.
+
+### [2026-08-31] A 3-month coupon's 4th cycle cannot be rendered from a real Checkout → prove it from the discount's `end`, and say so
+OBSERVATION → F.3 step 8 asks the operator to "confirm the 4th billing cycle renders at the
+full founding rate" on the upcoming-invoice view. For a subscription three months from its
+4th cycle, Stripe will not render that invoice. Reaching it needs a **test clock**, and a
+subscription created through the real Checkout the smoke exists to test has
+`test_clock: null` by construction. Attaching a clock means not testing the funnel.
+
+CORRECT → prove the boundary instead, and state the limit rather than implying a rendered
+invoice. The discount object carries `start` and `end`; project the subscription's monthly
+anchors from `billing_cycle_anchor` and check which side of `end` each falls on. On
+2026-08-31: anchor 2026-08-31T18:56:52Z, discount `end` **2026-11-30T18:56:52Z** — a 91-day
+span landing on the cycle-4 anchor **to the second**, so cycles 1–3 are covered and cycle 4
+is not. Stripe derived that boundary from `duration_in_months: 3`, which is the deprecation
+question F.2 raised, now answered twice (coupon read-back under the pinned apiVersion, and a
+real subscription's discount window).
+
+General lesson: **when an assertion about the future cannot be rendered, find the object that
+already encodes the answer** — here the discount's own `end` — and record the *method*
+alongside the verdict. A boundary proof and a rendered artefact are different evidence; a
+record that blurs them invites a later reader to over-trust it.
