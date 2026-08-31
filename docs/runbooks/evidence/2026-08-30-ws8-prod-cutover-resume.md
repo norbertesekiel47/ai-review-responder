@@ -836,6 +836,141 @@ capitalisation resolves.
 
 ---
 
+### D.1 — verify §1, the six live Prices. PASS.
+
+Read-only. Run 2026-08-31T04:46Z through the `railway run` injection pattern, so the
+production `sk_live_` key was used but never observed:
+
+```
+railway run --environment production --service repworth-worker -- python3 <check>
+key prefix: sk_live_ | length: 107
+```
+
+| Variable | Price ID | HTTP | Cents | Cur | Interval | Active | Livemode |
+|---|---|---|---:|---|---|---|---|
+| `STRIPE_PRICE_COPILOT_LIST` | `price_1Tu0tlIhPBLaM6xAh1ncYUyD` | 200 | 2900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_COPILOT_FOUNDING` | `price_1Tu0tlIhPBLaM6xAqs62deIQ` | 200 | 1900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_LIST` | `price_1Tu0tmIhPBLaM6xAstHkMhBE` | 200 | 6900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_FOUNDING` | `price_1Tu0tmIhPBLaM6xAWQWKfjLu` | 200 | 4900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_COPILOT_OVERAGE` | `price_1Tu0tmIhPBLaM6xAUH8w841l` | 200 | 1500 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_OVERAGE` | `price_1Tu0tnIhPBLaM6xAhDUqdd3r` | 200 | 2000 | usd | 1/month | true | **true** |
+
+```
+distinct price ids: 6 of 6
+assertStripePriceIdsUnique: all six distinct - PASS
+live webhook endpoints: 0
+D1_RESULT: PASS
+```
+
+**What this closes.** Every amount matches the §1 table exactly. All six carry
+`livemode=true`, so none is a test-mode ID pasted into the production lane — the failure
+this step exists to catch. All six are `active`, all `usd`, all `1/month` recurring.
+`assertStripePriceIdsUnique` therefore passes at boot, which the crashed deploy already
+proved by execution (the throw is downstream of it).
+
+**`live webhook endpoints: 0` is re-confirmed**, unchanged from the 2026-08-30 reading and
+from the predecessor's 2026-07-17 reading. D.3 creates the first one. This is also the
+before-value for D.3's confirmation check, which must then read `1`.
+
+Not checked here: `charges_enabled`. D1d verified it `True` on 2026-08-30 and §6 re-verifies
+it at deploy time; that box stays open.
+
+---
+
+### D.2 — verify §5, migration 077. PASS.
+
+Read-only. Run 2026-08-31T04:47Z. The `ws8-tier-cutover.md` §5 introspection, verbatim, plus
+the four supplementary reads that section's prose requires (`price_variant` column and
+default, the named value constraint, the immutable-update trigger, the partial unique index
+definition). Executed with `psql` against the injected `DATABASE_POOL_URL`, which was never
+printed.
+
+> **Connection note.** `psql` rejects the pooler URL as given: `invalid URI query parameter:
+> "pgbouncer"`. libpq does not accept PgBouncer's `?pgbouncer=true`, which Postgres.js does.
+> The query string was stripped in-script (`${DATABASE_POOL_URL%%\?*}`). Same host, same
+> port `6543`, same pooler. Anyone re-running this by hand hits the same error first.
+
+```
+--- 1. incomplete_snapshot_count (must be 0) ---   0
+--- 2. invalid_business_mirror_count (must be 0) ---   0
+--- 3. outbox_count_after_077 (baseline; zero-state) ---   0
+--- 4. Checkout lease safety objects (both must be true) ---
+ checkout_session_index_present | checkout_lease_constraint_present
+ t                              | t
+```
+
+| §5 requirement | Reading | Verdict |
+|---|---|---|
+| `incomplete_snapshot_count` = 0 | `0` | PASS |
+| `invalid_business_mirror_count` = 0 | `0` | PASS |
+| `outbox_count_after_077` equals baseline | `0`, and the zero-state proof fixes the baseline at `0` | PASS |
+| `checkout_session_index_present` | `t` | PASS |
+| `checkout_lease_constraint_present` | `t` | PASS |
+
+Both invalid-row counts are trivially zero on a zero-state database. That is expected and is
+not weaker evidence: §5's purpose is to prove the schema objects exist and are not widened,
+and those reads are independent of row count.
+
+**Column, default and nullability — the 077 expansion is complete:**
+
+```
+          column_name          |     data_type     | is_nullable |        column_default
+-------------------------------+-------------------+-------------+------------------------------
+ base_price_cents              | integer           | NO          | 2900
+ locations_included            | integer           | NO          | 1
+ locations_overage_price_cents | integer           | NO          | 1500
+ locations_paid                | integer           | NO          | 0
+ price_variant                 | text              | NO          | 'list'::text
+ subscription_tier             | character varying | NO          | 'copilot'::character varying
+```
+
+`accounts.price_variant` is present, `NOT NULL`, defaulting to `list`. The four Copilot
+defaults are the §1 amounts — `2900` base, `1500` overage, `1` included, `0` paid.
+
+**Named value constraint, present and narrow:**
+
+```
+accounts_price_variant_check | CHECK ((price_variant = ANY (ARRAY['list'::text, 'founding'::text])))
+```
+
+**Immutable-update trigger, present:**
+
+```
+ accounts_price_variant_immutable | reject_accounts_price_variant_mutation | user_trigger = t
+```
+
+**The partial unique Session index is NOT widened** — the predicate is still present, so the
+index constrains only non-NULL Session IDs:
+
+```
+CREATE UNIQUE INDEX accounts_checkout_session_id_uniq ON public.accounts
+  USING btree (checkout_session_id) WHERE (checkout_session_id IS NOT NULL)
+```
+
+Both Checkout-lease objects are launch safety objects. Neither is absent and neither is
+widened, so §5's stop condition — *"strict code must not start if either is absent or
+widened"* — is satisfied.
+
+#### Two things this run settles as a side effect
+
+1. **Migration 105's §8 verification already reads PASS.** The
+   `accounts_checkout_attempt_complete_check` body returned above enumerates
+   `checkout_attempt_coupon_id IS NULL` in its cleared branch — the exact D.9 / §8
+   expectation. Recorded here because the read was taken now; D.9 still runs its own two
+   queries and records the `is_nullable = YES` half.
+2. **078 is confirmed still absent, immediately before the phase that applies it.**
+   ```
+   businesses_tier_is_nullable | accounts_tier_check_present | businesses_tier_check_present
+   YES                         | f                           | f
+   ```
+   That is the exact signature `.claude/CLAUDE.md` records for the standing exception. It
+   holds until D.7.
+
+**D2_RESULT: PASS.** §5 is verified. The cutover is executed through §5; the next unexecuted
+protocol step is §6.
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
 - [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
