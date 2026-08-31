@@ -496,7 +496,7 @@ Two facts recorded elsewhere were **stale** and are corrected here.
       | Domain | `worker.repworth.net`, id `a41807ff-8b11-4bc3-9ec6-9809bb8f720c` |
       | Certificate | `VALIDATING_OWNERSHIP` |
       | **DNS record required** | `worker.repworth.net` **CNAME** → `rhhe86c1.up.railway.app` |
-      | Status | `REQUIRES_UPDATE` — the record does not exist yet |
+      | Status 2026-08-31 | **`PROPAGATED`** — CNAME added at Cloudflare, DNS only (unproxied), resolving to `rhhe86c1.up.railway.app` |
 
       `WORKER_PUBLIC_URL=https://worker.repworth.net` is written to Infisical
       `prod`. It passes `assertWorkerPublicUrlFormat` — checked in-session with
@@ -595,9 +595,15 @@ it by raising the retry count.
       `beta-production-standup.md` is exactly this failure class — a provider
       key that looked fine and silently was not, for 25 calls.
 
-      **Hard provider-side spend caps remain owner actions** at OpenAI and
-      Anthropic. A 200 from `/v1/models` proves the key authenticates. It
-      proves nothing about billing state or a cap.
+      **Spend caps set 2026-08-31** — 100 USD at OpenAI, 100 USD at Anthropic,
+      owner-reported. Worth one check before Phase D: both providers offer a
+      *notification* threshold and a *hard* limit, and only the hard limit stops
+      spend. `GLOBAL_DAILY_COST_LIMIT_CENTS` and the two tier caps are RepWorth's
+      own ceiling and are already in Infisical; the provider cap is the backstop
+      for a bug that defeats them.
+
+      A 200 from `/v1/models` proves the key authenticates. It proves nothing
+      about billing state, and that is what the caps cover.
 
 #### `WORKER_PUBLIC_URL` — recommendation: a custom domain
 
@@ -620,17 +626,60 @@ identically, so replica count favours neither. Four other things do.
 `https://worker.repworth.net` passes `assertWorkerPublicUrlFormat`
 (`raw === new URL(raw).origin`). Decide once, before Phase E binds Zernio to it.
 
-#### `STRIPE_SECRET_KEY` on Vercel — narrowed, not settled
+#### Finding F8 is REFUTED — the nine Vercel variables are Sensitive, not empty
 
-`vercel env ls production` reports **all 34 variables as `Encrypted`**, none as
-`Sensitive`. That is consistent with the record and strengthens the "genuinely
-empty" reading, but does not prove it: the local CLI is **54.14.5**, nine major
-versions behind, and may not render the `Sensitive` type at all.
+**Settled 2026-08-31, two independent ways.** The owner opened
+`STRIPE_SECRET_KEY` in the Vercel dashboard: the value exists and **cannot be
+viewed**. That is the Sensitive signature, not the empty one.
 
-The definitive test is `GET /v9/projects/{id}/env`, which returns `type`
-explicitly. The session sandbox blocked reading the Vercel CLI auth token,
-correctly. **This stays a one-minute owner action in the dashboard:** an empty
-variable opens empty; a Sensitive one says the value cannot be viewed.
+`npx vercel@latest env ls production` then settled all nine at once. The current
+CLI adds a **`type` column** that the installed **54.14.5 does not have**:
+
+```
+total production variables: 35
+by type: {'Secret': 9, 'Config': 26}
+Secret-type names:
+   DB_POOL_MAX
+   GOOGLE_SHEETS_CLIENT_EMAIL
+   GOOGLE_SHEETS_PRIVATE_KEY
+   ONBOARDING_DEMO_ENABLED
+   OWNER_LEADS_GOOGLE_SHEET_ID
+   OWNER_LEADS_GOOGLE_SHEET_RANGE
+   SESSION_COOKIE_SECRET
+   STRIPE_SECRET_KEY
+   WORKER_INTERNAL_SECRET
+```
+
+Nine `Secret`, and they are **exactly** the nine the record called empty. A
+Sensitive variable is write-only, so `vercel env pull` returns it zero-length by
+design.
+
+**Both arguments that pointed the other way were tooling artifacts.** The
+"all 34 report `Encrypted`" reading came from a CLI with no type column — that
+label was fixed on every row and could not distinguish the two types. And
+`SUPABASE_SERVICE_KEY` pulling a real 219-character value was never a
+counterexample: it is type `Config`.
+
+**What this changes:**
+
+| Claim | Status |
+|---|---|
+| "Production Checkout has been broken since `STRIPE_SECRET_KEY` was set" | **Withdrawn.** The key holds a real value. |
+| "Vercel production runs at 10 connections per serverless instance" (F10) | **Withdrawn.** `DB_POOL_MAX` is Sensitive, not empty; `readPoolMax()` never saw a blank. |
+| Phase C sets Vercel `DB_POOL_MAX=3` | **Unchanged.** Only the reason changes — from repairing a live defect to pinning a value that cannot be read back. |
+| §9 rule 3, "do not import from Vercel" | **Weight increased.** Nine real variables would import blank, three of them credentials. |
+
+**Carry into the first sync.** These nine hold the Sensitive flag today. Whether
+an Infisical Secret Sync preserves it or writes them as ordinary encrypted
+variables is unknown. Losing it on `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET`
+and `WORKER_INTERNAL_SECRET` is a small posture regression. **Re-run
+`npx vercel@latest env ls production` after the first sync and diff the `type`
+column.**
+
+**Tooling lesson.** One missing CLI column produced a month of confident wrong
+conclusions, including an alarming one about live payments. The installed Vercel
+CLI is 54.14.5 against a current 59.10.0. Use `npx vercel@latest` for any
+type-sensitive read until it is upgraded.
 
 
 ### §6 — strict worker deploy + controlled smoke

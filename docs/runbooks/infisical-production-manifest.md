@@ -468,33 +468,67 @@ Every value present on both platforms hashes identically — `SUPABASE_URL`,
 `STRIPE_SECRET_KEY` and `WORKER_INTERNAL_SECRET`, all three because the Vercel
 side is empty.
 
-### Nine Vercel production variables have an empty value
+### Nine Vercel production variables are SENSITIVE, not empty — F8 REFUTED
 
+> **Corrected 2026-08-31.** The paragraphs this section used to carry concluded
+> the nine were genuinely empty, and that production Checkout had therefore been
+> broken since `STRIPE_SECRET_KEY` was set. **That conclusion is wrong and is
+> withdrawn.** The reasoning was sound; the evidence was corrupted by a stale
+> tool.
+
+`vercel env pull` returns nine production variables as zero-length:
 `STRIPE_SECRET_KEY`, `WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`,
 `DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`, `GOOGLE_SHEETS_CLIENT_EMAIL`,
 `GOOGLE_SHEETS_PRIVATE_KEY`, `OWNER_LEADS_GOOGLE_SHEET_ID`,
 `OWNER_LEADS_GOOGLE_SHEET_RANGE`.
 
-The name exists in each case; `vercel env pull` returns a zero-length value.
+**All nine are Vercel *Sensitive* variables.** That type is write-only: a pull
+returns it empty by design. Settled two ways on 2026-08-31:
 
-**One alternative explanation, and how to settle it.** Vercel's *Sensitive*
-variable type is write-only, and a pull returns it empty. Two facts argue
-against that here. `vercel env ls` reports every one of the 34 as `Encrypted`,
-not `Sensitive`. And `SUPABASE_SERVICE_KEY` — at least as sensitive as any name
-on the list — pulled a 219-character value that hashes identically to Railway's.
+1. The owner opened `STRIPE_SECRET_KEY` in the dashboard. It reports the value
+   exists and **cannot be viewed** — the Sensitive signature, not the empty one.
+2. `vercel@latest env ls production` adds a **`type` column** the installed
+   54.14.5 does not have. It reports **9 `Secret` and 26 `Config`** across 35
+   production variables, and the nine `Secret` names are **exactly** the nine
+   above. A perfect 1:1 match with the "empty" list.
 
-**Settle it in the dashboard, for one variable only: `STRIPE_SECRET_KEY`.** An
-empty variable opens as empty; a Sensitive one says the value cannot be viewed.
-It matters because `getStripe()` (`src/lib/payments/stripe-client.ts`) throws on
-a falsy key, so a genuinely empty value means production Checkout has been broken
-since it was set — a defect independent of the WAF freeze, and one the freeze has
-been hiding.
+**Why the earlier evidence pointed the wrong way.** Both arguments against the
+Sensitive hypothesis were artifacts:
 
-The other eight need no investigation. Four are replaced in Phase I
-(`WORKER_INTERNAL_SECRET`, `SESSION_COOKIE_SECRET`) or Phase B/C
-(`DB_POOL_MAX`, `ONBOARDING_DEMO_ENABLED`). The four Google Sheets and
-owner-leads names drive the optional owner-lead mirror, which is inert either
-way and is not a launch gate.
+| Earlier argument | What was actually true |
+|---|---|
+| "`vercel env ls` reports every one of the 34 as `Encrypted`, not `Sensitive`" | CLI **54.14.5 has no `type` column at all**. `Encrypted` was a fixed label on every row, so it could not have distinguished the two types. |
+| "`SUPABASE_SERVICE_KEY` — at least as sensitive — pulled a 219-character value" | It is type **`Config`**, not `Secret`. It pulls because it is not Sensitive. It was never a counterexample. |
+
+**Two consequences, both good, and one that overturns a second finding.**
+
+1. **Production Checkout is not broken.** `getStripe()` receives a real key. The
+   defect this section warned about does not exist.
+2. **Finding F10's operational claim is also wrong.** `DB_POOL_MAX` is
+   `Secret`, not empty, so "Vercel production runs at 10 connections per
+   serverless instance today" is unfounded — `readPoolMax()` never saw a blank.
+   **The Phase C action is unchanged: set it to `3`.** Only the justification
+   changes, from "repair a live defect" to "pin a value we cannot read back".
+3. `ONBOARDING_DEMO_ENABLED` likewise holds a real value. It is set explicitly
+   in Phase C regardless.
+
+**This raises the weight of §9 rule 3.** "Do not import from Vercel — Infisical
+imports variables marked sensitive as empty" is no longer a precaution against a
+hypothetical. **Nine real variables would arrive blank**, three of them
+credentials. The plan types them in, so nothing is at risk — but the rule now has
+a named cost.
+
+**Open question for the first sync.** These nine carry the Sensitive flag today.
+Whether an Infisical Secret Sync preserves that flag or writes them as ordinary
+encrypted variables is unknown. Losing it on `STRIPE_SECRET_KEY`,
+`SESSION_COOKIE_SECRET` and `WORKER_INTERNAL_SECRET` is a small but real posture
+regression. **Re-run `vercel@latest env ls production` after the first sync and
+compare the `type` column.**
+
+**Tooling note.** The installed Vercel CLI is 54.14.5; current is 59.10.0. It
+cannot express variable types and produced a month of wrong conclusions from one
+missing column. Use `npx vercel@latest` for any type-sensitive read until it is
+upgraded.
 
 ### Three findings confirmed against the live platforms
 
