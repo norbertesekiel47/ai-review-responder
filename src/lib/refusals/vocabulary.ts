@@ -51,15 +51,17 @@
  * stated rather than hidden: for as long as this file was ahead of them, five
  * exported constants had no production caller.
  *
- * THAT COST IS NOW PAID. #1010, #1011 and #1012 all merged 2026-08-31, so SIX of
- * the seven maps have exactly one production caller each:
- * `AUTONOMY_SUSPENDED` (#1009), `ASK_WITHHELD` / `BATCH_HALTED` /
- * `OUTREACH_WITHHELD_DISPATCH` (#1010), `OUTREACH_WITHHELD_RENDER` (#1011) and
- * `AUTO_POST_REVOKED` (#1012).
+ * THAT COST IS NOW PAID IN FULL. #1010, #1011 and #1012 merged 2026-08-31 and
+ * #1013 completes the set, so ALL SEVEN lane vocabularies have a production
+ * caller: `AUTONOMY_SUSPENDED` (#1009), `ASK_WITHHELD` / `BATCH_HALTED` /
+ * `OUTREACH_WITHHELD_DISPATCH` (#1010), `OUTREACH_WITHHELD_RENDER` (#1011),
+ * `AUTO_POST_REVOKED` (#1012), and `HELD_DRAFT_REFUSAL_CATEGORY` /
+ * `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (#1013, both in
+ * `worker/jobs/response-generation/persist.ts`).
  *
- * `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is the ONE that still has none — its
- * slice has not landed. Correct that sentence when it does, rather than deleting
- * this paragraph: a count is the kind of claim that goes stale silently.
+ * Keep this paragraph rather than deleting it now that the count is complete: a
+ * count is the kind of claim that goes stale silently, and the next lane added
+ * to `REFUSAL_SOURCES` makes "all seven" wrong the moment it lands.
  */
 
 import type {
