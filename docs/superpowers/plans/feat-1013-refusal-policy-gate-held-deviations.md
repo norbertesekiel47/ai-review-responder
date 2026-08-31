@@ -241,3 +241,117 @@ anyway" is the reasoning that makes the rule erode.
 **Verdict:** ACCEPT
 
 ---
+
+## D7 — the red-team sidecar path in the intake was mis-spelled, and corrected
+
+**Raised:** step 7.5, 2026-08-31, when `red-team-status.mjs` named a path the
+intake did not admit.
+
+The intake declared
+`docs/reviews/red-team/feat-1013-refusal-policy-gate-held/findings.{md,json}`.
+The real slug carries a hash suffix — `…-841054` — derived as
+`<sanitized branch>-<sha256(identity)[:6]>`. Every prior branch on this map used
+that convention; the intake simply guessed the directory name.
+
+**Treated as a CORRECTION, not counted as surface amendment 2**, and the
+reasoning is recorded so a reviewer can challenge it rather than find it implied.
+Two mis-spelled paths were REPLACED by the same two artifacts under their real
+name: no new tree, no new concern, no widening of what this branch may touch.
+The rule's auto-approved carve-out is "narrows, or adds ≤2 files inside a tree
+the surface already covers", and `docs/reviews/red-team/` is a tree the surface
+already reached into.
+
+**The alternative reading, stated because it is defensible:** any
+`allowed_edit_surface` edit counts, which would make this amendment 2 and trip
+the abort criteria — tearing down a green branch over a path typo. If the owner
+prefers that reading, bump the counter; the work is unaffected either way.
+
+**Verdict:** ACCEPT
+
+---
+
+## D8 — the review wave was dispatched wrong: a mutation agent ran beside read-only axes
+
+**Raised:** step 7, 2026-08-31, BY THE SPEC-CORRECTNESS REVIEWER, against the
+orchestrator.
+
+All four axes were dispatched in one parallel wave against one worktree — three
+read-only, one (red team) actively mutating source files. The spec reviewer found
+the tree dirty throughout its review, observed three live mutations (including
+the exact `threshold !== null` deletion its own Finding 1 predicts), and fell
+back to reading `git show HEAD:` instead of the working tree.
+
+**Its conclusions stand, but only because it noticed.** A reviewer that had read
+the working tree would have reviewed a MUTANT — reporting defects that do not
+exist at HEAD, or missing ones that do.
+
+`execution-lanes.md` § The review wave anticipates the REPORT-collision problem
+(hence staging reports outside git) but not this one: it says red team's
+mutations are journaled and finalizer-guarded, which protects the TREE, not
+concurrent readers of it.
+
+**The fix is not to serialise the wave** — that costs the wall clock the wave
+exists to save. It is either to give red team its own worktree, or to instruct
+every read-only axis to read committed SHAs rather than the working tree. The
+second is nearly free, and is what the spec agent did unprompted.
+
+**Promote to `execution-lanes.md` at step 8** as a fourth wave rule. It outlives
+this branch.
+
+**Verdict:** ACCEPT
+
+---
+
+## D9 — mutation-testing a file with uncommitted work destroyed that work, twice
+
+**Raised:** step 7.5, 2026-08-31, by the orchestrator against itself.
+
+To verify a fix actually kills its mutation, the orchestrator edited
+`persist.ts`, ran the narrowed suite, then restored with
+`git checkout -- <path>`. Correct for the mutation; wrong for the tree, because
+`persist.ts` also held UNCOMMITTED review fixes. The checkout discarded them.
+
+**It happened twice.** The first cost the `withLedgerAttribution` wrapper and the
+corrected guards docblock — recovered from a scratch copy and re-applied through
+the editor, verified line-identical. The second cost one comment, re-applied.
+After the second, the fixes were committed BEFORE any further mutation, and the
+third run was clean.
+
+**The rule is mechanical, and was stated after the first occurrence and then not
+followed: commit, then mutate.** A restore step whose blast radius is "whatever
+else is uncommitted in this file" is not a restore.
+
+This is precisely why red team uses `mutation-runner.mjs` with a journal rather
+than ad-hoc `git checkout`: the journal restores the MUTATION, not the FILE. An
+orchestrator verifying its own fix should use that runner, or commit first.
+
+**Promote to lab-notes at step 8.**
+
+**Verdict:** ACCEPT
+
+---
+
+## D10 — a defect in `red-team-status.mjs`, found and proved by the red-team agent
+
+**Raised:** step 7.5, 2026-08-31. **Not this branch's to fix.**
+
+The checker reported "the worktree carries 1 tracked modification outside this
+run's report — a mutation may not have been restored", naming `findings.json`,
+which IS in its own exclusion list.
+
+**Cause, proved rather than guessed:** `makeGit` trims the whole
+`git status --porcelain` output, which strips the leading space of the FIRST line
+only; the filter's `line.slice(3)` then mis-slices that line to
+`"ocs/reviews/…"`, matching no exclusion. Git sorts `findings.json` first, so the
+checker always misreports it while both artifacts are uncommitted. It looked
+correct in earlier rounds only because a genuinely-modified intake file happened
+to occupy the first slot.
+
+**Fix:** split on `\n` before trimming. **Not applied here** — patching a gate
+from inside the feature branch that gate is judging is the precedent #1009
+explicitly rejected (it would also spend an amendment and set the precedent of a
+branch loosening its own gate). Filed as a step-8 follow-up.
+
+**Verdict:** ACCEPT
+
+---
