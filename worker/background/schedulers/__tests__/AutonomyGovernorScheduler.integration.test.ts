@@ -94,6 +94,13 @@ async function cleanupGovernorRows(): Promise<void> {
       AND payload->>'account_id' = ${tenant.accountId}
   `;
   await sql()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
+  // #1009 — see the note in `cleanupGovernorFleet`. A suspension now writes a
+  // Refusal, and `refusal_events`' account FK has no `ON DELETE` action by
+  // design, so every teardown path in this file that reaches `accounts` must
+  // clear it. There are THREE: this one, `cleanupGovernorFleet`, and the
+  // inline `finally` of the judge-signal case, which suspends its own `mirror`
+  // account that this function does not cover.
+  await sql()`DELETE FROM refusal_events WHERE account_id = ${tenant.accountId}::uuid`;
   await sql()`DELETE FROM judge_verdicts WHERE account_id = ${tenant.accountId}::uuid`;
   await sql()`DELETE FROM responses WHERE business_id = ${businessId}::uuid`;
   await sql()`DELETE FROM reviews WHERE business_id = ${businessId}::uuid`;
@@ -153,6 +160,16 @@ async function cleanupGovernorFleet(): Promise<void> {
     for (const seed of fleetSeeds) {
       await tx`DELETE FROM account_audit_log WHERE account_id = ${seed.accountId}::uuid`;
       await tx`DELETE FROM agent_outcomes WHERE account_id = ${seed.accountId}::uuid`;
+      // #1009 — a suspension now writes a Refusal, and `refusal_events`' account
+      // FK carries NO `ON DELETE` action BY DESIGN (migration 116: accounts are
+      // `retain_deidentified` and never deleted in production, so nothing may
+      // take a Refusal away on another table's clock). Test fixtures DO delete
+      // accounts, so the row has to go first. `SET CONSTRAINTS ALL DEFERRED`
+      // above does not save it — that FK is not DEFERRABLE. And the fix belongs
+      // HERE rather than in the shared helper, whose contract already says
+      // "callers must have removed their own domain rows referencing the pair
+      // first".
+      await tx`DELETE FROM refusal_events WHERE account_id = ${seed.accountId}::uuid`;
       await tx`DELETE FROM auto_approval_policies WHERE account_id = ${seed.accountId}::uuid`;
       await tx`DELETE FROM accounts WHERE id = ${seed.accountId}::uuid`;
       await tx`DELETE FROM users WHERE id = ${seed.userId}::uuid`;
@@ -872,6 +889,10 @@ describeWithDb('autonomy governor against live local Postgres', { timeout: 30_00
     } finally {
       await sql()`DELETE FROM job_outbox WHERE payload->>'account_id' = ${mirror.accountId}`;
       await sql()`DELETE FROM account_audit_log WHERE account_id = ${mirror.accountId}::uuid`;
+      // #1009 — the THIRD teardown path in this file that reaches `accounts`.
+      // This case suspends `mirror`, not `tenant`, and `cleanupGovernorRows`
+      // only clears `tenant` — so the Refusal has to be cleared here by id.
+      await sql()`DELETE FROM refusal_events WHERE account_id = ${mirror.accountId}::uuid`;
       await sql()`DELETE FROM judge_verdicts WHERE account_id = ${mirror.accountId}::uuid`;
       await sql()`DELETE FROM responses WHERE business_id = ${mirrorBusinessId}::uuid`;
       await sql()`DELETE FROM reviews WHERE business_id = ${mirrorBusinessId}::uuid`;

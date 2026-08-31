@@ -7,6 +7,8 @@ import {
 } from '@/lib/auto-approval/governor';
 import { lockAutonomyAccount } from '@/lib/auto-approval/account-lock';
 import { writeAccountAuditLog } from '@/lib/audit/log';
+import { AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
+import { writeRefusalEvent } from '@/lib/refusals/write';
 import {
   enqueueAutonomyAdminAlert,
   enqueueAutonomySuspendedNotice,
@@ -311,6 +313,38 @@ export async function suspendAccountAutonomy(
     eventType: 'autonomy_suspended',
     entityType: 'auto_approval_policy',
     payload: auditPayload,
+  });
+  // The ledger's first write site, on the DECIDING transaction and never its
+  // own. It sits after the `!policy` guard because a Refusal records a
+  // DECISION, and an already-suspended account made none. It is deliberately
+  // NOT wrapped in try/catch: migration 116's CHECKs each name a writer bug,
+  // and a violation must abort this decision rather than be hidden in the one
+  // place the ledger cannot report it. The lever against a writer bug is the
+  // helper's own kill switch, not a catch here.
+  //
+  // ONE ROW PER ACCOUNT, never one per location. The `autonomy_suspended` arm of
+  // `WriteRefusalEventInput` fixes the whole shape below — the null location,
+  // the absent subject, the absent code array — so this call site no longer
+  // restates C1–C5. What the type cannot say: the per-location fan-out is the
+  // precise defect the parent effort hit when it joined the audit log through
+  // `businesses` and multiplied one account-level event by the location count.
+  await writeRefusalEvent(tx, {
+    accountId: input.accountId,
+    businessId: null,
+    refusalSource: 'autonomy_suspended',
+    // The trigger VERBATIM, never normalised — the verbatim code is what keeps
+    // skew re-derivable later.
+    refusalCode: input.trigger,
+    allRefusalCodes: null,
+    refusalCategory: AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES[input.trigger],
+    subjectType: null,
+    subjectId: null,
+    // The sentinel, never a JS `Date`: `NOW()` is `transaction_timestamp()` and
+    // `account_audit_log.created_at` is `DEFAULT NOW()`, so both rows agree to
+    // the microsecond. That equality is the join #1006 accepted instead of a
+    // `suspension_event_id` column, and a `Date` round trip would truncate the
+    // microseconds that carry it (#520).
+    occurredAt: 'transaction_time',
   });
   await enqueueAutonomySuspendedNotice(tx, {
     accountId: input.accountId,

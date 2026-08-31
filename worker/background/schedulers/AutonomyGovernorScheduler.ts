@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import type { Sql } from 'postgres';
 import { v7 as uuidv7 } from 'uuid';
 import { governorEnabled } from '@/lib/auto-approval/flags';
@@ -92,10 +93,33 @@ export async function runAutonomyGovernorCycle(
       // Contain the failure to this candidate: one bad account must not abort
       // the rest of the batch for the whole 15-minute interval. Error class
       // only — DB error text can echo bound values.
+      const errorName = error instanceof Error ? error.name : typeof error;
       logger.error('autonomy_governor candidate-failed', {
         account_id: candidate.account_id,
-        error_name: error instanceof Error ? error.name : typeof error,
+        error_name: errorName,
       });
+
+      // This scheduler is a guarded poll, NOT a BullMQ worker, so
+      // `attachJobFailureSink` never sees this failure and nothing else pages
+      // for it. Left at the log line alone, a suspension that rolls back leaves
+      // the account UN-suspended, advances the cursor, and repeats silently
+      // every interval — on the autonomy safety lane. Issue shape follows
+      // `worker/job-failure-sink.ts`.
+      //
+      // Its OWN try/catch, and it SWALLOWS. This handler exists to CONTAIN a
+      // failure to one candidate; a capture that threw would propagate out of
+      // the containment, abort the cycle mid-loop and skip every remaining
+      // candidate — the precise outcome the containment prevents, caused by the
+      // telemetry added to observe it. `logger.error` runs FIRST so the
+      // structured line survives even when Sentry does not.
+      try {
+        Sentry.captureException(error, {
+          tags: { subsystem: 'autonomy_governor' },
+          extra: { account_id: candidate.account_id, error_name: errorName },
+        });
+      } catch {
+        // Reporting a failure must never escalate it.
+      }
     }
   }
 }

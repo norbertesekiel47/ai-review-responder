@@ -3655,3 +3655,11 @@ one pass — **and count the copies before picking a winner**, because an incomp
 what produced both wrong directions. When the count comes back tied and the question is forward
 sequencing in a declared non-goal, the honest resolution is to state the disagreement and let
 the change that actually knows resolve it (#1008 deviation D16).
+
+SETTLED → #1009 resolved it: the first Refusal write site is `autonomy_suspended`, one site
+inside `suspendAccountAutonomy`, shipped with the insert helper; the other ten land across
+#1010–#1013. **And the count never decided it, because it could not.** A 3-to-3 tie is the
+signal that the deciding evidence sits OUTSIDE the artifacts being counted — here #1004's
+verbatim slice order and #1009's own ticket body §5, two locked decisions that predate every
+copy in the dispute. Count the copies to learn how many places a fix must reach; look to the
+locked decision upstream of them to learn which way it goes.
