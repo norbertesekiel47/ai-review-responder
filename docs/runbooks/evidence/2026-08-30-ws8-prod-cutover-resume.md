@@ -148,8 +148,14 @@ disturb the DKIM/SPF/DMARC state that `launch-checklist.md` records as a *comple
 blocker. Do not edit those records while creating the mailbox.
 
 **Two carried notes, both non-blocking:**
-- `RESEND_FROM_EMAIL` must stay on `send.repworth.net`. The root SPF has no
-  `amazonses.com` include, so a root-domain envelope would fail SPF outright.
+- ~~`RESEND_FROM_EMAIL` must stay on `send.repworth.net`.~~ **CORRECTED 2026-08-30.**
+  That conflated the `From:` header with the envelope sender. DKIM signs
+  `resend._domainkey.repworth.net` and there is **no key** at
+  `resend._domainkey.send.repworth.net`; `send.` carries the SPF and an SES MX
+  because it is Resend's Return-Path subdomain. The verified sending domain is
+  **`repworth.net`**, and staging has been sending from the root all along. In use:
+  `RepWorth <notifications@repworth.net>`. Full evidence:
+  `infisical-production-manifest.md` §12.3.
 - DMARC `rua` still points at a third-party reporting mailbox. The launch checklist already
   flags pointing it at a RepWorth-owned address; now that Zoho hosts the domain, that is a
   five-minute change. Still non-blocking, still not done.
@@ -432,7 +438,12 @@ Verified against the prod schema 2026-08-30. Head is **116, minus 078**.
       Quiescence declared 2026-08-30T22:30:03Z. WS8 §2–§3 satisfied by substitution.
 - [x] **Launch-checklist BLOCKING `onboarded_by` audit cleared** — checklist query run
       verbatim, 0 rows, satisfied by construction (ticked in `launch-checklist.md`)
-- [ ] Reconciliation doc corrections 1–4 landed via PR
+- [x] **Phase I pass 1 complete 2026-08-30.** Infisical `prod` holds 43 keys, verified
+      byte-for-byte against source, 0 empty, nothing stray. F4 rotation closed — 5 minted,
+      3 rotated at their provider. Secret Syncs deliberately NOT configured: four values
+      wait on Phase A and three of those are boot gates. Record:
+      `docs/runbooks/infisical-production-manifest.md` §12
+- [ ] Reconciliation doc corrections 1–5 landed via PR
 - [ ] Prod worker Online, all boot gates green on the production lane
 - [ ] 078 applied in sequence; legacy price sentinels retained through the rollback window
 - [ ] Deny rule removed; `/api/health` returns 200; Zernio poll restored

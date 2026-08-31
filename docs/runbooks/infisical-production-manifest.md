@@ -160,7 +160,7 @@ without a redeploy changes nothing the browser sees.
 | `OPENAI_API_KEY` | live key | Primary LLM. **No code reads this** — `new OpenAI(LLM_CLIENT_OPTIONS)` lets the SDK read the environment itself. It is therefore invisible to every audit. |
 | `ANTHROPIC_API_KEY` | live key | Fallback LLM. Same implicit SDK read. |
 | `RESEND_API_KEY` | prod key | No approval emails. That is the core product loop. |
-| `RESEND_FROM_EMAIL` | must stay on `send.repworth.net` | Same. The root SPF has no `amazonses.com` include. |
+| `RESEND_FROM_EMAIL` | **root domain**, `Name <addr@repworth.net>` | Same. **Not** `send.repworth.net` — see §12.2. |
 | `RESEND_WEBHOOK_SECRET` | Phase E.1, provider-issued `whsec_…` | No delivery or bounce tracking. Do not generate your own. |
 | `CSRF_SECRET` | MINT | The weekly-report feedback link cannot be signed. **Must match Vercel** — see §6. |
 | `WORKER_INTERNAL_SECRET` | MINT | The admin queue-health panel degrades to unavailable. **Must match Vercel.** |
@@ -354,11 +354,14 @@ Secret Deletion** on both syncs, not only the Railway one.
 
 | Sync | Target | First strategy | After the name lists verify |
 |---|---|---|---|
-| production → Vercel | project `rep-worth`, environment **Production** | Import (Infisical priority) | Auto-sync ON. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
-| production → Railway | project `repworth`, environment **production**, service **repworth-worker** | Import (Infisical priority) | Auto-sync ON, **Disable Secret Deletion** ON. |
+| `prod` → Vercel | project `rep-worth`, environment **Production** | Import (Infisical priority) | Auto-sync ON. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
+| `prod` → Railway | project `repworth`, environment **production**, service **repworth-worker** | Import (Infisical priority) | Auto-sync ON, **Disable Secret Deletion** ON. |
 
 Three rules that decide whether this goes well.
 
+0. **Target the `prod` slug, not `production`.** `--env production` errors; the
+   environment does not exist under that name (§12.3). A sync aimed at a
+   non-existent slug writes nothing.
 1. **Name the Railway service.** A sync with no service selected writes
    environment-level shared variables instead of service variables.
 2. **Do not sync until Infisical is complete.** Railway restarts the service on a
@@ -516,3 +519,133 @@ is lifted at WS8 §7.
 One dependency to watch: if the Supabase key rotation rolls the project JWT
 secret, `NEXT_PUBLIC_SUPABASE_ANON_KEY` changes with it. Re-read both keys after
 rotating rather than assuming the anon key survives.
+
+---
+
+## 12. Phase I pass 1 — executed 2026-08-30
+
+### 12.1 Result
+
+The Infisical `prod` environment holds **43 keys**. Every value was compared
+against its source file after the write: no key missing, no value mismatched,
+**no empty secret**, nothing stray. Pre-write validation passed **43/43** on
+format.
+
+| Group | Keys |
+|---|---|
+| Carried from the Railway production worker | 11 |
+| Carried from the Vercel production project | 2 |
+| Fixed literals from this manifest | 9 |
+| **Freshly minted, 32 bytes hex** | 5 |
+| **Rotated at the provider** | 3 |
+| Owner-supplied provider values | 13 |
+
+**Minted:** `SESSION_COOKIE_SECRET`, `CSRF_SECRET`, `IMPERSONATION_COOKIE_SECRET`,
+`WORKER_INTERNAL_SECRET`, `ZERNIO_WEBHOOK_SECRET`.
+**Rotated:** `SUPABASE_SERVICE_KEY`, `STRIPE_SECRET_KEY`, and the Supabase
+database password inside `DATABASE_POOL_URL`.
+
+That set is exactly the rotation owed for the 2026-08-30 transcript exposure.
+**Finding F4 is closed.**
+
+No secret value passed through a transcript. Carried values were pulled straight
+into a mode-600 gitignored file, minted values were generated into it, and the
+write used `infisical secrets set --file`, whose output table masks values.
+
+Format checks that passed: `sk_live_` prefix; `sb_secret_` prefix; the pooler URL's
+`:6543` plus project-ref username plus `?pgbouncer=true`; `https://repworth.net`
+with no trailing slash; every secret ≥32 bytes; every boolean exactly `true` or
+`false`; `SENTRY_ORG=repworth-nv`.
+
+### 12.2 Supabase now uses a new-format secret key
+
+`SUPABASE_SERVICE_KEY` holds an `sb_secret_…` value, not a legacy `service_role`
+JWT. The variable **name is unchanged** deliberately — renaming would touch both
+config schemas, the registry, `.env.example` and four docs for a cosmetic gain
+mid-cutover. Rename after launch.
+
+Why the new format was chosen over rotating the legacy key: rotating a legacy
+`service_role` key means rolling the project JWT secret, which invalidates the
+`anon` key at the same instant. A new secret key is additive and independent.
+
+Blast radius was checked against the three documented limitations and is **zero**:
+no `pg_net` or Database Webhooks, no Edge Functions, no Realtime usage. The key
+reaches exactly nine call sites, all `auth.admin` — no PostgREST reads, no
+Storage. `@supabase/supabase-js` 2.106.2 supports the format; its own README uses
+it.
+
+> **Still owed:** exercise one `auth.admin` call on staging under a staging secret
+> key before the production worker deploys. The admin invite at
+> `/admin/businesses/new` does it. This is the project's own staging-first rule.
+
+### 12.3 `RESEND_FROM_EMAIL` is on the root domain — correction
+
+Earlier records, including this file's own §4 row, said it must stay on
+`send.repworth.net` because the root SPF has no `amazonses.com` include. That
+conflates the `From:` header with the envelope sender. Live DNS, 2026-08-30:
+
+| Record | Value | Meaning |
+|---|---|---|
+| `MX send.repworth.net` | `feedback-smtp.us-east-1.amazonses.com` | Resend's custom **Return-Path** subdomain |
+| `TXT send.repworth.net` | `v=spf1 include:amazonses.com ~all` | SPF authorises the **envelope** |
+| `TXT resend._domainkey.repworth.net` | present | **DKIM signs the root domain** |
+| `TXT resend._domainkey.send.repworth.net` | **absent** | No DKIM key on the subdomain |
+| `TXT _dmarc` | `p=quarantine; adkim=r; aspf=r` | Relaxed alignment |
+
+The verified sending domain is `repworth.net`. A From address on
+`send.repworth.net` would carry no DKIM key at all. Staging has been sending from
+the root all along. Value in use: `RepWorth <notifications@repworth.net>`, a Zoho
+group with external senders allowed.
+
+### 12.4 The environment slug is `prod`
+
+`--env prod` succeeds; `--env production` errors. `staging` and `dev` work;
+`stg` and `development` do not. Point both Secret Syncs at **`prod`**.
+
+### 12.5 Planned keys deliberately not entered
+
+| Key | Why |
+|---|---|
+| `POSTHOG_API_KEY` | Owner deferred. `AnalyticsDispatchPoller` ships nothing until it lands — rows accumulate unsent, nothing breaks. |
+| `LIST_UNSUBSCRIBE_URL` | By design (§12.6). |
+| `POSTHOG_HOST`, `SERPAPI_TIMEOUT_MS`, `ZERNIO_PROFILE_ID_PREFIX` | Optional with working defaults. |
+| `TELEGRAM_BOT_USERNAME`, `SOLICITATION_UNSUBSCRIBE_MAILTO` | Their features are off for beta. |
+| `GOOGLE_SHEETS_*`, `OWNER_LEADS_*` (4) | Empty on Vercel today (§11), so nothing to carry. The owner-lead mirror is inert either way and is not a launch gate. |
+| `DB_POOL_MAX` | Stays native per §9.1 — the value differs per platform. |
+
+### 12.6 Why `LIST_UNSUBSCRIBE_URL` stays unset
+
+It is a **single shared** URL used on every marketing email. The only unsubscribe
+endpoints that exist — `worker/ingress/unsubscribe.ts` and
+`src/app/api/u/[token]/route.ts` — are **per-recipient token** routes on the
+solicitation lane. There is no valid token for a shared URL.
+
+Set it, and `headers.ts` emits `List-Unsubscribe-Post: One-Click`. A mail client
+POSTs on the recipient's behalf, hits an unknown token, and receives a **503**
+from `replyUnknownToken`. The opt-out silently fails.
+
+Unset is the tested path: `headers.ts` falls back to mailto-only and omits the
+Post header, which its own comment records as accepted by Gmail and Outlook for
+low-volume senders.
+
+`LIST_UNSUBSCRIBE_EMAIL` is `unsubscribe@repworth.net`, a monitored Zoho group.
+**There is no automation behind it.** A human must stop sending to that owner
+within ten business days, per CAN-SPAM.
+
+### 12.7 The Infisical CLI cannot delete a secret
+
+`infisical secrets delete` at **v0.43.128** sends
+`DELETE /api/v3/secrets/raw/<name>` without the environment or workspace, and the
+API returns `404 Secret not found` for a secret the read plainly returns. Tried
+with `--env` before and after the positional argument, with `--path /`, and with a
+`.infisical.json` link file. **Delete through the web UI.** Do not script a
+secret removal against this CLI version.
+
+### 12.8 Still owed before the syncs run
+
+1. Add the four Phase A outputs: `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`,
+   `REDIS_CACHE_URL`, `WORKER_PUBLIC_URL`.
+2. Check `STRIPE_SECRET_KEY` in the Vercel dashboard — empty, or Sensitive? (§11)
+3. Prove the Supabase secret key on staging (§12.2).
+4. Then configure both syncs against `prod`, **Import only**, deletion disabled on
+   both.
