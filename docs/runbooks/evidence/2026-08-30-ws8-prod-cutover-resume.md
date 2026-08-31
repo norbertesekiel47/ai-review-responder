@@ -781,6 +781,61 @@ attempted and correctly refused by the session sandbox. Deletion is web-UI only.
 
 ---
 
+### Phase I sync 2 — Railway. Overwrite, clean, verified.
+
+Created with **`Overwrite Destination Secrets`** + Disable Secret Deletion + Auto-Sync,
+service `repworth-worker` named. Every check passed.
+
+| Check | Result |
+|---|---|
+| Anything imported back into the vault? | **No.** Still 56 — nothing added, nothing removed |
+| `REDIS_QUEUE_URL` | **Intact.** No unresolved `${{…}}`; 32-char password; `redis.railway.internal`; db 1; `?family=0` |
+| `DB_POOL_MAX` | **Still `20`** — the drill-blessed value survived |
+| `DATABASE_URL` | Unchanged, byte-identical |
+| Seven legacy `STRIPE_PRICE_*` | **All present.** Rollback window intact |
+| Railway variable count | 39 → **70** |
+
+**This is the controlled comparison that proves §14.** Two syncs, same destination class,
+same deletion toggle; the only difference is the step-4 strategy. `Import` imported 14 names
+and destroyed four values. `Overwrite` imported nothing and destroyed nothing.
+
+#### Boot gates — 17 of 18 green
+
+Only `STRIPE_WEBHOOK_SECRET` is missing, and D.3 produces it. The Zernio conditional gate is
+fully satisfied (`ZERNIO_PUBLISHING_ENABLED=true` with API key, webhook secret, and
+`WORKER_PUBLIC_URL=https://worker.repworth.net`). Every exact-boolean gate is correct.
+`MOCK_EXTERNAL_APIS` absent, `NODE_ENV` unset — manifest §8 satisfied.
+
+#### Runtime confirmation, and the limit of what it proves
+
+The sync triggered deploy `c0aeb482`. Its log carries one error, ten times:
+
+```
+[worker] Startup assertion failed:
+[startup] Worker requires STRIPE_WEBHOOK_SECRET (RAILWAY_ENVIRONMENT_NAME=production)
+```
+
+`assertWorkerStartupEnv` (`worker/config/startup-assert.ts:296`) throws on the **first**
+failure, and `STRIPE_WEBHOOK_SECRET` sits in the **second** check. So the claim must be split:
+
+| Proven **by execution** | Present but **not yet exercised** |
+|---|---|
+| `assertProductionMockModeEnv` — `MOCK_EXTERNAL_APIS` correctly absent | `DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` — must parse as positive integers |
+| `assertCoreInfraEnv` — `DATABASE_POOL_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, **`REDIS_QUEUE_URL`** | `ADMIN_NOTIFICATION_EMAIL` |
+| `assertStripeWorkerEnv` up to the throw — `STRIPE_SECRET_KEY` + six Price IDs, distinct | `SENTRY_DSN` |
+| The lane resolves as `production` with `NODE_ENV` unset — ADR 0013 and manifest §8 confirmed | `SESSION_COOKIE_SECRET`, `NEXT_PUBLIC_APP_URL` |
+| The build works end to end — RAILPACK, `pnpm worker`, `tsx` | the exact-boolean format gate |
+
+**Twelve gates proven, six proven present but untested.** The first clean boot at D.4 closes
+the remaining six. Recording the distinction rather than claiming 17/18 at runtime, because
+"present" and "passes" are not the same claim — `DAILY_COST_LIMIT_CENTS_*` in particular has
+a parse rule that presence does not test.
+
+`assertCoreInfraEnv` passing **independently clears the F14 fix**: the `${{Redis.…}}`
+capitalisation resolves.
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
 - [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
