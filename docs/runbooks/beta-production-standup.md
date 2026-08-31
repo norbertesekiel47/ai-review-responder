@@ -361,14 +361,34 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase G — Alerting + posture verification
 
-- [ ] **G1.** Choose **ONE named non-email alert sink** (the docs currently
+- [ ] **G1. NOT DONE, precisely scoped 2026-08-31.** The sink is **Discord** and the
+      integration already works (id `443670`; the staging rule fired 2026-08-31T01:00:46Z).
+      **What is missing is every production rule.** `repworth-production` has exactly one
+      alert rule (3920752) and its only action is **Email**; it has never triggered. None
+      of the four signals is routed, in either project.
+      **There is no "link a channel" step** — the *server* is linked once at org level, and
+      a *channel* is named per action as a **channel ID or URL** (not a name). The Sentry
+      bot must be able to see the channel; a private channel needs the bot added with
+      *View Channel* + *Send Messages*. Verify with **Send Test Notification** on the rule.
+      **UI work:** the Sentry MCP has no create/update tool for alert rules. Build them at
+      `https://repworth-nv.sentry.io/monitors/alerts/`. Evidence file → **Phase G.1**.
+      Original text follows.
+      Choose **ONE named non-email alert sink** (the docs currently
       disagree — Discord in `drift-alert.ts`'s comment, Slack/PagerDuty in
       `beta-launch-alerting.md`): `____`. Route to it: `subsystem:health_alert`,
       `cost_event:limit_exceeded`, `subsystem:import_consent_analytics`
       (frequency-conditioned), **and `feature:stripe_reconciliation`** (known
       unrouted — see the comment in
       `worker/background/pollers/billing-reconciliation/drift-alert.ts`).
-- [ ] **G2. BLOCKED on a Sentry billing seat — root cause proven 2026-08-31.**
+- [x] **G2. DONE 2026-08-31** — after the owner upgraded to a **Teams plan (20 monitors)**.
+      All three production monitors are **active**: `health-alert-poller` (cron, environment
+      `production` = `ok`, last check-in 18:00:53Z), `Prod worker /ready` (8341697, 300 s),
+      `Prod app /api/health` (8341701, 300 s). **The cron monitor healed itself** — the SDK
+      sends an upserting check-in, so the first beat after a seat freed up flipped it from
+      `disabled` to `active` with no manual step. The production dead-man heartbeat is live.
+      **Residual: routing, not monitoring — see G1.** Original diagnosis follows, kept
+      because the signature is reusable.
+      ~~BLOCKED on a Sentry billing seat — root cause proven 2026-08-31.~~
       The monitor and the code are both fine. The production `health-alert-poller`
       monitor exists and the worker **is** sending check-ins; Sentry rejects every one
       with `Monitor disabled`. Activating any monitor returns

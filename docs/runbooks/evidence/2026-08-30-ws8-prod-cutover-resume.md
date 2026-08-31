@@ -2422,9 +2422,81 @@ production and both came back `disabled` for the same reason:
 **Where to click:** left nav → **Monitors**, or `https://repworth-nv.sentry.io/monitors/`.
 The `…/crons/<project>/<slug>/` path this record previously cited is the OLD path and 404s.
 
-Until one of those two paths is taken, **treat production as unmonitored by Sentry
-crons and uptime.** The Railway deploy-time healthcheck and the in-process
-`HealthAlertPoller` still run; nothing external watches them.
+### RESOLVED, same day — the owner upgraded to a Teams plan (20 monitors)
+
+The seat constraint is gone. All three production monitors are now **active**:
+
+| Monitor | Type | State | Evidence |
+|---|---|---|---|
+| `health-alert-poller` | cron | **active** | environment `production` = `ok`, last check-in **2026-08-31T18:00:53Z** |
+| `Prod worker /ready` (8341697) | uptime | **active** | 300 s |
+| `Prod app /api/health` (8341701) | uptime | **active** | 300 s |
+
+**The cron monitor healed itself.** Nothing re-created it and nothing re-enabled it by hand.
+The SDK sends an **upserting** `captureCheckIn`, so the first check-in after a seat became
+available was accepted, and Sentry flipped the monitor from `disabled` to `active` on its
+own. That is worth knowing: once the seat exists, a monitor that has been rejecting
+check-ins repairs on its next scheduled beat — there is no manual step.
+
+**The production dead-man heartbeat is live.** If `HealthAlertPoller` stops, Sentry now
+notices a missed check-in.
+
+> The two uptime monitors were activated through the API, which is why the earlier seat
+> error is a useful signature: `update_uptime_monitor` returns HTTP 400
+> `"You don't have enough pay-as-you-go available to create a new seat"` while a seat is
+> short, and simply succeeds once one is free. It is a clean way to test the constraint
+> without touching the plan.
+
+### G.2 residual — routing, not monitoring
+
+Monitoring now works. **Routing does not.** See G.1 below: the production project's only
+alert rule sends Email, and none of the four required signals is routed anywhere.
+
+---
+
+## Phase G.1 — Discord routing. NOT DONE, and now precisely scoped.
+
+The Discord **integration** exists and works — the owner installed it during the staging
+build. Proven from the staging alert rule's action:
+
+```
+Discord (integration id: 443670, target type: specific,
+         target: 1517968864724385822, tags: repworth-staging, status: active)
+```
+
+That rule last fired 2026-08-31T01:00:46Z, so the path is live.
+
+**What is missing is every production rule.** `repworth-production` has exactly one alert
+rule — `Send a notification for high priority issues` (3920752) — and its only action is
+**Email** to issue owners. It has never triggered. None of the four §G1 signals
+(`subsystem:health_alert`, `cost_event:limit_exceeded`,
+`subsystem:import_consent_analytics`, `feature:stripe_reconciliation`) is routed anywhere,
+in either project.
+
+### There is no "link a channel to Sentry" step — that was the wrong mental model
+
+The **server** is linked once, at the org level. A **channel** is not linked at all; it is
+named per alert action. Sentry's action row reads:
+
+> Send a **Discord** message to **[RepWorth]** server, to **[channel ID or URL]**
+> Optional: in the message show tags **[e.g., environment,my_tag]**
+
+with an inline warning: *"Note that you must enter a Discord channel **ID**, not a channel
+name."* A channel **URL** is also accepted, and its trailing number is the id.
+
+So a new prod-only Discord channel needs no Sentry-side setup of its own. Its id goes into
+each action, and the **Send Test Notification** button on the rule editor verifies it.
+
+**The one real prerequisite:** the Sentry bot must be able to see the channel. A private
+channel denies it by default — add the Sentry bot or its role with *View Channel* and
+*Send Messages*, or the save fails with a channel-not-found error.
+
+### Why this is UI work
+
+The Sentry MCP exposes `find_alert_rules` and `get_alert_rule` only. There is **no**
+create-or-update tool for alert rules, so the four rules cannot be scripted from here.
+Either drive the browser, or build them at
+`https://repworth-nv.sentry.io/monitors/alerts/`.
 
 ---
 
