@@ -1005,6 +1005,35 @@ Revisit triggers:
   Exact operator sequence and post-contract recovery boundary:
   `docs/runbooks/ws8-tier-cutover.md`.
 
+  > **PROMOTED TO PRODUCTION 2026-08-31T07:09Z — the standing exception is CLOSED.**
+  > Applied inside WS8 §7 (D.7), the only sanctioned channel, against the zero-state
+  > production database. **Staging first was already satisfied**: staging was
+  > re-introspected immediately before the apply and held both NOT NULLs and both
+  > CHECKs, so this closed a prod-only gap rather than leading staging.
+  >
+  > Preflight, prod, immediately before: `accounts_invalid_count` **0**,
+  > `businesses_invalid_count` **0**, `accounts` **0** rows, `businesses` **0** rows,
+  > `job_outbox` **0** — and the documented absence signature confirmed intact
+  > (`businesses.subscription_tier` nullable = `YES`, neither tier CHECK present),
+  > with 077 (`price_variant`) and 105 (`checkout_attempt_coupon_id`) both present.
+  >
+  > Post-apply, by **introspection, never the ledger**: both `subscription_tier`
+  > columns `is_nullable = NO`; both named CHECKs present and rendering
+  > `CHECK (((subscription_tier)::text = ANY ((ARRAY['copilot'::character varying,
+  > 'autopilot'::character varying])::text[])))` — **byte-identical to staging's two
+  > definitions**, compared in the same session. Both invalid-row counts still 0,
+  > `job_outbox` still 0 (the migration enqueues nothing), row counts unchanged.
+  >
+  > No insert path breaks under the new NOT NULL: both `accounts.subscription_tier`
+  > and `businesses.subscription_tier` carry `DEFAULT 'copilot'::character varying`,
+  > so an INSERT omitting the column still satisfies it. (`zernio_backfill_runs`
+  > also has a NOT NULL `subscription_tier` with **no** default — unrelated to 078
+  > and pre-existing.)
+  >
+  > `.claude/CLAUDE.md`'s "Standing exception until the prod WS8 cutover" sentence was
+  > deleted in the same change, as §7 requires. **Staging and prod are now in full
+  > lockstep.**
+
 > This feature (#479) originally planned two migrations. **079**
 > (`agent_run_spine_archival_indexes`) and **080** (`scheduler_outbox_dedup_indexes`)
 > are claimed by parallel works that rode staging first, so #479's cursor table was
