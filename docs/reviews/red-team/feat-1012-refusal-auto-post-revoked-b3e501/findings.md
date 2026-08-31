@@ -510,3 +510,23 @@ rewrite because no content moved, only the parent chain.
 
 `head_sha` is re-pinned to `76fc9a227c2b300024473add93b6ed221a465b14`, the post-rebase HEAD. The
 gate was re-run serially at that HEAD after this note landed.
+
+## Post-report — the FK class CI caught and this pass did not
+
+CI on PR #1043 failed on `refusal_events_business_id_fkey` in
+`autopilot-entitlement-concurrency.integration.test.ts:421`: the suite reaches
+the downgrade through the judge gate, writes an `auto_post_revoked` Refusal, and
+its teardown then deletes the business those rows reference.
+
+**Duty 4 is missed siblings, and this round did not sweep for it.** The class was
+already visible on the sibling branch #1010 (its deviation D4 named it and fixed
+four files), and the same class reached this branch's own publisher teardown.
+Round 2's budget went to RT2-1's comment-resolution defect instead.
+
+Fixed in `24c770eb`, inside the existing surface — no amendment. Recorded in the
+deviations file as D-CI with the corrected reachability sweep.
+
+`head_sha` -> `24c770eb4e209e93289c83d0e77daf5dc6360e9d`
+
+**No round 3 was run.** The cap is spent; this is a record of a defect found
+downstream of the report.

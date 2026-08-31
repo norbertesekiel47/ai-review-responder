@@ -5,7 +5,7 @@
   "branch": "feat/1012-refusal-auto-post-revoked",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "76fc9a227c2b300024473add93b6ed221a465b14",
+  "head_sha": "24c770eb4e209e93289c83d0e77daf5dc6360e9d",
   "intake_sha256": "9304040c9b9a1b5dde05a5d4e2a5b2936a534535aab90c73ac7c7c23c34a7b90",
   "risk": "high",
   "round": 2,
