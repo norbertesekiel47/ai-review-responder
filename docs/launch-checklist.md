@@ -301,6 +301,21 @@ Pre-invite actions from these decisions:
 
 ---
 
+## ⏳ Dated infrastructure obligations (not launch blockers)
+
+| Due | Item | Why it has a date | Owner |
+|---|---|---|---|
+| **2026-12-01** | Migrate Railway worker config from `railway.toml` to Infrastructure as Code (`.railway/railway.ts`) | Railway's **hard cutoff** — Config as Code stops being read entirely on that date. Not urgent, because the five deploy/build fields are mirrored onto the Railway service itself (2026-08-31), so nothing breaks at the cutoff. It is a documentation-truth obligation: after it, `railway.toml` is a file that describes nothing. | @norbertesekiel |
+
+**Do not run `railway config migrate --apply` and `railway config apply` blind.** The
+2026-08-31 dry run produced a file with two defects: it names the service `RepWorth`
+(taken from the *project* name, not the real `repworth-worker`), so an apply would
+**create a second service** rather than update the existing one; and it silently drops
+`restartPolicyType` and `restartPolicyMaxRetries`, carrying over only
+build/start/healthcheck. `railway config apply` is project-wide with omit-means-delete
+semantics. Do it as its own change, with a reviewed `railway config plan`, never
+mid-cutover. Full note: lab-notes 2026-08-31 "Railway deploy configuration".
+
 ## Post-launch (tracked separately — see `updates.md`)
 
 First-90-day gap-closing, Wave 4 (Growth), Wave 5 (Scale/Maturity), and the

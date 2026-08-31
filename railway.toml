@@ -1,7 +1,49 @@
 # Railway config for the RepWorth worker (Fastify + BullMQ).
 # Vercel runs the Next.js UI; this file configures ONLY the Railway worker service.
-# Keeps deploy config in-repo so it survives dashboard edits / project recreation.
 # See docs/runbooks/deployment-guide.md §5 and docs/runbooks/rollback.md.
+#
+# ############################################################################
+# THIS FILE IS NOT SUFFICIENT ON ITS OWN. READ BEFORE EDITING.
+# ############################################################################
+#
+# 1) A Railway REDEPLOY resolves none of this file, and none of the service's
+#    own settings either. It falls back to Railpack auto-detection, which sees
+#    a Next.js repo and runs `next build` + `next start`. A `redeploy` is what
+#    Railway fires on ANY variable change — an Infisical Secret Sync write
+#    included. Only a SOURCE deploy resolves configuration:
+#
+#      railway deployment redeploy --from-source \
+#        --service repworth-worker --environment production \
+#        --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes
+#
+#    Proven on production 2026-08-31: two redeploys of commit 06a163f0 ran
+#    `next start`, the second with startCommand set explicitly on the service;
+#    the --from-source deploy of the same commit ran `tsx worker/index.ts`.
+#    The service reported ONLINE throughout, because the Next.js app also
+#    serves /api/health — a false-healthy with no worker running.
+#
+# 2) These values are MIRRORED onto the Railway service itself, per
+#    environment, on `repworth-worker` — ONE service shared by BOTH
+#    environments. Railway's rule is that a file value overrides a dashboard
+#    value, so the two copies must stay identical in meaning.
+#
+#      CHANGE ONE, CHANGE BOTH.
+#
+#    Mirrored: buildCommand, startCommand, healthcheckPath, restartPolicyType,
+#    restartPolicyMaxRetries. `builder` was already RAILPACK on the service.
+#    When writing the service copy, ALWAYS pass the environment id — Railway's
+#    update-service API defaults to ALL environments.
+#
+# 3) Config as Code (railway.toml / railway.json) is DEPRECATED. Hard cutoff
+#    2026-12-01, after which this file is not read at all. Migrating to
+#    .railway/railway.ts is owed before then, as its own reviewed change.
+#    Do NOT apply `railway config migrate` output as generated: it names the
+#    service `RepWorth` (the project name, not `repworth-worker`) so an apply
+#    CREATES A SECOND SERVICE, and it silently drops restartPolicyType and
+#    restartPolicyMaxRetries.
+#
+# Root cause and full timeline: .claude/reference/lab-notes.md 2026-08-31
+# "Railway deploy configuration". Ops note: deployment-guide.md §5.1.
 
 [build]
 # RAILPACK (Railway's modern default) installs Node 24 + pnpm 11 via mise and the
@@ -17,9 +59,40 @@ buildCommand = "echo 'RepWorth worker: no build step (tsx runs worker/index.ts)'
 [deploy]
 # Worker has no build step — tsx transpiles worker/index.ts at runtime.
 startCommand = "pnpm worker"
-# Dependency-light endpoint (no DB/queue/external calls); 200 = ready.
+# WORKER-ONLY path, chosen deliberately over /api/health — 2026-08-31.
+#
+# /api/health exists in the Next.js app TOO, so when a redeploy fell back to
+# Railpack auto-detection and started `next start` instead of the worker,
+# Railway probed /api/health, got 200 from the Next.js app, and reported the
+# service Online with no worker running. A false-healthy.
+#
+# /ready is served only by worker/index.ts (Next.js has /api/health/ready, a
+# different path), so an impostor deployment 404s the probe, the deployment is
+# marked FAILED, and Railway keeps the last good deployment live. The silent
+# failure becomes a loud one that cannot reach production.
+#
+# TRADEOFF, accepted knowingly. This REVERSES the previous deliberate choice of
+# a "dependency-light endpoint (no DB/queue/external calls)". /ready runs three
+# live probes — postgres, queue_redis, cache_redis — so a deploy now fails if any
+# of them is unreachable at deploy time. That direction is fail-safe (the running
+# deployment stays up), and the incident showed a false POSITIVE costs far more
+# than a false negative: a dead worker reporting green through a production
+# cutover. Verified before switching: staging returned
+# {"status":"ready","checks":{"postgres":"ok","queue_redis":"ok","cache_redis":"ok"}}.
+#
+# BOUNDED COST, confirmed against Railway's docs rather than assumed: the
+# healthcheck runs at DEPLOY TIME ONLY — "Railway calls the endpoint at deploy
+# time, not continuously after the deployment is live". So the three probes are
+# never a runtime restart risk; they gate one moment. And the window is 300s by
+# default: "if the endpoint never returns 200 in that window, the deployment is
+# marked failed and the previous one keeps serving traffic".
+#
+# FOLLOW-UP that restores the light posture: add a worker-only, dependency-free
+# GET (e.g. /healthz/worker) in worker/index.ts and point this at it. Not done
+# mid-cutover — it is an unverifiable-until-merged change to the boot surface.
+#
 # Port is injected by Railway as $PORT and read by the Fastify server.
-healthcheckPath = "/api/health"
+healthcheckPath = "/ready"
 # Supervised crash recovery (matches Railway's default), not an infinite loop.
 # NOTE: a missing required env var (e.g. ADMIN_NOTIFICATION_EMAIL) is a
 # deterministic boot failure that exhausts these retries and stays down —

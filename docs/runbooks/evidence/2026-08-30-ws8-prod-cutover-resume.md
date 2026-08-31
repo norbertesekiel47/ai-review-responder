@@ -836,13 +836,579 @@ capitalisation resolves.
 
 ---
 
+### D.1 — verify §1, the six live Prices. PASS.
+
+Read-only. Run 2026-08-31T04:46Z through the `railway run` injection pattern, so the
+production `sk_live_` key was used but never observed:
+
+```
+railway run --environment production --service repworth-worker -- python3 <check>
+key prefix: sk_live_ | length: 107
+```
+
+| Variable | Price ID | HTTP | Cents | Cur | Interval | Active | Livemode |
+|---|---|---|---:|---|---|---|---|
+| `STRIPE_PRICE_COPILOT_LIST` | `price_1Tu0tlIhPBLaM6xAh1ncYUyD` | 200 | 2900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_COPILOT_FOUNDING` | `price_1Tu0tlIhPBLaM6xAqs62deIQ` | 200 | 1900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_LIST` | `price_1Tu0tmIhPBLaM6xAstHkMhBE` | 200 | 6900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_FOUNDING` | `price_1Tu0tmIhPBLaM6xAWQWKfjLu` | 200 | 4900 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_COPILOT_OVERAGE` | `price_1Tu0tmIhPBLaM6xAUH8w841l` | 200 | 1500 | usd | 1/month | true | **true** |
+| `STRIPE_PRICE_AUTOPILOT_OVERAGE` | `price_1Tu0tnIhPBLaM6xAhDUqdd3r` | 200 | 2000 | usd | 1/month | true | **true** |
+
+```
+distinct price ids: 6 of 6
+assertStripePriceIdsUnique: all six distinct - PASS
+live webhook endpoints: 0
+D1_RESULT: PASS
+```
+
+**What this closes.** Every amount matches the §1 table exactly. All six carry
+`livemode=true`, so none is a test-mode ID pasted into the production lane — the failure
+this step exists to catch. All six are `active`, all `usd`, all `1/month` recurring.
+`assertStripePriceIdsUnique` therefore passes at boot, which the crashed deploy already
+proved by execution (the throw is downstream of it).
+
+**`live webhook endpoints: 0` is re-confirmed**, unchanged from the 2026-08-30 reading and
+from the predecessor's 2026-07-17 reading. D.3 creates the first one. This is also the
+before-value for D.3's confirmation check, which must then read `1`.
+
+Not checked here: `charges_enabled`. D1d verified it `True` on 2026-08-30 and §6 re-verifies
+it at deploy time; that box stays open.
+
+---
+
+### D.2 — verify §5, migration 077. PASS.
+
+Read-only. Run 2026-08-31T04:47Z. The `ws8-tier-cutover.md` §5 introspection, verbatim, plus
+the four supplementary reads that section's prose requires (`price_variant` column and
+default, the named value constraint, the immutable-update trigger, the partial unique index
+definition). Executed with `psql` against the injected `DATABASE_POOL_URL`, which was never
+printed.
+
+> **Connection note.** `psql` rejects the pooler URL as given: `invalid URI query parameter:
+> "pgbouncer"`. libpq does not accept PgBouncer's `?pgbouncer=true`, which Postgres.js does.
+> The query string was stripped in-script (`${DATABASE_POOL_URL%%\?*}`). Same host, same
+> port `6543`, same pooler. Anyone re-running this by hand hits the same error first.
+
+```
+--- 1. incomplete_snapshot_count (must be 0) ---   0
+--- 2. invalid_business_mirror_count (must be 0) ---   0
+--- 3. outbox_count_after_077 (baseline; zero-state) ---   0
+--- 4. Checkout lease safety objects (both must be true) ---
+ checkout_session_index_present | checkout_lease_constraint_present
+ t                              | t
+```
+
+| §5 requirement | Reading | Verdict |
+|---|---|---|
+| `incomplete_snapshot_count` = 0 | `0` | PASS |
+| `invalid_business_mirror_count` = 0 | `0` | PASS |
+| `outbox_count_after_077` equals baseline | `0`, and the zero-state proof fixes the baseline at `0` | PASS |
+| `checkout_session_index_present` | `t` | PASS |
+| `checkout_lease_constraint_present` | `t` | PASS |
+
+Both invalid-row counts are trivially zero on a zero-state database. That is expected and is
+not weaker evidence: §5's purpose is to prove the schema objects exist and are not widened,
+and those reads are independent of row count.
+
+**Column, default and nullability — the 077 expansion is complete:**
+
+```
+          column_name          |     data_type     | is_nullable |        column_default
+-------------------------------+-------------------+-------------+------------------------------
+ base_price_cents              | integer           | NO          | 2900
+ locations_included            | integer           | NO          | 1
+ locations_overage_price_cents | integer           | NO          | 1500
+ locations_paid                | integer           | NO          | 0
+ price_variant                 | text              | NO          | 'list'::text
+ subscription_tier             | character varying | NO          | 'copilot'::character varying
+```
+
+`accounts.price_variant` is present, `NOT NULL`, defaulting to `list`. The four Copilot
+defaults are the §1 amounts — `2900` base, `1500` overage, `1` included, `0` paid.
+
+**Named value constraint, present and narrow:**
+
+```
+accounts_price_variant_check | CHECK ((price_variant = ANY (ARRAY['list'::text, 'founding'::text])))
+```
+
+**Immutable-update trigger, present:**
+
+```
+ accounts_price_variant_immutable | reject_accounts_price_variant_mutation | user_trigger = t
+```
+
+**The partial unique Session index is NOT widened** — the predicate is still present, so the
+index constrains only non-NULL Session IDs:
+
+```
+CREATE UNIQUE INDEX accounts_checkout_session_id_uniq ON public.accounts
+  USING btree (checkout_session_id) WHERE (checkout_session_id IS NOT NULL)
+```
+
+Both Checkout-lease objects are launch safety objects. Neither is absent and neither is
+widened, so §5's stop condition — *"strict code must not start if either is absent or
+widened"* — is satisfied.
+
+#### Two things this run settles as a side effect
+
+1. **Migration 105's §8 verification already reads PASS.** The
+   `accounts_checkout_attempt_complete_check` body returned above enumerates
+   `checkout_attempt_coupon_id IS NULL` in its cleared branch — the exact D.9 / §8
+   expectation. Recorded here because the read was taken now; D.9 still runs its own two
+   queries and records the `is_nullable = YES` half.
+2. **078 is confirmed still absent, immediately before the phase that applies it.**
+   ```
+   businesses_tier_is_nullable | accounts_tier_check_present | businesses_tier_check_present
+   YES                         | f                           | f
+   ```
+   That is the exact signature `.claude/CLAUDE.md` records for the standing exception. It
+   holds until D.7.
+
+**D2_RESULT: PASS.** §5 is verified. The cutover is executed through §5; the next unexecuted
+protocol step is §6.
+
+---
+
+### D.3 — the live Stripe webhook endpoint. CREATED, DISABLED, verified.
+
+Created 2026-08-31T05:11:48Z through `railway run --environment production`, so the
+production `sk_live_` key was used but never observed.
+
+```
+id          : we_1UANVYIhPBLaM6xAfIMs3eMN
+url         : https://worker.repworth.net/ingress/stripe
+status      : disabled
+api_version : 2026-05-27.dahlia
+livemode    : True
+application : None
+enabled_events (6):
+  - checkout.session.completed
+  - customer.subscription.deleted
+  - customer.subscription.updated
+  - invoice.paid
+  - invoice.payment_action_required
+  - invoice.payment_failed
+
+live webhook endpoints BEFORE: 0
+live webhook endpoints AFTER : 1
+D3_RESULT: PASS
+```
+
+#### The Sandbox trap (F7) is structurally avoided, not merely checked
+
+The endpoint was created **by API, with the deployed `sk_live_` key**. That key *is* the
+live account — no browser session, no account dropdown, no Sandbox context can enter the
+path. `livemode: True` on the created object and `live webhook endpoints: 1` on the
+re-run Phase 0.2 check are the two independent confirmations the plan asks for. A dashboard
+confirmation is no longer load-bearing.
+
+#### The endpoint cannot be created disabled — recorded, because the plan says otherwise
+
+`POST /v1/webhook_endpoints` accepts `url`, `enabled_events`, `api_version`, `connect`,
+`description`, `metadata`, `expand`. It has **no `disabled` parameter**. `disabled` exists
+only on the update call. Verified against this account's own OpenAPI schema
+(`openapi_spec_version 2026-06-24.preview`), not from memory.
+
+So "create it disabled" is not one act. The run was **create, then disable in the next
+call**, leaving an enabled window under a second.
+
+**Why that window is not a risk here.** Live has zero customers and zero subscriptions
+(zero-state proof), the WAF denies every production `/api/*`, and no Checkout has ever
+run in live mode — so no live event could be generated. Inbound handling is idempotent
+through `claimInboundEvent` in any case. The endpoint read back `status: disabled`.
+
+#### `api_version` is create-only — a permanent choice, recorded as such
+
+The update call accepts `url`, `enabled_events`, `description`, `metadata` and `disabled`.
+It does **not** accept `api_version`. The value is therefore frozen for the life of the
+endpoint. Changing it means deleting the endpoint and creating a new one, which mints a
+**new signing secret** and forces a fresh Infisical write, sync and worker restart.
+
+Three checks before writing it:
+
+1. The pin in `src/lib/payments/stripe-client.ts:17` is `'2026-05-27.dahlia'`.
+2. `2026-05-27.dahlia` is in the live account's accepted `api_version` enum.
+3. A live `GET /v1/account` carrying `Stripe-Version: 2026-05-27.dahlia` returned HTTP 200.
+
+**Owner approved the permanence explicitly**, 2026-08-31, after the create-only property
+was explained.
+
+> **Standing obligation, new.** The endpoint's `api_version` is frozen; the pin in
+> `stripe-client.ts` is not. A future `stripe` SDK bump that moves that pin puts the two
+> out of lockstep, and the failure is silent: the event arrives, the signature verifies,
+> the handler reads a moved or renamed field as `undefined` and takes the wrong branch.
+> **Any change to `STRIPE_CLIENT_CONFIG.apiVersion` must be paired with recreating this
+> endpoint** (delete → create → new `whsec_` → Infisical → sync → restart). Nothing in CI
+> enforces this today, because the endpoint's version lives at Stripe, not in the repo.
+
+#### Event set — exactly the six the worker handles
+
+`worker/ingress/stripe.ts:71-96` switches on `event.type` with six `case` arms and a
+`default` that logs `Unhandled event type — ignoring`. The subscription matches it exactly:
+
+| Event | Handler |
+|---|---|
+| `checkout.session.completed` | `worker/ingress/stripe/checkout-completed.ts` |
+| `invoice.paid` | `worker/ingress/stripe/invoice-paid.ts` |
+| `invoice.payment_failed` | `worker/ingress/stripe/invoice-payment-failed.ts` |
+| `invoice.payment_action_required` | `worker/ingress/stripe/invoice-payment-action-required.ts` |
+| `customer.subscription.updated` | `worker/ingress/stripe/subscription-updated.ts` |
+| `customer.subscription.deleted` | `worker/ingress/stripe/subscription-deleted.ts` |
+
+`invoice.payment_action_required` — the one the plan flags as easy to omit — **is
+subscribed**. It has a live handler; omitting it would mean a bank's 3-D Secure challenge
+on a renewal never reaches the worker.
+
+Unlike `api_version`, `enabled_events` and `url` **are** updatable, so this list is
+cheap to correct later.
+
+#### The signing secret
+
+Returned **only** in the create response — a later retrieve does not include it. Captured
+directly into a mode-600 gitignored file and never printed. Shape recorded as structure
+only: prefix `whsec_`, length 38.
+
+Written to Infisical `prod` with `infisical secrets set --file`, whose output table masks
+values:
+
+```
+│ STRIPE_WEBHOOK_SECRET │ ****** │ SECRET CREATED │
+```
+
+Verified by round-trip **hash comparison**, not by reading either value:
+
+| Check | Result |
+|---|---|
+| Infisical `prod` key count | 43 → 56 → **57** |
+| `STRIPE_WEBHOOK_SECRET` present | yes |
+| Shape | prefix `whsec_`, length 38 |
+| `sha256(vault)[:12]` vs `sha256(stripe create response)[:12]` | `50af6fce25d0` == `50af6fce25d0` — **MATCH** |
+| Empty secrets in `prod` | **0** |
+
+**The 18th boot gate now exists.** Manifest §1 row 6 moves from *missing* to *set*.
+
+#### Blocker carried into D.5 — the worker certificate is not issued
+
+Railway reports `worker.repworth.net` at `CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP`
+with `verified: false`. The CNAME to `rhhe86c1.up.railway.app` reads
+`DNS_RECORD_STATUS_PROPAGATED`, and `certificate.errorMessage` is `null` — so it is still
+issuing, not failing. A direct request confirms the client-side symptom:
+
+```
+curl https://worker.repworth.net/
+curl: (60) SSL: no alternative certificate subject name matches target host name
+```
+
+**Creating the endpoint now is safe** — Stripe does not probe the URL at create time, and
+the endpoint is disabled. **Enabling it at D.5 is not**, until the certificate issues:
+every delivery would fail TLS before it reached Fastify. Owner decision, 2026-08-31:
+create now, re-check the certificate at D.5. **D.5 must not enable the endpoint while
+`verified: false`.**
+
+---
+
+### D.4 — the first clean production worker boot. PASS, after an incident.
+
+The sync from D.3 triggered a Railway redeploy, as designed. It brought up the **wrong
+process**. The incident and its fix are recorded in full below, because the failure mode
+is permanent, applies to every future variable change on this service, and reported
+**SUCCESS / Online** the whole time it was wrong.
+
+#### The incident — a false-healthy production deploy
+
+Deployment `9c272e61`, triggered at 2026-08-31T05:12:54Z by the Secret Sync write:
+
+```
+Starting Container
+$ next start
+▲ Next.js 16.3.0
+✓ Ready in 90ms
+```
+
+`next start` is the **Next.js UI**, not `tsx worker/index.ts`. No BullMQ consumers, no
+pollers, no `assertWorkerStartupEnv`. Railway reported the deployment **SUCCESS** and the
+service **Online**.
+
+**Why it looked healthy.** `healthcheckPath` is `/api/health`, and that route exists in
+the Next.js app as well as the worker. Railway probed it, got 200, reported Online. This
+is the same shape as the `${{Redis.…}}` capitalisation trap in manifest §13: a check that
+tests *presence of a response* rather than *identity of the responder* cannot tell a
+healthy worker from a healthy impostor.
+
+> **Standing rule.** On `repworth-worker`, "Online" is not evidence. Require a **poller
+> cycle in the service's own logs** before calling the worker up.
+
+#### Root cause — a `redeploy` resolves NO deploy configuration
+
+The previous deployment `2c4b870d`, at the **same commit** `06a163f0`, ran
+`$ tsx worker/index.ts` correctly 29 minutes earlier. `railway.toml` was unchanged and
+present on `main` throughout, so the repo was not the variable.
+
+`railway.toml` is the only thing that sets `startCommand = "pnpm worker"` and overrides
+Railpack's auto-detected `next build` / `next start`. **A `redeploy` does not read it —
+and does not read the service's own settings either.** Isolated rather than assumed:
+`startCommand`/`buildCommand` were set **explicitly on the service**, the read-back
+confirmed them, and a second `redeploy` (`32a54658`) *still* ran `next start` and *still*
+ran `next build`. So the fallback ignores both mechanisms.
+
+The distinguishing factor is the deployment **kind**, visible as `reason` in
+`list-deployments`:
+
+| `reason` | Trigger | Resolves config? | Observed |
+|---|---|---|---|
+| `deploy` | new commit on the source branch, or `redeploy --from-source` | **yes** | `2c4b870d`, `2e9a5dc4` → `tsx worker/index.ts` |
+| `redeploy` | dashboard redeploy, **any variable change** | **no** — Railpack auto-detect | `9c272e61`, `32a54658` → `next start` |
+
+**That second row is the trap that matters going forward.** Every secret rotation and
+every flag flip on this service fires a `redeploy`. A worker that is correct today
+reverts to `next start` the next time anyone touches a variable — silently, reporting
+Online.
+
+#### The fix, in three parts
+
+**1. Mirror the config onto the Railway service, per environment.** Five fields, set on
+`repworth-worker` in **both** environments so behaviour no longer depends on one
+mechanism: `startCommand`, `buildCommand`, `healthcheckPath`, `restartPolicyType`,
+`restartPolicyMaxRetries`. `restartPolicyMaxRetries` is **10** — the documented bound,
+not raised.
+
+> **`repworth-worker` is ONE service shared by BOTH environments** (`fb413c72-…`).
+> Railway's `update-service` API updates **all** environments when `environmentId` is
+> omitted. Every call in this run passed it explicitly. Staging was verified undisturbed
+> afterwards — same deployment `f661c9a6` from 02:01Z, pollers cycling straight through
+> the write at 06:0xZ.
+
+**2. Recover with a SOURCE deploy, not a redeploy.**
+
+```bash
+railway deployment redeploy --from-source \
+  --service repworth-worker --environment production \
+  --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes
+```
+
+`--from-source` pulls the latest commit from the configured source and produces a
+`reason: deploy` deployment, which resolves configuration normally. Plain `redeploy` —
+CLI, dashboard or MCP — is not a fix. Railway's own "use redeploy to apply immediately"
+note on service updates is wrong for this case.
+
+**3. Make the repo say so.** `railway.toml`'s header, `deployment-guide.md` §5.1, and
+lab-notes 2026-08-31 "Railway deploy configuration" all now carry the rule. The
+`railway.toml` values and the service values must stay identical — **change one, change
+both**.
+
+#### Separately: Config as Code is deprecated
+
+`railway.toml` / `railway.json` stop being read on **2026-12-01**, and new services
+cannot opt into them. This is **not** the cause of the incident above — a `redeploy`
+ignored the service settings too. The mirror in part 1 already removes the single point
+of failure, so the cutoff is a documentation-truth problem rather than an outage waiting
+to happen. Migration to `.railway/railway.ts` is recorded as a dated obligation in
+`docs/launch-checklist.md`.
+
+**`railway config migrate` output is NOT safe to apply as generated.** The 2026-08-31 dry
+run produced a file that (a) names the service **`RepWorth`** — taken from the *project*
+name, not the real `repworth-worker` — so `railway config apply` would **create a second
+service** rather than update the existing one, and (b) silently **drops
+`restartPolicyType` and `restartPolicyMaxRetries`**, carrying over only
+build/start/healthcheck.
+
+#### The recurrence guard — because the mirror alone does NOT stop this happening again
+
+Recording this because the obvious reading of the fix above is wrong. Mirroring the config
+onto the service restored the worker; **it does not prevent recurrence.** The proof is in
+the root-cause section: redeploy `32a54658` ran with `startCommand` set explicitly on the
+service and *still* ran `next start`. A `redeploy` ignores the service settings too.
+
+So the fault is still armed. Every secret rotation and every flag flip on this service
+fires a `redeploy`, and each one would bring the impostor back — silently, reporting
+Online. A worker that is correct today and wrong after the next `flag-flip` run is not
+fixed.
+
+**What actually disarms it: make the impostor fail the healthcheck.**
+
+`healthcheckPath` was `/api/health`. That route exists in the Next.js app as well as the
+worker, which is the entire reason the impostor looked healthy. Changed to **`/ready`**,
+which `worker/index.ts:638` serves and Next.js does not — Next's nearest route is
+`/api/health/ready`, a different path.
+
+| Deployment | `/ready` | Result |
+|---|---|---|
+| Real worker | 200 `{"status":"ready","service":"worker"}` | Deploy succeeds |
+| `next start` impostor | 404 — no such Next.js route | **Healthcheck fails → deployment marked FAILED → Railway keeps the last good deployment live** |
+
+The silent failure becomes a loud one that cannot reach production. Set on **both**
+environments, each with `environmentId` passed explicitly.
+
+**Verified before switching, not after.** The path was exercised against a live worker
+first — staging's public Railway domain, which has no certificate problem:
+
+```
+GET https://repworth-worker-staging.up.railway.app/ready → HTTP 200
+{"status":"ready","service":"worker",
+ "checks":{"postgres":"ok","queue_redis":"ok","cache_redis":"ok"}}
+```
+
+> **This REVERSES a deliberate documented choice, and the tradeoff is accepted knowingly.**
+> `railway.toml` described `/api/health` as a *"dependency-light endpoint (no DB/queue/
+> external calls); 200 = ready"*. `/ready` runs three live probes — `postgres`,
+> `queue_redis`, `cache_redis` — so a deploy now fails if any of them is unreachable at
+> deploy time.
+>
+> Accepted because the direction of failure is **fail-safe**: a failed healthcheck leaves
+> the running deployment up, whereas the old posture let a dead worker replace a live one
+> and report green. This incident is the evidence that a false POSITIVE costs far more
+> than a false negative here — a worker that was not running, through a production
+> cutover, on a dashboard showing Online.
+>
+> **The cost is bounded, and this was checked rather than assumed.** Railway's docs:
+> *"Railway calls the endpoint at deploy time, **not continuously** after the deployment is
+> live"*, and *"if the endpoint never returns 200 in that window, the deployment is marked
+> failed and **the previous one keeps serving traffic**"* — a 300-second window by default.
+> So the three probes gate one moment per deploy; they are never a runtime restart risk,
+> and a transient blip has five minutes to clear. That turns the tradeoff from
+> "defensible" into "clearly correct".
+>
+> **Follow-up that restores the light posture:** add a worker-only, dependency-free `GET`
+> (e.g. `/healthz/worker`) in `worker/index.ts` and point the healthcheck at it. Not done
+> in this run — it is a change to the worker's boot surface that cannot be verified until
+> it merges, which is the wrong shape of risk mid-cutover.
+
+#### The clean boot — deployment `2e9a5dc4`, 2026-08-31T06:10:47Z
+
+```
+$ tsx worker/index.ts
+[worker] Feature flags: Telegram=off, WhatsApp=off, SelfServeSignup=off, ZernioPublishing=on
+Worker listening {"port":8080,"deployment_lane":"production",
+  "lane_source":"RAILWAY_ENVIRONMENT_NAME","service_name":"repworth-worker",
+  "railway_environment":"production","replica_region":"us-west2",
+  "deployment_id":"2e9a5dc4-fd45-457a-8f15-0eb2e637e134"}
+[boot] readiness cure complete — background loops staggered, workers resumed
+```
+
+**`assertWorkerStartupEnv` passed**, naming the production lane. Verified by absence as
+well as presence — across the whole deploy log:
+
+| Grep | Count |
+|---|---|
+| `[startup] Worker requires` / `Startup assertion failed` | **0** |
+| `next start` | **0** |
+| `NOAUTH` / `ECONNREFUSED` / `ETIMEDOUT` / redis errors | **0** |
+| `"level":"error"` / `"level":"fatal"` / `[ERRO]` / `[FATA]` | **0** |
+
+**The six previously-unexercised boot gates are now CLOSED.** The 2026-08-30 record split
+the claim into "twelve proven by execution, six present but untested", because
+`assertWorkerStartupEnv` throws on the first failure and `STRIPE_WEBHOOK_SECRET` sat in
+`assertStripeWorkerEnv`, its **third** check.
+
+Two call sites carry the six, so the proof is stated per site rather than as one sweep:
+
+- **Four of them sit after the old throw inside `assertWorkerStartupEnv`**
+  (`worker/config/startup-assert.ts:294`), whose order is
+  `assertProductionMockModeEnv → assertCoreInfraEnv → assertStripeWorkerEnv →
+  assertTierDailyCostLimitsConfigured → assertAdminNotificationEmail → assertAlertSinkEnv
+  → assertServerOnlyFeatureOptionalBooleansEnv`. Reaching the end of that function proves
+  the last four ran.
+- **The other two are a different call site.** `SESSION_COOKIE_SECRET` and
+  `NEXT_PUBLIC_APP_URL` are gated by `assertUnsubscribeIngressConfigured`, called from
+  `worker/index.ts:596` — separately from `assertWorkerStartupEnv`, and alongside
+  `assertWorkerConfig()` at line 583. Both sit **above** the `Worker listening` log at
+  line 717, so that log line is the proof they ran.
+
+All six executed:
+
+| Gate | Closed by this boot |
+|---|---|
+| `DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` | `parseRequiredPositiveCostLimitCents` accepted both — the positive-integer parse rule that presence could not test |
+| `ADMIN_NOTIFICATION_EMAIL` | `assertAdminNotificationEmail` passed |
+| `SENTRY_DSN` | `assertAlertSinkEnv` passed |
+| `SESSION_COOKIE_SECRET` | `assertUnsubscribeIngressConfigured` passed — ≥32 bytes |
+| `NEXT_PUBLIC_APP_URL` | same gate passed |
+| exact-boolean format gate | `assertServerOnlyFeatureOptionalBooleansEnv` passed on all seven names |
+
+**All 18 unconditional boot gates are now proven at runtime, on the production lane.**
+Manifest §1 has no `missing` row left.
+
+The Zernio conditional gate is satisfied too — `ZernioPublishing=on` with its API key,
+webhook secret and `WORKER_PUBLIC_URL` all accepted by `assertZernioPublishingEnv`.
+
+#### The worker is proven running by its own behaviour, not by the healthcheck
+
+Pollers and schedulers started and cycled:
+
+```
+OutboxPoller           Starting {"interval_ms":5000,"batch":50,"dispatch_timeout_ms":10000,
+                                 "max_cycle_ms":60000,"watchdog_stale_ms":900000}
+HealthAlertPoller      Starting {"interval_ms":300000}
+JudgeSweepPoller       Starting (interval=60000ms)
+AutonomyGovernorScheduler  Starting (interval=900000ms)
+AnalyticsDispatchPoller    Starting {"interval_ms":30000,"batch":50}
+SolicitationReleasePoller  Release cycle complete {"released":0, … "itemFailures":0}
+ArchivalPoller             Nothing to archive
+EngagementMonitorPoller    No engagement alerts needed
+CancellationGracePoller    No expired cancelled accounts to archive
+```
+
+**`REDIS_QUEUE_URL` is proven working, not merely present.** `OutboxPoller` and the BullMQ
+workers registered with no `NOAUTH`. That is the check `assertCoreInfraEnv` structurally
+cannot make (manifest §13: it tests presence, not shape), so the `${{Redis.…}}`
+capitalisation fix is now confirmed by queue behaviour rather than by URL structure.
+
+Flags read exactly as the beta posture requires — self-serve signup off, both channels
+off, offboarding off, Zernio publishing on. `ZernioRecentReviewPoller` logged
+`Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`: the §2 producer denial is **still in
+force**, correctly, until D.8 lifts it.
+
+#### State after D.4
+
+| Item | State |
+|---|---|
+| Production worker | **Online**, `tsx worker/index.ts`, deployment `2e9a5dc4` |
+| Boot gates | **18/18 proven at runtime** on the production lane |
+| Staging worker | Undisturbed — `f661c9a6` from 02:01Z, still cycling |
+| Stripe endpoint | Still `disabled` — re-verified 06:11:52Z, nothing in this work enabled it |
+| Producer denial | Still on (`ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`) |
+| WAF deny rule | Still Enabled — production `/api/*` still 403 |
+
+#### Blocker still open for D.5 — the worker certificate
+
+Re-checked 2026-08-31T06:12:50Z. Unchanged since D.3:
+
+```
+certificate.status : CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP
+certificate.error  : null            (issuing, not failing)
+verified           : false
+CNAME              : DNS_RECORD_STATUS_PROPAGATED → rhhe86c1.up.railway.app
+curl https://worker.repworth.net/api/health
+  curl: (60) SSL: no alternative certificate subject name matches target host name
+```
+
+The worker is healthy **inside** Railway; it is not reachable from outside. **D.5 must not
+enable the Stripe webhook endpoint while `verified: false`** — every delivery would fail
+TLS before reaching Fastify.
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
-- [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
-- [ ] Live webhook endpoint created **disabled**; API version matches the pin in
-      `src/lib/payments/stripe-client.ts`; `invoice.payment_action_required` subscribed
-- [ ] `assertWorkerStartupEnv` passes, naming the production lane. Boot log excerpt: `____`
-- [ ] Worker Online; healthcheck green
+- [x] Stripe `charges_enabled` re-verified. Reading: **`True`** (also `payouts_enabled=True`,
+      `details_submitted=True`) at **2026-08-31T05:14:26Z**
+- [x] Live webhook endpoint created **disabled**; API version matches the pin in
+      `src/lib/payments/stripe-client.ts`; `invoice.payment_action_required` subscribed —
+      `we_1UANVYIhPBLaM6xAfIMs3eMN`, `status=disabled`, `api_version=2026-05-27.dahlia`,
+      6 events, `livemode=True`, created 2026-08-31T05:11:48Z. See **D.3** above.
+      **Not yet enabled** — D.5 gates on the `worker.repworth.net` certificate issuing
+- [x] `assertWorkerStartupEnv` passes, naming the production lane. Boot log excerpt:
+      `Worker listening {"deployment_lane":"production","lane_source":"RAILWAY_ENVIRONMENT_NAME",`
+      `"service_name":"repworth-worker","railway_environment":"production"}` — deployment
+      `2e9a5dc4` at 2026-08-31T06:10:55Z. Zero `[startup] Worker requires` lines in the log.
+      **All 18 gates now proven at runtime**; the six previously untested are closed. See **D.4**.
+- [x] Worker Online; healthcheck green — **and proven by poller cycles, not by the
+      healthcheck**, which this run showed can pass on the Next.js app instead of the
+      worker. `OutboxPoller`/`HealthAlertPoller`/`JudgeSweepPoller` started;
+      `SolicitationReleasePoller` logged `Release cycle complete`. No `NOAUTH`, so the
+      `${{Redis.…}}` fix is confirmed by queue behaviour. See **D.4**.
 - [ ] `pnpm ws8:stripe-preflight --require-status-convergence` →
       `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0` at `____`Z
 - [ ] Checkpoint recorded: deadline-verification UTC `____`, `AUTOPILOT_PURCHASABLE` = `____`

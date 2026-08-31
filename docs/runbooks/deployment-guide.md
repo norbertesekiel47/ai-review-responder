@@ -514,6 +514,53 @@ MOCK_EXTERNAL_APIS=false
 > pnpm 11 via mise. The worker's `next build` is overridden to a no-op `buildCommand` —
 > tsx runs `worker/index.ts` at runtime, so no build artifact is needed.
 
+> **⚠️ A Railway `redeploy` resolves NO deploy config — 2026-08-31.**
+> A `redeploy` (dashboard redeploy, **and any variable change**, including an Infisical
+> Secret Sync write) does **not** read `railway.toml` *or* the service's own settings.
+> It falls back to Railpack auto-detection, which sees a Next.js repo and runs
+> `next build` + `next start`. Proven twice on production at commit `06a163f0`, the
+> second time with `startCommand`/`buildCommand` set explicitly on the service.
+>
+> The service then reports **Online**, because the Next.js app also serves
+> `/api/health`. That is a **false-healthy**: no worker, no pollers, no boot assertion,
+> green dashboard. **Read "Online" on this service as unproven until a poller cycle
+> appears in its own logs.**
+>
+> | `reason` in `list-deployments` | Trigger | Resolves config? |
+> |---|---|---|
+> | `deploy` | new commit on the source branch, or `railway deployment redeploy --from-source` | **yes** |
+> | `redeploy` | dashboard redeploy, **any variable change** | **no** — Railpack auto-detect |
+>
+> **Recovery, and the rule for every variable change on this service:**
+> ```bash
+> railway deployment redeploy --from-source \
+>   --service repworth-worker --environment production \
+>   --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes
+> ```
+> Plain `redeploy` — CLI, dashboard or MCP — is **not** a fix, and Railway's "use
+> redeploy to apply immediately" note on service updates is wrong for this case.
+>
+> The five deploy/build fields are now set in **both** places, `railway.toml` and the
+> Railway service per environment: `startCommand`, `buildCommand`, `healthcheckPath`,
+> `restartPolicyType`, `restartPolicyMaxRetries`. **Change one, change both.**
+>
+> **`repworth-worker` is ONE service shared by both environments.** Railway's
+> `update-service` API defaults to *all* environments when `environmentId` is omitted.
+> Always pass it, or a production fix silently rewrites staging.
+>
+> **Separately, Config as Code is deprecated.** `railway.toml` / `railway.json` stop
+> being read on **2026-12-01**, and new services cannot opt into them. The mirror onto
+> the service settings above already removes the single point of failure, so the cutoff
+> is a documentation-truth problem, not an outage waiting to happen. Migrating to
+> `.railway/railway.ts` is owed before that date as its own reviewed change. **Do not
+> apply `railway config migrate` output as generated** — it names the service `RepWorth`
+> (from the *project* name, not `repworth-worker`), so an apply **creates a second
+> service**; and it silently drops `restartPolicyType` and `restartPolicyMaxRetries`.
+> `railway config apply` is project-wide with omit-means-delete semantics — never run it
+> mid-cutover.
+>
+> Full timeline and root cause: lab-notes 2026-08-31 "Railway deploy configuration".
+
 ### 5.2 Railway env vars
 
 Paste the entire block. Adjust values to match what you provisioned in §1.
@@ -1065,7 +1112,9 @@ openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
 - In the Railway project, create a second environment named **`staging`**
   (`railway environment new staging`, or the dashboard).
 - Deploy the worker into it from GitHub. `railway.toml` is shared across
-  environments, so `startCommand = pnpm worker`, `healthcheckPath = /api/health`,
+  environments — but see the Config-as-Code deprecation note in §5.1: those values are
+  now also set **on the service, per environment**, and the service copy is what
+  actually runs. So `startCommand = pnpm worker`, `healthcheckPath = /api/health`,
   and the `ON_FAILURE` restart policy already apply — you only set **variables**
   per environment.
 - Point the staging env's deploy trigger at the **`staging` branch**.
@@ -1290,7 +1339,7 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 1. Create a **`staging` git branch** from `main` and push it (Railway's staging env deploys from it).
 2. Pick the Railway project — the empty auto-named **`soothing-luck`** (ideally rename to `repworth`) — and add a **`staging` environment**.
 3. Add **Railway Redis** (the queue) to the staging env; **disable its TCP Proxy**; wire `REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`.
-4. Create the **worker service** from the GitHub repo on the `staging` branch (`railway.toml` already sets `pnpm worker` + healthcheck `/api/health`).
+4. Create the **worker service** from the GitHub repo on the `staging` branch. Set `pnpm worker` + healthcheck `/api/health` **on the service** — `railway.toml` alone is no longer sufficient (§5.1 deprecation note).
 5. Set all worker env vars from `.env.staging.local` (`STAGING_X` → `X`) + `NEXT_PUBLIC_APP_URL=https://staging.repworth.net`, `ZERNIO_PUBLISHING_ENABLED=true`, `SELF_SERVE_SIGNUP_ENABLED=true`, channels off, `MOCK_EXTERNAL_APIS=false`; then generate the worker domain → `WORKER_PUBLIC_URL`.
 6. Deploy; confirm `[startup-assert] … ✓` and `/api/health` 200.
 
