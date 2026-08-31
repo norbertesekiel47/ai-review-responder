@@ -6,7 +6,7 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 2** — last reset to 0 by the
+**Merges since last architecture pass: 3** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
 
@@ -64,6 +64,16 @@ Merges since the 2026-08-26 pass:
   `worker/`. Takes the counter to **2**. Migration promoted to staging and
   production ahead of the merge, per the ship order; both databases verified
   identical by constraint and index fingerprint.
+
+- 2026-08-31 — `feat(1009)` (#1031): the **Refusal ledger**'s write path — the
+  one insert helper, its `REFUSAL_LEDGER_ENABLED` kill switch, the eleventh
+  `ArchivalPoller` retention arm, and the FIRST Refusal write site
+  (`autonomy_suspended`). **COUNTS** — production files under `src/lib/`,
+  `worker/` and `scripts/ci/`. Takes the counter to **3**. No migration: 116 was
+  already in both databases. Settles #1008's deviation **D16**. Rode staging with
+  both the write site and the kill switch proven on the deployed worker
+  (`occurred_at` = `account_audit_log.created_at` to the microsecond); flags and
+  seeded rows restored afterwards.
 
 ---
 
