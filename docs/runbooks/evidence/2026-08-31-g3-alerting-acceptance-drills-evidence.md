@@ -169,6 +169,15 @@ earlier. The only variable changed was the trigger set.
 **A page 15 seconds after the poller cycle, on issue groups that had produced nothing an
 hour earlier.** Nothing else in the system changed.
 
+✅ **DELIVERY CONFIRMED BY THE OWNER, 2026-08-31T21:41Z.** The notification arrived in the
+staging Discord channel `1517968864724385822`. This is the assertion §4 actually makes — *"must
+produce a page on the Discord route"* — and it is the one link no API readback can prove:
+`lastTriggered` shows Sentry **fired** the rule, not that Discord **received** it. Owner
+confirmation closes the chain end to end:
+
+> fixture → `HealthAlertPoller` (≤ 1 cycle) → `Sentry.captureMessage` → issue group →
+> alert rule → Discord channel → **a human saw it**
+
 ---
 
 ## Drill results
