@@ -27,14 +27,31 @@
  * ban covers `src/app/**` and `src/components/**`, not this file. `import type`
  * erases at compile time, so nothing here can reach a runtime graph at all.
  *
- * WHAT THIS FILE DELIBERATELY DOES NOT HOLD. There is no code→category map for
- * six of the seven lanes, no `refusalCategoryFor` resolver and no owner label
- * table. Each arrives with the slice that writes its lane (#1010–#1014); this
- * slice writes `autonomy_suspended` and only that, and a map with no caller is
- * dead code this repo gates on.
+ * WHAT THIS FILE DELIBERATELY DOES NOT HOLD. There is no `refusalCategoryFor`
+ * resolver and no owner label table — the **Restraint tab** (#1014) owns
+ * presentation — and no map for the two lanes #1013 writes: `policy_gate_held`
+ * carries #1003's 22-member precedence order and veto set, and `held_draft`
+ * carries the fixed category #1001 declined to pin in the schema. Both arrive
+ * with that slice.
+ *
+ * WHY THE OTHER FIVE MAPS ARRIVE TOGETHER, AHEAD OF THEIR WRITE SITES. #1009
+ * said each map would land with the slice that writes its lane, and that was
+ * right for one slice at a time. Slices #1010, #1011 and #1012 are INDEPENDENT
+ * (#1004) and run concurrently, so under that rule all three would edit this
+ * one file at once — the merge-order cost the parallel run exists to avoid.
+ * Landing the five maps first makes those three surfaces disjoint. The cost is
+ * stated rather than hidden: for as long as this file is ahead of them, five
+ * exported constants have no production caller.
  */
 
-import type { AutonomySuspensionTrigger } from '@/lib/shared/worker-types';
+import type {
+  AutoPolicyDowngradeReason,
+  AutonomySuspensionTrigger,
+} from '@/lib/shared/worker-types';
+import type { OwnerHaltReason, SystemHaltReason } from '@/lib/solicitation/approval';
+import type { OutreachWithheldReason } from '@/lib/solicitation/dispatch';
+import type { RenderWithholdReason } from '@/lib/solicitation/outreach';
+import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
 
 // ---------------------------------------------------------------------------
 // Axis A — the lane. `refusal_events.refusal_source`.
@@ -155,7 +172,20 @@ export type RefusalSubjectType = (typeof REFUSAL_SUBJECT_TYPES)[number];
 export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 
 // ---------------------------------------------------------------------------
-// The one lane map this slice ships.
+// The lane maps. One per lane vocabulary, each `satisfies Record<Enum, …>` so a
+// member added upstream without a category decision is a COMPILE error.
+//
+// THE VALUES ARE HARVESTED VERBATIM from the parked `feat/refusal-log` branch's
+// own `vocabulary.ts`. Nothing here re-decides a category; #995 froze them and
+// #1002 ruled there is never a backfill, so a value changed here would silently
+// disagree with every row a later map writes.
+//
+// `| null` APPEARS ONLY WHERE A NULL MEMBER ACTUALLY EXISTS. A lane whose codes
+// are all Refusals is typed `Record<Enum, RefusalCategory>`, so an omission
+// cannot type-check as a decision — the rule
+// `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` states below, applied to all six.
+// Where `null` IS present it means "this code is not a **Refusal**", never a
+// missing entry and never a default; each one carries its own reason.
 // ---------------------------------------------------------------------------
 
 /**
@@ -183,3 +213,137 @@ export const AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES = {
   governor_veto_rate: 'autonomy_paused',
   governor_judge_signal_rate: 'autonomy_paused',
 } as const satisfies Record<AutonomySuspensionTrigger, RefusalCategory>;
+
+/**
+ * `ask_withheld` — why a candidate the batch builder evaluated did not become
+ * an Ask. Written by `commitAskDecisions` (#1010).
+ *
+ * `WithholdReason` is derived from `WITHHOLD_REASONS`, a runtime `as const`
+ * array, so this lane's eval enumerates the members directly instead of parsing
+ * a bare union out of its module.
+ *
+ * `velocity_banked` IS THE ONLY `null`, and it is the reason this map is typed
+ * `| null` at all. A banked candidate is DEFERRED, not refused: the send caps
+ * held it back for this build and it stays in the pool for the next one, so
+ * telling the owner we declined to contact them would be false.
+ */
+export const ASK_WITHHELD_REFUSAL_CATEGORIES = {
+  no_consent: 'no_permission',
+  suppressed: 'no_permission',
+  already_reviewed: 'wrong_moment',
+  stale_visit: 'wrong_moment',
+  over_contacted: 'wrong_moment',
+  velocity_banked: null,
+} as const satisfies Record<WithholdReason, RefusalCategory | null>;
+
+/**
+ * `outreach_withheld`, DISPATCH half — why the send gate refused an Outreach it
+ * had already rendered. Written by `commitWithhold` (#1010).
+ *
+ * SEPARATE FROM THE RENDER MAP BELOW, and the two must never be merged. They
+ * write the same `refusal_source`, but they are different WRITERS over
+ * different closed enums (#997 counted them separately, which is where the
+ * "eleven sites, not seven" figure comes from), and merging them would let a
+ * dispatch-only reason type-check at a render site. The overlap is real and
+ * harmless: `lint_failed` and `moderation_high` appear in both because the
+ * dispatch gate re-lints and re-moderates the stored copy at send time.
+ *
+ * No `| null`: every one of the six is RepWorth declining to send.
+ */
+export const OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES = {
+  suppressed: 'no_permission',
+  no_consent: 'no_permission',
+  no_postal_address: 'missing_information',
+  postal_address_mismatch: 'missing_information',
+  lint_failed: 'below_our_bar',
+  moderation_high: 'unsafe_content',
+} as const satisfies Record<OutreachWithheldReason, RefusalCategory>;
+
+/**
+ * `outreach_withheld`, RENDER half — why generation produced no sendable Ask.
+ * Written by all four writers in `ask-generation.ts` (#1011).
+ *
+ * `render_failed` and `lint_failed` are both `below_our_bar`: the owner-facing
+ * fact is the same — the copy was not good enough to send — and the two codes
+ * stay distinct in `refusal_code` for whoever debugs the generator.
+ */
+export const OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES = {
+  moderation_high: 'unsafe_content',
+  render_failed: 'below_our_bar',
+  lint_failed: 'below_our_bar',
+} as const satisfies Record<RenderWithholdReason, RefusalCategory>;
+
+/**
+ * Every reason the Halt latch can write, RE-COMPOSED here rather than imported.
+ *
+ * `approval.ts`'s own `LatchHaltReason` is PRIVATE BY DESIGN and must stay that
+ * way: it is the union that spans actor classes, so an exported signature
+ * accepting it would let a request field name `admin_halt` or `owner_veto` and
+ * forge an actor. `approval.test.ts` asserts the non-export in source text, and
+ * an earlier draft of this file exported it and turned that test red — the
+ * design held, the shortcut did not.
+ *
+ * So the two ACTOR-CLASS unions are imported (both are already public, and both
+ * are pinned exact by that same test) and only the admin literal is re-spelled.
+ * A type alias grants no one the ability to write a reason: every write still
+ * goes through `approval.ts`'s own signatures, which are unchanged. The
+ * eval's matching case reads `LatchHaltReason` out of `approval.ts` as text, so
+ * a member added there and not here still fails.
+ */
+type BatchHaltedRefusalCode = OwnerHaltReason | 'admin_halt' | SystemHaltReason;
+
+/**
+ * `batch_halted` — why a Send batch stopped. Written by `latchHalt` (#1010).
+ *
+ * FOUR OF THE SIX ARE `null`, which is what makes this lane's vocabulary
+ * comment true: a **Refusal** here is a batch WE halted, never one the owner
+ * halted and never one that simply ran out of time.
+ *
+ *   * `owner_veto` and `owner_halt` — the owner stopped it. RepWorth refused
+ *     nothing, and claiming otherwise on the **Restraint tab** would credit us
+ *     with the owner's own decision.
+ *   * `send_window_elapsed` and `batch_expired` — a deadline passed. No actor
+ *     decided anything at the moment the latch fired.
+ *
+ * `admin_halt` and `platform_halt` are both `autonomy_paused`. Their audit
+ * behaviour differs — the platform arm writes no `account_audit_log` row, so
+ * the log never claims an operator acted — and that asymmetry is invisible here
+ * because the ledger write is its own statement at every site (#1001).
+ */
+export const BATCH_HALTED_REFUSAL_CATEGORIES = {
+  owner_veto: null,
+  owner_halt: null,
+  admin_halt: 'autonomy_paused',
+  send_window_elapsed: null,
+  batch_expired: null,
+  platform_halt: 'autonomy_paused',
+} as const satisfies Record<BatchHaltedRefusalCode, RefusalCategory | null>;
+
+/**
+ * `auto_post_revoked` — why the publisher took back an auto-approved reply
+ * before it posted. Written by `downgradeAutoApprovedResponseForManualReviewInTx`
+ * (#1012).
+ *
+ * Two categories, six codes. `notice_undelivered`, `judge_disabled` and
+ * `judge_unhealthy` are `watchdog_unavailable` — we could not check the reply,
+ * or could not tell the owner it was coming, so we did not post it. The other
+ * three are `autonomy_paused` — we were no longer acting on the owner's behalf.
+ *
+ * `judge_disabled` and `judge_unhealthy` share a category AND an audit marker
+ * and still stay two codes, because `refusal_code` is stored verbatim: the
+ * ledger records which one held the post, even where the owner sees one
+ * sentence.
+ *
+ * This lane and `autonomy_suspended` and `policy_gate_held` are three distinct
+ * acts, not a double count (#998): this one records a post already scheduled,
+ * `autonomy_suspended` records the account once, `policy_gate_held` records a
+ * draft never scheduled.
+ */
+export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
+  auto_approval_disabled: 'autonomy_paused',
+  notice_undelivered: 'watchdog_unavailable',
+  judge_disabled: 'watchdog_unavailable',
+  judge_unhealthy: 'watchdog_unavailable',
+  autopilot_entitlement_lost: 'autonomy_paused',
+  policy_suspended: 'autonomy_paused',
+} as const satisfies Record<AutoPolicyDowngradeReason, RefusalCategory>;

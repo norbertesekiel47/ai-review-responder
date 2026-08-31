@@ -124,6 +124,31 @@ export type AutonomySuspensionTrigger =
   | 'governor_veto_rate'
   | 'governor_judge_signal_rate';
 
+/**
+ * Why the publisher revokes an auto-policy approval before the reply posts.
+ *
+ * DECLARED HERE RATHER THAN IN THE WORKER MODULE THAT USES IT, on
+ * `AutonomySuspensionTrigger`'s precedent directly above and for the identical
+ * reason: the Refusal ledger's vocabulary (`src/lib/refusals/vocabulary.ts`)
+ * maps every member to a **Refusal category**, and nothing under `src/lib/`
+ * imports from `worker/` — no such import exists anywhere in the repository.
+ * `worker/jobs/publisher/auto-policy-downgrade.ts` still owns the BEHAVIOUR and
+ * re-exports this type, so its callers are unchanged; this file owns only the
+ * union, so both sides can name it.
+ *
+ * `judge_disabled` and `judge_unhealthy` stay two members even though they
+ * share one audit marker and one **Refusal category**:
+ * `refusal_events.refusal_code` stores the member verbatim, and collapsing them
+ * here would delete the distinction from the record.
+ */
+export type AutoPolicyDowngradeReason =
+  | 'auto_approval_disabled'
+  | 'notice_undelivered'
+  | 'judge_disabled'
+  | 'judge_unhealthy'
+  | 'autopilot_entitlement_lost'
+  | 'policy_suspended';
+
 export type AutonomySuspensionEvidence =
   | { verdict_id: string }
   | { rate: number; numer: number; denom: number; windowDays: number };

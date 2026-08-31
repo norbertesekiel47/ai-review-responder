@@ -11,14 +11,21 @@ import {
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '../../../src/lib/shared/outbox';
+import type { AutoPolicyDowngradeReason } from '../../../src/lib/shared/worker-types';
 
-export type AutoPolicyDowngradeReason =
-  | 'auto_approval_disabled'
-  | 'notice_undelivered'
-  | 'judge_disabled'
-  | 'judge_unhealthy'
-  | 'autopilot_entitlement_lost'
-  | 'policy_suspended';
+/**
+ * The union MOVED to `src/lib/shared/worker-types.ts` and is re-exported here,
+ * so every existing `import type { AutoPolicyDowngradeReason } from
+ * './auto-policy-downgrade'` still resolves and this module keeps naming its own
+ * input.
+ *
+ * NOT A COMPATIBILITY SHIM. This module owns the downgrade BEHAVIOUR and the
+ * reason is part of its input contract; what moved is only the declaration, and
+ * only because `src/lib/refusals/vocabulary.ts` must map every member to a
+ * **Refusal category** and nothing under `src/lib/` may import from `worker/`.
+ * `AutonomySuspensionTrigger` sits in that file for the same reason.
+ */
+export type { AutoPolicyDowngradeReason };
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).
