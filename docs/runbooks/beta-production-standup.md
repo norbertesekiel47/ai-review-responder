@@ -124,13 +124,29 @@ clicks it).
 
 ### Phase B — Railway `production` env vars (deployment-guide §5.2, superseded as follows)
 
-> Boot-gated set (must ALL exist before Phase D's deploy): `DATABASE_URL`/
-> `DATABASE_POOL_URL`/`SUPABASE_*`, `REDIS_CACHE_URL`, `REDIS_QUEUE_URL`,
-> `SERPAPI_API_KEY` (eager import), `SENTRY_DSN`, `ADMIN_NOTIFICATION_EMAIL`,
-> `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, six `STRIPE_PRICE_*`,
-> `DAILY_COST_LIMIT_CENTS_COPILOT`, `DAILY_COST_LIMIT_CENTS_AUTOPILOT`.
-> The Stripe trio and price vars are produced in Phase D (endpoint + WS8 §1) —
-> set every other one now.
+> **The boot-gated set is owned by `docs/runbooks/infisical-production-manifest.md`
+> §1. Read it there; do not restate it here.** That table was derived from code
+> at `f6695494` and cites the function that throws for every row.
+>
+> The list this blockquote used to carry was wrong in five places (manifest §7).
+> It is recorded here so nobody re-derives the same errors:
+>
+> - `SERPAPI_API_KEY` is **not** boot-gated. `src/lib/config/worker.ts:50` types
+>   it `rawOptionalVar`, and its only asserting accessor has no production caller.
+> - `DATABASE_URL` is **not** boot-gated. `CORE_INFRA_REQUIRED_ENV` is four names
+>   and this is not one of them. No production code reads it; it is
+>   ops-and-migrations config.
+> - `REDIS_CACHE_URL` is **not** boot-gated. The client is lazy, so a missing
+>   value throws at first use. It is required in practice, not at boot.
+> - `SESSION_COOKIE_SECRET` **is** an unconditional gate, and was omitted.
+> - `NEXT_PUBLIC_APP_URL` **is** an unconditional gate, and was omitted.
+>
+> Both omitted gates fire through `assertUnsubscribeIngressConfigured`
+> (`worker/index.ts:596`) on every deployed lane. A boot gate you did not plan
+> for is a crash loop that exhausts `restartPolicyMaxRetries = 10` and stays down.
+>
+> `STRIPE_WEBHOOK_SECRET` and the six live `STRIPE_PRICE_*` IDs are produced in
+> Phase D (endpoint + WS8 §1). Set every other gate now.
 
 | Topic | Do | Source |
 |---|---|---|
@@ -144,7 +160,7 @@ clicks it).
 | Zernio | `ZERNIO_PUBLISHING_ENABLED=true`, live `ZERNIO_API_KEY`, fresh `ZERNIO_WEBHOOK_SECRET` | §5.2 |
 | Retired vars | Remove `PAST_REPLIES_VIEW_ENABLED` if present (retired #678 — read nowhere) | env-vars.md |
 | Full flag audit | Enumerate **every** default-off flag from env-vars.md on BOTH surfaces and record its intended prod value — including `AUTO_APPROVAL_PROVIDER_MODERATION_READY`, offboarding, solicitation, `STRIPE_TAX_ENABLED`, channels, `EDIT_REPLIES_ENABLED`, `EXTERNAL_REPLY_IMPORT_ENABLED`, `ONBOARDING_DEMO_ENABLED` | env-vars.md |
-| Everything else | B2 audit: diff Railway prod var NAMES vs staging's + `.env.example`; resolve every gap deliberately; fresh `SESSION_COOKIE_SECRET`/`CSRF_SECRET`/`IMPERSONATION_COOKIE_SECRET` (≥32 chars); `NODE_ENV=production` (confirm vs ADR 0013); `MOCK_EXTERNAL_APIS=false` | §5.2, §II.3 |
+| Everything else | B2 audit: diff Railway prod var NAMES vs staging's + `.env.example`; resolve every gap deliberately; fresh `SESSION_COOKIE_SECRET`/`CSRF_SECRET`/`IMPERSONATION_COOKIE_SECRET` (≥32 chars); **leave `NODE_ENV` unset** and **do not create `MOCK_EXTERNAL_APIS`** — manifest §8 | §5.2, §II.3, manifest §8 |
 
 ### Phase C — Vercel Production env vars (deployment-guide §4.2)
 
@@ -194,12 +210,34 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase E — Remaining live webhooks (deployment-guide §6)
 
-- [ ] **E1. Resend** → prod worker `/ingress/resend`. The signing secret is
+> **DONE 2026-08-31.** Both endpoints were created through the **provider APIs**, not the
+> dashboards — neither provider needed a browser. Full record: evidence file → **Phase E**.
+
+- [x] **E1. Resend** → prod worker `/ingress/resend`. The signing secret is
       **provider-issued** (Svix `whsec_…`, shown when the endpoint is created)
       — paste Resend's value into `RESEND_WEBHOOK_SECRET`. *(Supersedes §1.2's
       "generate a 64-hex secret" — you cannot choose this one.)*
-- [ ] **E2. Zernio** → prod worker; live key; verify per §6.2.
-- [ ] Staging endpoints stay pointed at staging; never re-point.
+      **`POST https://api.resend.com/webhooks` creates it and returns `signing_secret`
+      once.** Endpoint `3de61a3d-b4d5-416c-a0db-5d581d730a02`, 4 events, `enabled`.
+      Value written to Infisical `prod` from a mode-600 file; sync-to-Railway confirmed by
+      SHA-256 fingerprint, never by reading it.
+- [x] **E2. Zernio** → prod worker; live key; verify per §6.2.
+      **`POST https://zernio.com/api/v1/webhooks/settings` creates it and takes a
+      caller-supplied `secret`,** so the existing `ZERNIO_WEBHOOK_SECRET` was used
+      verbatim. Subscription `6a95315320358f33c89599e5`, 4 events, active.
+      `webhook.test` is **not subscribable** — fire it with `POST /v1/webhooks/test`.
+- [x] **E3. Delivery proven, both providers.** `zernio/webhook.test` and
+      `resend/email.delivered` both wrote `status='processed'` rows to production
+      `inbound_events` — the first two rows that table has ever held.
+- [x] Staging endpoints stay pointed at staging; never re-point. Verified after both
+      creates: both still resolve to `repworth-worker-staging.up.railway.app`.
+
+> **Owed out of Phase E — rotate three production secrets.** `infisical secrets` prints
+> values **by default**, not masked, and exposed `RESEND_API_KEY`, `ZERNIO_API_KEY` and
+> `ZERNIO_WEBHOOK_SECRET` to a session transcript. Blast radius today is near zero
+> (zero-state database, no connected location) and **closes at the first connected
+> location.** Rotating `ZERNIO_WEBHOOK_SECRET` must `PUT` subscription
+> `6a95315320358f33c89599e5`'s `secret` in the same change. Evidence file → **E-F1**.
 
 ### Phase F — Beta activation path
 
@@ -228,9 +266,19 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       durable `checkout_coupon_decision` analytics event (migration **106**).
       The dead `pending_payment_admin_handoff` screen is deleted; owners now
       self-activate through the funnel.
-- [ ] **F2.** Create the coupon (100% off, `duration: repeating`,
+- [x] **F2. DONE 2026-08-31.** Coupon id **`repworth-beta-comp-3mo`** — the **SAME
+      id in both modes**, not two ids. Test mode pre-existed (2026-08-21); live mode
+      created 2026-08-31. One id in both modes makes the "test id deployed to live"
+      failure below structurally impossible. **The `repeating` deprecation check
+      PASSES** under the pinned `Stripe-Version: 2026-05-27.dahlia`:
+      `percent_off=100`, `duration=repeating`, `duration_in_months=3`, `valid=true`,
+      `livemode=true`. **No fallback is needed** — the three cycle-scoped promotions
+      are not required. ⚠️ **Read the id the environment already names BEFORE
+      creating anything** — the first live create used a fresh id and had to be
+      deleted. Evidence file → **F.2c**. Original text follows.
+      Create the coupon (100% off, `duration: repeating`,
       `duration_in_months: 3`) in **BOTH Stripe modes** — test mode for staging,
-      live mode for prod. **The two IDs differ**; a test-mode ID deployed to live
+      live mode for prod. ~~**The two IDs differ**~~ (they do not, here); a test-mode ID deployed to live
       fails every invited tester's checkout identically (it raises
       `CheckoutCouponConfigurationError` + a Sentry report rather than a generic
       500, so the failure is legible — but it is still a failed checkout in front
@@ -238,14 +286,41 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       Stripe apiVersion first** (deprecation risk flagged in review 2026-08-10;
       record a fallback plan — e.g. three cycle-scoped 100% promotions — in this
       box if it fails: `____`). Record both coupon IDs in `launch-checklist.md`.
-- [ ] **F2b.** Set `BETA_COMP_COUPON_ID` on **Vercel, staging first**, and
+- [x] **F2b. Staging DONE — it was already set** on Vercel `staging`
+      (`repworth-beta-comp-3mo`, 2026-08-21). Verified by readback, not assumed.
+      **Production is HELD for F4, and it is held structurally:** the key is absent
+      from Vercel `Production` **and** absent from the Infisical vault `prod`, so no
+      Secret Sync can push it there by accident. Adding it to the vault IS the F4
+      flip. Evidence file → **F.2d**. Original text follows.
+      Set `BETA_COMP_COUPON_ID` on **Vercel, staging first**, and
       redeploy. Server-only, no `NEXT_PUBLIC_` companion (invariant #13), and
       deliberately **not** a Railway/worker variable — no worker path reaches
       `applyTierSnapshot`. Empty/whitespace reads as unset. **Unsetting is the
       kill switch and affects NEW attempts only**: an attempt that already
       snapshotted the coupon keeps it, which is the idempotency contract, not a
       bug. Hold the production value until F4 below.
-- [ ] **F3. Staging smoke — the invited-owner loop end to end.** Run it as an
+- [x] **F3. DONE 2026-08-31 — ALL TEN STEPS PASS.** Run against
+      `https://staging.repworth.net` at repo HEAD `37a3b49b`, with every API and
+      database assertion verified independently rather than read off a screen.
+      **Posture tested: `ONBOARDING_DEMO_ENABLED=true`**, so step 4 landed on
+      `/onboarding/start`; `AUTOPILOT_PURCHASABLE=false`, so the run priced
+      against Copilot founding, **$19.00/month**. Owner A
+      `norbert.esekiel@repworth.net` walked steps 2–9; Owner B `nsunn@usc.edu`
+      served step 10. Key artefacts: subscription `sub_1UAaO2IhPBLaM6xA5AI1YZrj`,
+      **Checkout attempt** `aa86f64e-f026-449b-972d-ceebe3d3b890`, first invoice
+      `in_1UAaO0IhPBLaM6xAxTgziJ1B` (**total $0.00** on a $19.00 subtotal), card
+      `pm_1UAaO0IhPBLaM6xAv6XPwnke` (visa ·4242) captured on that $0 invoice, and
+      `checkout_coupon_decision` = `applied` / `coupon_applied: true`.
+      **Step 8 passed by boundary proof:** the discount's `end` is
+      2026-11-30T18:56:52Z, the cycle-4 anchor to the second — a rendered 4th
+      invoice needs a Stripe **test clock**, which a real Checkout cannot have.
+      **Three findings (F3-F1…F3-F3)** — step 10 tests the eligibility gate and
+      **cannot** reach the provider mapping; `resend-invite.ts` has not been
+      staging-unverified since 2026-08-14; and migration 106's own header is the
+      one stale copy of the coupon-event emission point (the owning
+      `migrations-log.md` entry is already correct).
+      Evidence file → **Phase F.3**. Original text follows.
+      Run it as an
       operator, in this order, against staging. Every box is a thing you can
       actually see.
       1. **Migrations.** 105 and 106 are applied to the staging Supabase project.
@@ -289,13 +364,45 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       10. **Resend invite.** While a *second* test owner has not yet signed in,
           `POST /api/admin/businesses/[id]/resend-invite` re-sends. Then accept
           that invite and try again: the resend must be refused cleanly, not
-          duplicated. ⚠️ **This is also the step that validates the provider
+          duplicated. ⚠️ **CORRECTED 2026-08-31 (finding F3-F1) — this step tests
+          the eligibility GATE, and it cannot reach the provider error mapping.**
+          `resendOwnerInvite` throws `OWNER_ALREADY_SIGNED_IN` on
+          `last_sign_in_at` **before** `inviteUserByEmail` is ever called, so the
+          code you observe is always ours, never Supabase's. Observed:
+          **409 Conflict**, `code: "OWNER_ALREADY_SIGNED_IN"`, and **no third
+          email** (`invited_at` unmoved on re-read). Record those.
+          ~~**This is also the step that validates the provider
           error mapping in `src/lib/onboarding/resend-invite.ts`, which shipped
           deliberately staging-unverified** — record the actual Supabase error
           code/status you observe for the already-accepted case, and reconcile
-          the mapping against it before prod.
-- [ ] **F4. Production is gated on the WS8 cutover — do not run F2b in prod
-      early.** The gate is now **code and Stripe, not schema**: as of 2026-08-14
+          the mapping against it before prod.~~ That mapping was **already
+          verified on 2026-08-14** against this same staging project
+          (`email_exists` / 422 → 409); `INVITE_ERROR_CODE_MAP`'s header says
+          `CONTRACT VERIFIED` and cites
+          `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md`
+          → **D-13**. Reaching that table needs a different test, one that
+          bypasses the gate.
+- [x] **F4. DONE 2026-08-31 — THE D.6 DEBT IS CLOSED.** Production completed a
+      live-mode Checkout, and it was the owner's. Session
+      `cs_live_a1viDmqFYmwiSulmWEjXhfRmrlOTxoexml4WrBGnyOZhjNTnDjAPUs7MBQ`,
+      subscription `sub_1UAbs7IhPBLaM6xASGkfGz2V`, invoice
+      `in_1UAbs5IhPBLaM6xA0uqtVYAB` — **subtotal $19.00, total $0.00, `paid`**, card
+      `pm_1UAbs5…` (visa ·6733) captured on that $0 invoice. `payment_method_collection`
+      read back as **`"always"`** and `allow_promotion_codes` as **`null`** (omitted, not
+      `false` — the D-16 fix holds live). 4th cycle full price by boundary proof: discount
+      `end` = 2026-11-30T20:32:01Z, the cycle-4 anchor to the second. Subscription
+      cancelled **immediately** afterwards; **the owner was charged $0.00**.
+      **The live Stripe webhook is now proven** — `invoice.paid`,
+      `checkout.session.completed` and `customer.subscription.deleted` all `processed`,
+      zero errors, on an endpoint that had never been delivered to since D.3.
+      ⚠️ **Two production COMMISSIONING gaps found on the way, either of which would have
+      stopped beta tester one:** production had **no admin user at all** (F4-F1), and the
+      Supabase Auth **Site URL was `http://localhost:3000`**, so the invite email pointed at
+      a machine that is not ours (F4-F2). Both fixed in-session; `deployment-guide.md` gains
+      the production URL-configuration step it never had. Four more findings F4-F3…F4-F6.
+      Evidence file → **Phase F.4**. Original text follows.
+      ~~Production is gated on the WS8 cutover — do not run F2b in prod
+      early.~~ The gate is now **code and Stripe, not schema**: as of 2026-08-14
       migrations 077, 105 and 106 are all applied in production, and **078** is
       the only one still outstanding (it applies in Phase D,
       `ws8-tier-cutover.md` §7). Order for prod: Phase D cutover (resume at §6 —
@@ -307,31 +414,117 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase G — Alerting + posture verification
 
-- [ ] **G1.** Choose **ONE named non-email alert sink** (the docs currently
+- [x] **G1. DONE 2026-08-31.** All four signals reach the owner's prod-only Discord
+      channel. Two rules: Discord added to existing `3920752`, and new `3925256`
+      "Prod — four ops signals to Discord" carrying all four `Tagged event` filters with
+      `any` logic → Discord (integration `443670`, channel `1544045194264051842`,
+      tags `repworth-prod`). **Verified by API readback and by a test notification the
+      owner received in the channel.**
+      ⚠️ **Named tradeoff:** one rule, not four. `subsystem:import_consent_analytics` is
+      supposed to be *frequency-conditioned* but shares this rule's "notify on every
+      trigger" throttle — **split it into its own rule if it proves noisy.** Both rules
+      also keep the default "An issue is resolved" trigger, so a resolve posts to Discord.
+      Evidence file → **Phase G.1**. Original scoping follows.
+      ~~NOT DONE, precisely scoped 2026-08-31.~~ The sink is **Discord** and the
+      integration already works (id `443670`; the staging rule fired 2026-08-31T01:00:46Z).
+      **What is missing is every production rule.** `repworth-production` has exactly one
+      alert rule (3920752) and its only action is **Email**; it has never triggered. None
+      of the four signals is routed, in either project.
+      **There is no "link a channel" step** — the *server* is linked once at org level, and
+      a *channel* is named per action as a **channel ID or URL** (not a name). The Sentry
+      bot must be able to see the channel; a private channel needs the bot added with
+      *View Channel* + *Send Messages*. Verify with **Send Test Notification** on the rule.
+      **UI work:** the Sentry MCP has no create/update tool for alert rules. Build them at
+      `https://repworth-nv.sentry.io/monitors/alerts/`. Evidence file → **Phase G.1**.
+      Original text follows.
+      Choose **ONE named non-email alert sink** (the docs currently
       disagree — Discord in `drift-alert.ts`'s comment, Slack/PagerDuty in
       `beta-launch-alerting.md`): `____`. Route to it: `subsystem:health_alert`,
       `cost_event:limit_exceeded`, `subsystem:import_consent_analytics`
       (frequency-conditioned), **and `feature:stripe_reconciliation`** (known
       unrouted — see the comment in
       `worker/background/pollers/billing-reconciliation/drift-alert.ts`).
-- [ ] **G2.** Sentry Cron monitor `health-alert-poller` (environment
-      `production`) + external `/ready` synthetic checks (worker + Next.js).
-- [ ] **G3.** **Mutating acceptance drills run on STAGING only**
+- [x] **G2. DONE 2026-08-31** — after the owner upgraded to a **Teams plan (20 monitors)**.
+      All three production monitors are **active**: `health-alert-poller` (cron, environment
+      `production` = `ok`, last check-in 18:00:53Z), `Prod worker /ready` (8341697, 300 s),
+      `Prod app /api/health` (8341701, 300 s). **The cron monitor healed itself** — the SDK
+      sends an upserting check-in, so the first beat after a seat freed up flipped it from
+      `disabled` to `active` with no manual step. The production dead-man heartbeat is live.
+      **Residual: routing, not monitoring — see G1.** Original diagnosis follows, kept
+      because the signature is reusable.
+      ~~BLOCKED on a Sentry billing seat — root cause proven 2026-08-31.~~
+      The monitor and the code are both fine. The production `health-alert-poller`
+      monitor exists and the worker **is** sending check-ins; Sentry rejects every one
+      with `Monitor disabled`. Activating any monitor returns
+      `"You don't have enough pay-as-you-go available to create a new seat"`, and
+      `Settings → Subscription` reads **Developer plan, no payment method on file**.
+      The two staging monitors hold the available seats. Two production uptime monitors
+      are **created and staged disabled** — `Prod worker /ready` (8341697) and
+      `Prod app /api/health` (8341701), both 300 s.
+      **Two ways out, neither a button on the monitor page:** (a) free — disable the two
+      staging monitors to release their seats, then enable the production ones;
+      (b) paid — add a payment method + pay-as-you-go budget.
+      **Until then, treat production as unmonitored by Sentry crons and uptime.**
+      Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
+      `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
+- [ ] **G3. IN PROGRESS 2026-08-31 — 2 of 10 drills PASS, after they found and fixed a
+      PRODUCTION alerting defect.** ⚠️ **A recurring ops finding pages nobody.** §4.2 and §4.3 both
+      fired correctly and both reached Sentry; **neither produced a page**. Cause is issue
+      GROUPING: `emitHealthFindings` uses `Sentry.captureMessage`, so a repeat finding joins
+      its existing group, and **both** alert rules trigger only on *First seen / Resolved /
+      Reappeared / Regression*. An ongoing group is none of those. **Production rule
+      `3925256` — created in G.1 — has the identical trigger set**, so its four ops signals
+      page on a signal's FIRST occurrence and are silent thereafter. G.1 verified routing
+      with a **test notification**, which is by construction a first-seen event, so its
+      "four signals reach Discord" holds for the first occurrence only.
+      ✅ **FIXED AND PROVEN, same session.** Both rules gained the **`Every event`** trigger
+      (the UI's *"An event or issue activity is captured"* — there is no *"seen more than 0
+      times"* option) plus a **60-minute Action Throttle**, so repeats page at most hourly per
+      issue while a new issue still pages at once. Staging updated 21:30:58Z, production
+      21:34:53Z; **nothing removed from either rule**, verified by API readback.
+      **Controlled re-run proves it:** identical fixtures against the **same pre-existing
+      Sentry groups** — before, `lastTriggered` did not move across two cycles; after, it read
+      **21:37:05Z**, 15 s after the poller cycle. §4.2 and §4.3 now **PASS**. Also **D-1: §4.1 is unrunnable as written** — the OutboxPoller
+      claims the fixture (5 s) 60× faster than the health check reads it (300 s), so it must
+      fold into the §4.7 worker-stop drill. Teardown complete, staging clean, production
+      untouched. Evidence:
+      `docs/runbooks/evidence/2026-08-31-g3-alerting-acceptance-drills-evidence.md`.
+      Original text follows.
+      **Mutating acceptance drills run on STAGING only**
       (beta-launch-alerting §4). Production gets routing verification via safe
       synthetic canaries — never failure injection, worker stops, or cost-cap
       exhaustion against the live stack.
-- [ ] **G4.** Provider moderation gate: the implementation is **binary**
-      (`result.flagged`, `src/lib/moderation/moderate.ts`) — there is no
-      threshold to "tune". Run the corpus validation in
-      `docs/runbooks/auto-approval-provider-moderation-validation.md` against
-      representative prod-like samples with recorded false-positive/negative
-      acceptance criteria, then flip `OPENAI_MODERATION_ENABLED=true`.
-      (`AUTO_APPROVAL_PROVIDER_MODERATION_READY` stays false — it is the
-      later, auto-approval-gate marker.)
-- [ ] **G5.** Walk `launch-flag-readiness.md`; append a fresh dated snapshot —
-      Railway AND Vercel reads, including every Phase B audited flag.
-- [ ] **G6.** Doc hygiene: correct env-vars.md's stale `ZERNIO_PUBLISHING_ENABLED`
-      prod row; tick resolved launch-checklist items (only genuinely done ones).
+- [x] **G4. DONE 2026-08-31 — flipped AND validated in production.** The
+      implementation is **binary** (`result.flagged`, `src/lib/moderation/moderate.ts`) —
+      there is no threshold to "tune".
+      ⚠️ **ORDER CORRECTION.** This box used to say "run the validation, **then** flip".
+      That is impossible: with the flag off, `moderateResponse` returns the local decision
+      before it ever calls the provider, so the clean-provider check cannot be observed.
+      The runbook is right — setting `OPENAI_MODERATION_ENABLED=true` is a **Required
+      Environment** precondition of the validation, not its conclusion.
+      Written to the **Infisical vault `prod`** (one source of truth for Railway + Vercel),
+      confirmed live, then all three checks run against the real provider with production
+      credentials: clean → `providerStatus:"clean"`; flagged → `flagged:true`,
+      `severity:"high"`, `openai_categories` present; provider error → falls back to local,
+      `providerStatus:"error"`, no throw. **All PASS.**
+      `AUTO_APPROVAL_PROVIDER_MODERATION_READY` **stays false** — it is the later,
+      auto-approval-gate marker, and the runbook's permission to set it is deliberately
+      not taken. Evidence file → **Phase G.4**.
+- [x] **G5. DONE 2026-08-31.** Four-surface snapshot appended to
+      `launch-flag-readiness.md` — Railway prod/stg **and** Vercel prod/stg, 26 flags.
+      **Production autonomy posture is correct and consistent on both surfaces.**
+      `ONBOARDING_DEMO_ENABLED` is already `true` everywhere — that rollout step was
+      **not** owed. No staging drift: four blank Vercel staging reads are `Secret`-type,
+      not empty (the F8 mistake, avoided). **Finding G5-F1:** the Infisical Secret Sync
+      does NOT preserve Vercel's Sensitive flag — Production went 9 `Secret` → 4, and the
+      4 survivors are exactly the 4 the vault does not manage. That turns the owed
+      "re-add three vars as `--sensitive`" action into an owed **decision**.
+- [x] **G6. DONE 2026-08-31.** `env-vars.md`'s `ZERNIO_PUBLISHING_ENABLED` prod row
+      corrected — the `2026-04-28` date was wrong, because the 2026-06-26 worker read
+      recorded prod **off**; the row now cites the four-surface re-verification instead.
+      Two launch-checklist items ticked, both genuinely done: the
+      `ONBOARDING_DEMO_ENABLED` production rollout step (already true) and the
+      flag-readiness snapshot walk (G5).
 
 ### Phase H — Prove it (deployment-guide §9–§10)
 

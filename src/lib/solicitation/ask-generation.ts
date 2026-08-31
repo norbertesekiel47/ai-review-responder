@@ -59,6 +59,8 @@ import type { LLMCallResult } from '@/lib/llm/types';
 import { moderateResponse } from '@/lib/moderation/moderate';
 import type { ModerationDecision } from '@/lib/moderation/output-filter';
 import { openaiModerationEnabled } from '@/lib/moderation/flags';
+import { OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
+import { writeRefusalEvent } from '@/lib/refusals/write';
 import {
   recordGenerationSteps,
   recordStep,
@@ -639,12 +641,93 @@ interface ChildIdentity {
   contactId: string;
 }
 
+/**
+ * Record one `outreach_withheld` Refusal for a render this lane declined to
+ * turn into a sendable Ask (#1011, map #994).
+ *
+ * PRIVATE, AND SHARED BY THE LANE'S THREE PHYSICAL CALL SITES —
+ * `persistChildRender` (which `settleBudgetStop` also settles through),
+ * `regenerateAsk`'s swap, and `settleGenerationExhaustion`'s hole fill. Four
+ * WRITERS, three call sites. The alternative was three repeated nine-field
+ * objects each restating the lane, the category lookup, the subject pair and
+ * both tenant columns, which is past the "no abstraction before the second
+ * use" line; the plan settles this and it is not re-opened here.
+ *
+ * NOT A SEAM. `src/lib/refusals/write.ts` states there is no `RefusalLedger`
+ * interface and that nothing varies across call sites — this is a local
+ * argument-shaping function, not an indirection layer.
+ *
+ * THE OTHER HALF OF THIS LANE LIVES IN `dispatch.ts` (`commitWithhold`, #1010).
+ * Both write `outreach_withheld` keyed on the SAME `solicitation_outreach.id`,
+ * so they share one partial unique index and only a `delivery_status` filter
+ * keeps them apart: this side withholds a render BEFORE the row is sendable,
+ * that side withholds a row that already rendered. The two closed enums overlap
+ * on `lint_failed` and `moderation_high` because the dispatch gate re-lints and
+ * re-moderates the stored copy at send time — which is why they are TWO maps and
+ * must not be merged. Change either side's subject or code axis and check the
+ * other.
+ *
+ * @param tx        the DECIDING transaction — the same one the outreach INSERT
+ *                  this Refusal records ran on. Never `@/lib/db/server`
+ *                  (invariant #15): a helper on its own connection would stamp
+ *                  a different clock and survive a rollback that took the
+ *                  render away.
+ * @param ids       account + location, straight off the generation context.
+ * @param outreachId the row the render JUST minted. `regenerateAsk`'s
+ *                  replacement has a new id and is a DISTINCT subject from the
+ *                  attempt it supersedes.
+ * @param reason    the outreach row's own `disposition_reason`, VERBATIM. The
+ *                  code axis is what stays debuggable; the category is the
+ *                  owner-facing fold.
+ * @param decidedAt the SAME `Date` instance the outreach row carries as
+ *                  `rendered_at` — read when the render was decided, before
+ *                  this transaction opened or waited on the advisory lock.
+ *
+ * Deliberately NOT wrapped in try/catch, at any call site: migration 116's
+ * CHECKs each name a writer bug, and a violation must abort the render it
+ * records rather than be hidden in the one place the ledger cannot report it.
+ * The lever against a writer bug is the helper's own kill switch.
+ */
+async function recordOutreachWithheldRefusal(
+  tx: TransactionSql,
+  ids: { accountId: string; businessId: string },
+  outreachId: string,
+  reason: RenderWithholdReason,
+  decidedAt: Date,
+): Promise<void> {
+  await writeRefusalEvent(tx, {
+    accountId: ids.accountId,
+    businessId: ids.businessId,
+    refusalSource: 'outreach_withheld',
+    refusalCode: reason,
+    allRefusalCodes: null,
+    refusalCategory: OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES[reason],
+    subjectType: 'solicitation_outreach',
+    subjectId: outreachId,
+    // NEVER the `'transaction_time'` sentinel. `NOW()` is
+    // `transaction_timestamp()` — it freezes at transaction START, and every
+    // transaction in this lane waits on the per-Business advisory lock before
+    // it decides anything, so the sentinel would record neither the decision
+    // nor the write.
+    occurredAt: decidedAt,
+  });
+}
+
 function toInsertInput(
   ctx: BatchGenerationContext,
   child: ChildIdentity,
   outcome: ChildRenderOutcome,
   attemptNo: number,
   parentRunId: string,
+  /**
+   * RECEIVED, never minted here (#1011). This function used to call
+   * `new Date()` — inside the caller's transaction, after the advisory lock
+   * had been waited on — which made `rendered_at` a post-lock persist stamp.
+   * The caller now reads the clock where the render is DECIDED and hands the
+   * one instance to both `solicitation_outreach.rendered_at` and
+   * `refusal_events.occurred_at`.
+   */
+  renderedAt: Date,
 ): InsertOutreachRenderInput {
   const base = {
     accountId: ctx.accountId,
@@ -660,7 +743,7 @@ function toInsertInput(
     moderationStatus: outcome.moderationStatus,
     moderationDetail: outcome.moderationDetail,
     interpolationInputs: outcome.interpolationInputs,
-    renderedAt: new Date(),
+    renderedAt,
     agentRunId: parentRunId,
   };
   return outcome.status === 'rendered'
@@ -696,6 +779,12 @@ type PersistChildResult =
  * legitimately coexist with in-flight generation (approved/veto_window/
  * sending arrive via #629/#630 after generation settles — refusing them here
  * is the fail-closed arm, not a supported flow).
+ *
+ * `decidedAt` (#1011) is read by the CALLER, where the render decision is
+ * made and before this function opens its transaction, and reaches BOTH
+ * `solicitation_outreach.rendered_at` and the Refusal's `occurred_at`. It is a
+ * parameter rather than a field on `ChildRenderOutcome` on purpose: the
+ * outcome describes WHAT was decided, not when the caller looked at the clock.
  */
 async function persistChildRender(
   sql: Sql,
@@ -705,6 +794,7 @@ async function persistChildRender(
   attemptNo: number,
   parentRunId: string,
   handle: { outboxId: string; attempt: number },
+  decidedAt: Date,
 ): Promise<PersistChildResult> {
   return sql.begin(async (tx) => {
     const owns = await lockDispatchedOutboxAttemptIfOwned(
@@ -732,8 +822,21 @@ async function persistChildRender(
 
     const outreachId = await insertOutreachRender(
       tx,
-      toInsertInput(ctx, child, outcome, attemptNo, parentRunId),
+      toInsertInput(ctx, child, outcome, attemptNo, parentRunId, decidedAt),
     );
+    // W1 (and W2, which settles through this same path). ONLY a withheld
+    // outcome is a Refusal — a render that succeeded declined nothing — and
+    // the ledger write rides the SAME transaction as the insert above, so a
+    // rollback takes both or neither.
+    if (outcome.status === 'withheld') {
+      await recordOutreachWithheldRefusal(
+        tx,
+        ctx,
+        outreachId,
+        outcome.dispositionReason,
+        decidedAt,
+      );
+    }
     return { kind: 'inserted' as const, outreachId };
   });
 }
@@ -827,6 +930,12 @@ async function settleBudgetStop(
   result: GenerateAsksResult,
   handle: { outboxId: string; attempt: number },
 ): Promise<{ kind: 'settled' } | Exclude<PersistChildResult, { kind: 'inserted' }>> {
+  // W2's decision instant (#1011): ONE budget exception decided every row
+  // below, so they share one `decidedAt` — and each still gets its OWN
+  // Refusal against its own outreach id. Read here, before the first persist
+  // transaction opens, for the same reason the child loop reads it before
+  // calling `persistChildRender`.
+  const decidedAt = new Date();
   for (const [index, ask] of remaining.entries()) {
     const probe = await probeExistingRenders(sql, ctx, ask.ask_id);
     if (probe.nonCancelled > 0) {
@@ -846,6 +955,7 @@ async function settleBudgetStop(
       probe.maxAttempt + 1,
       parentRunId,
       handle,
+      decidedAt,
     );
     if (persisted.kind !== 'inserted') return persisted;
     result.failed += 1;
@@ -1088,6 +1198,14 @@ export async function generateAsksForBatch(
       }
     }
 
+    // THE DECISION INSTANT (#1011). Read HERE — the render has just been
+    // decided, and the persist transaction has not opened, let alone waited on
+    // the per-Business advisory lock. The same `Date` reaches
+    // `solicitation_outreach.rendered_at` and `refusal_events.occurred_at`, so
+    // the two columns are equal AND both mean decision time. Minting it inside
+    // the transaction (where `toInsertInput` used to) records the post-lock
+    // persist instant instead, which is the design round 1 rejected.
+    const decidedAt = new Date();
     const persisted = await persistChildRender(
       sql,
       ctx,
@@ -1096,6 +1214,7 @@ export async function generateAsksForBatch(
       probe.maxAttempt + 1,
       parentRunId,
       { outboxId, attempt },
+      decidedAt,
     );
     if (persisted.kind === 'stale_attempt') {
       // A newer dispatch owns the batch: audit this child's spend, write
@@ -1428,6 +1547,11 @@ export async function regenerateAsk(
     throw err; // transient → BullMQ retry; the outbox row is NOT completed
   }
 
+  // W3's decision instant (#1011), read where the replacement render is
+  // decided and before the swap transaction opens or waits on the advisory
+  // lock. The replacement row and its Refusal — when it has one — carry it.
+  const decidedAt = new Date();
+
   let swapped: RegenSwapResult | null = null;
   try {
     swapped = await sql.begin(async (tx): Promise<RegenSwapResult> => {
@@ -1495,8 +1619,24 @@ export async function regenerateAsk(
           outcome,
           attemptNo,
           parent.id,
+          decidedAt,
         ),
       );
+      // W3. The replacement inserts UNCONDITIONALLY of its verdict, so the
+      // Refusal is conditional on the verdict INSTEAD: a rendered replacement
+      // declined nothing. The subject is the REPLACEMENT's id — the row this
+      // swap superseded was `rendered` both before and inside the swap (that
+      // is what makes it regenerable at all), so it never was a withheld
+      // outreach and has no render-lane Refusal to keep or to gain.
+      if (outcome.status === 'withheld') {
+        await recordOutreachWithheldRefusal(
+          tx,
+          ctx,
+          outreachId,
+          outcome.dispositionReason,
+          decidedAt,
+        );
+      }
       await recordStep(tx, {
         runId: parent.id,
         stepKey: 'ask_generated',
@@ -1615,6 +1755,11 @@ export async function settleGenerationExhaustion(
   // DID find the parent — two readers of one key, in one transaction,
   // disagreeing. Silently.
   const batchId = canonicalBatchId(input.batchId);
+  // W4's decision instant (#1011): terminal exhaustion decides every hole it
+  // is about to settle at ONE moment, and that moment is before this
+  // transaction opens or waits on the advisory lock. Every fill row and every
+  // Refusal it accompanies carries it.
+  const decidedAt = new Date();
   return sql.begin(async (tx) => {
     // CAS FIRST — only the owner of the exact dispatched attempt may settle;
     // a stale hook (the watchdog already re-dispatched) writes nothing.
@@ -1679,7 +1824,7 @@ export async function settleGenerationExhaustion(
     for (const hole of holes) {
       // The decision-2 never-produced fills (renderFailedOutcome shape);
       // interpolation snapshot {} — these asks were never assembled.
-      await insertOutreachRender(tx, {
+      const outreachId = await insertOutreachRender(tx, {
         accountId,
         businessId: input.businessId,
         batchId,
@@ -1693,13 +1838,23 @@ export async function settleGenerationExhaustion(
         moderationStatus: 'error',
         moderationDetail: {},
         interpolationInputs: {},
-        renderedAt: new Date(),
+        renderedAt: decidedAt,
         agentRunId: parent?.id ?? null,
         deliveryStatus: 'withheld',
         dispositionReason: 'render_failed',
         renderedSubject: null,
         renderedBody: null,
       });
+      // W4. ONE Refusal PER HOLE, inside the loop — never one per invocation
+      // and never one per BullMQ attempt. This settlement withholds every
+      // remaining ask in the batch, and each of them is its own subject.
+      await recordOutreachWithheldRefusal(
+        tx,
+        { accountId, businessId: input.businessId },
+        outreachId,
+        'render_failed',
+        decidedAt,
+      );
     }
 
     if (parent) {

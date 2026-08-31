@@ -33,7 +33,9 @@ describe('autonomy suspension writer', () => {
     });
 
     expect(result).toEqual({ newlySuspended: true });
-    expect(sqlCalls).toHaveLength(5);
+    // SIX statements since #1009, not five: the Refusal ledger insert sits
+    // between the audit row and the two notices, inside the same transaction.
+    expect(sqlCalls).toHaveLength(6);
     expect(sqlCalls[0]!.text).toContain('FROM accounts');
     expect(sqlCalls[0]!.text).toContain('FOR UPDATE');
     expect(sqlCalls[1]!.text).toContain('INSERT INTO auto_approval_policies');
@@ -44,8 +46,17 @@ describe('autonomy suspension writer', () => {
 
     expect(sqlCalls[2]!.text).toContain('INSERT INTO account_audit_log');
     expect(sqlCalls[2]!.values).toContain('autonomy_suspended');
-    expect(sqlCalls[3]!.values).toContain('autonomy_suspended_notice');
-    expect(sqlCalls[4]!.values).toContain('autonomy_admin_alert');
+
+    // #1009 — the first Refusal write site. Ordered AFTER the audit row so the
+    // row that title 17's occurred_at = created_at join targets exists first,
+    // and BEFORE the notices so a ledger failure rolls the whole decision back.
+    expect(sqlCalls[3]!.text).toContain('INSERT INTO refusal_events');
+    expect(sqlCalls[3]!.text).toContain('WHERE subject_id IS NOT NULL');
+    expect(sqlCalls[3]!.text).toContain('DO NOTHING');
+    expect(sqlCalls[3]!.values).toContain('autonomy_suspended');
+
+    expect(sqlCalls[4]!.values).toContain('autonomy_suspended_notice');
+    expect(sqlCalls[5]!.values).toContain('autonomy_admin_alert');
     expect(mockSql.json).toHaveBeenCalledWith({
       trigger: 'judge_flag',
       suspension_event_id: 'event-1',

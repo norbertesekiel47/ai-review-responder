@@ -17,7 +17,11 @@ continue: the handoff doc's claims are hints; git state is the truth.
    from feature.md step 2 (`cd <worktree-root> && …` on every Bash call).
    If the worktree is missing, STOP and ask — never recreate it silently.
 2. **Re-arm**: `cd <worktree-root> && bash scripts/arm-check.sh`.
-   DISARMED → STOP and report instead of continuing.
+   DISARMED → STOP and report instead of continuing. arm-check also
+   self-heals the `.feature/` tree (`logs/`, `live/`) and auto-initializes
+   the step ladder from the intake when `.feature/progress.json` is missing
+   — a resumed pre-ladder worktree arms cleanly instead of failing at the
+   gate with "no such file or directory".
 3. **Reconcile claimed state against git state** (do this BEFORE trusting
    the handoff doc):
    - Read `.feature/state.json` FIRST — the machine-readable phase record
@@ -45,7 +49,14 @@ continue: the handoff doc's claims are hints; git state is the truth.
      amendment updated one copy only — reconcile with me before any edit.
    - Staleness: is `.feature/gate-status.json` missing, red, or older than
      HEAD? Does `state.json`'s `lastGreenGateSha` match HEAD? Say so now —
-     don't leave it for the Stop hook to catch later.
+     don't leave it for the Stop hook to catch later. **Ignore
+     `.feature/gate-fast.json` entirely for this question**: a fast run is the
+     fix loop's own signal, never evidence, and a green one beside a red or
+     absent `gate-status.json` means the branch has NO gate evidence.
+   - A gate may still be (or claim to be) running from the prior session:
+     `bash scripts/verify-gate.sh --status` answers RUNNING / DEAD / last
+     result in one command. Never blocking-wait for a gate you have not
+     confirmed alive, and never launch a second gate over a RUNNING one.
    - Stale commit refs in the handoff: every SHA the handoff doc cites must
      still resolve (`git cat-file -e <sha>^{commit}`), and any `HEAD is
      <sha>` claim must equal `git rev-parse HEAD`. Run it mechanically —
@@ -55,6 +66,13 @@ continue: the handoff doc's claims are hints; git state is the truth.
      resumed session that trusts a stale ref reconciles against fiction.
    - Main drift: `git rev-list --count HEAD..origin/main`. A branch far
      behind main rots — flag it and propose a rebase/merge before new work.
+     **But the phase decides whether that is still allowed.** At
+     `plan_approved`, `executing` or `gate_green`, take main now — it costs one
+     gate run. Once the review wave has opened (or the phase is `reviewed`), a
+     rebase voids the gate result, the fingerprint, the blast radius and the
+     red-team sidecar together; on feat/1008 that cost 67 minutes. Report the
+     drift, do NOT rebase, and finish the round first. See
+     `.agents/skills/feature/references/execution-lanes.md` § Pin the fork.
    - **A `reviewed` phase is a claim, not evidence — revalidate the red-team
      sidecar before trusting it or taking ANY external action:**
      `cd <worktree-root> && node .agents/skills/feature/scripts/red-team-status.mjs`.

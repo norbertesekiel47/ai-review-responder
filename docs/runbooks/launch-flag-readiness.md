@@ -109,3 +109,115 @@ full-pipeline integration testing.
 
 **Verifier:** Claude (orchestrator), Railway CLI. **Still owner-to-verify:**
 Vercel UI-side prod flag state; Stripe price liveness; Meta/WABA/SerpAPI status.
+
+---
+
+### 2026-08-31 — full four-surface flag read (Railway **and** Vercel)
+
+**Supersedes the 2026-06-26 read**, which was worker-side only and left every
+UI-authoritative flag's production state explicitly unverified. This one covers all four
+surfaces. Taken at 2026-08-31T08:2xZ, after the production freeze lifted (07:20:21Z) and
+after Phase E and F.2.
+
+**Method.** Railway values via `railway run --environment <env> --service repworth-worker`
+reading `process.env` in-process — never `list-variables`, which returns plaintext. Vercel
+values via `vercel env pull` to a mode-600 file. A filter refuses to print any value that
+is not a short boolean token, so a name match cannot leak a secret.
+
+> **Read caveat that matters.** Four Vercel **staging** flags are type `Secret`
+> (write-only), so `vercel env pull` returns them zero-length **by design**. They are
+> recorded below as *unreadable*, not as empty and not as off. Reading a blank as "off"
+> is the F8 mistake; see the evidence file. The type column needs
+> `npx vercel@latest` — the installed CLI 54.14.5 has no type column at all.
+
+| Flag | Railway prod | Railway stg | Vercel prod | Vercel stg |
+|---|---|---|---|---|
+| `AUTO_APPROVAL_ENABLED` | `false` | `false` | `false` | *Secret — unreadable* |
+| `AUTOPILOT_PURCHASABLE` | `false` | `false` | `false` | `false` |
+| `TRIAGE_ENABLED` | unset → off | `false` | unset → off | unset → off |
+| `ESCALATION_ENABLED` | unset → off | `false` | unset → off | unset → off |
+| `JUDGE_ENABLED` | unset → off | `true` | unset → off | unset → off |
+| `GOVERNOR_ENABLED` | unset → off | `false` | unset → off | unset → off |
+| `SELF_SERVE_SIGNUP_ENABLED` | `false` | `true` | `false` | `true` |
+| `TRIAL_ENABLED` | `false` | `true` | `false` | *Secret — unreadable* |
+| `ONBOARDING_DEMO_ENABLED` | `true` | `true` | **`true`** | **`true`** |
+| `ZERNIO_PUBLISHING_ENABLED` | `true` | `true` | `true` | `true` |
+| `OPENAI_MODERATION_ENABLED` | **`true`** ¹ | `true` | **`true`** ¹ | `true` |
+| `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | unset → off | unset → off | unset → off | `true` |
+| `MFA_ENFORCEMENT_ENABLED` | unset → off | `false` | unset → off | `false` |
+| `MULTI_LOCATION_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `CHANNELS_WHATSAPP_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `CHANNELS_TELEGRAM_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `RANKING_TRACKING_ENABLED` | unset → off | `false` | unset → off | unset → off |
+| `EDIT_REPLIES_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `ACCOUNT_OFFBOARDING_ENABLED` | unset → off | `true` | unset → off | *Secret — unreadable* |
+| `EXTERNAL_REPLY_IMPORT_ENABLED` | `true` | `true` | `true` | `true` |
+| `PAST_REPLIES_VIEW_ENABLED` | `true` | `true` | `true` | `true` |
+| `SOLICITATION_WATCH_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `SOLICITATION_SEND_ENABLED` | unset → off | `true` | unset → off | `true` |
+| `SOLICITATION_AUTO_APPROVAL_ENABLED` | unset → off | `true` | unset → off | *Secret — unreadable* |
+| `POOL_WEDGE_REAPER_ENABLED` | unset → off | `false` | unset → off | unset → off |
+| `ZERNIO_RECENT_REVIEW_POLL_DISABLED` | **deleted** (D.8) | `false` | n/a | n/a |
+
+`BETA_COMP_COUPON_ID` is not a flag but gates the same lane. It is set on **Vercel staging
+only** — absent from Vercel Production, absent from the Infisical vault `prod`, and
+deliberately absent from Railway. See evidence file → **F.2d**.
+
+#### What this read settles
+
+1. **The production autonomy posture is correct and consistent across both surfaces.**
+   `AUTO_APPROVAL_ENABLED`, `AUTOPILOT_PURCHASABLE`, `TRIAL_ENABLED` and
+   `SELF_SERVE_SIGNUP_ENABLED` are all off on Railway prod **and** Vercel prod. The
+   2026-06-26 read could not say that. The ordered go-live flip (design doc §8.4) has not
+   started.
+2. **`ONBOARDING_DEMO_ENABLED` is already `true` on all four surfaces.** `env-vars.md`
+   calls this "a required rollout step, not an optional enhancement" with a **silent**
+   failure mode, and lists it as owed for the admin-invite beta. It is **not owed** — it is
+   done. The Railway copies are inert (the flag has 15 `src/**` readers and zero
+   `worker/**` readers), but they are harmless and consistent.
+3. **No staging drift.** The four blank staging reads are `Secret`-type, not empty. Every
+   flag whose value is readable agrees between Railway staging and Vercel staging.
+4. **`PAST_REPLIES_VIEW_ENABLED=true` on all four surfaces.** Read by no code. Its deletion
+   is still owed, and still needs the Infisical web UI first — the CLI cannot delete.
+
+#### Finding G5-F1 — the Infisical Secret Sync does NOT preserve Vercel's Sensitive flag
+
+This discharges the re-check the F8 record left open: *"Whether an Infisical Secret Sync
+preserves it or writes them as ordinary encrypted variables is unknown. Re-run
+`npx vercel@latest env ls production` after the first sync and diff the `type` column."*
+
+| | Before sync (2026-08-31, pre-Phase I) | After sync (2026-08-31, now) |
+|---|---|---|
+| Vercel Production total | 35 | **63** |
+| type `Config` | 26 | **59** |
+| type `Secret` | **9** | **4** |
+
+**Five variables lost the Sensitive flag.** `STRIPE_SECRET_KEY`,
+`SESSION_COOKIE_SECRET`, `WORKER_INTERNAL_SECRET`, `DB_POOL_MAX` and
+`ONBOARDING_DEMO_ENABLED` are now type `Config`.
+
+**The four survivors are exactly the four the vault does not manage** —
+`OWNER_LEADS_GOOGLE_SHEET_ID`, `OWNER_LEADS_GOOGLE_SHEET_RANGE`,
+`GOOGLE_SHEETS_CLIENT_EMAIL`, `GOOGLE_SHEETS_PRIVATE_KEY`. Nothing else survived, which is
+the proof: the sync is the cause, not a coincidence.
+
+**This turns an owed action into an owed decision.** The standing item "re-add
+`STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET`, `WORKER_INTERNAL_SECRET` as `--sensitive`"
+cannot simply be done — a sync writes `Config`, so the flag drifts back on the very next
+write of those keys. The options are: (a) accept `Config` for synced keys and record why;
+(b) remove those three from the vault and manage them on Vercel only, losing single-source
+truth; or (c) find an Infisical sync option that sets the Vercel type. **Not decided here.**
+
+Vercel **staging** keeps 17 `Secret` of 76, so the staging sync's coverage differs from
+production's. Worth a look before trusting a staging readback for anything.
+
+**Verifier:** Claude (orchestrator). Railway CLI + `npx vercel@latest`. **Still
+owner-to-verify:** Meta/WABA status, SerpAPI funding, Stripe price liveness.
+
+> ¹ **Changed after this snapshot was taken.** `OPENAI_MODERATION_ENABLED` was `false` in
+> production when the table was first read, and was flipped to `true` later the same day
+> (2026-08-31) with owner approval, written to the Infisical vault `prod` so both surfaces
+> moved together. All three validation checks pass against the live provider. The table
+> above is corrected in place rather than left stale.
+> `AUTO_APPROVAL_PROVIDER_MODERATION_READY` is unchanged and stays off in production.
+> Evidence file → **Phase G.4**.

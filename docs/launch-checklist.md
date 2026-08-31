@@ -13,6 +13,29 @@
 
 ## 🔴 Hard blockers — do not launch without these
 
+- [x] **Refusal ledger: staging ride — DONE 2026-08-31.** #1010, #1011 and #1012
+  (slices 3-5 of map #994) merged to `main` **without** riding `staging` first,
+  against `CLAUDE.md`'s worker rule. The waiver was sound only because production
+  was provably empty at merge. The ride was then run retroactively, one commit at
+  a time, in merge order:
+  `220f0364` (#1012) → `7349acc6` (#1011) → `2ef07b4f` (#1010).
+  Each deployed to the Railway staging worker **SUCCESS**, booted clean, and
+  reported `postgres/queue_redis/cache_redis: ok`. No worker errors across the run.
+  **The specific risk is closed:** all **27** lane tuples — every non-null code in
+  all five category maps — were written through the REAL `writeRefusalEvent` and
+  `writeRefusalEvents` helpers against the REAL staging schema, inside one
+  transaction that was rolled back. Every one satisfied migration 116's five CHECK
+  constraints, so no mis-mapped category can abort a deciding transaction. Staging
+  `refusal_events` count before and after: **0**. No residue.
+- [ ] **Refusal ledger: organic pipeline write (smaller residual, not a blocker).**
+  The ride proved constraint conformance and clean boot; it did **not** drive an
+  organic write through the full pipeline — no real batch build, dispatch, halt or
+  auto-post revoke fired a Refusal on staging. Staging had no batch in a haltable
+  state and `AUTO_APPROVAL_ENABLED=false`, so #1012's lane needs a flag flip to
+  reach. Worth doing opportunistically the next time a staging solicitation loop
+  runs; **not** a launch blocker, because the failure mode it would catch (a bad
+  value aborting the transaction) is the one already closed above.
+
 - [ ] **First PITR restore drill** (Spec 08) — PITR is *enabled* but has **never
   been restored end-to-end**. Runbook now exists:
   `docs/runbooks/pitr-restore-drill.md`. Remaining: **run** the clone-to-new-project
@@ -42,9 +65,21 @@ Gates the **first paying customer** per ADR 0005. The code half ships in
 - [ ] **`AUTO_APPROVAL_ENABLED=false`** confirmed in prod — owner approval is the
   content-safety control for irreversible public posting. Auto-approval go-live is
   a separate gate (prod moderation validation + canary + kill-switch drill).
+- [x] **Stripe live-mode activation** — ✅ **verified 2026-08-30**:
+  `charges_enabled=True`, `payouts_enabled=True`, `details_submitted=True` on
+  `acct_1TUcR7IhPBLaM6xA`, read with the production `sk_live_` key via
+  `railway run --environment production`. **This item is new to this checklist and that
+  is the point.** It was recorded on 2026-07-17 as `charges_enabled=false` — "no live
+  payment (incl. prod smoke checkout) until complete" — inside an evidence file and
+  nowhere else, so it silently stopped being tracked for six weeks while remaining a hard
+  gate on WS8 §6 smoke and the entire beta coupon path. Evidence files are logs, not
+  tracking surfaces; anything still owed at a pause belongs here. Reading recorded in
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` → D1d.
 - [ ] **`SENTRY_DSN` set in prod** — now a hard boot gate (`assertAlertSinkEnv`);
   the worker refuses to start without the non-email alert sink.
-- [ ] **Sentry alert routing → Slack/PagerDuty** for `subsystem:health_alert` and
+- [ ] **Sentry alert routing → Discord** (sink decided 2026-08-30; Sentry has no Zoho Cliq
+  integration and a Cliq bridge would put a translator service on the paging path) for
+  `subsystem:health_alert` and
   `cost_event:limit_exceeded`, plus `subsystem:import_consent_analytics` (#697 —
   a P2 whose signal is *repetition*, so route it on an event-frequency
   condition, not on "a new issue is created"; alerting runbook §1).
@@ -136,8 +171,11 @@ Pre-invite actions from these decisions:
   the first prod worker deploy happens before it (§6), which is the live resume
   point.
   **077 and 105 are already applied in prod** (verified 2026-08-14 by the
-  migration lockstep audit, #825): 077 landed unrecorded after the 2026-07-17
-  cutover pause, and 105 was applied deliberately once that audit showed its only
+  migration lockstep audit, #825): 077 was applied 2026-07-17T02:17:11Z and IS
+  recorded — see that date's evidence file, "Quiescence + formal gates + phase 5"
+  (the "landed unrecorded" wording was corrected 2026-08-30; only the Supabase
+  migration ledger lacks it, because the SQL editor does not write there). 105
+  was applied deliberately once that audit showed its only
   blocker — the 077 dependency — was already satisfied. **§5 and §8 are therefore
   verify steps in prod, not apply steps.** Staging has had all three since
   2026-07-16.
@@ -154,8 +192,18 @@ Pre-invite actions from these decisions:
   The 3-months-free offer has **no supported activation path today**;
   dashboard-created subscriptions, raw-SQL binding, and manual invoices are
   forbidden substitutes.
-- [ ] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
-  exists.** The comp's eligibility test is `onboarded_by IS NOT NULL` on the
+- [x] **BLOCKING — audit the legacy `onboarded_by` population before the coupon
+  exists.** ✅ **CLEARED 2026-08-30T22:28:33Z — zero rows, and permanently so.**
+  The checklist query below was run verbatim against prod
+  (`udeyaqnvpojbwgoaxwdg`) and returned **0 rows**. It cannot return rows again:
+  every legacy row migration 025 backfilled was destroyed by the 2026-07-16
+  36-table purge, and prod now holds **0 rows across all 52 `public` tables plus
+  0 `auth.users`**. Any `onboarded_by IS NOT NULL` row created from here on is
+  one you deliberately invited — which is exactly who the comp is for. **This
+  gate is therefore satisfied by construction, not merely satisfied today**, so
+  it does not need re-running before the coupon is created. Full evidence:
+  `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` →
+  "Zero-state proof". Original reasoning preserved below. The comp's eligibility test is `onboarded_by IS NOT NULL` on the
   primary Business, and migration **025** backfilled that column on every row
   that predated it, pointing them all at the oldest admin/sales_partner user.
   Those rows are genuinely admin-onboarded (self-serve signup shipped in the
@@ -181,15 +229,30 @@ Pre-invite actions from these decisions:
   (`plan-activation.ts` gates trials on `onboarded_by IS NULL`) and would strip
   the `CleanupAbandonedSignupsPoller` reference guard. Raised by the step-7
   adversarial review; see `docs/reviews/admin-invite-funnel/`.
-- [ ] Create the live-mode beta coupon (100% off, repeating, 3 months —
+- [x] Create the live-mode beta coupon (100% off, repeating, 3 months —
   verify `repeating` behaves against the pinned Stripe apiVersion) and record
-  its ID here: `____` — stand-up Phase F2.
+  its ID here: **`repworth-beta-comp-3mo`** — stand-up Phase F2.
+  **Done 2026-08-31.** The id is the SAME in both Stripe modes:
+  test `repworth-beta-comp-3mo` (pre-existing, created 2026-08-21) and live
+  `repworth-beta-comp-3mo` (created 2026-08-31). One id in both modes makes the
+  "test id deployed to live" failure the plan feared structurally impossible.
+  **The `repeating` deprecation check PASSES.** Read back under the pinned
+  `Stripe-Version: 2026-05-27.dahlia`: `percent_off=100`, `duration=repeating`,
+  `duration_in_months=3`, `valid=true`, `livemode=true`. No fallback needed —
+  the three cycle-scoped promotions are not required.
+  The `onboarded_by` gate above was re-run verbatim against prod at the moment
+  the live coupon came into existence: **0 rows.** See evidence file → **F.2**.
 - [ ] Set `BETA_COMP_COUPON_ID` to that coupon in **Vercel production** and
   redeploy (Vercel does not pick up env changes without one). Server-only, no
   `NEXT_PUBLIC_*` companion. Until it is set, every attempt snapshots NULL and
   invitees are charged full price — the failure is a **charged founding
   customer**, not an error.
-- [ ] **Set `ONBOARDING_DEMO_ENABLED=true` in Vercel production** and redeploy —
+- [x] **Set `ONBOARDING_DEMO_ENABLED=true` in Vercel production** and redeploy —
+  ✅ **VERIFIED ALREADY TRUE 2026-08-31, on all four surfaces** (Railway prod/stg,
+  Vercel prod/stg). No flip was needed. Read by `vercel env pull` to a mode-600 file;
+  the running production deployment carries it. This box was open against a step that
+  was already done — exactly the silent failure mode it warns about, inverted.
+  Snapshot: `launch-flag-readiness.md` → 2026-08-31 four-surface read. Original text follows.
   stand-up Phase B flag audit / Phase F. **This is a required rollout step, not
   an optional enhancement, and its failure mode is SILENT.** With it off the
   invited owner still gets their password, still pays $0, still reaches the
@@ -200,8 +263,12 @@ Pre-invite actions from these decisions:
   the journey degrades to password → `/onboarding/pay` → legacy 3-step wizard.
   **Vercel-only**: 15 read sites under `src/**`, zero under `worker/**` — a
   Railway flip changes nothing. Flip via the `flag-flip` skill.
-- [ ] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
-  live snapshot — Railway AND the still-missing Vercel-side read — stand-up
+- [x] Walk `docs/runbooks/launch-flag-readiness.md` and append a fresh dated
+  live snapshot — Railway AND the still-missing Vercel-side read — ✅ **DONE
+  2026-08-31.** All four surfaces, 26 flags. It also discharged the open F8
+  re-check and produced finding **G5-F1**: the Infisical Secret Sync does NOT
+  preserve Vercel's Sensitive flag — production went from 9 `Secret` to 4, and
+  the 4 survivors are exactly the 4 the vault does not manage. Original text: stand-up
   Phase G5.
 - [ ] Validate provider moderation on a representative corpus with recorded
   false-positive/negative acceptance criteria
@@ -275,6 +342,21 @@ Pre-invite actions from these decisions:
   finance margin signals (mig 050–052)
 
 ---
+
+## ⏳ Dated infrastructure obligations (not launch blockers)
+
+| Due | Item | Why it has a date | Owner |
+|---|---|---|---|
+| **2026-12-01** | Migrate Railway worker config from `railway.toml` to Infrastructure as Code (`.railway/railway.ts`) | Railway's **hard cutoff** — Config as Code stops being read entirely on that date. Not urgent, because the five deploy/build fields are mirrored onto the Railway service itself (2026-08-31), so nothing breaks at the cutoff. It is a documentation-truth obligation: after it, `railway.toml` is a file that describes nothing. | @norbertesekiel |
+
+**Do not run `railway config migrate --apply` and `railway config apply` blind.** The
+2026-08-31 dry run produced a file with two defects: it names the service `RepWorth`
+(taken from the *project* name, not the real `repworth-worker`), so an apply would
+**create a second service** rather than update the existing one; and it silently drops
+`restartPolicyType` and `restartPolicyMaxRetries`, carrying over only
+build/start/healthcheck. `railway config apply` is project-wide with omit-means-delete
+semantics. Do it as its own change, with a reviewed `railway config plan`, never
+mid-cutover. Full note: lab-notes 2026-08-31 "Railway deploy configuration".
 
 ## Post-launch (tracked separately — see `updates.md`)
 

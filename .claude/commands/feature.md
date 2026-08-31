@@ -1,5 +1,5 @@
 ---
-description: Orchestrate a feature end-to-end — grill, model the domain, plan as tracer bullets, subagent execution, verify gate, dual review, ship via the right lane
+description: Orchestrate a feature end-to-end — grill, model the domain, plan as tracer bullets, subagent execution, verify gate, one parallel review wave, ship via the right lane
 argument-hint: <feature description>
 ---
 
@@ -7,214 +7,139 @@ argument-hint: <feature description>
 
 Feature request: $ARGUMENTS
 
-You are the orchestrator. Grilling, domain modeling, planning, and review
-triage happen in THIS session (they need me in the loop). Only implementation
-is delegated to subagents. Never delegate intent-locking to an agent that
-cannot talk to me.
+You are the orchestrator. Grilling, domain modeling, planning and review triage
+happen in THIS session — they need the owner in the loop. Only implementation
+and review are delegated. Never delegate intent-locking to an agent that cannot
+talk to the owner.
 
-## CONTEXT DISCIPLINE — applies to every step
+## Shared rules — read these, do not restate them
 
-The orchestrator's context is the scarcest resource in this workflow. Rules:
+This command is the Claude lane's router. The rules it shares with the Codex
+lane (`.agents/skills/feature/SKILL.md`) live in one place each:
 
-- **Disk is the source of truth, conversation is disposable.** Every locked
-  decision must land in a file (spec, plan, tickets, CONTEXT.md, ADR) the
-  moment it is locked. Never rely on chat history to carry state forward.
-- **Never pull raw logs into context.** Command output goes to a file;
-  read back only a pass/fail summary and the relevant tail.
-- **Subagents and review agents return summaries, not transcripts.** Full
-  reports go to disk; the orchestrator reads findings tables only.
-- **Checkpoint handoffs are mandatory at the step 3→4 boundary and after
-  step 7** (see Session hygiene). Do not wait until compaction is imminent.
+| Rule set | File |
+|---|---|
+| Context discipline, anti-slop, authority, worktree path discipline, no bash writes | `.agents/skills/feature/references/working-rules.md` |
+| Lane behavior, the review wave, conditional rounds, the gate loop, TDD, delegation | `.agents/skills/feature/references/execution-lanes.md` |
+| Intake field contract | `.agents/skills/feature/references/intake-contract.md` |
+| Review axis prompts, checklists, triage | `.agents/skills/feature/references/review-prompts.md` |
+| Step ladder and live view | `.agents/skills/feature/references/progress-and-live-view.md` |
 
-## ANTI-SLOP RULES — apply to all code, every step
+Read `working-rules.md` before the first edit and `execution-lanes.md` before
+step 0. The two lanes differ in exactly two things: this lane ships to `main`
+(step 8), and it calls Claude subagents and slash commands. Everything else
+that disagrees between them is a bug in one of them.
 
-- **Precedent over invention.** Follow the nearest existing module, test,
-  and API pattern before creating anything new. Name the precedent you're
-  following in the task summary.
-- **No abstraction before the second use.** Keep the first version concrete
-  unless a declared invariant or seam demands otherwise.
-- **No new dependency without justification.** Adding or updating a package
-  requires `.feature/deps-justification.md` (reason, alternatives
-  considered, blast radius). A pre-edit hook blocks manifest edits without
-  it.
-- **Small-diff bias.** If a task's diff sprawls beyond its ticket, stop and
-  re-plan — don't push through.
-- **No success claims without evidence.** Green gate output or it didn't
-  happen (enforced by the Stop hook).
-- **Look up, don't guess.** Version-specific API usage goes through Context7
-  or official docs; repo/issue/CI state goes through `gh`. Memory is not a
-  source for anything that can drift.
-- **No backwards-compatibility shims for code with no external consumers.**
-  This is a pre-launch codebase — delete the old path and update callers.
-  A shim needs a named external consumer to justify it.
-- **No new file without justification** (slop invents `utils/helpers.ts`).
-  Name the existing file that was considered and why it doesn't fit —
-  repworth.md's "default is no new file" applies doubly here.
-- **No new env var or feature flag without a registry entry** in
-  `.claude/reference/env-vars.md`, in the same change.
-- **Assert impossible states, don't branch around them.** Defensive
-  handling of a state the invariants exclude is noise that hides real
-  bugs — throw with context instead.
-- **Net-negative bias.** A task adding >150 lines while deleting 0 states
-  why in its summary; "new code only" is a claim to justify, not a default.
+**Report every phase boundary.** Advance the ladder as each step closes — one
+command, and it prints the block:
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs step <id> done
+```
+
+The ladder's timestamps are the run's only per-phase record. Advance it when
+the boundary happens, never in one backfilled pass at the end.
 
 ## 0. CLASSIFY — pick the lane before doing anything
 
-Read the request and the code it touches, then classify:
+Read the request and the code it touches. Fix three axes per
+`execution-lanes.md` § Classification: `size`, `risk`, `surface`.
 
-- **RISK = high** if it touches: worker/, webhook ingress, a migration or
-  schema change, billing/Stripe, approval or auto-approval paths, auth.
-  Otherwise **normal**.
-- **SURFACE = ui** if it touches `src/app/` or `src/components/`;
-  **backend** otherwise; **mixed** if both.
-- **SIZE = trivial** if ≤ ~30 lines with no schema/API/contract change.
-- **SIZE = small** if ≤ ~150 expected diff lines across ≤ ~3 files, one
-  seam, no migration, no new dependency.
-- **SIZE = epic** if ANY of: the honest `allowed_edit_surface` can't be
-  declared tighter than a few top-level directories; it spans multiple
-  risk domains (e.g. schema + billing + worker); it would decompose into
-  more than ~8 tracer tickets; or there are open investigation questions
-  that grilling alone can't resolve (unknowns needing research spikes).
+- **RISK = high** if it touches worker/, webhook ingress, a migration or schema
+  change, billing/Stripe, approval or auto-approval paths, or auth.
+- **SIZE = epic** if the honest `allowed_edit_surface` cannot be declared
+  tighter than a few top-level directories, it spans multiple risk domains, it
+  decomposes into more than ~8 tracer tickets, or open investigation questions
+  remain that grilling cannot resolve.
 
-**TRIVIAL FAST PATH**: skip steps 1–4 and 6. Branch, implement directly
-in this session, run the step 5 gate, one `/code-review` pass, PR, done.
+Open the ladder as soon as the axes are fixed:
 
-**SMALL PATH** (the lane between trivial and the full apparatus — a
-half-followed full pipeline is worse than a smaller one followed
-completely): skip steps 3–4 and 6, and step 1's full grilling. Ask only
-what's needed to fill an ABBREVIATED intake — `goal`, `non_goals`,
-`allowed_edit_surface`, `tests_to_add`, `estimated_prod_lines` +
-`estimated_test_lines` (other fields may be empty arrays) — post it and
-proceed (sign-off only if RISK = high). Then: step 2 setup as
-normal (enforcement still arms), implement IN THIS SESSION with no
-subagent dispatch, step 5 gate, ONE review agent (spec & correctness
-only), step 8 by RISK lane. The full pipeline is reserved for normal+
-features with a real surface.
+```bash
+node .agents/skills/feature/scripts/progress.mjs init --size <size> --risk <risk> --surface <surface>
+```
 
-**EPIC PATH — decompose, don't implement**: this command's enforcement
-loop (tight edit surface, reviewable diffs, one staging ride) only works
-at feature scale, so an epic never runs steps 2–8 directly. Instead:
-1. Invoke the `wayfinder` skill: build the shared map on the issue
-   tracker — investigation tickets for the unknowns, implementation
-   tickets for the knowns, each declaring its blocking edges. Do the
-   domain-modeling work (CONTEXT.md terms, ADRs) at THIS level, since
-   epic-scale decisions are exactly the ones worth an ADR.
-2. Each implementation ticket must be sized to a single `/feature` run —
-   if a ticket can't declare a tight edit surface, split it again.
-3. STOP. Resolve investigation tickets as their own sessions; run each
-   implementation ticket through `/feature <ticket-ref>` (ticket-seeded
-   path, see step 1). The epic ships as a sequence of small, fully
-   disciplined merges — never as one big-bang branch.
+**TRIVIAL FAST PATH**: skip steps 1–4 and 6. Branch, implement here, run the
+step 5 gate, one `/code-review` pass, PR.
 
-State the classification in one line before proceeding — it MUST name the
-specific files you expect to touch and estimated diff sizes for BOTH
-buckets (recorded as `estimated_prod_lines` / `estimated_test_lines` in
-the intake — estimating tests at 1:1 fires the reclassify trigger on
-exactly the features whose test rigour is most worth having, the #643
-lesson). When uncertain between two lanes,
-take the HEAVIER one and say so — under-classification is the systematic
-failure mode ("epic" is not a failure state, it's a routing decision), and
-step 5's re-classification trigger checks the estimate against reality.
+**SMALL PATH**: skip steps 3–4 and 6, and step 1's full grilling. Ask only what
+fills an ABBREVIATED intake — `goal`, `non_goals`, `allowed_edit_surface`,
+`tests_to_add`, `estimated_prod_lines`, `estimated_test_lines`. Post it and
+proceed; sign-off only when RISK = high. Then step 2 setup as normal, implement
+IN THIS SESSION with no subagent dispatch, step 5 gate, one review axis (spec
+and correctness), step 8 by RISK lane. A half-followed full pipeline is worse
+than a smaller one followed completely.
+
+**EPIC PATH — decompose, do not implement.** This command's enforcement only
+works at feature scale, so an epic never runs steps 2–8:
+
+1. Invoke the `wayfinder` skill: investigation tickets for the unknowns,
+   implementation tickets for the knowns, each declaring its blocking edges. Do
+   the domain-modeling work — `CONTEXT.md` terms, ADRs — at THIS level.
+2. Size every implementation ticket to a single `/feature` run. A ticket that
+   cannot declare a tight surface splits again.
+3. STOP. Each ticket ships through its own `/feature <ticket-ref>` run.
+
+State the classification in one line. It MUST name the files you expect to
+touch and the estimated diff for BOTH buckets separately
+(`estimated_prod_lines` / `estimated_test_lines`) — estimating tests at 1:1
+fires the step 5 reclassify trigger on exactly the features whose test rigour
+is most worth having. When uncertain between two lanes, take the HEAVIER one
+and say so. Under-classification is the systematic failure mode; "epic" is a
+routing decision, not a failure state.
 
 ## 1. GRILL — in this session (intent + domain language)
 
-Invoke the `grill-with-docs` skill (mattpocock). If it is not
-model-invocable in this session (its frontmatter sets
-`disable-model-invocation`), read its SKILL.md from
-~/.claude/skills/grill-with-docs/ directly and follow its process
-verbatim — the flag only hides it from auto-loading, it doesn't
-forbid following it. Either way: a grilling session that
-interviews me relentlessly until every branch of the decision tree is
-resolved — edge cases, failure modes, what we're explicitly NOT building —
-while building the domain model inline: it challenges terms against
-`CONTEXT.md`'s glossary, updates it when we coin or sharpen a term, and
-captures hard-to-explain or reversed decisions as ADRs in `docs/adr/` as
-they happen. Do not proceed on guesses about what I meant. All subsequent
-artifacts (intake, plan, tickets, commits) use the shared language
-verbatim — no paraphrasing glossary terms.
+Invoke the `grill-with-docs` skill. If it is not model-invocable here, read its
+`SKILL.md` from `~/.claude/skills/grill-with-docs/` and follow it verbatim —
+`disable-model-invocation` hides it from auto-loading, it does not forbid
+following it.
 
-**TICKET-SEEDED variant**: if this run was invoked as
-`/feature <ticket-ref>` for a ticket from a wayfinder map (or the issue
-tracker), intent was already locked at the map level. Seed the intake
-contract directly from the ticket + its parent map/spec, then run
-`grill-with-docs` ONLY on the deltas: unresolved `open_questions`, edge
-cases the ticket doesn't cover, and anything that changed since the map
-was drawn. Do not re-litigate decisions the map already made — if one
-looks wrong now, surface it to me as a map-level question instead.
+Grill until every branch of the decision tree is resolved: edge cases, failure
+modes, what we are explicitly NOT building. Build the domain model inline —
+challenge terms against `CONTEXT.md`'s glossary, update it when we coin or
+sharpen a term, and capture reversed or hard-to-explain decisions as ADRs in
+`docs/adr/` as they happen. Every later artifact uses the shared language
+verbatim. Never paraphrase a glossary term.
 
-**Proportionality (RISK = normal)**: grill only until the intake fields
-are answerable — batch related questions, lead each with a recommended
-answer, and never ask what the code, docs, or design of record already
-answer. The relentless full-decision-tree interview is reserved for
-RISK = high; for everything else the intake contract IS the deliverable,
-not the interview.
+**Proportionality (RISK = normal)**: grill only until the intake fields are
+answerable. Batch related questions, lead each with a recommended answer, and
+never ask what the code, docs, or design of record already answer. The
+relentless full interview is reserved for RISK = high; elsewhere the intake
+contract IS the deliverable.
 
-**Prototype escape hatch**: if grilling surfaces a design question that
-discussion cannot resolve (state-machine behavior, UI feel, library fit),
-invoke the `prototype` skill to build a throwaway answer before locking the
-intake. Prototypes never graduate to production code.
+**TICKET-SEEDED variant**: for `/feature <ticket-ref>` from a wayfinder map,
+intent was locked at map level. Seed the intake from the ticket and its parent
+map, then grill ONLY the deltas — unresolved `open_questions`, uncovered edge
+cases, anything that changed since. Do not re-litigate a decision the map made;
+if one looks wrong now, raise it as a map-level question.
 
-Lock the outcome into an **intake contract** — not free-form prose. Write it
-to `docs/superpowers/plans/<branch>-intake.json` (parent checkout, temporary —
-step 2 moves it into the worktree and arms the hooks from an ephemeral
-`.feature/` copy) with exactly these fields:
+**Prototype escape hatch**: a design question discussion cannot resolve
+(state-machine behavior, UI feel, library fit) goes to the `prototype` skill
+before the intake locks. Prototypes never graduate to production code.
 
-```json
-{
-  "classification": "trivial | normal | high",
-  "surface": "ui | backend | mixed",
-  "db_touching": false,
-  "goal": "one sentence, glossary terms verbatim",
-  "non_goals": ["what we are explicitly NOT building"],
-  "user_visible_behavior": ["observable behavior changes"],
-  "invariants": ["things that must remain true, e.g. tenant isolation"],
-  "edge_cases": ["from the grilling session"],
-  "existing_patterns_to_follow": ["file/module precedents"],
-  "allowed_edit_surface": ["glob list of paths implementation may touch — brackets are LITERAL: a Next.js dynamic segment is the plain path `src/app/api/u/[token]/route.ts`, never `\\[token\\]` or `[[]token[]]` (the hooks + ci:feature-surface escape brackets themselves; a pre-escaped entry matches nothing and is rejected at arm time, #867); every entry must match a real file by push time"],
-  "tests_to_add": ["VERBATIM test titles — each names the invariant/edge case it covers"],
-  "verification_commands": ["gate commands beyond the standard set — NEVER test:db:setup (the gate provisions serially itself and rejects destructive commands)"],
-  "estimated_prod_lines": "±N production+migration lines from step 0 — step 5 re-checks 2x per bucket, workflow artifacts excluded",
-  "estimated_test_lines": "±N test-file lines, estimated SEPARATELY — a DB-contract feature legitimately runs 3-4x its production lines in tests (#643 lesson)",
-  "dependencies_added": [],
-  "rollback_plan": "MANDATORY when db_touching: how to back out (down migration / flag flip / revert order)",
-  "observability": ["what log line / metric / Sentry signal proves this works in prod — 'how would I know it broke'"],
-  "open_questions": []
-}
+Write the intake to `docs/superpowers/plans/<branch>-intake.json` per
+`intake-contract.md`, then validate it:
+
+```bash
+node .agents/skills/feature/scripts/validate-intake.mjs <intake-path>
 ```
 
-`open_questions` must be empty before proceeding — a question only I can
-answer is a fork to resolve during grilling (batch them, lead with your
-recommended answer), never a field to carry forward. Then, by lane:
-**RISK = high** — present the intake to me section by section and wait for
-sign-off; this is where my decisions live. **RISK = normal** — post the
-rendered intake in ONE message and proceed immediately; I veto
-asynchronously, and the drift detector below plus the step 5 gate catch
-mechanically anything I would have caught by reading it.
+`open_questions` must be empty before proceeding. Then, by lane: **RISK = high**
+— present the intake section by section and wait for sign-off. **RISK = normal**
+— post the rendered intake in ONE message and proceed; the owner vetoes
+asynchronously, and the drift detector plus the step 5 gate catch mechanically
+what a reading would have caught.
 
-The intake contract is the **drift detector** for everything downstream:
-implementation touching paths outside `allowed_edit_surface`, adding
-behavior not named in `user_visible_behavior`, or skipping a promised test
-in `tests_to_add` is an objective violation — pause and re-plan, never
-improvise around it.
-
-Note: if the feature will add or update a dependency,
-`allowed_edit_surface` must include `package.json` and `pnpm-lock.yaml` —
-the guard hook requires BOTH surface coverage and
-`.feature/deps-justification.md` for manifest edits.
+The intake is the **drift detector** for everything downstream. Implementation
+touching paths outside `allowed_edit_surface`, behavior not named in
+`user_visible_behavior`, or a skipped `tests_to_add` entry is an objective
+violation. Pause and re-plan; never improvise around it.
 
 ## 2. SETUP — sibling worktree
 
-`pnpm worktree:new <branch>` with a branch name derived from the locked
-intake. Every subsequent edit targets that worktree root — never the parent
-checkout.
-
-**WORKTREE PATH DISCIPLINE (mandatory)**: some harnesses reset the shell
-cwd between Bash calls (the VSCode extension does), so never assume a `cd`
-persists. Prefix EVERY Bash command with `cd <worktree-root> && …` and use
-absolute worktree paths for all Edit/Write calls. Enforcement itself does
-not depend on cwd (the guard anchors on the edited file's repo root; the
-stop gate scans registered worktrees). Inspect the parent checkout with
-`git -C <path>`, never by relying on a persistent directory change.
+`pnpm worktree:new <branch>`, with the branch name derived from the locked
+intake. Apply `working-rules.md` § Worktree path discipline to every command
+and edit from here on.
 
 Then arm enforcement with ONE command:
 
@@ -222,455 +147,513 @@ Then arm enforcement with ONE command:
 cd <worktree-root> && bash scripts/feature-setup.sh <path-to-locked-intake.json>
 ```
 
-It installs the intake (committed `docs/superpowers/plans/` audit copy +
-ephemeral `.feature/intake.json` arming copy — gitignored by design, #512),
-deletes the parent draft, proves the hooks are armed (`scripts/arm-check.sh`
-— any DISARMED output means STOP and report, do not implement), and prints
-cross-worktree surface overlaps. On overlap, surface it to me BEFORE
-planning: agree a merge order (noted in both deviations files) or narrow a
-surface. Surface amendments mid-run: an amendment that only NARROWS the surface,
-or adds ≤2 files inside a directory tree the surface already covers, is
-auto-approved — apply it and record it in the deviations file. Anything
-broader needs my sign-off. Either way update BOTH intake copies and count
-the amendment (abort criteria, step 5; only `allowed_edit_surface` changes
-count, other intake-field corrections are deviations-file entries).
-`.feature/deps-justification.md` is likewise ephemeral — carry its content
-into the PR description so the justification survives.
+It installs both intake copies (committed audit copy + ephemeral
+`.feature/intake.json` arming copy), deletes the parent draft, proves the hooks
+are armed via `scripts/arm-check.sh` (any DISARMED output means STOP and
+report), writes the worktree-scoped autonomy profile so steps 4–7 run without
+permission prompts (the shipping boundary still prompts;
+`FEATURE_AUTONOMY_PROFILE=off` opts out), carries the ladder in, and prints
+cross-worktree surface overlaps.
 
-**NO BASH WRITES**: repo file changes go through Edit/Write only — never
-`sed -i`, shell redirects, `tee`, `mv`/`cp`, or heredocs over repo files
-(routes around the guard). The common shapes are hook-enforced
-(`.claude/hooks/bash-write-guard.sh`, armed like the stop gate); this rule
-covers the residue the hook's conservative parser allows. Scratch goes to
-the scratchpad or `.feature/`/`docs/` (exempt surfaces).
+On overlap, surface it BEFORE planning: agree a merge order, noted in both
+deviations files, or narrow a surface.
+
+**Surface amendments**: an amendment that only NARROWS the surface, or adds ≤2
+files inside a tree the surface already covers, is auto-approved — apply it and
+record it in the deviations file. Anything broader needs owner sign-off. Either
+way, update BOTH intake copies and count it mechanically:
+
+```bash
+bash scripts/feature-state.sh incr-amendment
+```
+
+The 1st auto-approves; the 2nd and later REFUSE without `--reason`. Only
+`allowed_edit_surface` changes count — other intake corrections are
+deviations-file entries.
 
 ## 3. PLAN — in this session (tracer bullets, deep modules)
 
-Before writing the plan, consult the `codebase-design` skill: name the
-modules/seams this feature touches, and state for each whether we're
-deepening an existing module or forced to add a new interface. If the plan
-would widen an interface or scatter logic across seams, redesign before
-proceeding.
+Consult the `codebase-design` skill first: name the modules and seams this
+feature touches, and state for each whether we deepen an existing module or are
+forced to add a new interface. A plan that would widen an interface or scatter
+logic across seams gets redesigned before proceeding.
 
-Then invoke `writing-plans`, structuring the tasks as tickets:
-- **The FIRST task is the eval task**: author the `tests_to_add` bodies as
-  failing tests (slices not yet buildable may use `.todo`/`.fails`
-  markers), committed before any implementation task — the spec in
-  executable form. Each implementation task then names the failing tests
-  it turns green. Prefer code-shaped spec over prose everywhere: a test
-  suite, an HTML mockup, or a precedent file `@`-referenced beats a
-  paragraph describing the same thing.
-- Each task is a **tracer bullet**: a thin vertical slice that runs
-  end-to-end, not a horizontal layer.
-- Each task declares its **blocking edges** (which tasks must land first).
-- Each task uses glossary terms from `CONTEXT.md` verbatim.
-- Each task stays within `allowed_edit_surface`. If planning reveals the
-  surface was declared too narrowly, amend it per step 2's amendment rule
-  (trivial widenings auto-approved + recorded; broader ones need my
-  sign-off) — the hook enforces the declared surface, so silent widening
-  is blocked regardless.
-- Mark which tasks are mutually independent (no blocking edges AND
-  disjoint planned file sets) — step 4 uses this for parallel dispatch.
+Then invoke `writing-plans`, structuring tasks as tickets:
+
+- **The FIRST task is the eval task.** Author the `tests_to_add` bodies as
+  failing tests, committed before any implementation task — the spec in
+  executable form. Slices not yet buildable may use `.todo`/`.fails`. Each
+  implementation task names the failing tests it turns green. Prefer
+  code-shaped spec everywhere: a test suite, an HTML mockup, or an
+  `@`-referenced precedent file beats a paragraph describing the same thing.
+- Each task is a **tracer bullet** — a thin vertical slice that runs end to
+  end, never a horizontal layer.
+- Each task declares its **blocking edges**, uses `CONTEXT.md` terms verbatim,
+  and stays inside `allowed_edit_surface`.
+- Mark the mutually independent tasks (no blocking edges AND disjoint file
+  sets). Step 4 uses this for parallel dispatch.
 
 Write the plan to `docs/superpowers/plans/`. If DB-touching, read
 `.claude/reference/migrations-log.md` before writing the migration step.
 
-**If RISK = high, gate the plan before executing:**
-1. Before EVERY review dispatch, run `bash scripts/feature-state.sh
-   incr-round plan`. The counter lives in `.feature/state.json`, so a
-   resumed session CONTINUES the count — uncounted rounds are how #628
-   reached a round-5 review under a "max 3" cap.
-   Then PRE-VALIDATE the plan mechanically — a ~300s round must never be
-   spent on a defect a shell command finds in under a second:
-   `python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py
-   <plan.md> --repo "$(git rev-parse --show-toplevel)"`. It resolves every
-   `path:line` citation against current HEAD, tests every referenced
-   test-shaped path with `git check-ignore`, and resolves every cited commit
-   SHA including a stale `HEAD is <sha>` handoff claim. Three #643 plan
-   rounds each re-reviewed plan-internal consistency and all missed a cited
-   `CONTEXT.md` section that had never been written — mechanical, not
-   judgement. Dispatch only on `PREVALIDATE: PASS`.
-2. **Round 1 (full, eval-first)**: the primary review target is the
-   failable definition of done, not the plan prose. Dispatch the codex
-   rescue agent (read-only) to adversarially review the plan + the eval
-   task, leading with: **can this eval pass while the feature is still
-   wrong?** — every missing failure mode must be named as a missing
-   failing test, not as a prose objection. Plan-level findings
-   (assumptions, simpler alternatives) are secondary. Require an explicit
-   `VERDICT: APPROVED` or `REVISE` with reasons. The brief MUST include the
-   **cited-artifact check**: verify every file/section the plan cites
-   actually exists on disk (three #643 plan rounds each re-reviewed
-   plan-internal consistency and all missed that a cited `CONTEXT.md`
-   section had never been written). Dispatch via direct `codex exec` and
-   record the codex session id in the handoff doc — the companion wrapper
-   has lost task ids across session resumes.
-3. **Rounds 2–3 (verification-only)**: after revising, re-submit ONLY the
-   findings-and-fixes delta. The reviewer verifies each prior finding is
-   addressed and may flag a defect a FIX introduced — it may NOT open new
-   fronts against unchanged plan sections. A round that returns new
-   unrelated findings is over-reviewing: note them in the plan's review
-   appendix and move on.
-4. **After round 3**: STOP. Surface the remaining disagreement to me with
-   both positions — my call substitutes for APPROVED. Never loop further.
-5. On `APPROVED`, post the plan summary and proceed straight to step 4 —
-   the verdict replaces a plan-reading pause (veto anytime; step 8's
-   high-lane merge approval remains the human gate).
+Register the tracers:
 
-**CHECKPOINT (step 3→4 boundary)**: once the plan is locked (RISK = high:
-`APPROVED` verdict or my round-3 call; normal: plan posted), run
-`cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved`
-(the machine-readable phase record `/feature-resume` reads first — setup
-initialized it at `worktree_ready`; the gate records `gate_green` itself),
-then write the handoff doc to the worktree
-(`docs/superpowers/plans/<branch>-handoff.md`). It must reference the spec,
-plan, ticket files, and glossary excerpt by path — not restate them. Then
-apply the Session hygiene exit rule: if grilling/planning ran long, tell me
-in one line to `/clear` and run `/feature-resume <branch>` (one keystroke —
-the fresh session reads disk and continues from step 4); if the session is
-still light, continue here. Either way, from here on never re-read the
-full grilling conversation — consult the spec/plan files instead.
+```bash
+node .agents/skills/feature/scripts/progress.mjs tracers set "T1 <title>|T2 <title>|..."
+```
+
+**If RISK = high, gate the plan before executing:**
+
+1. Count the round and snapshot the contract, then PRE-VALIDATE mechanically —
+   a ~300 s round must never be spent on a defect a shell command finds in
+   under a second:
+
+   ```bash
+   bash scripts/feature-state.sh incr-round plan
+   bash scripts/feature-state.sh record-contract <plan.md>
+   python3 ~/.claude/skills/grill-me-codex/scripts/prevalidate-plan.py \
+     <plan.md> --repo "$(git rev-parse --show-toplevel)"
+   ```
+
+   It resolves every `path:line` citation against current HEAD, tests every
+   referenced test-shaped path with `git check-ignore`, and resolves every
+   cited commit SHA including a stale `HEAD is <sha>` handoff claim. Dispatch
+   only on `PREVALIDATE: PASS`.
+
+2. **Round 1 (full, eval-first)**: dispatch the codex rescue agent (read-only)
+   with the plan-skeptic prompt from `review-prompts.md`. The primary target is
+   the failable definition of done, not the plan prose — lead with **can this
+   eval pass while the feature is still wrong?** Every missing failure mode
+   must be named as a missing failing test, not a prose objection. The brief
+   MUST include the cited-artifact check: verify every file and section the
+   plan cites exists on disk. Require `VERDICT: APPROVED` or `REVISE` with
+   reasons. Dispatch via direct `codex exec` and record the session id in the
+   handoff doc — the companion wrapper has lost task ids across resumes, and
+   the verification round below resumes from that id.
+
+   Apply `review-prompts.md` § Dispatching a Codex round when you write the
+   brief. Two rules bind here: write the context INTO the brief rather than
+   letting the session re-derive it with a dozen `exec` calls, and if the round
+   fans out, give each delegate a DIFFERENT question (failability / cited
+   artifacts / invariants) — never the same brief cloned. Measured on
+   feat/1008: three identical clones per wave, 7.27 M input tokens for 56 K of
+   output.
+
+3. **After the fixes, ask whether a verification round is owed:**
+
+   ```bash
+   bash scripts/feature-state.sh contract-changed <plan.md>
+   ```
+
+   `UNCHANGED` — the fixes moved no contract surface. Skip the round.
+   Self-verify each fix against the findings table and record the skip and its
+   reason in the plan's review appendix. `CHANGED` — dispatch one
+   verification-only round (`incr-round plan` first) by RESUMING round 1's
+   session, never cold:
+
+   ```bash
+   codex exec resume <round-1-session-id> "<the findings-and-fixes delta>"
+   ```
+
+   A verification round checks whether ITS OWN findings were addressed, so
+   round 1's context is exactly what it needs and a cold start pays ~1 M input
+   tokens to rebuild it. Resume ONLY here — never for round 1, never for an
+   independent axis, because a resumed session is anchored on its earlier
+   conclusions and that destroys the independence an axis exists to provide.
+
+   The round confirms each prior finding is addressed and may flag a defect a
+   FIX introduced. It may NOT open new fronts against unchanged sections; a
+   round returning new unrelated findings is over-reviewing — note them in the
+   appendix and move on.
+
+4. **After round 3**: STOP. Surface the remaining disagreement with both
+   positions. The owner's call substitutes for APPROVED. Never loop further.
+
+5. On `APPROVED`, post the plan summary and proceed straight to step 4.
+
+**CHECKPOINT (step 3→4)**: once the plan is locked, record the phase and write
+the handoff:
+
+```bash
+cd <worktree-root> && bash scripts/feature-state.sh set-phase plan_approved
+node .agents/skills/feature/scripts/progress.mjs step plan done
+```
+
+The handoff doc (`docs/superpowers/plans/<branch>-handoff.md`) references the
+spec, plan, ticket files and glossary excerpt BY PATH — it never restates them.
+Then apply the Session hygiene exit rule below. From here on, never re-read the
+grilling conversation; consult the files.
 
 ## 4. EXECUTE — delegated
 
-Set the phase first (`bash scripts/feature-state.sh set-phase executing`),
-then invoke `subagent-driven-development` FROM this session:
-dispatch fresh per-task subagents against the worktree. Each subagent's
-task prompt MUST include:
-- The relevant `CONTEXT.md` glossary excerpt (so it names things in the
-  shared language, not its own invented jargon).
-- The task's spec slice and its blocking-edge context.
-- The precedent file paths from `existing_patterns_to_follow` and the
-  failing eval tests this task turns green — code references, not prose
-  descriptions of them.
+```bash
+bash scripts/feature-state.sh set-phase executing
+```
 
-**Parallel dispatch**: the first task always runs alone (its enforcement
-spot check below proves the guard binds for subagent tool calls). After it
-passes, tasks the plan marked mutually independent (no blocking edges AND
-disjoint file sets) may run as concurrent subagents via
-`dispatching-parallel-agents`; tasks sharing files or edges stay serial.
-Any surface violation by a parallel task stops the whole fan-out.
+Invoke `subagent-driven-development` FROM this session: fresh per-task
+subagents against the worktree. Every task prompt includes the `CONTEXT.md`
+glossary excerpt, the task's spec slice and blocking-edge context, the
+precedent paths from `existing_patterns_to_follow`, and the failing eval tests
+this task turns green — code references, never prose descriptions of them. The
+full delegation contract is in `execution-lanes.md` § Delegation contract.
 
-TDD per the `test-driven-development` skill discipline where behavior is specifiable up front:
-red-green-refactor, one vertical slice at a time. Commit per completed task
-on the branch.
+**Parallel dispatch**: the first task always runs alone, because its
+enforcement spot check proves the guard binds for subagent tool calls in this
+harness. After it passes, tasks the plan marked mutually independent may run as
+concurrent subagents via `dispatching-parallel-agents`. Tasks sharing files or
+edges stay serial. Any surface violation by a parallel task stops the whole
+fan-out.
 
-Subagents report back a ≤10-line summary (what changed, files touched,
-tests added, anything surprising). Full output stays in the subagent; if a
-subagent hits something the plan didn't anticipate, it writes a note to
-`docs/superpowers/plans/<branch>-deviations.md` rather than dumping context
-on the orchestrator.
+TDD per `test-driven-development` where behavior is specifiable up front:
+red → green → refactor, one vertical slice at a time. Commit per completed
+task. Move each tracer as it starts and finishes:
 
-**First-task enforcement spot check**: after the FIRST subagent task
-completes, diff `git status --porcelain` paths against
-`allowed_edit_surface`. An out-of-surface file means enforcement did not
-bind for subagent tool calls in this harness — STOP and report; do not
+```bash
+node .agents/skills/feature/scripts/progress.mjs tracer T3 active
+node .agents/skills/feature/scripts/progress.mjs tracer T3 done
+```
+
+Subagents report a ≤10-line summary. A subagent that hits something the plan
+did not anticipate writes to `docs/superpowers/plans/<branch>-deviations.md`
+rather than dumping context on the orchestrator.
+
+**First-task enforcement spot check**: after the FIRST subagent task completes,
+diff `git status --porcelain` paths against `allowed_edit_surface`. An
+out-of-surface file means enforcement did not bind — STOP and report. Do not
 dispatch further tasks.
 
 ## 5. VERIFY GATE — cheap, before any review
 
-Must be fully green before any review starts, and re-run after every fix
-round. Run `scripts/verify-gate.sh` — it reads `.feature/intake.json` for
-surface/db flags, runs the applicable checks, writes per-check logs to
+Run `scripts/verify-gate.sh`. It reads `.feature/intake.json` for surface and
+DB flags, runs the applicable checks in parallel, writes per-check logs to
 `.feature/logs/`, and writes machine-readable `.feature/gate-status.json`:
 
-- Always: `pnpm lint && pnpm typecheck && pnpm test`
-- Always: every `ci:*` audit script in package.json except `ci:fallow*`,
-  enumerated dynamically — the same set CI's lint job and the lefthook
-  pre-push gate run, so gate-green can never fail push-time audits.
-  (fallow runs in its own CI workflow with its own baseline.)
-- If surface includes ui: `pnpm build`
-- Changed `*.integration.test.ts` suites: RUN when
-  `TEST_DATABASE_POOL_URL` is set (the gate resolves it itself — env
-  first, `.env.local` fallback); otherwise a loud `SKIP` row + warning
-  (live-DB suites self-skip locally and can go red in CI — the #520
-  class). A gate with that warning is NOT review-ready for DB-touching
-  work: set the var and re-run.
-- If `db_touching`: the gate provisions the test DB (`pnpm test:db:setup`)
-  SERIALLY before the parallel rows — provisioning is a precondition it
-  owns, never a `verification_commands` entry (destructive commands there
-  are rejected as FAIL rows; a schema drop as a parallel peer produced 27
-  phantom timeouts on #643).
-- `promised-tests` row: every `tests_to_add` title must exist VERBATIM in
-  a test file — the edge-case→test mapping is deterministic, not judged.
-- `reclassify` WARN row: either bucket of the actual diff (production /
-  test, workflow artifacts under `docs/superpowers/plans/**` and
-  `docs/reviews/**` excluded) > 2× its intake estimate fires the
+- Always: `pnpm lint`, `pnpm typecheck`, `pnpm test`
+- Always: every `ci:*` audit in package.json except `ci:fallow*`, enumerated
+  dynamically — the same set CI's lint job and the lefthook pre-push gate run,
+  so a gate-green branch can never fail push-time audits.
+- Surface includes ui: `pnpm build`
+- Changed `*.integration.test.ts` suites: RUN when `TEST_DATABASE_POOL_URL`
+  resolves (the gate resolves it itself). Otherwise a loud `SKIP` row. A gate
+  carrying that warning is NOT review-ready for DB-touching work.
+- `db_touching`: the gate provisions the test DB SERIALLY before the parallel
+  rows. Provisioning is a precondition it owns, never a `verification_commands`
+  entry — destructive commands there are rejected as FAIL rows.
+- `promised-tests`: every `tests_to_add` title must exist VERBATIM in a test
+  file. The edge-case→test mapping is deterministic, not judged.
+- `reclassify` WARN: either diff bucket over 2× its estimate fires the
   re-classification trigger below.
-- Docs-only diffs (every changed path is `docs/`, `.claude/`, or `*.md`)
-  auto-detect: the gate runs lint/typecheck/audit rows only and records
-  `"mode":"docs_only"` in `gate-status.json` — a valid green for docs
-  commits and mid-feature checkpoints, where `promised-tests` is
-  structurally unsatisfiable.
-- Plus any `verification_commands` declared in the intake.
+- Docs-only diffs auto-detect and run lint/typecheck/audit rows only.
+- Plus any `verification_commands` from the intake.
 
-The LAST gate run before step 7 is `scripts/verify-gate.sh --review`: the
-test row runs with coverage and a `diff-coverage` row enforces changed-line
-coverage (default min 80%) — "wrote code, wrote no test for it" fails
-mechanically instead of hoping a reviewer notices.
+The LAST gate run before step 7 is `scripts/verify-gate.sh --review`: the test
+row runs with coverage and a `diff-coverage` row enforces changed-line coverage
+(default 80%), so "wrote code, wrote no test for it" fails mechanically.
 
-Checks run in parallel (wall-clock ≈ slowest check) — re-running the gate
-after every fix round is cheap; do it.
+**GATE LOOP — unattended and budget-enforced.** After a RED gate, do not hand
+back per round. Read `bash scripts/gate-summary.sh` (failing rows and log tails
+only), fix, then:
 
-**SUBAGENT BARRIER — the gate is the LAST serialized step.** Never start a
-gate run while any step-4 subagent is still in flight. A subagent that returns
-mid-gate moves HEAD underneath the evidence, `gate-status.json` ends up older
-than HEAD, and the Stop hook then refuses a feature that was actually
-finished — the single most common way a completed run stalls. The order is
-fixed: every dispatched subagent has returned → commit → `git rev-parse HEAD`
-→ run the gate → record that SHA in the report. If HEAD moves afterwards for
-any reason (a late fix, a rebase, a merge from main), the previous gate result
-is VOID. Re-derive it; never reuse it.
+```bash
+bash scripts/feature-state.sh incr-gate-round
+bash scripts/verify-gate.sh --fast
+```
 
-On failure, read back only the log tail and failing test/rule names — never
-the full log. Report the gate as a one-line-per-check PASS/FAIL table.
+`--fast` is the loop's gate: same rows, three narrowed against the last green
+SHA (25 s against 95 s, measured). It is never evidence — see
+`execution-lanes.md` § The gate loop for what it skips and why it cannot
+satisfy the Stop hook. Run the FULL gate at every boundary and any time HEAD
+moves. The counter REFUSES round 4 without an owner reason; a full green resets
+the budget. The anti-thrash rule applies inside the loop.
 
-**Enforcement is deterministic, not advisory**: the Stop hook refuses to
-end the session as "complete" unless `gate-status.json` is green and newer
-than HEAD (see `.claude/hooks/` setup). It scans all registered worktrees
-but enforces only the ones THIS session engaged with (launched in, or
-edited — the guard records session ids in `.feature/sessions`), so parked
-worktrees never block unrelated sessions. To deliberately park red work
-mid-feature in the SAME session, rename `.feature/intake.json` — parking
-red work should be a conscious act. `verification-before-completion`
-discipline still applies to how you talk about progress: evidence before
-claims.
+**Never blocking-wait on a gate blind.** `bash scripts/verify-gate.sh --status`
+answers RUNNING (rows done, elapsed), DEAD (crashed mid-run, exit 3), or the
+last completed result. Check it before waiting, before re-launching, and on
+resume. To prove a tree green WITHOUT advancing the phase, run `--baseline`.
 
-**Property-test requirement**: if the feature touches billing, approval /
-auto-approval, or escalation logic, `tests_to_add` MUST include at least one
-`fast-check` property test per declared invariant — example tests are too
-weak for state-machine and money logic. `fast-check` is installed; the
-house style lives in `src/lib/reviews/__tests__/sentiment.test.ts`
-("invariants" describe block). (Mutation testing via Stryker is planned as
-a nightly CI lane, not part of this gate; when it lands, tests it flags as
-weak come back as bug tickets.)
+**SUBAGENT BARRIER — the gate is the LAST serialized step.** Never start a gate
+while any step-4 subagent is in flight. A subagent returning mid-gate moves
+HEAD under the evidence, `gate-status.json` ends up older than HEAD, and the
+Stop hook then refuses a feature that was actually finished. The order is
+fixed: every subagent has returned → commit → `git rev-parse HEAD` → run the
+gate → record that SHA. If HEAD moves afterwards for any reason, the previous
+gate result is VOID. Re-derive it; never reuse it.
 
-**Anti-thrash rule**: if the gate fails on the same failure class twice,
-STOP patching. Dispatch a fresh subagent to run the `diagnosing-bugs` skill
-loop (reproduce → minimise → hypothesise → instrument → fix →
-regression-test) against the failing check, with the log file path and the
-relevant spec slice as its inputs. It returns the diagnosis and fix summary;
-the instrumentation noise stays out of this session.
+Report the gate as a one-line-per-check PASS/FAIL table. On failure read back
+only the log tail and the failing names.
 
-**Re-classification trigger**: the gate's `reclassify` row compares the
-actual diff per bucket (production vs test, workflow artifacts excluded)
-against `estimated_prod_lines` / `estimated_test_lines`. If either bucket
-exceeds ~2× its estimate, or `allowed_edit_surface` has already been
-amended once, STOP and re-run step 0 with the real numbers — the lane was
-wrong, and the heavier lane's controls exist for exactly this feature.
+**Enforcement is deterministic.** The Stop hook refuses to end the session as
+complete unless `gate-status.json` is green and newer than HEAD. It scans
+registered worktrees but enforces only the ones THIS session engaged with. To
+park red work mid-feature in the same session, rename `.feature/intake.json` —
+parking should be a conscious act.
 
-**Abort criteria (sunk cost is not a lane)**: after 3 full gate-fail
-rounds, or a 2nd amendment of `allowed_edit_surface`, or any deviation
-that invalidates a locked intake decision — stop patching. Only surface
-amendments count toward that budget: `tests_to_add` retitles and
-`verification_commands` corrections are recorded as owner-approved
-deviations-file entries, not amendments (#643 nearly hit teardown over
-two test-title renames). Write a post-mortem to
-`docs/superpowers/plans/<branch>-postmortem.md` (what was learned; what
-the intake/plan got wrong), tear the branch down, and restart at step 1
-carrying the post-mortem. The genuinely bad merges come from persisting,
+**Property-test requirement**: a feature touching billing, approval /
+auto-approval, or escalation logic MUST include at least one `fast-check`
+property test per declared invariant. Example tests are too weak for
+state-machine and money logic. House style:
+`src/lib/reviews/__tests__/sentiment.test.ts` ("invariants" describe block).
+
+**Anti-thrash**: the same failure class twice means STOP patching. Dispatch a
+fresh subagent to run the `diagnosing-bugs` loop against the failing check,
+with the log path and the relevant spec slice as inputs. It returns the
+diagnosis and fix summary; the instrumentation noise stays out of this session.
+
+**Re-classification trigger**: a bucket over ~2× its estimate, or a surface
+already amended once, means STOP and re-run step 0 with the real numbers.
+
+**Abort criteria (sunk cost is not a lane)**: after 3 full gate-fail rounds, a
+2nd surface amendment, or any deviation that invalidates a locked intake
+decision — stop patching. Only surface amendments count toward that budget;
+`tests_to_add` retitles and `verification_commands` corrections are
+deviations-file entries. Write
+`docs/superpowers/plans/<branch>-postmortem.md`, tear the branch down, and
+restart at step 1 carrying it. The genuinely bad merges come from persisting,
 not restarting.
+
+Close the step from a green review gate with a current fingerprint:
+
+```bash
+node .agents/skills/feature/scripts/gate-fingerprint.mjs check
+node .agents/skills/feature/scripts/progress.mjs step gate done
+```
 
 ## 6. DEVIATIONS READ-BACK — mandatory before review
 
-Read `docs/superpowers/plans/<branch>-deviations.md` end to end. Every
-entry is, by definition, something the plan did not anticipate — the
-highest-signal bug source on the branch. For each entry, log a one-line
-verdict in the file: ACCEPT (the adaptation is sound) or RE-PLAN (it
-invalidates a locked decision — abort criteria apply). Review agents
-receive the triaged file, never a raw accumulation.
+Read `docs/superpowers/plans/<branch>-deviations.md` end to end. Every entry is
+by definition something the plan did not anticipate — the highest-signal bug
+source on the branch. Log a one-line verdict per entry in the file: ACCEPT (the
+adaptation is sound) or RE-PLAN (it invalidates a locked decision; abort
+criteria apply). Review agents receive the triaged file, never a raw
+accumulation.
 
-## 7. REVIEW — unified two-axis, confidence-filtered
+This is ENFORCED: the `reviewed` transition parses the file and refuses when
+any entry lacks a resolved **Verdict:** ACCEPT. A RE-PLAN verdict also refuses.
 
-First run `cd <worktree-root> && bash scripts/blast-radius.sh` — it writes
-`docs/reviews/<branch>/blast-radius.md` listing the importers of every
-changed file (typecheck catches signature breaks; it cannot catch a
-semantic change whose callers relied on the old behavior).
+## 7. REVIEW WAVE — every axis and the red team, in one dispatch
 
-ONE full review round: parallel fresh agents on the branch diff since the
-fork point — two axes always, a third when RISK = high — so no axis
-pollutes another. All agents receive the triaged deviations file; the spec
-agent also receives `blast-radius.md` (check the listed callers against
-the changed semantics):
+**Take main BEFORE this step, then freeze the fork.** Check drift now
+(`git rev-list --count HEAD..origin/main`) and rebase or merge if it is
+material. From the moment the wave dispatches, the fork point is FROZEN: a
+rebase during steps 7–7.5 voids the gate result, the fingerprint, the blast
+radius and the red-team sidecar all at once, and `red-team-status.mjs` will
+refuse the `reviewed` transition on exactly that basis. On feat/1008 that cost
+**67 of red team's 174 minutes** for one post-rebase re-run. Taking main before
+the wave costs one 95 s gate. If main truly must be taken mid-review, the round
+is VOID — say so, re-run the full gate, and open a fresh round under the same
+caps. Never patch around it. See `execution-lanes.md` § Pin the fork.
 
-- **Spec & correctness agent**: does the diff faithfully implement the
-  intake contract and tickets? Flag bugs, drift outside
-  `allowed_edit_surface`, behavior not named in `user_visible_behavior`,
-  missing `tests_to_add`, and unhandled `edge_cases` — checked field by
-  field against `.feature/intake.json`, not from memory.
-- **Standards & maintainability agent**: invoke
-  `/thermo-nuclear-code-quality-review` on the branch directly (it is
-  agent-invocable); if unavailable or it errors, fall back to
-  `/code-review` at high effort. Covers repo standards, the
-  `codebase-design` deep-module discipline, a Fowler smell baseline, and
-  glossary violations (code that renames a `CONTEXT.md` concept).
-- **Adversarial approach agent (RISK = high only)**: invoke
-  `/codex:adversarial-review` directly — it is model-invocable, no owner
-  pause needed. Use `--background --base <fork-point>` so it runs while
-  the other two agents work, and hand it the intake + triaged deviations
-  file paths as focus context. If the plugin runtime errors (it has lost
-  task ids before), fall back to the codex rescue agent via direct
-  `codex exec`. It challenges the chosen approach, design choices, and
-  assumptions — not line-level defects (the other two agents own those).
-  This replaces the old sequential step 6 pass — running it in parallel
-  with the other axes removes a full review phase from the wall clock. A
-  valid approach-level finding may mean revisiting the plan (step 3), not
-  just patching code.
+First:
 
-**Round protocol (counter-enforced)**: before dispatching ANY review wave,
-run `bash scripts/feature-state.sh incr-round branch` — the counter lives
-in `.feature/state.json` and survives session resumes, so a resumed
-session cannot restart at round 1. Round 1 is the full parallel review
-above. Rounds 2–3 are **verification-only**: one fresh agent per axis that
-had accepted findings, briefed with that axis's findings table + the fix
-commits, verifying each fix landed and introduced nothing new — it may NOT
-open new fronts against unchanged code; new unrelated findings go in the
-report appendix, untriaged. After round 3, stop looping. RISK = high: surface the
-remaining disagreement to me. RISK = normal: make the call yourself and
-record both positions in the review report AND the PR description — I
-read it there.
+```bash
+cd <worktree-root> && bash scripts/blast-radius.sh
+```
 
-**Confidence filter (all agents)**: the findings table contains ONLY
-findings the agent would stake ≥80% confidence on, each with file:line and
-either a concrete failure scenario or the named standard violated.
-Speculative "might be nicer" observations go in a low-confidence appendix
-in the on-disk report — never in the table, never triaged by default.
+It writes `docs/reviews/<branch>/blast-radius.md`, listing the importers of
+every changed file. Typecheck catches signature breaks; it cannot catch a
+semantic change whose callers relied on the old behavior.
 
-Every agent writes its full report to `docs/reviews/<branch>/` and returns
-only a findings table: severity | file:line | one-line finding. This
-applies to ALL reviews in this workflow (steps 3 and 7): full report on
-disk, findings table in context. Open the full report only for findings
+Count the round, then launch the WHOLE wave in ONE message — parallel tool
+calls, the moment the review gate is green. Never serially, never "spec first,
+then standards":
+
+```bash
+bash scripts/feature-state.sh incr-round branch
+```
+
+The wave, per `execution-lanes.md` § The review wave (read it — it carries the
+three rules that make the wave safe):
+
+- **Spec & correctness agent** — the diff against the intake contract, field by
+  field, plus `blast-radius.md`. Prompt in `review-prompts.md`.
+- **Standards & maintainability agent** — invoke
+  `/thermo-nuclear-code-quality-review` on the branch directly. If unavailable
+  or it errors, fall back to `/code-review` at high effort.
+- **Adversarial approach agent (RISK = high only)** — invoke
+  `/codex:adversarial-review` with `--background --base <fork-point>`, handed
+  the intake and triaged deviations paths. `--background` is not optional: the
+  command otherwise stops on an `AskUserQuestion`, which parks the whole wave
+  on an owner pause. If the plugin runtime errors, fall back to the codex
+  rescue agent via direct `codex exec`. It challenges the approach and its
+  assumptions, not line-level defects.
+
+  Write the brief per `review-prompts.md` § Dispatching a Codex round — context
+  in the brief, no cloned delegates. Record its session id; a branch
+  verification round in rounds 2–3 resumes it rather than starting cold.
+- **Red-team pass** — the `red-team` skill in a FRESH subagent, on committed
+  HEAD. It receives the locked intake, the pinned fork/merge-base/head SHAs and
+  the claimed evidence — never your reasoning or the implementer's. Read
+  `.claude/skills/red-team/SKILL.md` for the protocol.
+
+All agents receive the triaged deviations file and their axis's accepted-
+findings checklist (`docs/reviews/finding-checklists/<axis>.md`, when it
+exists) with the instruction "check the diff against every line". These are
+defect classes real reviews accepted on real branches; a review starting from
+zero re-buys them.
+
+Route the mechanical passes — transcript logging, checklist sweeps, doc-claim
+greps, blast-radius reading — to Haiku subagents (`Agent(model: "haiku")`).
+The axes themselves keep the strong model.
+
+**Three wave rules, from the reference, restated because breaking one corrupts
+a red-team pass:**
+
+1. Review agents stage reports in `.feature/review-staging/<axis>.md`. The
+   root copies them into `docs/reviews/<branch>/` after the finalizer returns.
+   Not because a checker rejects them — `red-team-status.mjs` ignores
+   untracked paths deliberately — but because red-team's post-restore
+   assertion ("porcelain empty except this run's two report artifacts") is
+   AGENT judgement, made exactly when it decides whether a mutation was
+   restored. Staging removes the ambiguity rather than asking an agent to
+   adjudicate it mid-pass.
+2. The root edits NOTHING while the wave is in flight.
+3. The FINALIZER belongs to the root, not the subagent.
+
+**Confidence filter (all agents)**: the findings table contains ONLY findings
+the agent would stake ≥80% confidence on, each with file:line and either a
+concrete failure scenario or the named standard violated. Speculative "might be
+nicer" observations go to a low-confidence appendix in the on-disk report —
+never in the table, never triaged by default.
+
+Every agent writes its full report to disk and returns only a findings table:
+severity | file:line | one-line finding. Open a full report only for a finding
 you are actively triaging.
 
-Triage the tables with `receiving-code-review`: fix what is
-real, reject the rest with stated reasoning. Log accepted/rejected verdicts
-as one-liners in the report file (so a resumed session inherits triage
-state). **COMMIT the review reports + triage verdicts on the branch** —
-uncommitted reports vanish with the worktree at cleanup (two merged
-worktrees were found holding the only copy of their step 7 reports).
-Re-run step 5. When triage completes, go to step 7.5 — **the phase does NOT
-move to `reviewed` here.** It used to, which is exactly how a branch could
-reach SHIP with no adversarial pass; the transition now lives at the end of
-step 7.5, after evidence that cannot be produced from memory.
+**Round protocol**: round 1 is the full wave above. Rounds 2–3 are
+**verification-only** — one agent per axis that had accepted findings, briefed
+with that axis's findings table and the fix commits, verifying each fix landed
+and introduced nothing new. A Codex axis RESUMES its round-1 session here
+(`codex exec resume <id> "<delta>"`); a Claude axis gets a fresh agent, since
+only the Codex side pays a seven-figure token cost to rebuild context. It may
+NOT open new fronts; new unrelated findings go to the report appendix,
+untriaged. Ask `contract-changed` whether a round is owed at all (§3 step 3
+shows the shape). After round 3, stop looping:
+RISK = high surfaces the disagreement to the owner; RISK = normal makes the
+call and records both positions in the review report AND the PR description.
 
-## 7.5 RED TEAM — disprove "done", then set the phase
+Triage the tables with `receiving-code-review`: fix what is real, reject the
+rest with stated reasoning. Log verdicts as one-liners in the report file so a
+resumed session inherits triage state. **COMMIT the review reports and triage
+verdicts** — uncommitted reports vanish with the worktree at cleanup.
 
-Steps 5–7 ask "is this right?". This step asks "can I prove it is wrong?" —
-and it owns the `reviewed` transition, so the phase can never claim reviewed
-without it.
+Re-run step 5, then go to step 7.5. **The phase does NOT move to `reviewed`
+here.**
 
-Invoke the `red-team` skill on this branch in a FRESH subagent. It receives
-the locked intake, the pinned fork/merge-base/head SHAs, and the claimed
-evidence — never my reasoning or the implementer's. It hand-mutation-tests
-the changed test surface, flags fragile assertions, re-resolves every doc
-`path:line` claim against HEAD, hunts missed sibling cases, and checks
-operational completeness. Read `SKILL.md` for the full protocol; the parts
-that bind THIS step are below.
+## 7.5 RED TEAM — finalize, prove, then set the phase
 
-**Order is load-bearing — the report commit moves HEAD, so it happens
-BEFORE the final gate, not after:**
+The pass itself ran in step 7's wave. This step owns everything that must
+happen after it, and it owns the `reviewed` transition, so the phase can never
+claim reviewed without adversarial evidence.
 
-1. Preconditions: clean tree, no watcher on the worktree, no stranded dotenv
-   backup. Any failure stops the step; never mutate around it.
-2. The pass runs on committed HEAD.
-3. **Finalizer, always** — the ORCHESTRATOR runs it, not the subagent, so a
-   dead subagent cannot strand a mutation:
-   `node .agents/skills/red-team/scripts/mutation-runner.mjs finalize`.
-   It aborts rather than overwrite content it did not write.
-4. Write and COMMIT `docs/reviews/red-team/<slug>/findings.{md,json}`,
-   touching nothing else.
+**Order is load-bearing — the report commit moves HEAD, so it happens BEFORE
+the final gate, not after:**
+
+1. **Finalizer, always** — the ORCHESTRATOR runs it, so a dead subagent cannot
+   strand a mutation:
+
+   ```bash
+   node .agents/skills/red-team/scripts/mutation-runner.mjs finalize
+   ```
+
+2. Write and COMMIT `docs/reviews/red-team/<slug>/findings.{md,json}`, touching
+   nothing else. Copy the staged review reports into `docs/reviews/<branch>/`
+   in the same commit.
+3. Apply the step 7 triage fixes. Re-run the gate loop until green.
+4. **Round 2, scoped**: the fixes moved HEAD, so the sidecar is stale by
+   construction. Re-run the red-team pass against the FIX HUNKS and their
+   direct callers only. `round-start` refuses a third round outright — a P0
+   here goes to the owner, with no round behind it.
 5. Re-run the final gate LAST: `bash scripts/verify-gate.sh --review`.
-6. `node .agents/skills/feature/scripts/red-team-status.mjs` — it recomputes
-   the status from the inventory rather than trusting it, and fails on stale
-   evidence, an amended intake, an unrestored mutation, or a high-risk open
-   P1 with no recorded authorization.
-7. Only now: `bash scripts/feature-state.sh set-phase reviewed`.
+6. Verify the evidence recomputes:
 
-**Findings bind this session.** A P0 blocks the PR and comes to me. A P1 on
-RISK = normal is yours to adjudicate; a P1 on RISK = high is mine. Fixing a
-finding sends you back to step 5, and red-team runs again — **hard cap of 2
-rounds**, where round 2 may only report new findings inside the fix hunks and
-their direct callers.
+   ```bash
+   node .agents/skills/feature/scripts/red-team-status.mjs
+   ```
 
-**A rejected finding is never a silent skip**: one-line verdict plus
+   It recomputes status from the inventory rather than trusting it, and fails
+   on stale evidence, an amended intake, an unrestored mutation, or a high-risk
+   open P1 with no recorded authorization.
+7. Only now:
+
+   ```bash
+   bash scripts/feature-state.sh set-phase reviewed
+   node .agents/skills/feature/scripts/progress.mjs step review done
+   ```
+
+**Findings bind this session.** A P0 blocks the PR and goes to the owner. A P1
+on RISK = normal is yours to adjudicate; a P1 on RISK = high is the owner's.
+
+**A rejected finding is never a silent skip**: a one-line verdict plus
 `file:line` evidence in `findings.md`, mirrored in the JSON disposition, and
 listed in a "Red-team findings rejected" section of the PR description.
 
 ## 8. SHIP — lane-dependent
 
-**Before any external action, in both lanes**: re-run
-`node .agents/skills/feature/scripts/red-team-status.mjs`. It is the same
-command step 7.5 ran, and it is cheap — but the commits between then and now
-(a staging ride, a fix, a rebase) are exactly what makes step 7.5's evidence
-stale. Open the PR with `gh pr create --draft` (draft PRs run no CI), then
-run the checker once more before `gh pr ready`, since the PR body is the
-first place the rejected-findings section becomes visible.
+**Before any external action, in both lanes**, re-run
+`node .agents/skills/feature/scripts/red-team-status.mjs`. It is the same cheap
+command step 7.5 ran, and the commits between then and now — a staging ride, a
+fix, a rebase — are exactly what makes that evidence stale. Open the PR with
+`gh pr create --draft` (draft PRs run no CI), then run the checker once more
+before `gh pr ready`: the PR body is the first place the rejected-findings
+section becomes visible.
 
 **If RISK = high** (worker / webhook / migration / billing / auth):
+
 1. Ride staging first: land the branch on `staging` (push → full stack
    auto-deploys). Migrations apply to the staging Supabase project FIRST.
-2. Verify on staging (smoke the touched path; use the matching runbook in
-   `docs/runbooks/` if one exists).
-3. Open the PR to `main`, confirm all GitHub CI checks green, then PAUSE for
-   my explicit merge approval. Apply the migration to prod Supabase in
-   lockstep at promotion.
+2. Verify on staging — smoke the touched path, using the matching runbook in
+   `docs/runbooks/` when one exists.
+3. Open the PR to `main`, confirm all CI checks green, then PAUSE for explicit
+   merge approval. Apply the migration to prod Supabase in lockstep at
+   promotion.
 
-**If RISK = normal**:
-1. Push, open PR to `main`.
-2. Confirm all GitHub CI checks green (including fallow; React Doctor 100/100
-   applies only when SURFACE = ui).
-3. Merge.
+**If RISK = normal**: push, open the PR to `main`, confirm all CI checks green
+(including fallow; React Doctor 100/100 only when SURFACE = ui), merge.
 
 **After merge (both lanes)**:
+
 - `git pull --ff-only` on local `main` (squash-merge lag).
-- Realign `staging` to `main` so it never drifts, per `deployment-guide.md`
-  §"Re-sync staging". `git merge --ff-only main` succeeds only if staging was
-  merely BEHIND; if the feature rode staging and the PR was squash-merged (the
-  default for a RISK=high lane) the branches have diverged and ff aborts — the
-  runbook's answer is `git reset --hard origin/main` + `--force-with-lease`.
-  Do NOT reach for a sync merge instead: it leaves staging permanently ahead,
-  which is the drift this step exists to prevent (#719, 2026-08-10).
-- **Worktree cleanup**: run `bash scripts/feature-cleanup.sh` from the main
-  checkout (dry run — lists worktrees whose PR merged with clean trees),
-  review the plan, then re-run with `--apply`. This also sweeps earlier
-  merged worktrees that skipped cleanup; never remove by hand with
-  `--force`.
-- **Deviations triage (promotion rule)**: read
-  `docs/superpowers/plans/<branch>-deviations.md` and promote every durable
+- Realign `staging` per `deployment-guide.md` § "Re-sync staging".
+  `git merge --ff-only main` succeeds only if staging was merely BEHIND; after
+  a squash merge the branches diverged and ff aborts — the runbook's answer is
+  `git reset --hard origin/main` + `--force-with-lease`. Do NOT substitute a
+  sync merge: it leaves staging permanently ahead, which is the drift this step
+  exists to prevent.
+- **Worktree cleanup**: `bash scripts/feature-cleanup.sh` from the main
+  checkout (dry run), review the plan, re-run with `--apply`. Never remove by
+  hand with `--force`.
+- **Deviations promotion**: read the deviations file and promote every durable
   lesson — root cause, test technique, library gotcha, constraint — into
   `.claude/reference/lab-notes.md` or the CLAUDE.md gotchas. The deviations
   file stays as the historical record; the lesson must not live only there.
-- Invoke the `document-feature` skill to sweep docs/reference inventories.
-- **Domain sweep**: apply `domain-modeling` one final time — fold any terms
-  or decisions that emerged during implementation/review back into
-  `CONTEXT.md` and ADRs, so the next session inherits the language.
+- Invoke `document-feature` to sweep docs and reference inventories.
+- **Domain sweep**: apply `domain-modeling` once more — fold terms and
+  decisions that emerged during implementation back into `CONTEXT.md` and ADRs.
 - **Entropy counter**: increment the merge counter in
-  `.claude/reference/arch-review-log.md`. If ≥ 5 merges since the last
-  architecture pass, remind me to schedule an architecture review session
-  (e.g. the `claude-mem:pathfinder` skill or a dedicated review pass — my
-  call; never start one automatically).
+  `.claude/reference/arch-review-log.md`. At ≥ 5 merges since the last
+  architecture pass, remind the owner to schedule one. Never start one
+  automatically.
+
+```bash
+node .agents/skills/feature/scripts/progress.mjs step ready done
+```
 
 ## Session hygiene
 
-State lives on disk; sessions are disposable. A fresh session reading
-files beats a summarized one — auto-summarization is the safety net, not
-the plan:
+State lives on disk; sessions are disposable. A fresh session reading files
+beats a summarized one — auto-summarization is the safety net, not the plan.
 
-- Write/update the handoff doc at the step 3→4 boundary and after step 7
-  (review verdicts + current step) — always, whether or not a restart
-  follows.
-- **Take the exit when the session is heavy**: at either checkpoint, if
-  this session has accumulated substantial non-disk context (long
-  grilling, review tables, log digging) — or you suspect you're past
-  halfway — tell me in ONE line to `/clear` and run
-  `/feature-resume <branch>`. That single keystroke is the entire cost;
-  it is not an approval pause. After step 7 this is the default: reviews
-  are the biggest context consumers and everything step 8 needs is on
-  disk.
-- If we ride through and the harness summarizes anyway: do not trust the
-  summary for state — re-read `.feature/state.json`, the handoff doc, and
-  the plan. Disk beats any summary.
-- `/feature-resume <branch>` equally covers interruption recovery (crash,
-  closed session, parked branch).
+- Update the handoff doc at the step 3→4 boundary and after step 7 — always,
+  whether or not a restart follows.
+- **Take the exit when the session is heavy.** At either checkpoint, if this
+  session has accumulated substantial non-disk context (long grilling, review
+  tables, log digging), say in ONE line: `/clear`, then
+  `/feature-resume <branch>`. That single keystroke is the entire cost; it is
+  not an approval pause. After step 7 this is the default — reviews are the
+  biggest context consumers and everything step 8 needs is on disk.
+- If the harness summarizes anyway, do not trust the summary for state.
+  Re-read `.feature/state.json`, the handoff doc and the plan.
+- `/feature-resume <branch>` equally covers interruption recovery.
 
-A resumed session bootstraps from: handoff doc → spec → plan → deviations
-file → review findings tables. It never needs the prior transcript.
+A resumed session bootstraps from: handoff doc → spec → plan → deviations file
+→ review findings tables. It never needs the prior transcript.

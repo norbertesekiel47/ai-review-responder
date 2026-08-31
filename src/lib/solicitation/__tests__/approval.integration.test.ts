@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import postgres from 'postgres';
 import type postgresType from 'postgres';
@@ -54,7 +55,31 @@ vi.mock('@/lib/audit/log', async (importOriginal) => {
   return { ...actual, writeAccountAuditLog: spies.writeAccountAuditLog };
 });
 
+// ── #1010 T5: the `batch_halted` lane's Refusal write site ──────────────────
+//
+// WHY THE VOCABULARY MODULE IS MOCKED. One case here forces a REAL ledger
+// rejection from the REAL helper inside the latch transaction — a mocked-away
+// writer would prove only that a stub can reject, and every other case supplies
+// valid input. Bending ONE map entry to a category migration 116's CHECK does
+// not admit makes the INSERT violate `refusal_events_refusal_category_check`,
+// which is the writer bug the design says must abort the decision rather than
+// be caught. Same shape as
+// `src/lib/auto-approval/__tests__/suspension.integration.test.ts`.
+//
+// The stand-in map is DERIVED from the real one inside the factory, never
+// re-typed: every other case must run against the production vocabulary.
+const { batchHaltedCategories } = vi.hoisted(() => ({
+  batchHaltedCategories: {} as Record<string, string | null>,
+}));
+
+vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/refusals/vocabulary')>();
+  Object.assign(batchHaltedCategories, actual.BATCH_HALTED_REFUSAL_CATEGORIES);
+  return { ...actual, BATCH_HALTED_REFUSAL_CATEGORIES: batchHaltedCategories };
+});
+
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
+import { BATCH_HALTED_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
 import { acquireSolicitationBatchLock } from '../batch-builder';
 import { insertOutreachRender, type InsertOutreachRenderInput } from '../outreach';
 import {
@@ -749,6 +774,108 @@ function instrumentedExecutor(base: postgresType.Sql): InstrumentedExecutor {
   return { executor, queries, transactions };
 }
 
+// ── #1010 T5 fixtures: the Refusal ledger ───────────────────────────────────
+
+/** The default-ON kill switch. Only the literal string 'false' disables it. */
+
+/** Postgres' CHECK-violation SQLSTATE. */
+const CHECK_VIOLATION = '23514';
+
+interface RefusalRow {
+  account_id: string;
+  business_id: string | null;
+  refusal_source: string;
+  refusal_code: string | null;
+  all_refusal_codes: string[] | null;
+  refusal_category: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  occurred_at: string;
+  /**
+   * `occurred_at = solicitation_batches.halted_at`, settled INSIDE Postgres.
+   *
+   * It cannot be computed in JavaScript: postgres.js decodes `timestamptz` to a
+   * JS `Date` and truncates microseconds (#520), so a halt lane that had read
+   * `halted_at` back and passed it forward would compare EQUAL after truncation
+   * and this claim would be unfalsifiable. `NOW()` is `transaction_timestamp()`
+   * and is stable across every statement in the transaction, so the sentinel
+   * produces the identical value to the microsecond.
+   */
+  matches_halted_at: boolean | null;
+  halted_at: string | null;
+}
+
+/** Every Refusal written against ONE batch. */
+async function readRefusals(batchId: string): Promise<RefusalRow[]> {
+  return sql()<RefusalRow[]>`
+    SELECT refusal.account_id::text AS account_id,
+           refusal.business_id::text AS business_id,
+           refusal.refusal_source,
+           refusal.refusal_code,
+           refusal.all_refusal_codes,
+           refusal.refusal_category,
+           refusal.subject_type,
+           refusal.subject_id::text AS subject_id,
+           refusal.occurred_at::text AS occurred_at,
+           (refusal.occurred_at = batch.halted_at) AS matches_halted_at,
+           batch.halted_at::text AS halted_at
+    FROM refusal_events refusal
+    LEFT JOIN solicitation_batches batch ON batch.id = refusal.subject_id
+    WHERE refusal.account_id = ${accountId()}::uuid
+      AND refusal.subject_id = ${batchId}::uuid
+    ORDER BY refusal.occurred_at
+  `;
+}
+
+/** Every Refusal this account carries, whatever it points at — the counterpart
+ *  to `readRefusals` for the cases whose claim is "none, anywhere". */
+async function readAllRefusals(): Promise<RefusalRow[]> {
+  return sql()<RefusalRow[]>`
+    SELECT refusal.account_id::text AS account_id,
+           refusal.business_id::text AS business_id,
+           refusal.refusal_source,
+           refusal.refusal_code,
+           refusal.all_refusal_codes,
+           refusal.refusal_category,
+           refusal.subject_type,
+           refusal.subject_id::text AS subject_id,
+           refusal.occurred_at::text AS occurred_at,
+           (refusal.occurred_at = batch.halted_at) AS matches_halted_at,
+           batch.halted_at::text AS halted_at
+    FROM refusal_events refusal
+    LEFT JOIN solicitation_batches batch ON batch.id = refusal.subject_id
+    WHERE refusal.account_id = ${accountId()}::uuid
+    ORDER BY refusal.occurred_at
+  `;
+}
+
+/**
+ * `latchSystemHalt` discharged exactly as the release cycle's sweeps do: one
+ * transaction, the batch row locked first, then the latch. The verb takes no
+ * advisory lock and there is no owner request to authorize — the row lock is
+ * the caller's whole obligation.
+ */
+async function latchSystemHaltUnderLock(
+  batchId: string,
+  reason: 'send_window_elapsed' | 'batch_expired' | 'platform_halt',
+): Promise<unknown> {
+  return sql().begin(async (tx) => {
+    await tx`
+      SELECT id FROM solicitation_batches
+      WHERE id = ${batchId}::uuid
+        AND account_id = ${accountId()}::uuid
+        AND business_id = ${businessId}::uuid
+      FOR UPDATE
+    `;
+    return approvalModule.latchSystemHalt(tx, {
+      batchId,
+      accountId: accountId(),
+      businessId,
+      reason,
+    });
+  });
+}
+
 async function readRunStatus(runId: string): Promise<string> {
   const [row] = await sql()<{ status: string }[]>`
     SELECT status FROM agent_runs
@@ -819,6 +946,14 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
   });
 
   afterEach(async () => {
+    // The kill switch is default-ON and one case turns it off; a leak would
+    // silently turn every ledger assertion in this file into a no-op that still
+    // passes.
+    delete process.env[REFUSAL_LEDGER_FLAG];
+    // #1010's rows. Cleared per case so "exactly one Refusal" means this case's,
+    // and swept BEFORE teardown deletes the account and location this table's
+    // two no-action foreign keys point at.
+    await sql()`DELETE FROM refusal_events WHERE account_id = ${accountId()}::uuid`;
     await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
     await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
@@ -2799,6 +2934,399 @@ describeWithDb('solicitation approval lane', { enabled: Boolean(testDatabaseUrl)
         RETURNING id
       `;
       expect(stamped.count).toBe(1);
+    });
+  });
+
+  // ── #1010 T5: `batch_halted` ──────────────────────────────────────────────
+  //
+  // ONE Refusal per batch WE halted, written by the private `latchHalt` that all
+  // three arms share — never one per cancelled Outreach row, and never for a
+  // batch the owner halted or a deadline closed.
+  //
+  // POSITION IS THE CONTRACT, not merely "after the CAS" (plan §5, round-1
+  // finding R1-6): the ledger write goes after step 3 (the audit row) and before
+  // step 4 (the spine step). Placed immediately after the CAS its failure would
+  // precede the cancellations and the audit row, and the rollback case below
+  // would pass VACUOUSLY — those writes would never have happened.
+  //
+  // `occurredAt` is the `'transaction_time'` sentinel: the CAS writes
+  // `halted_at = NOW()`, `NOW()` is `transaction_timestamp()` and is stable
+  // across the transaction, so the two agree to the microsecond. Reading
+  // `halted_at` back through a JS `Date` would truncate exactly those digits.
+  describe('Refusal ledger', () => {
+    /** The admin arm's input — the same shape the `adminHaltBatch` block uses. */
+    function adminHaltInput(batchId: string): {
+      batchId: string;
+      accountId: string;
+      businessId: string;
+      actorUserId: string;
+      note: string;
+    } {
+      return {
+        batchId,
+        accountId: accountId(),
+        businessId,
+        actorUserId: adminUserId,
+        note: ADMIN_NOTE,
+      };
+    }
+
+    it('an admin halt writes exactly one refusal_events row against the batch id, never one per cancelled outreach', async () => {
+      // THREE cancellable rows, and that is the whole point of the fixture. The
+      // parent effort's defect was a per-row fan-out of one account-level fact;
+      // `toBeGreaterThan` passes on it and a single-outreach fixture cannot see
+      // it at all, so this asserts EXACTLY one against a batch that cancels
+      // three.
+      const { batchId } = await seedRenderedBatch({ renders: 3 });
+
+      const result = await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+      expect(result).toMatchObject({ status: 'halted', cancelledCount: 3 });
+
+      const refusals = await readRefusals(batchId);
+      expect(refusals).toHaveLength(1);
+      expect(refusals[0]).toMatchObject({
+        account_id: accountId(),
+        business_id: businessId,
+        refusal_source: 'batch_halted',
+        subject_type: 'solicitation_batch',
+        subject_id: batchId,
+        // The halt reason VERBATIM, and the category this lane's map assigns it.
+        refusal_code: 'admin_halt',
+        refusal_category: BATCH_HALTED_REFUSAL_CATEGORIES.admin_halt,
+        all_refusal_codes: null,
+      });
+    });
+
+    it('an owner halt writes no refusal_events row', async () => {
+      // RepWorth refused nothing — the owner did. Claiming otherwise on the
+      // Restraint tab would credit us with the owner's own decision, which is
+      // why `owner_veto` and `owner_halt` are two of this lane's four nulls.
+      //
+      // BOTH owner reasons, because the arm derives which one it writes from the
+      // Batch state and a guard keyed on one of them would let the other
+      // through.
+      const veto = await seedRenderedBatch({ renders: 2 });
+      await stampVetoWindowBatch(veto.batchId);
+      await expect(
+        haltBatch(sql(), {
+          batchId: veto.batchId,
+          accountId: accountId(),
+          businessId,
+          haltedByUserId: userId(),
+        }),
+      ).resolves.toMatchObject({ status: 'halted', reason: 'owner_veto' });
+
+      const halted = await seedRenderedBatch({ renders: 2 });
+      await stampSendingBatch(halted.batchId);
+      await expect(
+        haltBatch(sql(), {
+          batchId: halted.batchId,
+          accountId: accountId(),
+          businessId,
+          haltedByUserId: userId(),
+        }),
+      ).resolves.toMatchObject({ status: 'halted', reason: 'owner_halt' });
+
+      // Both batches really latched — so the zero below is a decision NOT
+      // recorded, never a halt that did not happen.
+      expect((await readHalt(veto.batchId)).halt_reason).toBe('owner_veto');
+      expect((await readHalt(halted.batchId)).halt_reason).toBe('owner_halt');
+      expect(await readAllRefusals()).toEqual([]);
+    });
+
+    it('a second halt of an already-halted batch writes no second refusal_events row', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      const first = await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+      const firstRefusals = await readRefusals(batchId);
+      const second = await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+
+      expect(first).toMatchObject({ status: 'halted' });
+      expect(second).toEqual({ status: 'already_halted' });
+
+      // The second call returns at its caller's guard, above the CAS, so nothing
+      // in `latchHalt` runs at all — no audit row, no step and no Refusal. The
+      // partial unique index would ALSO collapse a second write, so the count
+      // alone cannot tell a guarded call from a deduplicated one: the
+      // `occurred_at` equality below is what proves nothing was re-written.
+      const afterRefusals = await readRefusals(batchId);
+      expect(afterRefusals).toHaveLength(1);
+      expect(afterRefusals[0]!.occurred_at).toBe(firstRefusals[0]!.occurred_at);
+      expect(await readAuditRows(batchId)).toHaveLength(1);
+    });
+
+    it('a halt Refusal carries occurred_at equal to the solicitation_batches halted_at written by the same transaction', async () => {
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+
+      const [refusal] = await readRefusals(batchId);
+      expect(refusal).toBeDefined();
+      // Read as ::text on both sides. The CAS wrote `halted_at = NOW()` and the
+      // ledger stamped the same `NOW()`, so the two rendered values are
+      // identical — a lane that stamped its own clock lands a few microseconds
+      // later and this comparison shows it.
+      expect(refusal!.occurred_at).toBe(refusal!.halted_at);
+      expect((await readHalt(batchId)).halted_at).toBe(refusal!.occurred_at);
+    });
+
+    it("a halt Refusal's occurred_at equals solicitation_batches.halted_at inside PostgreSQL at full microsecond precision", async () => {
+      // Round-1 plan review R1-5. The equality is computed by POSTGRES, in the
+      // `matches_halted_at` column, precisely because a decoded JS `Date` loses
+      // the microseconds: a lane that had added `halted_at` to the CAS's
+      // RETURNING and passed it back through JS would compare EQUAL after
+      // truncation and this claim would be unfalsifiable (#520).
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+
+      const [refusal] = await readRefusals(batchId);
+      expect(refusal).toBeDefined();
+      expect(refusal!.matches_halted_at).toBe(true);
+      // The fixture is not vacuous: sub-second digits are actually present, so
+      // the equality is not two whole seconds agreeing by accident.
+      expect(refusal!.occurred_at).toMatch(/\.\d{1,6}/);
+    });
+
+    it('a halt writes its Refusal after cancelling outreach and writing any audit row, but before the run-spine step and settlement join', async () => {
+      // Round-1 plan review R1-6. "After the CAS" is not a position: placing the
+      // write immediately after it puts its FAILURE ahead of the cancellations
+      // and the audit row, which makes the rollback case below pass vacuously
+      // while breaking `latchHalt`'s documented five-step order and the
+      // advisory -> batch row -> `agent_runs` lock order this file's header
+      // describes.
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+      const { executor, queries, transactions } = instrumentedExecutor(sql());
+
+      await approvalModule.adminHaltBatch(executor, adminHaltInput(batchId));
+
+      // RECEIVER IDENTITY first: one transaction, and the ledger statement rode
+      // it rather than the pooled client the caller passed in. A Refusal written
+      // on the base client commits independently of the latch and survives its
+      // rollback.
+      expect(transactions).toHaveLength(1);
+      const ledgerQueries = queries.filter((query) =>
+        /INSERT INTO refusal_events/.test(query.text));
+      expect(ledgerQueries).toHaveLength(1);
+      expect(ledgerQueries[0]!.onTransaction).toBe(true);
+
+      const indexOf = (pattern: RegExp): number =>
+        queries.findIndex((query) => pattern.test(query.text));
+      const cancelIndex = indexOf(/UPDATE solicitation_outreach/);
+      const auditIndex = indexOf(/INSERT INTO account_audit_log/);
+      const ledgerIndex = indexOf(/INSERT INTO refusal_events/);
+      const stepIndex = indexOf(/INSERT INTO agent_run_steps/);
+
+      expect(cancelIndex).toBeGreaterThanOrEqual(0);
+      expect(auditIndex).toBeGreaterThan(cancelIndex);
+      // The claim: step 3 (audit) then the ledger, then step 4 (the spine step).
+      expect(ledgerIndex).toBeGreaterThan(auditIndex);
+      expect(stepIndex).toBeGreaterThan(ledgerIndex);
+      // …and the settlement join is last, after the ledger too.
+      expect(spies.closeBatchIfSettled).toHaveBeenCalledTimes(1);
+      expect(spies.recordStep.mock.invocationCallOrder[0]!)
+        .toBeLessThan(spies.closeBatchIfSettled.mock.invocationCallOrder[0]!);
+    });
+
+    it('a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together', async () => {
+      const { batchId, parentRunId } = await seedRenderedBatch({ renders: 2 });
+      const before = await snapshotOutreach(batchId);
+
+      const original = { ...batchHaltedCategories };
+      // A writer bug: a category migration 116's CHECK does not admit. The
+      // helper does NOT catch it — a CHECK violation must abort the decision,
+      // because catching it would hide the bug in the one place the ledger
+      // cannot report it.
+      batchHaltedCategories.admin_halt = 'a_category_the_ledger_never_named';
+      try {
+        await expect(
+          approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId)),
+        ).rejects.toMatchObject({
+          code: CHECK_VIOLATION,
+          constraint_name: expect.stringContaining('refusal_events'),
+        });
+      } finally {
+        for (const key of Object.keys(batchHaltedCategories)) delete batchHaltedCategories[key];
+        Object.assign(batchHaltedCategories, original);
+      }
+
+      // The latch, the cancellations and the audit row all go together. Because
+      // the ledger write sits AFTER all three, this case is non-vacuous: each of
+      // them really happened inside the transaction before the abort.
+      expect(await readHalt(batchId)).toMatchObject({
+        halted_at: null,
+        halt_reason: null,
+        halted_by: null,
+      });
+      expect(await snapshotOutreach(batchId)).toEqual(before);
+      expect(await readAuditRows(batchId)).toHaveLength(0);
+      expect(await readSteps(parentRunId, 'batch_halted')).toHaveLength(0);
+      expect(await readRunStatus(parentRunId)).toBe('running');
+      expect(await readAllRefusals()).toEqual([]);
+    });
+
+    it('every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing', async () => {
+      // ONE TITLE, THREE INSTANCES — one per lane, in each lane's own suite
+      // (`batch-builder.integration.test.ts`, `dispatch.integration.test.ts`,
+      // this one). Plan §1: the title "spans T3, T4 and T5 and closes with
+      // them". No single suite can drive all three lanes' fixtures, and a case
+      // covering one lane while claiming all three would be the over-claim this
+      // title exists to prevent. This instance owns the HALT lane, and it is the
+      // only place all SIX halt reasons — two owner, one admin, three system —
+      // are reachable at once.
+      //
+      // Round-1 finding R1-4: the promised titles never required RUNTIME absence
+      // for all four null-mapped halt reasons, only for `owner_halt`.
+      const written = new Map<string, string>();
+      const silent: string[] = [];
+
+      async function haltAndRecord(
+        batchId: string,
+        expectedReason: string,
+        halt: () => Promise<unknown>,
+      ): Promise<void> {
+        await halt();
+        expect((await readHalt(batchId)).halt_reason, `${expectedReason} did not latch`)
+          .toBe(expectedReason);
+        const refusals = await readRefusals(batchId);
+        if (refusals.length === 0) {
+          silent.push(expectedReason);
+          return;
+        }
+        expect(refusals, `${expectedReason} wrote more than one Refusal`).toHaveLength(1);
+        expect(refusals[0]!.refusal_code).toBe(expectedReason);
+        written.set(expectedReason, refusals[0]!.refusal_category);
+      }
+
+      const veto = await seedRenderedBatch({ renders: 1 });
+      await stampVetoWindowBatch(veto.batchId);
+      await haltAndRecord(veto.batchId, 'owner_veto', () =>
+        haltBatch(sql(), {
+          batchId: veto.batchId,
+          accountId: accountId(),
+          businessId,
+          haltedByUserId: userId(),
+        }));
+
+      const ownerHalted = await seedRenderedBatch({ renders: 1 });
+      await stampSendingBatch(ownerHalted.batchId);
+      await haltAndRecord(ownerHalted.batchId, 'owner_halt', () =>
+        haltBatch(sql(), {
+          batchId: ownerHalted.batchId,
+          accountId: accountId(),
+          businessId,
+          haltedByUserId: userId(),
+        }));
+
+      const admin = await seedRenderedBatch({ renders: 1 });
+      await haltAndRecord(admin.batchId, 'admin_halt', () =>
+        approvalModule.adminHaltBatch(sql(), adminHaltInput(admin.batchId)));
+
+      const windowElapsed = await seedRenderedBatch({ renders: 1 });
+      await stampApprovedBatch(windowElapsed.batchId);
+      await haltAndRecord(windowElapsed.batchId, 'send_window_elapsed', () =>
+        latchSystemHaltUnderLock(windowElapsed.batchId, 'send_window_elapsed'));
+
+      const expired = await seedRenderedBatch({ renders: 1 });
+      await haltAndRecord(expired.batchId, 'batch_expired', () =>
+        latchSystemHaltUnderLock(expired.batchId, 'batch_expired'));
+
+      const platform = await seedRenderedBatch({ renders: 1 });
+      await stampApprovedBatch(platform.batchId);
+      await haltAndRecord(platform.batchId, 'platform_halt', () =>
+        latchSystemHaltUnderLock(platform.batchId, 'platform_halt'));
+
+      // The two halves of the map, derived from it rather than re-listed — a
+      // seventh reason added upstream fails here instead of going unrecorded.
+      const mapped = Object.entries(BATCH_HALTED_REFUSAL_CATEGORIES)
+        .filter(([, category]) => category !== null);
+      const nullMapped = Object.entries(BATCH_HALTED_REFUSAL_CATEGORIES)
+        .filter(([, category]) => category === null)
+        .map(([reason]) => reason);
+
+      expect(Object.fromEntries(written)).toEqual(Object.fromEntries(mapped));
+      expect(silent.sort()).toEqual([...nullMapped].sort());
+      // FOUR of the six are null: two owner decisions and two deadlines. That
+      // count is what makes this lane's vocabulary comment true.
+      expect(nullMapped).toHaveLength(4);
+    });
+
+    it("every refusal_events row these three lanes write carries the account and location already in the lane's scope", async () => {
+      // ONE TITLE, THREE INSTANCES — see the exhaustive-reason case above. This
+      // instance owns the HALT lane.
+      //
+      // `latchHalt` already holds both keys — its own input carries them, off
+      // the locked batch row — so no lane resolves a tenant key it does not
+      // hold.
+      const { batchId } = await seedRenderedBatch({ renders: 2 });
+
+      await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+
+      const [refusal] = await readRefusals(batchId);
+      expect(refusal).toBeDefined();
+      expect(refusal!.account_id).toBe(accountId());
+      // NOT NULL: C3 makes a null location mean "account-wide", which this lane
+      // is not.
+      expect(refusal!.business_id).toBe(businessId);
+    });
+
+    it('all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false', async () => {
+      // ONE TITLE, THREE INSTANCES — see the exhaustive-reason case above. This
+      // instance owns the HALT lane.
+      //
+      // "Unchanged" is a claim about two runs agreeing, so the comparison is
+      // against a REAL ledger-on halt of an identical fixture rather than
+      // against a hand-written expectation.
+      async function haltAndSnapshot(): Promise<{
+        result: unknown;
+        halt: { halt_reason: string | null; halted_by: string | null };
+        outreach: { delivery_status: string; disposition_reason: string | null }[];
+        auditPayloads: Record<string, unknown>[];
+        stepDetails: Record<string, unknown>[];
+        parentStatus: string;
+        refusalCount: number;
+      }> {
+        const { batchId, parentRunId } = await seedRenderedBatch({ renders: 2 });
+        const result = await approvalModule.adminHaltBatch(sql(), adminHaltInput(batchId));
+        const halt = await readHalt(batchId);
+        return {
+          // The settlement join reports the run it terminalized, and that id is
+          // freshly minted per fixture — normalised to the fixture's OWN id so
+          // the comparison stays a claim about the halt rather than about UUID
+          // generation, while still proving the join named the right run.
+          result: JSON.parse(
+            JSON.stringify(result).replaceAll(parentRunId, '<send-batch-parent>'),
+          ) as unknown,
+          halt: { halt_reason: halt.halt_reason, halted_by: halt.halted_by },
+          outreach: (await readOutreach(batchId)).map((row) => ({
+            delivery_status: row.delivery_status,
+            disposition_reason: row.disposition_reason,
+          })),
+          auditPayloads: (await readAuditRows(batchId)).map(auditPayload),
+          stepDetails: (await readSteps(parentRunId, 'batch_halted')).map(stepDetail),
+          parentStatus: await readRunStatus(parentRunId),
+          refusalCount: (await readRefusals(batchId)).length,
+        };
+      }
+
+      const ledgerOn = await haltAndSnapshot();
+      expect(ledgerOn.refusalCount).toBe(1);
+      await sql()`DELETE FROM refusal_events WHERE account_id = ${accountId()}::uuid`;
+
+      process.env[REFUSAL_LEDGER_FLAG] = 'false';
+      const ledgerOff = await haltAndSnapshot();
+
+      // The latch, the cancellations, the audit receipt, the spine step and the
+      // settlement join are all byte-identical…
+      expect(ledgerOff.result).toEqual(ledgerOn.result);
+      expect(ledgerOff.halt).toEqual(ledgerOn.halt);
+      expect(ledgerOff.outreach).toEqual(ledgerOn.outreach);
+      expect(ledgerOff.auditPayloads).toEqual(ledgerOn.auditPayloads);
+      expect(ledgerOff.stepDetails).toEqual(ledgerOn.stepDetails);
+      expect(ledgerOff.parentStatus).toBe(ledgerOn.parentStatus);
+      // …and the ONLY difference is the Refusal that was not recorded.
+      expect(ledgerOff.refusalCount).toBe(0);
+      expect(await readAllRefusals()).toEqual([]);
     });
   });
 });

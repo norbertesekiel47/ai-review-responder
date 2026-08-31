@@ -64,6 +64,8 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { recordStep } from '@/lib/agents/run-spine';
 import { writeAccountAuditLog } from '@/lib/audit/log';
+import { BATCH_HALTED_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
+import { writeRefusalEvent } from '@/lib/refusals/write';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import { acquireSolicitationBatchLock } from './batch-builder';
 import { isCancellableDeliveryStatus, WITHDRAWABLE_BATCH_STATES } from './delivery-status';
@@ -450,9 +452,23 @@ export async function approveBatch(
   });
 }
 
-/** The writable Halt latch reasons — all five, one mechanism. NOT exported:
+/** The writable Halt latch reasons — all SIX, one mechanism. (The count read
+ *  "five" until migration 111 added `platform_halt` to `SystemHaltReason`; the
+ *  union was right and the sentence was not.) NOT exported, and it must stay
+ *  that way — `approval.test.ts` pins the non-export in source text, because
+ *  this union spans ACTOR CLASSES and an exported signature accepting it would
+ *  let a request field name `admin_halt` or `owner_veto` and forge an actor:
  *  `OwnerHaltReason` stays the 2-member public write union, the admin arm's
- *  reason is a constant, and `SystemHaltReason` is the system arm's own. */
+ *  reason is a constant, and `SystemHaltReason` is the system arm's own.
+ *
+ *  ADDING A MEMBER HERE HAS A SECOND OBLIGATION. The Refusal ledger maps every
+ *  halt reason to a **Refusal category** or to `null` in
+ *  `BATCH_HALTED_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`), which
+ *  cannot import this union and re-composes it from the two public halves. So a
+ *  reason added to `OwnerHaltReason` or `SystemHaltReason` is a COMPILE error
+ *  there until it is mapped, but one added as a bare literal on the line below
+ *  is caught only by that module's eval, which reads this declaration as text.
+ *  Either way, decide the category in the same change. */
 type LatchHaltReason = OwnerHaltReason | 'admin_halt' | SystemHaltReason;
 
 /** The admin arm's reason, fixed by the caller's identity (D1 / ticket
@@ -511,6 +527,14 @@ type LatchHaltOutcome =
  *     `cancelled_count` is only known after step 2, and BEFORE step 4 so the
  *     run-spine calls stay last. It runs on `tx`, so a throw here rolls back
  *     steps 1-2 with it — the receipt and the latch go together or not at all.
+ *  3b. The **Refusal** (#1010), for the two reasons that map to a category —
+ *     `admin_halt` and `platform_halt`. BETWEEN 3 and 4 and not merely "after
+ *     the CAS": here its failure follows the cancellations and the audit row, so
+ *     the rollback that pins them is real rather than vacuous, and the
+ *     `agent_runs` touches still come last. The write is unconditional on
+ *     `audit`, which is what makes the platform arm's missing receipt invisible
+ *     to it. Numbered 3b rather than renumbering 4-5, whose numbers other
+ *     comments and tests refer to.
  *  4. The spine step, skipped when the batch never minted a Send batch parent
  *     (generation can die before one exists, and an all-withheld build never
  *     enqueues generation at all).
@@ -569,6 +593,62 @@ async function latchHalt(tx: TransactionSql, input: LatchHaltInput): Promise<Lat
         state_at_halt: input.state,
         cancelled_count: cancelled.count,
       },
+    });
+  }
+
+  // The Refusal ledger's `batch_halted` lane (#1010), on THIS transaction and
+  // never its own.
+  //
+  // POSITION IS THE CONTRACT, and "after the CAS" is not a position. It goes
+  // after step 3 (the audit row) and before step 4 (the spine step), which keeps
+  // this function's documented five-step order intact AND keeps the
+  // advisory -> batch row -> `agent_runs` lock order this file's header
+  // describes. Placed immediately after the CAS its failure would precede the
+  // cancellations and the audit row, and the rollback case that pins "the latch,
+  // the cancellations and the audit row go together" would pass VACUOUSLY —
+  // those writes would never have happened (plan review round 1, R1-6).
+  //
+  // ONE ROW PER BATCH, never one per cancelled Outreach row. This latch copies
+  // ONE halt into N cancellations in a single act, and a per-row fan-out is the
+  // precise defect the parent effort hit at a different granularity.
+  //
+  // A `null` CATEGORY MEANS THE CODE IS NOT A REFUSAL, and four of the six halt
+  // reasons are null: `owner_veto` and `owner_halt` because the OWNER stopped it
+  // and claiming otherwise would credit us with their decision, and
+  // `send_window_elapsed` / `batch_expired` because a deadline passed with no
+  // actor deciding anything.
+  //
+  // `occurredAt` IS THE SENTINEL, deliberately. The CAS above wrote
+  // `halted_at = NOW()`, and `NOW()` is `transaction_timestamp()` — stable
+  // across every statement in this transaction — so the two agree to the
+  // microsecond. Do NOT add `halted_at` to the CAS's RETURNING and pass it back:
+  // postgres.js truncates microseconds on decode (#520) and the equality dies
+  // with them.
+  //
+  // The `audit === null` asymmetry is invisible here on purpose: the platform
+  // arm writes no `account_audit_log` row, and this write is its own statement,
+  // so a batch halted by the platform is still a batch WE halted.
+  //
+  // NOT wrapped in try/catch. A CHECK violation from a mis-mapped category is a
+  // writer bug and must abort this halt rather than be hidden in the one place
+  // the ledger cannot report it; the lever is the helper's own kill switch.
+  const refusalCategory = BATCH_HALTED_REFUSAL_CATEGORIES[input.reason];
+  if (refusalCategory !== null) {
+    await writeRefusalEvent(tx, {
+      accountId: input.accountId,
+      businessId: input.businessId,
+      refusalSource: 'batch_halted',
+      // The halt reason VERBATIM, never normalised: `admin_halt` and
+      // `platform_halt` share a category and stay two codes, because the ledger
+      // records which one stopped the batch even where the owner sees one
+      // sentence.
+      refusalCode: input.reason,
+      allRefusalCodes: null,
+      refusalCategory,
+      subjectType: 'solicitation_batch',
+      // Already canonical — `canonicalBatchId` runs at every public entry point.
+      subjectId: input.batchId,
+      occurredAt: 'transaction_time',
     });
   }
 

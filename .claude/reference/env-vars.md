@@ -416,23 +416,28 @@ in business-detail API. No `NEXT_PUBLIC_*` companion.
 
 ### `BETA_COMP_COUPON_ID` — the admin-invite beta comp
 
-> ⚠️ **PENDING OPS — the coupon does not exist yet.** The code shipped
-> 2026-08-14; creating the Stripe Coupon (test mode AND live mode) and setting
-> this variable in Vercel are **provider actions nobody has performed**. Until
-> then every invited tester's Checkout snapshots `NULL` and renders at **full
-> price** — the one failure a beta tester must never see. The consolidated ops
-> list, with the rest of the feature's outstanding steps, is
-> `docs/runbooks/beta-onboarding-cofounder-guide.md` → **Part 12**; the
-> operator-runnable staging proof is `docs/runbooks/beta-production-standup.md`
-> → **Phase F**. Prod is additionally blocked on the WS8 cutover (see the
-> sequencing note at the end of this section).
+> ✅ **LIVE IN BOTH MODES AND BOTH ENVIRONMENTS, 2026-08-31.** The coupon exists in
+> Stripe **test** and **live** mode under **one id**, and this variable is set on Vercel
+> `staging` (2026-08-21) and Vercel `Production` (2026-08-31, written via the Infisical
+> vault `prod`). Both ends are proven end to end by a real Checkout: staging in **F.3**,
+> production in **F.4** — $0.00 due today, a card still captured, and the 4th cycle at full
+> price. Evidence: `docs/runbooks/evidence/2026-08-30-ws8-prod-cutover-resume.md` →
+> **Phase F.3** and **Phase F.4**.
 
 The Stripe **Coupon** ID (100% off, `duration=repeating`,
 `duration_in_months=3`) applied to an admin-invited beta tester's Checkout
 Session (admin-invite-funnel plan steps 1–2). Create the coupon in Stripe **test
-mode for staging and live mode for prod** — the two IDs differ, and a test-mode
-ID deployed to live fails every invited tester's checkout. Set it on **Vercel,
-staging first**; it is deliberately absent from the worker lane because no
+mode for staging and live mode for prod**.
+
+> ⚠️ **CORRECTED 2026-08-31 (finding F4-F6) — USE ONE ID IN BOTH MODES.** This paragraph
+> used to read *"the two IDs differ, and a test-mode ID deployed to live fails every
+> invited tester's checkout."* **The same id is legal in both Stripe modes**, and using one
+> — `repworth-beta-comp-3mo` — makes that failure **structurally impossible** rather than
+> merely documented. The old wording is what caused a live coupon to be created under a
+> fresh id no environment named (lab note 2026-08-31, *"Created a live Stripe coupon under a
+> fresh id"*). **Read the id the environment already names before creating anything.**
+
+Set it on **Vercel, staging first**; it is deliberately absent from the worker lane because no
 worker code path reaches `applyTierSnapshot` (verified: the only importers are
 `/api/onboarding/select-plan` and `/api/billing/checkout`).
 
@@ -465,8 +470,15 @@ migration **078** and the strict-code deploy remain pending until the WS8 tier
 cutover (`docs/runbooks/ws8-tier-cutover.md`), and the coupon additionally needs
 its own prerequisites — a live-mode Stripe coupon, this variable set, and the
 blocking legacy-`onboarded_by` audit cleared in `docs/launch-checklist.md`
-(`docs/runbooks/beta-production-standup.md` Phase F). Set the staging value now;
-hold the production value until WS8 completes and those prerequisites are met.
+(`docs/runbooks/beta-production-standup.md` Phase F).
+
+> ✅ **ALL PREREQUISITES MET; THE PRODUCTION VALUE IS SET, 2026-08-31.** Migration 078
+> applied in D.7, the freeze lifted in D.8, the live coupon created in F.2, and the blocking
+> legacy-`onboarded_by` audit re-run live returning **0 rows**. The production value was
+> written to the **Infisical vault `prod`**, which syncs to Vercel **and Railway** — so it
+> triggers a worker redeploy even though no worker path reads this key. Follow any vault
+> write with `redeploy --from-source` and confirm `tsx worker/index.ts` **plus a poller
+> cycle** (trap 2). Full flip record: evidence file → **Phase F.4**.
 
 All six launch IDs are required, unique, active, USD, and monthly recurring.
 When `STRIPE_TAX_ENABLED=true`, their `tax_behavior` must be `exclusive`.
@@ -548,6 +560,7 @@ sent. Tuning: `ANALYTICS_DISPATCH_*` under Poller Tuning below.
 | `HEALTH_ALERT_WEDGED_CLIENT_READ_THRESHOLD` | Optional, default `0` — alert when **any** session exceeds the age above. Raise only to silence a known-benign source; a single wedged session already holds a client pool slot that will not self-clear until that instance is reaped. |
 | `DB_ADMISSION_ENABLED` | Optional, **default ON** — a rare default-ON toggle; only the exact literal **`false`** disables (any other value/unset ⇒ ON). Kill switch for the #773 admission chokepoint (`src/lib/db/admission.ts`), which wraps the `sql` and `sqlRead` singletons so in-flight work per process never exceeds that client's pool (cap == pool; excess callers QUEUE, with a 30s `DB_SLOT_QUEUE_TIMEOUT_MS` deadline → `DbSlotTimeoutError`). Exists because postgres.js has NO admission control: with every connection busy it pipelines onto one anyway, which is how a backend reaches the wedge signature `state='active', wait_event='ClientRead'` with a growing age. Off ⇒ `withAdmissionControl` returns the raw client unwrapped — byte-identical to pre-#773 dispatch, and unbounded over-subscription returns. **Server-only, both runtimes** (NO `NEXT_PUBLIC_*` companion) — read live per call via `readFlagEnabledByDefault` (invariant #13 / `ci:process-env`). Applies at the client, not per call site: `src/app/**` alone has 153 files importing `sql`. |
 | `LLM_CIRCUIT_BREAKER_ENABLED` | Optional, **default ON** — a rare default-ON toggle; only the exact literal **`false`** disables (any other value/unset ⇒ ON). Gates the in-process, per-provider LLM circuit breaker in `src/lib/llm/circuit-breaker.ts`, consulted by `runLlmTask`. Trips after **5** consecutive transient provider failures (`isTransientLLMError`), stays **open 30s**, then admits **one** half-open probe; while open, that provider is skipped and `runLlmTask` fails over to the fallback provider immediately (skipping the ~30s primary timeout). Both providers open ⇒ retryable `TransientLLMError`. Off ⇒ `shouldAttempt` returns a bypass admission (caller still calls the provider) / `recordAttempt` a no-op — **byte-identical** to the prior primary→fallback behavior (kill switch for a hot-path mechanism). **Server-only, worker-side** (NO `NEXT_PUBLIC_*` companion) — read **live per call** via the `llm/flags.ts → config/flags.ts` accessor (`readFlagEnabledByDefault`), NOT cached at construction (invariant #13 / `ci:process-env`); when it reads disabled, `shouldAttempt` also clears that provider's state so a disable→enable toggle within one process cannot resurrect a stuck `half_open`. `reset()` clears state only (test-only). |
+| `REFUSAL_LEDGER_ENABLED` | Optional, **default ON** — a rare default-ON toggle; only the exact literal **`false`** disables (any other value/unset ⇒ ON). Gates **every** Refusal-ledger write, and is checked **inside** the insert helpers `writeRefusalEvent` and `writeRefusalEvents` (`src/lib/refusals/write.ts`) rather than at their call sites, so no lane can forget it (map #994; table shipped by #1008 as migration 116; first caller #1009; the set-based arm and five more lanes landed with #1010/#1011/#1012 on 2026-08-31). **Two writers, one flag read each** — the set arm returns before its statement, so an empty set neither reads the flag nor warns. Off ⇒ the helper **returns before touching the deciding transaction**: the decision itself still lands, and suspension, audit and notification behaviour are **byte-identical** to before the ledger existed — the only difference is the missing `refusal_events` row. Off also emits **one warning per DISABLED EPISODE** — not per process: the latch clears the next time the helper observes the flag enabled, so a `false → true → false` sequence warns twice. **The durable signal is the structured log line**, emitted FIRST and OUTSIDE the Sentry guard; Sentry (`level: 'warning'`) is a best-effort SECOND transport. That split was forced by a branch-review finding and is not stylistic: `@sentry/node` `captureMessage` returns an event id immediately (it returns one even with no client configured), buffers the event, sends the envelope asynchronously, and **swallows transport failures internally rather than throwing back** — so "capture returned" only ever meant "capture was queued", and latching on it could not detect a real delivery failure. No `flush()` is used, deliberately: awaiting delivery would put network latency on the deciding transaction's path. `WARN_RETRY_COOLDOWN_MS` (5 min) now covers only the unusual *synchronous* SDK throw, and claims that it retries delivery have been removed. That warning is the **only** evidence a ledger gap exists, because the ledger structurally cannot show its own absence: an absent row and a decision that never happened look identical at read time. The capture sits in its own `try/catch` that swallows — an unguarded emission that throws would fail a suspension *because the ledger was turned off*, the opposite of what a kill switch promises. **Server-only** (NO `NEXT_PUBLIC_*` companion, invariant #13) — read **live per call inside the helper body** via `readFlagEnabledByDefault`, never cached at construction (`ci:process-env`), so a mid-process toggle takes effect at once instead of holding the ledger dark for the life of the worker. **Why the flag exists at all:** `ON CONFLICT … DO NOTHING` covers duplicate subjects only; migration 116's five CHECK constraints each ABORT the deciding transaction on a writer bug, and this flag is the lever against that which is **not** a revert deploy. Not an env var and deliberately unregistered: `REFUSAL_LEDGER_RETENTION_DAYS = 180` is a code constant in `worker/background/pollers/ArchivalPoller.ts` (#996) — retention windows in this repo always are, so an operator cannot widen one on a bad day. |
 
 ---
 
@@ -637,7 +650,7 @@ tier mappings and no invented defaults.
 | `MFA_ENFORCEMENT_ENABLED` | Off (Wave 2, PR #87) | Master kill-switch for blocking MFA enforcement. **Off** = enrollment UI is live and AAL2 is still hard-required at the sensitive API routes (grant-extension, impersonation start/end/view), but the proxy does NOT redirect normal page navigation to `/mfa/challenge`. Flip **on** only after owner/admin regression tests pass. NB: MFA *unenroll* always requires a current AAL2 session regardless of this flag (server-enforced via `/api/auth/mfa/challenge` action `unenroll`). |
 | `CHANNELS_TELEGRAM_ENABLED` | Off | Bot registered + setWebhook called |
 | `CHANNELS_WHATSAPP_ENABLED` | Off | Meta verification + WABA + template approval |
-| `ZERNIO_PUBLISHING_ENABLED` | **ON (prod, 2026-04-28)** | Migrations 026+028+029+030 applied |
+| `ZERNIO_PUBLISHING_ENABLED` | **ON in prod — re-verified 2026-08-31 on all four surfaces** (Railway prod/stg, Vercel prod/stg, all `true`) | Migrations 026+028+029+030 applied. ⚠️ **The old `2026-04-28` date on this row was wrong.** The 2026-06-26 worker-side read in `launch-flag-readiness.md` recorded prod as **off**, so the flag was not continuously on from April; it was turned on at some point between that read and the WS8 cutover. Trust the dated snapshot, not this row's history. |
 | `AUTO_APPROVAL_ENABLED` | Off | Server-only kill switch for the auto-approval runtime path. `false`/unset means generated drafts stay on normal owner review; any unposted `approval_method='auto_policy'` publish job is downgraded back to `pending_approval` and not posted. `true` permits auto-approval only for `live_ingest_new` v1 jobs that pass current review hash, active location/connection, subscription, policy threshold, and provider moderation gates. **WS4 (spec §2.12): the flag now ALSO governs the whole veto-window lane** — candidate evaluation, the delayed `publish_response` enqueue (`available_at = NOW() + veto_window_minutes`), the `pending_post_notice` send-time re-check (`PendingPostNoticeWorker` completes without sending when off), and the publisher's downgrade backstop (which also catches responses caught mid-window by a kill-switch flip). No new WS4 flags — everything rides this one. Worker startup rejects non-`true`/`false` configured values. No `NEXT_PUBLIC_*` companion. |
 | `AUTOPILOT_PURCHASABLE` | Off | Server-only commercial and policy-expansion gate. Effective purchasability is exactly this flag **AND** `autoApprovalRuntimeEnabled()`; closing either side blocks new Autopilot Checkout and autonomy-expanding trust-dial edits, while contractions remain allowed. Keep `false` throughout the WS8 data/code cutover. Independent authorization to set `true` requires WS4/migration 074 live, WS6/migration 076 live, WS7 eval green, documented cadence limits, and `AUTO_APPROVAL_ENABLED=true`; the composed runtime remains the live backstop. No `NEXT_PUBLIC_*` companion. |
 | `JUDGE_ENABLED` | Off | **Server-only WS6 safety kill switch**, read through `readFlag` by `judgeEnabled()`. `false`/unset stops the judge sweep and JudgeWorker before work; the publisher also treats the judge as unavailable and downgrades every unposted `auto_policy` response to owner review. Therefore `AUTO_APPROVAL_ENABLED=true` **requires** `JUDGE_ENABLED=true` for auto-posting to proceed. Worker startup accepts only exact `true`/`false`. No `NEXT_PUBLIC_*` companion. Roll out staging first after migration 076: enable `JUDGE_ENABLED` with `GOVERNOR_ENABLED`, smoke an auto-post→verdict and forced-flag suspension→admin-unsuspend drill, then leave production off until the ordered Autopilot go-live flip (`TRIAGE_ENABLED` → `ESCALATION_ENABLED` → WS6 flags with `AUTO_APPROVAL_ENABLED`). |
@@ -677,7 +690,7 @@ tier mappings and no invented defaults.
 
 | Var | Default | Notes |
 |---|---|---|
-| `OPENAI_MODERATION_ENABLED` | **Off** | Gates the OpenAI Moderation **provider** layer in `src/lib/moderation/moderate.ts`. When unset/not `'true'`, only the local regex rules (`output-filter.ts`) run. When `'true'`, `moderateResponse` also calls `client.moderations.create({ model: 'omni-moderation-latest' })` and merges (provider flag → `high`). **Fail-open by design:** a provider error falls back to the local decision and is recorded as `openai_moderation: 'error'` — it never throws and never silently approves. Worker-only (never called from Vercel). Turning it on in prod is an external gate; tune thresholds against real samples first. |
+| `OPENAI_MODERATION_ENABLED` | **ON in prod + staging since 2026-08-31** (was Off) — flipped in the Infisical vault `prod` and validated live against the provider; all three runbook checks pass. See evidence file → Phase G.4 | Gates the OpenAI Moderation **provider** layer in `src/lib/moderation/moderate.ts`. When unset/not `'true'`, only the local regex rules (`output-filter.ts`) run. When `'true'`, `moderateResponse` also calls `client.moderations.create({ model: 'omni-moderation-latest' })` and merges (provider flag → `high`). **Fail-open by design:** a provider error falls back to the local decision and is recorded as `openai_moderation: 'error'` — it never throws and never silently approves. Worker-only (never called from Vercel). Turning it on in prod is an external gate; tune thresholds against real samples first. |
 | `LOG_SERVICE` | `worker` | Optional. Sets the `service` field on the JSON structured log lines (`src/lib/shared/logger.ts`). Leave unset for the worker; set to `web` (or a more specific name) where another process emits logs. Cosmetic — affects log labelling only. |
 
 Not a flag, but related: structured logging (`createWorkerLogger`) and the

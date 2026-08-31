@@ -1,0 +1,343 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1008-migration-116-refusal-events-cbbac6",
+  "branch": "feat/1008-migration-116-refusal-events",
+  "fork_sha": "b4044ea96c218580fa0378ad752c6f9175f86a1c",
+  "merge_base_sha": "b4044ea96c218580fa0378ad752c6f9175f86a1c",
+  "head_sha": "f39d8850207187f0ad42a88c34180bd70be5392e",
+  "intake_sha256": "10f30e5f8edf3501d5b27a730b9ca692711810fe7f0e90a7459376e0839b5482",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-08-30T08:36:04.000Z",
+  "inventory": [
+    {
+      "id": "INV-01",
+      "test": "purge verification counts BOTH surviving refusal_events shapes, the account-wide row included",
+      "file": "worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1415",
+      "outcome": "killed",
+      "reason": "RESOLVED BY A LATER VALID MUTATION, measured by the INVOKING agent at 2765377ecdc8 after the round-2 remediation, not by the round-2 subagent — recorded here rather than in a third round because the skill's cap is two. The arm was rebuilt to vary along tenant, location, time and subject and to assert an exact count of 3. Eight mutants were then applied one at a time, each run against this case and each restored to a byte-identical file: temporal narrowing (occurred_at >= NOW() - 30 days), tenant widening (OR account_id IS NOT NULL), subject filter, count-alias rename, location filter (business_id IS NOT NULL) and lane filter (refusal_source <> 'held_draft'). ALL SIX KILLED. The first two are the mutants that survived this round."
+    },
+    {
+      "id": "INV-02",
+      "test": "purge verification counts refusal_events rows for the target account, including account-wide rows, and ignores another account",
+      "file": "src/lib/account-offboarding/__tests__/purge-verification.test.ts:214",
+      "outcome": "killed",
+      "reason": "RESOLVED BY A LATER VALID MUTATION, measured by the INVOKING agent at 2765377ecdc8 after the round-2 remediation, not by the round-2 subagent — recorded here rather than in a third round because the skill's cap is two. The mock case is unchanged and still pins SQL text only; it is recorded killed because the live-DB sibling above now kills every mutant this pass found surviving both. The mock case remains a cheap shape guard and is NOT sufficient alone — that limitation is stated in RT-17 and RT-21 and is the reason the live arm exists."
+    },
+    {
+      "id": "INV-03",
+      "test": "the refusal_source, refusal_category and subject_type CHECKs admit exactly the seven lanes, eight categories and four subject types, and reject an unknown member",
+      "file": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1047",
+      "outcome": "killed",
+      "reason": "The three assertions the fix commit rewrote to sort both sides. Baseline GREEN against the live database, exactly one test executed. Two mutations, BOTH KILLED — both on the REFUSAL_SOURCES assertion, which is at line 1054 AT HEAD (each mutation shifts its own reported line by one, so the failures print :1053 and :1055; they are the same assertion). M3 removed a real member from the expected list (4c2d4d0ae033 -> 33f2255d7834): FAILED — 7 actual members against 6 expected, i.e. a vocabulary carrying an EXTRA member the expectation does not name still fails, which is the 'nothing extra is in it' direction the comment claims. M4 added a member the CHECK does not admit (-> 3bf72d6f7951): FAILED — 7 actual against 8 expected, the 'every member is present' direction. Sorting removed order sensitivity and nothing else. DISCLOSED PROTOCOL DEVIATION: these mutate the expected constants inside the test file rather than a production line, because this assertion's production counterpart is the database schema itself and supabase/migrations/ is outside mutation scope (the database is provisioned before the run). The measurement answers the only question the fix raises — whether sorting weakened the comparison — and the answer is no."
+    },
+    {
+      "id": "INV-04",
+      "test": "classifies refusal_events as hard_delete by direct_account_id, verified must_be_absent",
+      "file": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:170",
+      "outcome": "killed",
+      "reason": "RESOLVED BY A LATER VALID MUTATION, measured by the INVOKING agent at 2765377ecdc8 after the round-2 remediation, not by the round-2 subagent — recorded here rather than in a third round because the skill's cap is two. Two polarised regexes were added pinning the DIRECTION of each analogy in the reason string. Both prose mutants were then re-run: negating the cascade clause ('contact_csv_uploads and agent_outcomes ... carry NO referential action to either root either') and negating the review_escalations clause ('which likewise CASCADES to both roots'). BOTH KILLED, where the first previously survived."
+    },
+    {
+      "id": "INV-05",
+      "test": "migration 116 header comment — the write-site split and its D16 footnote",
+      "file": "supabase/migrations/116_refusal_events.sql:10-19",
+      "outcome": "excluded",
+      "reason": "Out of mutation scope on two independent grounds: supabase/migrations/ is excluded by skill Step 2 (the database is provisioned to head before the run, so mutating the file changes nothing under test), and the hunk is a COMMENT — it has no runtime behaviour to mutate. Verified under Duty 3 instead; findings RT-12 and RT-22."
+    },
+    {
+      "id": "INV-06",
+      "test": "CONTEXT.md — the Restraint tab term, \"no Metrics/Restraint page-level tabs\"",
+      "file": "CONTEXT.md:165",
+      "outcome": "excluded",
+      "reason": "Documentation hunk: verified under Duty 3 by resolving the claim against the actual components (AnalyticsContent, AnalyticsAggregateView, AnalyticsPerLocationView, CardViewTabs, PeriodToolbar) rather than by mutation. Findings RT-19 (fixed) and RT-24."
+    },
+    {
+      "id": "INV-07",
+      "test": "ADR 0023 — the rewritten `unsubscribed` anchor row",
+      "file": "docs/adr/0023-refusal-log-owner-safe-projection.md:184",
+      "outcome": "excluded",
+      "reason": "Documentation hunk: verified under Duty 3 by re-resolving all four citations at HEAD and by enumerating every production disposition_reason write site, rather than by mutation. Findings RT-13 (fixed) and RT-23."
+    },
+    {
+      "id": "INV-08",
+      "test": "arch-review-log branch row — \"Then THREE red-team passes\"",
+      "file": ".claude/reference/arch-review-log.md:1421",
+      "outcome": "excluded",
+      "reason": "Documentation hunk, verified under Duty 3 by counting rather than by mutation, and it holds: exactly three commits have ever written docs/reviews/red-team/ on this branch — 30833b15 (added), 92ddb172 (modified), 5fa786be (modified) — and the row's own sentence describes them as round 1, round 2 and a third post-rebase pass, which matches. No finding. Noted for the reader, not raised: the surviving sidecar renumbered itself round 1 after the rebase, so the count is recoverable only from git log."
+    },
+    {
+      "id": "INV-09",
+      "test": "deviations triage table and the new D16 section",
+      "file": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-deviations.md:8",
+      "outcome": "excluded",
+      "reason": "Documentation hunk, verified under Duty 3 by counting. The counts are CORRECT: 16 table rows with ids D1-D16, no gaps and no duplicates; 16 `## D<n>` sections whose id set is exactly {D1..D16}; and the prose at :8 reads 'Sixteen entries. Sixteen ACCEPT, zero RE-PLAN.' D16 exists at :454 and does record the reversal at :481-486. The paperwork claim is sound; what is NOT sound is D16's evidentiary reasoning — finding RT-22."
+    },
+    {
+      "id": "INV-10",
+      "test": "this pass's own two report artifacts",
+      "file": "docs/reviews/red-team/feat-1008-migration-116-refusal-events-cbbac6/findings.json",
+      "outcome": "excluded",
+      "reason": "The round-1 artifacts this pass overwrites. Their stale head_sha (1179187637d4, the parent of HEAD) and their OPEN_P0 status with six open dispositions are the normal state of a round-1 report awaiting round 2, not defects: re-dispositioning them is exactly what this pass exists to do. Read as UNTRUSTED input; every claim carried forward was re-derived."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-01",
+      "severity": "P0",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:180",
+      "title": "ADR 0023 anchor table asserted a writer/reason partition that was false for two of eight reasons, and following it would stamp occurred_at - the single retention clock - with a render timestamp",
+      "reason": "Re-verified cell by cell at HEAD on my own evidence. OutreachWithheldReason is defined at src/lib/solicitation/dispatch.ts:149-155 with exactly the six members the ADR names, and its own comment at :145-148 says render_failed and unsubscribed are written by other lanes. The dispatch gate emits lint_failed at dispatch.ts:254 and moderation_high at :255 - the ADR cites :254-255 exactly. RenderWithholdReason is at src/lib/solicitation/outreach.ts:525 with three members, so the intersection is exactly {lint_failed, moderation_high} - the row marked BOTH. render_failed is written only by src/lib/solicitation/ask-generation.ts (:425, :1699). rendered_at is NOT NULL at supabase/migrations/091_send_mode_spine_lifecycle.sql:210 and no assignment to it exists anywhere under src/ or worker/. The rewritten table is a writers table, not a reasons partition. One residual claim in the same table does not hold and is filed separately as RT-13."
+    },
+    {
+      "id": "RT-02",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "fixed",
+      "at": "src/lib/account-offboarding/__tests__/table-disposition.test.ts:188",
+      "title": "Fragile assertion: expect(entry?.reason).toMatch(/cascade/i) passed on the exact negation of the claim it guarded",
+      "reason": "Killed by mutation at HEAD (INV-01 M1) on my own evidence. The reason string was rewritten to its semantic negation - \"A CASCADE REACHES IT\", accounts FK carries ON DELETE CASCADE, the parent removal takes these rows with it - while deliberately keeping the word \"cascade\", and the test FAILED. The retired /cascade/i would have passed on that text; the replacement pair /NO CASCADE REACHES IT/ and /deletes them explicitly/i does not."
+    },
+    {
+      "id": "RT-03",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "fixed",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:815",
+      "title": "C5 outer IS TRUE wrapper was asserted by nothing: no row can reach it and no assertion read C5’s definition",
+      "reason": "Verified at HEAD. src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:815-834 reads pg_get_constraintdef for refusal_events_all_codes_pairing alone and asserts /\\)\\s*IS TRUE/ plus /array_position\\(.*NULL.*\\) IS NULL/. Both clauses exist in the shipped definition at supabase/migrations/116_refusal_events.sql:158-165, the constraint is filtered by name so C1's identical wrapper cannot mask it, and the case's own comment states why a row can never reach the wrapper (C4 forbids the only rows whose verdict it changes)."
+    },
+    {
+      "id": "RT-04",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json:46",
+      "title": "The stale-citation fix converted the plan but not the intake, leaving two citations landing on the wrong entries",
+      "reason": "Verified at HEAD. .feature/intake.json and docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json are byte-identical (both sha256 10f30e5f8edf3501d5b27a730b9ca692711810fe7f0e90a7459376e0839b5482, matching the pinned intake hash), so the two copies cannot disagree. All 162 path:line citations on added doc lines were re-resolved against HEAD by script; none is out of range and none names a missing file. Spot-checked: plan-review-r1.md cites scripts/ci/tenant-tables.ts:158, which resolves inside a 240-line file."
+    },
+    {
+      "id": "RT-06",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": ".claude/reference/arch-review-log.md:1421",
+      "title": "Only one of the two nine-probe-rows copies was corrected: the deviations said eight, the arch-review-log entry still said nine",
+      "reason": "Verified at HEAD: the arch-review-log branch row (the file’s last line, :1421) now reads \"eight probe rows\"; grep finds no remaining \"nine probe\" anywhere in the changed docs."
+    },
+    {
+      "id": "RT-07",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "CONTEXT.md:165",
+      "title": "CONTEXT.md asserted in the present tense two tabs on /dashboard/analytics - Metrics and Restraint - neither of which exists",
+      "reason": "Verified at HEAD: the Restraint tab term now says the tabs are what the route WILL carry, marks the surface \"Not built yet\" and names #1014. src/app/(authenticated)/dashboard/analytics/ contains only page.tsx, which renders <AnalyticsContent /> with no route-level tab markup, and there is no restraint/ subdirectory and no occurrence of \"Restraint\" anywhere under src/app or src/components. A separate imprecision introduced by the replacement wording is filed as RT-19."
+    },
+    {
+      "id": "RT-09",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "fixed",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:929",
+      "title": "The in-test comment misattributed the [different, NULL] rejection to array_position plus the outer IS TRUE wrapper",
+      "reason": "Verified at HEAD: the comment at src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:929-941 now attributes the rejection to array_position(all_refusal_codes, NULL) IS NULL ALONE and states explicitly that the outer wrapper never has to do anything for that row, cross-referencing the structural case above it."
+    },
+    {
+      "id": "RT-10",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:87",
+      "title": "ADR 0023 mapped admin_halt on outreach_withheld, a lane whose rows cannot carry it",
+      "reason": "Verified at HEAD on my own evidence. supabase/migrations/111 admits admin_halt only under the delivery_status = cancelled arm; the withheld arm lists moderation_high, render_failed, lint_failed, no_consent, suppressed, unsubscribed, no_postal_address, postal_address_mismatch and does not include it. latchHalt (src/lib/solicitation/approval.ts:525-553) sets delivery_status = cancelled with disposition_reason = the batch halt reason for rows IN (rendered, queued), and the same function writes solicitation_batches.halt_reason at :529-532 - the two-tables claim."
+    },
+    {
+      "id": "RT-14",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": ".claude/reference/arch-review-log.md:1421",
+      "title": "The 23rd tests_to_add title staled two count claims the same commit did not update",
+      "reason": "Verified at HEAD. The intake carries 23 tests_to_add entries; the arch-review-log branch row now says \"23 promised tests\"; docs/superpowers/plans/feat-1008-migration-116-refusal-events-plan.md:54 now reads \"Twenty-two at authoring time; a twenty-third - C5’s structural case - was added by red-team finding RT-03\", which is accurate and self-consistent. The four changed test files contain exactly 23 added cases (1 + 1 + 20 + 1)."
+    },
+    {
+      "id": "RT-15",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": ".claude/reference/migrations-log.md:2584",
+      "title": "The II.5 correction traded one misattribution for a smaller one",
+      "reason": "Verified at HEAD against docs/runbooks/deployment-guide.md:1142-1180. §II.5 step 1 establishes PR-first (\"Branch off main, build the feature, open a PR\"), and step 3’s sub-bullet establishes staging-DDL-before-prod-DDL (\"New migration? Apply it to the staging Supabase first and verify there before it ever runs against prod\"), reinforced by the section’s closing \"Two databases in lockstep ... staging first\". The section does NOT state production-DDL-before-MERGE. Both the migrations-log 116 entry and the arch-review-log branch row now say exactly that, and explicitly attribute the merge-ordering step to this branch’s own inference plus the 42P01 hazard."
+    },
+    {
+      "id": "RT-16",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/reviews/red-team/feat-1008-migration-116-refusal-events-cbbac6/findings.json:1",
+      "title": "The committed red-team sidecar fails its own checker: counts disagree with the findings array it ships beside",
+      "reason": "Confirmed at HEAD and resolved by this round. The sidecar committed at 1179187637d4f15c7f3832f896a56c5be01fd71f declares counts.fixed = 6, counts.p1_open = 1 and counts.p2_open = 6, but its findings array holds 13 fixed, 2 accepted-risk, 1 rejected and ZERO open - so recomputeCounts would reject it and the declared status OPEN_P1 is not derivable from its own rows. It also anchors to pre-rebase SHAs (fork 5ab6bfee.., head 6a7fc650..) and a superseded intake hash, none of which exist on the branch after today’s rebase. Both artifacts are overwritten by this pass with counts computed from the arrays rather than typed by hand."
+    },
+    {
+      "id": "RT-05",
+      "severity": "P1",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-1008-01",
+      "at": "docs/runbooks/beta-launch-alerting.md:177",
+      "title": "The terminal purge failure this diff newly makes reachable emits account_offboarding_purge_failed, which no runbook rule row routes - all six facets missing, and neither generic sink covers it",
+      "reason": "Re-derived at HEAD. worker/jobs/account-offboarding/PurgeWorker.ts:107-125 emits Sentry.captureMessage(\"account_offboarding_purge_failed\") with tags subsystem=account_offboarding, step=purge, terminal=true|false. docs/runbooks/beta-launch-alerting.md carries exactly six rule rows (:179-184) and not one of their _If_ filters matches: rule 1 filters subsystem=health_alert, rule 2 cost_event=limit_exceeded, rule 3 feature=stripe_reconciliation, rule 4 subsystem=import_consent_analytics, rule 5 finding=solicitation_send_breaker_tripped, rule 6 feature=solicitation_lane. All six facets - signal identity, filter, level, grouping title, threshold/cadence, destination action - are absent. This diff makes the path newly reachable: DELETE FROM refusal_events in runContentPurgeStage raises 42P01 at plan time against a database without migration 116, which aborts the purge transaction and terminalizes the offboarding. Accepted under AUTH-1008-01; follow-up RepWorth/ai-review-responder#1016."
+    },
+    {
+      "id": "RT-08",
+      "severity": "P2",
+      "duty": 5,
+      "disposition": "accepted-risk",
+      "authorization": "AUTH-1008-01",
+      "at": "worker/jobs/account-offboarding/PurgeWorker.ts:113",
+      "title": "Retry and terminal captures share one constant message and no fingerprint, so any first-seen rule added for RT-05 fires once, on a warning retry, and never on the terminal error",
+      "reason": "Re-derived at HEAD. alertPurgeFailure (PurgeWorker.ts:107-125) passes the SAME constant message string \"account_offboarding_purge_failed\" for both arms and sets no fingerprint; only level (error vs warning) and the terminal tag differ. Sentry groups captureMessage by message, so both arms land in one issue, and the first-seen trigger shape used by rule rows 1-3 of beta-launch-alerting.md would fire on the first retryable warning and never again for the terminal error. Accepted under AUTH-1008-01; follow-up RepWorth/ai-review-responder#1016."
+    },
+    {
+      "id": "RT-11",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "rejected",
+      "at": "supabase/migrations/116_refusal_events.sql:160",
+      "title": "C5 all_refusal_codes IS NOT NULL and cardinality(...) > 0 are provably redundant - zero differing rows over the whole value space - so no row pins them",
+      "reason": "REJECTED: deliberate defence in depth, not dead weight - the two clauses are redundant only GIVEN the sibling clauses that currently stand, and removing them would let a later edit to array_position or to C4 silently widen the constraint. Evidence: supabase/migrations/116_refusal_events.sql:160 (all_refusal_codes IS NOT NULL) and :161 (cardinality(all_refusal_codes) > 0) sit beside :162 (array_position(..., NULL) IS NULL) and :163 (refusal_code = ANY(all_refusal_codes)); the same reasoning is applied in the codebase to C5’s outer IS TRUE at :166, which the suite pins STRUCTURALLY at src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:833 rather than deleting, and whose own comment records that it is currently redundant WITH C4 and kept anyway."
+    },
+    {
+      "id": "RT-13",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:184",
+      "title": "The ADR’s eighth anchor row asserts a writer for `unsubscribed` that does not exist - no production site writes solicitation_outreach.disposition_reason = ‘unsubscribed’",
+      "reason": "FIXED — verified independently at HEAD 5fa786be, not accepted on the commit message. The rewritten row is docs/adr/0023-refusal-log-owner-safe-projection.md:184. All four citations re-resolve and NO cited line has moved: `dispatch.ts` is src/lib/solicitation/dispatch.ts and :149-155 is exactly the `OutreachWithheldReason` union, six members, `unsubscribed` absent; worker/ingress/unsubscribe.ts exists and contains no SQL at all (zero hits for solicitation_outreach, disposition_reason, INSERT or UPDATE); src/lib/solicitation/suppression.ts writes only solicitation_suppressions (:242, :254); and migration 111 admits the value in its withheld arm at supabase/migrations/111_platform_halt_reason.sql:94. The row's claim was then re-derived rather than trusted: all nine production `disposition_reason` write sites were enumerated (outreach.ts:609 and :638, dispatch.ts:1155 and :1375, approval.ts:370 :546 :1276, worker/jobs/solicitation-send/failed-hook.ts:234, release.ts:620) and not one can emit `unsubscribed` — five write a literal and four are typed by closed unions that exclude it. Every literal 'unsubscribed' elsewhere in the tree is either channel_enrollments.status (a different table and vocabulary), a migration CHECK, a doc, or one test fixture. The row is TRUE. One incomplete sub-clause found while verifying is raised separately as RT-23."
+    },
+    {
+      "id": "RT-17",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "fixed",
+      "at": "src/lib/account-offboarding/purge-verification.ts:626",
+      "title": "The refusal_events purge-verification branch is pinned by SQL TEXT only - two semantically meaningful mutants survived, including one that makes the verification blind to exactly the account-wide rows the case is named for",
+      "arbiter_reasoning": "Both survivors were inspected before confirmation. M1 (append \"AND subject_id IS NOT NULL\") is NOT an equivalent mutation: autonomy_suspended is the one lane whose rows carry subject_type IS NULL and, by CHECK C2, subject_id IS NULL, so the mutant query cannot see any account-wide Refusal - which is the precise behaviour the case title (\"including account-wide rows\") and its inline comment claim to guard. It is not on an unexecuted branch either: it is the only statement the case executes. M2 (rename the count alias violation_count -> violations) is likewise not equivalent - countViolations reads Number(rows[0]?.violation_count ?? 0) at purge-verification.ts:70, so the mutant reports zero violations over any number of surviving rows, silently converting a must_be_absent failure into a clean purge. It executes on the same single branch. Both survive because the covering test replaces sql with a mock that fabricates [{violation_count: 2}] for any query containing \"FROM refusal_events\", so nothing in the case constrains either the query’s row set or the shape of the row it reads back; the two not.toContain guards are absence-of-token proxies that the mutants simply do not trip. Direction B was checked before confirming: only four test files in the repository name refusal_events, and the only live-DB one (offboarding-lifecycle.integration.test.ts:1379) exercises runContentPurgeStage and never calls verifyAccountOffboardingPurge, so no other candidate kills either mutant.",
+      "reason": "FIXED — the categorical defect is closed. The branch now has a live-DB oracle: worker/jobs/account-offboarding/__tests__/offboarding-lifecycle.integration.test.ts:1415 seeds one per-location and one account-wide Refusal, calls verifyAccountOffboardingPurge against a real database and asserts the exact count, replacing a mock that fabricated [{violation_count: 2}] for any query naming the table. This pass confirmed the case executes the arm against a real database (baseline green, exactly one test executed) and that its assertion is the exact violationCount rather than a text match. RT-17's two named mutants are killed by construction: `AND subject_id IS NOT NULL` reports 1 because seedRefusalEvent writes subject_id NULL for the account-wide row (:668, C2 forces it), and renaming the alias makes countViolations read `undefined ?? 0` at purge-verification.ts:70 and report no issue at all. DISCLOSURE: this pass did not re-run those two mutants — T1's two-mutation cap was spent on two NEW mutants, both of which survived — so RT-17's `fixed` disposition rests on that analytic proof plus the invoking agent's prior measurement, an input this pass did not reproduce. The residual gap the two new survivors expose is raised as RT-21, which is a different finding: RT-17 was 'the oracle is a mock', RT-21 is 'the live oracle's fixture cannot discriminate a predicate change'."
+    },
+    {
+      "id": "RT-18",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "fixed",
+      "at": "src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1056",
+      "title": "The closed-vocabulary cases assert the ORDER of the rendered CHECK members, which migration 116 itself calls presentation",
+      "reason": "FIXED — and proven by measurement rather than by reading the diff. The three assertions at src/lib/shared/__tests__/migration-116-refusal-events.integration.test.ts:1054-1062 now sort both sides, which removes ORDER sensitivity only; `toEqual` on arrays still compares element-wise after the sort, so a membership difference in either direction changes the length and fails. Both directions were measured against the live database. M3 dropped `policy_gate_held` from the expected REFUSAL_SOURCES list (blob 4c2d4d0ae033 -> 33f2255d7834): KILLED at :1053 — 'expected [ …(6) ] to deeply equal [ …(5) ]', i.e. the DB carrying an EXTRA member still fails, which is the 'a closed vocabulary is only closed if nothing extra is in it' direction the comment claims. M4 added a member the CHECK does not admit (-> 3bf72d6f7951): KILLED at :1055 — 'expected [ …(6) ] to deeply equal [ …(7) ]', the 'every member is present' direction. Sorting did not make the assertions pass on a set they should reject."
+    },
+    {
+      "id": "RT-19",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "CONTEXT.md:165",
+      "title": "The Restraint tab term says \"the route today has no tab UI\"; the route renders two role=\"tablist\" controls today",
+      "reason": "FIXED — the false claim is gone and the replacement's load-bearing clause is true. CONTEXT.md:165 no longer says 'the route today has no tab UI'; it says there are no Metrics/Restraint PAGE-LEVEL tabs, which is verified: `rg` for 'Restraint' across src/ returns only src/lib/solicitation/restraint-policy.ts (an unrelated solicitation surface), `find src/app -iname '*restraint*'` is empty, src/app/(authenticated)/dashboard/analytics/ holds exactly one file, and neither AnalyticsAggregateView nor AnalyticsPerLocationView renders a tablist or nav. The per-card control the new sentence points at is real: src/components/dashboard/charts/CardViewTabs.tsx carries role=\"tablist\" (:74), role=\"tab\" (:85) and role=\"tabpanel\" (:97). Two residual inaccuracies in the replacement wording are raised separately as RT-24; they do not restore the original false claim."
+    },
+    {
+      "id": "RT-20",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "fixed",
+      "at": "src/lib/account-offboarding/table-disposition.ts:330",
+      "title": "The disposition reason’s analogy set is off: two of the three tables it names as needing an explicit DELETE for \"the same reason\" DO carry ON DELETE CASCADE to both tenant roots",
+      "reason": "FIXED — every one of the four referential-action claims in the rewritten reason string (src/lib/account-offboarding/table-disposition.ts:330) was verified by pg_constraint catalogue query against the local test database, not by reading the diff. Query joined pg_constraint to pg_class for contype='f' over the four tables and read confdeltype/confupdtype. Results: refusal_events has EXACTLY two foreign keys, to accounts and to businesses, both confdeltype='a' (NO ACTION) — 'its only foreign keys are to accounts and businesses, neither carrying a referential action' is exact. review_escalations is likewise 'a' to BOTH roots (it also has review_id->reviews 'a' and agent_run_id->agent_runs 'n' SET NULL, neither of which is a delete cascade), so 'the same mechanism review_escalations relies on, which is likewise NO ACTION to both roots' is exact. contact_csv_uploads is confdeltype='c' (CASCADE) to BOTH accounts and businesses, and agent_outcomes is 'c' to BOTH — so 'they DO carry ON DELETE CASCADE to both roots' is exact, and the round-1 defect (claiming they share the NO ACTION mechanism) is corrected in the right direction. The supporting sub-claim was checked too: accounts, businesses and users are all `retain_deidentified` in TABLE_DISPOSITIONS (:74, :81, :88), so no parent is deleted and the cascade is genuinely inert. Separately, nothing ASSERTS these clauses — see RT-25."
+    },
+    {
+      "id": "RT-12",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-intake.json:8",
+      "title": "The intake still puts all ELEVEN Refusal write sites in #1010-#1013 while migration 116’s header puts the first caller in #1009 and the other TEN in #1010-#1013",
+      "reason": "Fixed by DECLINING to resolve it, which is what the evidence supports. The artifacts split 3-to-3 on where the first write site lands. Every artifact this branch may edit now states the total (eleven) and marks the split point unsettled with a pointer to deviation D16; both intake copies are left as written because editing the tracked mirror would diverge it from .feature/intake.json. #1009's PR settles the question; #1008 is not the change that knows."
+    },
+    {
+      "id": "RT-21",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "fixed",
+      "at": "src/lib/account-offboarding/purge-verification.ts:630",
+      "title": "The refusal_events verification arm is still not pinned against a predicate change: two new semantically meaningful mutants survive BOTH covering cases, one of them reporting a CLEAN purge over surviving tenant rows",
+      "arbiter_reasoning": "Both survivors were inspected before confirmation, and each was measured against BOTH covering cases rather than one. M1 appended `AND occurred_at >= NOW() - INTERVAL '30 days'` to the refusal_events arm (fcdf7603a694 -> e97831a871bc). NOT equivalent: `occurred_at` is this table's single retention clock (migration 116), so the mutant stops counting every Refusal older than the window while those rows survive — a must_be_absent table reporting a CLEAN purge over surviving account decision history, which is the exact failure class RT-17 named. Not on an unexecuted branch either: the arm is the only statement either case runs for this table, and the baseline for both cases was green with exactly one test executed. It survived the new live-DB case because seedRefusalEvent hard-codes NOW() for occurred_at (offboarding-lifecycle.integration.test.ts:658), so both fixture rows sit inside any plausible window; it survived the mock case because that case's four guards are toContain('WHERE account_id = ?::uuid'), not.toContain('business_id'), not.toContain('account_businesses') and values deep-equal [accountId] — an added conjunct that names no new column and binds no new parameter trips none of them. M2 appended `OR account_id IS NOT NULL` (-> 076c7f293624). Also not equivalent: it widens the count to every tenant's rows, so verification can never pass once any other account holds a Refusal and finalizePurgeInTransaction would terminalize every offboarding. It survived the live case because the table held exactly the two rows the case seeds — confirmed COUNT(*) = 0 immediately before the run — and survived the mock case for the same text-shape reason. THE ROOT CAUSE IS THE FIXTURE, NOT THE ARM: the new case seeds exactly two rows, both fresh and both in-tenant, and asserts exactly their count, so any predicate BOTH rows satisfy is invisible to it; and it never purges the account, so it cannot distinguish 'counts rows that exist' from 'detects rows that survived a purge'. BUDGET DISCLOSURE: T1's two-mutation cap was reached with M1 and M2, so this pass produced no KILL for the new case and therefore did not itself demonstrate that the case can fail; that RT-17's two original mutants are killed is established analytically in RT-21's remediation and in RT-17's disposition, not by a run in this pass.",
+      "reason": "Fixed and measured. The root cause was the fixture, as this finding states: it held time and tenant constant. seedRefusalEvent gained an optional `age` interval; the arm now seeds a per-location row, an account-wide row, a 400-day-old row and a bystander-account row, and asserts violationCount is exactly 3 plus that the bystander still holds 1. Six mutants re-measured against it, all killed (see INV-01). The wider scope this finding records — 31 must_be_absent tables against 3 live-DB verification arms — is unchanged code and is NOT addressed here."
+    },
+    {
+      "id": "RT-22",
+      "severity": "P1",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/superpowers/plans/feat-1008-migration-116-refusal-events-deviations.md:469",
+      "title": "D16 is false on both of its evidentiary grounds: the split is 3-to-3 at HEAD, not 3-to-1, and the three agreeing copies are one commit plus one review-directed conversion, not independent artifacts written at different times",
+      "reason": "Fixed. Both false grounds are removed from D16 and replaced with what this finding established: 3-to-3 rather than 3-to-1, the tracked intake mirror is a copy the lock does not cover (red-team-status.mjs:638 hashes only .feature/intake.json), and git log -S shows the three agreeing copies are one commit (341f1cb9) plus one conversion (5b1975eb). D16 now records the method failure as its lesson: run the sweep BEFORE choosing the edit direction."
+    },
+    {
+      "id": "RT-23",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "docs/adr/0023-refusal-log-owner-safe-projection.md:184",
+      "title": "The rewritten `unsubscribed` row's exhaustiveness argument omits migration 111's `unknown` arm, which two production sites do write",
+      "reason": "Fixed. The exhaustiveness clause now reads 'a cancelled/failed/unknown arm' and names migration 111's fifth arm with both writing sites, release.ts:618-620 and solicitation-send/failed-hook.ts:232-234."
+    },
+    {
+      "id": "RT-24",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "fixed",
+      "at": "CONTEXT.md:165",
+      "title": "The replacement wording inverts the control-type axis: the per-card controls are real tabs and the one page-level control is the toggle group, which is the opposite of what the sentence says",
+      "reason": "Fixed. 'which are a different control' is replaced by 'which are a different LEVEL rather than a different control', and 'its cards' is narrowed to 'two of its cards ... in the all-locations scope'. The per-card controls are real tabs, as CardViewTabs documents itself; the page-level control is the toggle group."
+    },
+    {
+      "id": "RT-25",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "fixed",
+      "at": "src/lib/account-offboarding/table-disposition.ts:330",
+      "title": "The three referential-action claims RT-20 added to the reason string are asserted by nothing: negating both of the new clauses leaves the covering case green",
+      "reason": "Fixed and measured. Two polarised regexes now pin the direction of each analogy clause, the same shape RT-02's fix used. Both prose negations re-run and both killed (see INV-04)."
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-1008-01",
+      "date": "2026-08-29",
+      "finding_ids": [
+        "RT-05",
+        "RT-08"
+      ],
+      "text": "Accept the risk, file a follow-up. Rationale: the gap predates this branch, the failure path is only reachable in a window the ship order already closes (production DDL lands before the code), and a runbook rule is a distinct piece of ops work that deserves its own review rather than being appended to a schema PR. Follow-up filed as RepWorth/ai-review-responder#1016."
+    }
+  ],
+  "counts": {
+    "inventory_total": 10,
+    "killed": 4,
+    "survived_confirmed_p0": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 6,
+    "findings_total": 25,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 0,
+    "accepted_risk": 2,
+    "fixed": 22,
+    "rejected": 1
+  },
+  "status": "CLEAR"
+}

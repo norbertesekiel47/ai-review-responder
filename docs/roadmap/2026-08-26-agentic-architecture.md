@@ -29,6 +29,9 @@ and `.claude/CLAUDE.md` invariants. This file is the strategy view.
    persona attribution on run-spine steps — not free-running agents passing
    messages. New specialists are added only when specialization measurably
    improves reliability (design Decision 5 agrees with the memo here).
+   **Standing constraint (added 2026-08-29, investor-theses overlay):**
+   every NEW domain module ships with a typed, schema-validated callable
+   interface, so the future public surface is a wrapper, not a project.
 4. **Human-in-the-loop is a modeled state, not an interrupt hack.** Approval
    lanes, the veto window, the halt latch, and escalation acknowledge/resolve
    are all durable DB states a workflow can wait in for hours or days.
@@ -81,7 +84,9 @@ In order, with the phase that owns each:
    Route each draft to the auto lane or the owner lane by calibrated
    confidence rather than category alone. Needs accumulated Judge verdicts +
    edit-distance history as ground truth — which is why it waits.
-5. **Public API, then MCP server** (Phase 8; see §4).
+5. **Public API, then MCP server** — read-only pilot after Phase 2, write
+   surface Phase 8 (owner decision 2026-08-29, investor-theses overlay;
+   see §4).
 6. **Conversational surface** ("ask RepWorth") — after the tool layer exists,
    a chat surface is a thin client over it. Not before.
 7. **Agent-to-agent protocols** — explicitly deferred. MCP (agent↔tools)
@@ -98,6 +103,18 @@ shipped an MCP server 2026-06; agent access is becoming expected
 infrastructure). The order is fixed: **clean internal tool layer → public
 API → MCP server that wraps it.** Never expose MCP tools that don't exist as
 governed internal seams first.
+
+**Timing (updated 2026-08-29, investor-theses overlay):** the read-only
+pilot is pulled forward to after Phase 2; write-capable tools stay Phase 8.
+The 30-day ecosystem read supports building agent-READY without betting on
+agent REVENUE: 17,000+ public MCP servers under Linux Foundation
+governance, but registry-listed servers report crawler traffic with
+near-zero real client sessions, ~11% of experimenting orgs in production,
+and 88% reporting agent security incidents. **Design center: agent identity
+and scoped authorization** — the MCP maintainers named agent identity a
+first-class roadmap priority on 2026-08-22, and that gap is precisely what
+the Judge, the action-risk classes, and per-account policy grants already
+answer. Evidence + citations: `2026-08-29-investor-theses-overlay.md` §2.
 
 **Read-first exposure.** Launch tool list (draft):
 

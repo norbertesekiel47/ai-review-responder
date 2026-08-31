@@ -86,6 +86,8 @@ import { createWorkerLogger } from '@/lib/shared/logger';
 import { escapeHtml } from '@/lib/shared/html';
 import { moderateResponse } from '@/lib/moderation/moderate';
 import { enqueueAnalyticsEvent } from '@/lib/analytics/enqueue';
+import { OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
+import { writeRefusalEvent } from '@/lib/refusals/write';
 import { getWorkerConfig } from '@/lib/config/worker';
 import { isPlaceId } from '@/lib/reviews/url-parser';
 // The seam, never `EmailAdapter` and never a Resend client: the adapter is
@@ -1351,6 +1353,19 @@ interface WithholdCommitInput {
   suppression: SuppressionMatchRow | null;
   outboxId: string;
   attempt: number;
+  /**
+   * THE GATE'S OWN CLOCK — the `now` `runDispatchTx` built and
+   * `applyDispatchGate` judged against — and the `occurred_at` this lane's
+   * Refusal is stamped with (#1010).
+   *
+   * EXPLICIT, and never the `'transaction_time'` sentinel. In Postgres `NOW()`
+   * is `transaction_timestamp()` — transaction START — and tx1 acquires the
+   * per-Business advisory lock and two row locks BEFORE the gate runs, so under
+   * contention the sentinel would stamp a decision measurably before it was
+   * made. This value is the clock the verdict was computed against and is immune
+   * to the wait.
+   */
+  decidedAt: Date;
 }
 
 /**
@@ -1424,6 +1439,49 @@ async function commitWithhold(
     batchId: scope.batchId,
     accountId: scope.accountId,
     businessId: scope.businessId,
+  });
+
+  // The Refusal ledger's `outreach_withheld` lane, DISPATCH half (#1010), on tx1
+  // and never its own transaction.
+  //
+  // LAST, after every other write this withhold makes. The failure of a ledger
+  // write must take the whole terminal with it — the withheld row, the Lazy
+  // child, the receipt step, the outbox completion and the settlement join —
+  // and a write placed earlier would leave the later ones untested by the
+  // rollback case that pins exactly that (plan review round 1, R1-2).
+  //
+  // ONE ROW, against the OUTREACH. The ask is the `ask_withheld` lane's subject;
+  // re-using it here would collide two different decisions on one partial-index
+  // key.
+  //
+  // THE OTHER HALF OF THIS LANE LIVES IN `ask-generation.ts`
+  // (`recordOutreachWithheldRefusal`, #1011). Both write `outreach_withheld`
+  // keyed on the SAME `solicitation_outreach.id`, so they share one partial
+  // unique index and only a `delivery_status` filter keeps them apart: a render
+  // withholds BEFORE the row is sendable, this gate withholds a row that already
+  // rendered. Change either side's subject or code axis and check the other.
+  //
+  // THE DISPATCH MAP, never the render one. The two halves write the same
+  // `refusal_source` over different closed enums and overlap on `lint_failed`
+  // and `moderation_high` because this gate re-lints and re-moderates the stored
+  // copy at send time; merging them would let a dispatch-only reason type-check
+  // at a render site (#1011's).
+  //
+  // NOT wrapped in try/catch. A CHECK violation from a mis-mapped category is a
+  // writer bug and must abort this withhold rather than be hidden in the one
+  // place the ledger cannot report it; the lever is the helper's own kill
+  // switch.
+  await writeRefusalEvent(tx, {
+    accountId: scope.accountId,
+    businessId: scope.businessId,
+    refusalSource: 'outreach_withheld',
+    // The gate's reason VERBATIM, never normalised.
+    refusalCode: input.reason,
+    allRefusalCodes: null,
+    refusalCategory: OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES[input.reason],
+    subjectType: 'solicitation_outreach',
+    subjectId: scope.outreachId,
+    occurredAt: input.decidedAt,
   });
 }
 
@@ -1664,6 +1722,10 @@ async function runDispatchTx(
       suppression,
       outboxId: handle.outboxId,
       attempt: handle.attempt,
+      // The gate's own clock — the one `applyDispatchGate` judged against a few
+      // lines above, threaded through so the Refusal records when the verdict
+      // was reached rather than when this transaction opened (plan §0 D-B).
+      decidedAt: now,
     });
     return { kind: 'withheld', item: verdict.item, reason: verdict.reason };
   }

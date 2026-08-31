@@ -3,6 +3,9 @@
 #
 #   bash scripts/feature-state.sh set-phase <phase>
 #   bash scripts/feature-state.sh incr-round <plan|branch>
+#   bash scripts/feature-state.sh incr-amendment [--reason "<owner-approved reason>"]
+#   bash scripts/feature-state.sh incr-gate-round [--reason "<owner-approved reason>"]
+#   bash scripts/feature-state.sh reset-gate-rounds
 #
 # Phases (forward-only by convention; the enum is the contract):
 #   worktree_ready  plan_approved  executing  gate_green  reviewed  shipped
@@ -18,9 +21,35 @@
 # new count. Review-round caps live in feature.md; the counter lives HERE so
 # a resumed session continues the count instead of resetting to round 1 —
 # uncounted rounds are how #628 reached a round-5 review under a "max 3" cap.
+#
+# incr-amendment: counts allowed_edit_surface amendments in the same durable
+# place, and ENFORCES the abort criteria instead of narrating them — feat-898
+# recorded "AMENDMENT 3 of 2" with the budget tracked only in prose. The 1st
+# amendment passes; the 2nd and later refuse unless --reason records the
+# owner's explicit sign-off (same shape as the ALLOW_DESTRUCTIVE_GIT escape).
+#
+# incr-gate-round: the gate-loop budget (speed lane build 3). Call it before
+# each unattended execute→gate→fix iteration after a RED gate. Rounds 1-3
+# pass; the 4th refuses without --reason — the "after 3 full gate-fail
+# rounds, stop patching" abort criterion, enforced instead of narrated, so an
+# unattended loop cannot thrash past its budget while nobody watches.
+# reset-gate-rounds zeroes the counter after a green gate (a NEW red streak
+# gets a fresh budget; one long-lived counter would refuse forever).
+#
+# record-contract / contract-changed: the conditional verification round
+# (speed lane build 5). A plan review's rounds 2-3 exist to confirm that the
+# fixes for round 1 did not break the plan. When the fixes moved nothing the
+# plan CONTRACTS on, that confirmation is a ~300s round spent re-reading
+# unchanged prose. The contract is three things and nothing else:
+#   - the intake's allowed_edit_surface
+#   - the intake's tests_to_add
+#   - the plan's heading structure (its tracer decomposition)
+# record-contract snapshots their hash at round start; contract-changed
+# re-derives it after the fixes and says whether a round is owed. Missing
+# snapshot reads as CHANGED, so the failure direction is always "review it".
 set -uo pipefail
 
-COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch>}
+COMMAND=${1:?usage: feature-state.sh set-phase <phase> | incr-round <plan|branch> | incr-amendment [--reason "..."]}
 
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
@@ -28,6 +57,19 @@ mkdir -p .feature
 PREV="{}"
 [ -f .feature/state.json ] && PREV=$(cat .feature/state.json)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Deterministic across machines: jq -S sorts object keys, and the heading grep
+# is line-ordered. Array ORDER is part of the hash on purpose — a reordered
+# allowed_edit_surface reads as CHANGED, which costs a round rather than
+# skipping one that was owed.
+contract_hash() {
+  local plan="$1"
+  {
+    jq -S -c '{surface: (.allowed_edit_surface // []), tests: (.tests_to_add // [])}' \
+      .feature/intake.json 2>/dev/null || echo '{}'
+    [ -f "$plan" ] && grep -E '^#{2,6} ' "$plan" || true
+  } | shasum -a 256 | cut -d' ' -f1
+}
 
 case "$COMMAND" in
   set-phase)
@@ -81,8 +123,94 @@ case "$COMMAND" in
     echo "feature-state: ${KEY}=${COUNT} → .feature/state.json"
     ;;
 
+  incr-amendment)
+    REASON=""
+    if [ "${2:-}" = "--reason" ]; then
+      REASON=${3:-}
+      [ -n "$REASON" ] || { echo "incr-amendment: --reason needs a value"; exit 1; }
+    elif [ -n "${2:-}" ]; then
+      echo "usage: feature-state.sh incr-amendment [--reason \"<owner-approved reason>\"]"
+      exit 1
+    fi
+
+    COUNT=$(printf '%s' "$PREV" | jq -r '.surfaceAmendments // 0')
+    NEXT=$((COUNT + 1))
+    if [ "$NEXT" -ge 2 ] && [ -z "$REASON" ]; then
+      echo "feature-state: REFUSED — surface amendment ${NEXT} hits the abort criteria (2nd amendment of allowed_edit_surface)."
+      echo "Stop and re-plan with the owner (feature.md step 5 abort criteria), or record their explicit sign-off:"
+      echo "  bash scripts/feature-state.sh incr-amendment --reason \"<owner-approved reason>\""
+      exit 1
+    fi
+    [ -n "$REASON" ] || REASON="auto-approved (1st amendment)"
+
+    printf '%s' "$PREV" | jq --arg reason "$REASON" --arg now "$NOW" \
+      '.surfaceAmendments = ((.surfaceAmendments // 0) + 1)
+       | .surfaceAmendmentLog = ((.surfaceAmendmentLog // []) + [{n: .surfaceAmendments, reason: $reason, at: $now}])
+       | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+
+    echo "feature-state: surfaceAmendments=${NEXT} → .feature/state.json"
+    ;;
+
+  incr-gate-round)
+    REASON=""
+    if [ "${2:-}" = "--reason" ]; then
+      REASON=${3:-}
+      [ -n "$REASON" ] || { echo "incr-gate-round: --reason needs a value"; exit 1; }
+    elif [ -n "${2:-}" ]; then
+      echo "usage: feature-state.sh incr-gate-round [--reason \"<owner-approved reason>\"]"
+      exit 1
+    fi
+
+    COUNT=$(printf '%s' "$PREV" | jq -r '.gateFailRounds // 0')
+    NEXT=$((COUNT + 1))
+    if [ "$NEXT" -ge 4 ] && [ -z "$REASON" ]; then
+      echo "feature-state: REFUSED — gate-fail round ${NEXT} hits the abort criteria (3 full gate-fail rounds)."
+      echo "Stop patching: run the diagnosing-bugs loop or re-plan with the owner. To continue anyway:"
+      echo "  bash scripts/feature-state.sh incr-gate-round --reason \"<owner-approved reason>\""
+      exit 1
+    fi
+
+    printf '%s' "$PREV" | jq --arg now "$NOW" \
+      '.gateFailRounds = ((.gateFailRounds // 0) + 1) | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+
+    echo "feature-state: gateFailRounds=${NEXT} → .feature/state.json"
+    ;;
+
+  reset-gate-rounds)
+    printf '%s' "$PREV" | jq --arg now "$NOW" \
+      '.gateFailRounds = 0 | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+    echo "feature-state: gateFailRounds=0 → .feature/state.json"
+    ;;
+
+  record-contract)
+    PLAN=${2:?usage: feature-state.sh record-contract <plan-path>}
+    HASH=$(contract_hash "$PLAN")
+    printf '%s' "$PREV" | jq --arg hash "$HASH" --arg now "$NOW" \
+      '.planContractSha256 = $hash | .updatedAt = $now' \
+      > .feature/state.json.tmp && mv .feature/state.json.tmp .feature/state.json
+    echo "feature-state: planContractSha256=${HASH:0:12} → .feature/state.json"
+    ;;
+
+  contract-changed)
+    PLAN=${2:?usage: feature-state.sh contract-changed <plan-path>}
+    HASH=$(contract_hash "$PLAN")
+    RECORDED=$(printf '%s' "$PREV" | jq -r '.planContractSha256 // empty')
+    if [ -z "$RECORDED" ]; then
+      echo "CHANGED — no contract recorded; run record-contract at round start."
+    elif [ "$HASH" = "$RECORDED" ]; then
+      echo "UNCHANGED — the fixes touched no contract surface. Skip the verification round;"
+      echo "  self-verify against the findings table and note it in the plan's review appendix."
+    else
+      echo "CHANGED — a fix moved allowed_edit_surface, tests_to_add, or the tracer decomposition."
+      echo "  Dispatch the verification-only round."
+    fi
+    ;;
+
   *)
-    echo "unknown command '$COMMAND' (set-phase | incr-round)"
+    echo "unknown command '$COMMAND' (set-phase | incr-round | incr-amendment | incr-gate-round | reset-gate-rounds | record-contract | contract-changed)"
     exit 1
     ;;
 esac

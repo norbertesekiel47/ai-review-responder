@@ -31,6 +31,13 @@ const mocks = vi.hoisted(() => ({
   acquireConcurrencySlot: vi.fn(),
   releaseConcurrencySlot: vi.fn(),
   recordApiCost: vi.fn(),
+  // #1011 — the Refusal ledger's single writer. Mocked HERE and only here:
+  // this suite drives `sql` through the fragment-aware mock whose return queue
+  // is a strict FIFO, so an unmocked ledger INSERT would shift a queued result
+  // out from under the next real query in every pre-existing test. The
+  // live-DB sibling runs the REAL helper against the REAL table, which is
+  // where the row's validity, its transaction and the kill switch are proven.
+  writeRefusalEvent: vi.fn(),
   logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -87,6 +94,10 @@ vi.mock('@/lib/costs/concurrency-guard', () => ({
 vi.mock('@/lib/costs/audit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/costs/audit')>()),
   recordApiCost: mocks.recordApiCost,
+}));
+vi.mock('@/lib/refusals/write', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/refusals/write')>()),
+  writeRefusalEvent: mocks.writeRefusalEvent,
 }));
 vi.mock('@/lib/shared/logger', () => ({
   createWorkerLogger: () => mocks.logger,
@@ -257,6 +268,7 @@ beforeEach(() => {
   mocks.releaseCost.mockResolvedValue(undefined);
   mocks.checkAskRegenBudget.mockResolvedValue(undefined);
   mocks.recordApiCost.mockResolvedValue('api-cost-1');
+  mocks.writeRefusalEvent.mockResolvedValue(undefined);
 });
 
 describe('generateAsksForBatch', () => {
@@ -1189,5 +1201,330 @@ describe('regenerateAsk', () => {
         }),
       );
     });
+  });
+});
+
+// ── #1011 · the outreach_withheld RENDER lane ────────────────────────────────
+//
+// FOUR writers, THREE physical ledger call sites (`settleBudgetStop` reuses
+// `persistChildRender`'s). What lives HERE rather than in the live-DB sibling:
+// the SHAPE of every call (lane, code, category, subject, tenant) and the two
+// properties a row read back out of Postgres cannot show —
+//
+//   * that the `Date` handed to the ledger is the SAME INSTANCE the outreach
+//     insert carried, not a second `new Date()` that happened to land in the
+//     same millisecond (round 1, R1-9), and
+//   * that the guard paths call NEITHER writer, which a zero-row count in the
+//     database cannot distinguish from a row written and then rolled back.
+describe('the outreach_withheld render lane (#1011)', () => {
+  interface RefusalCall {
+    accountId: string;
+    businessId: string | null;
+    refusalSource: string;
+    refusalCode: string | null;
+    allRefusalCodes: readonly string[] | null;
+    refusalCategory: string;
+    subjectType: string | null;
+    subjectId: string | null;
+    occurredAt: Date | 'transaction_time';
+  }
+
+  const refusalCalls = (): RefusalCall[] =>
+    mocks.writeRefusalEvent.mock.calls.map((call) => call[1] as RefusalCall);
+
+  const insertInputs = (): Record<string, unknown>[] =>
+    mocks.insertOutreachRender.mock.calls.map((call) => call[1] as Record<string, unknown>);
+
+  /** Distinct ids per insert, so a subject traces to the row that minted it. */
+  function mintDistinctOutreachIds(): void {
+    let minted = 0;
+    mocks.insertOutreachRender.mockImplementation(async () => `outreach-${++minted}`);
+  }
+
+  /** W1: one ask, one child — the withhold reason is the caller's to choose. */
+  async function runSingleChild(contextOverrides: Record<string, unknown> = {}): Promise<void> {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow(contextOverrides)]),
+      mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
+      probeRow(0),
+      lifecycleRow(), // child persist revalidation
+    );
+    enqueueFinale(tallyRow(0, 0, 1));
+    await generateAsksForBatch(sql, GENERATE_INPUT);
+  }
+
+  /** W2: ask-1 renders, ask-2's reservation is refused, asks 2+3 are settled. */
+  async function runBudgetStop(): Promise<void> {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow()]),
+      mkTaggedResult([askRow(1), askRow(2), askRow(3)]),
+      lifecycleRow(), // parent-mint revalidation
+      probeRow(0), // ask-1: renders
+      lifecycleRow(), // ask-1 persist revalidation
+      probeRow(0), // ask-2: reserve throws
+      probeRow(0), // ask-2 re-probe inside the settle
+      lifecycleRow(), // ask-2 persist revalidation
+      probeRow(0), // ask-3 probe inside the settle
+      lifecycleRow(), // ask-3 persist revalidation
+    );
+    enqueueFinale();
+    mocks.reserveCost
+      .mockResolvedValueOnce('2026-07-30')
+      .mockRejectedValueOnce(new CostLimitExceededError(BUSINESS_ID));
+    await generateAsksForBatch(sql, GENERATE_INPUT);
+  }
+
+  const LANE_REGEN_INPUT = {
+    batchId: BATCH_ID,
+    businessId: BUSINESS_ID,
+    askId: 'ask-1',
+    outboxHandle: OUTBOX,
+  };
+
+  /** W3: a RENDERED current row re-rolled into a replacement attempt. */
+  async function runRegeneration(contextOverrides: Record<string, unknown> = {}): Promise<void> {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow(contextOverrides)]), // loadBatchContext
+      mkTaggedResult([askRow(1)]), // loadSendAskById
+      mkTaggedResult([{ delivery_status: 'rendered', attempt_no: 1 }]), // pre-check row
+      mkTaggedResult([contextRow()]), // swap: batch lifecycle FOR UPDATE
+      mkTaggedResult([{ delivery_status: 'rendered', attempt_no: 1 }]), // swap: locked row
+      mkTaggedResult([{ id: 'parent-run-1' }]), // swap: send parent
+    );
+    await regenerateAsk(sql, LANE_REGEN_INPUT);
+  }
+
+  const LANE_DEAD_LETTER_INPUT = {
+    batchId: BATCH_ID,
+    businessId: BUSINESS_ID,
+    outboxHandle: OUTBOX,
+    errorClass: 'Error',
+  };
+
+  /** W4: terminal exhaustion filling `holeCount` holes in ONE invocation. */
+  async function runExhaustion(holeCount: number): Promise<void> {
+    sqlReturnQueue.push(
+      mkTaggedResult([{ account_id: ACCOUNT_ID }]), // batch FOR UPDATE
+      mkTaggedResult(
+        Array.from({ length: holeCount }, (_unused, index) => ({
+          ask_id: `ask-${index + 1}`,
+          contact_id: `contact-${index + 1}`,
+          next_attempt: 1,
+        })),
+      ),
+      mkTaggedResult([{ id: 'parent-run-1' }]), // send parent
+      tallyRow(0, holeCount, 0),
+    );
+    mocks.markOutboxFailed.mockResolvedValue(true);
+    await settleGenerationExhaustion(sql, LANE_DEAD_LETTER_INPUT);
+  }
+
+  it('the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content', async () => {
+    // `render_failed` and `lint_failed` are DIFFERENT codes sharing ONE
+    // category — the owner-facing fact is identical, the debugging fact is
+    // not. Each reason is produced by the path that really emits it, so a
+    // hand-written reason→category table cannot stand in for this.
+    mocks.runLlmTask.mockRejectedValueOnce(
+      new LLMStructuredOutputError('solicitation_ask', 'openai', new Error('bad json')),
+    );
+    await runSingleChild();
+    expect(refusalCalls()).toHaveLength(1);
+    expect(refusalCalls()[0]).toMatchObject({
+      refusalCode: 'render_failed',
+      refusalCategory: 'below_our_bar',
+    });
+
+    mocks.writeRefusalEvent.mockClear();
+    resetMockSql();
+    // No attested postal address (#622 §7.6): the footer cannot be assembled.
+    await runSingleChild({ postal_address: null });
+    expect(refusalCalls()).toHaveLength(1);
+    expect(refusalCalls()[0]).toMatchObject({
+      refusalCode: 'lint_failed',
+      refusalCategory: 'below_our_bar',
+    });
+
+    mocks.writeRefusalEvent.mockClear();
+    resetMockSql();
+    mocks.moderateResponse.mockResolvedValue({
+      ...cleanModeration(),
+      flagged: true,
+      severity: 'high',
+      reason: 'harassment',
+      providerStatus: null,
+    });
+    await runSingleChild();
+    expect(refusalCalls()).toHaveLength(1);
+    expect(refusalCalls()[0]).toMatchObject({
+      refusalCode: 'moderation_high',
+      refusalCategory: 'unsafe_content',
+    });
+  });
+
+  it('every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context', async () => {
+    mintDistinctOutreachIds();
+    await runSingleChild({ postal_address: null });
+
+    expect(refusalCalls()).toEqual([
+      expect.objectContaining({
+        accountId: ACCOUNT_ID,
+        // C3's `AtLocation` arm: this lane always names the location, so a
+        // null here would make an account-wide claim the lane never makes.
+        businessId: BUSINESS_ID,
+        subjectType: 'solicitation_outreach',
+        subjectId: 'outreach-1',
+      }),
+    ]);
+  });
+
+  it('every render-lane refusal_events row carries refusal_source outreach_withheld and refusal_code equal to its solicitation_outreach disposition_reason', async () => {
+    // `WriteRefusalEventInput` accepts ANY string as the code, so a
+    // valid-but-wrong reason keeps the expected category and survives a
+    // category-only assertion (round 1, R1-8). The code is pinned against the
+    // paired outreach row's own `dispositionReason`, never against a literal.
+    mintDistinctOutreachIds();
+    await runBudgetStop();
+
+    const withheld = insertInputs().filter((input) => input.deliveryStatus === 'withheld');
+    expect(withheld).toHaveLength(2);
+    expect(refusalCalls()).toHaveLength(2);
+    for (const [index, call] of refusalCalls().entries()) {
+      expect(call.refusalSource).toBe('outreach_withheld');
+      expect(call.refusalCode).toBe(withheld[index]!.dispositionReason);
+      expect(call.allRefusalCodes).toBeNull();
+    }
+  });
+
+  it("all four render writers carry the paired outreach's tenant category subject and occurred_at shape", async () => {
+    // The cross-writer matrix. `persistChildRender` and `settleBudgetStop`
+    // share a call site; `regenerateAsk` and `settleGenerationExhaustion` do
+    // not, and a Refusal shaped right at one of them proves nothing about the
+    // other two (round 1, R1-8).
+    mintDistinctOutreachIds();
+
+    await runSingleChild({ postal_address: null }); // W1
+    resetMockSql();
+    await runBudgetStop(); // W2 — two settled rows in ONE call
+    resetMockSql();
+    await runRegeneration({ postal_address: null }); // W3
+    resetMockSql();
+    await runExhaustion(2); // W4 — two holes in ONE call
+
+    const inserts = insertInputs();
+    const withheld = inserts.filter((input) => input.deliveryStatus === 'withheld');
+    // 1 (W1) + 2 (W2) + 1 (W3) + 2 (W4). The count is the writers' per-row
+    // fan-out, never the number of invocations.
+    expect(withheld).toHaveLength(6);
+    expect(refusalCalls()).toHaveLength(6);
+
+    for (const [index, call] of refusalCalls().entries()) {
+      const insert = withheld[index]!;
+      expect(call).toMatchObject({
+        accountId: insert.accountId,
+        businessId: insert.businessId,
+        refusalSource: 'outreach_withheld',
+        refusalCode: insert.dispositionReason,
+        refusalCategory: expect.stringMatching(/^(below_our_bar|unsafe_content)$/),
+        subjectType: 'solicitation_outreach',
+      });
+      // The subject is the row THAT insert minted, never a shared id.
+      expect(call.subjectId).toBe(`outreach-${inserts.indexOf(insert) + 1}`);
+      // The sentinel is never used in this lane: `NOW()` freezes at
+      // transaction START, and every one of these transactions waits on the
+      // per-Business advisory lock before it decides anything.
+      expect(call.occurredAt).not.toBe('transaction_time');
+      expect(call.occurredAt).toBe(insert.renderedAt);
+    }
+    expect(new Set(refusalCalls().map((call) => call.subjectId)).size).toBe(6);
+  });
+
+  it('a forced clock advance between outreach insertion and refusal writing cannot change occurred_at from the outreach rendered_at', async () => {
+    // Column equality in SQL proves the two columns AGREE; it does not prove
+    // the `Date` was REUSED, because two `new Date()` calls in the same
+    // millisecond agree too (round 1, R1-9). Advancing the clock by five
+    // seconds between the insert and the ledger call separates them: a writer
+    // minting its own timestamp records 12:00:05, the reused instance 12:00:00.
+    const decisionInstant = new Date('2026-08-30T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(decisionInstant);
+    try {
+      mocks.insertOutreachRender.mockImplementation(async () => {
+        vi.setSystemTime(new Date(decisionInstant.getTime() + 5_000));
+        return 'outreach-1';
+      });
+      await runSingleChild({ postal_address: null });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const [insert] = insertInputs();
+    const [refusal] = refusalCalls();
+    expect(insert!.renderedAt).toEqual(decisionInstant);
+    expect(refusal!.occurredAt).toEqual(decisionInstant);
+    // IDENTITY, not equality: one `Date`, two writes.
+    expect(refusal!.occurredAt).toBe(insert!.renderedAt);
+  });
+
+  it('a stale outbox attempt writes neither an outreach row nor a refusal_events row', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow({ postal_address: null })]),
+      mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation
+      probeRow(0),
+    );
+    // The parent-run gate owns the attempt; the watchdog re-dispatches before
+    // the child persists, so the CAS inside `persistChildRender` loses.
+    mocks.lockDispatchedOutboxAttemptIfOwned
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await generateAsksForBatch(sql, GENERATE_INPUT);
+
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+  });
+
+  it('a batch halted during the LLM round trip writes neither an outreach row nor a refusal_events row', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow({ postal_address: null })]),
+      mkTaggedResult([askRow(1)]),
+      lifecycleRow(), // parent-mint revalidation (still built)
+      probeRow(0),
+      lifecycleRow({ halted_at: new Date() }), // child persist revalidation
+    );
+
+    await generateAsksForBatch(sql, GENERATE_INPUT);
+
+    // The render WAS produced and withheld — and still nothing is recorded,
+    // because the lifecycle re-check refused the insert it would accompany.
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+  });
+
+  it('a regeneration rejected by swap revalidation writes neither a replacement outreach row nor a refusal_events row', async () => {
+    sqlReturnQueue.push(
+      mkTaggedResult([contextRow({ postal_address: null })]), // loadBatchContext
+      mkTaggedResult([askRow(1)]), // loadSendAskById
+      mkTaggedResult([{ delivery_status: 'rendered', attempt_no: 1 }]),
+      // Approved between the pre-check and the locked re-check.
+      mkTaggedResult([contextRow({ approved_at: new Date() })]),
+    );
+
+    await regenerateAsk(sql, LANE_REGEN_INPUT);
+
+    expect(mocks.supersedeLiveRender).not.toHaveBeenCalled();
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
+  });
+
+  it('a stale generation-exhaustion attempt writes neither outreach hole rows nor refusal_events rows', async () => {
+    mocks.markOutboxFailed.mockResolvedValue(false);
+
+    const settled = await settleGenerationExhaustion(sql, LANE_DEAD_LETTER_INPUT);
+
+    expect(settled).toEqual({ status: 'stale' });
+    expect(mocks.insertOutreachRender).not.toHaveBeenCalled();
+    expect(mocks.writeRefusalEvent).not.toHaveBeenCalled();
   });
 });

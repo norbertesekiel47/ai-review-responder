@@ -221,7 +221,12 @@ export interface TenantScopeAllowlistEntry {
 //     statement, statement-granular; every owner-facing read in the feature
 //     goes through getLocationsForAccount, which binds account_id and needs
 //     no entry.
-export const ALLOWLIST_BASELINE = 370;
+//   - 2026-08-30 (370 → 371): #1009's eleventh ArchivalPoller arm — the
+//     Refusal ledger's 180-day retention sweep (`refusal_events`, migration
+//     116). A retention sweep is deliberately cross-tenant: it deletes by
+//     `occurred_at` platform-wide and never by request scope, exactly like the
+//     agent-spine and outreach-body arms beside it. ONE statement.
+export const ALLOWLIST_BASELINE = 371;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -974,6 +979,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH candidates AS ( SELECT id FROM agent_runs WHERE ended_at < NOW() - make_interval(days => ${AGENT_SPINE_RETENTION_DAYS}) LIMIT 5000 FOR UPDATE SKIP LOCKED ), deleted AS ( DELETE FROM agent_runs WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
     category: 'background-global-scan',
     reason: "Global archival poller enforces 180-day agent-run spine retention independent of tenant request scope; agent_runs has no account/business column.",
+  },
+  {
+    file: "worker/background/pollers/ArchivalPoller.ts",
+    table: "refusal_events",
+    sqlSnippet: "WITH candidates AS ( SELECT id FROM refusal_events WHERE occurred_at < NOW() - make_interval(days => ${REFUSAL_LEDGER_RETENTION_DAYS}) ORDER BY occurred_at, id FOR UPDATE SKIP LOCKED LIMIT 5000 ), deleted AS ( DELETE FROM refusal_events WHERE id IN (SELECT id FROM candidates) RETURNING id ) SELECT COUNT(*)::text AS count FROM deleted",
+    category: 'background-global-scan',
+    reason: "Global archival poller enforces the 180-day Refusal ledger retention independent of tenant request scope; a retention sweep is deliberately cross-tenant.",
   },
   {
     file: "worker/background/pollers/CleanupAbandonedSignupsPoller.ts",

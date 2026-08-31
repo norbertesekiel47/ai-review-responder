@@ -19,7 +19,7 @@ set -uo pipefail
 
 # Preflight: every tool the workflow's hooks/scripts require, checked up
 # front with an actionable error instead of a mid-run 127.
-for BIN in git jq pnpm shasum grep; do
+for BIN in git jq pnpm shasum grep node; do
   command -v "$BIN" >/dev/null 2>&1 || {
     echo "PREFLIGHT FAILED: required tool '$BIN' not found on PATH — install it before arming."
     exit 1
@@ -63,7 +63,7 @@ fi
 
 SLUG=$(printf '%s' "$BRANCH" | tr '/' '-')
 DOCS_COPY="docs/superpowers/plans/${SLUG}-intake.json"
-mkdir -p "$(dirname "$DOCS_COPY")" .feature
+mkdir -p "$(dirname "$DOCS_COPY")" .feature/logs .feature/live
 cp "$SRC" "$DOCS_COPY"
 cp "$SRC" .feature/intake.json
 
@@ -77,6 +77,24 @@ git commit -q -m "chore(feature): intake contract for ${BRANCH}" -- "$DOCS_COPY"
 echo "intake installed: $DOCS_COPY (committed) + .feature/intake.json (arming copy)"
 
 bash scripts/arm-check.sh || exit 1
+
+# Carry the parent checkout's step ladder into the armed worktree (steps 0–1
+# ran there). arm-check auto-initialized a stub when none existed; the parent
+# ladder, when present, replaces the stub with the real orient/intake history.
+# Best effort: a failed carry leaves the stub, never blocks arming.
+PARENT_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+if [ -n "$PARENT_ROOT" ] && [ "$PARENT_ROOT" != "$ROOT" ] \
+   && [ -f "$PARENT_ROOT/.feature/progress.json" ]; then
+  node .agents/skills/feature/scripts/progress.mjs carry "$PARENT_ROOT" \
+    || echo "ladder: carry from $PARENT_ROOT failed — keeping the auto-initialized stub."
+fi
+
+# Speed lane build 2: write the worktree-scoped autonomy profile so
+# execution runs without permission prompts (acceptEdits + workflow command
+# allowlist; the shipping boundary still prompts). Worktree-only, gitignored;
+# opt out with FEATURE_AUTONOMY_PROFILE=off.
+bash scripts/feature-autonomy-profile.sh \
+  || echo "autonomy profile not written — runs will prompt per action (slower, still correct)."
 
 bash scripts/feature-state.sh set-phase worktree_ready
 

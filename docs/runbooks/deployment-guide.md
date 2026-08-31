@@ -270,6 +270,19 @@ so the URL survives a Redis re-provision):**
       ```
       Plain `redis://` — no TLS on the private network (Wireguard already encrypts
       it). `getRedisOptions()` branches on `rediss:` vs `redis:`, so this is correct.
+
+      > **The service-name prefix differs per environment, and it is not
+      > cosmetic.** The reference resolves by **service name**. Staging's service
+      > is `redis`; **production's is `Redis`**, so production must read
+      > `${{Redis.REDISPASSWORD}}` / `${{Redis.RAILWAY_PRIVATE_DOMAIN}}`.
+      > Railway service names are unique per *project*, so the two cannot be made
+      > to match — staging already holds `redis`.
+      >
+      > Copying the lower-case line above into production yields
+      > `redis://default:@redis.railway.internal:6379/1?family=0` — an empty
+      > password. `assertCoreInfraEnv` checks **presence, not shape**, so the
+      > worker boots, reports healthy, and then fails `NOAUTH` on every queue
+      > operation. Full analysis: `infisical-production-manifest.md` §13.
 - [ ] **Worker `REDIS_CACHE_URL`** — the **Upstash** cache URL (below). The worker
       uses the cache for cost guards + zernio-publisher; that traffic is per-work and
       small.
@@ -365,6 +378,38 @@ openssl rand -hex 32      # → IMPERSONATION_COOKIE_SECRET  (admin view-as; ≥
           'admin', '<auth-user-uuid-from-supabase-auth>');
   ```
   (See `docs/runbooks/personal_testing.md` §4 for the auth-id linking step.)
+
+  > **Done for PRODUCTION 2026-08-31**, and not before — finding **F4-F1**. Production ran
+  > for months with **zero** rows in `public.users` and `auth.users`, which made
+  > `/admin/businesses/new` — the whole **Admin invite** funnel — unreachable. Nobody
+  > noticed because staging has had an admin since May. Prefer an **app-generated UUIDv7**
+  > over `gen_random_uuid()` above: the PK convention post-dates this snippet
+  > (`.claude/reference/migrations-log.md`). After seeding, the admin must enrol MFA at
+  > `/admin/security` — deliberately the one admin page that does NOT require AAL2, so a
+  > fresh admin can reach it. Every other admin page refuses until they do.
+
+- [ ] **Supabase Auth → URL Configuration.** Set **Site URL** to the environment's own
+      origin and add it to **Redirect URLs**:
+
+  | Environment | Site URL | Redirect URLs |
+  |---|---|---|
+  | Production | `https://repworth.net` | `https://repworth.net/**` |
+  | Staging | `https://staging.repworth.net` | `https://staging.repworth.net/**` |
+
+  > **Do not skip this, and do not assume it was done — finding F4-F2.** Production sat on
+  > the Supabase default **`http://localhost:3000`** until 2026-08-31, so the first real
+  > invite email pointed at a machine that is not ours. The symptom is misleading: the
+  > owner's own dev server answered on port 3000 and rendered
+  > `/login?error=auth_callback_failed`, which is **our** error string, making it look like
+  > an application bug rather than a Supabase setting.
+  >
+  > **Why the app cannot compensate.** `inviteUserByEmail` is passed the correct
+  > `redirectTo` (`buildInviteRedirectTo()` → `https://<origin>/api/auth/callback?…`), but
+  > **Supabase substitutes the Site URL whenever `redirect_to` is not in the allowlist.**
+  > No amount of correct `NEXT_PUBLIC_APP_URL` fixes it from our side.
+  >
+  > Verify by sending one real invite and reading the link's domain **before** clicking it.
+  > A wrong Site URL costs nothing to fix and breaks every invite until it is.
 
 ### §2a. Applying new migrations after go-live — the standing procedure
 
@@ -501,6 +546,53 @@ MOCK_EXTERNAL_APIS=false
 > pnpm 11 via mise. The worker's `next build` is overridden to a no-op `buildCommand` —
 > tsx runs `worker/index.ts` at runtime, so no build artifact is needed.
 
+> **⚠️ A Railway `redeploy` resolves NO deploy config — 2026-08-31.**
+> A `redeploy` (dashboard redeploy, **and any variable change**, including an Infisical
+> Secret Sync write) does **not** read `railway.toml` *or* the service's own settings.
+> It falls back to Railpack auto-detection, which sees a Next.js repo and runs
+> `next build` + `next start`. Proven twice on production at commit `06a163f0`, the
+> second time with `startCommand`/`buildCommand` set explicitly on the service.
+>
+> The service then reports **Online**, because the Next.js app also serves
+> `/api/health`. That is a **false-healthy**: no worker, no pollers, no boot assertion,
+> green dashboard. **Read "Online" on this service as unproven until a poller cycle
+> appears in its own logs.**
+>
+> | `reason` in `list-deployments` | Trigger | Resolves config? |
+> |---|---|---|
+> | `deploy` | new commit on the source branch, or `railway deployment redeploy --from-source` | **yes** |
+> | `redeploy` | dashboard redeploy, **any variable change** | **no** — Railpack auto-detect |
+>
+> **Recovery, and the rule for every variable change on this service:**
+> ```bash
+> railway deployment redeploy --from-source \
+>   --service repworth-worker --environment production \
+>   --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes
+> ```
+> Plain `redeploy` — CLI, dashboard or MCP — is **not** a fix, and Railway's "use
+> redeploy to apply immediately" note on service updates is wrong for this case.
+>
+> The five deploy/build fields are now set in **both** places, `railway.toml` and the
+> Railway service per environment: `startCommand`, `buildCommand`, `healthcheckPath`,
+> `restartPolicyType`, `restartPolicyMaxRetries`. **Change one, change both.**
+>
+> **`repworth-worker` is ONE service shared by both environments.** Railway's
+> `update-service` API defaults to *all* environments when `environmentId` is omitted.
+> Always pass it, or a production fix silently rewrites staging.
+>
+> **Separately, Config as Code is deprecated.** `railway.toml` / `railway.json` stop
+> being read on **2026-12-01**, and new services cannot opt into them. The mirror onto
+> the service settings above already removes the single point of failure, so the cutoff
+> is a documentation-truth problem, not an outage waiting to happen. Migrating to
+> `.railway/railway.ts` is owed before that date as its own reviewed change. **Do not
+> apply `railway config migrate` output as generated** — it names the service `RepWorth`
+> (from the *project* name, not `repworth-worker`), so an apply **creates a second
+> service**; and it silently drops `restartPolicyType` and `restartPolicyMaxRetries`.
+> `railway config apply` is project-wide with omit-means-delete semantics — never run it
+> mid-cutover.
+>
+> Full timeline and root cause: lab-notes 2026-08-31 "Railway deploy configuration".
+
 ### 5.2 Railway env vars
 
 Paste the entire block. Adjust values to match what you provisioned in §1.
@@ -557,7 +649,7 @@ DATABASE_POOL_URL=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 REDIS_CACHE_URL=rediss://default:...@...upstash.io:6379/0                                                     # Upstash, TLS — cache only
-REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0    # Railway Redis, private net — queue
+REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0    # STAGING. Production service is named `Redis` — use ${{Redis.…}}, manifest §13
 ```
 > `?family=0` is required (Railway private net is IPv6-only; needs the one-line
 > `getRedisOptions()` change flagged in §1.4). Never point the worker's queue URL at
@@ -668,21 +760,29 @@ SENTRY_DSN=...
 
 - [ ] In Resend dashboard → Webhooks → Add endpoint.
 - [ ] URL: `https://worker.repworth.net/ingress/resend`
-- [ ] Signing secret: **Resend generates a Svix `whsec_…`** when you create the endpoint — copy it into the worker's `RESEND_WEBHOOK_SECRET` (NOT openssl/§1.2). Newer Resend has no per-endpoint "Send test"; fire the webhook by sending a real email (e.g. Resend API).
+- [ ] Signing secret: **Resend generates a Svix `whsec_…`** when you create the endpoint — copy it into the worker's `RESEND_WEBHOOK_SECRET` (NOT openssl/§1.2).
 - [ ] Events: `email.delivered`, `email.bounced`, `email.complained`, `email.opened` (the worker handles these — see `worker/ingress/resend.ts`).
-- [ ] Click "Send test" → check Railway logs for `[ingress/resend] processed`.
+- [ ] **Prefer the API to the dashboard.** `POST https://api.resend.com/webhooks` with `{"endpoint": …, "events": […]}` returns `201 {id, object, signing_secret}`. `signing_secret` is shown **once** — write it straight to a mode-600 file, never to a terminal.
+- [ ] **Newer Resend has no per-endpoint "Send test".** Fire the event with Resend's simulator address `delivered@resend.dev` (also `bounced@resend.dev`, `complained@resend.dev`) — it produces a real event and reaches no human. Then check Railway logs, and confirm the `inbound_events` row:
+  ```sql
+  SELECT source, event_type, status, received_at
+  FROM inbound_events WHERE source = 'resend'
+  ORDER BY received_at DESC LIMIT 1;
+  -- expect: status='processed', event_type='email.delivered'
+  ```
 
 ### 6.2 Zernio webhook
 
 - [ ] In Zernio dashboard → Webhooks (per `zernio-launch-runbook.md` §2.2).
 - [ ] URL: `https://worker.repworth.net/ingress/zernio` (exact, no trailing slash).
 - [ ] Signing secret: paste `ZERNIO_WEBHOOK_SECRET` from §1.5.
-- [ ] Subscribed events:
+- [ ] Subscribed events — **exactly these four**:
   - `account.disconnected` (required — drives connection-lost emails)
   - `account.connected` (defensive observability)
-  - `webhook.test`
   - `review.new`, `review.updated` (required — these drive ingestion)
-- [ ] Fire test webhook from Zernio dashboard. Verify in Railway logs: `[ingress/zernio] webhook.test received eventId=<uuid>`.
+- [ ] **`webhook.test` is NOT subscribable.** It is absent from the create enum. It is fired by `POST /v1/webhooks/test` with `{"webhookId": …}`, and arrives as `event: "webhook.test"`.
+- [ ] **Prefer the API to the dashboard.** `POST https://zernio.com/api/v1/webhooks/settings` with `{name, url, secret, events, isActive}`. `secret` is **caller-supplied**, so pass `ZERNIO_WEBHOOK_SECRET` verbatim — never mint a new one. `GET` the same path to list, `GET /v1/webhooks/logs` for delivery history with response codes. The full surface is in `https://zernio.com/openapi.json`.
+- [ ] Fire the test webhook. Verify in Railway logs: `[ingress/zernio] webhook.test received (event=<uuid>)`.
 - [ ] Verify in Supabase:
   ```sql
   SELECT id, source, event_type, status, received_at
@@ -693,6 +793,8 @@ SENTRY_DSN=...
   ```
 
 If you get 401 `invalid_signature`, see `zernio-launch-runbook.md` §5.1–5.2 — most common cause is webhook-secret mismatch between Zernio dashboard and Railway env.
+
+> **Webhook subscriptions are per-USER at both providers, not per-environment.** Production and staging hold different API keys, but both keys resolve to the same provider account, so `GET /v1/webhooks/settings` (Zernio) and `GET /webhooks` (Resend) return the identical list under either key — and **every event fans out to both workers**. That is benign: each worker resolves the event against its own database, so a foreign event matches zero rows. Do not "fix" it by re-pointing an endpoint. Evidence file 2026-08-30 → **E-F3**.
 
 ### 6.3 Stripe webhook (required when self-serve signup is on)
 
@@ -1052,7 +1154,9 @@ openssl rand -hex 32     # IMPERSONATION_COOKIE_SECRET
 - In the Railway project, create a second environment named **`staging`**
   (`railway environment new staging`, or the dashboard).
 - Deploy the worker into it from GitHub. `railway.toml` is shared across
-  environments, so `startCommand = pnpm worker`, `healthcheckPath = /api/health`,
+  environments — but see the Config-as-Code deprecation note in §5.1: those values are
+  now also set **on the service, per environment**, and the service copy is what
+  actually runs. So `startCommand = pnpm worker`, `healthcheckPath = /api/health`,
   and the `ON_FAILURE` restart policy already apply — you only set **variables**
   per environment.
 - Point the staging env's deploy trigger at the **`staging` branch**.
@@ -1277,7 +1381,7 @@ launch — **staging first** (Part II §II.2), then **production** (§II.4).
 1. Create a **`staging` git branch** from `main` and push it (Railway's staging env deploys from it).
 2. Pick the Railway project — the empty auto-named **`soothing-luck`** (ideally rename to `repworth`) — and add a **`staging` environment**.
 3. Add **Railway Redis** (the queue) to the staging env; **disable its TCP Proxy**; wire `REDIS_QUEUE_URL=redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`.
-4. Create the **worker service** from the GitHub repo on the `staging` branch (`railway.toml` already sets `pnpm worker` + healthcheck `/api/health`).
+4. Create the **worker service** from the GitHub repo on the `staging` branch. Set `pnpm worker` + healthcheck `/api/health` **on the service** — `railway.toml` alone is no longer sufficient (§5.1 deprecation note).
 5. Set all worker env vars from `.env.staging.local` (`STAGING_X` → `X`) + `NEXT_PUBLIC_APP_URL=https://staging.repworth.net`, `ZERNIO_PUBLISHING_ENABLED=true`, `SELF_SERVE_SIGNUP_ENABLED=true`, channels off, `MOCK_EXTERNAL_APIS=false`; then generate the worker domain → `WORKER_PUBLIC_URL`.
 6. Deploy; confirm `[startup-assert] … ✓` and `/api/health` 200.
 

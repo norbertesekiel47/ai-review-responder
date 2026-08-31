@@ -58,6 +58,16 @@ platform-policy climate makes "the compliance-conscious choice you can safely
 put on autopilot" a durable wedge, especially for franchise/multi-location
 buyers later.
 
+**Category-language check (2026-08-29 research, investor-theses overlay
+§3):** "AI employee" is now shelf language for SMB software — Vendasta
+markets MARiO as "a fully autonomous AI employee"; RingCentral sells an AI
+Receptionist. Use the category words (they prime buyers) but never lead
+with them alone: the governed part is the only claim competitors cannot
+copy. Pair every "done for you" claim with the market's own proof metrics —
+hours saved per month (SMBs already benchmark 20+ hours, per the 2026 Thryv
+survey) and the autonomy rate defined in the forward-roadmap Cross-cutting
+section.
+
 ## 4. Claims to NEVER make
 
 - No promised star ratings ("we'll get you to 4.9") — outcome depends on the

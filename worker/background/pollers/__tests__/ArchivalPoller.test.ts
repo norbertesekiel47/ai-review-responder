@@ -49,6 +49,7 @@ function queueArchivalResults(counts: {
   agentRuns?: number;
   outreachBodies?: number;
   unsentOutreachBodies?: number;
+  refusalEvents?: number;
 }): void {
   sqlReturnQueue.length = 0;
   sqlReturnQueue.push([{ count: String(counts.outbox) }]);
@@ -61,6 +62,11 @@ function queueArchivalResults(counts: {
   sqlReturnQueue.push([{ count: String(counts.agentRuns ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.outreachBodies ?? 0) }]);
   sqlReturnQueue.push([{ count: String(counts.unsentOutreachBodies ?? 0) }]);
+  // Arm 11 (#1009, refusal_events). Queued like every sibling so the Archived
+  // log line can be asserted on all ELEVEN targets from this suite rather than
+  // only from the live-DB one — a regression dropping `refusal_events` from the
+  // log object used to be invisible here.
+  sqlReturnQueue.push([{ count: String(counts.refusalEvents ?? 0) }]);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -103,16 +109,16 @@ describe('ArchivalPoller', () => {
     warnSpy.mockRestore();
   });
 
-  it('issues 10 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent)', async () => {
+  it('issues 11 SQL queries in order (outbox, events, demos, api_costs, notifications, analytics_events, agent_outcomes, agent_runs, solicitation_outreach sent + unsent, refusal_events)', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();
 
-    expect(mockSql).toHaveBeenCalledTimes(10);
+    expect(mockSql).toHaveBeenCalledTimes(11);
   });
 
-  it('logs all 10 target counts when any archival happened', async () => {
-    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13 });
+  it('logs all 11 target counts when any archival happened', async () => {
+    queueArchivalResults({ outbox: 10, events: 20, demos: 5, costs: 100, notifications: 50, analytics: 7, agentOutcomes: 3, agentRuns: 9, outreachBodies: 11, unsentOutreachBodies: 13, refusalEvents: 17 });
 
     await runOneCycle();
 
@@ -131,9 +137,12 @@ describe('ArchivalPoller', () => {
     expect(msg).toContain('"agent_runs":9');
     expect(msg).toContain('"solicitation_outreach_bodies":11');
     expect(msg).toContain('"solicitation_outreach_unsent_bodies":13');
+    // Eleven targets, eleven assertions. Every count above is distinct, so a
+    // key dropped from the log object cannot be masked by another key's value.
+    expect(msg).toContain('"refusal_events":17');
   });
 
-  it('logs "Nothing to archive" when all 10 targets return 0', async () => {
+  it('logs "Nothing to archive" when all 11 targets return 0', async () => {
     queueArchivalResults({ outbox: 0, events: 0, demos: 0, costs: 0, notifications: 0 });
 
     await runOneCycle();

@@ -248,11 +248,20 @@ writes the database. Rerun the default dry-run after provider changes and requir
 > be re-runnable and repairs defaults/CHECK/function/trigger without rewriting
 > account or business data), but it is not required.
 >
-> How this happened: the prod cutover paused on 2026-07-17 with this section
-> pending (`docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md`
-> verified `price_variant` absent at 01:11:05Z). 077 landed after that, and no
-> evidence file records it — so **the prod cutover is partially executed through
-> this section**. Staging is unaffected: it has 077 and always did.
+> How this happened — **corrected 2026-08-30.** 077 was applied by the owner via
+> the Supabase SQL editor at **2026-07-17T02:17:11Z**, and
+> `docs/runbooks/evidence/2026-07-17-ws8-prod-cutover-evidence.md` records it in
+> full, under "Quiescence + formal gates + phase 5", with eight verification
+> checks. **The prod cutover is executed through this section**, not partially —
+> resume at §6.
+>
+> The earlier wording here said "no evidence file records it". That was wrong. It
+> cited the `price_variant`-absent read at 01:11:05Z, which sits mid-file, and
+> missed the 077 record 66 minutes later at the bottom of the same file. What IS
+> true is narrower: the **Supabase migration-history table** does not list 077,
+> because the SQL editor does not write to it — the exact case the "introspect
+> the schema, not the ledger" rule at the top of `migrations-log.md` exists for.
+> Staging is unaffected: it has 077 and always did.
 
 Apply `supabase/migrations/077_copilot_autopilot_expand.sql` through the normal
 approved migration channel. Migration 077 is direct SQL and does not call this

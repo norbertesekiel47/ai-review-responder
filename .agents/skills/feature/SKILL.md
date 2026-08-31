@@ -13,24 +13,22 @@ source of truth or recreate a hierarchy between implementation and review agents
 
 ## Non-negotiable rules
 
-- Read `AGENTS.md`, `.claude/CLAUDE.md`, `CONTEXT.md`, and the closest relevant
-  project references before making architectural assumptions.
-- Keep checked-in source, tests, Git, and durable feature artifacts authoritative.
-  Conversation and subagent summaries are hints.
-- Follow existing modules, seams, tests, and naming before inventing new ones.
-- Keep the first implementation concrete unless a declared invariant requires a
-  seam. Require a named second use before extracting shared machinery.
-- Use version-matched bundled documentation or official primary documentation
-  for APIs that may have drifted.
-- Never widen scope silently. Amend the intake with the user's approval or stop.
-- Never claim completion from memory. Require fresh gate evidence whose
-  fingerprint matches the current worktree.
-- Never let a reviewer edit. The root agent verifies each finding before fixing
-  or rejecting it.
+Read [working-rules.md](references/working-rules.md) before the first edit. It
+owns context discipline, the anti-slop rules, authority, worktree path
+discipline, and the no-bash-writes rule for BOTH lanes — this lane and the
+Claude lane (`.claude/commands/feature.md`). A rule that appears to differ
+between the two routers is a bug in one of them, never a lane difference.
+
+Read `AGENTS.md`, `.claude/CLAUDE.md`, `CONTEXT.md`, and the closest relevant
+project references before making architectural assumptions.
+
+This lane adds exactly one rule of its own:
+
 - Do not commit, push, deploy, merge, apply remote migrations, or flip remote
   flags unless the user explicitly authorizes that action. Read
   [shipping-boundaries.md](references/shipping-boundaries.md) before any such
-  step.
+  step. The Claude lane ships (its step 8); this one stops at review-ready.
+  That is the only intended divergence between them.
 
 ## Durable state and live coordination
 
@@ -40,6 +38,8 @@ The durable artifacts win after compaction or resume:
 - `.feature/intake.json` — machine-readable scope and acceptance contract.
 - `.feature/state.json` — phase, branch, hashes, and review counters.
 - `.feature/gate-status.json` — underlying repository gate result.
+- `.feature/gate-heartbeat.json` — present only while a gate run is alive;
+  `verify-gate.sh --status` reads it to answer RUNNING / DEAD / last result.
 - `.feature/codex-gate-fingerprint.json` — proof that the gate matches the
   current HEAD, intake, staged/unstaged diff, and untracked files.
 - `.feature/progress.json` — the step ladder and tracer bullets.
@@ -47,6 +47,9 @@ The durable artifacts win after compaction or resume:
 - `docs/superpowers/plans/<branch>-intake.json` — committed audit copy when the
   user has authorized a commit.
 - The referenced spec, plan, deviations, and accepted review findings.
+- `docs/reviews/finding-checklists/<axis>.md` — committed, cross-feature:
+  every ACCEPT triage appends here, and future reviews on that axis receive
+  the file as input.
 
 Do not create a handoff merely because context is growing. Create one only when
 work is actually pausing, moving to another task, or waiting at an authority
@@ -122,6 +125,11 @@ For `small`, `standard`, and `high` work, create the sibling worktree with
 `pnpm worktree:new <branch>`. Do not create or switch branches when unrelated
 dirty changes make the target ambiguous.
 
+Setup also writes the worktree-scoped autonomy profile
+(`.claude/settings.local.json`: acceptEdits + workflow command allowlist) so
+execution runs without permission prompts; the shipping boundary still
+prompts. `FEATURE_AUTONOMY_PROFILE=off` opts out.
+
 Run the repository setup from the worktree only after warning that the current
 repository script creates an intake commit and removes the parent draft. That
 commit/removal requires explicit user authorization:
@@ -134,10 +142,14 @@ Require `scripts/arm-check.sh` to report `ARMED`. Prefix every shell command
 with an explicit worktree `cd` and use absolute paths for edits. Do not edit the
 parent checkout from a feature worktree.
 
-Steps 0 and 1 ran in the parent checkout, so the ladder is still there. Carry
-it into the armed worktree — the command also marks the `armed` step:
+Steps 0 and 1 ran in the parent checkout, so the ladder is still there.
+`feature-setup.sh` carries it into the armed worktree mechanically, and
+`arm-check.sh` initializes a stub from the intake when no ladder exists at
+all — a run can no longer proceed without `.feature/progress.json`. Verify
+the carried ladder (or carry it yourself on an older setup script):
 
 ```bash
+cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs render
 cd <worktree-root> && node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
 ```
 
@@ -148,12 +160,31 @@ worktree. A lane that uses no worktree skips this step instead.
 
 Use tracer bullets: each task delivers one vertical behavior slice, names its
 test seam, declares blocking edges, cites the precedent it follows, and stays
-inside `allowed_edit_surface`. Consult `codebase-design` before introducing or
+inside `allowed_edit_surface`. When the surface must widen, count the
+amendment mechanically — `bash scripts/feature-state.sh incr-amendment` —
+which refuses a second amendment without a recorded owner reason. Consult `codebase-design` before introducing or
 widening an interface.
 
 Write a plan only for standard/high work. For high-risk work, dispatch one
 fresh read-only plan skeptic using [review-prompts.md](references/review-prompts.md),
 triage its evidence, and obtain user sign-off. Maximum three plan-review rounds.
+
+Read that file's § Dispatching a Codex round before writing the brief. Three
+rules bind: put the context IN the brief instead of letting the session
+re-derive it; never clone one brief across delegates — differentiate the
+question or do not fan out; and RESUME round 1's session for a
+verification-only round (`codex exec resume <id> "<delta>"`), never for round 1
+and never for an independent axis. Record the session id when round 1 returns.
+
+A verification round after the fixes is owed only when the fixes moved the
+plan's contract. Snapshot it at round start and re-derive it after — read
+[execution-lanes.md](references/execution-lanes.md) § Conditional verification
+rounds for what counts and how to record a skip:
+
+```bash
+bash scripts/feature-state.sh record-contract <plan.md>
+bash scripts/feature-state.sh contract-changed <plan.md>
+```
 
 Start the live view before the first plan-review round, then log the round:
 
@@ -213,6 +244,29 @@ Before final review, run review mode:
 bash .agents/skills/feature/scripts/verified-gate.sh --review
 ```
 
+After a RED gate, loop unattended: `bash scripts/gate-summary.sh` (failing
+rows + tails only), fix, `bash scripts/feature-state.sh incr-gate-round`, then
+re-run in FAST mode — same rows, three narrowed against the last green SHA
+(25 s against 95 s, measured):
+
+```bash
+bash .agents/skills/feature/scripts/verified-gate.sh --fast
+```
+
+A fast run is never evidence: it writes `.feature/gate-fast.json`, touches no
+phase, no budget and no fingerprint. Read
+[execution-lanes.md](references/execution-lanes.md) § The gate loop for what it
+narrows and why it cannot satisfy the Stop hook. Run the full wrapper at every
+boundary and any time HEAD moves. The counter refuses round 4 without an owner
+reason — the gate-fail abort criterion enforced mechanically; a full green
+resets it.
+
+Check on a possibly-running gate with `bash
+.agents/skills/feature/scripts/verified-gate.sh --status` (RUNNING / DEAD /
+last result — never blocking-wait blind, never launch a second gate over a
+RUNNING one). To prove the tree green without advancing the phase, run
+`--baseline`.
+
 The wrapper runs the repository gate and writes a content fingerprint. After
 any edit, commit, intake change, or generated review artifact, the fingerprint
 is stale. Confirm freshness with:
@@ -238,10 +292,37 @@ as its note before you stop.
 Read [review-prompts.md](references/review-prompts.md). Review the diff from a
 fixed merge-base only after the review gate is green:
 
+**Take main BEFORE this section, then freeze the fork.** From the moment the
+wave dispatches, a rebase voids the gate result, the fingerprint, the blast
+radius and the red-team sidecar together, and the `reviewed` transition refuses
+on that basis. Measured on feat/1008: 67 of red team's 174 minutes went to one
+post-rebase re-run, against 95 s for taking main beforehand. If main must be
+taken mid-review the round is VOID — re-run the full gate and open a fresh one.
+Read [execution-lanes.md](references/execution-lanes.md) § Pin the fork.
+
+Dispatch every required axis AND the red-team pass in ONE parallel wave; route
+mechanical passes (logging, checklist sweeps, doc greps) to cheaper subagents.
+Read [execution-lanes.md](references/execution-lanes.md) § The review wave
+first — it carries the three rules that keep a live mutation safe beside
+concurrent reviewers, and breaking one corrupts the red-team pass.
+
 - trivial: one compact root review
 - small: one fresh spec/correctness review
 - standard: parallel spec/correctness and maintainability reviews
 - high: the standard pair plus only the applicable risk axis
+
+Every lane also carries the red-team member. The wave's reviewers stage their
+reports in `.feature/review-staging/<axis>.md`; the root copies them into
+`docs/reviews/<branch>/` after the finalizer returns. The reason is judgement,
+not a checker: `red-team-status.mjs` ignores untracked paths on purpose, but
+red-team's post-restore assertion is agent-applied at the moment it decides
+whether a mutation was restored, and a sibling's report file makes that call
+ambiguous. The root edits nothing while the wave is in flight.
+
+Give each reviewer its axis checklist
+(`docs/reviews/finding-checklists/<axis>.md`, when it exists) with the
+instruction to check the diff against every line — accepted findings from
+past branches are the highest-yield defect classes.
 
 Require findings to include a file and line, evidence, and a concrete failure
 scenario or named violated standard. Keep speculative advice outside the
@@ -250,7 +331,9 @@ actionable table. The root reproduces or verifies each finding, records
 verified gate.
 
 Log every round in the transcript, one axis per round. A triage verdict that
-only exists in conversation is lost at the next compaction:
+only exists in conversation is lost at the next compaction. `round-end`
+refuses a round with no logged content, and an ACCEPT triage appends the
+finding to the axis checklist automatically:
 
 ```bash
 node .agents/skills/feature/scripts/review-log.mjs round-start --axis spec-correctness
@@ -268,22 +351,23 @@ node .agents/skills/feature/scripts/gate-fingerprint.mjs check
 node .agents/skills/feature/scripts/progress.mjs step review done
 ```
 
-### 6.5 Red-team the finished change
+### 6.5 Close the red-team pass and transition
 
-Section 6 asks whether the change is right. This section tries to prove it is
-wrong, and it owns the `reviewed` transition so no run can reach review-ready
-without an adversarial pass.
+Section 6 asks whether the change is right, and its wave already ran the pass
+that tries to prove it wrong. This section owns everything after that pass, and
+it owns the `reviewed` transition, so no run reaches review-ready without
+adversarial evidence.
 
-Run the `red-team` skill in a fresh subagent. It is a VERIFIER, not a reviewer:
-its mutations of production files are the one narrow exception to "never let a
-reviewer edit", because they are journaled, finalizer-guarded, and can never
-reach a commit. Read `.agents/skills/red-team/SKILL.md` for the protocol.
+The red-team skill is a VERIFIER, not a reviewer: its mutations of production
+files are the one narrow exception to "never let a reviewer edit", because they
+are journaled, finalizer-guarded, and can never reach a commit. Read
+`.agents/skills/red-team/SKILL.md` for the protocol.
 
 Order matters — the report commit moves `HEAD`, so it precedes the final gate:
 
-1. Verify the preconditions: clean tree, no process watching the worktree, no
-   stranded dotenv backup.
-2. Run the pass on committed `HEAD`.
+1. Confirm the wave's preconditions held: clean tree at a committed SHA, no
+   process watching the worktree, no stranded dotenv backup.
+2. The pass ran on committed `HEAD` inside the section 6 wave.
 3. Run the finalizer YOURSELF, from the root context, so a failed subagent
    cannot strand a mutation:
 
@@ -295,10 +379,19 @@ node .agents/skills/red-team/scripts/mutation-runner.mjs finalize
    `required_approvals` does not grant it — read
    [shipping-boundaries.md](references/shipping-boundaries.md). Obtain a
    separately recorded explicit authorization, then commit only
-   `docs/reviews/red-team/<slug>/findings.md` and `findings.json`.
-5. Re-run the wrapper gate last, so the fingerprint regenerates over the
-   committed report, then transition. The transition itself re-runs the status
-   check, so a stale or self-inconsistent sidecar fails the phase change:
+   `docs/reviews/red-team/<slug>/findings.md` and `findings.json`, plus the
+   staged review reports copied from `.feature/review-staging/` into
+   `docs/reviews/<branch>/`. The staging directory is gitignored, so a report
+   left there vanishes with the worktree.
+5. Apply the section 6 triage fixes and loop the gate until green.
+6. **Round 2, scoped.** The fixes moved `HEAD`, so the sidecar is stale by
+   construction. Re-run the pass against the FIX HUNKS and their direct callers
+   only. `round-start` refuses a third round outright, so a `P0` here goes to
+   the user with no round behind it.
+7. Re-run the wrapper gate last, so the fingerprint regenerates over the
+   committed report, then transition. The transition re-runs the red-team
+   status check AND parses the deviations file — an entry without a resolved
+   **Verdict:** ACCEPT, or any RE-PLAN, fails the phase change:
 
 ```bash
 bash .agents/skills/feature/scripts/verified-gate.sh --review
@@ -306,7 +399,8 @@ node .agents/skills/feature/scripts/transition-state.mjs reviewed
 ```
 
 A `P0` finding blocks and returns to section 4. A high-risk `OPEN_P1` requires
-the user's adjudication and is enforced, not advised. Two rounds maximum.
+the user's adjudication and is enforced, not advised. Two rounds maximum, and
+the wave plus the scoped round spend both by design.
 
 ### 7. Stop at review-ready
 

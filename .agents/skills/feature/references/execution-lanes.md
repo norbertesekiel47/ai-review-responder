@@ -99,6 +99,133 @@ Never dispatch two editing agents with overlapping leases. Prefer a read-only
 subagent when the task is diagnosis, research, design comparison, or review.
 The root agent inspects every resulting diff and owns integration.
 
+## The review wave — one parallel dispatch, red team included
+
+Both lane routers dispatch ONE wave, in ONE message, the moment the review
+gate is green. The wave contains every required review axis for the lane
+(above) **and the red-team pass**. They all read the same committed SHA, and
+none of them may edit, so wall clock is the slowest member, not the sum.
+
+Red team used to run after review triage and its fixes. That put a full
+adversarial pass on the critical path twice over: once to find defects, once
+because the fixes invalidated its evidence. In the wave it runs against the
+pre-fix tree, and only the fix hunks need a second look.
+
+Three rules make the wave safe:
+
+1. **Review agents stage their reports outside git.** Each axis writes to
+   `.feature/review-staging/<axis>.md` while the wave runs. The root copies
+   them into `docs/reviews/<branch>/` after the finalizer returns.
+
+   Be precise about why. This is not a mechanical failure being avoided:
+   `red-team-status.mjs` reads `git status --porcelain --untracked-files=no`
+   on purpose, and red-team precondition 1 speaks of *tracked* modifications,
+   so a sibling's untracked report fails neither. What it does break is the
+   AGENT's post-restore assertion in `red-team/SKILL.md` — "porcelain must be
+   empty on every path except this run's two report artifacts" — which is
+   judgement, applied at the exact moment the agent decides whether a mutation
+   was restored. Staging removes that ambiguity instead of asking an agent to
+   adjudicate it mid-pass. A report written into red-team's own report
+   directory would additionally trip the finalizer's refusal to overwrite
+   content it did not write.
+2. **The root edits nothing while the wave is in flight.** Triage fixes wait
+   for the red-team finalizer, exactly as the gate waits for subagents.
+3. **The finalizer still belongs to the root**, never the subagent, so a dead
+   agent cannot strand a mutation.
+
+Order after the wave: finalize → commit the red-team report → triage every
+axis together → fix → gate → the scoped second red-team round → full review
+gate → status check → `reviewed`.
+
+The second round is scoped to the fix hunks and their direct callers, and it
+is not optional: fixes always land after the wave, so the sidecar is always
+stale against HEAD by then. This spends the two-round cap by design. A P0
+found in round 2 has no round 3 behind it — take it to the user, the same
+answer the cap has always given.
+
+## Pin the fork — do not take main after the wave opens
+
+The single most expensive event measured in a `/feature` run was not a slow
+reviewer. It was a rebase. On feat/1008, **67 of red team's 174 minutes** went
+to one post-rebase re-run (23:51 → 00:58, commit "post-rebase red-team"),
+re-proving work that had already been proven.
+
+The rule, and it is mechanical:
+
+- **Take main BEFORE step 7.** The moment to rebase or merge `origin/main` is
+  the step 3→4 checkpoint, or immediately before the review gate that opens
+  the wave. Never between.
+- **From the moment the wave dispatches, the fork point is FROZEN.**
+  `blast-radius.sh`, the review axes and the red-team pass all pin
+  fork/merge-base/head once; every later command uses those recorded SHAs, not
+  a ref that can move.
+- **If main genuinely must be taken mid-review, the round is void — say so and
+  restart it.** Do not patch around it. Every piece of evidence behind the wave
+  (gate result, fingerprint, red-team sidecar, blast radius) was derived from a
+  tree that no longer exists, and `red-team-status.mjs` will refuse the
+  `reviewed` transition on exactly that basis. Take main, re-run the full gate,
+  then open a fresh round under the same caps.
+
+Cost asymmetry is the whole argument: taking main before the wave costs one
+gate run (95 s). Taking it during the wave costs a full adversarial pass.
+
+A branch far behind main still rots, so the pre-wave check stays — it just has
+a deadline. `/feature-resume` reports main drift on resume for this reason; act
+on it while the phase is `plan_approved`, `executing` or `gate_green`, never
+once the wave is open.
+
+## Conditional verification rounds
+
+A verification-only round (plan rounds 2-3, branch rounds 2-3) exists to
+confirm that the fixes for round 1 did not break what round 1 approved. When
+the fixes moved nothing the artifact contracts on, the round re-reads
+unchanged prose at full cost.
+
+Decide it mechanically, never by judgement:
+
+```bash
+bash scripts/feature-state.sh record-contract <plan.md>   # at round start
+bash scripts/feature-state.sh contract-changed <plan.md>  # after the fixes
+```
+
+The contract is the intake's `allowed_edit_surface`, the intake's
+`tests_to_add`, and the plan's heading structure. `CHANGED` owes a round.
+`UNCHANGED` skips it — self-verify each fix against the findings table and
+record that decision in the artifact's review appendix, so a reader sees a
+skipped round and its reason rather than a silent gap. A missing snapshot
+reads as `CHANGED`, so the failure direction is always "review it".
+
+This changes WHEN a round is owed. It never raises the caps: three plan
+rounds, three branch rounds, two red-team rounds.
+
+## The gate loop — fast inside, full at the boundary
+
+After a RED gate, loop unattended. Read `bash scripts/gate-summary.sh`
+(failing rows and log tails only), fix, count the round, re-run:
+
+```bash
+bash scripts/feature-state.sh incr-gate-round
+bash scripts/verify-gate.sh --fast
+```
+
+`--fast` runs the same rows and narrows exactly three of them against the
+last green SHA: the test row becomes `--changed`, `pnpm build` is skipped
+when nothing it compiles moved, and the test DB is re-provisioned only when a
+migration moved. Measured on a real DB-touching branch: **25 s against 95 s**.
+
+A fast run is never evidence. It writes `.feature/gate-fast.json`, leaves
+`.feature/gate-status.json` alone, advances no phase, and resets no budget —
+the Stop hook reads only `gate-status.json` and ignores `mode`, so routing a
+fast result there would silently authorize finishing a session. Run the full
+gate at every boundary that matters:
+
+- before the review wave: `verified-gate.sh --review`
+- after the fixes: `verified-gate.sh --review`
+- any time HEAD moves for any reason
+
+The budget is unchanged: the 4th fail round refuses without an owner reason,
+and a full green resets it.
+
 ## Reclassification and anti-thrash
 
 Stop and reclassify when production or test churn exceeds twice its estimate,

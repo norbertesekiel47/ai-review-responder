@@ -25,6 +25,7 @@ records the sequence and the decisions; the specs record the mechanics.
 | `2026-08-26-positioning-governed-autonomy.md` | The governed-autonomy positioning: message architecture, proof points, claims to avoid |
 | `2026-08-26-brand-story.md` | The brand story of record for campaigns, social media, videos, landing pages, and the website — narrative, pillars, channel playbook, honesty ledger |
 | `2026-08-26-agentic-architecture.md` | Agent-architecture principles (as-built invariants), memo→as-built map, sequencing of future agentic work, and the public API/MCP strategy |
+| `2026-08-29-investor-theses-overlay.md` | The three investor theses (outcome, agents, industry rebuild): verdicts, 30-day market evidence, and the roadmap changes adopted from them |
 
 ## Locked decisions (owner, 2026-08-26)
 
@@ -44,6 +45,12 @@ records the sequence and the decisions; the specs record the mechanics.
    location's Google write-review page) ships **before the production
    launch**, pulled forward out of Phase 1 onto the launch track. Scope:
    `2026-08-26-forward-roadmap.md` Phase 0.
+5. **Investor-theses overlay (2026-08-29).** Outcome SLO packaging +
+   autonomy-rate telemetry; typed-tool (API-first) constraint on all new
+   domain modules; read-only MCP pilot after Phase 2 (write tools stay
+   Phase 8); AEO probe. Pure outcome pricing, agentic-payment work, and
+   agent frameworks stay rejected. Verdicts + evidence:
+   `2026-08-29-investor-theses-overlay.md`.
 
 ## Open decisions (flagged, not yet made)
 
@@ -52,8 +59,10 @@ records the sequence and the decisions; the specs record the mechanics.
   2026-08-26 external research memo recommends $79/$149/$249 **per location**.
   These differ by ~3–5×. Decide before scaled acquisition spend; the
   grandfathering infrastructure (stored prices on `accounts`, invariant #9a)
-  makes later repricing safe for existing customers. See
-  `2026-08-26-forward-roadmap.md` § Cross-cutting.
+  makes later repricing safe for existing customers. The recommended SHAPE
+  was recorded 2026-08-29 (hybrid: subscription base now, outcome credits
+  later; never pure outcome) — see the overlay doc §1; the price POINTS
+  remain open. See `2026-08-26-forward-roadmap.md` § Cross-cutting.
 - **Vertical rollout order** within the three committed verticals (a
   recommendation is given in `2026-08-26-verticals.md`, not locked).
 
