@@ -2004,6 +2004,14 @@ worker, was signature-verified, and wrote an `inbound_events` row.
 **These are the first two rows ever written to production `inbound_events`.** The database
 was zero-state at 07:20:21Z (D1a).
 
+> **Count note, re-read 2026-08-31T19:16Z during F.3.** Production `inbound_events` now
+> holds **three** rows, not two. The third is a second `resend` / `email.delivered`,
+> `processed`, received 08:03:42.21Z. That is **E-F3 behaving** — Resend subscriptions are
+> per-USER, so a staging delivery fans out to the production worker as well. Benign by
+> construction: a foreign event matches zero rows. The sentence above stays true (these
+> were the first two); the live count is three. Everything else in the zero-state proof is
+> unchanged — 0 accounts, 0 businesses, 0 `public.users`, 0 `auth.users`.
+
 ### E.0 — preconditions, read-only
 
 | Check | Result |
@@ -2308,18 +2316,199 @@ same minutes the live coupon came into existence:
 
 ---
 
-## Phase F.3 — the ten-step staging smoke. NOT STARTED. Operator work.
+## Phase F.3 — the ten-step staging smoke. COMPLETE 2026-08-31. ALL TEN PASS.
 
-F.3 needs a human at a browser: admin sign-in at AAL2, an invite email, a Stripe test card,
-and eyes on the Stripe dashboard. Three of the ten steps carry the weight — step 6 (a card
-**is** collected), step 8 (the **4th** cycle renders at full price), step 10 (record the
-real Supabase error code for an already-accepted invite).
+Run by the owner at a browser against `https://staging.repworth.net`, with every
+API/database assertion verified independently rather than read off a screen. Repo HEAD at
+the time of the run: **`37a3b49b`**. Staging Supabase project `kubdiqdhqbhwmqfditeg`;
+Stripe account `acct_1TUcR7IhPBLaM6xA`, **test mode**.
 
-Two things to set before it runs:
+**Posture recorded, as the box requires:** `ONBOARDING_DEMO_ENABLED=true` on Vercel
+`staging`, so step 4's expected landing is `/onboarding/start`. `AUTOPILOT_PURCHASABLE` is
+`false`, so the plan picker offers **Copilot only** and the run priced against
+`price_1Ttv09IhPBLaM6xA6zjnfmrg` — *Copilot founding base*, **$19.00/month**.
 
-1. Decide `ONBOARDING_DEMO_ENABLED` on staging. It is off by default, and step 4's expected
-   landing page differs between the two postures. Record which posture was tested.
-2. Prepare **two** owner email addresses. Step 10 needs a second owner who has not signed in.
+### Preconditions, verified before the run rather than assumed
+
+| Precondition | Method | Result |
+|---|---|---|
+| Migration 105 | introspection | `accounts.checkout_attempt_coupon_id` present, `text`, nullable |
+| Migration 105 constraint rewrite | introspection | `accounts_checkout_attempt_complete_check` contains `checkout_attempt_coupon_id IS NULL` |
+| Migration 106 | introspection | `analytics_events_event_name_check` admits `checkout_coupon_decision` |
+| `BETA_COMP_COUPON_ID` | `npx vercel@latest env pull` | `repworth-beta-comp-3mo` on `staging` |
+| Running deployment carries it | deploy age vs var age | deploy 17 h old, var 10 days old |
+| Test-mode coupon | Stripe API | `percent_off=100`, `repeating`, `duration_in_months=3`, `valid=true`, `times_redeemed=0` |
+| Staging Stripe webhook | Stripe API | `we_1TczUuIhPBLaM6xAvw4uqudU` → staging worker, **enabled**, carries `checkout.session.completed` |
+| Staging worker | `GET /api/health` | `ok` |
+| Owner emails free of collision | `public.users` + `auth.users` | both absent |
+
+### The two owners
+
+| Role | Address | Purpose |
+|---|---|---|
+| Owner A | `norbert.esekiel@repworth.net` | steps 2–9, the full loop |
+| Owner B | `nsunn@usc.edu` | step 10 only — the second owner who had not signed in |
+
+### The objects the run created
+
+| Object | Id |
+|---|---|
+| Owner A **Business** | `01a0592a-11ad-740b-ad37-66f4099856f0` — *Tanicia Resort* |
+| Owner A **Account** | `01a0592a-11ae-72a8-8b35-6df449aa4c74` |
+| **Checkout attempt** | `aa86f64e-f026-449b-972d-ceebe3d3b890` |
+| Stripe customer | `cus_VAwGMogQOG22XQ` |
+| Stripe subscription | `sub_1UAaO2IhPBLaM6xA5AI1YZrj` |
+| First invoice | `in_1UAaO0IhPBLaM6xAxTgziJ1B` |
+| Discount | `di_1UAaO0IhPBLaM6xAvTTqu5kZ` |
+| Payment method | `pm_1UAaO0IhPBLaM6xAv6XPwnke` |
+| Owner B **Business** | `01a05936-2a02-76ce-bae3-43e159700c89` — *Tanicia Resort 2* |
+| Owner B **Account** | `01a05936-2a04-726d-8c1b-613d435c34a5` |
+
+### Step results
+
+| # | Assertion | Verdict | Evidence |
+|---|---|---|---|
+| 1 | Migrations 105 + 106 on staging | **PASS** | Introspection, not the ledger — see the precondition table |
+| 2 | **Admin invite** created; invite email arrives | **PASS** | Business row 18:52:04.43Z; `auth.users` invited 18:52:05.43Z; owner confirmed receipt |
+| 3 | Password set → returned to `/login`; sign-in works | **PASS** | Owner observation |
+| 4 | **Funnel entry** = `/onboarding/start`; demo runs | **PASS** | Owner observation + `onboarding_demos` row `generation_status='completed'`, **3** generated responses, `source='serpapi'`, 18:55:59.51Z → 18:56:02.77Z |
+| 5 | **Total due today = $0.00** | **PASS** | Invoice `in_1UAaO0…`: `subtotal=1900`, `total_discount_amounts=1900`, **`total=0`**, `status='paid'` |
+| 6 | **A card IS collected** | **PASS** | `default_payment_method=pm_1UAaO0…` · visa · `last4=4242` · `exp 01/2031` · `cvc_check='pass'` · `address_postal_code_check='pass'` — captured on a **$0.00** invoice |
+| 7 | Subscription `active`, discount attached, first invoice $0 | **PASS** | `sub_1UAaO2…` `status='active'`; discount `di_1UAaO0…` `source.coupon='repworth-beta-comp-3mo'`; app row `subscription_status='active'`, `subscription_tier='copilot'` |
+| 8 | **The 4th cycle renders at full price** | **PASS** | Discount `end` = **1796065012 = 2026-11-30T18:56:52Z**, which is the cycle-4 anchor to the second. Method and its limit below |
+| 9 | One `checkout_coupon_decision`, `decision: applied` | **PASS** | 18:56:22.19Z · `reason='applied'` · `decision='applied'` · `coupon_applied=true` |
+| 10 | Resend succeeds, then refuses cleanly | **PASS** | Both parts below |
+
+### Step 6 — what it actually proved
+
+A card was captured against an invoice whose **total was $0.00**. That is
+`payment_method_collection: 'always'` behaving. Without it Stripe skips card collection on a
+fully-discounted subscription session and month 4 fails at renewal. Read from the Stripe
+API, not from the checkout form — a stronger check than the runbook asks for.
+
+### Step 8 — the method, and the one thing it does not do
+
+Subscription anchor `1788202612` = 2026-08-31T18:56:52Z. Projected monthly anchors against
+the discount's `end`:
+
+| Cycle | Starts | Discounted |
+|---|---|---|
+| 1 | 2026-08-31T18:56:52Z | yes — $0.00, invoice `in_1UAaO0…` paid |
+| 2 | 2026-09-30T18:56:52Z | yes |
+| 3 | 2026-10-31T18:56:52Z | yes |
+| **4** | **2026-11-30T18:56:52Z** | **no → $19.00** |
+
+The discount span is exactly **91 days** and `end` lands on the cycle-4 anchor to the
+second. Stripe derived that boundary from `duration_in_months: 3`, so **F.2's `repeating`
+deprecation risk does not materialise** — it is now confirmed twice, once by the coupon
+read-back under the pinned apiVersion and once by a real subscription's discount window.
+
+> **State the limit honestly.** This is a **boundary proof from the discount's own `end`
+> timestamp**, not a rendered 4th invoice. Rendering one requires a Stripe **test clock**,
+> and this subscription has `test_clock: null` because it was created through the real
+> Checkout the smoke is testing. Attaching a clock would have meant not testing the funnel.
+> A future run that wants the rendered artefact must create a clocked subscription
+> separately — it would be a *different* test, not a better version of this one.
+
+### Step 10 — both parts, and a correction to what the step is for
+
+**Part A — the resend must succeed.** Owner B's `auth.users` row was created at
+**19:05:17.96Z** by the **Admin invite** itself. After the admin clicked **Resend invite**,
+`invited_at` and `confirmation_sent_at` both read **19:05:56.44Z** — 39 s later. Only the
+resend moves those. The owner confirmed **two** invite emails arrived.
+
+**Part B — the resend must be refused.** Owner B then accepted and signed in
+(`confirmed_at` 19:13:11.82Z, `last_sign_in_at` **19:13:45.15Z**). The account stayed
+`pending_payment` with `checkout_attempt_id IS NULL`, so the panel still rendered. The
+second click returned:
+
+```
+POST /api/admin/businesses/01a05936-2a02-76ce-bae3-43e159700c89/resend-invite
+409 Conflict
+{ "error": "This owner has already signed in, so the invite was accepted. Send them a
+            password reset instead.",
+  "code": "OWNER_ALREADY_SIGNED_IN" }
+```
+
+**No third email — proven, not asked about.** Re-read at 19:16:08Z, `invited_at` was still
+`19:05:56.44Z` and `updated_at` still `19:13:45.17Z`, the sign-in. The refused click moved
+nothing and sent nothing.
+
+A side effect worth keeping: `last_sign_in_at` stayed `NULL` through the invite **and** the
+password set, and moved only on a real sign-in. That is the premise the whole eligibility
+gate rests on, re-confirmed on live staging.
+
+### What F.3 did NOT do
+
+- **No production change of any kind.** No Vercel Production variable, no vault write, no
+  production deploy, no live-mode Stripe object. `BETA_COMP_COUPON_ID` remains absent from
+  Vercel `Production` **and** from the Infisical vault — the F.4 gate is untouched.
+- **No live-mode Checkout.** The D.6 debt is unchanged and still lands in F.4.
+- Two disposable test **Accounts** now exist on staging. Staging is a disposable integration
+  anchor; no cleanup is owed.
+
+## Findings from Phase F.3
+
+### F3-F1 — step 10 tests the eligibility GATE, not the provider error mapping
+
+The stand-up's F3 box and the Phase F.3 handoff both say step 10 "validates the provider
+error mapping in `src/lib/onboarding/resend-invite.ts`, which shipped deliberately
+staging-unverified", and instruct the operator to "record the actual Supabase error
+code/status". **Both halves are wrong.**
+
+1. **The mapping was already verified**, on 2026-08-14 against this same staging project.
+   `INVITE_ERROR_CODE_MAP`'s header records it: re-inviting an accepted user returns
+   `AuthApiError { code: 'email_exists', status: 422 }`, mapped to 409. Evidence:
+   `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md` → **D-13**. The
+   "NOT YET VERIFIED" wording the two docs echo was superseded in the source file itself.
+2. **Step 10 structurally cannot reach the mapping.** `resendOwnerInvite` checks
+   `providerUser.user.last_sign_in_at` and throws `OWNER_ALREADY_SIGNED_IN` **before**
+   `inviteUserByEmail` is ever called. So the observed code is always **ours**, never
+   Supabase's. The module's own header already says this — "the accepted-user branch above
+   is normally unreachable in production: the gate refuses first, and this table is the
+   safety net behind it."
+
+**The observed result is correct and is the one worth having:** the gate refuses first and
+shields the provider path. Recorded so a later reader does not go hunting for an
+`email_exists` that this step can never produce. Reaching the mapping needs a *different*
+test — one that bypasses the gate.
+
+General lesson: **when a checklist says "record the provider's error", first check whether
+your own code returns before the provider is called.**
+
+### F3-F2 — `resend-invite.ts` is not staging-unverified, and has not been since 2026-08-14
+
+A narrower restatement of F3-F1's first half, called out separately because it propagated
+into three documents (the stand-up F3 box, the Phase F.3 handoff, and the published plan
+artifact) as a live caveat on shipped code. The source file is the authority and it says
+`CONTRACT VERIFIED`. Corrected in the same change as this record.
+
+### F3-F3 — one stale copy of the coupon-event emission point, and it is NOT the owning doc
+
+Migration `106_checkout_coupon_analytics_event.sql`'s header still says the event is
+"Emitted by recordCouponDecision (src/lib/payments/plan-activation.ts) AFTER the
+applyTierSnapshot transaction commits". The code has not done that since the step-7 review:
+`emitCouponDecisionEvent` runs **inside** `applyTierSnapshot`'s transaction through a
+`tx.savepoint(...)`, only the non-durable `logCouponDecision` line is post-commit, and no
+function named `recordCouponDecision` exists.
+
+**Scope check, run before recording this as a finding.** The authoritative owner —
+`.claude/reference/migrations-log.md`'s **106** entry — is **already correct**, and already
+says so explicitly: "The step-7 review moved the emission INSIDE `applyTierSnapshot`'s
+transaction, through `emitCouponDecisionEvent`'s `tx.savepoint(...)` — the earlier
+post-commit `recordCouponDecision` is gone." The stand-up's F1 box does **not** repeat the
+stale claim either; it says only "logged and emitted as the durable
+`checkout_coupon_decision` analytics event (migration 106)", which is true under both
+designs.
+
+So this is a **single stale header on an applied migration**, with the owning reference
+already superseding it — not a documentation drift needing a sweep.
+
+**Deliberately not fixed here.** The migration file is an applied artifact; editing it, even
+only its comment block, is a bigger act than it looks and is out of scope for a docs PR
+recording a smoke test. The correction lives where the CLAUDE.md rule puts it — with the one
+authoritative owner, which already carries it. Recorded so the next reader of that header
+knows to distrust it.
 
 
 ---
