@@ -682,6 +682,105 @@ CLI is 54.14.5 against a current 59.10.0. Use `npx vercel@latest` for any
 type-sensitive read until it is upgraded.
 
 
+### Phase I sync 1 — Vercel. Ran as Import, damaged, repaired.
+
+**Root cause: the Initial Sync Behavior dropdown was left on Infisical's
+default, `Import Destination Secrets - Prioritize Infisical Values`.** The
+chosen setting (§14) was Overwrite + Disable Secret Deletion. Infisical behaved
+exactly as documented; the configuration was simply not the one decided.
+
+**§14's prediction was correct in every particular**, which is the reason to
+keep this record rather than quietly fix it.
+
+#### What the sync did right
+
+| Check | Result |
+|---|---|
+| Seven legacy `STRIPE_PRICE_*` survived | ✅ rollback window intact |
+| `DATABASE_URL` / `DB_POOL_MAX` names not deleted | ✅ |
+| Value fidelity — 10 keys sampled against the vault | ✅ **10 / 10 byte-identical** |
+| `NEXT_PUBLIC_APP_URL` | ✅ now `https://repworth.net` — **finding F2 closed** |
+
+F2 is closed at the value layer only. `NEXT_PUBLIC_*` is inlined at build time,
+so **Vercel must be redeployed** before a browser sees it.
+
+#### What it damaged
+
+1. **The vault grew 47 → 61.** The 14 added names are exactly the predicted
+   Import set.
+2. **Five arrived EMPTY** — `DB_POOL_MAX` and the four owner-lead names. They
+   are Vercel *Sensitive*, so Infisical read nothing from them.
+3. **It wrote the empties back.** All four owner-lead values on Vercel
+   Production became `''`.
+4. **All nine Sensitive variables were downgraded to `Config`** — 9 Secret / 35
+   before, 0 Secret / 61 after. `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET` and
+   `WORKER_INTERNAL_SECRET` became readable by any `vercel env pull`.
+
+#### Correction — a `vercel env pull` is NOT a backup
+
+The pre-sync backup was reported in-session as covering both platforms. **It did
+not cover the nine Sensitive values.** The CLI writes the literal string
+`"[SENSITIVE]"` in their place.
+
+> **Operational rule, new:** a Vercel *Sensitive* variable cannot be backed up by
+> any CLI read. Its value exists only at Vercel and in whatever wrote it. Before
+> any operation that may overwrite one, confirm the value exists somewhere else
+> first — `.env.local`, a password manager, or the provider that issued it.
+
+The Railway backup **is** real: 39 variables, all values, mode 600.
+
+#### Repair, and what proved what
+
+| Step | Outcome |
+|---|---|
+| Located the four owner-lead values in `.env.local` | Service account `@repworth.iam.gserviceaccount.com`, a PEM key, a 44-char sheet id, range `Sheet1!A:K` |
+| Owner deleted five empty keys from the vault (web UI) | **Vault 61 → 56, and all 56 hold a value** |
+| Restored the four to Vercel with `--sensitive --force` | Back to `Secret`, write-only, confirmed by a pull returning `[SENSITIVE]` |
+| Set `DB_POOL_MAX=3` on Vercel as `Config` | Read back as `'3'`. **Phase C item completed early** |
+
+**`Disable Secret Deletion` is ON — proven, not read off a toggle.** Deleting
+five keys from the vault left all five standing on Vercel. No check before this
+could have tested it, because Import never deletes.
+
+**The Infisical CLI still cannot delete** — re-confirmed at v0.43.128 *with*
+`--projectId`, which §12.7 had not previously tried. A direct API call was
+attempted and correctly refused by the session sandbox. Deletion is web-UI only.
+
+#### Two deliberate deviations from the plan, both recorded
+
+1. **The seven legacy `STRIPE_PRICE_*` and `DATABASE_URL` stay IN the vault.**
+   §8 keeps them native so an Overwrite cannot delete them. Each was verified
+   **byte-identical to Railway's**, so vault-managed is strictly safer: they are
+   now preserved by *every* strategy rather than by a toggle. This improves on
+   the plan; it does not weaken it.
+2. **The three credentials stay `Config` until the cutover ends.** Marking them
+   Sensitive would end the ability to verify Vercel against the vault by
+   readback — the check that caught this incident. **Owed as a hardening step
+   after §8 closes:** re-add `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET` and
+   `WORKER_INTERNAL_SECRET` with `--sensitive`.
+
+   Note the standing tension: an Infisical sync writes `Config`, so any
+   vault-managed key drifts back to Config on the next write. Sensitive cannot
+   be maintained on a synced key. That is a cost of locked decision #2, not a
+   defect.
+
+#### State after repair
+
+| Store | Count | Detail |
+|---|---|---|
+| Infisical `prod` | **56** | zero empty |
+| Vercel production | **61** | 57 `Config` + 4 `Secret` |
+| Railway production | 28 | untouched — its sync is not yet created |
+
+#### Carried forward
+
+- **Vercel needs a redeploy** for the corrected `NEXT_PUBLIC_APP_URL` to reach a
+  browser.
+- The Railway sync must use **Overwrite**, selected explicitly. Import damage is
+  initial-sync only, so a clean vault makes the second sync safe.
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
 - [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
