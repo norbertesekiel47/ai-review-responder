@@ -1783,6 +1783,178 @@ D.9 records it against §8's own two queries as the section requires.
 
 ---
 
+### D.8 — THE FREEZE IS LIFTED. Production resumed 2026-08-31T07:20:21Z.
+
+The production API had been denied since **2026-07-17T01:56:31Z**. It was fenced off for
+**45 days**.
+
+```
+2026-08-31T07:20:21Z  firewall config published to production
+2026-08-31T07:20:22Z  GET https://repworth.net/api/health -> HTTP 200
+                      {"status":"ok","service":"web",
+                       "commit":"b7ea106173bd04819dd2565c808241b80d7b054c"}
+```
+
+**UTC RESUME TIME: 2026-08-31T07:20:21Z.**
+
+The `commit` field is `b7ea1061` — the #1038 merge, so the live build is the current
+`main`, not a stale artifact.
+
+#### Two preconditions were cleared BEFORE the rule came down
+
+Deliberate ordering. Anything that could break was fixed and verified while production was
+still fenced, so a failure would have been invisible to the public.
+
+**1. The `NEXT_PUBLIC_APP_URL` redeploy debt — settled, and verified rather than assumed.**
+It is inlined at build time, so a corrected store value means nothing until a rebuild. The
+handoff carried it as owed before D.8. It is already paid: the #1037/#1038 merges each
+triggered a production build, the newest 8 minutes before the check. Verified against the
+served HTML, not the env store:
+
+| Check | Count |
+|---|---|
+| `rep-worth.vercel.app` (the wrong host) | **0** |
+| `repworth.net` (correct) | present |
+
+**2. `ZERNIO_RECENT_REVIEW_POLL_DISABLED` — deleted, without tripping the D.4 trap.**
+
+This is where the D.4 finding paid for itself. Deleting a Railway variable fires a
+`redeploy`, and a `redeploy` resolves no deploy configuration — it would have brought the
+`next start` impostor back, silently, reporting Online, in the minutes before the firewall
+opened.
+
+Deleted with **`--skip-deploys`** so no redeploy fired at all, then a source deploy was
+triggered explicitly:
+
+```
+railway variable --skip-deploys delete ZERNIO_RECENT_REVIEW_POLL_DISABLED …
+  → {"deleted":true,"key":"ZERNIO_RECENT_REVIEW_POLL_DISABLED"}
+
+railway deployment redeploy --from-source … --yes
+  → deployment d6d3ca9b, reason=deploy
+```
+
+Boot of `d6d3ca9b`, 07:18:18Z:
+
+```
+$ tsx worker/index.ts
+Worker listening {"deployment_lane":"production","lane_source":"RAILWAY_ENVIRONMENT_NAME",
+                  "service_name":"repworth-worker","replica_region":"us-west2"}
+ZernioRecentReviewPoller  Starting {"interval_ms":300000}
+[boot] readiness cure complete — background loops staggered, workers resumed
+```
+
+**`ZernioRecentReviewPoller Starting` is the producer denial lifting.** Every prior
+production boot logged `Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`. Ingest is live
+on a 5-minute cadence.
+
+The variable is **Railway-native, not in the Infisical vault** (checked: absent from all 57
+keys), so no Secret Sync can write it back.
+
+Zero error, fatal or `NOAUTH` lines across that deployment.
+
+#### The removal itself, staged then published
+
+The rule's exact configuration, recorded before removal so it can be recreated verbatim if
+a rollback ever needs it:
+
+```
+Rule:       ws8-cutover-prod-api-deny
+ID:         rule_ws8_cutover_prod_api_deny_gogW1I
+Status:     Enabled
+Conditions: environment equals production
+            path starts with /api/
+Action:     Deny
+```
+
+Vercel's firewall stages changes as a draft. The draft was **inspected before publishing**,
+and contained exactly one change:
+
+```
+Pending changes (1):
+  - Removed rule "rule_ws8_cutover_prod_api_deny_gogW1I"
+```
+
+One change, not five. That check is what guarantees the other rules were not swept up.
+
+#### The other five rules are untouched, as §7 requires
+
+Live configuration after publishing:
+
+| # | Name | Action | Status |
+|---|---|---|---|
+| 1 | `signup-per-ip-enforce` | Rate Limit (5/60s) | Enabled |
+| 2 | `onboarding-start-per-ip-enforce` | Rate Limit (10/60s) | Enabled |
+| 3 | `api-mutating-volumetric-log` | Rate Limit (100/10s) | Enabled |
+| 4 | `api-get-volumetric-log` | Rate Limit (600/10s) | Enabled |
+| 5 | `qr-redirect-per-ip-enforce` | Rate Limit (30/60s) | Enabled |
+
+Six rules before, five after. Only the Deny is gone. `firewall diff` reports
+**"No pending changes"** — nothing left staged.
+
+#### Post-lift verification
+
+| Surface | Result |
+|---|---|
+| `https://repworth.net/` | **200** |
+| `https://repworth.net/api/health` | **200** — `{"service":"web","commit":"b7ea1061…"}` |
+| `https://repworth.net/pricing` | **200** |
+| `https://worker.repworth.net/ready` | **200** — `postgres ok, queue_redis ok, cache_redis ok` |
+| Worker error/fatal/`NOAUTH` lines | **0** |
+
+Both halves of the stack are live and answering: Vercel serves `"service":"web"`, Railway
+serves `"service":"worker"`. The `/ready` probe confirms Postgres and **both** Redis
+instances reachable from outside.
+
+#### §7 checklist — complete
+
+| §7 item | State |
+|---|---|
+| Both NULL-safe preflight counts = 0 | ✅ D.7 |
+| 078 applied via the approved channel | ✅ 07:09Z |
+| Post-apply introspection | ✅ byte-identical to staging |
+| `ws8-cutover-prod-api-deny` removed and published | ✅ **07:20:21Z** |
+| `curl https://repworth.net/api/health` → 200 | ✅ **07:20:22Z** |
+| `ZERNIO_RECENT_REVIEW_POLL_DISABLED` restored to unset | ✅ deleted; poller running |
+| **UTC resume time** | ✅ **2026-08-31T07:20:21Z** |
+| `.claude/CLAUDE.md` standing exception deleted | ✅ D.10 |
+
+`SELF_SERVE_SIGNUP_ENABLED` is **deliberately left at `false`**. §7 says restore it to its
+"recorded pre-cutover state", and locked decision 7 sets the beta posture to signup-off.
+Restoring it to `true` would contradict the beta gate; it is not a pre-cutover value being
+withheld.
+
+#### What is now live, and what is still closed
+
+| | State |
+|---|---|
+| Production API | **OPEN** |
+| Production UI | **OPEN** |
+| Worker + queue + pollers | **RUNNING** |
+| Zernio review ingest | **RUNNING** (5-min cadence) |
+| Stripe live webhook | **ENABLED** — armed, never yet delivered to |
+| Rate limiting + QR rule | **ENABLED** — unchanged |
+| `AUTO_APPROVAL_ENABLED` | `false` |
+| `AUTOPILOT_PURCHASABLE` | `false` |
+| `SELF_SERVE_SIGNUP_ENABLED` | `false` |
+| `TRIAL_ENABLED` | `false` |
+
+**Phase D is complete.** The autonomy flags stay off; the ordered go-live flip is design
+doc §8.4 and has not started.
+
+#### Still owed, and not blocking
+
+**`PAST_REPLIES_VIEW_ENABLED` deletion is NOT done, and a half-deletion was refused.**
+Manifest §7.10 says delete it from Vercel. It is read by no code — every grep hit in
+`src/`/`worker/` is a comment recording its retirement at #678. **But it is in the
+Infisical vault** (present among the 57 `prod` keys), so deleting it from Vercel alone
+returns on the next Secret Sync. The Infisical CLI cannot delete a secret at v0.43.128
+(trap 4), so the vault entry needs the **web UI** — an owner action. Doing the Vercel half
+now would look done and silently revert. Order when it is done: **vault first, then
+Vercel.**
+
+---
+
 ### §7 — migration 078, then resume
 
 - [x] Both NULL-safe preflight counts = 0. Recorded: `accounts_invalid_count=0`,
@@ -1795,10 +1967,18 @@ D.9 records it against §8's own two queries as the section requires.
       `accounts_subscription_tier_check` and `businesses_subscription_tier_check` both
       present, both rendering the strict two-tier domain **byte-identical to staging**.
       Invalid counts still 0; `job_outbox` still 0. See **D.7**.
-- [ ] `ws8-cutover-prod-api-deny` removed and published at `____`Z
-- [ ] `curl https://repworth.net/api/health` → **200** at `____`Z
-- [ ] `ZERNIO_RECENT_REVIEW_POLL_DISABLED` restored to unset
-- [ ] **UTC resume time: `____`**
+- [x] `ws8-cutover-prod-api-deny` (`rule_ws8_cutover_prod_api_deny_gogW1I`) removed and
+      published at **2026-08-31T07:20:21Z**. Draft inspected first — exactly ONE pending
+      change. The four rate-limit rules and the QR rule survive, `firewall diff` clean.
+- [x] `curl https://repworth.net/api/health` → **200** at **2026-08-31T07:20:22Z** —
+      `{"status":"ok","service":"web","commit":"b7ea106173bd04819dd2565c808241b80d7b054c"}`.
+      `/` and `/pricing` also 200; worker `/ready` 200 with all three probes ok.
+- [x] `ZERNIO_RECENT_REVIEW_POLL_DISABLED` restored to unset — deleted with
+      `--skip-deploys` so no config-blind `redeploy` fired, then a source deploy
+      (`d6d3ca9b`). `ZernioRecentReviewPoller Starting {"interval_ms":300000}` replaces
+      the old `Skipped` line. Railway-native, absent from the vault, so no sync restores it.
+- [x] **UTC resume time: `2026-08-31T07:20:21Z`** — after 45 days frozen
+      (denied since 2026-07-17T01:56:31Z).
 - [x] `.claude/CLAUDE.md` standing 078 exception deleted, in the same change — replaced
       with the full-lockstep statement plus the apply timestamp and its introspection.
       `claude-md-shape.test.ts` passes 44/44. `migrations-log.md` 078 entry gains a
@@ -1836,9 +2016,14 @@ D.9 records it against §8's own two queries as the section requires.
       blockquote now points at manifest §1 as owner and records all five errors.
       Two further contradictions in the same block were fixed with it:
       `NODE_ENV` is left unset and `MOCK_EXTERNAL_APIS` is not created.
-- [ ] Prod worker Online, all boot gates green on the production lane
-- [ ] 078 applied in sequence; legacy price sentinels retained through the rollback window
-- [ ] Deny rule removed; `/api/health` returns 200; Zernio poll restored
+- [x] **Prod worker Online, all 18 boot gates green on the production lane** — proven at
+      runtime 2026-08-31, including the six never exercised before. Proven by poller
+      cycles in the worker's own logs, not by the healthcheck (see D.4).
+- [x] **078 applied in sequence 2026-08-31T07:09Z**; staging re-verified first; both CHECK
+      definitions byte-identical to staging. The seven legacy `STRIPE_PRICE_*` names are
+      still present on Railway — rollback window intact.
+- [x] **Deny rule removed 07:20:21Z; `/api/health` returns 200 at 07:20:22Z; Zernio poll
+      restored and cycling.** See D.8.
 - [ ] Live webhooks delivering 2xx (Stripe, Resend, Zernio)
 - [ ] Alert sink (Discord) receiving a canary for all four routed signals
 - [ ] Flag snapshot appended to `launch-flag-readiness.md` — **Railway AND Vercel**
