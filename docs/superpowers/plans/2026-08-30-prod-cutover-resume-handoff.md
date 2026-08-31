@@ -1,6 +1,6 @@
 # Handoff — WS8 production cutover resume
 
-> **Updated:** 2026-08-30 (Phase I closed) · **Owner:** @norbertesekiel
+> **Updated:** 2026-08-31 (Phases A/B/C/I closed) · **Owner:** @norbertesekiel
 > **Status:** Phases 0, I, A, B and C closed. **Phase D next** — the WS8 cutover itself.
 >
 > **This document is a pointer, not a source of truth.** It says where you are, what to
@@ -13,9 +13,9 @@
 ## The one-line situation
 
 Production is **not un-launched**. It has been **frozen mid-WS8-cutover since 2026-07-17**,
-with a Vercel firewall rule denying every `/api/*` request. Preflight is closed and every
-production secret now lives in Infisical. The next work is **provisioning the four things
-that do not exist**, then the syncs, then resuming the cutover at **§6**.
+with a Vercel firewall rule denying every `/api/*` request. The whole production stack now
+exists and both Secret Syncs are live. **17 of the 18 worker boot gates are green.** The
+remaining work is the cutover itself, resuming at **§6**.
 
 ## Read these, in this order
 
@@ -38,17 +38,17 @@ The ordered plan, with every phase and command:
 | Area | State |
 |---|---|
 | Phase 0 preflight | ✅ Closed. PRs #1025–#1027 merged |
-| **Phase I — Infisical** | ✅ **Closed.** `prod` holds **43 keys**, verified byte-for-byte, 0 empty. Manifest §12 |
+| **Phase I — Infisical** | ✅ **Closed.** `prod` holds **56 keys**, 0 empty. Manifest §12–§14 |
 | Credential rotation (F4) | ✅ Closed — 5 minted, 3 rotated at their provider |
 | Secret Syncs | ✅ **Both live, `Overwrite` + deletion disabled.** The Vercel one first ran as `Import` and had to be repaired — evidence file, "Phase I sync 1" |
 | Prod database | Zero-state — 52/52 `public` tables empty, `auth.users`=0. Quiescence declared 22:30:03Z |
 | Migrations | Head **116, minus 078**. 077 applied 2026-07-17T02:17:11Z |
 | Stripe live | `charges_enabled=True`. **0** live webhook endpoints. **6** active livemode Prices |
-| Railway prod worker | **0 deployments ever.** 27 vars. **No GitHub source connected** |
-| Railway prod Redis | **Does not exist** — the service is in `staging` only |
-| Upstash prod cache | Does not exist |
-| Sentry prod project | **Does not exist.** Org is `repworth-nv`; only `repworth-staging` exists |
-| Vercel prod | Live at repworth.net. 34 vars, **9 of them empty** |
+| Railway prod worker | ✅ Source `main` connected. **70 vars, 17/18 boot gates green.** Crash-loops on `STRIPE_WEBHOOK_SECRET` until D.3 — by design |
+| Railway prod Redis | ✅ Service **`Redis`** (capital R — manifest §13), no TCP proxy. `REDIS_QUEUE_URL` resolves |
+| Upstash prod cache | ✅ `sincere-primate-143545`, `PING`→`PONG`, distinct from staging's |
+| Sentry prod project | ✅ `repworth-production` under `repworth-nv`. DSN distinct from staging's |
+| Vercel prod | 61 vars, 57 `Config` + 4 `Secret`. `NEXT_PUBLIC_APP_URL` corrected, `DB_POOL_MAX=3`. **Redeploy owed** |
 | **WAF** | `ws8-cutover-prod-api-deny` **still Enabled** — every prod `/api/*` returns 403 |
 | `alerts@repworth.net` | ✅ Zoho group, 5 members |
 | `notifications@` / `unsubscribe@` | ✅ Zoho groups, created for Phase I |
@@ -90,17 +90,19 @@ The ordered plan, with every phase and command:
 
    **A `vercel env pull` is NOT a backup.** It writes the literal string `"[SENSITIVE]"` for
    every Sensitive variable. Confirm such a value exists elsewhere before overwriting it.
-2. **Do NOT run either sync until Phase A is done.** Four values are still missing and three
-   are boot gates. Railway restarts on a variable change, so a partial sync is a crash loop
-   that exhausts `restartPolicyMaxRetries = 10` and stays down.
+2. ~~Do NOT run either sync until Phase A is done.~~ **Done — both syncs are live.** The
+   reason still governs any future sync: Railway restarts on a variable change, so a sync
+   run against an incomplete vault is a crash loop that exhausts
+   `restartPolicyMaxRetries = 10` and stays down.
 3. **The Infisical environment slug is `prod`, not `production`.** `--env production` errors.
    A sync aimed at a non-existent slug writes nothing.
-4. **`DB_POOL_MAX` cannot live in Infisical.** `20` on Railway, `3` on Vercel. Vercel's is
-   **empty** today and `readPoolMax()` falls back to **10**, not 3. Keep it native; fix
-   Vercel's in Phase C.
-5. **`NEXT_PUBLIC_APP_URL` is wrong in Vercel production** — `https://rep-worth.vercel.app/`.
-   The correct value is already in Infisical. `assertSameOrigin` fails on 21 routes and the
-   trailing slash double-slashes every generated link.
+4. **`DB_POOL_MAX` cannot live in Infisical.** `20` on Railway, `3` on Vercel — one key
+   cannot hold both. **Both are now set natively and verified.** The old claim that Vercel's
+   was *empty* and falling back to 10 is **withdrawn**: it was Vercel *Sensitive*, so a pull
+   returned it blank. Manifest §11.
+5. ~~`NEXT_PUBLIC_APP_URL` is wrong in Vercel production.~~ **Fixed by the sync** — now
+   `https://repworth.net`. **A redeploy is still owed**: `NEXT_PUBLIC_*` is inlined at build
+   time, so no browser sees the corrected value yet.
 6. **`ZERNIO_API_KEY` is required on Vercel** and appears in no Phase C list. Without it
    every onboarding connect call sends `Bearer ` and 401s, with nothing in the boot log.
 7. **The stand-up's boot-gate list is wrong in five places.** It calls `SERPAPI_API_KEY`,
