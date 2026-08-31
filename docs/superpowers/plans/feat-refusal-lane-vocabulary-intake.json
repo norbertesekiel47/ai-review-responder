@@ -17,7 +17,8 @@
   ],
   "user_visible_behavior": [
     "No owner-visible change and no runtime change. The maps are constants with no production caller until #1010, #1011 and #1012 land.",
-    "A developer adding a member to WithholdReason, OutreachWithheldReason, RenderWithholdReason, LatchHaltReason or AutoPolicyDowngradeReason without deciding its Refusal category gets a compile error rather than an unmapped lane at run time."
+    "A developer adding a member to WithholdReason, OutreachWithheldReason, RenderWithholdReason, OwnerHaltReason, SystemHaltReason or AutoPolicyDowngradeReason without deciding its Refusal category gets a compile error rather than an unmapped lane at run time.",
+    "A developer adding a halt reason as a bare literal to approval.ts's private LatchHaltReason, rather than to either public union, gets a TEST failure instead of a compile error. The vocabulary re-composes that union from the two public halves, so a bare literal widens neither import."
   ],
   "invariants": [
     "Every map is satisfies Record<SourceEnum, RefusalCategory | null>, so a new member of the source enum is a compile error until it is mapped.",
@@ -53,6 +54,7 @@
     "src/lib/shared/worker-types.ts",
     "worker/jobs/publisher/auto-policy-downgrade.ts",
     ".claude/reference/arch-review-log.md",
+    "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],

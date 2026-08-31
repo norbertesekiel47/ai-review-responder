@@ -130,11 +130,13 @@ export type AutonomySuspensionTrigger =
  * DECLARED HERE RATHER THAN IN THE WORKER MODULE THAT USES IT, on
  * `AutonomySuspensionTrigger`'s precedent directly above and for the identical
  * reason: the Refusal ledger's vocabulary (`src/lib/refusals/vocabulary.ts`)
- * maps every member to a **Refusal category**, and nothing under `src/lib/`
- * imports from `worker/` — no such import exists anywhere in the repository.
- * `worker/jobs/publisher/auto-policy-downgrade.ts` still owns the BEHAVIOUR and
- * re-exports this type, so its callers are unchanged; this file owns only the
- * union, so both sides can name it.
+ * maps every member to a **Refusal category**, and no PRODUCTION module under
+ * `src/lib/` imports from `worker/` — the direction is one-way, and the
+ * exceptions are test files (about twenty under `src/lib/**/__tests__/`), which
+ * carry no bundle and no boundary. `worker/jobs/publisher/auto-policy-
+ * downgrade.ts` still owns the BEHAVIOUR and re-exports this type, so its
+ * callers are unchanged; this file owns only the union, so both sides can name
+ * it.
  *
  * `judge_disabled` and `judge_unhealthy` stay two members even though they
  * share one audit marker and one **Refusal category**:

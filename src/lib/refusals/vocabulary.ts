@@ -289,6 +289,14 @@ export const OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES = {
  * goes through `approval.ts`'s own signatures, which are unchanged. The
  * eval's matching case reads `LatchHaltReason` out of `approval.ts` as text, so
  * a member added there and not here still fails.
+ *
+ * BE EXACT ABOUT WHICH GUARD CATCHES WHAT, because the two are not the same
+ * strength. A reason added to `OwnerHaltReason` or `SystemHaltReason` — the
+ * normal way a halt reason arrives — widens this alias and is a COMPILE error
+ * in the map below. A reason added as a BARE LITERAL to `approval.ts`'s private
+ * union widens neither import, so it compiles here and fails in the eval
+ * instead. That asymmetry is the price of not exporting the wide union, and it
+ * is a test failure rather than a silent pass.
  */
 type BatchHaltedRefusalCode = OwnerHaltReason | 'admin_halt' | SystemHaltReason;
 

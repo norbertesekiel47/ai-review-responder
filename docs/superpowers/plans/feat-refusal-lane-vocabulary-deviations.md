@@ -123,3 +123,41 @@ guard. The content is correct, inside the declared surface, and revalidated by
 branch used the editor tools.
 
 **Verdict:** ACCEPT — amendment 1 of 2, owner-approved, narrowest form.
+
+---
+
+## D6 — Surface amendment 2: `docs/directory.md`, and the abort criterion waived
+
+**What happened.** The spec-correctness review's F1 found that
+`docs/directory.md:889` still describes `vocabulary.ts` as holding one lane map
+and none for the other six — false the moment this branch merges.
+`ci:directory-map` verifies that a row EXISTS, never that it is true, so CI
+stays green on a false code map.
+
+**Why it is an abort criterion.** Fixing it required a SECOND surface
+amendment, and `/feature`'s abort criteria name that alongside three failed
+gate rounds and an invalidated intake decision: stop patching, write a
+postmortem, tear the branch down.
+
+**Resolution.** The owner waived it for this one row, with the reason recorded
+through `feature-state.sh incr-amendment --reason` (`surfaceAmendments=2`). The
+counter is mechanical and cannot distinguish a one-row documentation correction
+from scope drift; the waiver is the owner making that distinction on evidence
+the counter does not have. The alternative on the table was deferring the row to
+#1013 — rejected because the row would then misdescribe the file for the whole
+length of the swarm.
+
+**Standing consequence.** This branch has no amendments left. Any further
+surface widening aborts it.
+
+**Verdict:** ACCEPT — owner-waived, reason recorded, scope unchanged apart from
+the one file.
+
+---
+
+## Review triage
+
+One axis (spec & correctness), four findings, none HIGH: two ACCEPT-and-fixed,
+one ACCEPT-and-corrected, one REJECT with reasons. Full record:
+`docs/reviews/feat-refusal-lane-vocabulary/triage.md`. Report:
+`docs/reviews/feat-refusal-lane-vocabulary/spec-correctness.md`.
