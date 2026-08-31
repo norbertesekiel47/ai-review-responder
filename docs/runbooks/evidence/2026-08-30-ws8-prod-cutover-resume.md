@@ -1109,6 +1109,210 @@ create now, re-check the certificate at D.5. **D.5 must not enable the endpoint 
 
 ---
 
+### D.4 — the first clean production worker boot. PASS, after an incident.
+
+The sync from D.3 triggered a Railway redeploy, as designed. It brought up the **wrong
+process**. The incident and its fix are recorded in full below, because the failure mode
+is permanent, applies to every future variable change on this service, and reported
+**SUCCESS / Online** the whole time it was wrong.
+
+#### The incident — a false-healthy production deploy
+
+Deployment `9c272e61`, triggered at 2026-08-31T05:12:54Z by the Secret Sync write:
+
+```
+Starting Container
+$ next start
+▲ Next.js 16.3.0
+✓ Ready in 90ms
+```
+
+`next start` is the **Next.js UI**, not `tsx worker/index.ts`. No BullMQ consumers, no
+pollers, no `assertWorkerStartupEnv`. Railway reported the deployment **SUCCESS** and the
+service **Online**.
+
+**Why it looked healthy.** `healthcheckPath` is `/api/health`, and that route exists in
+the Next.js app as well as the worker. Railway probed it, got 200, reported Online. This
+is the same shape as the `${{Redis.…}}` capitalisation trap in manifest §13: a check that
+tests *presence of a response* rather than *identity of the responder* cannot tell a
+healthy worker from a healthy impostor.
+
+> **Standing rule.** On `repworth-worker`, "Online" is not evidence. Require a **poller
+> cycle in the service's own logs** before calling the worker up.
+
+#### Root cause — a `redeploy` resolves NO deploy configuration
+
+The previous deployment `2c4b870d`, at the **same commit** `06a163f0`, ran
+`$ tsx worker/index.ts` correctly 29 minutes earlier. `railway.toml` was unchanged and
+present on `main` throughout, so the repo was not the variable.
+
+`railway.toml` is the only thing that sets `startCommand = "pnpm worker"` and overrides
+Railpack's auto-detected `next build` / `next start`. **A `redeploy` does not read it —
+and does not read the service's own settings either.** Isolated rather than assumed:
+`startCommand`/`buildCommand` were set **explicitly on the service**, the read-back
+confirmed them, and a second `redeploy` (`32a54658`) *still* ran `next start` and *still*
+ran `next build`. So the fallback ignores both mechanisms.
+
+The distinguishing factor is the deployment **kind**, visible as `reason` in
+`list-deployments`:
+
+| `reason` | Trigger | Resolves config? | Observed |
+|---|---|---|---|
+| `deploy` | new commit on the source branch, or `redeploy --from-source` | **yes** | `2c4b870d`, `2e9a5dc4` → `tsx worker/index.ts` |
+| `redeploy` | dashboard redeploy, **any variable change** | **no** — Railpack auto-detect | `9c272e61`, `32a54658` → `next start` |
+
+**That second row is the trap that matters going forward.** Every secret rotation and
+every flag flip on this service fires a `redeploy`. A worker that is correct today
+reverts to `next start` the next time anyone touches a variable — silently, reporting
+Online.
+
+#### The fix, in three parts
+
+**1. Mirror the config onto the Railway service, per environment.** Five fields, set on
+`repworth-worker` in **both** environments so behaviour no longer depends on one
+mechanism: `startCommand`, `buildCommand`, `healthcheckPath`, `restartPolicyType`,
+`restartPolicyMaxRetries`. `restartPolicyMaxRetries` is **10** — the documented bound,
+not raised.
+
+> **`repworth-worker` is ONE service shared by BOTH environments** (`fb413c72-…`).
+> Railway's `update-service` API updates **all** environments when `environmentId` is
+> omitted. Every call in this run passed it explicitly. Staging was verified undisturbed
+> afterwards — same deployment `f661c9a6` from 02:01Z, pollers cycling straight through
+> the write at 06:0xZ.
+
+**2. Recover with a SOURCE deploy, not a redeploy.**
+
+```bash
+railway deployment redeploy --from-source \
+  --service repworth-worker --environment production \
+  --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes
+```
+
+`--from-source` pulls the latest commit from the configured source and produces a
+`reason: deploy` deployment, which resolves configuration normally. Plain `redeploy` —
+CLI, dashboard or MCP — is not a fix. Railway's own "use redeploy to apply immediately"
+note on service updates is wrong for this case.
+
+**3. Make the repo say so.** `railway.toml`'s header, `deployment-guide.md` §5.1, and
+lab-notes 2026-08-31 "Railway deploy configuration" all now carry the rule. The
+`railway.toml` values and the service values must stay identical — **change one, change
+both**.
+
+#### Separately: Config as Code is deprecated
+
+`railway.toml` / `railway.json` stop being read on **2026-12-01**, and new services
+cannot opt into them. This is **not** the cause of the incident above — a `redeploy`
+ignored the service settings too. The mirror in part 1 already removes the single point
+of failure, so the cutoff is a documentation-truth problem rather than an outage waiting
+to happen. Migration to `.railway/railway.ts` is recorded as a dated obligation in
+`docs/launch-checklist.md`.
+
+**`railway config migrate` output is NOT safe to apply as generated.** The 2026-08-31 dry
+run produced a file that (a) names the service **`RepWorth`** — taken from the *project*
+name, not the real `repworth-worker` — so `railway config apply` would **create a second
+service** rather than update the existing one, and (b) silently **drops
+`restartPolicyType` and `restartPolicyMaxRetries`**, carrying over only
+build/start/healthcheck.
+
+#### The clean boot — deployment `2e9a5dc4`, 2026-08-31T06:10:47Z
+
+```
+$ tsx worker/index.ts
+[worker] Feature flags: Telegram=off, WhatsApp=off, SelfServeSignup=off, ZernioPublishing=on
+Worker listening {"port":8080,"deployment_lane":"production",
+  "lane_source":"RAILWAY_ENVIRONMENT_NAME","service_name":"repworth-worker",
+  "railway_environment":"production","replica_region":"us-west2",
+  "deployment_id":"2e9a5dc4-fd45-457a-8f15-0eb2e637e134"}
+[boot] readiness cure complete — background loops staggered, workers resumed
+```
+
+**`assertWorkerStartupEnv` passed**, naming the production lane. Verified by absence as
+well as presence — across the whole deploy log:
+
+| Grep | Count |
+|---|---|
+| `[startup] Worker requires` / `Startup assertion failed` | **0** |
+| `next start` | **0** |
+| `NOAUTH` / `ECONNREFUSED` / `ETIMEDOUT` / redis errors | **0** |
+| `"level":"error"` / `"level":"fatal"` / `[ERRO]` / `[FATA]` | **0** |
+
+**The six previously-unexercised boot gates are now CLOSED.** The 2026-08-30 record split
+the claim into "twelve proven by execution, six present but untested", because
+`assertWorkerStartupEnv` throws on the first failure and `STRIPE_WEBHOOK_SECRET` sat in
+the second check. This boot ran the assertion to completion, so all six executed:
+
+| Gate | Closed by this boot |
+|---|---|
+| `DAILY_COST_LIMIT_CENTS_COPILOT` / `_AUTOPILOT` | `parseRequiredPositiveCostLimitCents` accepted both — the positive-integer parse rule that presence could not test |
+| `ADMIN_NOTIFICATION_EMAIL` | `assertAdminNotificationEmail` passed |
+| `SENTRY_DSN` | `assertAlertSinkEnv` passed |
+| `SESSION_COOKIE_SECRET` | `assertUnsubscribeIngressConfigured` passed — ≥32 bytes |
+| `NEXT_PUBLIC_APP_URL` | same gate passed |
+| exact-boolean format gate | `assertServerOnlyFeatureOptionalBooleansEnv` passed on all seven names |
+
+**All 18 unconditional boot gates are now proven at runtime, on the production lane.**
+Manifest §1 has no `missing` row left.
+
+The Zernio conditional gate is satisfied too — `ZernioPublishing=on` with its API key,
+webhook secret and `WORKER_PUBLIC_URL` all accepted by `assertZernioPublishingEnv`.
+
+#### The worker is proven running by its own behaviour, not by the healthcheck
+
+Pollers and schedulers started and cycled:
+
+```
+OutboxPoller           Starting {"interval_ms":5000,"batch":50,"dispatch_timeout_ms":10000,
+                                 "max_cycle_ms":60000,"watchdog_stale_ms":900000}
+HealthAlertPoller      Starting {"interval_ms":300000}
+JudgeSweepPoller       Starting (interval=60000ms)
+AutonomyGovernorScheduler  Starting (interval=900000ms)
+AnalyticsDispatchPoller    Starting {"interval_ms":30000,"batch":50}
+SolicitationReleasePoller  Release cycle complete {"released":0, … "itemFailures":0}
+ArchivalPoller             Nothing to archive
+EngagementMonitorPoller    No engagement alerts needed
+CancellationGracePoller    No expired cancelled accounts to archive
+```
+
+**`REDIS_QUEUE_URL` is proven working, not merely present.** `OutboxPoller` and the BullMQ
+workers registered with no `NOAUTH`. That is the check `assertCoreInfraEnv` structurally
+cannot make (manifest §13: it tests presence, not shape), so the `${{Redis.…}}`
+capitalisation fix is now confirmed by queue behaviour rather than by URL structure.
+
+Flags read exactly as the beta posture requires — self-serve signup off, both channels
+off, offboarding off, Zernio publishing on. `ZernioRecentReviewPoller` logged
+`Skipped - ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`: the §2 producer denial is **still in
+force**, correctly, until D.8 lifts it.
+
+#### State after D.4
+
+| Item | State |
+|---|---|
+| Production worker | **Online**, `tsx worker/index.ts`, deployment `2e9a5dc4` |
+| Boot gates | **18/18 proven at runtime** on the production lane |
+| Staging worker | Undisturbed — `f661c9a6` from 02:01Z, still cycling |
+| Stripe endpoint | Still `disabled` — re-verified 06:11:52Z, nothing in this work enabled it |
+| Producer denial | Still on (`ZERNIO_RECENT_REVIEW_POLL_DISABLED=true`) |
+| WAF deny rule | Still Enabled — production `/api/*` still 403 |
+
+#### Blocker still open for D.5 — the worker certificate
+
+Re-checked 2026-08-31T06:12:50Z. Unchanged since D.3:
+
+```
+certificate.status : CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP
+certificate.error  : null            (issuing, not failing)
+verified           : false
+CNAME              : DNS_RECORD_STATUS_PROPAGATED → rhhe86c1.up.railway.app
+curl https://worker.repworth.net/api/health
+  curl: (60) SSL: no alternative certificate subject name matches target host name
+```
+
+The worker is healthy **inside** Railway; it is not reachable from outside. **D.5 must not
+enable the Stripe webhook endpoint while `verified: false`** — every delivery would fail
+TLS before reaching Fastify.
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
 - [x] Stripe `charges_enabled` re-verified. Reading: **`True`** (also `payouts_enabled=True`,
@@ -1118,8 +1322,16 @@ create now, re-check the certificate at D.5. **D.5 must not enable the endpoint 
       `we_1UANVYIhPBLaM6xAfIMs3eMN`, `status=disabled`, `api_version=2026-05-27.dahlia`,
       6 events, `livemode=True`, created 2026-08-31T05:11:48Z. See **D.3** above.
       **Not yet enabled** — D.5 gates on the `worker.repworth.net` certificate issuing
-- [ ] `assertWorkerStartupEnv` passes, naming the production lane. Boot log excerpt: `____`
-- [ ] Worker Online; healthcheck green
+- [x] `assertWorkerStartupEnv` passes, naming the production lane. Boot log excerpt:
+      `Worker listening {"deployment_lane":"production","lane_source":"RAILWAY_ENVIRONMENT_NAME",`
+      `"service_name":"repworth-worker","railway_environment":"production"}` — deployment
+      `2e9a5dc4` at 2026-08-31T06:10:55Z. Zero `[startup] Worker requires` lines in the log.
+      **All 18 gates now proven at runtime**; the six previously untested are closed. See **D.4**.
+- [x] Worker Online; healthcheck green — **and proven by poller cycles, not by the
+      healthcheck**, which this run showed can pass on the Next.js app instead of the
+      worker. `OutboxPoller`/`HealthAlertPoller`/`JudgeSweepPoller` started;
+      `SolicitationReleasePoller` logged `Release cycle complete`. No `NOAUTH`, so the
+      `${{Redis.…}}` fix is confirmed by queue behaviour. See **D.4**.
 - [ ] `pnpm ws8:stripe-preflight --require-status-convergence` →
       `WS8_STATUS_CONVERGENCE_PASS blockers=0 actionable_notices=0` at `____`Z
 - [ ] Checkpoint recorded: deadline-verification UTC `____`, `AUTOPILOT_PURCHASABLE` = `____`
