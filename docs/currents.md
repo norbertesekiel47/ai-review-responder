@@ -42,6 +42,24 @@ is the account-offboarding purge, which must honour the `hard_delete` /
 `must_be_absent` disposition the table forces — **no cascade reaches it**, so an
 explicit account-scoped DELETE is the only thing that removes these rows.
 
+**What #1009 then added (2026-08-31, #1031).** `src/lib/refusals/vocabulary.ts`
+(the two closed axes) and `write.ts` (the ONE insert helper, on
+`writeAccountAuditLog`'s model), the `autonomy_suspended` write site inside
+`suspendAccountAutonomy`'s existing transaction, the eleventh `ArchivalPoller`
+retention arm on `REFUSAL_LEDGER_RETENTION_DAYS = 180`, and a Sentry sink in
+`AutonomyGovernorScheduler` — that scheduler is not a BullMQ worker, so
+`attachJobFailureSink` never saw its per-candidate failures and a ledger error
+would have left an account un-suspended silently every fifteen minutes.
+
+Three things #1009 learned the hard way and are worth carrying: the input type
+is a **per-lane union** transcribing CHECKs C1–C4, because a flat record lets a
+mis-paired lane raise `23514` and abort the deciding transaction; the kill
+switch's warning is rate-limited per **disabled episode** with the structured
+log line as the DURABLE transport, because `Sentry.captureMessage` returns on
+queue rather than delivery and swallows transport failures; and
+`refusal_events`' account FK has no `ON DELETE` action by design, so every
+live-DB teardown that deletes an account must clear the Refusal first.
+
 The new shape:
 - `supabase/migrations/116_refusal_events.sql` — table, 5 CHECKs, 3 indexes, deny-all RLS
 - `scripts/ci/tenant-tables.ts` (**two structures**) · `docs/security/rls-inventory.md`
@@ -52,9 +70,10 @@ The new shape:
 - migration **116** — staging + prod 2026-08-30, lockstep, verified identical by
   constraint and index fingerprint
 
-Next: the insert helper, its `REFUSAL_LEDGER_ENABLED` kill switch and the
-`ArchivalPoller` sweep arm (#1009); the remaining write sites (#1010–#1013);
-the **Restraint tab** (#1014). #1008 could not say where the FIRST write site
+**#1009 SHIPPED 2026-08-31** (#1031) — the insert helper, its
+`REFUSAL_LEDGER_ENABLED` kill switch, the `ArchivalPoller` sweep arm and the
+first write site. Next: the remaining TEN write sites (#1010–#1013); the
+**Restraint tab** (#1014). #1008 could not say where the FIRST write site
 lands and named #1009's PR as the change that would. **#1009 settled it
 (D16): the first site is `autonomy_suspended`, one site inside
 `suspendAccountAutonomy`, shipped beside the helper — the other ten follow in

@@ -5436,3 +5436,69 @@ lands (#1009 vs #1010) was left unsettled by deviation D16 — the artifacts spl
 > #990, #992, #993, #1015, #1017, #1018, #1020, #1021, #1022 and #1023 have no
 > entry. Backfilling other features' history from outside their sessions would
 > be guesswork, so it is recorded here instead of silently invented.
+
+
+## 2026-08-31 — #1009 **Refusal ledger** slice 2: the write path (PR #1031, squash `dbc66c61`)
+
+Slice 2 of 7 of map #994. Ships the one insert helper, its kill switch, the
+retention arm, and the **first Refusal write site** — and settles the decision
+#1008 deliberately deferred.
+
+**What landed**
+- `src/lib/refusals/vocabulary.ts` — the two closed axes (**seven** lanes,
+  **eight** categories) mirroring migration 116's CHECK members, the four
+  subject types, `REFUSAL_VOCABULARY_VERSION`. Harvested from the parked
+  `feat/refusal-log` and corrected: that branch had six and seven.
+- `src/lib/refusals/write.ts` — **the ONE insert helper** owning the whole
+  `refusal_events` statement, on `writeAccountAuditLog`'s model, plus the
+  default-ON `REFUSAL_LEDGER_ENABLED` kill switch.
+- `src/lib/auto-approval/suspension.ts` — `autonomy_suspended`, the first write
+  site, inside the existing transaction.
+- `worker/background/pollers/ArchivalPoller.ts` — the eleventh retention arm on
+  `REFUSAL_LEDGER_RETENTION_DAYS = 180`, plus its tenant-scope exemption.
+- `worker/background/schedulers/AutonomyGovernorScheduler.ts` — a Sentry sink
+  inside the existing containment `catch`.
+- Both flag registry rows, two `docs/directory.md` rows, and the D16 sweep.
+
+**No migration.** 116 was already in staging and production.
+
+**D16 settled.** #1008's artifacts split 3-to-3 on where the first write site
+lands, and it named this PR as the change that would know. The deciding evidence
+was never the count — it is #1004's verbatim slice order and #1009's ticket body
+§5, two locked decisions predating every copy in the dispute.
+
+**What the review layers cost and bought.** Plan ×3, branch ×1 (three parallel
+axes), red team ×3 — 31 findings. The three that mattered:
+1. **The input type accepted illegal states.** Two axes found it independently.
+   The plan had rejected a per-lane union because "a TypeScript copy would be a
+   second authority" over the CHECKs — which conflates STORAGE authority with
+   API shape. Now a mapped type over `RefusalSource`: a mis-paired lane is a
+   compile error, not a `23514` aborting a deciding transaction.
+2. **Three plan rounds designed on a Sentry behaviour the SDK does not have.**
+   `captureMessage` returns on queue, buffers, and swallows transport failures,
+   so every version of the cooldown rested on a false premise. Only a CODE
+   review could catch it — a plan does not name a version.
+3. **CI caught a defect the local gate structurally could not see.** The gate
+   runs CHANGED integration suites; `AutonomyGovernorScheduler.integration.test.ts`
+   was untouched while the production file beside it changed, and
+   `refusal_events`' account FK (no `ON DELETE`, by design) blocked its teardown.
+   CI named one path; the file had three.
+
+**Staging ride.** Both the write site and the kill switch proven on the deployed
+worker: one row, `business_id NULL`, `occurred_at` equal to the audit row's
+`created_at` **to the microsecond**; then with the flag off, two suspensions and
+two audit rows against ONE refusal row. Flags and seeded data restored exactly.
+Evidence: `docs/reviews/feat-1009-refusal-ledger-write-path/staging-ride.md`.
+
+**Known gap, accepted with owner authorization:** neither new Sentry signal
+reaches a paging channel. Pre-existing, shared with every `warning`-level
+capture in the repo, and both tags are now on `beta-launch-alerting.md`'s
+pending checklist.
+
+**Documented override:** `red-team-status.mjs` refuses this branch on one
+structural ground — `round must be 1 or 2` — because the owner-authorized RT-8
+fix voided round 2's evidence and the attestation round is over cap. Every other
+check passes. The attesting agent declined to falsify the round number. Full
+record: deviations D26.
+
+29 promised tests, all active. 27 deviations, all ACCEPT.
