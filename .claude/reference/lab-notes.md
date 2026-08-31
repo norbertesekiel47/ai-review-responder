@@ -4011,3 +4011,73 @@ Two reading rules that fall out of this, and both are traps:
   current 59.10.0) has no `type` column at all and prints a fixed `Encrypted` on every row,
   which cannot distinguish the two types. General lesson: **when a tool shows one fixed
   value in a column, suspect the tool before you believe the column.**
+
+## 2026-08-31 — WS8 Phase G: Sentry seats, and a fail-open validation trap
+
+### [2026-08-31] The production dead-man heartbeat never worked → a Sentry monitor SEAT, not a toggle or our code
+FAIL → the production Sentry cron monitor `health-alert-poller` had **zero check-ins in 24
+hours** while the production worker demonstrably ran with a 5-minute poller. The monitor is
+the dead-man heartbeat whose entire job is to page when the poller stops, so production had
+no such alarm at any point.
+
+WHY → not our code, and not a stray setting. Three candidates were ruled out in order:
+the worker **is** sending (Sentry's own banner reads `10x  Monitor disabled` — check-ins
+arrive and are rejected at ingest); the DSN is correct (`SENTRY_PROJECT=repworth-production`
+and the prod DSN's project id differs from staging's); and the SDK does send an **upserting**
+`captureCheckIn`. Activating any monitor through the API returns
+`{"status":["You don't have enough pay-as-you-go available to create a new seat"]}`, and
+`Settings → Subscription` reads **Developer plan, no payment method on file**. The chain is:
+free plan → a small fixed number of monitor seats → the two staging monitors hold them →
+the production monitor cannot take a seat → Sentry keeps it `disabled` → every check-in is
+rejected. One root cause, both halves of G2 — newly created uptime monitors come back
+`disabled` for the same reason.
+
+CORRECT → **the fix is a seat.** Either release one (disable the staging cron + staging
+uptime monitors) or buy one (payment method + pay-as-you-go budget). There is no button on
+the monitor page that helps. Monitors live at `https://<org>.sentry.io/monitors/`; the older
+`…/crons/<project>/<slug>/` path 404s, and the numeric monitor id in the UI is not the GUID
+the API returns.
+
+General lesson: **a monitoring gap can be a billing fact.** When a heartbeat has *zero*
+check-ins rather than failing ones, stop debugging the emitter — an empty series means the
+receiver refused, and the receiver's reason is usually quota. Check the plan before the code.
+
+### [2026-08-31] An in-process fault injection silently tested nothing → the OpenAI client is memoized
+FAIL → validating the moderation fail-open path, the first attempt set
+`process.env.OPENAI_API_KEY` to an invalid value and called `moderateResponse` again **in the
+same process**. It returned `providerStatus:"clean"` — the provider call had *succeeded*.
+Recorded as inconclusive rather than as a pass, which is the only reason it was caught.
+
+WHY → `client()` in `src/lib/moderation/moderate.ts` builds its OpenAI instance once and
+caches it. A later mutation of `process.env` cannot reach an already-constructed client. The
+"error path" test therefore exercised the happy path and produced a **clean** result that
+looks nothing like a failure.
+
+CORRECT → **inject the fault before the process starts**, never inside it:
+`railway run --environment production --service repworth-worker -- env OPENAI_API_KEY=sk-invalid npx tsx <script>`.
+The provider then returns `invalid_api_key` and the decision correctly degrades to
+`providerStatus:"error"` without throwing.
+
+General lesson: **a fail-open path that silently no-ops looks identical to a pass.** When
+testing a degradation, first prove the fault actually occurred — here, the provider error in
+the log — before believing the decision that came back. Any memoized client, cached config,
+or module-level singleton makes in-process env mutation a no-op.
+
+### [2026-08-31] A `redeploy` DID resolve deploy config → trap 1 gains a caveat, and the procedure does not change
+FAIL/observation → the D.4 entry above establishes that a Railway `redeploy` resolves no
+deploy configuration and boots `next start`. On 2026-08-31 a variable change fired
+`58e58630` (`reason: redeploy`) which reported SUCCESS **and ran `tsx worker/index.ts`**
+with every poller starting — the opposite of D.4.
+
+WHY, most likely → a `redeploy` re-runs the *previous* deployment. Three minutes earlier a
+merge to `main` produced `c5c7506b`, a `reason: deploy` source deployment that resolved
+configuration normally, and the redeploy inherited that resolution. At D.4 the preceding
+chain started from a Railpack auto-detect, so the redeploy inherited *that*.
+
+CORRECT → **keep doing `redeploy --from-source` after every variable change.** The rule is
+now conditional — a redeploy is safe only when the deployment it copies was itself
+config-resolved — and you cannot see which case you are in at the moment you flip a
+variable. A conditional safety rule is not one to lean on. What this changes is the expected
+blast radius, not the procedure. General lesson: **when a documented failure stops
+reproducing, find the mechanism before relaxing the rule** — "it worked this time" and "it
+is fixed" are different claims.

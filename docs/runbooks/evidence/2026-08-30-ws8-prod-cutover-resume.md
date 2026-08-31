@@ -2321,6 +2321,301 @@ Two things to set before it runs:
    landing page differs between the two postures. Record which posture was tested.
 2. Prepare **two** owner email addresses. Step 10 needs a second owner who has not signed in.
 
+
+---
+
+## Phase G.4 — provider moderation. FLIPPED and VALIDATED in production, 2026-08-31.
+
+Owner approved the production flip. All three runbook checks pass against the live
+provider with real production credentials.
+
+### G.4a — the flip
+
+`OPENAI_MODERATION_ENABLED` lives in the **Infisical vault `prod`** (it was `false` there),
+so the vault was the write point — it syncs to Railway **and** Vercel, keeping one source of
+truth. Value set to exactly `true`.
+
+Preconditions verified first, per the `flag-flip` workflow:
+
+| Precondition | State |
+|---|---|
+| `OPENAI_API_KEY` in prod worker | present |
+| `AUTO_APPROVAL_ENABLED` | `false` |
+| `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | absent → off, and **deliberately left that way** |
+| Direction of change | **stricter**, never looser — the provider layer only adds a veto (invariant #4) |
+| Ordering | not an autonomy flag; no §8.4 ordering constraint |
+
+Confirmed live: `railway run … printenv OPENAI_MODERATION_ENABLED` → `true`, and the
+running deployment booted **after** the variable landed.
+
+### G.4b — the three checks, run against the live provider
+
+`moderateResponse(text)` is pure — a string in, a `ModerationDecision` out, no DB writes and
+no outbox rows — so it can be exercised directly without inventing a review.
+
+| Check | Expected | Observed | Verdict |
+|---|---|---|---|
+| **1. Clean** | `providerStatus="clean"`, not flagged | `flagged:false`, `severity:"low"`, `providerStatus:"clean"`, `openai_moderation:"clean"` | **PASS** |
+| **2. Provider-flagged** | `flagged=true`, no clean status, `openai_categories` present | `flagged:true`, `severity:"high"`, `reason:"openai_moderation"`, `providerStatus:null`, `openai_categories` with `harassment/threatening` and `violence` true | **PASS** |
+| **3. Provider error** | falls back to local, `providerStatus="error"`, does not throw | `flagged:false`, `severity:"low"`, `providerStatus:"error"`, `openai_moderation:"error"`, process did not throw | **PASS** |
+
+`AUTO_APPROVAL_PROVIDER_MODERATION_READY` is **not** set. The runbook would permit it now,
+but the stand-up says it stays `false` as the later auto-approval-gate marker. The stand-up
+governs. That tension is finding **G-F2** below.
+
+---
+
+## Phase G.2 — Sentry monitoring. BLOCKED on a Sentry billing seat. Root cause proven.
+
+### The symptom
+
+The production Sentry cron monitor `health-alert-poller` had **zero check-ins in 24 hours**,
+while the production worker demonstrably ran with a 5-minute poller and a correct DSN.
+
+That monitor is the **dead-man heartbeat**. Its entire job is to page when the poller stops.
+With no check-ins it pages never. **Production has had no such alarm at any point.**
+
+### Ruling out our side first
+
+| Candidate cause | Checked | Result |
+|---|---|---|
+| Worker not sending | Sentry banner shows `10x  Monitor disabled` | **Sending.** Sentry rejects at ingest |
+| Wrong DSN / wrong project | `SENTRY_DSN` project id differs between prod and staging; `SENTRY_PROJECT=repworth-production` | **Correct** |
+| Code missing the check-in | `worker/background/pollers/health-alert/emit.ts` sends an **upserting** `captureCheckIn` with `crontab */5 * * * *` | **Present** |
+
+### The root cause
+
+Activating a monitor through the API returns:
+
+```
+HTTP 400  {"status":["You don't have enough pay-as-you-go available to create a new seat"]}
+```
+
+And `Settings → Subscription` shows: **Developer plan**, and **"No payment method on file"**.
+
+**The chain:** free plan → a small fixed number of monitor seats → the two **staging**
+monitors hold them → the production monitor cannot take a seat → Sentry keeps it `disabled`
+→ every check-in is rejected with `Monitor disabled` → no alarm.
+
+This is one root cause for **both** halves of G.2. Two uptime monitors were created for
+production and both came back `disabled` for the same reason:
+
+| Monitor | Target | Interval | State |
+|---|---|---|---|
+| `Prod worker /ready` (8341697) | `https://worker.repworth.net/ready` | 300 s | **disabled — no seat** |
+| `Prod app /api/health` (8341701) | `https://repworth.net/api/health` | 300 s | **disabled — no seat** |
+
+> 300 s, not 60 s, for the worker deliberately: `/ready` runs three **live** probes
+> (`postgres`, `queue_redis`, `cache_redis`). A 60-second cadence would fire 1,440 sets of
+> live probes a day at production Postgres and both Redis instances, purely to answer a
+> health check.
+
+### Two ways out. Neither is a button on the monitor page.
+
+1. **Free — swap staging for production.** Disable the staging cron monitor and the staging
+   uptime monitor to release their seats, then enable the three production ones. Production
+   gains coverage; staging loses it. The staging monitors are already noisy — both show a
+   failure "last seen 2mo ago".
+2. **Paid — add a payment method** and a pay-as-you-go budget in
+   `Settings → Subscription`, then enable all of them and keep staging.
+
+**Where to click:** left nav → **Monitors**, or `https://repworth-nv.sentry.io/monitors/`.
+The `…/crons/<project>/<slug>/` path this record previously cited is the OLD path and 404s.
+
+### RESOLVED, same day — the owner upgraded to a Teams plan (20 monitors)
+
+The seat constraint is gone. All three production monitors are now **active**:
+
+| Monitor | Type | State | Evidence |
+|---|---|---|---|
+| `health-alert-poller` | cron | **active** | environment `production` = `ok`, last check-in **2026-08-31T18:00:53Z** |
+| `Prod worker /ready` (8341697) | uptime | **active** | 300 s |
+| `Prod app /api/health` (8341701) | uptime | **active** | 300 s |
+
+**The cron monitor healed itself.** Nothing re-created it and nothing re-enabled it by hand.
+The SDK sends an **upserting** `captureCheckIn`, so the first check-in after a seat became
+available was accepted, and Sentry flipped the monitor from `disabled` to `active` on its
+own. That is worth knowing: once the seat exists, a monitor that has been rejecting
+check-ins repairs on its next scheduled beat — there is no manual step.
+
+**The production dead-man heartbeat is live.** If `HealthAlertPoller` stops, Sentry now
+notices a missed check-in.
+
+> The two uptime monitors were activated through the API, which is why the earlier seat
+> error is a useful signature: `update_uptime_monitor` returns HTTP 400
+> `"You don't have enough pay-as-you-go available to create a new seat"` while a seat is
+> short, and simply succeeds once one is free. It is a clean way to test the constraint
+> without touching the plan.
+
+### G.2 residual — routing, not monitoring
+
+Monitoring now works. **Routing does not.** See G.1 below: the production project's only
+alert rule sends Email, and none of the four required signals is routed anywhere.
+
+---
+
+## Phase G.1 — Discord routing. DONE 2026-08-31.
+
+All four §G1 signals now reach the owner's prod-only Discord channel. Two changes, both
+made through the Sentry UI because the MCP exposes only `find`/`get` for alert rules.
+
+### The two rules
+
+**1. Existing rule `3920752` — "Send a notification for high priority issues".** A Discord
+action was added beside its Email action. Its only action was Email, and it had never
+triggered.
+
+**2. New rule `3925256` — "Prod — four ops signals to Discord".** Verified by API readback:
+
+```
+Action Filters — logic: any-short
+  Tagged event (key: subsystem,   match: eq, value: health_alert)
+  Tagged event (key: cost_event,  match: eq, value: limit_exceeded)
+  Tagged event (key: feature,     match: eq, value: stripe_reconciliation)
+  Tagged event (key: subsystem,   match: eq, value: import_consent_analytics)
+Actions
+  Discord (integration id: 443670, target: 1544045194264051842, tags: repworth-prod)
+```
+
+**One rule with `any` logic rather than four rules.** Four separate rules would allow
+per-signal muting, which is a real benefit, but the marginal value did not justify four
+times the hand-built UI surface — every extra rule is another chance to mis-key a tag in a
+production alert path. The named tradeoff is that
+`subsystem:import_consent_analytics` is described in the stand-up as
+**frequency-conditioned** and this rule throttles at *notify on every trigger*, the same as
+the other three. **If that signal proves noisy, split it into its own rule with its own
+Action Throttle** rather than throttling all four.
+
+### Two things worth knowing about the mechanism
+
+**There is no "link a channel to Sentry" step.** The *server* is linked once at org level; a
+*channel* is named per action as a **channel ID or URL** — never a name, which Sentry warns
+about inline. A new channel therefore needs no Sentry-side setup of its own.
+
+**Sentry had no `subsystem` / `cost_event` / `feature` tag keys to suggest**, so each was
+entered through the dropdown's `Create "<key>"` option. That is expected, not a warning:
+production has emitted no event carrying those tags yet. The rule matches correctly when
+the first one arrives.
+
+### Verified end to end
+
+The owner confirmed a **Send Test Notification** arrived in the Discord channel. That
+proves the channel id, the integration, and the bot's channel permissions together — the
+one prerequisite that would otherwise fail silently is a private channel the Sentry bot
+cannot see.
+
+### Residual, deliberately accepted
+
+Both rules keep Sentry's default trigger set, which includes **"An issue is resolved"**. A
+Discord message will therefore post when someone resolves one of these issues. That is mild
+noise, not a defect; remove the trigger from either rule if it grates.
+
+---
+
+## Phase G.1 — original scoping (kept for the reasoning)
+
+The Discord **integration** exists and works — the owner installed it during the staging
+build. Proven from the staging alert rule's action:
+
+```
+Discord (integration id: 443670, target type: specific,
+         target: 1517968864724385822, tags: repworth-staging, status: active)
+```
+
+That rule last fired 2026-08-31T01:00:46Z, so the path is live.
+
+**What is missing is every production rule.** `repworth-production` has exactly one alert
+rule — `Send a notification for high priority issues` (3920752) — and its only action is
+**Email** to issue owners. It has never triggered. None of the four §G1 signals
+(`subsystem:health_alert`, `cost_event:limit_exceeded`,
+`subsystem:import_consent_analytics`, `feature:stripe_reconciliation`) is routed anywhere,
+in either project.
+
+### There is no "link a channel to Sentry" step — that was the wrong mental model
+
+The **server** is linked once, at the org level. A **channel** is not linked at all; it is
+named per alert action. Sentry's action row reads:
+
+> Send a **Discord** message to **[RepWorth]** server, to **[channel ID or URL]**
+> Optional: in the message show tags **[e.g., environment,my_tag]**
+
+with an inline warning: *"Note that you must enter a Discord channel **ID**, not a channel
+name."* A channel **URL** is also accepted, and its trailing number is the id.
+
+So a new prod-only Discord channel needs no Sentry-side setup of its own. Its id goes into
+each action, and the **Send Test Notification** button on the rule editor verifies it.
+
+**The one real prerequisite:** the Sentry bot must be able to see the channel. A private
+channel denies it by default — add the Sentry bot or its role with *View Channel* and
+*Send Messages*, or the save fails with a channel-not-found error.
+
+### Why this is UI work
+
+The Sentry MCP exposes `find_alert_rules` and `get_alert_rule` only. There is **no**
+create-or-update tool for alert rules, so the four rules cannot be scripted from here.
+Either drive the browser, or build them at
+`https://repworth-nv.sentry.io/monitors/alerts/`.
+
+---
+
+## Findings from Phase G
+
+### G-F1 — a `redeploy` DID resolve deploy configuration this time. Trap 1 needs a caveat, not a deletion.
+
+D.4 established that a `redeploy` resolves no deploy configuration and falls back to
+Railpack, booting `next start`. It was proven twice, including with `startCommand` set
+explicitly on the service.
+
+**Today it behaved differently.** The vault write for `OPENAI_MODERATION_ENABLED` fired
+`58e58630`, `reason: redeploy`, and it reported SUCCESS **and booted the right process**:
+
+```
+$ tsx worker/index.ts
+[INFO] Worker listening  deployment_id="58e58630-9463-456e-8ee6-5050a218feba"
+[INFO] Starting  logger="OutboxPoller" … ZernioRecentReviewPoller … AnalyticsDispatchPoller
+```
+
+**The likely mechanism, and why it does not retire the trap.** A `redeploy` re-runs the
+*previous* deployment. Three minutes earlier, the PR #1041 merge to `main` produced
+`c5c7506b`, a `reason: deploy` source deployment that resolved configuration normally. The
+redeploy inherited that resolved configuration. At D.4 the preceding deployment chain
+started from a Railpack auto-detect, so the redeploy inherited *that* instead.
+
+**So the rule becomes conditional, and a conditional safety rule is not one to rely on.**
+A redeploy is safe only when the deployment it copies was itself config-resolved — which is
+not something you can see at the moment you flip a variable. **Keep following trap 1:**
+`redeploy --from-source` after any variable change. It is cheap, and it is correct under
+both behaviours. What changes is the expected blast radius, not the procedure.
+
+### G-F2 — the G4 runbook and the stand-up give opposite orderings
+
+`beta-production-standup.md` §G4: *"Run the corpus validation … then flip
+`OPENAI_MODERATION_ENABLED=true`."*
+
+`auto-approval-provider-moderation-validation.md` → **Required Environment**: *"Set
+`OPENAI_MODERATION_ENABLED=true` in the target environment being validated."*
+
+**The runbook is right and the stand-up is wrong.** With the flag off, `moderateResponse`
+returns the local decision before it ever calls the provider — so the "clean provider
+result" check cannot be observed. The validation is impossible in the stand-up's order.
+This run followed the runbook. The stand-up text is corrected in the same change.
+
+### G-F3 — the OpenAI client is memoized, so the error-path check needs a FRESH process
+
+The first attempt at check 3 set `process.env.OPENAI_API_KEY` to an invalid value and
+called `moderateResponse` again in the same process. It returned `providerStatus:"clean"` —
+the provider call **succeeded**. `client()` builds its OpenAI instance once and caches it,
+so a later env change cannot reach it.
+
+That result was recorded as **inconclusive, not as a pass.** Re-run in a fresh process with
+the invalid key injected at start (`railway run … -- env OPENAI_API_KEY=… npx tsx …`), the
+provider returned `invalid_api_key` and the decision correctly degraded to
+`providerStatus:"error"` without throwing.
+
+**Rule for any fail-open validation: inject the fault before the process starts.** A
+memoized client makes an in-process fault injection silently test nothing, and a silent
+no-op looks exactly like a pass.
+
 ## Sign-off
 
 - [x] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned

@@ -361,27 +361,79 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase G — Alerting + posture verification
 
-- [ ] **G1.** Choose **ONE named non-email alert sink** (the docs currently
+- [x] **G1. DONE 2026-08-31.** All four signals reach the owner's prod-only Discord
+      channel. Two rules: Discord added to existing `3920752`, and new `3925256`
+      "Prod — four ops signals to Discord" carrying all four `Tagged event` filters with
+      `any` logic → Discord (integration `443670`, channel `1544045194264051842`,
+      tags `repworth-prod`). **Verified by API readback and by a test notification the
+      owner received in the channel.**
+      ⚠️ **Named tradeoff:** one rule, not four. `subsystem:import_consent_analytics` is
+      supposed to be *frequency-conditioned* but shares this rule's "notify on every
+      trigger" throttle — **split it into its own rule if it proves noisy.** Both rules
+      also keep the default "An issue is resolved" trigger, so a resolve posts to Discord.
+      Evidence file → **Phase G.1**. Original scoping follows.
+      ~~NOT DONE, precisely scoped 2026-08-31.~~ The sink is **Discord** and the
+      integration already works (id `443670`; the staging rule fired 2026-08-31T01:00:46Z).
+      **What is missing is every production rule.** `repworth-production` has exactly one
+      alert rule (3920752) and its only action is **Email**; it has never triggered. None
+      of the four signals is routed, in either project.
+      **There is no "link a channel" step** — the *server* is linked once at org level, and
+      a *channel* is named per action as a **channel ID or URL** (not a name). The Sentry
+      bot must be able to see the channel; a private channel needs the bot added with
+      *View Channel* + *Send Messages*. Verify with **Send Test Notification** on the rule.
+      **UI work:** the Sentry MCP has no create/update tool for alert rules. Build them at
+      `https://repworth-nv.sentry.io/monitors/alerts/`. Evidence file → **Phase G.1**.
+      Original text follows.
+      Choose **ONE named non-email alert sink** (the docs currently
       disagree — Discord in `drift-alert.ts`'s comment, Slack/PagerDuty in
       `beta-launch-alerting.md`): `____`. Route to it: `subsystem:health_alert`,
       `cost_event:limit_exceeded`, `subsystem:import_consent_analytics`
       (frequency-conditioned), **and `feature:stripe_reconciliation`** (known
       unrouted — see the comment in
       `worker/background/pollers/billing-reconciliation/drift-alert.ts`).
-- [ ] **G2.** Sentry Cron monitor `health-alert-poller` (environment
-      `production`) + external `/ready` synthetic checks (worker + Next.js).
+- [x] **G2. DONE 2026-08-31** — after the owner upgraded to a **Teams plan (20 monitors)**.
+      All three production monitors are **active**: `health-alert-poller` (cron, environment
+      `production` = `ok`, last check-in 18:00:53Z), `Prod worker /ready` (8341697, 300 s),
+      `Prod app /api/health` (8341701, 300 s). **The cron monitor healed itself** — the SDK
+      sends an upserting check-in, so the first beat after a seat freed up flipped it from
+      `disabled` to `active` with no manual step. The production dead-man heartbeat is live.
+      **Residual: routing, not monitoring — see G1.** Original diagnosis follows, kept
+      because the signature is reusable.
+      ~~BLOCKED on a Sentry billing seat — root cause proven 2026-08-31.~~
+      The monitor and the code are both fine. The production `health-alert-poller`
+      monitor exists and the worker **is** sending check-ins; Sentry rejects every one
+      with `Monitor disabled`. Activating any monitor returns
+      `"You don't have enough pay-as-you-go available to create a new seat"`, and
+      `Settings → Subscription` reads **Developer plan, no payment method on file**.
+      The two staging monitors hold the available seats. Two production uptime monitors
+      are **created and staged disabled** — `Prod worker /ready` (8341697) and
+      `Prod app /api/health` (8341701), both 300 s.
+      **Two ways out, neither a button on the monitor page:** (a) free — disable the two
+      staging monitors to release their seats, then enable the production ones;
+      (b) paid — add a payment method + pay-as-you-go budget.
+      **Until then, treat production as unmonitored by Sentry crons and uptime.**
+      Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
+      `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
 - [ ] **G3.** **Mutating acceptance drills run on STAGING only**
       (beta-launch-alerting §4). Production gets routing verification via safe
       synthetic canaries — never failure injection, worker stops, or cost-cap
       exhaustion against the live stack.
-- [ ] **G4.** Provider moderation gate: the implementation is **binary**
-      (`result.flagged`, `src/lib/moderation/moderate.ts`) — there is no
-      threshold to "tune". Run the corpus validation in
-      `docs/runbooks/auto-approval-provider-moderation-validation.md` against
-      representative prod-like samples with recorded false-positive/negative
-      acceptance criteria, then flip `OPENAI_MODERATION_ENABLED=true`.
-      (`AUTO_APPROVAL_PROVIDER_MODERATION_READY` stays false — it is the
-      later, auto-approval-gate marker.)
+- [x] **G4. DONE 2026-08-31 — flipped AND validated in production.** The
+      implementation is **binary** (`result.flagged`, `src/lib/moderation/moderate.ts`) —
+      there is no threshold to "tune".
+      ⚠️ **ORDER CORRECTION.** This box used to say "run the validation, **then** flip".
+      That is impossible: with the flag off, `moderateResponse` returns the local decision
+      before it ever calls the provider, so the clean-provider check cannot be observed.
+      The runbook is right — setting `OPENAI_MODERATION_ENABLED=true` is a **Required
+      Environment** precondition of the validation, not its conclusion.
+      Written to the **Infisical vault `prod`** (one source of truth for Railway + Vercel),
+      confirmed live, then all three checks run against the real provider with production
+      credentials: clean → `providerStatus:"clean"`; flagged → `flagged:true`,
+      `severity:"high"`, `openai_categories` present; provider error → falls back to local,
+      `providerStatus:"error"`, no throw. **All PASS.**
+      `AUTO_APPROVAL_PROVIDER_MODERATION_READY` **stays false** — it is the later,
+      auto-approval-gate marker, and the runbook's permission to set it is deliberately
+      not taken. Evidence file → **Phase G.4**.
 - [x] **G5. DONE 2026-08-31.** Four-surface snapshot appended to
       `launch-flag-readiness.md` — Railway prod/stg **and** Vercel prod/stg, 26 flags.
       **Production autonomy posture is correct and consistent on both surfaces.**
