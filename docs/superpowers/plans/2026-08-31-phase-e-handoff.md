@@ -205,7 +205,13 @@ Then re-run the F.3 smoke against production.
 > **G5-F1:** the Infisical Secret Sync does **not** preserve Vercel's Sensitive flag —
 > Production went 9 `Secret` → 4. That converts the owed "re-add three vars as
 > `--sensitive`" action into an owed **decision**.
-> **G1, G2, G3 and G4 remain**, and G1/G2 need something from the owner.
+> **G4 is DONE (2026-08-31)** — `OPENAI_MODERATION_ENABLED=true` in production, all three
+> validation checks pass live. `AUTO_APPROVAL_PROVIDER_MODERATION_READY` stays false.
+> **G2 is BLOCKED on a Sentry billing seat**, not on code: the worker sends check-ins and
+> Sentry rejects them with `Monitor disabled`, because the org is on the free Developer plan
+> with no payment method and the two staging monitors hold the available seats. Free fix:
+> release the staging seats. Paid fix: add a payment method.
+> **G1 and G3 remain.**
 
 ### The original plan
 

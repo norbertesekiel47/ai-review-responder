@@ -34,6 +34,14 @@ readiness flag.
   - Confirm the moderation decision is not flagged.
 
 - Provider error result:
+  - **Inject the fault BEFORE the process starts — never inside it.** The OpenAI client is
+    built once and cached, so mutating `process.env.OPENAI_API_KEY` mid-process cannot reach
+    it: the call succeeds and returns `providerStatus="clean"`, which looks exactly like a
+    pass while testing nothing. Run a fresh process with the bad credential injected at
+    start, e.g.
+    `railway run --environment <env> --service repworth-worker -- env OPENAI_API_KEY=sk-invalid npx tsx <script>`.
+  - Confirm the provider error actually occurred (an `invalid_api_key` in the output) before
+    believing the decision that came back.
   - Simulate or observe an OpenAI moderation provider error.
   - Confirm the moderation decision falls back to the local filter.
   - Confirm the moderation decision records `providerStatus="error"`.

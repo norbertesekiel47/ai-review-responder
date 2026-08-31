@@ -142,7 +142,7 @@ is not a short boolean token, so a name match cannot leak a secret.
 | `TRIAL_ENABLED` | `false` | `true` | `false` | *Secret — unreadable* |
 | `ONBOARDING_DEMO_ENABLED` | `true` | `true` | **`true`** | **`true`** |
 | `ZERNIO_PUBLISHING_ENABLED` | `true` | `true` | `true` | `true` |
-| `OPENAI_MODERATION_ENABLED` | `false` | `true` | `false` | `true` |
+| `OPENAI_MODERATION_ENABLED` | **`true`** ¹ | `true` | **`true`** ¹ | `true` |
 | `AUTO_APPROVAL_PROVIDER_MODERATION_READY` | unset → off | unset → off | unset → off | `true` |
 | `MFA_ENFORCEMENT_ENABLED` | unset → off | `false` | unset → off | `false` |
 | `MULTI_LOCATION_ENABLED` | unset → off | `true` | unset → off | `true` |
@@ -213,3 +213,11 @@ production's. Worth a look before trusting a staging readback for anything.
 
 **Verifier:** Claude (orchestrator). Railway CLI + `npx vercel@latest`. **Still
 owner-to-verify:** Meta/WABA status, SerpAPI funding, Stripe price liveness.
+
+> ¹ **Changed after this snapshot was taken.** `OPENAI_MODERATION_ENABLED` was `false` in
+> production when the table was first read, and was flipped to `true` later the same day
+> (2026-08-31) with owner approval, written to the Infisical vault `prod` so both surfaces
+> moved together. All three validation checks pass against the live provider. The table
+> above is corrected in place rather than left stale.
+> `AUTO_APPROVAL_PROVIDER_MODERATION_READY` is unchanged and stays off in production.
+> Evidence file → **Phase G.4**.
