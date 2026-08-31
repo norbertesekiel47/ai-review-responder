@@ -1419,7 +1419,10 @@ TLS before reaching Fastify.
       `AUTOPILOT_PURCHASABLE` = **`false`**. Beta posture intact —
       `AUTO_APPROVAL_ENABLED`/`SELF_SERVE_SIGNUP_ENABLED`/`TRIAL_ENABLED` all `false`,
       `ZERNIO_RECENT_REVIEW_POLL_DISABLED` still `true`. See **D.5**.
-- [ ] Copilot list + founding Checkout exercised on a disposable account
+- [ ] Copilot list + founding Checkout exercised on a disposable account —
+      **SKIPPED by owner decision 2026-08-31. Deliberately left unticked.** A skipped step
+      is not a passed one. Consequence: the first live Checkout will be a beta tester's.
+      Carried to Phase H, before tester one is invited. See **D.6**.
 
 ### D.4a — the worker certificate ISSUED. The D.5 blocker is cleared.
 
@@ -1601,22 +1604,212 @@ webhook is proven end to end.
 
 ---
 
+### D.6 — SKIPPED by owner decision, 2026-08-31
+
+The §6 Checkout smoke was **not run**. Owner decision, recorded rather than quietly
+dropped, because it removes a real proof from the record.
+
+**What it would have proved.** A live Copilot list and founding Checkout on a disposable
+account, through the operator allowlist, exercising the frozen lease create tuple, the
+Session retry path, and the tier-reselection rules in §6's list.
+
+**The consequence, stated plainly.** No Checkout has ever completed in live mode against
+this account. **The first real live Checkout will be a beta tester's, not a test one.**
+The pieces around it are individually verified — six live Prices resolve and are distinct
+(D.1), 077 and 105 are present (D.2, D.9), the webhook endpoint is armed with the right
+API version and events (D.3, D.5), the convergence gate is clean (D.5) — but the path has
+not been walked end to end in production.
+
+**What partially compensates.** The same flow is exercised on staging, and the §6 list is
+staging-verified there. The zero-state means there is no legacy data for a first Checkout
+to collide with. `AUTOPILOT_PURCHASABLE=false` keeps the untested Autopilot arms closed.
+
+**Carried forward to Phase H**, which already owns "one deliberate post clicked by a
+human". A first live Checkout belongs beside it, before tester one is invited.
+
+The §6 checklist box stays **unticked**. It is not done, and a skipped step is not a
+passed one.
+
+---
+
+### D.7 — apply migration 078. APPLIED and VERIFIED.
+
+The last migration gap between staging and production. Applied 2026-08-31T07:09Z.
+
+#### Staging first — verified, not assumed
+
+The lockstep rule is "staging first". Staging was re-introspected immediately before the
+apply rather than trusted from the standing-exception wording:
+
+```
+staging: accounts_tier_is_nullable   = NO
+         businesses_tier_is_nullable = NO
+         accounts_tier_check_present   = true
+         businesses_tier_check_present = true
+```
+
+078 was already there. This apply closed a **prod-only** gap; it did not lead staging.
+
+#### Preflight — clean, and the documented absence signature intact
+
+```
+accounts_invalid_count      0        accounts_total    0
+businesses_invalid_count    0        businesses_total  0
+                                     outbox_total      0
+
+accounts_tier_is_nullable       NO     (already NOT NULL since migration 034)
+businesses_tier_is_nullable     YES    ← 078 absent, exactly as documented
+accounts_tier_check_present     false  ← 078 absent
+businesses_tier_check_present   false  ← 078 absent
+m077_price_variant_present      true   ← 077 applied
+m105_coupon_col_present         true   ← 105 applied
+```
+
+Both §7 NULL-safe counts are **0**. The absence signature matches `.claude/CLAUDE.md`'s
+recorded description word for word, and 077/105 are both present — so the ordering
+precondition ("apply only after 077") holds by observation, not by ledger.
+
+#### Applied through the approved channel
+
+`mcp__supabase__apply_migration`, name `078_copilot_autopilot_contract`, the file
+`supabase/migrations/078_copilot_autopilot_contract.sql` **verbatim**. Not retyped, not
+adapted.
+
+The migration is self-defending: it re-runs both NULL-safe preflights *inside* the
+transaction and raises `23514` before touching any constraint, so a race between our
+preflight read and the apply could not have slipped through. It is one atomic `DO` block,
+and re-runnable — it drops each same-named CHECK scoped by both `conname` and `conrelid`
+before re-adding it, so a stale or widened definition is repaired rather than trusted.
+
+#### Post-apply verification — by introspection, never the ledger
+
+```
+accounts_tier_is_nullable    NO
+businesses_tier_is_nullable  NO      ← was YES. This is the contract 078 exists to add
+
+accounts_check_def    CHECK (((subscription_tier)::text = ANY
+                        ((ARRAY['copilot'::character varying,
+                                'autopilot'::character varying])::text[])))
+businesses_check_def  CHECK (((subscription_tier)::text = ANY
+                        ((ARRAY['copilot'::character varying,
+                                'autopilot'::character varying])::text[])))
+
+accounts_invalid_after    0     accounts_total_after    0
+businesses_invalid_after  0     businesses_total_after  0
+outbox_after              0
+```
+
+| §7 requirement | Reading | Verdict |
+|---|---|---|
+| `accounts.subscription_tier` NOT NULL | `NO` (not nullable) | PASS |
+| `businesses.subscription_tier` NOT NULL | `NO` — changed from `YES` | PASS |
+| `accounts_subscription_tier_check` present | present, strict two-tier domain | PASS |
+| `businesses_subscription_tier_check` present | present, strict two-tier domain | PASS |
+| NULL-safe counts still 0 | 0 and 0 | PASS |
+
+**Both CHECK definitions are byte-identical to staging's**, compared in the same session
+against the staging project. The two databases now render the same constraint text, which
+is the check that catches a widened same-name constraint — the failure 078's
+`conname`+`conrelid` scoping exists to repair.
+
+`job_outbox` is **still 0** after the apply. 078 enqueues no follow-up work, as its entry
+in `migrations-log.md` states. Row counts are unchanged: the migration constrains, it does
+not write.
+
+#### No insert path breaks under the new NOT NULL
+
+Checked, because a NOT NULL added to a live schema is exactly where a working writer
+starts failing:
+
+```
+accounts.subscription_tier    NOT NULL  DEFAULT 'copilot'::character varying
+businesses.subscription_tier  NOT NULL  DEFAULT 'copilot'::character varying
+```
+
+Both carry a default, so an `INSERT` that omits the column still satisfies the constraint.
+No code change is owed and no redeploy is needed — the strict worker already running
+(`2e9a5dc4` → `bff4f256`) writes values inside the new domain.
+
+> Noted in passing, unrelated to 078: `zernio_backfill_runs.subscription_tier` is NOT NULL
+> with **no** default. Pre-existing, untouched by this migration.
+
+#### D.10 — the doc change §7 requires, in the same change
+
+`.claude/CLAUDE.md` → **Environments & branches**: the "Standing exception until the prod
+WS8 cutover: migration 078 — and ONLY 078 — is absent in prod" sentence is **deleted**.
+Replaced with the current truth — no standing exception, full lockstep — plus the apply
+timestamp and the introspection that proves it. The shape guard
+(`src/__tests__/claude-md-shape.test.ts`) passes, 44/44.
+
+`migrations-log.md`'s 078 entry gains a `PROMOTED TO PRODUCTION` block with the preflight,
+the post-apply introspection and the staging comparison. The head line is **unchanged at
+116** — 078 is an existing migration being promoted, not a new one.
+
+Three older entries in that log still say "the 078 standing exception is untouched"
+(#1008, #926, #111 records). Those are **dated point-in-time receipts and are left alone**
+— the file itself already warns that such a hash or state line "is a point-in-time
+receipt, not a standing expectation". Rewriting history to match the present would destroy
+the audit trail those entries exist to provide.
+
+**"All autonomy flags are OFF in prod" is unchanged**, because no flag was flipped. §7's
+instruction to revise it applies "as the ordered go-live flip proceeds", and that has not
+started.
+
+---
+
+### D.9 — verify §8, migration 105. PASS.
+
+Read-only. §8 is a verify step in production; 105 was applied 2026-08-14.
+
+```sql
+-- 1. the column exists and is nullable
+column_name                  is_nullable  data_type
+checkout_attempt_coupon_id   YES          text
+
+-- 2. the rewritten constraint names the coupon column in its cleared branch
+names_coupon_in_cleared_branch = true      (def_length 2541)
+```
+
+| §8 requirement | Reading | Verdict |
+|---|---|---|
+| `checkout_attempt_coupon_id` nullable = YES | `YES` | PASS |
+| `accounts_checkout_attempt_complete_check` names it in the cleared branch | `checkout_attempt_coupon_id IS NULL` present | PASS |
+
+The 2,541-character constraint enumerates all nineteen `checkout_attempt_*` columns, which
+is the shape 105 rewrites onto 077's original. This was already visible in the D.2 read;
+D.9 records it against §8's own two queries as the section requires.
+
+**§8 is satisfied.** The cutover is verified through §8.
+
+---
+
 ### §7 — migration 078, then resume
 
-- [ ] Both NULL-safe preflight counts = 0. Recorded: `____`
-- [ ] 078 applied via the approved channel at `____`Z
-- [ ] Post-apply introspection: `businesses.subscription_tier` NOT NULL, both named CHECK
-      constraints present. Output: `____`
+- [x] Both NULL-safe preflight counts = 0. Recorded: `accounts_invalid_count=0`,
+      `businesses_invalid_count=0` — with `accounts`/`businesses`/`job_outbox` all 0 rows,
+      and the documented absence signature intact. See **D.7**.
+- [x] 078 applied via the approved channel at **2026-08-31T07:09Z** —
+      `apply_migration`, the repo file verbatim. Staging re-introspected first and
+      already held both NOT NULLs and both CHECKs, so this closed a prod-only gap.
+- [x] Post-apply introspection: `businesses.subscription_tier` **NOT NULL** (was nullable),
+      `accounts_subscription_tier_check` and `businesses_subscription_tier_check` both
+      present, both rendering the strict two-tier domain **byte-identical to staging**.
+      Invalid counts still 0; `job_outbox` still 0. See **D.7**.
 - [ ] `ws8-cutover-prod-api-deny` removed and published at `____`Z
 - [ ] `curl https://repworth.net/api/health` → **200** at `____`Z
 - [ ] `ZERNIO_RECENT_REVIEW_POLL_DISABLED` restored to unset
 - [ ] **UTC resume time: `____`**
-- [ ] `.claude/CLAUDE.md` standing 078 exception deleted, in the same change
+- [x] `.claude/CLAUDE.md` standing 078 exception deleted, in the same change — replaced
+      with the full-lockstep statement plus the apply timestamp and its introspection.
+      `claude-md-shape.test.ts` passes 44/44. `migrations-log.md` 078 entry gains a
+      PROMOTED block; head unchanged at 116.
 
 ### §8 — verify 105
 
-- [ ] `checkout_attempt_coupon_id` nullable = YES
-- [ ] `accounts_checkout_attempt_complete_check` names the coupon column in its cleared branch
+- [x] `checkout_attempt_coupon_id` nullable = **YES**, `data_type` `text`. See **D.9**.
+- [x] `accounts_checkout_attempt_complete_check` names the coupon column in its cleared
+      branch — `checkout_attempt_coupon_id IS NULL` present in the 2,541-char definition.
+      **§8 is satisfied.** See **D.9**.
 
 ---
 
