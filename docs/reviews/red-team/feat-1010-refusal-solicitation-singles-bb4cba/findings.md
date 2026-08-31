@@ -425,3 +425,26 @@ the four unfixed ones are safe only because their halt reasons map to `null` in
 
 **No round 3 was run.** The cap is spent, and this section is a record of a
 defect found downstream of the report, not a new pass.
+
+## Post-report — the build failure neither round could have found
+
+CI's `build` job failed on PR #1044 while `test` and `lint` passed:
+`node:async_hooks` reached the Requests browser chunk through
+
+`AttributedReviews.tsx` ('use client') → `attribution.ts` → `batch-builder.ts`
+→ `@/lib/refusals/write` → `createWorkerLogger` → `log-context`.
+
+**Neither red-team round could have caught this, and that is a scope fact rather
+than an excuse: the feature gate has no build step.** Duty 3 re-resolves doc
+claims and Duty 4 hunts missed siblings; neither compiles the client bundle. The
+violation is invariant #1 and it PRE-DATES this branch — a client component was
+already importing server code at runtime for one constant. This branch added the
+edge that made the chain reach a Node built-in.
+
+Fixed by a zero-import leaf on the `format-rate.ts` precedent, recorded as
+deviation D8 with both rejected alternatives and why each was rejected.
+
+`head_sha` -> `0680f33414f3b8482ffae37b39199707cb22e91a`
+`intake_sha256` -> `b7fd49c16ea687f24fe5c53ae34e32e2f771a0bef7065e33605c36cd22348012`
+
+**No round 3 was run.** The cap is spent.
