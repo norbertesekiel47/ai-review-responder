@@ -39,6 +39,11 @@ import {
   REFUSAL_SUBJECT_TYPES,
   REFUSAL_VOCABULARY_VERSION,
 } from '../vocabulary';
+// NAMESPACE import for the four exports #1013 T3 and T4 add. A named import of
+// an export that does not exist yet fails the whole FILE at collection, which at
+// the RED phase would take every pre-existing case down with it. Same reason
+// `write.integration.test.ts` reaches its set-based arm this way.
+import * as vocabulary from '../vocabulary';
 
 /** The table under test. Applied to staging and production; never edited here. */
 const MIGRATION_116 = 'supabase/migrations/116_refusal_events.sql';
@@ -408,5 +413,224 @@ describe('Refusal ledger vocabulary', () => {
     expect(runtimeImports, 'every import in vocabulary.ts must be `import type`').toEqual([]);
     expect(runtimeReExports, 'a re-export pulls the same graph an import would').toEqual([]);
     expect(dynamicImports, 'a dynamic import is never erased at compile time').toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1013 — the `policy_gate_held` map, its precedence, and the `held_draft`
+// literal. Titles 1-9 and 12, VERBATIM from `.feature/intake.json`.
+//
+// NAMESPACE ACCESS, NOT NAMED IMPORTS, for the four exports T3 and T4 add. A
+// named import of an export that does not exist yet fails the whole FILE at
+// collection, which at the RED phase would take the thirty-odd pre-existing
+// cases above down with it and hide which case actually failed. Same reason
+// `write.integration.test.ts` reaches its set-based arm this way.
+//
+// The accessors below throw a NAMED error rather than returning undefined, so a
+// RED run reads as "T3/T4 has not landed" instead of a `TypeError` on
+// `undefined`.
+// ---------------------------------------------------------------------------
+
+/**
+ * The 22-member map's authority is a bare TYPE union, which nothing can
+ * enumerate at run time, so this parses it out of its owning module exactly as
+ * title 4 does for `AutonomySuspensionTrigger`.
+ *
+ * It reads `WORKER_TYPES_MODULE` because #1013 T2 MOVES the declaration there,
+ * on the `AutonomySuspensionTrigger` / `AutoPolicyDowngradeReason` precedent:
+ * `vocabulary.ts` must NAME the union to type its map, and no production module
+ * under `src/lib/` imports from `worker/`. Before T2 lands, `unionMembers`
+ * throws here — the intended RED, and per-case rather than at collection.
+ */
+function autoApprovalBlockReasons(): readonly string[] {
+  return unionMembers(WORKER_TYPES_MODULE, 'AutoApprovalBlockReason');
+}
+
+function policyGateMap(): Readonly<Record<string, string | null>> {
+  const map = (vocabulary as Record<string, unknown>).POLICY_GATE_HELD_REFUSAL_CATEGORIES;
+  if (map === undefined) {
+    throw new Error('POLICY_GATE_HELD_REFUSAL_CATEGORIES is not exported yet (#1013 T4)');
+  }
+  return map as Readonly<Record<string, string | null>>;
+}
+
+function blockPrecedence(): readonly string[] {
+  const order = (vocabulary as Record<string, unknown>).AUTO_APPROVAL_BLOCK_PRECEDENCE;
+  if (order === undefined) {
+    throw new Error('AUTO_APPROVAL_BLOCK_PRECEDENCE is not exported yet (#1013 T4)');
+  }
+  return order as readonly string[];
+}
+
+interface ResolvedRefusal {
+  refusalCode: string;
+  refusalCategory: string;
+  allRefusalCodes: readonly string[];
+}
+
+function resolve(codes: readonly string[]): ResolvedRefusal | null {
+  const fn = (vocabulary as Record<string, unknown>).resolvePolicyGateRefusal;
+  if (typeof fn !== 'function') {
+    throw new Error('resolvePolicyGateRefusal is not exported yet (#1013 T4)');
+  }
+  return (fn as (c: readonly string[]) => ResolvedRefusal | null)(codes);
+}
+
+function heldDraftCategory(): unknown {
+  const value = (vocabulary as Record<string, unknown>).HELD_DRAFT_REFUSAL_CATEGORY;
+  if (value === undefined) {
+    throw new Error('HELD_DRAFT_REFUSAL_CATEGORY is not exported yet (#1013 T3)');
+  }
+  return value;
+}
+
+/** The veto set is DERIVED, never restated — a null value in the map IS the veto. */
+function vetoMembers(): readonly string[] {
+  const map = policyGateMap();
+  return Object.keys(map).filter((member) => map[member] === null);
+}
+
+/**
+ * #1003's locked tier order, most durable veto first.
+ *
+ * This IS restated here, and it is the one place restatement is correct: it is
+ * the claim under test. `REFUSAL_CATEGORIES` must NOT be used as the
+ * expectation — #1003 rejected that agreement test outright, because the two
+ * orders legitimately disagree on `below_our_bar` (3rd there, 5th here) and
+ * `missing_information` (last there, 4th here), and coupling them would falsify
+ * #995's "a reorder is presentation only" ruling.
+ */
+const LOCKED_TIER_ORDER = [
+  'unsafe_content',
+  'watchdog_unavailable',
+  'autonomy_paused',
+  'missing_information',
+  'below_our_bar',
+  'owner_review_required',
+] as const;
+
+describe('Refusal ledger vocabulary — policy_gate_held (#1013)', () => {
+  it('every AutoApprovalBlockReason member appears exactly once across the veto set and the precedence list', () => {
+    const members = autoApprovalBlockReasons();
+    expect(members.length, 'parsed no AutoApprovalBlockReason members').toBe(22);
+
+    const map = policyGateMap();
+    expectLaneMap(map, members, 'policy_gate_held');
+
+    const veto = vetoMembers();
+    const precedence = blockPrecedence();
+
+    // The PARTITION is the claim: veto and precedence are disjoint, their union
+    // is every member, and neither holds a duplicate. A 23rd member added to the
+    // union later fails HERE rather than resolving to no category and silently
+    // writing no row.
+    expect(new Set(precedence).size, 'precedence holds a duplicate').toBe(precedence.length);
+    expect(
+      precedence.filter((member) => veto.includes(member)),
+      'a member is in both the veto set and the precedence list',
+    ).toEqual([]);
+    expect(
+      [...veto, ...precedence].sort(),
+      'veto + precedence is not exactly the 22 members',
+    ).toEqual([...members].sort());
+
+    // The counts #1003 locked, stated so a silent re-partition is visible.
+    expect(veto.length, 'the veto set is seven members').toBe(7);
+    expect(precedence.length, 'the precedence list is fifteen members').toBe(15);
+  });
+
+  it('AUTO_APPROVAL_BLOCK_PRECEDENCE groups its members into the six locked category tiers in order', () => {
+    const map = policyGateMap();
+    const tiers = blockPrecedence().map((member) => map[member]);
+
+    // Each tier must be CONTIGUOUS and the tiers must appear in the locked
+    // order. Collapsing to a de-duplicated sequence proves both at once: a
+    // member that strayed out of its tier reappears as a repeated tier later.
+    const collapsed = tiers.filter((tier, index) => index === 0 || tier !== tiers[index - 1]);
+    expect(collapsed, 'tiers are not contiguous, or not in the locked order').toEqual([
+      ...LOCKED_TIER_ORDER,
+    ]);
+  });
+
+  it('resolvePolicyGateRefusal returns null when any veto member is present, whatever its position', () => {
+    const veto = vetoMembers();
+    const precedenceMember = blockPrecedence()[0]!;
+
+    for (const vetoMember of veto) {
+      expect(resolve([vetoMember]), `${vetoMember} alone must veto`).toBeNull();
+      expect(resolve([vetoMember, precedenceMember]), `${vetoMember} first must veto`).toBeNull();
+      expect(resolve([precedenceMember, vetoMember]), `${vetoMember} last must veto`).toBeNull();
+    }
+  });
+
+  it('resolvePolicyGateRefusal picks the highest precedence tier present, not the evaluation order', () => {
+    const precedence = blockPrecedence();
+    const map = policyGateMap();
+
+    // REVERSED input, so a resolver that simply took the first element it saw
+    // would return the LOWEST-ranked member and fail every assertion below.
+    for (let i = 0; i < precedence.length; i += 1) {
+      const window = precedence.slice(i);
+      const resolved = resolve([...window].reverse());
+      expect(resolved?.refusalCode, `window from ${window[0]}`).toBe(window[0]);
+      expect(resolved?.refusalCategory).toBe(map[window[0]!]);
+    }
+  });
+
+  it('resolvePolicyGateRefusal returns the winner as a member of the co-occurring set it won', () => {
+    const precedence = blockPrecedence();
+    const input = [precedence[6]!, precedence[1]!, precedence[13]!];
+    const resolved = resolve(input);
+
+    // C5 requires membership in the DATABASE. This is the same claim one layer
+    // up, so a row can never be rejected at INSERT for a resolver bug.
+    expect(resolved).not.toBeNull();
+    expect(resolved!.allRefusalCodes).toContain(resolved!.refusalCode);
+    // The set is the input VERBATIM, in its own order — the evaluation order is
+    // itself evidence for support, and reordering it would discard that.
+    expect(resolved!.allRefusalCodes).toEqual(input);
+  });
+
+  it('resolvePolicyGateRefusal throws on a code in neither the veto set nor the precedence list', () => {
+    // An unrecognised code is a FAULT, not a category (CONTEXT.md → Refusal
+    // category). A default would file an unmapped refusal under a
+    // plausible-looking heading and the owner could not tell the difference.
+    expect(() => resolve(['not_a_block_reason'])).toThrow(/not_a_block_reason/);
+    expect(() => resolve([blockPrecedence()[0]!, 'not_a_block_reason'])).toThrow(
+      /not_a_block_reason/,
+    );
+  });
+
+  it('resolvePolicyGateRefusal returns null for an empty block reason list', () => {
+    // An approved draft. No decision was made, so there is nothing to record —
+    // and C5 rejects an empty array outright, so a row here could not be stored.
+    expect(resolve([])).toBeNull();
+  });
+
+  it('a suspended week resolves policy_suspended and rating_below_threshold to autonomy_paused', () => {
+    // #1003's deciding case: 45 drafts each carrying both codes must report
+    // "Autonomy paused — 45", never "Sent to you — 45". Reusing
+    // evaluateAutoApprovalCandidate's evaluation order would report the latter,
+    // which is why that order is rejected as a precedence.
+    const resolved = resolve(['rating_below_threshold', 'policy_suspended']);
+    expect(resolved?.refusalCategory).toBe('autonomy_paused');
+    expect(resolved?.refusalCode).toBe('policy_suspended');
+  });
+
+  it('a downgraded Autopilot account on a two-star review resolves to no Refusal', () => {
+    // The policy row survives a downgrade (`auto-policy-downgrade.ts`), so the
+    // draft is still evaluated. Telling the owner "We wanted you to decide this
+    // one" would be false: the account holds no Autopilot, so that draft was
+    // always going to them and we chose nothing.
+    expect(resolve(['autopilot_tier_required', 'rating_below_positive_quadrant'])).toBeNull();
+  });
+
+  it('HELD_DRAFT_REFUSAL_CATEGORY is the frozen unsafe_content literal', () => {
+    expect(heldDraftCategory()).toBe('unsafe_content');
+    // A member of the closed set migration 116's CHECK admits. #1001 REJECTED a
+    // CHECK pinning this lane to this category — true today, but it would make a
+    // future re-map migration-bearing. The vocabulary owns the mapping; the
+    // database owns the closed set.
+    expect(columnCheckMembers('refusal_category')).toContain(heldDraftCategory());
   });
 });
