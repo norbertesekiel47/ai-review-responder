@@ -4252,9 +4252,16 @@ with **Send Test Notification** plus an API readback. A test notification is *by
 construction* a first-seen event — the single case these triggers handle. So the verification
 exercised the one path that works and generalised to all of them.
 
-CORRECT → add a **frequency** trigger alongside first-seen (e.g. *the issue is seen more than
-0 times in one hour*) and let the rule's own `frequencyMinutes` throttle repeats. Do not drop
-the state-change triggers; first-seen is still the fastest path for a genuinely new fault.
+CORRECT → add the **`Every event`** trigger alongside first-seen — in the UI it is *"An event
+or issue activity is captured"*; there is **no** *"seen more than 0 times in one hour"* option
+— and set an **Action Throttle** (60 minutes) so repeats page at most hourly per issue. Do not
+drop the state-change triggers; first-seen is still the fastest path for a genuinely new
+fault, and the throttle does not delay it because a new issue has no prior notification.
+
+FIXED AND PROVEN 2026-08-31 on both rules. The re-run is a controlled experiment worth
+copying: **re-use the identical fixtures so they land in the SAME Sentry issue groups**, and
+the trigger set becomes the only changed variable. Before: `lastTriggered` unmoved across two
+poller cycles. After: `21:37:05Z`, 15 s after the cycle.
 
 Two general lessons:
 

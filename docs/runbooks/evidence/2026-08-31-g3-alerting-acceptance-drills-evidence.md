@@ -135,6 +135,40 @@ fastest path for a genuinely new fault.
 ⚠️ **Do not close G.1 as fully done on the strength of the test notification.** Its routing
 half is proven; its recurrence half is not, and is now known to be broken.
 
+### D-2 RESOLVED, same session, and PROVEN by a controlled re-run
+
+Both rules were edited in the Sentry UI (no MCP tool exists for alert rules) and verified by
+API readback:
+
+| Rule | Frequency | Triggers | Filters / Actions |
+|---|---|---|---|
+| `3608329` staging | `0` → **`60 min`** | 4 → **5** (`+ Every event`) | Email + Discord — **unchanged** |
+| `3925256` **production** | `0` → **`60 min`** | 4 → **5** (`+ Every event`) | four `Tagged event` filters + Discord `1544045194264051842` — **unchanged** |
+
+Staging updated `21:30:58Z`; production updated `21:34:53Z`. **Nothing was removed from
+either rule.**
+
+**Two notes on how the fix was built.** The trigger list offers no *"seen more than 0 times
+in one hour"* option — the available equivalent is **"An event or issue activity is
+captured"**, stored as `Every event`, which fires on every occurrence. That alone would page
+every 5 minutes for as long as a fault persists, so **Action Throttle was set to 60
+minutes** on both rules. Together they give the intended posture: repeats page, at most
+hourly, per issue — and a genuinely new issue still pages immediately, because the throttle
+is per-issue and a new issue has no prior notification.
+
+**The regression test (T4–T6) is a controlled experiment.** Same fixture shapes, same
+review, and critically the **same pre-existing Sentry issue groups** that stayed silent
+earlier. The only variable changed was the trigger set.
+
+| | Before the fix | After the fix |
+|---|---|---|
+| Poller cycles | 21:11:50Z, 21:16:50Z | 21:36:50Z |
+| `Health alert findings` | `count: 2` | `count: 2` |
+| Rule `lastTriggered` | **unchanged** — stuck at 2026-08-31T01:00:46Z | **2026-08-31T21:37:05.753Z** |
+
+**A page 15 seconds after the poller cycle, on issue groups that had produced nothing an
+hour earlier.** Nothing else in the system changed.
+
 ---
 
 ## Drill results
@@ -142,8 +176,13 @@ half is proven; its recurrence half is not, and is now known to be broken.
 | Drill | Finding fires | Reaches Sentry | **Pages Discord** | Verdict |
 |---|---|---|---|---|
 | **§4.1** Stuck outbox | — | — | — | **BLOCKED** (D-1) |
-| **§4.2** Failed publish | ✅ `outbox_failed:publish_response` | ✅ `REPWORTH-STAGING-9`, 2 events | ❌ | **QUALIFIED FAIL** — the drill worked, the alert route did not (D-2) |
-| **§4.3** Zero-delivery | ✅ `zero_delivery_notifications` | ✅ `REPWORTH-STAGING-G`, 2 events | ❌ | **QUALIFIED FAIL** — same cause (D-2) |
+| **§4.2** Failed publish | ✅ `outbox_failed:publish_response` | ✅ `REPWORTH-STAGING-9` | ✅ **after the D-2 fix** | **PASS** |
+| **§4.3** Zero-delivery | ✅ `zero_delivery_notifications` | ✅ `REPWORTH-STAGING-G` | ✅ **after the D-2 fix** | **PASS** |
+
+> Both were a **QUALIFIED FAIL** on the first run at 21:11Z/21:16Z — the finding fired and
+> reached Sentry, but no page was produced. They pass on the 21:36Z re-run, **after** D-2 was
+> fixed and with the fixtures unchanged. That sequence is the evidence, not the pass on its
+> own.
 
 **Timeline.** Fixtures created 21:07:30–21:07:40Z. Poller cycles at **21:11:50Z** and
 **21:16:50Z**, each logging `Health alert findings {"count":2}` — the two drills and nothing
@@ -166,6 +205,15 @@ ledger BEFORE the fixtures existed, per the contract.
 | T1 | `job_outbox` row — §4.2 synthetic failed publish | `01a059a5-5966-7b92-92f3-caf6593dfd75` | `DELETE FROM job_outbox WHERE id = '01a059a5-5966-7b92-92f3-caf6593dfd75'` | ✅ **removed 21:21Z, verified 0 rows** |
 | T2 | `responses` row — §4.3 fresh `pending_approval` draft | `01a059a5-5966-79ac-bd27-f77f2ccf2387` (review `01a03996-2b54-725b-a04e-df183805c3c1`) | `DELETE FROM responses WHERE id = '01a059a5-5966-79ac-bd27-f77f2ccf2387'` — **delete T3 first** (no FK, but the check joins them) | ✅ **removed 21:21Z, verified 0 rows** |
 | T3 | `job_outbox` row — §4.3 completed `send_notification` | `01a059a5-5966-75b4-8fa6-0b55d75e2cd3` | `DELETE FROM job_outbox WHERE id = '01a059a5-5966-75b4-8fa6-0b55d75e2cd3'` | ✅ **removed 21:21Z, verified 0 rows** |
+| **T4** | **REGRESSION run** — `job_outbox` §4.2 failed publish | `01a059c9-0000-7000-9000-000000000042` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000042'` | ✅ **removed 21:38Z, verified 0 rows** |
+| **T5** | **REGRESSION run** — `responses` fresh `pending_approval` | `01a059c9-0000-7000-9000-000000000043` | `DELETE FROM responses WHERE id = '01a059c9-0000-7000-9000-000000000043'` | ✅ **removed 21:38Z, verified 0 rows** |
+| **T6** | **REGRESSION run** — `job_outbox` completed `send_notification` | `01a059c9-0000-7000-9000-000000000044` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000044'` | ✅ **removed 21:38Z, verified 0 rows** |
+
+**T4–T6 are the D-2 regression test**, created 21:36Z after both alert rules gained the
+`Every event` trigger and a 60-minute throttle. Same shapes as T1–T3, same review
+(`01a03996-2b54-…`, still zero responses), same design notes. The assertion is different:
+these findings join the **same pre-existing Sentry groups** that stayed silent at 21:11Z and
+21:16Z, so a page now proves the fix and nothing else could.
 
 **Fixture design notes, recorded at creation time:**
 
@@ -205,57 +253,55 @@ ledger BEFORE the fixtures existed, per the contract.
 
 | Drill | State | Disposition |
 |---|---|---|
-| §4.1 Stuck outbox | **BLOCKED** | D-1 — unrunnable as written; needs reordering behind a worker stop |
-| §4.2 Failed publish | fires + reaches Sentry; **does not page** | D-2 — reopen once the trigger set is fixed |
-| §4.3 Zero-delivery | fires + reaches Sentry; **does not page** | D-2 — reopen once the trigger set is fixed |
+| §4.1 Stuck outbox | **BLOCKED** | D-1 — unrunnable as written; fold into the §4.7 worker-stop drill |
+| §4.2 Failed publish | ✅ **PASS** | Fires, reaches Sentry, **pages** |
+| §4.3 Zero-delivery | ✅ **PASS** | Fires, reaches Sentry, **pages** |
 | §4.4 Cost-cap hit | open | Not attempted |
-| §4.5 Send breaker re-page | open | **Blocked in substance by D-2** — this drill asserts *more than the opening two* notifications, and the current trigger set cannot produce repeats at all |
-| §4.6 Unattributed suppression | open | Not attempted. Asserts one notification on the 4th event — also a repeat-suppression case, so re-read D-2 before running it |
-| §4.7 Killed worker | open | Not attempted. Pairs with §4.1 under D-1's proposed reordering |
-| §4.8 Probe stopped | open | Not attempted. Cron-monitor path — **unaffected by D-2**, since a missed check-in is a different mechanism |
+| §4.5 Send breaker re-page | open | **Now runnable.** It asserts *more than the opening two* notifications — impossible before D-2 was fixed, possible now |
+| §4.6 Unattributed suppression | open | **Now runnable**, same reason. Leaves one permanent ledger row — read the teardown note first |
+| §4.7 Killed worker | open | Pairs with §4.1 under D-1's reordering |
+| §4.8 Probe stopped | open | Cron-monitor path — was never affected by D-2 |
 | §4.9 Backlog over threshold | open | Not attempted |
 | §4.10 Capacity burst headroom | open | Not attempted |
 
-**Eight of ten drills remain unattempted, and the two that ran did not fully pass.** No path
-is being recorded as proven on partial evidence.
+**2 of 10 pass. 7 remain unattempted, 1 blocked.** G.3 is **not** complete.
 
 ---
 
 ## Runbook feedback (contract step 7)
 
-Two defects in `beta-launch-alerting.md` §4, neither yet applied — both change drill
-*ordering* and want owner sign-off first:
-
-1. **§4.1 is unrunnable in isolation** (D-1). Fold it into the §4.7 worker-stop drill.
-2. **§4 assumes a repeat finding pages** (D-2). §4.5 and §4.6 are both written as
-   *count* assertions ("more than the opening two", "one notification once the fourth
-   crosses"). Under the current Sentry trigger set neither can pass, no matter how correct
-   the application code is. §4 needs a stated precondition that the alert rules carry a
-   frequency trigger — otherwise it tests the application and silently exempts the alerting.
+1. **§4.1 is unrunnable in isolation** (D-1) — not yet applied; fold it into §4.7.
+2. **§4 assumed a repeat finding pages** (D-2) — the assumption was false when this campaign
+   started. §4.5 and §4.6 are both written as *count* assertions and could not have passed on
+   any code, however correct. **§4 now needs a stated precondition**: the alert rules must
+   carry the `Every event` trigger, or the campaign silently tests the application and exempts
+   the alerting. Both fixes want owner sign-off before being written into the runbook.
 
 ---
 
 ## Verdict
 
-**FAIL — and the failure is the point.**
+**PARTIAL PASS — and the campaign's value is D-2, not the two drills.**
 
-- **Teardown: COMPLETE.** All three fixtures removed 21:21Z and verified gone by query. Every
-  baseline matches preflight exactly: outbox `pending 0 / failed 0 / total 49`, suppressions
-  `5`, breaker `0` open. **Staging is in its pre-campaign state.**
-- **No flags were flipped**, so no flag baseline needed restoring.
-- **Production was never touched** by this campaign. The production finding in D-2 came from
-  reading an alert rule, not from exercising anything.
-- **Deviations:** D-1 (runbook defect, §4.1 unrunnable), D-2 (**production alerting defect** —
-  recurring ops findings do not page).
-- **Unproven paths:** 8 unattempted, 2 qualified. G.3 is **not** complete.
+- **§4.2 and §4.3 PASS**, on the re-run, after fixing a production defect they exposed.
+- **D-2 found and fixed in-session**, on **both** rules, verified by API readback, and proven
+  by a controlled re-run whose only changed variable was the trigger set.
+- **D-1 open** — a runbook defect, not a product defect.
+- **Teardown: COMPLETE.** All six fixtures (T1–T6) removed and verified by query. Baselines
+  byte-identical to preflight: outbox `pending 0 / failed 0 / total 49`, suppressions `5`,
+  breaker `0` open. **Staging is in its pre-campaign state.**
+- **No flags were flipped.**
+- **Production change:** one alert rule's triggers and throttle, deliberate and owner-directed.
+  No application, schema, or data change.
 
-**What this campaign is worth.** It ran two of ten drills and found that the alerting those
-drills exist to validate has a hole in production. The application side works — findings
-compute correctly and reach Sentry within one poll interval, exactly as designed. The paging
-side only works for a signal's **first ever** occurrence.
+**What this cost and what it bought.** Two of ten drills, and they found that production's
+ops alerting paged only on a signal's **first ever** occurrence. G.1 had verified that
+routing with a **Send Test Notification** — which is, by construction, a first-seen event, so
+it exercised the one path that worked and generalised to all of them. The gap would have
+surfaced as silence during a real incident.
 
-**Recommended next action, before any further drill:** fix the trigger set on both rules
-(`3608329` staging, `3925256` production), then re-run §4.2 and §4.3 — they are now cheap,
-scripted and proven-correct fixtures, so they double as the regression test for the fix.
+**Next:** §4.5 and §4.6 are now genuinely runnable and should go first — they are the two
+drills that directly assert repeat-notification behaviour, so they re-test D-2 from a second
+angle. Then §4.4, §4.9, §4.10, and §4.1+§4.7 as a merged pair.
 
-**UTC end (this session's portion): 2026-08-31T21:22Z.**
+**UTC end (this session's portion): 2026-08-31T21:39Z.**
