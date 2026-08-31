@@ -180,12 +180,17 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 // #1002 ruled there is never a backfill, so a value changed here would silently
 // disagree with every row a later map writes.
 //
-// `| null` APPEARS ONLY WHERE A NULL MEMBER ACTUALLY EXISTS. A lane whose codes
-// are all Refusals is typed `Record<Enum, RefusalCategory>`, so an omission
-// cannot type-check as a decision — the rule
-// `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` states below, applied to all six.
-// Where `null` IS present it means "this code is not a **Refusal**", never a
-// missing entry and never a default; each one carries its own reason.
+// `| null` APPEARS ONLY WHERE A NULL MEMBER ACTUALLY EXISTS, and BE PRECISE
+// ABOUT WHAT THAT BUYS, because an earlier wording of this paragraph — and of
+// `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` below — claimed it stops an OMISSION
+// from type-checking, which is false. `satisfies Record<Enum, V>` demands every
+// key whatever `V` is, so a missing key is a compile error in all six maps
+// either way. What the narrower value type controls is whether `null` is
+// SPELLABLE: in a lane where every code is a Refusal, `Record<Enum,
+// RefusalCategory>` makes "not a Refusal" unwritable, so nobody can silence a
+// lane one entry at a time. Where `null` IS admitted it means "this code is not
+// a **Refusal**", never a missing entry and never a default; each one carries
+// its own reason.
 // ---------------------------------------------------------------------------
 
 /**
@@ -204,8 +209,14 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
  *
  * No `| null` in the constraint, unlike the parked branch's version of this map.
  * Every trigger IS a refusal; there is no "known, not a refusal" arm in this
- * lane, and widening the type to admit one would invite an omission to type-check
- * as a decision.
+ * lane, so `null` must not be spellable here.
+ *
+ * (This sentence used to say that widening the type "would invite an omission to
+ * type-check as a decision". That was wrong and is corrected rather than left to
+ * propagate: `satisfies Record<Enum, V>` demands every key whatever `V` is, so an
+ * omission is a compile error either way. The narrow value type buys the other
+ * thing — it stops a future author writing `null` into a lane that has no
+ * not-a-Refusal arm.)
  */
 export const AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES = {
   judge_flag: 'autonomy_paused',

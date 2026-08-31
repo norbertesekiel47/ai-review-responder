@@ -11,21 +11,15 @@ import {
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '../../../src/lib/shared/outbox';
+// `AutoPolicyDowngradeReason` is DECLARED in `src/lib/shared/worker-types.ts`,
+// beside `AutonomySuspensionTrigger` and for the same reason: the Refusal
+// ledger's vocabulary maps every member to a **Refusal category**, and no
+// production module under `src/lib/` imports from `worker/`. This module still
+// owns the downgrade BEHAVIOUR; only the declaration moved, and it is NOT
+// re-exported — nothing outside this file has ever imported it (verified at the
+// merge base and at head), and `working-rules.md` bans a compatibility shim
+// with no named external consumer.
 import type { AutoPolicyDowngradeReason } from '../../../src/lib/shared/worker-types';
-
-/**
- * The union MOVED to `src/lib/shared/worker-types.ts` and is re-exported here,
- * so every existing `import type { AutoPolicyDowngradeReason } from
- * './auto-policy-downgrade'` still resolves and this module keeps naming its own
- * input.
- *
- * NOT A COMPATIBILITY SHIM. This module owns the downgrade BEHAVIOUR and the
- * reason is part of its input contract; what moved is only the declaration, and
- * only because `src/lib/refusals/vocabulary.ts` must map every member to a
- * **Refusal category** and nothing under `src/lib/` may import from `worker/`.
- * `AutonomySuspensionTrigger` sits in that file for the same reason.
- */
-export type { AutoPolicyDowngradeReason };
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).

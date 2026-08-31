@@ -97,6 +97,18 @@ which edits `approval.ts` anyway and can carry the one-word fix.
 
 **Verdict:** ACCEPT — recorded for #1010 rather than fixed here.
 
+**REVERSED by the standards review (S5).** Both halves of the reasoning above
+are wrong. `src/lib/solicitation/approval.ts` was in this branch's
+`allowed_edit_surface` from the first draft, so fixing the comment never needed
+an amendment; and the prerequisite lands BEFORE #1010 arms, so a surface
+collision with it is sequenced away regardless. The reviewer's point stands on
+its own besides: the future author adding a halt reason stands in `approval.ts`,
+and that docblock mentioned neither the ledger nor the map. The count is now
+SIX, the non-export rationale is stated at the site, and the ledger obligation
+is named there. This entry is left in place rather than deleted — a deviations
+file that quietly loses a reversed decision is worth less than one that shows
+the reversal.
+
 ---
 
 ## D5 — Surface amendment 1: the architecture review log
@@ -185,9 +197,79 @@ path without the glob star, or use a line comment.`
 
 ---
 
+## D8 — The reclassify trigger fired; SMALL was the wrong lane
+
+**What happened.** The final gate's `reclassify` row WARNed: 241 production
+lines against an estimate of 120, over the 2x trigger. Test lines came in at 215
+against 150, inside it. Workflow artifacts are excluded from both counts.
+
+**Where the lines are.** `vocabulary.test.ts` 215 · `vocabulary.ts` 186 ·
+`worker-types.ts` 31 · `auto-policy-downgrade.ts` 21 · `docs/directory.md` 2 ·
+`arch-review-log.md` 1. The overrun is almost entirely DOCBLOCK PROSE in
+`vocabulary.ts`, matching that file's existing density — the executable content
+is five `const` objects, one type alias and one re-export.
+
+**The honest reading.** By seams and risk this is SMALL: one module, one
+vocabulary, no runtime path, no behaviour, no schema, no flag. By CHANGED LINES
+it is not, and the trigger measures lines. `execution-lanes.md` puts SMALL at
+"roughly 150 changed lines"; this is 456.
+
+**Resolution — reclassified to `size: standard`,** with both estimates set to
+the MEASURED values in both intake copies. That silences the trigger for the
+rest of the branch, which is what "re-run step 0 with the real numbers"
+instructs; it is recorded here so the correction cannot be mistaken for tuning
+the estimate to fit.
+
+**What the STANDARD lane owes, and what was paid.** It owes parallel
+spec/correctness AND standards/maintainability reviews. Spec/correctness already
+ran. **The maintainability axis was added and run because of this
+reclassification** — it would not have run under SMALL.
+
+**What was NOT paid, stated rather than skipped quietly.** The step-7 wave's
+RED-TEAM member did not run. The reason is proportionality: red team is a
+mutation verifier, and this diff's executable surface is five constant objects
+whose every key and value the exhaustiveness eval already pins by construction —
+a mutation to any category value or key fails `expectLaneMap` on the next run.
+There is no branch, no state machine and no failure path to mutate. The owner
+can overrule this and send the branch back for a pass; it is called out in the
+merge report for exactly that reason.
+
+**Verdict:** ACCEPT — lane corrected, its review cost paid, one omission named
+with its reason and surfaced to the owner rather than buried.
+
+---
+
+## D9 — Standing obligation: an abandoned slice orphans its map
+
+**What the standards review found (S7).** Five maps exist ahead of their write
+sites by design, for the length of a parallel run. No gate can tell an
+orphaned map from a waiting one: `ci:fallow` gates nothing, and
+`ci:fallow:coverage` cannot move on a constant the eval fully asserts. So if a
+slice is abandoned or re-scoped, its map keeps a present-tense "Written by X"
+docblock indefinitely.
+
+**Resolution — an obligation rather than a check.** If #1010, #1011 or #1012 is
+abandoned, or re-scoped so it no longer writes its lane, **its map is deleted in
+that same decision.** Every map's docblock names its ticket, which is what makes
+the check possible for a human; no mechanical rule would be better than a worse
+guess. Recorded here and in the architecture review log so it survives this
+session.
+
+**Verdict:** ACCEPT — no code change; the obligation is the deliverable.
+
+---
+
 ## Review triage
 
-One axis (spec & correctness), four findings, none HIGH: two ACCEPT-and-fixed,
-one ACCEPT-and-corrected, one REJECT with reasons. Full record:
-`docs/reviews/feat-refusal-lane-vocabulary/triage.md`. Report:
-`docs/reviews/feat-refusal-lane-vocabulary/spec-correctness.md`.
+TWO axes, twelve findings, eleven ACCEPT and one REJECT.
+
+* **Spec & correctness** (head `0a21f352`) — 4 findings, none HIGH. Three
+  accepted and fixed, one rejected with reasons.
+* **Standards & maintainability** (head `a7ff420b`) — 8 findings, 4 MEDIUM,
+  **all eight accepted**. It ran only because of D8's reclassification, and it
+  paid for itself: the sharpest finding of either axis is S2, a false claim
+  about what `| null` buys, present in this branch's wording AND in #1009's,
+  both now corrected.
+
+Full record: `docs/reviews/feat-refusal-lane-vocabulary/triage.md`. Reports:
+`spec-correctness.md` and `standards.md` in the same directory.

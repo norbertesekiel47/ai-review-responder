@@ -174,11 +174,18 @@ function latchHaltMembers(): readonly string[] {
  * non-export in source text, because the union spans actor classes and an
  * exported signature accepting it could forge an actor — so requiring `export`
  * here would force a choice between reading the real declaration and leaving
- * that design intact. Reading the text needs no export. A union name is unique
- * in its module, so the looser anchor cannot match something else.
+ * that design intact. Reading the text needs no export.
+ *
+ * THE MATCH IS ANCHORED AT COLUMN ZERO for that same reason. Dropping `export`
+ * from the pattern widens what it can hit, and a JSDoc line reading
+ * `` * type LatchHaltReason = … `` inside a comment is exactly the shape that
+ * would then match first — not a hypothetical, since this branch's own
+ * deviations route a rewrite of that module's comment to #1010. A top-level
+ * declaration starts at column zero in every module this reads, so requiring
+ * that excludes every indented line and every comment body.
  */
 function unionMembers(relativePath: string, typeName: string): readonly string[] {
-  const declaration = new RegExp(`(?:export )?type ${typeName}\\s*=([^;]*);`).exec(
+  const declaration = new RegExp(`(?:^|\\n)(?:export )?type ${typeName}\\s*=([^;]*);`).exec(
     readRepoFile(relativePath),
   );
   const body = declaration?.[1];
@@ -376,12 +383,30 @@ describe('Refusal ledger vocabulary', () => {
     // ban covers src/app/** and src/components/**, not this file — there is no
     // ESLint rule behind this, which is why the assertion is here.
     //
-    // Only a continuation line of a multi-line import fails to start with
-    // `import`, so testing the first line of each statement is sufficient.
-    const runtimeImports = readRepoFile(VOCABULARY_MODULE)
-      .split('\n')
-      .filter((line) => /^import\s/.test(line) && !/^import type\s/.test(line));
+    // THREE WAYS A VALUE CAN ENTER A MODULE, and an earlier version of this case
+    // checked only the first — a re-export or a dynamic import would have passed
+    // it silently while pulling the same graph in.
+    //
+    //   1. `import …`      — a plain statement. Only a CONTINUATION line of a
+    //                        multi-line import fails to start with `import`, so
+    //                        matching the first line of each statement is enough.
+    //   2. `export … from` — a re-export is an import with a different name, and
+    //                        `export type … from` is the only erased form.
+    //   3. `import(…)`     — dynamic, never erased, and legal anywhere in the
+    //                        file rather than only at the top.
+    const source = readRepoFile(VOCABULARY_MODULE);
+    const lines = source.split('\n');
+
+    const runtimeImports = lines.filter(
+      (line) => /^import\s/.test(line) && !/^import type\s/.test(line),
+    );
+    const runtimeReExports = lines.filter(
+      (line) => /^export\s/.test(line) && /\sfrom\s/.test(line) && !/^export type\s/.test(line),
+    );
+    const dynamicImports = lines.filter((line) => /\bimport\s*\(/.test(line));
 
     expect(runtimeImports, 'every import in vocabulary.ts must be `import type`').toEqual([]);
+    expect(runtimeReExports, 'a re-export pulls the same graph an import would').toEqual([]);
+    expect(dynamicImports, 'a dynamic import is never erased at compile time').toEqual([]);
   });
 });

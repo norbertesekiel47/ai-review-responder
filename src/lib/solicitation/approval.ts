@@ -450,9 +450,23 @@ export async function approveBatch(
   });
 }
 
-/** The writable Halt latch reasons — all five, one mechanism. NOT exported:
+/** The writable Halt latch reasons — all SIX, one mechanism. (The count read
+ *  "five" until migration 111 added `platform_halt` to `SystemHaltReason`; the
+ *  union was right and the sentence was not.) NOT exported, and it must stay
+ *  that way — `approval.test.ts` pins the non-export in source text, because
+ *  this union spans ACTOR CLASSES and an exported signature accepting it would
+ *  let a request field name `admin_halt` or `owner_veto` and forge an actor:
  *  `OwnerHaltReason` stays the 2-member public write union, the admin arm's
- *  reason is a constant, and `SystemHaltReason` is the system arm's own. */
+ *  reason is a constant, and `SystemHaltReason` is the system arm's own.
+ *
+ *  ADDING A MEMBER HERE HAS A SECOND OBLIGATION. The Refusal ledger maps every
+ *  halt reason to a **Refusal category** or to `null` in
+ *  `BATCH_HALTED_REFUSAL_CATEGORIES` (`src/lib/refusals/vocabulary.ts`), which
+ *  cannot import this union and re-composes it from the two public halves. So a
+ *  reason added to `OwnerHaltReason` or `SystemHaltReason` is a COMPILE error
+ *  there until it is mapped, but one added as a bare literal on the line below
+ *  is caught only by that module's eval, which reads this declaration as text.
+ *  Either way, decide the category in the same change. */
 type LatchHaltReason = OwnerHaltReason | 'admin_halt' | SystemHaltReason;
 
 /** The admin arm's reason, fixed by the caller's identity (D1 / ticket

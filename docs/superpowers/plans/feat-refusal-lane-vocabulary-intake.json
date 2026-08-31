@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "size": "small",
+  "size": "standard",
   "risk": "normal",
   "risk_reasons": [],
   "surface": "backend",
@@ -69,8 +69,8 @@
     "vocabulary.ts imports no value at runtime, so the Restraint tab may import it"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 120,
-  "estimated_test_lines": 150,
+  "estimated_prod_lines": 241,
+  "estimated_test_lines": 215,
   "dependencies_added": [],
   "rollback_plan": "Revert the PR on main. The maps have no production caller in this slice, so a revert removes constants and two type exposures and changes no behaviour. Nothing is written to any database and no migration is involved. If a swarm branch has already merged on top, revert that branch first — its write site is the only thing that reads a map.",
   "observability": [],
