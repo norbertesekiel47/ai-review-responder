@@ -4291,3 +4291,79 @@ the predicates are identical, so the dispatcher wins at any threshold.
 General lesson: **when a drill's fixture is consumed by the very system it is meant to
 observe, the drill is measuring the consumer, not the observer.** Check whether the reader
 and the writer share a predicate before trusting a synthetic fixture.
+
+### [2026-08-31] G.1 shipped four of six specified rules → the two it dropped were exactly the frequency-conditioned ones
+FAIL → G.3's next two drills (§4.5 send-breaker re-page, §4.6 unattributed suppression) both
+assert the behaviour of a named alert rule. **Neither rule exists**, in staging or in
+production. Read back from the Sentry API before the first fixture:
+
+| Project | Rules | Action filters |
+|---|---|---|
+| `repworth-staging` | one — `3608329` | **none at all** |
+| `repworth-production` | `3925256` | four `Tagged event`: `health_alert`, `limit_exceeded`, `stripe_reconciliation`, `import_consent_analytics` |
+| `repworth-production` | `3920752` | none; **New/Existing high priority issue** only, throttle `0` |
+
+`beta-launch-alerting.md` §1a-do specifies **six**. Rule 5
+(`finding = solicitation_send_breaker_tripped`) and rule 6
+(`feature = solicitation_lane`) are in neither project.
+
+WHY IT IS NOT A COINCIDENCE → rules 1–3 trigger on **first seen**. Rules 4, 5 and 6 trigger
+on **frequency** ("seen more than 3 times in one hour"), because each of their capture titles
+is a constant string that groups every occurrence into ONE Sentry issue. G.1 built the
+first-seen family and verified it with a **Send Test Notification** — which is by
+construction a first-seen event. **The verification could only exercise the family that was
+built, so the missing family was invisible to it.** That is the same root cause as D-2 one
+level up: D-2 was "the rule's trigger set cannot see a repeat"; this is "the rules that exist
+at all are the ones whose trigger is not about repeats."
+
+CONSEQUENCE, and the live half → `reportUnattributedSuppression` emits `level:'warning'`
+tagged `feature:solicitation_lane`. In production that matches none of `3925256`'s four
+filters, and CONFIG-1 (2026-06-24) already established that a `warning` `captureMessage` does
+not reliably classify as high priority, so `3920752` does not catch it either. **The capture
+reaches Sentry and pages nobody** — verbatim the failure §1 predicts for a missing rule 6.
+Not harmful yet, because solicitation sending is off in production; harmful at the first
+send. Two further signals have no rule in either project for the same reason:
+`subsystem:refusal_ledger` and `subsystem:autonomy_governor`.
+
+CORRECT → build rule 6 in both projects, and **scope the staging catch-all**, which pages on
+every issue today purely because it has no filter. **Do NOT build rule 5**: its whole purpose
+was the repeat page on an open breaker, and D-2's `Every event` trigger now supplies that on
+`subsystem:health_alert`, which the breaker finding carries. A second rule would double every
+breaker page and buy nothing. Recorded in §1a-do as superseded rather than deleted, because
+its *reasoning* about why the repeat matters is still the correct account.
+
+General lesson, and it is the reusable one: **a spec that lists N rules and an implementation
+that ships M < N is not caught by testing the M.** When a routing spec groups its rules by
+*trigger kind*, verify one of each kind — and read the live rule set back from the API rather
+than inferring it from the tickets that were worked.
+
+### [2026-08-31] A drill's duration was budgeted from the poll interval, not the throttle → its own count assertion was unreachable
+FAIL → §4.5 said: hold an open breaker across *"at least three
+`HEALTH_ALERT_POLL_INTERVAL_MS` intervals"* (≈ 15 min) and confirm Discord receives *"more
+than the opening two"* notifications.
+
+WHY → the two halves contradict each other, and §1 of the same runbook already said so:
+*"Sentry's default action interval is 60 minutes per issue, so a 5-minute poll interval does
+not mean a 5-minute page."* Fifteen minutes against a 60-minute Action Throttle can only ever
+yield **one** page. The drill was written against the poller's cadence when the paging
+cadence is the rule's. *"The opening two"* also does not survive a hand-inserted fixture: it
+counted the trip finding **and** the open-trip re-page finding as two constant titles, but
+inserting the row directly skips `evaluateSendBreaker`'s breach arm, so only the re-page
+title is ever emitted.
+
+CORRECT → assert **more than one** notification, and time the wait from the **first page**
+at the **throttle** cadence. Prove the level-triggered half separately and far more cheaply:
+the Sentry issue's occurrence count must rise by one on **every** poll cycle while the page
+stays throttled. Observed on the corrected run — occurrences at 22:31:50, 22:36:50 and
+22:41:50 on a perfect 5-minute cadence, with `lastTriggered` moving once, at 22:32:07.
+
+Two things worth copying:
+
+- **Pick a fixture whose Sentry group ALREADY EXISTS.** Then `First seen event` cannot fire,
+  so a page proves the `Every event` trigger and nothing else could. Same controlled shape as
+  D-2's re-run, from a second angle.
+- **Rising occurrences with a static `lastTriggered` is the SAME observation as D-2's, and
+  now means the opposite thing.** Before the fix it meant the trigger set could not see the
+  repeat. After it, it means the throttle is holding the page — which is the intended
+  posture. An observation is not a diagnosis; read it against the configuration that
+  produced it.

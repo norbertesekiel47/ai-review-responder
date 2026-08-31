@@ -351,13 +351,25 @@ distinguishable from a non-matching fixture.
 | **Poller cycle** | `HealthAlertPoller` → `Health alert findings {"count":1}` at `level:error`. **Count is 1**, matching a clean baseline plus this one fixture | 22:31:50.228Z |
 | **Sentry** | `REPWORTH-STAGING-11` occurrences **1 → 2**, last seen 22:31:50Z. Event `4634ca134e7a4b1c868d614b2b88c40c` carries `trip_id: "01a05a00-0000-7000-9000-000000000045"` and `tripped_at: "2026-08-31T22:29:01.805Z"` — **attribution to this fixture is exact, not inferred** | 22:31:50.227Z |
 | **Rule fired** | `3608329` `lastTriggered` **21:37:05.753Z → 22:32:07.769Z**, 17 s after the cycle | 22:32:07.769Z |
-| **Discord** | ⏳ owner confirmation pending | — |
+| **Discord** | ✅ **CONFIRMED BY THE OWNER.** Message delivered **22:32Z / 3:32 PM PDT**, title the exact `openTripFinding` string. Its footer reads **`REPWORTH-STAGING-11 via Send a notification for high priority issues • Today at 3:31PM`** | 22:32Z |
 
 **An unplanned second proof, worth keeping.** On the same cycle `SolicitationReleasePoller`
 flipped `releasePhaseStoppedBy` from `null` — its value on every cycle from 22:10Z to
 22:26Z — to **`"breaker_open"`**. That is the breaker's **gate** half (`readSendBreaker` on
 the send loop) observed independently of its **alert** half (`evaluateSendBreaker` on the
 health poller). The drill was scoped to the alert; it evidenced both.
+
+**The Discord footer is better evidence than `lastTriggered`, and it was not asked for.**
+It names the **issue** (`REPWORTH-STAGING-11`) *and* the **rule**
+(*"Send a notification for high priority issues"* = `3608329`) *and* the originating event
+time (3:31 PM, the 22:31:50Z cycle). `lastTriggered` proves only that *some* issue fired
+*this* rule; the footer proves **which** issue fired it. For page 1 that retires the
+rule-level confound described below entirely — no cross-check against other issues is needed.
+
+**What page 1 does and does not settle.** It closes the chain
+`fixture → HealthAlertPoller → captureMessage → issue group → alert rule → Discord → a human
+saw it`. It does **not** close the drill: a first-seen-only rule would also have produced
+exactly one page. The drill's assertion is about the **second**.
 
 ### Cycles 2..n — the level-triggered half, proven cheaply
 
@@ -376,6 +388,56 @@ Both events carry `trip_id: "01a05a00-0000-7000-9000-000000000045"` and
 `tripped_at: "2026-08-31T22:29:01.805Z"` in `extra`, so each is attributable to **this**
 fixture rather than to any prior breaker state.
 
+### The level-triggered half, closed at 23:16:50Z — ten emissions, one page
+
+Sentry event search on `finding:solicitation_send_breaker_tripped`, staging, 24 h window:
+
+```
+22:31:50  22:36:50  22:41:50  22:46:50  22:51:50
+22:56:50  23:01:50  23:06:50  23:11:50  23:16:50
+```
+
+**Ten events, every 300 s, no gap.** Across the whole span rule `3608329`'s `lastTriggered`
+moved **once**, at 22:32:07.769Z.
+
+That single table settles both halves of what §4.5 is really asking:
+
+- **The finding is level-triggered, not edge-triggered.** `evaluateSendBreaker` probes for an
+  open trip before it measures anything and returns `openTripFinding` on every tick. Ten
+  consecutive cycles emitted; none was skipped. A single dropped Sentry event therefore
+  cannot leave sending halted platform-wide in silence — which is the reason #907 made this
+  check level-triggered in the first place.
+- **The page is held by the Action Throttle, not by the trigger set.** One page per ten
+  emissions is 60 minutes per issue, exactly as configured. Before the D-2 fix this same
+  shape meant *the rule cannot see a repeat*; now it means *the rule sees every repeat and
+  deliberately pages hourly*. The observation is identical and the diagnosis is opposite —
+  which is why the configuration has to be read alongside the measurement.
+
+The fixture stayed intact throughout: `solicitation_send_breaker` still one row,
+`reset_at IS NULL`.
+
+### A confound in the page-2 measurement, and the guard against it
+
+`lastTriggered` is a **rule-level** field, not a per-issue one. The Action Throttle, by
+contrast, is **per issue**. So if any *other* staging issue fires rule `3608329` between now
+and 23:37Z — an application error, a new `PostgresError`, anything — `lastTriggered` moves for
+**that** issue and would read exactly like page 2 for the breaker.
+
+**Guard, applied to this run:** page 2 is accepted only on **three** agreeing signals, not on
+`lastTriggered` alone.
+
+1. `lastTriggered` moves to a time within ~20 s of a breaker poller cycle (`…:x1:50Z` /
+   `…:x6:50Z`).
+2. No other staging issue received an event in the intervening window — checked by listing
+   events across the project for the period, not just this issue's.
+3. **The owner reports the Discord message's TITLE**, and it is the open-trip string
+   *"Solicitation sending is STILL halted — the hard_bounce_rate breaker trip is open and has
+   not been reset"*. This is the decisive one: a title is unambiguous where a timestamp is
+   not.
+
+Recorded before the observation rather than after, so the criterion cannot be fitted to
+whatever arrives.
+
 ### Cycle 2 — the assertion that actually distinguishes pass from fail
 
 Page 1 alone does not close this drill: a first-seen rule would also have produced one page.
@@ -388,6 +450,72 @@ cheaply: the issue's occurrence count must rise by one on **every** 5-minute cyc
 (22:36:50Z, 22:41:50Z, … ) while the page stays throttled. Rising occurrences with a static
 `lastTriggered` is exactly the shape D-2 described; the difference now is that the throttle,
 not the trigger set, is what holds it.
+
+## Prepared during the §4.5 throttle wait — resolved from code and config, not assumed
+
+**§4.5 serializes the campaign.** Nothing else can run alongside it: §4.4 needs a variable
+change (redeploy → worker restart), §4.9/§4.10 inject outbox rows that would break §4.5's
+`count:1` cleanliness, and §4.1/§4.7/§4.8 all stop the worker. The ~60-minute throttle wait
+was therefore spent resolving the next drills' preconditions from source.
+
+### §4.6 — ready to run the moment rule 6 exists
+
+- Probe script written, reading `RESEND_WEBHOOK_SECRET` **from the environment** and never as
+  a shell argument. Run it under `railway run --service repworth-worker --environment staging`
+  so the value never transits a transcript.
+- `RESEND_WEBHOOK_SECRET` **is** set on Railway staging (confirmed from `variableNames`, which
+  returns names only — `list-variables` returns plaintext VALUES for every variable and must
+  not be called).
+- Signature: `HMAC-SHA256` over `${svix-id}.${svix-timestamp}.${rawBody}`, base64, header
+  `v1,<sig>`; the ingress rejects a timestamp older than 300 s.
+- Lane discriminant is `data.tags.lane === 'solicitation'`; `readTag` accepts `tags` as an
+  object **or** an array of `{name,value}`.
+- Recipient must be **exactly one** address or `extractSoleRecipient` throws — a global row
+  blocks that person for every tenant, so the lane refuses to guess.
+- Target group `REPWORTH-STAGING-12` already exists (2 events, 2026-08-26, from the #967
+  staging smoke). Baseline suppressions = **5**, one of which is that smoke's
+  `probe-967-20260826@example.test` row, left in place for the same reason ours will be.
+
+### §4.4 — the expected signal, resolved from the emit site
+
+`worker/jobs/response-generation/generate-draft.ts:76-85` emits:
+
+```
+Sentry.captureMessage(`Cost cap exhausted — draft dropped for business ${businessId}`, {
+  level: 'warning',
+  tags: { cost_event: 'limit_exceeded', cost_scope: 'global' | 'business', business_id },
+})
+```
+
+Three consequences worth knowing **before** running it:
+
+1. **The title carries `businessId`, so it is NOT a constant string.** Unlike every health
+   finding, each business gets its **own** Sentry group — so `First seen event` fires and this
+   drill does not depend on the D-2 fix at all. It is the one §4 drill whose original
+   first-seen assumption was always correct.
+2. It is tagged `cost_event:limit_exceeded`, which **is** one of the four filters the owner is
+   adding to `3608329`. It routes after the scoping, not before it by accident.
+3. **The drill spends nothing at the provider.** The cost guard's 15¢ pessimistic reserve is
+   taken *before* the LLM call, so a 1-cent cap makes the reservation fail and throw
+   `GlobalCostLimitExceededError` — terminal, and no completion is ever requested.
+
+`GLOBAL_DAILY_COST_LIMIT_CENTS` **is** set on Railway staging, so this is a Railway variable
+change, not a vault write. **Read the pre-flip value without dumping every secret:**
+
+```
+railway run --service repworth-worker --environment staging \
+  -- node -e "console.log(process.env.GLOBAL_DAILY_COST_LIMIT_CENTS)"
+```
+
+That prints one non-secret number. `railway variables` and the MCP's `list-variables` both
+return **plaintext values for every variable** and must not be used here.
+
+### Staging deploy config, confirmed healthy for the worker-stop drills
+
+`startCommand: pnpm worker` · `healthcheckPath: /ready` · source branch `staging` ·
+`numReplicas: 1`. The Sentry `release` tag on the running worker is
+`e511a725e5bd0bf7a8b7f4eebf03deab7cbea6b3`, matching the local `staging` worktree — so the
+process under test is the branch tip, not a stale deploy.
 
 ## Teardown ledger
 
