@@ -1,7 +1,7 @@
 # Handoff — WS8 production cutover resume
 
 > **Updated:** 2026-08-30 (Phase I closed) · **Owner:** @norbertesekiel
-> **Status:** Phase 0 and Phase I closed, **Phase A next** · `main` @ `007cb544`
+> **Status:** Phases 0, I, A, B and C closed. **Phase D next** — the WS8 cutover itself.
 >
 > **This document is a pointer, not a source of truth.** It says where you are, what to
 > read, and what to do next. Every fact it references lives in exactly one owning file,
@@ -40,7 +40,7 @@ The ordered plan, with every phase and command:
 | Phase 0 preflight | ✅ Closed. PRs #1025–#1027 merged |
 | **Phase I — Infisical** | ✅ **Closed.** `prod` holds **43 keys**, verified byte-for-byte, 0 empty. Manifest §12 |
 | Credential rotation (F4) | ✅ Closed — 5 minted, 3 rotated at their provider |
-| Secret Syncs | ❌ **Deliberately not configured.** Blocked on Phase A |
+| Secret Syncs | ✅ **Both live, `Overwrite` + deletion disabled.** The Vercel one first ran as `Import` and had to be repaired — evidence file, "Phase I sync 1" |
 | Prod database | Zero-state — 52/52 `public` tables empty, `auth.users`=0. Quiescence declared 22:30:03Z |
 | Migrations | Head **116, minus 078**. 077 applied 2026-07-17T02:17:11Z |
 | Stripe live | `charges_enabled=True`. **0** live webhook endpoints. **6** active livemode Prices |
@@ -73,11 +73,23 @@ The ordered plan, with every phase and command:
 
 ## Traps that will cost you hours
 
-1. **Do NOT switch either Secret Sync to Overwrite.** It deletes every destination variable
-   Infisical does not manage — including the seven legacy `STRIPE_PRICE_*` names the WS8
-   rollback window depends on, and `DB_POOL_MAX`. `RETAINED_STRIPE_PRICE_HISTORY` is an
-   empty array, so nothing in code preserves those IDs. Import only; **Disable Secret
-   Deletion on both syncs**.
+1. **REVERSED 2026-08-31 — use `Overwrite`, never `Import`.** This trap previously said the
+   opposite. It was wrong, and following it caused a live incident. **Infisical's `Import`
+   copies destination secrets INTO the vault** ("Imports secrets from the destination
+   endpoint before syncing"). It pulled 14 names from Vercel into `prod`, five of them
+   **empty** because Vercel *Sensitive* variables are write-only — then wrote those empties
+   back and destroyed four production values. `Overwrite` + **Disable Secret Deletion**
+   cancel exactly: the toggle forbids the only destructive act, so nothing is deleted and
+   nothing is imported. That protects the seven legacy `STRIPE_PRICE_*` names better than
+   `Import` did. Full reasoning: `infisical-production-manifest.md` §14; the incident:
+   evidence file, "Phase I sync 1".
+
+   **`Initial Sync Behavior` is its own wizard step — step 4, "How to resolve the first
+   run" — not part of Sync Options.** It has a default already selected. Clicking past it is
+   exactly how the incident happened.
+
+   **A `vercel env pull` is NOT a backup.** It writes the literal string `"[SENSITIVE]"` for
+   every Sensitive variable. Confirm such a value exists elsewhere before overwriting it.
 2. **Do NOT run either sync until Phase A is done.** Four values are still missing and three
    are boot gates. Railway restarts on a variable change, so a partial sync is a crash loop
    that exhausts `restartPolicyMaxRetries = 10` and stays down.
@@ -106,34 +118,38 @@ The ordered plan, with every phase and command:
 11. **The Infisical CLI cannot delete a secret** at v0.43.128 — it 404s on a secret the read
     returns. Use the web UI. Manifest §12.7.
 
-## Next action — Phase A, then the syncs
+## Next action — Phase D
 
-**Phase A — provision what does not exist.** Four of the six steps produce values Infisical
-is still missing.
+Phases A, B and C are closed. **B and C completed as a side effect of the two syncs.**
 
-1. **A.1** Sentry project `repworth-production` in org **`repworth-nv`**, platform Next.js.
-   Its DSN becomes `SENTRY_DSN` **and** `NEXT_PUBLIC_SENTRY_DSN`. Never reuse the staging
-   DSN. `SENTRY_ORG` and `SENTRY_PROJECT` are already in Infisical.
-2. **A.2** Railway Redis in the `production` environment. Delete the auto-created TCP proxy.
-   Set `REDIS_QUEUE_URL` as a **Railway-native** reference expression with `?family=0`.
-3. **A.3** Production Upstash cache → `REDIS_CACHE_URL`, the one value that must match
-   across both platforms.
-4. **A.4** Worker public domain → `WORKER_PUBLIC_URL`. **Origin-only https, no trailing
-   slash** — `assertWorkerPublicUrlFormat` checks `raw === new URL(raw).origin`.
-5. **A.5** Connect the GitHub source to the production Railway service and set the deploy
-   branch to `main`. It has none today, so Phase D has nothing to deploy.
-6. **A.6** Confirm live provider access with **hard provider-side spend caps**, and curl each
-   key once before trusting it.
+**17 of the 18 unconditional worker boot gates are green.** The one missing is
+`STRIPE_WEBHOOK_SECRET`, which D.3 produces. The Zernio conditional gate is satisfied in
+full, and every exact-boolean gate is correct.
 
-**Then** add the four new values to Infisical `prod`, configure the two syncs (Import,
-deletion disabled, service named), and move to B+C.
+Two small items owed first, neither blocking:
 
-Three items also owed, none blocking Phase A:
+- **Redeploy Vercel.** `NEXT_PUBLIC_APP_URL` is correct in the store, but `NEXT_PUBLIC_*` is
+  inlined at build time, so no browser sees it yet.
+- **Delete `PAST_REPLIES_VIEW_ENABLED` from Vercel** — read by no code (manifest §7.10).
 
-- Check `STRIPE_SECRET_KEY` in the Vercel dashboard — genuinely empty, or Sensitive? If
-  empty, production Checkout has been broken since it was set. Manifest §11.
-- Prove the new Supabase secret key with one `auth.admin` call on staging. Manifest §12.2.
-- Land the five doc corrections the evidence file lists as owed.
+Then Phase D, resuming the WS8 runbook at **§6**:
+
+1. **D.1** verify the six live Prices; **D.2** verify migration 077. Both verify-only.
+2. **D.3** create the live Stripe webhook endpoint at
+   `https://worker.repworth.net/ingress/stripe`, disabled, and put its signing secret in the
+   vault as `STRIPE_WEBHOOK_SECRET`. Watch the Sandbox trap — confirm it appears in the
+   **live** dashboard.
+3. **§6** the worker boots for the first time. Until D.3 it crash-loops on that one gate by
+   design; **do not raise `restartPolicyMaxRetries`**.
+4. **§7** apply migration 078, remove `ws8-cutover-prod-api-deny`, restore
+   `ZERNIO_RECENT_REVIEW_POLL_DISABLED` to unset.
+5. **§8** verify migration 105.
+
+Owed after §8 closes: re-add `STRIPE_SECRET_KEY`, `SESSION_COOKIE_SECRET` and
+`WORKER_INTERNAL_SECRET` to Vercel with `--sensitive`. They are `Config` today so that
+Vercel can be verified against the vault by readback — the check that caught the sync-1
+incident. Note that a synced key drifts back to `Config` on every write, so this is a
+post-cutover step, not a permanent state.
 
 ## The moment that matters
 
