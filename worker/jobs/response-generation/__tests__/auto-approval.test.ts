@@ -15,10 +15,13 @@ import {
   isAutoApprovalCandidate,
   loadAutoApprovalRuntimeState,
   structurallyBlockedDecision,
-  type AutoApprovalBlockReason,
   type AutoApprovalCandidateInput,
   type StructuralBlockInput,
 } from '../auto-approval';
+// DECLARED in worker-types.ts and deliberately NOT re-exported from
+// `auto-approval.ts` — see the comment there where the union used to sit
+// (#1013 deviation D2).
+import type { AutoApprovalBlockReason } from '../../../../src/lib/shared/worker-types';
 
 const CLEAN_MODERATION: ModerationDecision = {
   flagged: false,

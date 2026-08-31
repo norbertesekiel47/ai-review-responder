@@ -22,6 +22,7 @@ import {
 } from '../../../src/lib/shared/subscription-guard';
 import {
   GENERATE_RESPONSE_ORIGIN_LANE,
+  type AutoApprovalBlockReason,
   type GenerateResponseOriginLane,
 } from '../../../src/lib/shared/worker-types';
 import { TRIAGE_SOURCE, type TriageSeverity } from '../../../src/lib/reviews/triage-schema';
@@ -34,29 +35,14 @@ import {
 
 type TxClient = postgres.TransactionSql;
 
-export type AutoApprovalBlockReason =
-  | 'policy_not_enabled'
-  | 'rating_below_threshold'
-  | 'bad_origin_lane'
-  | 'unsupported_version'
-  | 'suppressed_notification'
-  | 'review_content_hash_missing'
-  | 'review_content_changed_before_persist'
-  | 'current_rating_missing'
-  | 'provider_moderation_disabled'
-  | 'provider_moderation_error'
-  | 'moderation_flagged'
-  | 'moderation_held'
-  | 'publisher_subscription_denied'
-  | 'archived_location'
-  | 'active_zernio_connection_missing'
-  | 'auto_approval_disabled'
-  | 'triage_high_severity'
-  | 'triage_fallback'
-  | 'rating_below_positive_quadrant'
-  | 'daily_cap_exhausted'
-  | 'policy_suspended'
-  | 'autopilot_tier_required';
+// `AutoApprovalBlockReason` is DECLARED in `src/lib/shared/worker-types.ts`,
+// beside `AutonomySuspensionTrigger` and `AutoPolicyDowngradeReason` and for the
+// same reason: the Refusal ledger's vocabulary maps every member to a **Refusal
+// category** or to explicit `null`, and no production module under `src/lib/`
+// imports from `worker/`. This module still owns every GATE below; only the
+// declaration moved, and it is NOT re-exported — `auto-approval.test.ts` is the
+// one other reader and imports the declaration directly, and `working-rules.md`
+// bans a compatibility shim with no named external consumer (#1013 D2).
 
 export interface AutoApprovalCandidateInput {
   originLane: GenerateResponseOriginLane | null;
