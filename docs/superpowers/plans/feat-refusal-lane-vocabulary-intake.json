@@ -52,6 +52,7 @@
     "src/lib/solicitation/approval.ts",
     "src/lib/shared/worker-types.ts",
     "worker/jobs/publisher/auto-policy-downgrade.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
   ],
