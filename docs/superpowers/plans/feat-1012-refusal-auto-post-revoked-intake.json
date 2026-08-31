@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "size": "standard",
+  "risk": "high",
+  "risk_reasons": [
+    "The write site is the publisher's auto-approval downgrade, an approval-path decision that takes back a post already scheduled to reach Google.",
+    "The transaction it joins already holds the review, business and response anchors and completes an outbox attempt. A ledger failure aborts that whole downgrade.",
+    "It is the only lane with no tenant key in local scope, so it adds a tenant-key resolution inside a decision transaction."
+  ],
+  "surface": "backend",
+  "db_touching": true,
+  "goal": "downgradeAutoApprovedResponseForManualReviewInTx records an auto_post_revoked Refusal against the response it takes back, using the account_id the transaction's existing business lock already reads.",
+  "non_goals": [
+    "The three solicitation single lanes. #1010 owns them.",
+    "The outreach render lane. #1011 owns it.",
+    "The held_draft and policy_gate_held lanes. #1013 owns them, and #998 ruled these are three distinct acts rather than a double count.",
+    "The Restraint tab and any read over refusal_events. #1014 owns the read path.",
+    "The lane category map and the AutoPolicyDowngradeReason type move. The feat/refusal-lane-vocabulary prerequisite lands both on main before this branch arms.",
+    "Exporting resolveAccountIdFromBusiness from src/lib/approval/audit.ts. The owner chose to widen the existing business lock instead, so audit.ts is not edited.",
+    "Changing which responses are downgraded, when, or why. This slice records the decision and alters none of it.",
+    "Any migration."
+  ],
+  "user_visible_behavior": [
+    "No owner-visible change. Nothing reads refusal_events until #1014.",
+    "A downgrade writes one refusal_events row against the response id, in the same transaction as the responses UPDATE, the approval audit row and the notification enqueue.",
+    "A no-op downgrade writes nothing, because no decision was made.",
+    "Setting REFUSAL_LEDGER_ENABLED=false stops the write without a deploy and leaves downgrade behaviour byte-identical to today."
+  ],
+  "invariants": [
+    "account_id comes from the SELECT ... FOR UPDATE on businesses the transaction already issues. No second read, and no new error path: the existing missing-business guard already returns no-op.",
+    "occurredAt is the transaction-time sentinel. The decision and the write share one transaction and approval_audit_log.created_at is DEFAULT NOW(), so both rows agree to the microsecond.",
+    "subject_type is response and subject_id is the response id, never the audit row id. #1001 superseded #997 on this point.",
+    "refusal_code is the AutoPolicyDowngradeReason verbatim. judge_disabled and judge_unhealthy stay two codes even though they share one category and one audit marker.",
+    "The Refusal is written only after the guarded UPDATE returns a row. A no-op downgrade made no decision.",
+    "The ledger write is never caught at the call site. It aborts the downgrade, and the kill switch is the lever.",
+    "src/lib/refusals/write.ts is not edited. This lane consumes the single-row helper as shipped by #1009.",
+    "The standalone wrapper and every InTx caller reach exactly one write site, so neither arm can drift from the other.",
+    "Tenant isolation: every row carries account_id NOT NULL and the table keeps deny-all RLS."
+  ],
+  "edge_cases": [
+    "The response is not downgradeable, the business is missing, or the review anchor is absent: the function returns no-op before the UPDATE and writes no Refusal.",
+    "The outbox attempt CAS fails: the function returns no-op and writes no Refusal.",
+    "The guarded UPDATE matches no row despite the earlier check: the function returns no-op and writes no Refusal.",
+    "The same response is downgraded twice: the partial unique index on (refusal_source, subject_id) leaves one row, and ON CONFLICT DO NOTHING lets the second transaction commit.",
+    "All six AutoPolicyDowngradeReason members reach the write site: four through judge-gate.ts and two through auto-policy-publish.ts.",
+    "The standalone wrapper opens its own transaction while an InTx caller passes one already open: both reach the same single write site.",
+    "REFUSAL_LEDGER_ENABLED is false: the downgrade, its audit row and its notification enqueue are unchanged and the helper emits one warning per disabled episode.",
+    "A CHECK violation from a writer bug aborts the downgrade, so the response stays auto-approved and the outbox attempt is not completed. The publisher retries it."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/auto-approval/suspension.ts — the #1009 call-site precedent: writeRefusalEvent on the deciding transaction, after the guard that proves a decision was made, with no try/catch.",
+    "src/lib/refusals/write.ts — the single-row helper, its per-lane input union and the transaction-time sentinel.",
+    "worker/jobs/publisher/auto-policy-downgrade.ts — the existing lock ladder (reviews, businesses, responses) and the DOWNGRADE_MARKERS record the new map mirrors.",
+    "src/lib/approval/audit.ts insertAuditLogAutoPolicy — the write the Refusal sits beside, and the reason approval_audit_log.created_at and occurred_at agree.",
+    "src/lib/refusals/vocabulary.ts — the auto_post_revoked map landed by the feat/refusal-lane-vocabulary prerequisite."
+  ],
+  "test_seams": [
+    "worker/jobs/publisher/auto-policy-downgrade.ts — downgradeAutoApprovedResponseForManualReview and its InTx form.",
+    "worker/jobs/publisher/judge-gate.ts — the four callers that choose a judge-related reason.",
+    "worker/jobs/publisher/auto-policy-publish.ts — the two callers that choose an entitlement or suspension reason."
+  ],
+  "allowed_edit_surface": [
+    "worker/jobs/publisher/auto-policy-downgrade.ts",
+    "worker/jobs/publisher/__tests__/**",
+    "docs/directory.md",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "a downgrade writes exactly one refusal_events row against the response id",
+    "a downgrade's refusal_events row carries subject_type response, never the approval audit row id",
+    "a downgrade's refusal_events row carries the account_id read by the transaction's existing business lock",
+    "a downgrade's refusal_events row carries occurred_at equal to the approval_audit_log created_at written by the same transaction",
+    "a downgrade records the AutoPolicyDowngradeReason verbatim, so judge_disabled and judge_unhealthy stay two codes",
+    "every AutoPolicyDowngradeReason maps to a Refusal category and the downgrade writes it",
+    "a no-op downgrade on a response that is not downgradeable writes no refusal_events row",
+    "a no-op downgrade on a missing business writes no refusal_events row",
+    "a downgrade that loses the outbox attempt CAS writes no refusal_events row",
+    "downgrading the same response twice leaves one refusal_events row and lets the second transaction commit",
+    "the standalone wrapper and the in-transaction caller each write exactly one refusal_events row",
+    "a ledger failure rolls back the downgrade, the approval audit row and the notification enqueue together",
+    "a downgrade still completes when REFUSAL_LEDGER_ENABLED is false"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 90,
+  "estimated_test_lines": 460,
+  "dependencies_added": [],
+  "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops the ledger write with no deploy and leaves the downgrade byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes the call site and the widened business lock together. (3) No down migration: migration 116 stays and rows already written are not deleted. ArchivalPoller's refusal_events arm landed in #1009 and is untouched, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
+  "observability": [
+    "One warning per disabled episode from the helper whenever REFUSAL_LEDGER_ENABLED is false.",
+    "A ledger failure here reaches Sentry through attachJobFailureSink on the terminal BullMQ attempt, because both caller lanes run inside ResponsePublisherWorker.",
+    "Reconciliation query for staging: COUNT(*) of refusal_events WHERE refusal_source = 'auto_post_revoked' must equal the count of approval_audit_log rows carrying an auto-policy revoked action, per account, inside the retention window."
+  ],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "staging_deploy",
+    "merge"
+  ],
+  "open_questions": []
+}
