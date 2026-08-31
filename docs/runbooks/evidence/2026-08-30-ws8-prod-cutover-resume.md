@@ -428,31 +428,86 @@ Two facts recorded elsewhere were **stale** and are corrected here.
       `8ec0c3c9…` on project `4511599164850176`. Same org `o4511599159345152`.
       Reusing staging's would have tagged production events `staging`.
 
-- [ ] **A.2 — Railway Redis.** Owner action: production environment →
-      `+ New → Database → Add Redis`, named `redis`. The dashboard template is
-      used deliberately rather than an MCP rebuild — staging's Redis is
-      `redis:8.2.1` with a volume at `/data`, a start command reading
-      `$REDIS_PASSWORD` and `$RAILWAY_VOLUME_MOUNT_PATH`, and seven
-      template-generated `REDIS*` variables. Hand-rebuilding that on the one
-      service the whole queue depends on is avoidable failure surface.
-      Agent then deletes the auto-created TCP proxy and sets `REDIS_QUEUE_URL`
-      Railway-native with `?family=0`.
+- [x] **A.2 — Railway Redis, CLOSED 2026-08-30.** Owner created the service via
+      the dashboard template; agent wired the queue URL.
 
-- [ ] **A.3 — Upstash cache.** Owner action. No Upstash CLI, no MCP, and no
-      management token in Infisical, so this cannot be driven from the session.
+      | Fact | Value |
+      |---|---|
+      | Service | **`Redis`** (capital R), id `f9573767-3694-4b5e-b7d4-d7fe6dc53da8` |
+      | Image | `redis:8.2`, `haTemplateCode: redis-ha` |
+      | Volume | `/data` |
+      | Private endpoint | `redis` → `redis.railway.internal` |
+      | Template variables | `REDISHOST`, `REDISPASSWORD`, `REDISPORT`, `REDISUSER`, `REDIS_PASSWORD`, `REDIS_URL` |
+      | **TCP proxy** | **none created** — `list-tcp-proxies` returns `[]`, and the service has no `REDIS_PUBLIC_URL`. Nothing to delete. |
 
-- [ ] **A.4 — Worker public domain.** Production `repworth-worker` has **no
-      domain of any kind** (`list-domains` → empty). Recommendation recorded
-      below.
+      **Finding F14 — the service is named `Redis`, and every documented copy of
+      the reference expression spells it lowercase.** `deployment-guide.md:1296`
+      records staging's lowercase name as a deliberate choice *"so the
+      `${{redis.…}}` reference resolves"*. The dashboard's Add Redis names it
+      `Redis`. The expression set is therefore
+      `redis://default:${{Redis.REDISPASSWORD}}@${{Redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`.
 
-- [ ] **A.5 — GitHub source.** Owner action, **deliberately not driven by MCP.**
-      Verified: staging carries `source: {repo: RepWorth/ai-review-responder,
-      branch: staging}`; production carries **no `source` key at all**, and has
-      **0 deployments** all time. The MCP `connect-service-source` states it
-      "applies to the service in all environments", so it may write `branch:
-      main` onto the staging instance and silently repoint the staging worker.
-      `update-service` cannot help — its own contract excludes source changes.
-      The dashboard is per-environment and carries no such risk.
+      **Resolution verified structurally, no value printed:**
+
+      ```
+      REDIS_QUEUE_URL present, length 87
+        still contains an unresolved ${{...}} : False
+        user      : default
+        password  : non-empty, 32 chars
+        host      : redis.railway.internal
+        port/db   : 6379 / 1
+        ?family=0 : present
+      ```
+
+      **Why the lowercase form would have failed silently.**
+      `assertCoreInfraEnv` checks presence, not shape. An unresolved reference
+      yields `redis://default:@redis.railway.internal:6379/1?family=0` — a valid
+      URL that passes the boot gate, then fails `NOAUTH` on every BullMQ call.
+      The worker reports healthy and no job ever runs. Same failure shape as a
+      missing `?family=0`. Full record: manifest §13.
+
+- [ ] **A.3 — Upstash cache. Instance created, value NOT yet in Infisical.**
+      Owner created `sincere-primate-143545.upstash.io:6379` and reported the URL
+      as `rediss://default:********@…` — the password is masked, so the value
+      could not be written. `REDIS_CACHE_URL` remains absent from Infisical and
+      from both platforms. It is **the one value that must match across Vercel
+      and Railway** (manifest §6), so it is entered once and synced, never typed
+      twice.
+
+- [x] **A.4 — Worker public domain, ATTACHED 2026-08-30; DNS pending.** Custom
+      domain chosen over the generated `*.up.railway.app` for the reasons below.
+
+      | Field | Value |
+      |---|---|
+      | Domain | `worker.repworth.net`, id `a41807ff-8b11-4bc3-9ec6-9809bb8f720c` |
+      | Certificate | `VALIDATING_OWNERSHIP` |
+      | **DNS record required** | `worker.repworth.net` **CNAME** → `rhhe86c1.up.railway.app` |
+      | Status | `REQUIRES_UPDATE` — the record does not exist yet |
+
+      `WORKER_PUBLIC_URL=https://worker.repworth.net` is written to Infisical
+      `prod`. It passes `assertWorkerPublicUrlFormat` — checked in-session with
+      `raw === new URL(raw).origin`. **Infisical `prod` now holds 46 keys.**
+
+      Adding this CNAME cannot disturb the MX/SPF/DKIM/DMARC state that
+      `launch-checklist.md` records as a completed hard blocker: `worker.` is a
+      new subdomain and touches no existing record.
+
+- [ ] **A.5 — GitHub source. Reported done by owner; NOT PRESENT on a live
+      read at 2026-08-30.** `get-service-config` on production `repworth-worker`
+      still returns **no `source` key**, and `list-deployments` still returns
+      `[]`.
+
+      Most likely cause: Railway collects service edits into **staged changes**
+      that must be reviewed and deployed before they apply
+      (`docs.railway.com/services`). A connected repo that was never deployed
+      shows exactly this. Check the production canvas for a pending
+      staged-changes banner and click Deploy.
+
+      **The hazard the dashboard route avoided is confirmed avoided.** Staging
+      still carries `source: {repo: RepWorth/ai-review-responder, branch:
+      staging}`, unchanged. Had the MCP `connect-service-source` been used — it
+      states it "applies to the service in all environments" — that branch could
+      have been rewritten to `main`, silently repointing the staging worker.
 
 - [x] **A.6 — live provider access, FOUR OF FIVE PROVEN 2026-08-30.** Each key
       was pulled from Infisical straight to a mode-600 scratch file and curled

@@ -319,7 +319,7 @@ Each of the following contradicts a runbook. The code is the evidence.
 
 | Variable | Owner | Reason |
 |---|---|---|
-| `REDIS_QUEUE_URL` | Railway, native | Its value is a Railway reference expression, `redis://default:${{redis.REDISPASSWORD}}@${{redis.RAILWAY_PRIVATE_DOMAIN}}:6379/1?family=0`. Keeping it native means a Redis re-provision repairs it. `?family=0` is mandatory — Railway's private network is IPv6-only. |
+| `REDIS_QUEUE_URL` | Railway, native | A Railway reference expression. **In production the service is named `Redis`, so the expression is `${{Redis.…}}`, NOT `${{redis.…}}`** — see §13. Keeping it native means a Redis re-provision repairs it. `?family=0` is mandatory — Railway's private network is IPv6-only. |
 | `RAILWAY_*` (8 names) | Railway, injected | `RAILWAY_ENVIRONMENT_NAME` is how `deploymentLane()` resolves the lane (ADR 0013). Sentry tags derive from it. |
 | `VERCEL_*` incl. `VERCEL_GIT_COMMIT_SHA` | Vercel, injected | Same. `/api/health` reports the SHA. |
 | `PORT` | Railway, injected | |
@@ -650,8 +650,11 @@ secret removal against this CLI version.
    |---|---|
    | `SENTRY_DSN` | ✅ written, verified `ee14c7a4175df209` |
    | `NEXT_PUBLIC_SENTRY_DSN` | ✅ written, same value, same hash |
-   | `REDIS_CACHE_URL` | ❌ waits on A.3 (Upstash) |
-   | `WORKER_PUBLIC_URL` | ❌ waits on A.4 (worker domain) |
+   | `WORKER_PUBLIC_URL` | ✅ `https://worker.repworth.net`, format gate checked |
+   | `REDIS_CACHE_URL` | ❌ **the last one.** Upstash instance exists (`sincere-primate-143545.upstash.io:6379`); the URL reached the session with its password masked, so nothing was written. |
+
+   **Count: 46 keys.** `REDIS_CACHE_URL` is the only Phase A output still
+   missing, and it is the one value that must match across both platforms (§6).
 
    The Sentry project `repworth-production` **already existed** under org
    `repworth-nv` — the earlier record saying it did not is stale. Its DSN is
@@ -661,3 +664,63 @@ secret removal against this CLI version.
 3. Prove the Supabase secret key on staging (§12.2).
 4. Then configure both syncs against `prod`, **Import only**, deletion disabled on
    both.
+
+
+---
+
+## 13. Finding F14 — the production Redis service is named `Redis`, not `redis`
+
+**Railway reference variables resolve by service name, and the name differs
+between environments.**
+
+`docs/runbooks/deployment-guide.md:1296` records the staging service name as
+lowercase and says why: *"service named `redis` (lowercase, so the
+`${{redis.…}}` reference resolves)"*. That was a deliberate choice.
+
+The Railway dashboard's `+ New → Database → Add Redis` names the service
+**`Redis`**. So the production service created on 2026-08-30 is `Redis`, and
+every copy of the documented expression in this repo spells it lowercase.
+
+| Environment | Service name | Service ID | Image | Correct expression |
+|---|---|---|---|---|
+| staging | `redis` | `2dbd085e-…` | `redis:8.2.1` | `${{redis.…}}` |
+| production | **`Redis`** | `f9573767-…` | `redis:8.2` (`haTemplateCode: redis-ha`) | **`${{Redis.…}}`** |
+
+**Verified, not assumed.** The value set on the production worker was read back
+through a transform that prints structure only, never the value:
+
+```
+REDIS_QUEUE_URL present, length 87
+  still contains an unresolved ${{...}} : False
+  user      : default
+  password  : non-empty, 32 chars
+  host      : redis.railway.internal
+  port/db   : 6379 / 1
+  ?family=0 : present
+```
+
+An unresolved reference would have left the literal `${{...}}` in the string, or
+an empty password segment. Neither is present.
+
+**Why it would have failed silently.** `assertCoreInfraEnv` checks that
+`REDIS_QUEUE_URL` is **present**, not that it is well-formed. A lowercase
+reference resolving to an empty password yields
+`redis://default:@redis.railway.internal:6379/1?family=0` — a syntactically
+valid URL that passes the boot gate and then fails `NOAUTH` on every BullMQ
+operation. The worker reports healthy while no job ever runs. That is the same
+failure shape as the missing `?family=0`.
+
+**The private network endpoint is lowercase either way.** The service's
+`privateNetworkEndpoint` is `redis`, so `RAILWAY_PRIVATE_DOMAIN` resolves to
+`redis.railway.internal` in both environments. Only the **reference prefix**
+differs, because that is the service name.
+
+### Recommendation: rename the production service to `redis`
+
+Renaming restores parity with staging and makes every documented expression in
+the repo true in both environments. It costs one dashboard rename plus one
+re-set of `REDIS_QUEUE_URL`.
+
+Leaving it as `Redis` also works — the current value is verified — but it means
+this section must survive as a permanent exception, and two services in one
+project differing only by case is an avoidable trap.
