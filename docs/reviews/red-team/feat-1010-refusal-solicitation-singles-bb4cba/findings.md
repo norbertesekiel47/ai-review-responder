@@ -7,10 +7,11 @@ Mode `feature` · risk `high` · round **2 of 2 (the cap)** · generated 2026-08
 | Branch | `feat/1010-refusal-solicitation-singles` |
 | Fork | `06a163f0b4b102c88687c95862999e38a1c3f517` |
 | Merge base | `06a163f0b4b102c88687c95862999e38a1c3f517` |
-| Head (this pass) | `426ccf77fc2b1248161e466fbf26d15bb7332f8a` |
+| Head (this pass) | `426ccf77fc2b1248161e466fbf26d15bb7332f8a` — the state EXAMINED |
+| Head pinned | `c4bfa647e548b519003091b5fa736f35e01a00a5` — see § Round-2 closure |
 | Round-1 head | `e9a6a50b21710d28209ebed7023704a21159a53a` |
 | Round-2 scope | `git diff e9a6a50b..426ccf77` — the fix hunks and their direct callers only |
-| Intake sha256 | `5fdcdb4902ef117560c790b2c0cbf22c617e12d6c5f1e5fc2c34f6077339654e` |
+| Intake sha256 | `d8c75e211ed0bb4ab1e5334494e20522674e268c784b6b03844280e9d6174c7f` — NARROWED by the revert; the examined state was `5fdcdb49` |
 
 > **This file REPLACES round 1's report at the same branch-derived slug.** Round 1's
 > six findings are carried forward below with their disposition at this HEAD, so
@@ -80,7 +81,7 @@ respected and no candidate was left `skipped-budget`.
 ### RT2-1 — **P0** — the P1-B fix cannot observe the failure it was built for, and the gap it documents never existed
 
 `worker/background/pollers/SolicitationReleasePoller.ts:61-107` · duty 3 (docs vs
-reality) · disposition **open**
+reality) · disposition **fixed** — resolved by the FULL REVERT `c4bfa647`, not by a patch
 
 The fix's premise is a causal chain the code contradicts at three links.
 
@@ -141,10 +142,14 @@ the property the branch claims to have bought."
 
 ### RT2-2 — **P1** — the newly emitted Sentry signal has no rule row
 
-`docs/runbooks/beta-launch-alerting.md:207-212` · duty 5 · disposition **open**
+`docs/runbooks/beta-launch-alerting.md:207-212` · duty 5 · disposition **fixed** — resolved by the RT2-1 revert; the signal no longer exists, so no rule row is owed and the runbook is correctly untouched
 
 `subsystem: 'solicitation_release'` appears at exactly three places in the repo
 (`rg -n solicitation_release`): the emitter, its test, and the deviations file.
+**SUPERSEDED AT HEAD — this sentence is true at `426ccf77` only.** The revert
+`c4bfa647` deleted the emitter and its test, so at HEAD the underscore spelling
+survives ONLY in prose (this report, the deviations file, the arch-review row).
+No production code emits it.
 It has **no §1 bullet and no row in the §1a-do rule table** (rules 1-6 key on
 `health_alert`, `limit_exceeded`, `stripe_reconciliation`,
 `import_consent_analytics`, `solicitation_send_breaker_tripped`,
@@ -167,7 +172,7 @@ this finding resolves with it; if the capture stays, the row is owed.
 ### RT2-3 — **P2** — the ordering case leaves `closeBatchIfSettled`'s position unpinned
 
 `src/lib/solicitation/__tests__/dispatch.integration.test.ts:2569-2639` · duty 1 ·
-disposition **open**
+disposition **open** — P2, recorded with the arbiter's reasoning, no action
 
 Mutation A5 hoisted `closeBatchIfSettled` to the top of `commitWithhold` — the
 settlement join then runs before the outreach is marked `withheld`, so a batch
@@ -189,7 +194,7 @@ pinned in position too, and it is not.
 ### RT2-4 — **P2** — D6's "~160 test lines" understates the measured delta
 
 `docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md:69-71`
-· duty 3 · disposition **open**
+· duty 3 · disposition **fixed** — D6 corrected to the measured 246
 
 `git diff --numstat e9a6a50b..426ccf77` over test paths: 164 + 82 = **246** added
 test lines, 0 deleted. Not ~160. (~160 is defensible if the shared
@@ -284,7 +289,7 @@ scope and reported here only so the search's boundary is legible.
 |---|---|---|---|
 | RT-1 | P1 | **fixed** | Re-proved closed this round by A1-A4 |
 | RT-2 | P1 | **rejected** | Verdict: the diagnosis was false — `src/lib/solicitation/release-phases.ts:96-107` already raised a Sentry issue for this failure, and `release-phases.ts:69-81` contains it before `runSolicitationReleaseCycle` can see it. Superseded by RT2-1 (signal half) and RT2-2 (rule-row half). **Must be listed in the PR's "Red-team findings rejected" section.** |
-| RT-3 | P1 | open | `vocabulary.ts`'s header; off every swarm branch's edit surface, carried on the orchestrator |
+| RT-3 | P1 | **accepted-risk** (AUTH-1) | `vocabulary.ts`'s header; off every swarm branch's edit surface, carried on the orchestrator. **Must be listed in the PR's deferred-findings section.** |
 | RT-4 | P2 | open | `beta-launch-alerting.md` attributes the disabled-ledger warning to `writeRefusalEvent` alone |
 | RT-5 | P2 | open | `localeCompare` comparator vs a Postgres `ORDER BY` on a `uuid` column |
 | RT-6 | P2 | open | `already_reviewed` has no producer |
@@ -314,4 +319,66 @@ isolated environment.
 
 ## Authorizations
 
-None.
+| Id | Date | Findings | Approval |
+|---|---|---|---|
+| AUTH-1 | 2026-08-31 | RT-3 | Owner-authorized deferral, 2026-08-31. RT-3 is accepted as true. `src/lib/refusals/vocabulary.ts` is outside all three swarm edit surfaces by construction, and #1010 has spent both surface amendments, so it cannot be fixed on any swarm branch. Carried as a post-merge documentation sweep with the three sibling staleness findings under one sentence: the ledger now has two writers and its maps have callers. |
+
+This section is RENDERED from `findings.json`'s `authorizations` array. It is
+never parsed back out of the Markdown.
+
+## Round-2 closure — the authorization link
+
+RT-3 was moved to `accepted-risk` in `findings.json` when the owner authorized
+the deferral, but no entry was written to the `authorizations` array and this
+report was left saying `open` / "None." `red-team-status.mjs` refused the
+`reviewed` transition on exactly that: "an accepted-risk finding must reference
+an authorization". Both artifacts now carry AUTH-1 and agree.
+
+Nothing else on this branch moved. The tree at `426ccf77` and the tree at HEAD
+are identical outside these two report files, so this run's evidence was never
+stale — only its adjudication was unrecorded.
+
+## Round-2 closure — the revert, and both pins
+
+Round 2 examined `426ccf77`. The commit after it, `c4bfa647`, **withdrew the
+P1-B alert-path fix in full** on the owner's decision, because RT2-1 proved the
+gap it was built for never existed. That is why `red-team-status.mjs` refused the
+`reviewed` transition on three counts, all now closed:
+
+1. *"an accepted-risk finding must reference an authorization"* — RT-3 was moved
+   to `accepted-risk` but no `authorizations` entry was written. AUTH-1 now exists
+   in both artifacts.
+2. *"intake_sha256 does not match"* — the revert legitimately NARROWED the intake:
+   it removed `worker/background/pollers/SolicitationReleasePoller.ts` and its test
+   from `allowed_edit_surface`, and removed the poller title from `tests_to_add`.
+   The pin is moved to the narrowed intake, `d8c75e21`.
+3. *"the tree moved since 426ccf77fc2b"* — it moved by REMOVAL, not by addition.
+   `head_sha` is re-pinned to `c4bfa647`.
+
+**What the revert did to this report's scope.** Both poller files are now
+**byte-identical to `origin/main`** (verified by object id, not by diff reading),
+so this branch changes nothing there. Consequently:
+
+* **RT2-1 (P0) and RT2-2 (P1) are `fixed` by REMOVAL.** Neither defect exists at
+  HEAD, because the code that carried them is gone. Their reasons in
+  `findings.json` carry the full trace.
+* **Inventory rows RT2-INV-2 … RT2-INV-10** are all cases in
+  `SolicitationReleasePoller.test.ts`. They describe mutation work against a file
+  the branch no longer touches. They are left in place as the honest record of
+  what round 2 ran; they are **not** evidence about HEAD's surface.
+* **RT2-INV-1** (`dispatch.integration.test.ts`) is the one inventory row that
+  still describes live branch code.
+* No orphan was left behind: `docs/runbooks/beta-launch-alerting.md` is not among
+  this branch's changed files, and no production file at HEAD emits the
+  `solicitation_release` tag.
+
+**No amendment was consumed by any of this.** `docs/reviews/**` is inside this
+branch's `allowed_edit_surface`, and `surfaceAmendments` stays at 2.
+
+**Residual risk, stated rather than hidden — this is the sharpest one on the
+swarm.** Round 2's mutation work landed almost entirely on code that has since
+been reverted. HEAD's live production surface — `src/lib/refusals/write.ts` and
+the three `src/lib/solicitation/` write sites — was mutation-tested by **round 1
+only**, and round 1 ended `INCOMPLETE_BUDGET` with **21 of 39 candidates unrun**
+at the 30-run cap. The two-round cap is spent, so that coverage debt cannot be
+paid on this branch. It is carried to the owner, not resolved here.

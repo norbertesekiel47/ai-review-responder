@@ -5,8 +5,8 @@
   "branch": "feat/1010-refusal-solicitation-singles",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "426ccf77fc2b1248161e466fbf26d15bb7332f8a",
-  "intake_sha256": "5fdcdb4902ef117560c790b2c0cbf22c617e12d6c5f1e5fc2c34f6077339654e",
+  "head_sha": "c4bfa647e548b519003091b5fa736f35e01a00a5",
+  "intake_sha256": "d8c75e211ed0bb4ab1e5334494e20522674e268c784b6b03844280e9d6174c7f",
   "risk": "high",
   "round": 2,
   "generated_at": "2026-08-31T07:34:04.723Z",
@@ -143,7 +143,8 @@
       "at": "src/lib/refusals/vocabulary.ts:44",
       "duty": 3,
       "disposition": "accepted-risk",
-      "reason": "OWNER-AUTHORIZED DEFERRAL, recorded rather than fixed. The finding is accepted as true: three of the five maps gain a production caller on this branch, so the header sentence is false at HEAD. It cannot be fixed on ANY of the three swarm branches — src/lib/refusals/vocabulary.ts is outside all three edit surfaces by construction, because disjoint surfaces are the premise of running them in parallel, and #1010 has spent both amendments. #1010's own D3 proposed handing it to whichever of #1011/#1012 lands last; that does not work for the same reason. Carried on the orchestrator as a post-merge documentation sweep together with three sibling staleness findings (env-vars.md, eservices-variables.md and beta-launch-alerting.md all attribute the kill switch to writeRefusalEvent alone) under one true sentence: the ledger now has two writers and its maps have callers. Owner authorized the deferral explicitly on 2026-08-31."
+      "reason": "OWNER-AUTHORIZED DEFERRAL, recorded rather than fixed. The finding is accepted as true: three of the five maps gain a production caller on this branch, so the header sentence is false at HEAD. It cannot be fixed on ANY of the three swarm branches — src/lib/refusals/vocabulary.ts is outside all three edit surfaces by construction, because disjoint surfaces are the premise of running them in parallel, and #1010 has spent both amendments. #1010's own D3 proposed handing it to whichever of #1011/#1012 lands last; that does not work for the same reason. Carried on the orchestrator as a post-merge documentation sweep together with three sibling staleness findings (env-vars.md, eservices-variables.md and beta-launch-alerting.md all attribute the kill switch to writeRefusalEvent alone) under one true sentence: the ledger now has two writers and its maps have callers. Owner authorized the deferral explicitly on 2026-08-31.",
+      "authorization": "AUTH-1"
     },
     {
       "id": "RT-4",
@@ -170,7 +171,16 @@
       "disposition": "open"
     }
   ],
-  "authorizations": [],
+  "authorizations": [
+    {
+      "id": "AUTH-1",
+      "date": "2026-08-31",
+      "finding_ids": [
+        "RT-3"
+      ],
+      "text": "Owner-authorized deferral, 2026-08-31. RT-3 is accepted as true. src/lib/refusals/vocabulary.ts is outside all three swarm edit surfaces by construction, and #1010 has spent both surface amendments, so it cannot be fixed on any swarm branch. Carried as a post-merge documentation sweep with the three sibling staleness findings under one sentence: the ledger now has two writers and its maps have callers."
+    }
+  ],
   "counts": {
     "inventory_total": 10,
     "killed": 2,
