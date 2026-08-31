@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "size": "small",
+  "risk": "normal",
+  "risk_reasons": [],
+  "surface": "backend",
+  "db_touching": false,
+  "goal": "src/lib/refusals/vocabulary.ts owns a code to Refusal category map for all five remaining lanes, so slices #1010, #1011 and #1012 can each write their lane without editing a file another slice is editing.",
+  "non_goals": [
+    "Every Refusal write site. This slice adds no call to writeRefusalEvent and changes no runtime behaviour.",
+    "The policy_gate_held lane's 22-member AutoApprovalBlockReason map, its precedence order and its veto set. #1013 carries that vocabulary, and #1003 locked rulings this slice must not pre-empt.",
+    "The held_draft lane's fixed category. #1013 carries it, and #1001 declined to pin it in the schema.",
+    "refusalCategoryFor, REFUSAL_CATEGORY_META and any owner-facing label. The Restraint tab (#1014) owns presentation.",
+    "The set-based arm of writeRefusalEvent. #1010 adds it, because #1010 is the lane that needs it.",
+    "Any migration. Migration 116 is applied to staging and production and this slice adds no SQL.",
+    "RENDER_WITHHOLD_REASONS from the parked branch. #1002 killed read.ts and that constant existed only for read.ts's timestamp partition; RenderWithholdReason in src/lib/solicitation/outreach.ts is the live owner."
+  ],
+  "user_visible_behavior": [
+    "No owner-visible change and no runtime change. The maps are constants with no production caller until #1010, #1011 and #1012 land.",
+    "A developer adding a member to WithholdReason, OutreachWithheldReason, RenderWithholdReason, LatchHaltReason or AutoPolicyDowngradeReason without deciding its Refusal category gets a compile error rather than an unmapped lane at run time."
+  ],
+  "invariants": [
+    "Every map is satisfies Record<SourceEnum, RefusalCategory | null>, so a new member of the source enum is a compile error until it is mapped.",
+    "null in a map means the code is not a Refusal. It is never a missing entry and never a default.",
+    "Every import in vocabulary.ts stays import type. The Restraint tab is a client surface and one value import whose graph reaches a node: builtin would enter the browser bundle.",
+    "src/lib/refusals/vocabulary.ts imports nothing from worker/. AutoPolicyDowngradeReason moves to src/lib/shared/worker-types.ts, which is where AutonomySuspensionTrigger already lives for the same reason.",
+    "The dispatch lane and the render lane keep SEPARATE maps. Both write refusal_source outreach_withheld, but they carry different closed enums and #997 counted them as different writers.",
+    "Category values are members of REFUSAL_CATEGORIES. A category string that migration 116's CHECK rejects must not be spellable.",
+    "The mapped categories are harvested verbatim from feat/refusal-log's vocabulary.ts. This slice re-decides no category."
+  ],
+  "edge_cases": [
+    "velocity_banked is null: a banked candidate is deferred, not refused, so the ask lane writes no Refusal for it.",
+    "owner_veto, owner_halt, send_window_elapsed and batch_expired are null: an owner halting their own batch is not RepWorth refusing, and an elapsed window is not a decision we made.",
+    "admin_halt and platform_halt are both autonomy_paused: platform_halt writes no account_audit_log row, and that asymmetry is invisible to the category map.",
+    "AutoPolicyDowngradeReason keeps six members: judge_disabled and judge_unhealthy map to the same category but stay two codes, because refusal_code is stored verbatim.",
+    "LatchHaltReason was private. Exporting a type adds no runtime surface and no bundle weight."
+  ],
+  "existing_patterns_to_follow": [
+    "src/lib/refusals/vocabulary.ts AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES — the map shape this slice repeats five times: as const satisfies Record<Enum, RefusalCategory>, one comment per null entry.",
+    "The parked feat/refusal-log branch's src/lib/refusals/vocabulary.ts — the harvest source for every category value.",
+    "src/lib/shared/worker-types.ts AutonomySuspensionTrigger — the precedent for a worker-domain union parked in src/lib/shared so src/lib may read it.",
+    "src/lib/refusals/__tests__/vocabulary.test.ts — the existing exhaustiveness and migration-parse test file this slice extends."
+  ],
+  "test_seams": [
+    "src/lib/refusals/vocabulary.ts — the five exported maps and their key unions.",
+    "src/lib/shared/worker-types.ts — AutoPolicyDowngradeReason.",
+    "worker/jobs/publisher/auto-policy-downgrade.ts — the re-exported type its existing DOWNGRADE_MARKERS record already pins."
+  ],
+  "allowed_edit_surface": [
+    "src/lib/refusals/vocabulary.ts",
+    "src/lib/refusals/__tests__/vocabulary.test.ts",
+    "src/lib/solicitation/approval.ts",
+    "src/lib/shared/worker-types.ts",
+    "worker/jobs/publisher/auto-policy-downgrade.ts",
+    "docs/superpowers/plans/**",
+    "docs/reviews/**"
+  ],
+  "tests_to_add": [
+    "ASK_WITHHELD_REFUSAL_CATEGORIES maps every WithholdReason and marks velocity_banked as not a Refusal",
+    "OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES maps every OutreachWithheldReason to a category",
+    "OUTREACH_WITHHELD_RENDER_REFUSAL_CATEGORIES maps every RenderWithholdReason to a category",
+    "BATCH_HALTED_REFUSAL_CATEGORIES maps only admin_halt and platform_halt to a category and the other four to null",
+    "AUTO_POST_REVOKED_REFUSAL_CATEGORIES maps every AutoPolicyDowngradeReason to a category",
+    "every category any lane map assigns is a member of REFUSAL_CATEGORIES",
+    "the dispatch and render outreach maps stay separate and agree on the codes they share",
+    "vocabulary.ts imports no value at runtime, so the Restraint tab may import it"
+  ],
+  "verification_commands": [],
+  "estimated_prod_lines": 120,
+  "estimated_test_lines": 150,
+  "dependencies_added": [],
+  "rollback_plan": "Revert the PR on main. The maps have no production caller in this slice, so a revert removes constants and two type exposures and changes no behaviour. Nothing is written to any database and no migration is involved. If a swarm branch has already merged on top, revert that branch first — its write site is the only thing that reads a map.",
+  "observability": [],
+  "required_approvals": [
+    "commit",
+    "push",
+    "pull_request",
+    "merge"
+  ],
+  "open_questions": []
+}
