@@ -1,8 +1,8 @@
 # Deviations — feat/1009-refusal-ledger-write-path
 
-**Twenty-six entries.** Twenty-six ACCEPT, zero RE-PLAN.
+**Twenty-seven entries.** Twenty-seven ACCEPT, zero RE-PLAN.
 
-**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D26 — there
+**Numbering note:** the ids run D1–D15, then **D16b**, then D17–D27 — there
 is no plain "D16" in this file. In this run that label means #1008's write-site
 deviation, the one this branch exists to settle, and reusing it here would be a
 genuinely bad piece of record-keeping.
@@ -35,6 +35,7 @@ genuinely bad piece of record-keeping.
 | D24 | Surface amendment **2 of 2** — `docs/runbooks/beta-launch-alerting.md` (RT-1) | **ACCEPT** | Owner-approved. The budget is now SPENT: a third amendment triggers the abort criteria. |
 | D25 | Red-team round 2: my RT-4 fix replaced one false claim with ANOTHER, measured | **ACCEPT** | Owner chose to close the real gap. Test 29 kills the mutant that survived. Seventh and eighth instances of the class. |
 | D26 | Red-team round 3 is attestation-only and exceeds the documented cap of two | **ACCEPT** | Recorded explicitly, because a cap that can be exceeded without a written reason is not a cap. |
+| D27 | CI caught a real defect the local gate structurally could not see | **ACCEPT** | The gate runs CHANGED integration suites; this one was affected by a PRODUCTION change while itself unchanged. |
 
 ---
 
@@ -961,3 +962,74 @@ triggers the abort criteria), and set a bad precedent — a branch loosening its
 own gate. Filed as a workflow issue instead.
 
 **Verdict:** ACCEPT.
+
+---
+
+## D27 — CI caught a real defect the local gate structurally could not see
+
+**When:** step 8, the PR's `test` job. `lint`, `build`, `e2e`, `changes` and
+React Doctor (91/100) all passed; `test` failed with 1 suite / 2 tests against
+1051 passing.
+
+### The defect, and it is genuinely mine
+
+```
+PostgresError: update or delete on table "accounts" violates foreign key
+constraint "refusal_events_account_id_fkey" on table "refusal_events"
+```
+
+`refusal_events.account_id REFERENCES accounts(id)` carries **no `ON DELETE`
+action**, and that is deliberate — migration 116 states it plainly: accounts are
+`retain_deidentified` and never deleted in production, so **nothing may take a
+Refusal away on another table's clock** (#996's third ruling).
+
+Live-DB **test fixtures do** delete accounts. The moment a suspension writes a
+Refusal, every teardown path that reaches `accounts` needs to clear it first.
+`SET CONSTRAINTS ALL DEFERRED` does not save it: that FK is not DEFERRABLE.
+
+**This is the forced-consequence chain again**, the same shape #1008's
+arch-review row describes for `TABLE_DISPOSITIONS` → `verificationQuery` →
+`runContentPurgeStage`. The first WRITE site forces test-fixture teardown the
+way the first CLASSIFICATION forced purge SQL.
+
+### Why the local gate could not see it
+
+**The gate runs CHANGED `*.integration.test.ts` suites.**
+`AutonomyGovernorScheduler.integration.test.ts` was **not** changed by this
+branch — the production file beside it was. So the suite was invisible locally
+and ran in CI, which runs all of them.
+
+That is precisely the trap CLAUDE.md documents: *"live-DB suites self-skip
+locally and can go red in CI — the #520 class."* What this run adds is the
+specific shape: **a suite can be affected by a change to production code while
+itself remaining unchanged, and the changed-files heuristic cannot see that.**
+
+**Queued for step 8 promotion.** The mitigation is not "run everything always"
+— it is: when a change adds a row to a table with a restrictive FK, grep the
+live-DB suites for teardowns that delete the parent, whether or not those suites
+are in the diff.
+
+### The fix, and the sweep it needed
+
+The fix belongs in the CALLERS, not the shared helper —
+`cleanupTenantAccount`'s own contract already says *"callers must have removed
+their own domain rows referencing the pair first"*, and it is right.
+
+**CI named one path. The file had THREE**, and only a deliberate sweep found the
+other two:
+
+| # | Path | Found by |
+|---|---|---|
+| 1 | `cleanupGovernorFleet` | CI's stack trace |
+| 2 | `cleanupGovernorRows` | re-running the suite locally after fix 1 |
+| 3 | the judge-signal case's inline `finally`, which suspends its own `mirror` account that `cleanupGovernorRows` does not cover | re-running again after fix 2 |
+
+A comment written at fix 2 said "there are TWO such paths". Fix 3 made that
+false, and it was corrected in the same pass — the stale-count class, caught this
+time before it shipped.
+
+A repo-wide sweep confirmed only **two** suites can trigger a suspension at all;
+the other already cleaned up, because T1 wrote it that way.
+
+**Verdict:** ACCEPT. Inside `allowed_edit_surface` — no amendment; the file was
+already covered by amendment 1.
