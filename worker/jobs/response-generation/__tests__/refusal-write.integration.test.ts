@@ -289,6 +289,31 @@ async function laneCount(source: string): Promise<number> {
   return row!.n;
 }
 
+/**
+ * Apply a temporary fixture mutation, run `body`, and ALWAYS restore.
+ *
+ * The `try/finally` is the entire point. Branch review round 1 (standards axis,
+ * P1) found four bare mutate→act→restore pairs here with no guard, and two of
+ * them set VETO conditions — `businesses.archived_at` and a `copilot` tier. A
+ * failure in the middle skipped the restore, left the tenant permanently
+ * vetoed, and made ELEVEN later "writes no row" assertions pass vacuously
+ * against a tenant that could never write one. That is the exact failure this
+ * file's own header warns about, and it is worse than a normal leak: the suite
+ * stays GREEN while measuring nothing.
+ */
+async function withTemporary(
+  mutate: () => Promise<unknown>,
+  restore: () => Promise<unknown>,
+  body: () => Promise<void>,
+): Promise<void> {
+  await mutate();
+  try {
+    await body();
+  } finally {
+    await restore();
+  }
+}
+
 async function responseIdFor(reviewId: string): Promise<string | undefined> {
   const [row] = await sql()<{ id: string }[]>`
     SELECT id FROM responses WHERE review_id = ${reviewId}::uuid
@@ -484,10 +509,14 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
   it('a policy_gate_held row stores the precedence winner as refusal_code, stores its mapped category, includes the winner in all_refusal_codes, and preserves blockReasons order verbatim', async () => {
     const reviewId = randomUUID();
     // A suspended policy plus a below-threshold rating: #1003's deciding case.
-    await sql()`UPDATE auto_approval_policies SET suspended_at = NOW() WHERE id = ${policyId}::uuid`;
     await seedReview(reviewId, { starRating: 2 });
-    await persistResponseAndNotify(sql(), makeInput(reviewId));
-    await sql()`UPDATE auto_approval_policies SET suspended_at = NULL WHERE id = ${policyId}::uuid`;
+    await withTemporary(
+      () => sql()`UPDATE auto_approval_policies SET suspended_at = NOW() WHERE id = ${policyId}::uuid`,
+      () => sql()`UPDATE auto_approval_policies SET suspended_at = NULL WHERE id = ${policyId}::uuid`,
+      async () => {
+        await persistResponseAndNotify(sql(), makeInput(reviewId));
+      },
+    );
 
     const responseId = await responseIdFor(reviewId);
     const [row] = await refusals(responseId!, 'policy_gate_held');
@@ -497,9 +526,24 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     expect(row?.refusal_category).toBe('autonomy_paused');
     // C5's membership half, proven through the write rather than the resolver.
     expect(row!.all_refusal_codes).toContain('policy_suspended');
-    // VERBATIM order — the evaluation order is itself evidence for support, and
-    // a writer that sorted or de-duplicated would discard it.
-    expect(row!.all_refusal_codes).toEqual([...new Set(row!.all_refusal_codes!)]);
+
+    // VERBATIM order, asserted against the gate's OWN emission order.
+    //
+    // An earlier version compared the array to `[...new Set(itself)]`, which is
+    // a tautology dressed as an order check: it only detects duplicates, and
+    // `compactBlockReasons` already de-duplicates upstream, so a writer that
+    // SORTED the array passed it. Both the spec axis and red team's mutation M6
+    // caught that independently.
+    //
+    // `evaluateAutoApprovalCandidate` collects the threshold reason FIRST and
+    // the suspension LAST, so the stored array must read in that order — the
+    // opposite of precedence rank, which is exactly what makes this
+    // discriminating: a writer that sorted by precedence, or alphabetically,
+    // fails here.
+    expect(
+      row!.all_refusal_codes,
+      'all_refusal_codes must preserve the gate emission order, not precedence or alphabetical order',
+    ).toEqual(['rating_below_threshold', 'rating_below_positive_quadrant', 'policy_suspended']);
   });
 
   it('a genuine candidate writes no policy_gate_held row both when a null-mapped member precedes a precedence member and when it follows one', async () => {
@@ -512,9 +556,13 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     // ahead of the later owner-review reasons a two-star review adds.
     const earlyReviewId = randomUUID();
     await seedReview(earlyReviewId, { starRating: 2 });
-    await sql()`UPDATE businesses SET archived_at = NOW() WHERE id = ${businessId}::uuid`;
-    await persistResponseAndNotify(sql(), makeInput(earlyReviewId));
-    await sql()`UPDATE businesses SET archived_at = NULL WHERE id = ${businessId}::uuid`;
+    await withTemporary(
+      () => sql()`UPDATE businesses SET archived_at = NOW() WHERE id = ${businessId}::uuid`,
+      () => sql()`UPDATE businesses SET archived_at = NULL WHERE id = ${businessId}::uuid`,
+      async () => {
+        await persistResponseAndNotify(sql(), makeInput(earlyReviewId));
+      },
+    );
     const earlyResponseId = await responseIdFor(earlyReviewId);
     expect(await refusals(earlyResponseId!, 'policy_gate_held')).toHaveLength(0);
 
@@ -523,12 +571,16 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
     // the policy row survives the downgrade, so the draft is still evaluated.
     const lateReviewId = randomUUID();
     await seedReview(lateReviewId, { starRating: 2 });
-    await sql()`UPDATE accounts SET subscription_tier = 'copilot' WHERE id = ${accountId()}::uuid`;
-    await persistResponseAndNotify(
-      sql(),
-      makeInput(lateReviewId, { preLlmSubscriptionTier: 'copilot' }),
+    await withTemporary(
+      () => sql()`UPDATE accounts SET subscription_tier = 'copilot' WHERE id = ${accountId()}::uuid`,
+      () => sql()`UPDATE accounts SET subscription_tier = 'autopilot' WHERE id = ${accountId()}::uuid`,
+      async () => {
+        await persistResponseAndNotify(
+          sql(),
+          makeInput(lateReviewId, { preLlmSubscriptionTier: 'copilot' }),
+        );
+      },
     );
-    await sql()`UPDATE accounts SET subscription_tier = 'autopilot' WHERE id = ${accountId()}::uuid`;
     const lateResponseId = await responseIdFor(lateReviewId);
     expect(await refusals(lateResponseId!, 'policy_gate_held')).toHaveLength(0);
   });
@@ -587,16 +639,45 @@ describeWithDb('the held_draft and policy_gate_held Refusal lanes (live Postgres
   it('a structurally eligible draft with no configured policy threshold writes no policy_gate_held row', async () => {
     const reviewId = randomUUID();
     await seedReview(reviewId, { triageSeverity: 'high' });
-    // DISTINCT from structural non-candidacy: the lane, version and
-    // notification are all eligible, runtime state IS read, and the narrowing
-    // fails only on effectivePolicy.threshold === null. An incorrectly narrowed
-    // helper writes policy_not_enabled here.
-    await sql()`UPDATE auto_approval_policies SET auto_approve_min_star = NULL WHERE id = ${policyId}::uuid`;
-    await persistResponseAndNotify(sql(), makeInput(reviewId));
-    await sql()`UPDATE auto_approval_policies SET auto_approve_min_star = 4 WHERE id = ${policyId}::uuid`;
+
+    // THE LEDGER ALONE CANNOT PROVE THIS, and an earlier version of this case
+    // pretended otherwise. Branch review round 1 (spec axis, and red team's
+    // mutation M10) showed the ledger assertion below is UNFALSIFIABLE: a null
+    // threshold makes the gate emit `policy_not_enabled`, which is itself a VETO
+    // member, so no row is written whether or not `isGenuineAutoCandidate` keeps
+    // its `threshold !== null` arm. M10 deleted the entire narrowing and 75
+    // tests stayed green. The old comment here — "an incorrectly narrowed helper
+    // writes policy_not_enabled" — was impossible by construction.
+    //
+    // The arm IS observable, but on the LOG side, which has no veto concept:
+    // `logAutoApprovalFallbackIfNeeded` shares the same predicate precisely so
+    // the two can never diverge, so the fallback log is the oracle. Capturing it
+    // is what makes this case able to fail.
+    const logged: string[] = [];
+    const capturingLogger = {
+      log: (...args: unknown[]) => { logged.push(String(args[0])); },
+      warn: () => {},
+    };
+
+    await withTemporary(
+      () => sql()`UPDATE auto_approval_policies SET auto_approve_min_star = NULL WHERE id = ${policyId}::uuid`,
+      () => sql()`UPDATE auto_approval_policies SET auto_approve_min_star = 4 WHERE id = ${policyId}::uuid`,
+      async () => {
+        await persistResponseAndNotify(sql(), {
+          ...makeInput(reviewId),
+          logger: capturingLogger,
+        });
+      },
+    );
 
     const responseId = await responseIdFor(reviewId);
     expect(await refusals(responseId!, 'policy_gate_held')).toHaveLength(0);
+    // The discriminating assertion. Drop the `threshold !== null` arm and the
+    // shared predicate admits this draft, the fallback log fires, and this fails.
+    expect(
+      logged.filter((line) => line === 'Auto-approval fallback to owner review'),
+      'the shared narrowing must exclude a draft whose account has no configured threshold',
+    ).toEqual([]);
   });
 
   it('a draft whose flag flips off mid-persist writes auto_approval_disabled as autonomy_paused', async () => {

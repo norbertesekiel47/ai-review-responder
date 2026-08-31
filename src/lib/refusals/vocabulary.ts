@@ -422,10 +422,20 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
  *   * `policy_not_enabled` — no autonomy was granted, so nothing was declined.
  *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
  *     structural. The draft was never a candidate.
- *   * `moderation_held` — the `held_draft` lane already records it. Mapping this
- *     one alone is NOT sufficient, which is why `recordPolicyGateRefusal` guards
- *     on `!held`: `moderation_flagged` fires at EVERY severity including `high`,
- *     so a held draft would still write an `unsafe_content` row here.
+ *   * `moderation_held` — the `held_draft` lane already records it, and this
+ *     entry ALONE is sufficient to keep the row off this lane.
+ *     `evaluateAutoApprovalCandidate` emits `moderation_held` whenever `held` is
+ *     true, and a `null` member VETOES the whole row whatever else co-occurs —
+ *     so a held draft cannot write here even though `moderation_flagged` also
+ *     fires at `high` severity.
+ *
+ *     (CORRECTED, branch review round 1: this bullet used to say the entry was
+ *     "NOT sufficient" and that `recordPolicyGateRefusal`'s `!held` guard is
+ *     what stops the duplicate. That reasoning is #998's, written BEFORE #1003
+ *     made `null` a veto rather than a rank — it reads `null` as if it lost a
+ *     ranking contest to `moderation_flagged`, which is the exact misreading the
+ *     veto rule exists to prevent. The `!held` guard is real and stays, but it is
+ *     defence in depth and an early return, not the mechanism.)
  *   * `archived_location` — the owner archived it. An owner act is not our
  *     restraint.
  *   * `autopilot_tier_required` — the account never held Autopilot, so there was
@@ -566,15 +576,23 @@ export function resolvePolicyGateRefusal(
   // tuple type C5 requires, from the same check that handles the empty case.
   if (first === undefined) return null;
 
-  const categories: Record<string, RefusalCategory | null> = POLICY_GATE_HELD_REFUSAL_CATEGORIES;
+  // The map is read through its OWN type, never widened to
+  // `Record<string, RefusalCategory | null>`. An annotation like that erases the
+  // `as const satisfies` literal types, and the loss is not cosmetic: with the
+  // precise type, `AUTO_APPROVAL_BLOCK_PRECEDENCE`'s members index to a union of
+  // their fifteen literal categories — none of them `null` — so mapping a
+  // precedence member to `null` later is a COMPILE error here. Widened, it
+  // compiled and threw at run time INSIDE the deciding transaction instead.
+  // (Branch review round 1, standards axis P1.)
+  //
   // ONE pass over EVERY member before any ranking — the veto is about presence,
   // never position, so a short-circuit on the first ranked member would let a
   // later `null` through.
   for (const code of blockReasons) {
-    if (!Object.hasOwn(categories, code)) {
+    if (!Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)) {
       throw new Error(`unmapped_auto_approval_block_reason:${code}`);
     }
-    if (categories[code] === null) return null;
+    if (POLICY_GATE_HELD_REFUSAL_CATEGORIES[code] === null) return null;
   }
 
   const winner = AUTO_APPROVAL_BLOCK_PRECEDENCE.find((member) => blockReasons.includes(member));
@@ -586,17 +604,15 @@ export function resolvePolicyGateRefusal(
     throw new Error(`unranked_auto_approval_block_reason:${blockReasons.join(',')}`);
   }
 
-  const refusalCategory = categories[winner];
-  if (refusalCategory === null || refusalCategory === undefined) {
-    // Also unreachable: a `null` member returned above. Asserted rather than
-    // narrowed with a cast, so a future map edit cannot silently write NULL into
-    // a NOT NULL column.
-    throw new Error(`veto_member_won_precedence:${winner}`);
-  }
-
+  // No null-check on the lookup, and its ABSENCE is the guard. `winner` is a
+  // member of the precedence tuple, so this indexes to a non-nullable union —
+  // TypeScript proves what a run-time `veto_member_won_precedence` throw used to
+  // assert. That throw is deleted rather than kept "for safety": it was
+  // unreachable by construction, and `working-rules.md` says defensive handling
+  // of a state the invariants exclude hides real bugs.
   return {
     refusalCode: winner,
-    refusalCategory,
+    refusalCategory: POLICY_GATE_HELD_REFUSAL_CATEGORIES[winner],
     // The input VERBATIM, in its own order — the evaluation order is itself
     // evidence for whoever debugs the gate, and sorting or de-duplicating here
     // would discard it. C5 requires the winner to be a member, and it is: the
