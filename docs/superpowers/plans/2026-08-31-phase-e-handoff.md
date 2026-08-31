@@ -1,5 +1,9 @@
 # Handoff — beta launch, Phases E–H
 
+> ⛔ **SUPERSEDED 2026-08-31 by `2026-08-31-phase-f3-handoff.md`.** Phases E, F.2 and G are
+> complete; this file describes them as pending. Kept for the reasoning and the closed
+> findings only. **Read the successor first.**
+
 > **Written:** 2026-08-31 · **Owner:** @norbertesekiel
 > **Supersedes** `2026-08-31-phase-d-handoff.md`, which covered Phase D.
 >
