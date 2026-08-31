@@ -141,8 +141,8 @@
     "both lanes write subject_type response, the response id, and the account and business keys already in scope"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 190,
-  "estimated_test_lines": 1150,
+  "estimated_prod_lines": 520,
+  "estimated_test_lines": 1300,
   "dependencies_added": [],
   "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops both writes with no deploy and leaves persist byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes both call sites and the two vocabulary maps together. (3) No down migration: migration 116 stays and rows already written are not deleted. ArchivalPoller's refusal_events arm landed in #1009 and is untouched, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS. Note that AUTO_APPROVAL_ENABLED is off in production, so the policy_gate_held lane writes nothing there until the go-live flip; the held_draft lane is live from the moment this merges.",
   "observability": [

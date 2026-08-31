@@ -22,7 +22,10 @@
 // failing tests naming what is missing.
 
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+// No `expect` import: both cases assert through `fc.assert`, whose property
+// predicates return booleans. A counterexample fails the run with the shrunk
+// input, which is more useful here than a matcher's message.
+import { describe, it } from 'vitest';
 import * as vocabulary from '../../../../src/lib/refusals/vocabulary';
 
 interface ResolvedRefusal {
