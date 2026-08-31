@@ -24,6 +24,8 @@ import {
   isProcessingBlocked,
   lockAccountBeforeOffboardingProjection,
 } from '@/lib/account-offboarding/gate';
+import { ASK_WITHHELD_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
+import { writeRefusalEvents } from '@/lib/refusals/write';
 import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers';
 import {
   lockDispatchedOutboxAttemptIfOwned,
@@ -580,6 +582,10 @@ async function commitAskDecisions(
   },
 ): Promise<void> {
   const { batch, parentRunId, decisions, decidedAt } = args;
+  // Converted ONCE, outside the row map: every Refusal this build writes shares
+  // the batch's single decision instant, and `new Date(decidedAt)` per row would
+  // mint N equal-but-distinct objects for no gain.
+  const decidedAtInstant = new Date(decidedAt);
 
   const askIds = decisions.map(() => uuidv7());
   const runIds = decisions.map(() => uuidv7());
@@ -630,6 +636,56 @@ async function commitAskDecisions(
       );
     }
   }
+
+  // The Refusal ledger's `ask_withheld` lane (#1010), on THIS transaction and
+  // never its own. It sits after the ask INSERT because a Refusal names the
+  // `solicitation_asks` row whose decision it records, and before the run-spine
+  // calls because that is this file's lock order (advisory -> batch row ->
+  // `agent_runs`).
+  //
+  // ONE STATEMENT FOR THE WHOLE SET, deliberately. A build can propose up to
+  // MAX_DATA_ROWS (5,000) mapped Refusals — reached when every candidate in the
+  // window fails an individual gate — and this transaction already holds the
+  // per-Business advisory lock and the batch row lock, so a loop over the
+  // single-row helper would hold both across 5,000 sequential round trips.
+  // `writeRefusalEvents` issues no statement at all for an empty set.
+  //
+  // A `null` CATEGORY MEANS THE CODE IS NOT A REFUSAL, never a missing entry:
+  // `velocity_banked` is a DEFERRAL — the send caps held the candidate back for
+  // this build and it stays in the pool for the next one — so recording that we
+  // declined to contact them would be false.
+  //
+  // NOT wrapped in try/catch. A CHECK violation from a mis-mapped category is a
+  // writer bug and must abort this build rather than be hidden in the one place
+  // the ledger cannot report it; the lever is the helper's own kill switch.
+  await writeRefusalEvents(
+    tx,
+    decisions.flatMap((decision, index) => {
+      if (decision.decision !== 'withhold') return [];
+      const refusalCategory = ASK_WITHHELD_REFUSAL_CATEGORIES[decision.reason];
+      if (refusalCategory === null) return [];
+      return [{
+        accountId: batch.accountId,
+        businessId: batch.businessId,
+        refusalSource: 'ask_withheld' as const,
+        // The withheld reason VERBATIM, never normalised — the code is the
+        // input that keeps skew re-derivable later.
+        refusalCode: decision.reason,
+        allRefusalCodes: null,
+        refusalCategory,
+        subjectType: 'solicitation_ask' as const,
+        // The ask id minted a few lines above, which is why this write lives
+        // inside `commitAskDecisions` and not beside its caller: `askIds` is the
+        // only place the decision and its stored row are the same fact.
+        subjectId: askIds[index]!,
+        // The batch's OWN decision time, converted once and shared by every row
+        // — one build is one decision. `decidedAt` is an ISO string here and the
+        // helper takes a `Date`, so the conversion happens exactly once rather
+        // than per row.
+        occurredAt: decidedAtInstant,
+      }];
+    }),
+  );
 
   await recordCompletedChildRuns(tx, {
     accountId: batch.accountId,

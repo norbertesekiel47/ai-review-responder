@@ -432,3 +432,166 @@ export async function writeRefusalEvent(
   // the frozen literal and never a parameter: it records which map froze this
   // row's category, and #1002 ruled there is never a backfill.
 }
+
+/**
+ * One row of the set arm's `jsonb_to_recordset` input.
+ *
+ * `occurred_at` is NULLABLE HERE AND ONLY HERE, and it is not the column's
+ * nullability: `refusal_events.occurred_at` is `NOT NULL`. NULL is how the
+ * `'transaction_time'` SENTINEL rides a JSONB payload — the statement resolves
+ * it with `COALESCE(…, NOW())`, which is the same `transaction_timestamp()` the
+ * single-row arm's `occurredAtFragment` emits. A lane that supplied a `Date`
+ * lands its own instant and never touches the fallback.
+ */
+interface RefusalEventRow {
+  id: string;
+  account_id: string;
+  business_id: string | null;
+  refusal_source: string;
+  refusal_code: string | null;
+  all_refusal_codes: string[] | null;
+  refusal_category: string;
+  vocabulary_version: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  occurred_at: string | null;
+}
+
+/**
+ * Record N Refusals on the caller's deciding transaction, in ONE statement.
+ *
+ * WHY THIS ARM EXISTS, and it is not a convenience. `ask_withheld` is the
+ * highest-volume lane in the ledger: `loadCandidateWindow` bounds a batch's
+ * evaluated cohort at `MAX_DATA_ROWS` (5,000, `src/lib/solicitation/contacts-csv.ts`)
+ * and a rebuild re-evaluates the whole accumulated pool, so a build in which
+ * every candidate fails an individual mapped gate proposes 5,000 Refusals at
+ * once. Looping `writeRefusalEvent` would put 5,000 sequential round trips
+ * inside a transaction already holding the per-Business advisory lock AND the
+ * batch row lock, behind the `src/lib/db/admission.ts` chokepoint. (The
+ * all-ELIGIBLE case is the OTHER one and writes nothing at all: its withholds
+ * are `velocity_banked`, which maps to `null`.)
+ *
+ * IT LIVES HERE, BESIDE THE SINGLE-ROW ARM, AND NEVER IN A LANE MODULE. #1001
+ * made this module the only place `INSERT INTO refusal_events` is spelled; a set
+ * insert built in `batch-builder.ts` would be a second owner of the statement
+ * and of the partial-index predicate.
+ *
+ * EVERY GUARANTEE OF THE SINGLE-ROW ARM HOLDS, and for the same reasons — read
+ * that function's contract first. Two differences, both deliberate:
+ *
+ *   1. AN EMPTY INPUT ISSUES NO STATEMENT. An `INSERT` of zero rows is not a
+ *      decision, and `jsonb_to_recordset` over `[]` is a round trip that records
+ *      nothing. The check runs BEFORE the kill-switch read on purpose: a build
+ *      that withheld nothing has no ledger GAP to warn about, and warning there
+ *      would put noise on the one signal that says the ledger is dark.
+ *   2. IT ASSERTS NO AFFECTED-ROW COUNT. `commitAskDecisions` — the
+ *      `jsonb_to_recordset` idiom this follows — asserts
+ *      `inserted.count === input.length`, which is correct THERE because that
+ *      statement has no `ON CONFLICT`. Copying it here would be a bug: under
+ *      `ON CONFLICT DO NOTHING` a subject already stored by an EARLIER call
+ *      legitimately lowers the count, and the throw would land inside a decision
+ *      transaction — the ledger breaking the very thing it records (plan review
+ *      round 1, R1-7).
+ *
+ * @param tx the DECIDING transaction — invariant #15, never `@/lib/db/server`.
+ */
+export async function writeRefusalEvents(
+  tx: TransactionSql,
+  inputs: readonly WriteRefusalEventInput[],
+): Promise<void> {
+  if (inputs.length === 0) return;
+
+  // READ LIVE, PER CALL, INSIDE THE BODY — the same rule, and the same reason,
+  // as the single-row arm.
+  if (!readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG)) {
+    warnLedgerDisabled();
+    return;
+  }
+
+  endDisabledEpisode();
+
+  // Column names, not the input's camelCase: these are the `jsonb_to_recordset`
+  // column aliases, so the JSON keys and the AS list are one contract.
+  const rows: RefusalEventRow[] = inputs.map((input) => ({
+    id: uuidv7(),
+    account_id: input.accountId,
+    business_id: input.businessId,
+    refusal_source: input.refusalSource,
+    refusal_code: input.refusalCode,
+    // The SPREAD copies a `readonly string[]` into the mutable array the JSON
+    // serializer requires; the explicit `null` arm keeps NULL ("this lane has no
+    // code axis") distinct from `'{}'`, which C5 rejects outright.
+    all_refusal_codes: input.allRefusalCodes === null ? null : [...input.allRefusalCodes],
+    refusal_category: input.refusalCategory,
+    vocabulary_version: REFUSAL_VOCABULARY_VERSION,
+    subject_type: input.subjectType,
+    subject_id: input.subjectId,
+    // ISO 8601, never the `Date` object: this value is JSON, and a `Date`
+    // serialized by `JSON.stringify` is the same string with none of the
+    // guarantee. The `timestamptz` column of the recordset parses it back at
+    // full precision.
+    occurred_at: input.occurredAt === 'transaction_time' ? null : input.occurredAt.toISOString(),
+  }));
+
+  await tx`
+    INSERT INTO refusal_events (
+      id,
+      account_id,
+      business_id,
+      refusal_source,
+      refusal_code,
+      all_refusal_codes,
+      refusal_category,
+      vocabulary_version,
+      subject_type,
+      subject_id,
+      occurred_at
+    )
+    SELECT
+      event.id,
+      event.account_id,
+      event.business_id,
+      event.refusal_source,
+      event.refusal_code,
+      event.all_refusal_codes,
+      event.refusal_category,
+      event.vocabulary_version,
+      event.subject_type,
+      event.subject_id,
+      COALESCE(event.occurred_at, NOW())
+    FROM jsonb_to_recordset(${tx.json(rows as never)}) AS event(
+      id uuid,
+      account_id uuid,
+      business_id uuid,
+      refusal_source text,
+      refusal_code text,
+      all_refusal_codes text[],
+      refusal_category text,
+      vocabulary_version text,
+      subject_type text,
+      subject_id uuid,
+      occurred_at timestamptz
+    )
+    ON CONFLICT (refusal_source, subject_id) WHERE subject_id IS NOT NULL
+    DO NOTHING
+  `;
+  // THE PREDICATE IS RE-SPELLED BYTE-FOR-BYTE from the single-row arm above,
+  // which is itself byte-for-byte `refusal_events_subject_uniq` (migration 116).
+  // `write.test.ts` reads BOTH clauses out of this module's source and compares
+  // them as text — that comparison is the compensating control for the second
+  // spelling #1001 warned about, and it is why neither may be "tidied" into a
+  // shared string constant: an interpolated clause is a bind parameter, and a
+  // bind parameter inside `ON CONFLICT … WHERE` defeats partial-index inference
+  // outright (invariant #2).
+  //
+  // `DO NOTHING` also resolves a duplicate the statement is inserting AGAINST
+  // ITSELF, which `DO UPDATE` cannot — it raises 21000 on exactly that shape. A
+  // build proposing one subject twice therefore commits with one row rather than
+  // poisoning the transaction the decision lives in.
+  //
+  // `NOW()` HERE IS THE SENTINEL'S RESOLUTION AND NOTHING ELSE. `COALESCE`
+  // reaches it only for a row whose lane said `'transaction_time'`; in Postgres
+  // `NOW()` is `transaction_timestamp()` — transaction START, stable across every
+  // statement — so such a lane gets the same instant the single-row arm's
+  // `occurredAtFragment` would have given it.
+}

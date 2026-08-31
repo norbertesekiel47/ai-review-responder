@@ -67,6 +67,7 @@ import {
   seedTenantAccount,
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
+import { OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
 import type { AskInterpolationInputs } from '../ask-prompt-policy';
 import {
   assembleAskBody,
@@ -74,6 +75,7 @@ import {
   UNSUBSCRIBE_URL_PLACEHOLDER,
 } from '../ask-render';
 import { haltBatch, type HaltBatchResult } from '../approval';
+import { acquireSolicitationBatchLock } from '../batch-builder';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
 import { dispatchOutreach } from '../dispatch';
 import { closeBatchIfSettled } from '../outreach';
@@ -145,6 +147,37 @@ vi.mock('@/lib/agents/run-spine', async (importOriginal) => {
     },
   };
 });
+
+// ── #1010 T4: the `outreach_withheld` DISPATCH lane's Refusal write site ─────
+//
+// WHY THE VOCABULARY MODULE IS MOCKED. One case here forces a REAL ledger
+// rejection from the REAL helper inside tx1 — a mocked-away writer would prove
+// only that a stub can reject, and every other case supplies valid input.
+// Bending ONE map entry to a category migration 116's CHECK does not admit makes
+// the INSERT violate `refusal_events_refusal_category_check`, which is the
+// writer bug the design says must abort the decision rather than be caught.
+//
+// The stand-in map is DERIVED from the real one inside the factory, never
+// re-typed: every other case must run against the production vocabulary. Same
+// shape as `src/lib/auto-approval/__tests__/suspension.integration.test.ts`.
+const { outreachWithheldCategories } = vi.hoisted(() => ({
+  outreachWithheldCategories: {} as Record<string, string>,
+}));
+
+vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/refusals/vocabulary')>();
+  Object.assign(outreachWithheldCategories, actual.OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES);
+  return {
+    ...actual,
+    OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES: outreachWithheldCategories,
+  };
+});
+
+/** The default-ON kill switch. Only the literal string 'false' disables it. */
+const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
+
+/** Postgres' CHECK-violation SQLSTATE. */
+const CHECK_VIOLATION = '23514';
 
 /** The clean provider verdict. A CONSTANT rather than an inline literal because
  *  two of the integrity cases install their own `mockImplementation` — they
@@ -895,6 +928,95 @@ function assertCarriesNoRawToken(rows: readonly Record<string, unknown>[], table
   }
 }
 
+// ── #1010 T4 fixtures: the Refusal ledger ───────────────────────────────────
+
+interface RefusalRow {
+  account_id: string;
+  business_id: string | null;
+  refusal_source: string;
+  refusal_code: string | null;
+  all_refusal_codes: string[] | null;
+  refusal_category: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  occurred_at: string;
+  created_at: string;
+  /**
+   * `occurred_at - created_at`, in seconds, computed IN POSTGRES.
+   *
+   * `created_at` is `DEFAULT NOW()` and `NOW()` is `transaction_timestamp()` —
+   * tx1's START. So this column IS the discriminator between the gate's own
+   * clock and the transaction stamp, and it must be read at full precision:
+   * postgres.js decodes `timestamptz` to a JS `Date` and truncates microseconds
+   * (#520), which is exactly where a sub-millisecond difference would vanish.
+   */
+  gate_skew_seconds: string;
+}
+
+/** Every Refusal written against ONE Outreach row. Scoped by subject because
+ *  this suite has no `afterEach` — each fixture mints its own outreach id. */
+async function readRefusalsForOutreach(outreachId: string): Promise<RefusalRow[]> {
+  return sql()<RefusalRow[]>`
+    SELECT account_id::text AS account_id,
+           business_id::text AS business_id,
+           refusal_source,
+           refusal_code,
+           all_refusal_codes,
+           refusal_category,
+           subject_type,
+           subject_id::text AS subject_id,
+           occurred_at::text AS occurred_at,
+           created_at::text AS created_at,
+           EXTRACT(EPOCH FROM (occurred_at - created_at))::text AS gate_skew_seconds
+    FROM refusal_events
+    WHERE subject_id = ${outreachId}::uuid
+    ORDER BY occurred_at
+  `;
+}
+
+/**
+ * Holds the per-Business advisory lock for `holdFor`, resolving once it is
+ * actually held.
+ *
+ * `runDispatchTx` opens tx1, CASes the outbox attempt and THEN takes this key,
+ * so a holder makes tx1 START measurably earlier than the moment the gate
+ * decides. That gap is what turns "occurred_at is the gate's clock, not
+ * transaction start" into a measurement: without it the two land inside the same
+ * millisecond and a sentinel-stamped row passes.
+ *
+ * The hold is an INTERVAL literal rather than a bound number — postgres.js
+ * infers a parameter's wire type from the JS value, and a fractional `pg_sleep`
+ * argument is ambiguity this fixture does not need.
+ */
+function holdBatchLock(holdFor: string): { held: Promise<void>; released: Promise<void> } {
+  let resolveHeld!: () => void;
+  const held = new Promise<void>((resolve) => {
+    resolveHeld = resolve;
+  });
+  const released = sql().begin(async (tx) => {
+    await acquireSolicitationBatchLock(tx, businessId);
+    resolveHeld();
+    await tx`SELECT pg_sleep(EXTRACT(EPOCH FROM ${holdFor}::interval))`;
+  }).then(() => undefined);
+  return { held, released };
+}
+
+/** One dispatch with the send flag on, using this suite's env discipline. */
+async function dispatchWithFlagOn(
+  fixture: QueuedOutreachFixture,
+  correlationId: string,
+): Promise<void> {
+  await withSendFlagOn(async () => {
+    await dispatchOutreach(sql(), {
+      batchId: fixture.batchId,
+      businessId,
+      outreachId: fixture.outreachId,
+      outboxHandle: { outboxId: fixture.outboxId, attempt: fixture.attempt },
+      correlationId,
+    });
+  });
+}
+
 /** One parsed structured log line. */
 interface CapturedLogLine {
   message: string;
@@ -997,6 +1119,9 @@ describeWithDb(
         if (db) {
           // Child-to-parent order: the FKs from the solicitation tables have no
           // cascade, and `agent_runs` holds the Lazy children this lane creates.
+          // #1010's rows first: `refusal_events` has no-action foreign keys to
+          // `accounts` and `businesses`, both of which this teardown deletes.
+          await db`DELETE FROM refusal_events WHERE business_id = ${businessId}::uuid`;
           await db`DELETE FROM solicitation_unsubscribe_tokens WHERE business_id = ${businessId}::uuid`;
           await db`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
           await db`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
@@ -2239,6 +2364,325 @@ describeWithDb(
         // re-dispatch a job whose sole remaining act is to observe the same
         // thing.
         expect((await readOutbox(fixture.outboxId)).status).toBe('completed');
+      });
+    });
+
+    // ── #1010 T4: `outreach_withheld`, the DISPATCH half ────────────────────
+    //
+    // One Refusal per withheld Outreach row, written by `commitWithhold` inside
+    // tx1 — the same transaction as the withheld terminal, the Lazy child, the
+    // receipt step, the outbox completion and the settlement join.
+    //
+    // `occurredAt` here is the GATE's own `now`, threaded in from
+    // `runDispatchTx`, and NOT the `'transaction_time'` sentinel. tx1 acquires
+    // the per-Business advisory lock and two row locks BEFORE the gate runs, so
+    // under contention the sentinel would stamp a decision measurably before it
+    // was made (plan §0 D-B).
+    describe('Refusal ledger', () => {
+      it('a dispatch withhold writes one refusal_events row against the outreach id', async () => {
+        const fixture = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+
+        await dispatchWithFlagOn(fixture, 'dispatch-refusal-one-row');
+
+        expect(await readOutreach(fixture.outreachId)).toMatchObject({
+          delivery_status: 'withheld',
+          disposition_reason: 'no_postal_address',
+        });
+
+        const refusals = await readRefusalsForOutreach(fixture.outreachId);
+        // ONE row, against the OUTREACH — not the ask, and not the batch. The
+        // ask is the subject of the `ask_withheld` lane and re-using it here
+        // would collide two different decisions on one partial-index key.
+        expect(refusals).toHaveLength(1);
+        expect(refusals[0]).toMatchObject({
+          account_id: accountId(),
+          business_id: businessId,
+          refusal_source: 'outreach_withheld',
+          subject_type: 'solicitation_outreach',
+          subject_id: fixture.outreachId,
+          // The gate's reason VERBATIM, and the category this lane's map — the
+          // DISPATCH half, never the render half — assigns it.
+          refusal_code: 'no_postal_address',
+          refusal_category: OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES.no_postal_address,
+          all_refusal_codes: null,
+        });
+      });
+
+      it("a dispatch withhold stamps occurred_at with the gate's decision clock, not with transaction start", async () => {
+        const fixture = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+
+        // THE MEASUREMENT. Holding the advisory key makes tx1 begin, block, and
+        // only then reach the gate — so the two candidate values are separated
+        // by the hold rather than by a few microseconds. An assertion that only
+        // checked "close to now" passes under BOTH and measures nothing.
+        const lock = holdBatchLock('0.5 seconds');
+        await lock.held;
+        await Promise.all([
+          dispatchWithFlagOn(fixture, 'dispatch-refusal-gate-clock'),
+          lock.released,
+        ]);
+
+        const [refusal] = await readRefusalsForOutreach(fixture.outreachId);
+        expect(refusal, 'the withhold wrote no Refusal').toBeDefined();
+        // `created_at` IS tx1's `transaction_timestamp()`. A row stamped with
+        // the `'transaction_time'` sentinel would land on it exactly, giving a
+        // skew of zero.
+        expect(Number(refusal!.gate_skew_seconds)).toBeGreaterThan(0.3);
+        expect(refusal!.occurred_at).not.toBe(refusal!.created_at);
+      });
+
+      it('a dispatch defer writes no refusal_events row', async () => {
+        // A defer is a NO-DECISION: the row keeps its status and #900's producer
+        // re-drips it, so claiming RepWorth refused anything would be false.
+        // BOTH defer paths are covered — the gate's own `batch_open` item, and
+        // the flag-off short-circuit above tx1, which is decision 5's answer to
+        // an item 091/110 carry no withheld reason for.
+        const gateDefer = await seedQueuedOutreach();
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        // The batch closes while the row is still `queued` — `isBatchOpenForSend`
+        // then answers false and item 1 defers.
+        await sql()`
+          UPDATE solicitation_batches SET send_closed_at = NOW()
+          WHERE id = ${gateDefer.batchId}::uuid AND account_id = ${accountId()}::uuid
+        `;
+
+        await dispatchWithFlagOn(gateDefer, 'dispatch-refusal-defer-batch-open');
+
+        expect(await readOutreach(gateDefer.outreachId)).toMatchObject({
+          delivery_status: 'queued',
+          disposition_reason: null,
+        });
+        expect(await readRefusalsForOutreach(gateDefer.outreachId)).toEqual([]);
+
+        const flagDefer = await seedQueuedOutreach();
+        await withSendFlagOff(async () => {
+          await dispatchOutreach(sql(), {
+            batchId: flagDefer.batchId,
+            businessId,
+            outreachId: flagDefer.outreachId,
+            outboxHandle: { outboxId: flagDefer.outboxId, attempt: flagDefer.attempt },
+            correlationId: 'dispatch-refusal-defer-flag-off',
+          });
+        });
+
+        expect(await readOutreach(flagDefer.outreachId)).toMatchObject({
+          delivery_status: 'queued',
+          disposition_reason: null,
+        });
+        expect(await readRefusalsForOutreach(flagDefer.outreachId)).toEqual([]);
+      });
+
+      it('a ledger failure in the dispatch lane rolls back the outreach withhold, child run, receipt step, outbox completion and batch close together', async () => {
+        // Round-1 plan review R1-2: without this case a dispatch ledger error
+        // could be caught, or the write moved outside tx1, with every other
+        // dispatch case still green.
+        const fixture = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+        const before = await readOutreach(fixture.outreachId);
+
+        const original = { ...outreachWithheldCategories };
+        outreachWithheldCategories.no_postal_address = 'a_category_the_ledger_never_named';
+        try {
+          await expect(
+            dispatchWithFlagOn(fixture, 'dispatch-refusal-rollback'),
+          ).rejects.toMatchObject({
+            code: CHECK_VIOLATION,
+            constraint_name: expect.stringContaining('refusal_events'),
+          });
+        } finally {
+          for (const key of Object.keys(outreachWithheldCategories)) {
+            delete outreachWithheldCategories[key];
+          }
+          Object.assign(outreachWithheldCategories, original);
+        }
+
+        // EVERY write tx1 made is gone. The row is still dispatchable, which is
+        // the point: a ledger bug must not silently terminalize an Outreach the
+        // owner still owns.
+        const after = await readOutreach(fixture.outreachId);
+        expect(after.delivery_status).toBe('queued');
+        expect(after.disposition_reason).toBeNull();
+        expect(after.agent_run_id).toBeNull();
+        expect(after.consent_row_id).toBe(before.consent_row_id);
+
+        const [childRuns] = await sql()<{ total: number }[]>`
+          SELECT COUNT(*)::int AS total FROM agent_runs
+          WHERE business_id = ${businessId}::uuid
+            AND kind = 'solicitation_ask'
+            AND subject_id = ${fixture.askId}
+        `;
+        expect(childRuns!.total, 'the Lazy child went with it').toBe(0);
+        const [steps] = await sql()<{ total: number }[]>`
+          SELECT COUNT(*)::int AS total FROM agent_run_steps step
+          JOIN agent_runs run ON run.id = step.agent_run_id
+          WHERE run.business_id = ${businessId}::uuid
+            AND step.step_key = 'dispatch_gate_evaluated'
+            AND run.subject_id = ${fixture.askId}
+        `;
+        expect(steps!.total, 'the receipt step went with it').toBe(0);
+        // The attempt is still in flight, so the watchdog still owns the work.
+        expect((await readOutbox(fixture.outboxId)).status).toBe('dispatched');
+        // …and the batch did not close on a settlement that never happened.
+        expect(await readBatchClosedAt(fixture.batchId)).toBeNull();
+        expect(await readRefusalsForOutreach(fixture.outreachId)).toEqual([]);
+      });
+
+      it('every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing', async () => {
+        // ONE TITLE, THREE INSTANCES — one per lane, in each lane's own suite
+        // (`batch-builder.integration.test.ts`, this one,
+        // `approval.integration.test.ts`). Plan §1: the title "spans T3, T4 and
+        // T5 and closes with them". No single suite can drive all three lanes'
+        // fixtures, and a case covering one lane while claiming all three would
+        // be the over-claim this title exists to prevent. This instance owns the
+        // DISPATCH half of `outreach_withheld`.
+        //
+        // Round-1 finding R1-4: a call site could hard-code one valid code and
+        // one valid category and stay green under every count and timestamp
+        // assertion, filing every OTHER reason wrong.
+        //
+        // This lane has NO null-mapped reason — all six are RepWorth declining
+        // to send. Its analogue of "writes nothing" is the DEFER, which carries
+        // no withheld reason at all and has its own case above.
+        const written = new Map<string, string>();
+
+        // Item 3 — the opt-out that landed after approval.
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const suppressed = await seedQueuedOutreach();
+        await seedAccountSuppression(suppressed.handle);
+        await dispatchWithFlagOn(suppressed, 'dispatch-refusal-vocab-suppressed');
+
+        // Item 4 — no ledger row for the handle at all.
+        const noConsent = await seedQueuedOutreach({ consent: 'absent' });
+        await dispatchWithFlagOn(noConsent, 'dispatch-refusal-vocab-no-consent');
+
+        // Item 6, absent — the whole attestation is cleared.
+        const noAddress = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+        await dispatchWithFlagOn(noAddress, 'dispatch-refusal-vocab-no-address');
+
+        // Item 6, present-but-moved — the owner corrected their address AFTER
+        // approval, so the stored footer no longer byte-matches.
+        const mismatch = await seedQueuedOutreach();
+        await setAttestedPostalAddress('1600 Pennsylvania Ave NW\nWashington, DC 20500');
+        await dispatchWithFlagOn(mismatch, 'dispatch-refusal-vocab-mismatch');
+
+        // Item 8 — copy the current lint refuses outright.
+        await setAttestedPostalAddress(SEEDED_POSTAL_ADDRESS);
+        const lintFailed = await seedQueuedOutreach({
+          llmBody: 'Thanks for stopping by — leave us a review and get 20% off your next visit.',
+        });
+        await dispatchWithFlagOn(lintFailed, 'dispatch-refusal-vocab-lint');
+
+        // Item 9 — an unmoderated ask is not a send-eligible ask (§3.4).
+        const moderationHigh = await seedQueuedOutreach();
+        await withProviderModerationOff(async () => {
+          await dispatchWithFlagOn(moderationHigh, 'dispatch-refusal-vocab-moderation');
+        });
+
+        for (const fixture of [
+          suppressed,
+          noConsent,
+          noAddress,
+          mismatch,
+          lintFailed,
+          moderationHigh,
+        ]) {
+          const row = await readOutreach(fixture.outreachId);
+          expect(row.delivery_status, `outreach ${fixture.outreachId} did not withhold`)
+            .toBe('withheld');
+          const [refusal] = await readRefusalsForOutreach(fixture.outreachId);
+          expect(refusal, `no Refusal for ${row.disposition_reason}`).toBeDefined();
+          // The Outreach row's stored reason and the Refusal's code are the SAME
+          // string, read from two tables.
+          expect(refusal!.refusal_code).toBe(row.disposition_reason);
+          written.set(refusal!.refusal_code!, refusal!.refusal_category);
+        }
+
+        // Every member of the dispatch map, and nothing else. Derived from the
+        // map rather than re-listed, so a seventh reason added upstream fails
+        // here instead of going unrecorded.
+        expect(Object.fromEntries(written)).toEqual({
+          ...OUTREACH_WITHHELD_DISPATCH_REFUSAL_CATEGORIES,
+        });
+      });
+
+      it("every refusal_events row these three lanes write carries the account and location already in the lane's scope", async () => {
+        // ONE TITLE, THREE INSTANCES — see the exhaustive-reason case above.
+        // This instance owns the DISPATCH lane.
+        //
+        // `scope` already carries the account and the location, read off the row
+        // this attempt locked; no lane resolves a tenant key it does not hold.
+        const fixture = await seedQueuedOutreach();
+        await setAttestedPostalAddress(null);
+
+        await dispatchWithFlagOn(fixture, 'dispatch-refusal-tenant-scope');
+
+        const [refusal] = await readRefusalsForOutreach(fixture.outreachId);
+        expect(refusal).toBeDefined();
+        expect(refusal!.account_id).toBe(accountId());
+        // NOT NULL: C3 makes a null location mean "account-wide", which this
+        // lane is not.
+        expect(refusal!.business_id).toBe(businessId);
+      });
+
+      it('all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false', async () => {
+        // ONE TITLE, THREE INSTANCES — see the exhaustive-reason case above.
+        // This instance owns the DISPATCH lane.
+        //
+        // "Unchanged" is a claim about two runs agreeing, so the comparison is
+        // against a REAL ledger-on dispatch of an identical fixture rather than
+        // against a hand-written expectation.
+        async function dispatchAndSnapshot(correlationId: string): Promise<{
+          outreach: Omit<OutreachLifecycleRow, 'agent_run_id' | 'consent_row_id'>;
+          childStatus: string;
+          stepKeys: string[];
+          outboxStatus: string;
+          batchClosed: boolean;
+          refusalCount: number;
+        }> {
+          const fixture = await seedQueuedOutreach();
+          await setAttestedPostalAddress(null);
+          await dispatchWithFlagOn(fixture, correlationId);
+
+          const row = await readOutreach(fixture.outreachId);
+          // The two id columns are excluded from the comparison and NOTHING
+          // else is: they are freshly minted per fixture, so comparing them
+          // would fail for a reason that has nothing to do with the switch.
+          const { agent_run_id: runId, consent_row_id: consentRowId, ...comparable } = row;
+          expect(runId, 'the Lazy child was not created').not.toBeNull();
+          expect(consentRowId).not.toBeNull();
+          const child = await readChildRun(runId!);
+          return {
+            outreach: comparable,
+            childStatus: child.status,
+            stepKeys: child.step_keys,
+            outboxStatus: (await readOutbox(fixture.outboxId)).status,
+            batchClosed: (await readBatchClosedAt(fixture.batchId)) !== null,
+            refusalCount: (await readRefusalsForOutreach(fixture.outreachId)).length,
+          };
+        }
+
+        const ledgerOn = await dispatchAndSnapshot('dispatch-refusal-flag-on');
+        expect(ledgerOn.refusalCount).toBe(1);
+
+        process.env[LEDGER_FLAG] = 'false';
+        try {
+          const ledgerOff = await dispatchAndSnapshot('dispatch-refusal-flag-off');
+
+          // The withhold, the child, the receipt step, the outbox completion and
+          // the settlement join are all byte-identical…
+          expect(ledgerOff.outreach).toEqual(ledgerOn.outreach);
+          expect(ledgerOff.childStatus).toBe(ledgerOn.childStatus);
+          expect(ledgerOff.stepKeys).toEqual(ledgerOn.stepKeys);
+          expect(ledgerOff.outboxStatus).toBe(ledgerOn.outboxStatus);
+          expect(ledgerOff.batchClosed).toBe(ledgerOn.batchClosed);
+          // …and the ONLY difference is the Refusal that was not recorded.
+          expect(ledgerOff.refusalCount).toBe(0);
+        } finally {
+          delete process.env[LEDGER_FLAG];
+        }
       });
     });
   },

@@ -29,7 +29,7 @@
   ],
   "invariants": [
     "The ledger must never break the thing it records. Every write is ON CONFLICT DO NOTHING on the partial index, and the new set-based arm re-spells refusal_events_subject_uniq's predicate byte-for-byte, identically to the single-row arm.",
-    "One statement per set. The ask lane writes N Refusals in one INSERT because a batch build can withhold up to MAX_DATA_ROWS minus BATCH_CAP candidates while holding the batch advisory lock.",
+    "One statement per set. The ask lane writes N Refusals in one INSERT because a batch build can produce up to MAX_DATA_ROWS (5000) mapped Refusals while holding the batch advisory lock, reached when every candidate in the window fails an individual gate that maps to a category. Round 1 corrected an earlier MAX_DATA_ROWS-minus-BATCH_CAP figure, which describes the all-eligible case where the withholds are velocity_banked and write nothing.",
     "src/lib/refusals/write.ts stays the only module that spells an INSERT INTO refusal_events. The set-based arm lives there, beside the single-row arm, and never in a lane module.",
     "occurredAt is decision time at every site. The ask lane passes the batch's decidedAt, the dispatch lane passes the gate's own now, and the halt lane passes the transaction-time sentinel so occurred_at equals the halted_at the same NOW() wrote.",
     "No site reads a timestamp back from Postgres and passes it forward as a JS Date. postgres.js truncates microseconds on decode.",
@@ -40,7 +40,7 @@
     "Tenant isolation: every row carries account_id NOT NULL and the table keeps deny-all RLS."
   ],
   "edge_cases": [
-    "A batch build withholds every candidate in a 5000-row window: one INSERT, not 5000 round trips under the advisory lock.",
+    "A batch build withholds every candidate in a 5000-row window with a MAPPED reason: one INSERT, not 5000 round trips under the advisory lock. The word mapped is load-bearing — the all-velocity_banked case below writes nothing at all, and an earlier wording of this line contradicted it.",
     "A batch build withholds nothing: no statement is issued at all, because an INSERT with an empty row set is not a decision.",
     "Every withheld ask in a build is velocity_banked: no statement is issued, for the same reason.",
     "The same ask id is proposed twice inside one set-based INSERT: ON CONFLICT DO NOTHING leaves one row and the statement still commits.",
@@ -56,7 +56,7 @@
   "existing_patterns_to_follow": [
     "src/lib/auto-approval/suspension.ts — the #1009 call-site precedent: writeRefusalEvent on the deciding transaction, placed after the guard that proves a decision was made, with no try/catch.",
     "src/lib/refusals/write.ts — the single-row arm this slice extends: the ON CONFLICT predicate, the occurredAtFragment sentinel, the kill-switch early return.",
-    "src/lib/solicitation/batch-builder.ts commitAskDecisions — the jsonb_to_recordset set-insert idiom the new arm follows, including its affected-row-count assertion.",
+    "src/lib/solicitation/batch-builder.ts commitAskDecisions — the jsonb_to_recordset set-insert idiom the new arm follows, but NOT its affected-row-count assertion. That function has no ON CONFLICT, so count equals input there; under ON CONFLICT DO NOTHING a subject stored by an earlier call legitimately lowers the count and the assertion would throw inside a decision transaction.",
     "src/lib/audit/log.ts writeAccountAuditLog — one helper owning one statement, the DB client as an explicit parameter.",
     "src/lib/refusals/vocabulary.ts — the lane maps landed by the feat/refusal-lane-vocabulary prerequisite."
   ],
@@ -64,7 +64,8 @@
     "src/lib/refusals/write.ts — writeRefusalEvent and the new set-based arm.",
     "src/lib/solicitation/batch-builder.ts — buildSolicitationBatch, through which commitAskDecisions is reached.",
     "src/lib/solicitation/dispatch.ts — the dispatch job entry point, through which commitWithhold is reached.",
-    "src/lib/solicitation/approval.ts — adminHaltBatch and the system halt entry point, both of which reach latchHalt."
+    "src/lib/solicitation/approval.ts — adminHaltBatch and the system halt entry point, both of which reach latchHalt.",
+    "src/lib/solicitation/approval.ts — haltBatch, the OWNER arm. It is the only entry point that produces owner_veto and owner_halt, so the exhaustive-reasons title cannot cover the two null-mapped owner cases without it."
   ],
   "allowed_edit_surface": [
     "src/lib/refusals/write.ts",
@@ -80,6 +81,7 @@
     "src/lib/solicitation/__tests__/approval.test.ts",
     "src/lib/solicitation/__tests__/approval.integration.test.ts",
     "src/lib/solicitation/__tests__/approval-system-halt.integration.test.ts",
+    ".claude/reference/arch-review-log.md",
     "docs/directory.md",
     "docs/superpowers/plans/**",
     "docs/reviews/**"
@@ -88,28 +90,38 @@
     "the set-based arm re-spells the refusal_events_subject_uniq predicate byte-for-byte, identically to the single-row arm",
     "the set-based arm writes one row per input and leaves one row when the same subject appears twice in one call",
     "the set-based arm issues no statement for an empty input set",
+    "the set-based arm issues exactly one INSERT statement for every non-empty input set",
     "the set-based arm writes nothing when REFUSAL_LEDGER_ENABLED is the literal string false",
+    "the set-based arm commits when an input subject already exists from an earlier call",
+    "a set-based ledger write does not survive its caller's deciding transaction rolling back after the insert succeeds",
     "a batch build writes one refusal_events row per withheld ask and none for a send decision",
     "a batch build writes no refusal_events row for a velocity_banked withhold",
     "a batch build stamps every ask Refusal with the batch's decidedAt, never with insert time",
+    "an ask Refusal's occurred_at equals solicitation_asks.decided_at inside PostgreSQL at full microsecond precision",
     "a batch build that withholds nothing writes no refusal_events row",
     "two builds evaluating the same contact write two refusal_events rows, one per decision",
+    "every ask_withheld refusal points to the exact solicitation_ask row whose decision it records",
+    "a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT",
     "a dispatch withhold writes one refusal_events row against the outreach id",
     "a dispatch withhold stamps occurred_at with the gate's decision clock, not with transaction start",
     "a dispatch defer writes no refusal_events row",
+    "a ledger failure in the dispatch lane rolls back the outreach withhold, child run, receipt step, outbox completion and batch close together",
     "an admin halt writes exactly one refusal_events row against the batch id, never one per cancelled outreach",
     "a platform halt writes a refusal_events row even though it writes no account_audit_log row",
     "an owner halt writes no refusal_events row",
     "a second halt of an already-halted batch writes no second refusal_events row",
     "a halt Refusal carries occurred_at equal to the solicitation_batches halted_at written by the same transaction",
+    "a halt Refusal's occurred_at equals solicitation_batches.halted_at inside PostgreSQL at full microsecond precision",
+    "a halt writes its Refusal after cancelling outreach and writing any audit row, but before the run-spine step and settlement join",
+    "every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing",
     "every refusal_events row these three lanes write carries the account and location already in the lane's scope",
     "a ledger failure in the ask lane rolls back the whole batch build",
     "a ledger failure in the halt lane rolls back the latch, the cancellations and the audit row together",
     "all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false"
   ],
   "verification_commands": [],
-  "estimated_prod_lines": 220,
-  "estimated_test_lines": 700,
+  "estimated_prod_lines": 240,
+  "estimated_test_lines": 1150,
   "dependencies_added": [],
   "rollback_plan": "Three layers. (1) REFUSAL_LEDGER_ENABLED=false on Railway stops every ledger write with no deploy and leaves ask, dispatch and halt behaviour byte-identical to today; invoke the flag-flip skill. (2) Revert the PR on main and redeploy, which removes the three call sites and the set-based arm together. (3) No down migration: migration 116 stays, and rows already written are not deleted by a revert. ArchivalPoller's refusal_events arm landed in #1009 and is not touched here, so surviving rows still age out at REFUSAL_LEDGER_RETENTION_DAYS.",
   "observability": [
