@@ -352,10 +352,15 @@ Secret Deletion** on both syncs, not only the Railway one.
 
 ## 9. Sync configuration
 
-| Sync | Target | First strategy | After the name lists verify |
+> **CORRECTED 2026-08-31 — the strategy is Overwrite, not Import.** The rows
+> below said Import, and the handoff carried "never use Overwrite" as a locked
+> trap. Both were wrong for this topology. **Owner decision, recorded.** Full
+> reasoning: §14.
+
+| Sync | Target | Strategy | Also set |
 |---|---|---|---|
-| `prod` → Vercel | project `rep-worth`, environment **Production** | Import (Infisical priority) | Auto-sync ON. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
-| `prod` → Railway | project `repworth`, environment **production**, service **repworth-worker** | Import (Infisical priority) | Auto-sync ON, **Disable Secret Deletion** ON. |
+| `prod` → Vercel | project `rep-worth`, environment **Production** | **Overwrite Destination Secrets** | Auto-Sync **ON**, **Disable Secret Deletion ON**. **Redeploy manually** — Vercel does not restart on an env change, and `NEXT_PUBLIC_*` is inlined at build time. |
+| `prod` → Railway | project `repworth`, environment **production**, service **repworth-worker** | **Overwrite Destination Secrets** | Auto-Sync **ON**, **Disable Secret Deletion ON**. |
 
 Three rules that decide whether this goes well.
 
@@ -775,3 +780,89 @@ operation — see the failure analysis above.
 `RAILWAY_PRIVATE_DOMAIN` still resolves to `redis.railway.internal` in both
 environments, because the private network endpoint is derived separately from
 the service name. Only the reference prefix differs.
+
+
+---
+
+## 14. Why the sync strategy is Overwrite, not Import — decided 2026-08-31
+
+**Infisical's `Import` copies destination secrets INTO the vault.** Its own
+option text:
+
+> *"Imports secrets from the destination endpoint before syncing, prioritizing
+> values from Infisical over Vercel when keys conflict."*
+
+"Imports **from** the destination" is the operative clause. Import is not merely
+a no-delete setting; it writes back into the Infisical environment.
+
+### What Import would have injected
+
+Measured 2026-08-31 by diffing all three stores by name.
+
+| From | Names pulled into the vault | Broken on arrival |
+|---|---|---|
+| Vercel | 14 | **5 arrive EMPTY** — they are Vercel *Sensitive*, which is write-only (§11) |
+| Railway | 11 | — |
+
+**Two are locked exclusions**, and importing either defeats a recorded decision:
+
+- **`DB_POOL_MAX`** must stay native — `20` on Railway, `3` on Vercel (§9.1). One
+  vault key cannot hold both. From Vercel it imports **empty**.
+- **`REDIS_QUEUE_URL`** must stay native (§8) because its value is the reference
+  expression `${{Redis.…}}`. An import captures the **resolved** password and
+  host, so a Redis re-provision would no longer repair it — which is the whole
+  reason it is native.
+
+Three more contradict §8 or §7: `DATABASE_URL` (ops-only), the seven legacy
+`STRIPE_PRICE_*` (native, rollback window), and `PAST_REPLIES_VIEW_ENABLED`
+(§7.10 says delete it, not adopt it).
+
+**Neither order is safe.**
+
+| Order | Result |
+|---|---|
+| Vercel first | vault gets `DB_POOL_MAX=""` → the Railway sync writes empty over the drill-blessed `20` |
+| Railway first | vault gets `DB_POOL_MAX=20` and a frozen `REDIS_QUEUE_URL` → Vercel gets `20` instead of `3` |
+
+Cleanup afterwards is web-UI only — the CLI cannot delete a secret (§12.7) —
+while auto-sync may already have pushed the bad value.
+
+### Why Overwrite + Disable Secret Deletion is correct
+
+The two settings cancel exactly:
+
+> **Overwrite Destination Secrets:** *"Removes any secrets at the destination
+> endpoint not present in Infisical."*
+> **Disable Secret Deletion:** *"If enabled, Infisical will not remove secrets
+> from the sync destination."*
+
+Overwrite's only destructive act is the removal. The toggle forbids removal.
+What remains is: write the vault's values to the destination, leave
+destination-only names alone, and **import nothing back**. That is precisely the
+behaviour §8 and §9.1 require.
+
+### On overriding the locked trap
+
+The handoff carried "Do NOT switch either Secret Sync to Overwrite" as trap #1.
+That trap exists to protect the seven legacy `STRIPE_PRICE_*` names from
+deletion. **`Disable Secret Deletion` protects them directly.** The trap was
+written without knowing that Import writes back into the vault, so it optimised
+against the smaller risk.
+
+**Residual risk, and how it is bounded.** This configuration relies on two
+settings cancelling. If `Disable Secret Deletion` did not apply to the initial
+Overwrite pass, destination-only names would be removed. Mitigation, in order:
+
+1. **Backups taken before the first sync** — `railway variables --json` (39
+   variables, all values) and `vercel env pull` (56 lines, 44 readable). Both
+   mode-600 under `.scratch/`.
+2. **Vercel syncs first, as a canary.** It restarts nothing and its build is
+   unaffected until a manual redeploy, so a bad result is observable before it
+   can reach the worker.
+3. **Railway proceeds only after the Vercel result is verified** — specifically
+   that the seven legacy `STRIPE_PRICE_*` names and `DATABASE_URL` survive.
+
+The only value that could be lost unrecoverably is the four Google Sheets /
+owner-leads names, which are Vercel *Sensitive* and therefore un-backupable.
+They drive the owner-lead mirror, which §12.5 records as inert and not a launch
+gate.
