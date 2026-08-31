@@ -80,6 +80,9 @@
   "allowed_edit_surface": [
     "src/lib/refusals/vocabulary.ts",
     "src/lib/refusals/__tests__/vocabulary.test.ts",
+    "src/lib/shared/worker-types.ts",
+    "worker/jobs/response-generation/auto-approval.ts",
+    "worker/jobs/response-generation/__tests__/auto-approval.test.ts",
     "worker/jobs/response-generation/persist.ts",
     "worker/jobs/response-generation/__tests__/persist.test.ts",
     "worker/jobs/response-generation/__tests__/refusal-write.integration.test.ts",
