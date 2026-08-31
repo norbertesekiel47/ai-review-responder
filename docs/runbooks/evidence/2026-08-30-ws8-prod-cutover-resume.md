@@ -2454,7 +2454,65 @@ alert rule sends Email, and none of the four required signals is routed anywhere
 
 ---
 
-## Phase G.1 — Discord routing. NOT DONE, and now precisely scoped.
+## Phase G.1 — Discord routing. DONE 2026-08-31.
+
+All four §G1 signals now reach the owner's prod-only Discord channel. Two changes, both
+made through the Sentry UI because the MCP exposes only `find`/`get` for alert rules.
+
+### The two rules
+
+**1. Existing rule `3920752` — "Send a notification for high priority issues".** A Discord
+action was added beside its Email action. Its only action was Email, and it had never
+triggered.
+
+**2. New rule `3925256` — "Prod — four ops signals to Discord".** Verified by API readback:
+
+```
+Action Filters — logic: any-short
+  Tagged event (key: subsystem,   match: eq, value: health_alert)
+  Tagged event (key: cost_event,  match: eq, value: limit_exceeded)
+  Tagged event (key: feature,     match: eq, value: stripe_reconciliation)
+  Tagged event (key: subsystem,   match: eq, value: import_consent_analytics)
+Actions
+  Discord (integration id: 443670, target: 1544045194264051842, tags: repworth-prod)
+```
+
+**One rule with `any` logic rather than four rules.** Four separate rules would allow
+per-signal muting, which is a real benefit, but the marginal value did not justify four
+times the hand-built UI surface — every extra rule is another chance to mis-key a tag in a
+production alert path. The named tradeoff is that
+`subsystem:import_consent_analytics` is described in the stand-up as
+**frequency-conditioned** and this rule throttles at *notify on every trigger*, the same as
+the other three. **If that signal proves noisy, split it into its own rule with its own
+Action Throttle** rather than throttling all four.
+
+### Two things worth knowing about the mechanism
+
+**There is no "link a channel to Sentry" step.** The *server* is linked once at org level; a
+*channel* is named per action as a **channel ID or URL** — never a name, which Sentry warns
+about inline. A new channel therefore needs no Sentry-side setup of its own.
+
+**Sentry had no `subsystem` / `cost_event` / `feature` tag keys to suggest**, so each was
+entered through the dropdown's `Create "<key>"` option. That is expected, not a warning:
+production has emitted no event carrying those tags yet. The rule matches correctly when
+the first one arrives.
+
+### Verified end to end
+
+The owner confirmed a **Send Test Notification** arrived in the Discord channel. That
+proves the channel id, the integration, and the bot's channel permissions together — the
+one prerequisite that would otherwise fail silently is a private channel the Sentry bot
+cannot see.
+
+### Residual, deliberately accepted
+
+Both rules keep Sentry's default trigger set, which includes **"An issue is resolved"**. A
+Discord message will therefore post when someone resolves one of these issues. That is mild
+noise, not a defect; remove the trigger from either rule if it grates.
+
+---
+
+## Phase G.1 — original scoping (kept for the reasoning)
 
 The Discord **integration** exists and works — the owner installed it during the staging
 build. Proven from the staging alert rule's action:

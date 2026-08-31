@@ -211,7 +211,10 @@ Then re-run the F.3 smoke against production.
 > Sentry rejects them with `Monitor disabled`, because the org is on the free Developer plan
 > with no payment method and the two staging monitors hold the available seats. Free fix:
 > release the staging seats. Paid fix: add a payment method.
-> **G1 and G3 remain.**
+> **G1 is DONE (2026-08-31)** — all four signals route to the owner's prod-only Discord
+> channel via rules `3920752` (Discord added) and `3925256` (four `Tagged event` filters,
+> `any` logic). Verified by API readback and a test message the owner received.
+> **Only G3 remains** (mutating acceptance drills, staging-only).
 
 ### The original plan
 

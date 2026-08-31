@@ -361,7 +361,18 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase G — Alerting + posture verification
 
-- [ ] **G1. NOT DONE, precisely scoped 2026-08-31.** The sink is **Discord** and the
+- [x] **G1. DONE 2026-08-31.** All four signals reach the owner's prod-only Discord
+      channel. Two rules: Discord added to existing `3920752`, and new `3925256`
+      "Prod — four ops signals to Discord" carrying all four `Tagged event` filters with
+      `any` logic → Discord (integration `443670`, channel `1544045194264051842`,
+      tags `repworth-prod`). **Verified by API readback and by a test notification the
+      owner received in the channel.**
+      ⚠️ **Named tradeoff:** one rule, not four. `subsystem:import_consent_analytics` is
+      supposed to be *frequency-conditioned* but shares this rule's "notify on every
+      trigger" throttle — **split it into its own rule if it proves noisy.** Both rules
+      also keep the default "An issue is resolved" trigger, so a resolve posts to Discord.
+      Evidence file → **Phase G.1**. Original scoping follows.
+      ~~NOT DONE, precisely scoped 2026-08-31.~~ The sink is **Discord** and the
       integration already works (id `443670`; the staging rule fired 2026-08-31T01:00:46Z).
       **What is missing is every production rule.** `repworth-production` has exactly one
       alert rule (3920752) and its only action is **Email**; it has never triggered. None
