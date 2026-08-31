@@ -139,3 +139,48 @@ helper. `judge-gate.ts` in the same directory already sets that precedent. The
 `docs/directory.md` test-inventory line is the rule this repo states in its own
 words — a doc that enumerates a module's suites by name is stale the moment one
 is added, and leaving it stale is the defect the prerequisite branch's F1 was.
+
+## D-CI — the FK class reached a publisher teardown, and CI found it, not me
+
+**Found by CI on PR #1043**, after this branch was pushed and marked ready:
+
+```
+PostgresError: update or delete on table "businesses" violates foreign key
+constraint "refusal_events_business_id_fkey" on table "refusal_events"
+  → worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts:421
+  Key (id)=(4eed0359-…) is still referenced from table "refusal_events".
+```
+
+The suite reaches `downgradeAutoApprovedResponseForManualReviewInTx` through the
+**judge gate**, so it now writes an `auto_post_revoked` Refusal, and its teardown
+then deletes the business those rows reference.
+
+**Why the local sweep missed it, stated exactly.** The sweep asked which suites
+call the downgrade **directly** — `grep -c downgradeAutoApprovedResponseForManualReview`
+returned 0 for this file — and treated the pre-push `vitest --changed` pass as
+confirmation. Both were wrong for the same reason: the call is **indirect**, via
+`judge-gate.ts` and `auto-policy-publish.ts`. A reachability question was answered
+with a direct-call grep.
+
+That is the identical shape as #1010's D7 and this branch's own RT2-1: **the fix
+was applied to the instances in front of it, not to the class.** The lesson was
+written on the sibling branch an hour before this failure and still not applied
+here.
+
+**Re-swept by reachability rather than by direct call.** Two files match "deletes
+businesses, no `refusal_events` cleanup, reaches the publisher/judge path":
+
+| File | Verdict |
+|---|---|
+| `worker/jobs/publisher/__tests__/autopilot-entitlement-concurrency.integration.test.ts` | **Writes the Refusal. FIXED here.** |
+| `src/lib/solicitation/__tests__/auto-approval.integration.test.ts` | Clear — its 11 matches are all `anchorVetoDeadlines`, the SOLICITATION veto lane. It reaches the response downgrade 0 times. |
+
+**Fix:** one `DELETE FROM refusal_events WHERE business_id = …` before the
+existing business delete, reason written at it. The file is inside
+`worker/jobs/publisher/__tests__/**`, so **no surface amendment was needed.**
+
+**Verdict:** ACCEPT. Test-only; production purge already hard-deletes the table
+(`table-disposition.ts:326`, `purge-stages.ts:435`). Verified by CI on the next
+run rather than locally — this worktree's `.env.local` does not export
+`TEST_DATABASE_POOL_URL`, so the suite SILENTLY SKIPS locally, which is the
+documented fallback gotcha and is itself part of why the gate never saw this.
