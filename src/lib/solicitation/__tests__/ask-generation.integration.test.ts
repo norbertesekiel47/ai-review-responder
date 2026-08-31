@@ -1248,8 +1248,18 @@ describeWithDb(
         // transaction — a DB-clock-to-DB-clock comparison, unaffected by skew.
         expect(row!.same_transaction).toBe(true);
         // THE DISCRIMINATOR: the decision time did not move by the lock wait.
-        expect(Number(row!.rendered_at_ms)).toBeLessThan(lockHeldAt + HOLD_MS);
-        expect(Number(row!.occurred_at_ms)).toBeLessThan(lockHeldAt + HOLD_MS);
+        //
+        // BOUND ON THE MIDPOINT OF THE HOLD, NOT ITS END, and the difference is
+        // not cosmetic. Against `lockHeldAt + HOLD_MS` a post-lock clock read
+        // lands only ~6 ms under the bound — measured — because
+        // `holdBatchAdvisoryLock` signals `acquired` before starting its timer,
+        // so the mutant can slip beneath it on a loaded runner and the case
+        // FALSE-PASSES silently rather than going red. The midpoint clears by
+        // ~300 ms. Red team round 2 found this on the one position title the
+        // round-1 P0 fix did not touch; the two titles below already used it.
+        const DECIDED_BEFORE_MS = HOLD_MS / 2;
+        expect(Number(row!.rendered_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
+        expect(Number(row!.occurred_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
       });
 
       it('a regeneration never stamps occurred_at from the swap transaction, so a slow lock does not move the decision time', async () => {

@@ -5,235 +5,85 @@
   "branch": "feat/1011-refusal-outreach-render",
   "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
   "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
-  "head_sha": "535e0763ac6c3361db3caf08a965e7567854f350",
-  "intake_sha256": "38b5ced758c8abd6e380a0581033d9dcb43c584d60f4c21042e657dabbc748cb",
+  "head_sha": "bd83caf22b91a3347fcc6b346c737f18a8d1c92f",
+  "intake_sha256": "21d5549cc4520cf184f12ebc3385a50db02c6bf90a3dcad47818c0aa2176e633",
   "risk": "high",
-  "round": 1,
-  "generated_at": "2026-08-31T06:30:33.110Z",
+  "round": 2,
+  "generated_at": "2026-08-31T00:50:00Z",
   "inventory": [
     {
-      "id": "U1",
-      "test": "the render lane maps render_failed and lint_failed to below_our_bar and moderation_high to unsafe_content",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
+      "id": "R1",
+      "test": "a regeneration never stamps occurred_at from the swap transaction, so a slow lock does not move the decision time",
+      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1255",
       "outcome": "killed",
-      "reason": "M11 (refusalCode pinned to a different valid same-category member) and M12 (refusalCategory pinned to a constant) both killed it."
+      "reason": "Two mutations. (1) Round 1's exact P0 mutation re-planted verbatim from its own mutant file - regenerateAsk's decidedAt read moved below acquireSolicitationBatchLock (ask-generation.ts:1543 -> :1554): FAILED, exactly one test executed, stamp 303ms past the bound. (2) decidedAt read moved to function entry, ahead of the LLM round trip (:1446): SURVIVED - recorded as F2, judged not a P0 because the property this title names is not the property violated."
     },
     {
-      "id": "U2",
-      "test": "every render-lane refusal_events row carries subject_type solicitation_outreach and the account and location of the generation context",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "No targeted mutation executed. Its assertions are a strict subset of U4, whose targeted mutation M13 was killed; recorded as unexecuted rather than credited to U4."
-    },
-    {
-      "id": "U3",
-      "test": "every render-lane refusal_events row carries refusal_source outreach_withheld and refusal_code equal to its solicitation_outreach disposition_reason",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "No targeted mutation executed. Its fixture (runBudgetStop) gives every settled row the same disposition_reason render_failed, so the M11 code substitution is insensitive to it by construction; the equivalent property is killed at U1 and I1."
-    },
-    {
-      "id": "U4",
-      "test": "all four render writers carry the paired outreach's tenant category subject and occurred_at shape",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
+      "id": "R2",
+      "test": "a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time",
+      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1354",
       "outcome": "killed",
-      "reason": "M13 replaced occurredAt with the forbidden 'transaction_time' sentinel; the row's not.toBe assertion fired."
+      "reason": "Three mutations. (1) Round 1's exact P0 mutation re-planted verbatim - settleGenerationExhaustion's decidedAt read moved below acquireSolicitationBatchLock (ask-generation.ts:1752 -> :1764): FAILED, 304ms past the bound. (2) hole 0 keeps the pre-transaction instant while every later hole reads a fresh clock: FAILED, 326ms past - so the two-hole design is load-bearing and D0's claim about it holds. (3) read moved inside sql.begin, below the outbox CAS but still above the lock: SURVIVED - recorded as F3. DEVIATION: three mutations on one candidate against the skill's two-per-test bound, executed because the scoping brief named all three attacks and no round follows this one; the 30-run budget was never close (12 of 30 used)."
     },
     {
-      "id": "U5",
-      "test": "a forced clock advance between outreach insertion and refusal writing cannot change occurred_at from the outreach rendered_at",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "killed",
-      "reason": "M2 replaced the threaded Date with a fresh new Date() at the ledger call; the identity assertion (toBe) fired with a 5s separation."
-    },
-    {
-      "id": "U6",
-      "test": "a stale outbox attempt writes neither an outreach row nor a refusal_events row",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "killed",
-      "reason": "M5 (guard deleted) went red via fixture exhaustion; M7 (guards intact, ledger write hoisted above the CAS) went red on the not.toHaveBeenCalled assertion itself."
-    },
-    {
-      "id": "U7",
-      "test": "a batch halted during the LLM round trip writes neither an outreach row nor a refusal_events row",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "killed",
-      "reason": "M6 deleted the lifecycle re-check guard; the test went red (via fixture exhaustion — see finding RT-2)."
-    },
-    {
-      "id": "U8",
-      "test": "a regeneration rejected by swap revalidation writes neither a replacement outreach row nor a refusal_events row",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "killed",
-      "reason": "M8 hoisted the ledger write above loadCurrentOutreach and SURVIVED — arbiter-reclassified as an unexecuted branch, because this fixture aborts earlier at the batch-state re-check. M10 repeated the probe above that re-check and was killed on the assertion itself, which resolves this row."
-    },
-    {
-      "id": "U9",
-      "test": "a stale generation-exhaustion attempt writes neither outreach hole rows nor refusal_events rows",
-      "file": "src/lib/solicitation/__tests__/ask-generation.test.ts",
-      "outcome": "killed",
-      "reason": "M9 hoisted the ledger write above the markOutboxFailed CAS; the not.toHaveBeenCalled assertion fired."
-    },
-    {
-      "id": "I1",
-      "test": "a withheld child render writes one refusal_events row against the outreach id",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M21 pinned refusalCode to 'render_failed'; the row asserts lint_failed and went red."
-    },
-    {
-      "id": "I2",
-      "test": "a successful child render writes no refusal_events row",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M16 removed the withheld-only guard in persistChildRender so a rendered outcome also wrote; the empty-ledger assertion fired."
-    },
-    {
-      "id": "I3",
-      "test": "every render-lane refusal_events row carries occurred_at equal to the solicitation_outreach rendered_at of the same insert",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M17 decoupled settleGenerationExhaustion's renderedAt from decidedAt; the SQL column-equality assertion fired."
-    },
-    {
-      "id": "I4",
+      "id": "R3",
       "test": "the render lane never stamps occurred_at from the transaction, so a slow lock does not move the decision time",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
+      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1193",
       "outcome": "killed",
-      "reason": "M1 moved the clock read inside persistChildRender after the advisory-lock wait; the 600ms held-lock discriminator fired. Kills the W1/W2 path ONLY — see finding RT-1 for W3 and W4."
+      "reason": "Direction B and Duty 4. The W1/W2 covering test the fix hunk did NOT touch, reached because D0 asserts the end-of-hold bound is untrustworthy. Round 1's own W1 mutant re-planted (decidedAt reassigned inside persistChildRender below the lock, ask-generation.ts:813): FAILED - but by 6ms, against 303/304/326ms for the two titles the fix added. Killed, and fragile: F1."
     },
     {
-      "id": "I5",
-      "test": "a budget stop writes one refusal_events row per outreach it settles as withheld",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M20 restructured W2 to write one Refusal per CALL after the loop instead of one per settled row; the length-2 assertion fired."
-    },
-    {
-      "id": "I6",
-      "test": "a generation exhaustion writes one refusal_events row per outreach hole it settles as withheld",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M3 moved the ledger write outside the hole loop; the length-2 assertion fired."
-    },
-    {
-      "id": "I7",
-      "test": "a regenerated ask writes its refusal_events row against the replacement outreach id",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M18 recorded the Refusal against the parent agent-run id instead of the replacement outreach id; the subject_id assertion fired."
-    },
-    {
-      "id": "I8",
-      "test": "a successful regenerated ask writes no refusal_events row for its rendered replacement",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M4 made regenerateAsk's ledger write unconditional; the empty-ledger assertion fired."
-    },
-    {
-      "id": "I9",
-      "test": "a withheld regeneration writes no refusal_events row against the rendered outreach it replaces",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "No targeted mutation executed, and no simple substitution expresses the defect: loadCurrentOutreach selects only delivery_status and attempt_no, and supersedeLiveRender returns only priorAttemptNo, so the superseded row’s id is not in scope at the ledger call site. The property is structurally unviolatable rather than test-verified."
-    },
-    {
-      "id": "I10",
-      "test": "a ledger failure rolls back the outreach render insert it accompanies",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "No targeted mutation executed. The same atomicity property is killed at I12 by M19."
-    },
-    {
-      "id": "I11",
-      "test": "a ledger failure at each of persistChildRender, regenerateAsk, and settleGenerationExhaustion rolls back the outreach insert it accompanies",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "skipped-budget",
-      "reason": "No targeted mutation executed. The same atomicity property is killed at I12 by M19."
-    },
-    {
-      "id": "I12",
-      "test": "a refusal written by each render writer does not survive a later rollback of its outreach transaction",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "killed",
-      "reason": "M19 made recordOutreachWithheldRefusal open its OWN postgres connection instead of using the deciding tx; the twin caught the surviving row. This independently VERIFIES deviation D5’s central claim."
-    },
-    {
-      "id": "I13",
-      "test": "every writer still persists its render when REFUSAL_LEDGER_ENABLED is false",
+      "id": "R4",
+      "test": "the 18 further titles in ask-generation.integration.test.ts, and every test outside src/lib/solicitation",
       "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
       "outcome": "excluded",
-      "reason": "The flag gate lives inside src/lib/refusals/write.ts, which this diff does not change and the intake pins as un-editable. Mutating it would open a front against unchanged code (#1009 surface)."
-    },
-    {
-      "id": "I14",
-      "test": "REFUSAL_LEDGER_ENABLED=false writes zero refusal_events rows across all four render writers",
-      "file": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts",
-      "outcome": "excluded",
-      "reason": "Same exclusion as I13 — the kill switch is #1009 code, unchanged by this diff."
-    },
-    {
-      "id": "P1-w3-clock",
-      "test": "regenerateAsk decision-instant read (ask-generation.ts:1543) — covering candidate I4 by its lane-wide title, plus I7/I8",
-      "file": "src/lib/solicitation/ask-generation.ts",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-1",
-      "reason": "M15 moved this clock read inside the swap transaction, after acquireSolicitationBatchLock. All 23 promised titles passed."
-    },
-    {
-      "id": "P1-w4-clock",
-      "test": "settleGenerationExhaustion decision-instant read (ask-generation.ts:1752) — covering candidate I4 by its lane-wide title, plus I3/I6",
-      "file": "src/lib/solicitation/ask-generation.ts",
-      "outcome": "survived-confirmed-P0",
-      "finding_id": "RT-1",
-      "reason": "M14 moved this clock read inside the settlement transaction, after acquireSolicitationBatchLock. All 23 promised titles passed."
+      "reason": "Outside the round-2 scope. git diff 535e0763..bd83caf2 touches no production file and adds only the two titles in R1/R2; these candidates were inventoried by round 1 at 535e0763 and the scoping brief puts them out of range. Confirmed unmoved: ask-generation.ts is blob 9fd9bd5161bf at BOTH 535e0763 and bd83caf2."
     }
   ],
   "findings": [
     {
-      "id": "RT-1",
-      "severity": "P0",
-      "title": "The clock-POSITION invariant is pinned for only one of the four writers: moving regenerateAsk’s and settleGenerationExhaustion’s decision instant inside their transactions, after the advisory-lock wait, passes all 23 promised tests",
-      "at": "src/lib/solicitation/ask-generation.ts:1543 and src/lib/solicitation/ask-generation.ts:1752",
-      "duty": 1,
-      "disposition": "open",
-      "reason": "The intake’s FIRST invariant is lane-wide: \"The clock is read immediately after the render DECISION and before the transaction opens or waits ... Round 1 rejected the earlier design, which read the clock inside the transaction and made both columns persist time.\" The only test that measures POSITION rather than column equality — \"the render lane never stamps occurred_at from the transaction, so a slow lock does not move the decision time\" — drives generateAsksForBatch, so it exercises persistChildRender (W1, and W2 through it) and neither of the other two writers. M14 and M15 each restored exactly the rejected design for one writer and were invisible to the whole suite. Column equality survives the mutation because rendered_at and occurred_at move together, which is precisely why the equality tests (I3) cannot stand in for a position test. Suggested closure: extend the held-advisory-lock fixture (holdBatchAdvisoryLock, already in the suite) to regenerateAsk and settleGenerationExhaustion, asserting the same rendered_at_ms < lockHeldAt + HOLD_MS discriminator that kills M1 today.",
-      "arbiter_reasoning": "NOT equivalent: the mutation changes what solicitation_outreach.rendered_at and refusal_events.occurred_at record, from decision time to post-advisory-lock persist time. That is the exact semantic difference the intake records as decided and the production comments at both sites assert (\"before this transaction opens or waits on the advisory lock\"). NOT an unexecuted branch: both mutated statements lie on the straight-line path of transactions that the passing integration tests drive — I6 (\"a generation exhaustion writes one refusal_events row per outreach hole\") reaches the settleGenerationExhaustion statement and I7 (\"a regenerated ask writes its refusal_events row against the replacement outreach id\") reaches the regenerateAsk statement; both wrote their rows under the mutation, so the line executed and produced a differently-timestamped row that no assertion inspected. Contrast with M8, which I DID reclassify as unexecuted after M10 proved the fixture aborts earlier; no such reclassification applies here, and M1 demonstrates the suite CAN kill this mutation class when the probe is aimed at the one writer it covers."
-    },
-    {
-      "id": "RT-2",
-      "severity": "P2",
-      "title": "Two guard mutations turn the unit suite red through mock-SQL FIFO exhaustion rather than through the behavioural assertion",
-      "at": "src/lib/solicitation/__tests__/ask-generation.test.ts:305",
-      "duty": 1,
-      "disposition": "open",
-      "reason": "Deleting the outbox-ownership CAS (M5) or the batch-lifecycle re-check (M6) makes the run throw \"batch ... vanished before child persist\" / \"... before the finale\" — the mutant consumed queue entries the fixture did not provision — so the trailing expect(writeRefusalEvent).not.toHaveBeenCalled() never evaluates. The tests are NOT hollow: M7 and M10, which leave every guard intact and hoist only the ledger write above the guard, were killed on that exact assertion, so the property is genuinely measured. Recorded because the coarse channel means these two rows would also go red for many changes unrelated to the ledger, which weakens them as regression pins. No action required for this PR."
-    },
-    {
-      "id": "RT-3",
-      "severity": "P2",
-      "title": "The cross-writer matrix test pairs the Nth ledger call with the Nth withheld insert positionally",
-      "at": "src/lib/solicitation/__tests__/ask-generation.test.ts:235",
+      "id": "F1",
+      "severity": "P1",
       "duty": 2,
       "disposition": "open",
-      "reason": "refusalCalls()[i] is matched to withheld[i] by array index across four separately-driven writers. This is sound TODAY — every call site writes its Refusal synchronously immediately after its own insert on a sequential path, so call order is a real contract, not an incidental one — and it is not the fragile-assertion class the skill names (no tag proxy, no exact string count, no ordering assertion over an unordered source). Recorded only because the coupling is implicit: were any writer ever to batch or reorder its inserts, this test would fail for a reason unrelated to what it names. subjectId is separately pinned by identity (inserts.indexOf), which is the part that carries the real weight."
+      "title": "The W1/W2 position title still carries the end-of-hold bound this branch's own D0 calls too thin - 6ms of kill margin, measured, against ~300ms for the two titles the fix added",
+      "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1251",
+      "arbiter_reasoning": "Not equivalent and not unexecuted: round 1's W1 mutant (ask-generation.ts:813) re-planted at HEAD failed this title, so the assertion is real. The defect is its margin. holdBatchAdvisoryLock (:396) calls signalAcquired() INSIDE the transaction callback and only then starts setTimeout(holdMs), while the test samples lockHeldAt after awaiting that promise - so the hold expires around signalAcquiredAt + holdMs, at or BEFORE lockHeldAt + HOLD_MS. The post-lock mutant thus stamps at lockHeldAt + HOLD_MS - hop + commit, and the measured net was 6ms over toBeLessThan(lockHeldAt + HOLD_MS). Grow that acquired-to-sample hop past 6ms, which is precisely what a loaded runner does, and the mutant lands UNDER the bound: the title silently stops catching the regression it exists to catch. This is a false-PASS risk, not a false-failure risk - the pass-side margin is ~595ms, so it will not go red spuriously, it will go quietly blind. D0 makes the argument itself ('at the end-of-hold bound both mutations failed by only ~4 ms - real, but too thin to trust on a loaded runner') and then applies the remedy to only the two new titles. The title is branch code, introduced by 535e0763, not pre-existing repo code. Behavioural replacement is one line and already present twice in this file: const DECIDED_BEFORE_MS = HOLD_MS / 2, as at :1279 and :1362. Scope note for the adjudicator: this line is outside the strict 535e0763..bd83caf2 fix hunk and is reachable only via Duty 4 and via re-resolving D0's own claim."
+    },
+    {
+      "id": "F2",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "The new discriminator is one-sided by construction: a clock read moved absurdly EARLY is caught by nothing in the repository",
+      "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1345",
+      "arbiter_reasoning": "Measured, not inferred. regenerateAsk's decidedAt moved to function entry (ask-generation.ts:1446) - ahead of loadBatchContext, the ask and contact loads, and the whole generateChildRender LLM round trip, so seconds early in production - and the title PASSED. A search for any lower bound on rendered_at/occurred_at across src/lib/solicitation/__tests__ and src/lib/refusals/__tests__ returns nothing: every assertion on those columns is a toBeLessThan or a column equality. Deliberately NOT a P0. The intake invariant has two halves - 'read immediately after the render DECISION' and 'before the transaction opens or waits' - and these titles name only the second ('so a slow lock does not move the decision time'), which they enforce correctly and provably. The assertions are honest about what they claim; the first half is simply unpinned, for all four writers, and was equally unpinned at 535e0763. Recorded so the gap is a decision rather than an accident."
+    },
+    {
+      "id": "F3",
+      "severity": "P2",
+      "duty": 1,
+      "disposition": "open",
+      "title": "Coverage boundary: the discriminator binds to the lock, not to the transaction, so a clock read moved inside sql.begin but above the lock survives",
+      "at": "src/lib/solicitation/__tests__/ask-generation.integration.test.ts:1414",
+      "arbiter_reasoning": "settleGenerationExhaustion's decidedAt moved from :1752 into the transaction, below markOutboxFailed and above acquireSolicitationBatchLock: the title PASSED. So the coverage is not all-or-nothing - it is positional relative to the LOCK, not to the transaction, and the intake's literal wording ('before the transaction opens or waits') is pinned only in its 'or waits' half. Deliberately NOT a P0 on two grounds. The shift is one DB round trip, single-digit milliseconds, against the unbounded lock wait this branch exists to defend, so it is near-equivalent for the value being recorded. And the unsafe direction stays trapped: the moment anyone reorders the lock above that read, the mutation becomes the R2 mutation, which dies. The gap is a safe intermediate state that cannot decay into an unsafe one undetected."
     }
   ],
   "authorizations": [],
   "counts": {
-    "inventory_total": 25,
-    "killed": 16,
-    "survived_confirmed_p0": 2,
+    "inventory_total": 4,
+    "killed": 3,
+    "survived_confirmed_p0": 0,
     "inconclusive": 0,
-    "skipped_budget": 5,
-    "excluded": 2,
+    "skipped_budget": 0,
+    "excluded": 1,
     "findings_total": 3,
-    "p0_open": 1,
-    "p1_open": 0,
+    "p0_open": 0,
+    "p1_open": 1,
     "p2_open": 2,
     "accepted_risk": 0,
     "fixed": 0,
     "rejected": 0
   },
-  "status": "OPEN_P0"
+  "status": "OPEN_P1"
 }

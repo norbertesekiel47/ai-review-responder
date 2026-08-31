@@ -98,6 +98,63 @@ clock positions were always correct and only the eval was blind.
 
 **Verdict:** ACCEPT — P0 closed, with the mutation re-planted to prove the close.
 
+## D0b — RED-TEAM ROUND 2: the P0 is closed, and the fix exposed a P1 beside it
+
+Round 2 was scoped to D0's fix hunks. **Round 1's P0 is confirmed closed** — both
+re-planted mutations die independently of the implementer's report (regeneration
+post-lock by 303 ms, exhaustion post-lock by 304 ms), verified from round 1's own
+mutant files, and `ask-generation.ts` is the same blob at both SHAs, so no
+production change rode along with a test-only fix.
+
+### P1 — the ONE position title the fix did not touch had a 6 ms kill margin
+
+D0 chose the midpoint bound for the two NEW titles because the end-of-hold bound
+was too thin. **It did not go back and apply that reasoning to the existing
+W1/W2 title**, which kept `lockHeldAt + HOLD_MS`. Red team measured its margin at
+**6 ms**.
+
+The mechanism matters: `holdBatchAdvisoryLock` signals `acquired` BEFORE starting
+its timer, so a post-lock clock read lands just under the bound. On a loaded
+runner the mutant slips beneath it and the case **FALSE-PASSES silently** — it
+does not go red and flake, it goes green and lies.
+
+**Fix:** the same `HOLD_MS / 2` midpoint the two new titles already used, with
+the mechanism written at the assertion so it is not "simplified" back. All three
+position cases pass.
+
+**The lesson, recorded because it is the second time this shape appeared:** a fix
+that introduces a better technique must be applied to the case that motivated it,
+not only to the new cases beside it. D0 improved the bound and left the original
+weaker than the two it spawned.
+
+### P2 — the discriminator is one-sided
+
+A clock read moved EARLIER — to function entry, ahead of the whole LLM round
+trip — survives. No lower bound exists anywhere in the repo for this property.
+
+**Verdict: ACCEPT as recorded, no action.** The unsafe direction is the one
+trapped: reading late is the regression this branch exists to prevent, and
+reading absurdly early is not a failure mode any code path produces. A lower
+bound would pin a number nothing threatens.
+
+### P2 — coverage binds to the lock, not the transaction
+
+A read placed inside `sql.begin` but ABOVE the lock acquisition survives.
+
+**Verdict: ACCEPT as recorded, no action**, on the arbiter's reasoning: the
+unsafe direction stays trapped. The property that matters is "before the lock
+wait", and that is what is pinned.
+
+### Probes that came back clean
+
+The midpoint bound is balanced (~300 ms in both directions) and survived 24
+spinners on 12 cores — not flaky. The two-hole claim for
+`settleGenerationExhaustion` HOLDS: a first hole correct with later holes
+drifting still dies, by 326 ms. Every doc claim re-resolved true.
+
+**Verdict on the round: ACCEPT.** P0 closed and re-proved, P1 fixed, two P2s
+recorded with reasons. Round 2 is the cap; nothing follows it.
+
 ## D2 — negative titles cannot be RED before the writers exist
 
 Six of the intake's twenty-three titles assert that **nothing** is written (the
