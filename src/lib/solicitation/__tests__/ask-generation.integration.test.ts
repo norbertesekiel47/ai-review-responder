@@ -1252,6 +1252,170 @@ describeWithDb(
         expect(Number(row!.occurred_at_ms)).toBeLessThan(lockHeldAt + HOLD_MS);
       });
 
+      it('a regeneration never stamps occurred_at from the swap transaction, so a slow lock does not move the decision time', async () => {
+        // THE SAME MEASUREMENT AS THE TITLE ABOVE, AIMED AT A DIFFERENT
+        // WRITER. `generateAsksForBatch` reaches W1 and W2 only, so the batch
+        // title above pins TWO of the four clock reads; `regenerateAsk` is a
+        // separate exported entry point that reads its own clock, and moving
+        // THAT read inside the swap transaction — the design round 1 rejected
+        // — left every other title in this file green.
+        //
+        // Column-equality cannot stand in: when the clock moves, the
+        // replacement's `rendered_at` and its Refusal's `occurred_at` move
+        // TOGETHER and stay equal. Only a comparison against an INDEPENDENT
+        // instant taken before the lock wait can tell the two designs apart.
+        //
+        // EVERY COMPARISON BELOW STAYS ON ONE CLOCK, for the reason spelled
+        // out on the batch title above: the container's Postgres clock runs
+        // tens of milliseconds off this process's.
+        const HOLD_MS = 600;
+        // The bound sits at the MIDPOINT of the hold, not at its end. Under
+        // the decided design the stamp lands within a few milliseconds of
+        // `lockHeldAt`; under the rejected one it cannot land before the lock
+        // is granted, which is `lockHeldAt + HOLD_MS` plus the commit round
+        // trips. A midpoint bound clears BOTH directions by ~300ms, where an
+        // end-of-hold bound left the rejected side failing by ~4ms — true,
+        // but too thin to survive a loaded runner.
+        const DECIDED_BEFORE_MS = HOLD_MS / 2;
+        const askId = await seedSendAsk(1);
+        // Regeneration may only replace a LIVE rendered row.
+        await seedRenderedAttempt(askId);
+        await mintSendParentRun();
+        const handle = await seedDispatchedOutboxRow('regenerate_solicitation_ask');
+
+        let blocker: { acquired: Promise<void>; released: Promise<void> } | undefined;
+        let lockHeldAt = 0;
+        const structured = {
+          subject: 'Thanks for visiting Ask Generation Business',
+          body: 'Hi Alice, thanks for coming by Ask Generation Business. Would you share how it went?',
+        };
+        llmMocks.runLlmTask.mockImplementationOnce(async () => {
+          // Taken INSIDE the LLM round trip — the exact window between the
+          // replacement render's decision and the swap transaction, which is
+          // where `regenerateAsk` reads its clock.
+          blocker = holdBatchAdvisoryLock(HOLD_MS);
+          await blocker.acquired;
+          lockHeldAt = Date.now();
+          return {
+            text: JSON.stringify(structured),
+            provider: 'openai',
+            model: OPENAI_MODEL,
+            usage: { promptTokens: 500, completionTokens: 120 },
+            structured,
+          };
+        });
+
+        const startedAt = Date.now();
+        await regenerateAsk(sql(), { batchId, businessId, askId, outboxHandle: handle });
+        const elapsedMs = Date.now() - startedAt;
+        await blocker?.released;
+
+        // The contention was real, not hoped for: the swap could not commit
+        // until the blocker let go of the per-Business advisory lock.
+        expect(lockHeldAt).toBeGreaterThan(0);
+        expect(elapsedMs).toBeGreaterThanOrEqual(HOLD_MS);
+
+        // The superseded attempt-1 row is `rendered` and has no Refusal, so
+        // this join returns exactly the withheld REPLACEMENT.
+        const rows = await sql()<
+          {
+            attempt_no: number;
+            rendered_at_ms: string;
+            occurred_at_ms: string;
+            same_transaction: boolean;
+            timestamps_equal: boolean;
+          }[]
+        >`
+          SELECT o.attempt_no,
+                 (EXTRACT(EPOCH FROM o.rendered_at) * 1000)::bigint::text AS rendered_at_ms,
+                 (EXTRACT(EPOCH FROM r.occurred_at) * 1000)::bigint::text AS occurred_at_ms,
+                 (r.created_at = o.created_at) AS same_transaction,
+                 (r.occurred_at = o.rendered_at) AS timestamps_equal
+          FROM refusal_events r
+          JOIN solicitation_outreach o ON o.id = r.subject_id
+          WHERE r.account_id = ${accountId()}::uuid
+        `;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.attempt_no).toBe(2);
+        expect(rows[0]!.timestamps_equal).toBe(true);
+        expect(rows[0]!.same_transaction).toBe(true);
+        // THE DISCRIMINATOR: the decision time did not move by the lock wait.
+        // A clock read taken after the lock was granted would land at
+        // `lockHeldAt + HOLD_MS` or later.
+        expect(Number(rows[0]!.rendered_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
+        expect(Number(rows[0]!.occurred_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
+      });
+
+      it('a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time', async () => {
+        // The fourth writer, and the one with NO LLM round trip to hang the
+        // blocker on: `settleGenerationExhaustion` reads its clock and opens
+        // its transaction on the very next line, so the lock is taken from
+        // OUTSIDE, before the call. Moving that read below the lock wait left
+        // every other title in this file green, exactly as it did for
+        // `regenerateAsk`.
+        //
+        // TWO holes, not one: both fills and both Refusals must carry the
+        // pre-transaction instant, so a per-iteration clock read inside the
+        // loop is caught here too.
+        const HOLD_MS = 600;
+        // Midpoint bound, for the reason spelled out on the title above.
+        const DECIDED_BEFORE_MS = HOLD_MS / 2;
+        await seedSendAsk(1);
+        await seedSendAsk(2);
+        await mintSendParentRun();
+        const handle = await seedDispatchedOutboxRow(
+          'generate_solicitation_asks_dead_letter',
+        );
+
+        // Measured from BEFORE the blocker exists. The settlement's own clock
+        // read happens within microseconds of `lockHeldAt`, so an elapsed
+        // window measured from `lockHeldAt` would sit a hair under `HOLD_MS`
+        // and make the contention assertion flaky; this one cannot.
+        const startedAt = Date.now();
+        const blocker = holdBatchAdvisoryLock(HOLD_MS);
+        await blocker.acquired;
+        const lockHeldAt = Date.now();
+
+        const settled = await settleGenerationExhaustion(sql(), {
+          batchId,
+          businessId,
+          outboxHandle: handle,
+          errorClass: 'LLMStructuredOutputError',
+        });
+        const elapsedMs = Date.now() - startedAt;
+        await blocker.released;
+
+        expect(settled).toMatchObject({ status: 'settled', filled: 2 });
+        // The contention was real: the settlement blocked on the advisory
+        // lock the blocker held for the whole window.
+        expect(elapsedMs).toBeGreaterThanOrEqual(HOLD_MS);
+
+        const rows = await sql()<
+          {
+            rendered_at_ms: string;
+            occurred_at_ms: string;
+            same_transaction: boolean;
+            timestamps_equal: boolean;
+          }[]
+        >`
+          SELECT (EXTRACT(EPOCH FROM o.rendered_at) * 1000)::bigint::text AS rendered_at_ms,
+                 (EXTRACT(EPOCH FROM r.occurred_at) * 1000)::bigint::text AS occurred_at_ms,
+                 (r.created_at = o.created_at) AS same_transaction,
+                 (r.occurred_at = o.rendered_at) AS timestamps_equal
+          FROM refusal_events r
+          JOIN solicitation_outreach o ON o.id = r.subject_id
+          WHERE r.account_id = ${accountId()}::uuid
+        `;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.timestamps_equal)).toBe(true);
+        expect(rows.every((row) => row.same_transaction)).toBe(true);
+        // THE DISCRIMINATOR, for BOTH fills.
+        for (const row of rows) {
+          expect(Number(row.rendered_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
+          expect(Number(row.occurred_at_ms)).toBeLessThan(lockHeldAt + DECIDED_BEFORE_MS);
+        }
+      });
+
       it('a budget stop writes one refusal_events row per outreach it settles as withheld', async () => {
         const askOne = await seedSendAsk(1);
         await seedSendAsk(2);

@@ -97,7 +97,9 @@
     "a ledger failure at each of persistChildRender, regenerateAsk, and settleGenerationExhaustion rolls back the outreach insert it accompanies",
     "a refusal written by each render writer does not survive a later rollback of its outreach transaction",
     "every writer still persists its render when REFUSAL_LEDGER_ENABLED is false",
-    "REFUSAL_LEDGER_ENABLED=false writes zero refusal_events rows across all four render writers"
+    "REFUSAL_LEDGER_ENABLED=false writes zero refusal_events rows across all four render writers",
+    "a regeneration never stamps occurred_at from the swap transaction, so a slow lock does not move the decision time",
+    "a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time"
   ],
   "verification_commands": [],
   "estimated_prod_lines": 180,

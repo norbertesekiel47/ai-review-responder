@@ -52,6 +52,52 @@ filter, not the clock.
 
 ---
 
+## D0 — RED-TEAM P0: the branch's central property was pinned for ONE writer of four
+
+**Found by the red-team pass, not by three plan rounds and not by the
+spec-correctness axis.** Both of those examined whether the clock is read in the
+right PLACE. Neither asked whether a test would NOTICE if it moved.
+
+**The defect.** This branch exists to move the render clock ahead of the
+transaction and the advisory-lock wait, so `rendered_at` and
+`refusal_events.occurred_at` are decision time. Red team moved `regenerateAsk`'s
+(`ask-generation.ts:1543`) and `settleGenerationExhaustion`'s (`:1752`)
+`decidedAt` reads back inside their transactions — **the exact design the owner
+rejected** — and all 23 titles stayed green. Both mutations were confirmed
+executed and non-equivalent.
+
+**Why the existing coverage could not see it.** The one position-measuring case
+drives `generateAsksForBatch`, which reaches `persistChildRender` and
+`settleBudgetStop` only. `regenerateAsk` and `settleGenerationExhaustion` are
+separate exported entry points. And the column-equality titles CANNOT substitute:
+when the clock moves, `rendered_at` and `occurred_at` move TOGETHER, so their
+equality stays true. That is the trap — the branch's most-repeated assertion is
+structurally incapable of catching the branch's own central regression.
+
+**The fix.** Two titles, added to `tests_to_add` and to
+`ask-generation.integration.test.ts` on the existing `holdBatchAdvisoryLock`
+precedent, driving `regenerateAsk` and `settleGenerationExhaustion` directly:
+
+* `a regeneration never stamps occurred_at from the swap transaction, so a slow lock does not move the decision time`
+* `a generation exhaustion never stamps occurred_at from the settlement transaction, so a slow lock does not move the decision time`
+
+**Verified by re-planting the mutation, which is the only evidence that counts
+here.** Clean HEAD 21/21 green. Moving `regenerateAsk`'s read after
+`acquireSolicitationBatchLock` → RED, exactly one failure, the new title, ~303 ms
+over bound; the other 20 including every column-equality title stayed GREEN,
+which reproduces the original blindness exactly. Same for
+`settleGenerationExhaustion`, ~302 ms over. Restored → 21/21.
+
+**One tuning detail worth keeping.** The discriminator binds to the MIDPOINT of
+the advisory-lock hold, not its end. At the end-of-hold bound both mutations
+failed by only ~4 ms — real, but too thin to trust on a loaded runner. The
+midpoint clears in both directions by ~300 ms.
+
+**No production change.** `ask-generation.ts` is byte-identical to HEAD; the
+clock positions were always correct and only the eval was blind.
+
+**Verdict:** ACCEPT — P0 closed, with the mutation re-planted to prove the close.
+
 ## D2 — negative titles cannot be RED before the writers exist
 
 Six of the intake's twenty-three titles assert that **nothing** is written (the
