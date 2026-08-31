@@ -651,10 +651,13 @@ secret removal against this CLI version.
    | `SENTRY_DSN` | ✅ written, verified `ee14c7a4175df209` |
    | `NEXT_PUBLIC_SENTRY_DSN` | ✅ written, same value, same hash |
    | `WORKER_PUBLIC_URL` | ✅ `https://worker.repworth.net`, format gate checked |
-   | `REDIS_CACHE_URL` | ❌ **the last one.** Upstash instance exists (`sincere-primate-143545.upstash.io:6379`); the URL reached the session with its password masked, so nothing was written. |
+   | `REDIS_CACHE_URL` | ✅ `sincere-primate-143545.upstash.io:6379`, `PING`→`PONG` before the write, verified `55a91f680d1b55ad` |
 
-   **Count: 46 keys.** `REDIS_CACHE_URL` is the only Phase A output still
-   missing, and it is the one value that must match across both platforms (§6).
+   **Count: 47 keys. All four Phase A outputs are in.** Two keys remain held by
+   design: `STRIPE_WEBHOOK_SECRET` (D.3) and `BETA_COMP_COUPON_ID` (F.4).
+
+   `REDIS_CACHE_URL` is confirmed **not** staging's instance — staging's cache is
+   `saving-mongoose-139950.upstash.io`. Compared by host, so no value was read.
 
    The Sentry project `repworth-production` **already existed** under org
    `repworth-nv` — the earlier record saying it did not is stale. Its DSN is

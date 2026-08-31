@@ -466,13 +466,27 @@ Two facts recorded elsewhere were **stale** and are corrected here.
       The worker reports healthy and no job ever runs. Same failure shape as a
       missing `?family=0`. Full record: manifest §13.
 
-- [ ] **A.3 — Upstash cache. Instance created, value NOT yet in Infisical.**
-      Owner created `sincere-primate-143545.upstash.io:6379` and reported the URL
-      as `rediss://default:********@…` — the password is masked, so the value
-      could not be written. `REDIS_CACHE_URL` remains absent from Infisical and
-      from both platforms. It is **the one value that must match across Vercel
-      and Railway** (manifest §6), so it is entered once and synced, never typed
-      twice.
+- [x] **A.3 — Upstash cache, CLOSED 2026-08-30.** Instance
+      `sincere-primate-143545.upstash.io:6379`, `rediss://` (TLS).
+      `REDIS_CACHE_URL` written to Infisical `prod` and verified byte-for-byte
+      (`55a91f680d1b55ad`). **Infisical `prod` now holds 47 keys.**
+
+      **Proved live before writing:** `redis-cli -u <url> PING` → **`PONG`**.
+      The value is not merely well-formed; it reaches the instance and
+      authenticates.
+
+      **Not staging's instance** — the check the stand-up's A3 asks for, done by
+      host comparison so no value was read:
+
+      | Lane | Cache host |
+      |---|---|
+      | staging | `saving-mongoose-139950.upstash.io` |
+      | production | `sincere-primate-143545.upstash.io` |
+
+      The URL first reached the session with its password masked, then twice
+      with the literal placeholder `PASTE_PASSWORD` still in it. Each attempt
+      was caught by a structural check **before** any write. Nothing invalid
+      ever entered the vault. The file was shredded after the write.
 
 - [x] **A.4 — Worker public domain, ATTACHED 2026-08-30; DNS pending.** Custom
       domain chosen over the generated `*.up.railway.app` for the reasons below.
@@ -492,22 +506,70 @@ Two facts recorded elsewhere were **stale** and are corrected here.
       `launch-checklist.md` records as a completed hard blocker: `worker.` is a
       new subdomain and touches no existing record.
 
-- [ ] **A.5 — GitHub source. Reported done by owner; NOT PRESENT on a live
-      read at 2026-08-30.** `get-service-config` on production `repworth-worker`
-      still returns **no `source` key**, and `list-deployments` still returns
-      `[]`.
+- [x] **A.5 — GitHub source, CLOSED 2026-08-31T02:36Z.** Production
+      `repworth-worker` now carries `source: {repo: RepWorth/ai-review-responder,
+      branch: main, checkSuites: false}`.
 
-      Most likely cause: Railway collects service edits into **staged changes**
-      that must be reviewed and deployed before they apply
-      (`docs.railway.com/services`). A connected repo that was never deployed
-      shows exactly this. Check the production canvas for a pending
-      staged-changes banner and click Deploy.
+      An earlier read in the same session showed no source at all. Railway
+      collects service edits as **staged changes** that apply only on Deploy, so
+      a connect that is not yet deployed reads as absent. Re-read after the
+      deploy fired.
+
+      **`checkSuites: false` is correct for this repo, and differs from staging's
+      `true` deliberately.** CI here is PR-only — there is no push-to-`main` run
+      (`.claude/CLAUDE.md` → CI & repo). A production service told to wait for a
+      check suite on `main` would wait for a run that never starts.
 
       **The hazard the dashboard route avoided is confirmed avoided.** Staging
-      still carries `source: {repo: RepWorth/ai-review-responder, branch:
-      staging}`, unchanged. Had the MCP `connect-service-source` been used — it
-      states it "applies to the service in all environments" — that branch could
-      have been rewritten to `main`, silently repointing the staging worker.
+      still carries `branch: staging`, `checkSuites: true`, unchanged, verified
+      after the production connect landed. Had the MCP `connect-service-source`
+      been used — it states it "applies to the service in all environments" —
+      that branch could have been rewritten to `main`, silently repointing the
+      staging worker at production code.
+
+### First production worker deploy — CRASHED, as designed
+
+Connecting the source triggered an immediate build and deploy. It crashed. This
+is the expected outcome at this point in the sequence, and it is the most
+informative event of Phase A.
+
+| Field | Value |
+|---|---|
+| Deployment | `4dc7793b-baa0-4221-91b2-95bdb2e396bb` |
+| Source | `main` @ `fab6a49c` |
+| Started | 2026-08-31T02:36:58Z |
+| Status | **CRASHED** 02:38:47Z, after ten restart attempts |
+| Thrown | `[worker] Startup assertion failed: [startup] Worker requires STRIPE_WEBHOOK_SECRET (RAILWAY_ENVIRONMENT_NAME=production)` |
+
+**Nothing is broken.** `STRIPE_WEBHOOK_SECRET` is produced at **D.3**, by design
+— manifest §1 row 6 and the ordered plan both hold it back until the live Stripe
+endpoint exists. The worker cannot boot before D.3 and is not meant to.
+`restartPolicyMaxRetries = 10` was **not** raised; the plan forbids it.
+
+**What the crash proves, that a clean boot would not have.** The assertion order
+in `worker/config/startup-assert.ts:296` is
+`assertProductionMockModeEnv` → `assertCoreInfraEnv` → `assertStripeWorkerEnv` →
+… , and within the Stripe list `STRIPE_SECRET_KEY` precedes
+`STRIPE_WEBHOOK_SECRET`. Reaching that throw therefore means every gate before
+it passed:
+
+| Proven | How |
+|---|---|
+| The build works end to end | RAILPACK built, `pnpm worker` ran, `tsx worker/index.ts` started |
+| `RAILWAY_ENVIRONMENT_NAME=production` | Named in the thrown message. ADR 0013 lane resolution is correct **with `NODE_ENV` unset** — manifest §8 vindicated |
+| `MOCK_EXTERNAL_APIS` is not `true` | `assertProductionMockModeEnv` passed. Absence is correct |
+| `REDIS_QUEUE_URL` is present and accepted | `assertCoreInfraEnv` passed — **the `${{Redis.…}}` capitalisation fix (F14) clears the gate** |
+| `DATABASE_POOL_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` all present | Same gate |
+| `STRIPE_SECRET_KEY` is present and non-empty **on Railway** | The throw named the *next* variable in the same list |
+
+That last row is worth keeping. Vercel's `STRIPE_SECRET_KEY` reads as empty
+(finding F8); Railway's demonstrably is not. The two platforms disagree, which
+narrows F8 to a Vercel-side problem.
+
+**Standing consequence until Phase D.3:** every merge to `main` now triggers a
+production deploy that crash-loops and stops. It is noise, not harm — the WAF
+still denies all `/api/*` and the database still holds zero rows. Do not "fix"
+it by raising the retry count.
 
 - [x] **A.6 — live provider access, FOUR OF FIVE PROVEN 2026-08-30.** Each key
       was pulled from Infisical straight to a mode-600 scratch file and curled
