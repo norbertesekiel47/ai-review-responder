@@ -210,12 +210,34 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 
 ### Phase E — Remaining live webhooks (deployment-guide §6)
 
-- [ ] **E1. Resend** → prod worker `/ingress/resend`. The signing secret is
+> **DONE 2026-08-31.** Both endpoints were created through the **provider APIs**, not the
+> dashboards — neither provider needed a browser. Full record: evidence file → **Phase E**.
+
+- [x] **E1. Resend** → prod worker `/ingress/resend`. The signing secret is
       **provider-issued** (Svix `whsec_…`, shown when the endpoint is created)
       — paste Resend's value into `RESEND_WEBHOOK_SECRET`. *(Supersedes §1.2's
       "generate a 64-hex secret" — you cannot choose this one.)*
-- [ ] **E2. Zernio** → prod worker; live key; verify per §6.2.
-- [ ] Staging endpoints stay pointed at staging; never re-point.
+      **`POST https://api.resend.com/webhooks` creates it and returns `signing_secret`
+      once.** Endpoint `3de61a3d-b4d5-416c-a0db-5d581d730a02`, 4 events, `enabled`.
+      Value written to Infisical `prod` from a mode-600 file; sync-to-Railway confirmed by
+      SHA-256 fingerprint, never by reading it.
+- [x] **E2. Zernio** → prod worker; live key; verify per §6.2.
+      **`POST https://zernio.com/api/v1/webhooks/settings` creates it and takes a
+      caller-supplied `secret`,** so the existing `ZERNIO_WEBHOOK_SECRET` was used
+      verbatim. Subscription `6a95315320358f33c89599e5`, 4 events, active.
+      `webhook.test` is **not subscribable** — fire it with `POST /v1/webhooks/test`.
+- [x] **E3. Delivery proven, both providers.** `zernio/webhook.test` and
+      `resend/email.delivered` both wrote `status='processed'` rows to production
+      `inbound_events` — the first two rows that table has ever held.
+- [x] Staging endpoints stay pointed at staging; never re-point. Verified after both
+      creates: both still resolve to `repworth-worker-staging.up.railway.app`.
+
+> **Owed out of Phase E — rotate three production secrets.** `infisical secrets` prints
+> values **by default**, not masked, and exposed `RESEND_API_KEY`, `ZERNIO_API_KEY` and
+> `ZERNIO_WEBHOOK_SECRET` to a session transcript. Blast radius today is near zero
+> (zero-state database, no connected location) and **closes at the first connected
+> location.** Rotating `ZERNIO_WEBHOOK_SECRET` must `PUT` subscription
+> `6a95315320358f33c89599e5`'s `secret` in the same change. Evidence file → **E-F1**.
 
 ### Phase F — Beta activation path
 

@@ -3850,3 +3850,102 @@ updating the existing one, and (b) silently drops `restartPolicyType` and
 `restartPolicyMaxRetries`, carrying over only build/start/healthcheck. `railway config
 apply` is project-wide with omit-means-delete semantics — never run it mid-cutover
 against an environment holding 70 variables, a Redis service and a custom domain.
+
+## 2026-08-31 — WS8 Phase E: provider webhooks, and a secrets-CLI incident
+
+### [2026-08-31] `infisical secrets` prints secret VALUES by default → three production secrets landed in a session transcript
+FAIL → listing the `prod` vault to check whether a key existed
+(`infisical secrets --projectId … --env prod`) printed a table of **plaintext values**.
+`RESEND_API_KEY`, `ZERNIO_API_KEY` and `ZERNIO_WEBHOOK_SECRET` were exposed to the
+transcript in one command. Nothing warned, and no flag had been passed.
+
+WHY → the CLI's own help is misleading. `--show-values` is documented as *"reveal secret
+values in the output table **instead of masking them**"*, which reads as "masking is the
+default". It is not. At v0.43.128 the table is unmasked with no flag at all; `--show-values`
+appears to be a no-op on that path. The trap list already said "never print a secret", but
+it named the Railway MCP `list-variables` as the hazard — the Infisical CLI is a second one,
+and the *read* command is the dangerous one, not the write.
+
+CORRECT → **never let `infisical secrets` write to a terminal you are recording.** To answer
+"does this key exist and does it hold the value I expect", do not read the value at all:
+
+```bash
+# presence, length, format class, and a short SHA-256 fingerprint — no value
+railway run --environment production --service repworth-worker -- node -e '
+  const {createHash}=require("node:crypto"); const v=process.env.SOME_KEY;
+  console.log(v===undefined?"ABSENT":`len=${v.length} fp=${createHash("sha256").update(v).digest("hex").slice(0,12)}`)'
+```
+
+Compare fingerprints across environments or against a mode-600 source file. That proves
+identity without disclosure, and it is how E.1 verified the Infisical → Railway sync.
+To WRITE a secret, use the CLI's `@file` form so the value is never a shell argument:
+`infisical secrets set KEY=@.scratch/value.txt --projectId … --env prod --silent >/dev/null`.
+
+**A secret that reaches a transcript is exposed, and rotation is owed** even when the blast
+radius is currently zero. Record the blast radius and the date it stops being zero.
+
+### [2026-08-31] Both providers expose webhook CRUD over their APIs — the runbook's dashboard steps were never necessary
+FAIL → `deployment-guide.md` §6.1/§6.2 describe Phase E as dashboard work, so it was
+planned as an owner action needing a browser. Both are API-driven.
+
+WHY → nobody had probed. Resend's `GET https://api.resend.com/webhooks` returns 200 and
+`POST` with `{}` returns `422 Missing 'endpoint' field`, which advertises create. Zernio
+404s on a guessed path but the **404 body names its own OpenAPI document** —
+`https://zernio.com/openapi.json`, 417 paths — which lists `/v1/webhooks/settings`
+(GET/POST), `/v1/webhooks/test` and `/v1/webhooks/logs`.
+
+CORRECT → probe the API before scheduling dashboard work. Two shape facts that differ
+between the providers, and both matter:
+
+- **Resend mints the secret.** `POST /webhooks` returns `signing_secret` (Svix `whsec_…`,
+  38 chars) **once**. Capture it to a mode-600 file in the same command that creates the
+  endpoint, or it is gone.
+- **Zernio takes the secret.** `secret` is a request field, so an existing
+  `ZERNIO_WEBHOOK_SECRET` is passed verbatim and nothing is minted. Rotating it therefore
+  needs a `PUT` of the subscription **and** a vault write, together.
+- `webhook.test` is **not** in Zernio's subscribable event enum, though the runbook listed
+  it. It is fired by `POST /v1/webhooks/test {"webhookId": …}`.
+- Newer Resend has no per-endpoint "Send test". Use the simulator address
+  `delivered@resend.dev` — a real event, no human recipient.
+
+### [2026-08-31] Webhook subscriptions are per-USER, not per-environment → every event fans out to both workers
+FAIL → production and staging hold **different** API keys at both Resend and Zernio
+(verified by fingerprint, all four distinct), so the subscriptions were assumed to be
+separated too. They are not: `GET /v1/webhooks/settings` returns the byte-identical list —
+same `_id` — under either Zernio key, and `GET /webhooks` does the same under either Resend
+key. Creating the production endpoint means a production `review.new` is also delivered to
+the staging worker, and a staging one to production.
+
+WHY → an API key authenticates a **user**; subscriptions belong to the account, not the key.
+Neither provider offers per-profile or per-key webhook scoping. Distinct keys buy
+revocability, not isolation.
+
+CORRECT → **accept the fan-out; do not re-point an endpoint to "fix" it.** It is benign by
+construction rather than by luck: `processReviewEvent` fans out from `zernio_connections`
+filtered on the firing Zernio account id, so a foreign event matches zero rows and produces
+a 0-row fan-out; the two workers hold separate databases, so `claimInboundEvent` dedup never
+crosses. The cost is one noise row per foreign event in each `inbound_events` table plus an
+unconnected warn in the log. General lesson: **verify isolation at the layer that enforces
+it.** Two different credentials pointing at one account are one tenant, however different
+the credentials look.
+
+### [2026-08-31] A key that "cannot be proven read-only" often can — the client validates shape before it authenticates, the API does not
+FAIL → Phase A.6 recorded the production Zernio API key **UNPROVEN**, reasoning that every
+GET route in `src/lib/zernio/client/` validates request shape before authenticating, so no
+read-only call discriminates a good key from a bad one. The key then sat unproven through an
+entire production cutover.
+
+WHY → the reasoning was about **our client**, not about the API. A raw request skips the
+client's shape validation entirely.
+
+CORRECT → probe the provider directly, and always run the negative control in the same
+breath:
+
+```
+GET https://zernio.com/api/v1/profiles             → 200  {"profiles":[{"name":"repworth-prod-…"}]}
+GET https://zernio.com/api/v1/profiles  (bad key)  → 401  {"error":"Unauthorized"}
+```
+
+The 200 also named the production profile, so the key was proven bound to the right tenant,
+not merely valid. **When a credential is "unprovable", check whether the obstacle is the
+provider or your own wrapper.** Usually it is the wrapper, and `curl` is the answer.

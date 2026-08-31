@@ -1993,6 +1993,213 @@ Vercel.**
 
 ---
 
+---
+
+## Phase E — the remaining live webhooks. COMPLETE 2026-08-31.
+
+Both endpoints were created **through the provider APIs**, not the dashboards. Neither
+provider needed a browser. Both are proven by a real delivery that reached the production
+worker, was signature-verified, and wrote an `inbound_events` row.
+
+**These are the first two rows ever written to production `inbound_events`.** The database
+was zero-state at 07:20:21Z (D1a).
+
+### E.0 — preconditions, read-only
+
+| Check | Result |
+|---|---|
+| `POST /ingress/resend` unsigned | **401** `{"error":"invalid_signature"}` |
+| `POST /ingress/zernio` unsigned | **401** `{"error":"invalid_signature_format"}` |
+| `POST /ingress/stripe` unsigned | **401** `{"error":"missing_signature"}` |
+| Worker `GET /ready` | **200**, `postgres`/`queue_redis`/`cache_redis` all `ok` |
+| `RESEND_WEBHOOK_SECRET` in prod | **ABSENT** — E.1 adds it, it does not replace one |
+| `ZERNIO_WEBHOOK_SECRET` in prod | present, 64-hex — matches `verifyZernioSignature` |
+
+Signature-first (working rule) holds on all three routes.
+
+### E.1 — Resend. Created via the API. PASS.
+
+`GET https://api.resend.com/webhooks` returns 200 — **Resend exposes webhook CRUD over the
+API.** `POST` with an empty body returns 422 `Missing 'endpoint' field`, so create is
+supported and validates.
+
+```
+POST https://api.resend.com/webhooks
+  {"endpoint":"https://worker.repworth.net/ingress/resend",
+   "events":["email.delivered","email.bounced","email.complained","email.opened"]}
+→ 201  {id, object, signing_secret}
+```
+
+- Endpoint id **`3de61a3d-b4d5-416c-a0db-5d581d730a02`**, status `enabled`.
+- The response carries **`signing_secret`** — a provider-issued Svix value, `whsec_`
+  prefix, 38 characters. **Shown once.** Never generated locally, never printed.
+- Written to Infisical `prod` as `RESEND_WEBHOOK_SECRET` with the CLI's `@file` form, from
+  a mode-600 scratch file. No secret ever appeared as a shell argument.
+- The Secret Sync carried it to Railway within seconds. Verified by **SHA-256 fingerprint
+  comparison**, not by reading the value: create-response `799db5754a6e` == Railway
+  `799db5754a6e`, `len=38`, `whsec_` prefix true.
+
+### E.2 — Zernio. Created via the API. PASS.
+
+The plan assumed a dashboard. **Zernio exposes webhook management over its API** —
+discovered from `https://zernio.com/openapi.json`, which the 404 body advertises:
+`/v1/webhooks/settings` (GET list, POST create), `/v1/webhooks/test`, `/v1/webhooks/logs`.
+
+```
+POST https://zernio.com/api/v1/webhooks/settings
+  {"name":"RepWorth Production",
+   "url":"https://worker.repworth.net/ingress/zernio",
+   "secret":"<$ZERNIO_WEBHOOK_SECRET, injected by railway run>",
+   "isActive":true,
+   "events":["account.connected","account.disconnected","review.new","review.updated"]}
+→ 200
+```
+
+- Subscription id **`6a95315320358f33c89599e5`**, `isActive=true`, `failureCount=0`.
+- `secret` is a **caller-supplied** field, so the vault value was used verbatim. Read back
+  as `secret_len=64`, matching the 64-hex vault entry. Nothing new was minted.
+- Zernio signs with HMAC-SHA256 in `X-Zernio-Signature`, which is exactly what
+  `verifyZernioSignature` recomputes.
+
+### E.3 — delivery verified, both providers
+
+**Zernio.** `POST /v1/webhooks/test {"webhookId":"6a9531…"}` → 200.
+
+```
+[ingress/zernio] webhook.test received (event=1d291c1f-38d6-46c5-9930-c111c3c7c0b7)
+```
+
+No `invalid_signature` line. Provider-side delivery log:
+`webhook.test  200  https://worker.repworth.net/ingress/zernio  2026-08-31T07:46:48Z`.
+
+**Resend.** Fired with Resend's simulator address `delivered@resend.dev`, which produces a
+real `email.delivered` event and reaches no human. Message id
+`91f5ab8d-b703-407c-8072-d54d20e16865`.
+
+**Both landed in production Postgres:**
+
+| source | event_type | status | received_at |
+|---|---|---|---|
+| `resend` | `email.delivered` | **processed** | 2026-08-31 07:47:08Z |
+| `zernio` | `webhook.test` | **processed** | 2026-08-31 07:46:48Z |
+
+Staging endpoints were not touched. Both still point at
+`repworth-worker-staging.up.railway.app`.
+
+### Trap 1 fired again, and the `/ready` guard held
+
+The Infisical write to `RESEND_WEBHOOK_SECRET` triggered Railway deployment `c6b76974`
+with `reason: redeploy` — the config-blind kind. It was superseded by
+`railway deployment redeploy --from-source`, which produced `0f5060fe`, `reason: deploy`,
+**SUCCESS**.
+
+Boot log of `0f5060fe`, confirming the process and a poller cycle per the standing rule:
+
+```
+$ tsx worker/index.ts
+[worker] Feature flags: Telegram=off, WhatsApp=off, SelfServeSignup=off, ZernioPublishing=on
+[INFO] Worker listening  deployment_id="0f5060fe-0e9b-4f59-8382-8c362b20a6e1"
+[INFO] Starting  logger="OutboxPoller"  interval_ms=5000
+[INFO] Starting  logger="ZernioRecentReviewPoller"  interval_ms=300000
+[INFO] Release cycle complete  logger="SolicitationReleasePoller"  released=0
+[boot] readiness cure complete — background loops staggered, workers resumed
+```
+
+---
+
+## Findings from Phase E
+
+### E-F1 — INCIDENT: the Infisical CLI prints secret values by DEFAULT. Rotation is owed.
+
+**`infisical secrets --projectId … --env prod` printed plaintext values into the session
+transcript.** The CLI's own help for `--show-values` reads *"reveal secret values in the
+output table **instead of masking them**"*, which states that masking is the default. It
+is not. The table is unmasked with no flag at all.
+
+Three production secrets were exposed to the transcript:
+
+| Key | Exposure | Blast radius on 2026-08-31 |
+|---|---|---|
+| `RESEND_API_KEY` | full value | Can send mail as `notifications@repworth.net` and read/alter webhook config |
+| `ZERNIO_API_KEY` | full value | Can read profiles and POST replies for any connected Google account |
+| `ZERNIO_WEBHOOK_SECRET` | full value | Can forge `review.*` / `account.*` events into production ingress |
+
+`RESEND_FROM_EMAIL` was also printed. It is not a secret.
+
+**Actual blast radius today is near zero** — the production database is zero-state, no
+Google Business Profile is connected, and a forged `review.new` fans out to zero rows. The
+window closes the moment beta tester one connects a location.
+
+**Rotation of all three is owed before the first connected location.** Runbooks:
+`secrets-rotation-api-keys.md`, `secrets-rotation-zernio.md`,
+`secrets-rotation-email-and-messaging.md`. Rotating `ZERNIO_WEBHOOK_SECRET` also requires
+a `PUT` of subscription `6a95315320358f33c89599e5`'s `secret` field, in the same change —
+the vault value and the Zernio subscription must move together.
+
+> **Standing rule.** Never run `infisical secrets` without redirecting stdout away from the
+> transcript. To check presence or identity, use a SHA-256 fingerprint under
+> `railway run`, as E.1 did.
+
+### E-F2 — the production Zernio API key is PROVEN. Phase A.6's UNPROVEN is cleared.
+
+Phase A.6 recorded the key as unproven, reasoning that every GET route in the client
+validates request shape before authenticating, so no read-only call discriminates a good
+key from a bad one. **That is true of the client, not of the API.** A raw request bypasses
+the client's shape validation and discriminates cleanly:
+
+```
+GET https://zernio.com/api/v1/profiles              → 200  {"profiles":[{"name":"repworth-prod-019e4e19-…"}]}
+GET https://zernio.com/api/v1/profiles  (bad key)   → 401  {"error":"Unauthorized"}
+```
+
+The 200 also names the production profile, so the key is bound to the right tenant. The
+webhook test fire (E.3) then proved write authority on the same key.
+
+### E-F3 — webhook subscriptions are per-USER at both providers, not per-environment
+
+Production and staging hold **different** API keys at both providers — verified by
+fingerprint, all four distinct. But both keys resolve to the **same account**, and
+subscriptions are account-scoped. `GET /v1/webhooks/settings` returns the identical list
+under either Zernio key; `GET /webhooks` returns the identical list under either Resend key.
+
+**Consequence: every event now fans out to both workers.** A production `review.new`
+reaches the staging worker as well, and a staging one reaches production.
+
+This is **benign by construction, not by luck**. `processReviewEvent` fans out from
+`zernio_connections` filtered on the firing Zernio account id, so a foreign event matches
+zero rows and produces a 0-row fan-out. The two workers hold separate databases, so
+`claimInboundEvent` dedup never crosses. The cost is a noise row in each `inbound_events`
+table and an unconnected warn in the log.
+
+There is no per-profile webhook scoping in the Zernio API. Accept the fan-out; do not try
+to fix it by re-pointing an endpoint.
+
+### E-F4 — a stale ngrok endpoint is subscribed to every Resend event, production included
+
+```
+23123295-ef9a-49ca-9463-f3b1ef5fb71c  enabled
+https://unmoderated-stormy-sweer.ngrok-free.dev/ingress/resend
+17 events — every event Resend emits
+```
+
+This is a local-dev tunnel left enabled on the shared Resend account. It now receives
+production email events, including recipient addresses. A free ngrok subdomain is
+reassignable, so the destination is not durably owned.
+
+**Not deleted — that is an owner decision, and it may be an active dev tunnel.**
+Recommendation: delete it, or disable it until it is needed.
+
+### E-F5 — two corrections owed to `deployment-guide.md` §6
+
+1. **§6.1 says "Click Send test".** Newer Resend has no per-endpoint test control. Use the
+   simulator address `delivered@resend.dev` (also `bounced@resend.dev`,
+   `complained@resend.dev`), which fires the real event and reaches no human.
+2. **§6.2 lists `webhook.test` as a subscribed event.** It is not subscribable — the
+   create enum has no such member. It is fired by `POST /v1/webhooks/test`, which takes a
+   `webhookId`. The correct subscription set is the four events used above.
+
+Both corrections are applied in the same change as this record.
+
 ## Sign-off
 
 - [x] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned
