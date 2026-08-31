@@ -200,6 +200,15 @@ Then re-run the F.3 smoke against production.
 
 ## Phase G — alerting and posture
 
+> **G5 and G6 are DONE (2026-08-31).** The four-surface flag snapshot is appended to
+> `launch-flag-readiness.md`, and the doc-hygiene corrections have landed.
+> **G5-F1:** the Infisical Secret Sync does **not** preserve Vercel's Sensitive flag —
+> Production went 9 `Secret` → 4. That converts the owed "re-add three vars as
+> `--sensitive`" action into an owed **decision**.
+> **G1, G2, G3 and G4 remain**, and G1/G2 need something from the owner.
+
+### The original plan
+
 - **G.1 — Discord** is the locked sink (decision 4; Zoho Cliq has no Sentry integration).
   Route four signals: `subsystem:health_alert`, `cost_event:limit_exceeded`,
   `subsystem:import_consent_analytics`, and **`feature:stripe_reconciliation`** (known
