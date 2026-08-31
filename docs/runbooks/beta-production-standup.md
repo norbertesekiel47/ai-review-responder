@@ -124,13 +124,29 @@ clicks it).
 
 ### Phase B — Railway `production` env vars (deployment-guide §5.2, superseded as follows)
 
-> Boot-gated set (must ALL exist before Phase D's deploy): `DATABASE_URL`/
-> `DATABASE_POOL_URL`/`SUPABASE_*`, `REDIS_CACHE_URL`, `REDIS_QUEUE_URL`,
-> `SERPAPI_API_KEY` (eager import), `SENTRY_DSN`, `ADMIN_NOTIFICATION_EMAIL`,
-> `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, six `STRIPE_PRICE_*`,
-> `DAILY_COST_LIMIT_CENTS_COPILOT`, `DAILY_COST_LIMIT_CENTS_AUTOPILOT`.
-> The Stripe trio and price vars are produced in Phase D (endpoint + WS8 §1) —
-> set every other one now.
+> **The boot-gated set is owned by `docs/runbooks/infisical-production-manifest.md`
+> §1. Read it there; do not restate it here.** That table was derived from code
+> at `f6695494` and cites the function that throws for every row.
+>
+> The list this blockquote used to carry was wrong in five places (manifest §7).
+> It is recorded here so nobody re-derives the same errors:
+>
+> - `SERPAPI_API_KEY` is **not** boot-gated. `src/lib/config/worker.ts:50` types
+>   it `rawOptionalVar`, and its only asserting accessor has no production caller.
+> - `DATABASE_URL` is **not** boot-gated. `CORE_INFRA_REQUIRED_ENV` is four names
+>   and this is not one of them. No production code reads it; it is
+>   ops-and-migrations config.
+> - `REDIS_CACHE_URL` is **not** boot-gated. The client is lazy, so a missing
+>   value throws at first use. It is required in practice, not at boot.
+> - `SESSION_COOKIE_SECRET` **is** an unconditional gate, and was omitted.
+> - `NEXT_PUBLIC_APP_URL` **is** an unconditional gate, and was omitted.
+>
+> Both omitted gates fire through `assertUnsubscribeIngressConfigured`
+> (`worker/index.ts:596`) on every deployed lane. A boot gate you did not plan
+> for is a crash loop that exhausts `restartPolicyMaxRetries = 10` and stays down.
+>
+> `STRIPE_WEBHOOK_SECRET` and the six live `STRIPE_PRICE_*` IDs are produced in
+> Phase D (endpoint + WS8 §1). Set every other gate now.
 
 | Topic | Do | Source |
 |---|---|---|
@@ -144,7 +160,7 @@ clicks it).
 | Zernio | `ZERNIO_PUBLISHING_ENABLED=true`, live `ZERNIO_API_KEY`, fresh `ZERNIO_WEBHOOK_SECRET` | §5.2 |
 | Retired vars | Remove `PAST_REPLIES_VIEW_ENABLED` if present (retired #678 — read nowhere) | env-vars.md |
 | Full flag audit | Enumerate **every** default-off flag from env-vars.md on BOTH surfaces and record its intended prod value — including `AUTO_APPROVAL_PROVIDER_MODERATION_READY`, offboarding, solicitation, `STRIPE_TAX_ENABLED`, channels, `EDIT_REPLIES_ENABLED`, `EXTERNAL_REPLY_IMPORT_ENABLED`, `ONBOARDING_DEMO_ENABLED` | env-vars.md |
-| Everything else | B2 audit: diff Railway prod var NAMES vs staging's + `.env.example`; resolve every gap deliberately; fresh `SESSION_COOKIE_SECRET`/`CSRF_SECRET`/`IMPERSONATION_COOKIE_SECRET` (≥32 chars); `NODE_ENV=production` (confirm vs ADR 0013); `MOCK_EXTERNAL_APIS=false` | §5.2, §II.3 |
+| Everything else | B2 audit: diff Railway prod var NAMES vs staging's + `.env.example`; resolve every gap deliberately; fresh `SESSION_COOKIE_SECRET`/`CSRF_SECRET`/`IMPERSONATION_COOKIE_SECRET` (≥32 chars); **leave `NODE_ENV` unset** and **do not create `MOCK_EXTERNAL_APIS`** — manifest §8 | §5.2, §II.3, manifest §8 |
 
 ### Phase C — Vercel Production env vars (deployment-guide §4.2)
 

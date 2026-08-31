@@ -56,7 +56,7 @@ from its first and only commit.
 **Nothing about 077 is ambiguous.** It was applied by the owner, through the approved
 channel, with eight named verification checks recorded.
 
-### Doc corrections owed (fix at the cited spots, per the doc-hygiene rule)
+### Doc corrections owed — ALL FIVE LANDED (1–4 in #1025/#1027, 5 on 2026-08-30)
 
 1. `docs/runbooks/ws8-tier-cutover.md` §5 — delete "and no evidence file records it"; cite
    the 02:17:11Z record instead. The surrounding conclusion (077 is applied; §5 is a verify
@@ -74,6 +74,18 @@ channel, with eight named verification checks recorded.
    five places. Owner of the correct list, derived from code at `f6695494`:
    `docs/runbooks/infisical-production-manifest.md` §7. Fix Phase B by pointing at it,
    not by restating it.
+
+**Status.** Corrections 1–4 landed in #1025/#1027 and are verified absent from HEAD by
+grep. **Correction 5 landed 2026-08-30**: the Phase B blockquote now points at manifest
+§1 as the owner and records all five errors so nobody re-derives them.
+
+Two further contradictions were found inside that same Phase B block and fixed in the
+same edit, rather than left standing in a runbook being corrected:
+
+| Was | Is now | Why |
+|---|---|---|
+| `NODE_ENV=production` (confirm vs ADR 0013) | **leave `NODE_ENV` unset** | ADR 0013 records production Railway as `NODE_ENV` unset with `RAILWAY_ENVIRONMENT_NAME=production`. `requiresProductionConfig()` is already true from the Railway signal. Manifest §8. |
+| `MOCK_EXTERNAL_APIS=false` | **do not create the entry** | It is a value gate, not a presence gate. `assertProductionMockModeEnv` throws only on `true`. Absence is correct. Manifest §8. |
 
 ---
 
@@ -394,6 +406,116 @@ Verified against the prod schema 2026-08-30. Head is **116, minus 078**.
 
 ## Phase log — fill in as the run proceeds
 
+### Phase A — provision what does not exist
+
+Two facts recorded elsewhere were **stale** and are corrected here.
+
+| Was recorded | Live read 2026-08-30 | Consequence |
+|---|---|---|
+| "Sentry prod project **does not exist**; only `repworth-staging`" | `find_projects` on org `repworth-nv` returns **two** projects: `repworth-staging` and `repworth-production` | A.1 is a **read**, not a create. `SENTRY_PROJECT=repworth-production` was already correct in Infisical. |
+| Infisical project ID | `1735b0d0-286e-4ca3-a53b-f3a7191b163c` | The ID quoted in the resume prompt was truncated. Recovered from `.scratch/inf-read-production.err`. `--env prod` reads 43 keys. |
+
+- [x] **A.1 — Sentry DSN, CLOSED 2026-08-30.** Project `repworth-production`
+      already existed under org `repworth-nv`. Its single `Default` key was read
+      via the Sentry MCP and written to Infisical `prod` as **both**
+      `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` using
+      `infisical secrets set --file` from a mode-600 scratch file. Both read
+      back with SHA-256 prefix `ee14c7a4175df209`, matching the source file.
+      **Infisical `prod` now holds 45 keys.**
+
+      **No staging reuse.** The two DSNs are distinct in both halves —
+      production key `d8957a1e…` on project `4512002871001088`; staging key
+      `8ec0c3c9…` on project `4511599164850176`. Same org `o4511599159345152`.
+      Reusing staging's would have tagged production events `staging`.
+
+- [ ] **A.2 — Railway Redis.** Owner action: production environment →
+      `+ New → Database → Add Redis`, named `redis`. The dashboard template is
+      used deliberately rather than an MCP rebuild — staging's Redis is
+      `redis:8.2.1` with a volume at `/data`, a start command reading
+      `$REDIS_PASSWORD` and `$RAILWAY_VOLUME_MOUNT_PATH`, and seven
+      template-generated `REDIS*` variables. Hand-rebuilding that on the one
+      service the whole queue depends on is avoidable failure surface.
+      Agent then deletes the auto-created TCP proxy and sets `REDIS_QUEUE_URL`
+      Railway-native with `?family=0`.
+
+- [ ] **A.3 — Upstash cache.** Owner action. No Upstash CLI, no MCP, and no
+      management token in Infisical, so this cannot be driven from the session.
+
+- [ ] **A.4 — Worker public domain.** Production `repworth-worker` has **no
+      domain of any kind** (`list-domains` → empty). Recommendation recorded
+      below.
+
+- [ ] **A.5 — GitHub source.** Owner action, **deliberately not driven by MCP.**
+      Verified: staging carries `source: {repo: RepWorth/ai-review-responder,
+      branch: staging}`; production carries **no `source` key at all**, and has
+      **0 deployments** all time. The MCP `connect-service-source` states it
+      "applies to the service in all environments", so it may write `branch:
+      main` onto the staging instance and silently repoint the staging worker.
+      `update-service` cannot help — its own contract excludes source changes.
+      The dashboard is per-environment and carries no such risk.
+
+- [x] **A.6 — live provider access, FOUR OF FIVE PROVEN 2026-08-30.** Each key
+      was pulled from Infisical straight to a mode-600 scratch file and curled
+      once. No value entered a transcript.
+
+      | Provider | Probe | Result |
+      |---|---|---|
+      | OpenAI | `GET /v1/models` | **200** |
+      | Anthropic | `GET /v1/models` | **200** |
+      | Resend | `GET /domains` | **200** |
+      | SerpAPI | `GET /account` | **200** |
+      | Zernio | see below | **unproven** |
+
+      **Zernio cannot be proved read-only, and this is a finding.** Every GET
+      route in `src/lib/zernio/client/` validates request shape *before* it
+      authenticates. `GET /v1/accounts/{id}/gmb-reviews` returns **400** for a
+      real key, a bad key and no key alike. `/v1/accounts/{id}` is DELETE-only
+      and returns **405** on GET for all three. The only discriminating call is
+      `POST /v1/profiles`, which **creates a live Zernio profile** — not run.
+
+      Consequence: the Zernio key is first proved for real at Phase D or E.
+      This matters because the smoke-test precedent recorded in
+      `beta-production-standup.md` is exactly this failure class — a provider
+      key that looked fine and silently was not, for 25 calls.
+
+      **Hard provider-side spend caps remain owner actions** at OpenAI and
+      Anthropic. A 200 from `/v1/models` proves the key authenticates. It
+      proves nothing about billing state or a cap.
+
+#### `WORKER_PUBLIC_URL` — recommendation: a custom domain
+
+Scaling does not decide this. Railway load-balances behind either name
+identically, so replica count favours neither. Four other things do.
+
+1. **It is a webhook signature base, and four providers bind to it.** Zernio
+   registers against it at Phase E, Stripe at D.3, Resend at E.1, Twilio when
+   channels turn on. Changing the host later means re-registering all four and
+   rotating each signing secret.
+2. **Provider portability.** A custom domain moves with a CNAME edit. A
+   `*.up.railway.app` name forces the four-provider re-registration above.
+3. **It survives a service split.** If ingress ever splits from job execution,
+   `worker.` and `ingress.` sit under one owned namespace.
+4. **The DNS risk is zero.** `worker.` is a **new** subdomain. It cannot
+   disturb the MX/SPF/DKIM/DMARC state `launch-checklist.md` records as a
+   completed hard blocker — the same reasoning already recorded for
+   `alerts@repworth.net`.
+
+`https://worker.repworth.net` passes `assertWorkerPublicUrlFormat`
+(`raw === new URL(raw).origin`). Decide once, before Phase E binds Zernio to it.
+
+#### `STRIPE_SECRET_KEY` on Vercel — narrowed, not settled
+
+`vercel env ls production` reports **all 34 variables as `Encrypted`**, none as
+`Sensitive`. That is consistent with the record and strengthens the "genuinely
+empty" reading, but does not prove it: the local CLI is **54.14.5**, nine major
+versions behind, and may not render the `Sensitive` type at all.
+
+The definitive test is `GET /v9/projects/{id}/env`, which returns `type`
+explicitly. The session sandbox blocked reading the Vercel CLI auth token,
+correctly. **This stays a one-minute owner action in the dashboard:** an empty
+variable opens empty; a Sensitive one says the value cannot be viewed.
+
+
 ### §6 — strict worker deploy + controlled smoke
 
 - [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
@@ -443,7 +565,11 @@ Verified against the prod schema 2026-08-30. Head is **116, minus 078**.
       3 rotated at their provider. Secret Syncs deliberately NOT configured: four values
       wait on Phase A and three of those are boot gates. Record:
       `docs/runbooks/infisical-production-manifest.md` §12
-- [ ] Reconciliation doc corrections 1–5 landed via PR
+- [x] **Reconciliation doc corrections 1–5 all landed.** 1–4 in #1025/#1027,
+      verified absent from HEAD by grep. 5 on 2026-08-30 — the stand-up's Phase B
+      blockquote now points at manifest §1 as owner and records all five errors.
+      Two further contradictions in the same block were fixed with it:
+      `NODE_ENV` is left unset and `MOCK_EXTERNAL_APIS` is not created.
 - [ ] Prod worker Online, all boot gates green on the production lane
 - [ ] 078 applied in sequence; legacy price sentinels retained through the rollback window
 - [ ] Deny rule removed; `/api/health` returns 200; Zernio poll restored

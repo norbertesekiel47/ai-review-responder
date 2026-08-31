@@ -643,8 +643,20 @@ secret removal against this CLI version.
 
 ### 12.8 Still owed before the syncs run
 
-1. Add the four Phase A outputs: `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`,
-   `REDIS_CACHE_URL`, `WORKER_PUBLIC_URL`.
+1. Add the four Phase A outputs. **Two are in as of 2026-08-30**, so the
+   environment now holds **45 keys**:
+
+   | Key | State |
+   |---|---|
+   | `SENTRY_DSN` | ✅ written, verified `ee14c7a4175df209` |
+   | `NEXT_PUBLIC_SENTRY_DSN` | ✅ written, same value, same hash |
+   | `REDIS_CACHE_URL` | ❌ waits on A.3 (Upstash) |
+   | `WORKER_PUBLIC_URL` | ❌ waits on A.4 (worker domain) |
+
+   The Sentry project `repworth-production` **already existed** under org
+   `repworth-nv` — the earlier record saying it did not is stale. Its DSN is
+   distinct from staging's in both key and project ID, so §A.1's "never reuse
+   the staging DSN" is satisfied by construction, not by care.
 2. Check `STRIPE_SECRET_KEY` in the Vercel dashboard — empty, or Sensitive? (§11)
 3. Prove the Supabase secret key on staging (§12.2).
 4. Then configure both syncs against `prod`, **Import only**, deletion disabled on
