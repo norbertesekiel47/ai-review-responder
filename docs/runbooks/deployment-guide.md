@@ -379,6 +379,38 @@ openssl rand -hex 32      # → IMPERSONATION_COOKIE_SECRET  (admin view-as; ≥
   ```
   (See `docs/runbooks/personal_testing.md` §4 for the auth-id linking step.)
 
+  > **Done for PRODUCTION 2026-08-31**, and not before — finding **F4-F1**. Production ran
+  > for months with **zero** rows in `public.users` and `auth.users`, which made
+  > `/admin/businesses/new` — the whole **Admin invite** funnel — unreachable. Nobody
+  > noticed because staging has had an admin since May. Prefer an **app-generated UUIDv7**
+  > over `gen_random_uuid()` above: the PK convention post-dates this snippet
+  > (`.claude/reference/migrations-log.md`). After seeding, the admin must enrol MFA at
+  > `/admin/security` — deliberately the one admin page that does NOT require AAL2, so a
+  > fresh admin can reach it. Every other admin page refuses until they do.
+
+- [ ] **Supabase Auth → URL Configuration.** Set **Site URL** to the environment's own
+      origin and add it to **Redirect URLs**:
+
+  | Environment | Site URL | Redirect URLs |
+  |---|---|---|
+  | Production | `https://repworth.net` | `https://repworth.net/**` |
+  | Staging | `https://staging.repworth.net` | `https://staging.repworth.net/**` |
+
+  > **Do not skip this, and do not assume it was done — finding F4-F2.** Production sat on
+  > the Supabase default **`http://localhost:3000`** until 2026-08-31, so the first real
+  > invite email pointed at a machine that is not ours. The symptom is misleading: the
+  > owner's own dev server answered on port 3000 and rendered
+  > `/login?error=auth_callback_failed`, which is **our** error string, making it look like
+  > an application bug rather than a Supabase setting.
+  >
+  > **Why the app cannot compensate.** `inviteUserByEmail` is passed the correct
+  > `redirectTo` (`buildInviteRedirectTo()` → `https://<origin>/api/auth/callback?…`), but
+  > **Supabase substitutes the Site URL whenever `redirect_to` is not in the allowlist.**
+  > No amount of correct `NEXT_PUBLIC_APP_URL` fixes it from our side.
+  >
+  > Verify by sending one real invite and reading the link's domain **before** clicking it.
+  > A wrong Site URL costs nothing to fix and breaks every invite until it is.
+
 ### §2a. Applying new migrations after go-live — the standing procedure
 
 There is deliberately **no migration runner** (deep-scan §3.8 — deferred until

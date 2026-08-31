@@ -15,13 +15,20 @@
 are proven, the Beta comp coupon exists in both Stripe modes, provider moderation is on and
 validated, and all four ops signals reach Discord.
 
-**Updated 2026-08-31 — F.3 passed all ten steps on staging.** The **Beta comp coupon** is
-proven end to end on the real Stripe rails: $0.00 due today, a card still captured, and the
-4th cycle at full price. **Three items remain**, in the owner's order:
-**F.4 → G.3 → the PITR drill → the secret rotation.** F.4 is the production half of the
-smoke and carries the D.6 debt.
+**Updated 2026-08-31 — F.3 AND F.4 both passed.** The **Beta comp coupon** is proven end to
+end on the real Stripe rails in **both** modes: $0.00 due today, a card still captured, and
+the 4th cycle at full price. **The D.6 debt is closed** — production has completed a
+live-mode Checkout, and it was the owner's, not a customer's. The live Stripe webhook is
+proven across three event types.
 
-Two of the three need a human at a browser. Only the rotation is mostly scriptable.
+**Three items remain**, in the owner's order: **G.3 → the PITR drill → the secret rotation.**
+Only the rotation is mostly scriptable.
+
+> **F.4 found two production COMMISSIONING gaps**, either of which would have stopped beta
+> tester one: production had **no admin user at all**, and Supabase Auth's **Site URL was
+> `http://localhost:3000`**, so the invite email pointed at a machine that is not ours. Both
+> are fixed and both are now steps in `deployment-guide.md` §2. The lesson generalises:
+> **production was provisioned but never commissioned**, and only walking the path found it.
 
 ## Read these, in this order
 
@@ -144,12 +151,17 @@ on Vercel staging with the running deployment carrying it; and the trial/coupon 
 ruled out, because `isTrialEligible` requires `onboarded_by IS NULL` and an **Admin invite**
 never has that — so step 5's "$0 due today" could only be the coupon. It was.
 
-**Next: F.4 — production.** Set `BETA_COMP_COUPON_ID` to the live-mode id on **Vercel
-Production** and re-run the smoke with a real card and an immediate cancel.
+## 1b. F.4 — the production walk. ✅ **DONE 2026-08-31. THE D.6 DEBT IS CLOSED.**
 
-> ⚠️ **The production flip is a vault write, not a Vercel write.** The key is absent from
-> Vercel `Production` **and** from the Infisical vault; adding it to the vault **is** the F.4
-> flip, and the sync propagates it. Invoke the `flag-flip` skill first.
+`BETA_COMP_COUPON_ID` written to the Infisical vault `prod` (the owner chose vault-then-
+verify over a Vercel-only write), Railway redeployed `--from-source` and confirmed running
+`tsx worker/index.ts` with four poller cycles, Vercel Production read back and redeployed.
+
+Session `cs_live_a1vi…` · subscription `sub_1UAbs7IhPBLaM6xASGkfGz2V` · invoice
+`in_1UAbs5…` — **subtotal $19.00, total $0.00, `paid`**, card `pm_1UAbs5…` captured on that
+$0 invoice. `payment_method_collection: "always"`, `allow_promotion_codes: null`. 4th cycle
+full price by the same boundary proof as F.3. Cancelled immediately; **the owner was charged
+$0.00**. **Six findings, F4-F1…F4-F6.** Full record: evidence file → **Phase F.4**.
 
 > **This is where the D.6 debt lands.** No Checkout has ever completed in live mode. Walk
 > the production Checkout **before** tester one, or the first live Checkout is a customer's.

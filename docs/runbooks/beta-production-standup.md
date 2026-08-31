@@ -382,8 +382,27 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
           `docs/runbooks/evidence/2026-08-14-admin-invite-funnel-staging.md`
           → **D-13**. Reaching that table needs a different test, one that
           bypasses the gate.
-- [ ] **F4. Production is gated on the WS8 cutover — do not run F2b in prod
-      early.** The gate is now **code and Stripe, not schema**: as of 2026-08-14
+- [x] **F4. DONE 2026-08-31 — THE D.6 DEBT IS CLOSED.** Production completed a
+      live-mode Checkout, and it was the owner's. Session
+      `cs_live_a1viDmqFYmwiSulmWEjXhfRmrlOTxoexml4WrBGnyOZhjNTnDjAPUs7MBQ`,
+      subscription `sub_1UAbs7IhPBLaM6xASGkfGz2V`, invoice
+      `in_1UAbs5IhPBLaM6xA0uqtVYAB` — **subtotal $19.00, total $0.00, `paid`**, card
+      `pm_1UAbs5…` (visa ·6733) captured on that $0 invoice. `payment_method_collection`
+      read back as **`"always"`** and `allow_promotion_codes` as **`null`** (omitted, not
+      `false` — the D-16 fix holds live). 4th cycle full price by boundary proof: discount
+      `end` = 2026-11-30T20:32:01Z, the cycle-4 anchor to the second. Subscription
+      cancelled **immediately** afterwards; **the owner was charged $0.00**.
+      **The live Stripe webhook is now proven** — `invoice.paid`,
+      `checkout.session.completed` and `customer.subscription.deleted` all `processed`,
+      zero errors, on an endpoint that had never been delivered to since D.3.
+      ⚠️ **Two production COMMISSIONING gaps found on the way, either of which would have
+      stopped beta tester one:** production had **no admin user at all** (F4-F1), and the
+      Supabase Auth **Site URL was `http://localhost:3000`**, so the invite email pointed at
+      a machine that is not ours (F4-F2). Both fixed in-session; `deployment-guide.md` gains
+      the production URL-configuration step it never had. Four more findings F4-F3…F4-F6.
+      Evidence file → **Phase F.4**. Original text follows.
+      ~~Production is gated on the WS8 cutover — do not run F2b in prod
+      early.~~ The gate is now **code and Stripe, not schema**: as of 2026-08-14
       migrations 077, 105 and 106 are all applied in production, and **078** is
       the only one still outstanding (it applies in Phase D,
       `ws8-tier-cutover.md` §7). Order for prod: Phase D cutover (resume at §6 —

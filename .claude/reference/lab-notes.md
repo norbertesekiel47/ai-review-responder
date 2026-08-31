@@ -4144,3 +4144,87 @@ General lesson: **when an assertion about the future cannot be rendered, find th
 already encodes the answer** — here the discount's own `end` — and record the *method*
 alongside the verdict. A boundary proof and a rendered artefact are different evidence; a
 record that blurs them invites a later reader to over-trust it.
+
+## 2026-08-31 — WS8 Phase F.4: the first live Checkout, and two commissioning gaps
+
+### [2026-08-31] Production was PROVISIONED but never COMMISSIONED → two blockers found by walking the path, not by auditing
+FAIL → F.4 walked the invited-owner loop in production for the first time. It hit two hard
+stops in ten minutes, neither on any checklist, either of which would have stopped beta
+tester one:
+
+1. **No admin user existed.** `/admin/businesses/new` needs a `public.users` row with
+   `role='admin'` whose `auth_id` matches a Supabase Auth identity. Production held **zero**
+   rows in `public.users` AND `auth.users`. The entire **Admin invite** funnel was
+   unreachable — there was no one who could create an invite.
+2. **Supabase Auth Site URL was `http://localhost:3000`.** The first invite email resolved
+   to the owner's own dev server, which answered and rendered
+   `/login?error=auth_callback_failed`.
+
+WHY → the 45-day firewall freeze. Everything that could be created from a config file or an
+API was created; everything that needed a human in a provider dashboard **once** was not.
+`deployment-guide.md` §2 documents the admin seed and line 1332 documents the Site URL **for
+staging**. Neither was ever run against production, and staging having both since May is
+exactly why nobody noticed — every test passed, on the environment that was commissioned.
+
+The second one is the more instructive. **Everything on our side was correct**:
+`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and `buildInviteRedirectTo()` all emitted
+`https://repworth.net/api/auth/callback?…`. **Supabase substitutes its configured Site URL
+whenever `redirect_to` is not in the allowlist**, so no application-side correctness can
+compensate. And the symptom actively misleads: `auth_callback_failed` is OUR error string,
+so the failure reads as an application bug until you notice the callback builds its redirect
+from the request `origin` — which proves the request reached localhost, not us.
+
+CORRECT → **an environment is not live because its deploys are green.** Provisioned (infra
+exists) and commissioned (a human completed the one-time dashboard steps) are different
+states, and only the second is testable by walking a real path end to end. Diagnose a wrong
+redirect by asking *which server rendered this page*, not *which of our variables is wrong*.
+
+General lesson: **the paths nobody has walked are where the un-auditable failures live.** A
+config audit cannot find "no admin exists" — there is no wrong value to flag, only an absent
+row. Both of these were found by one person clicking through the funnel once.
+
+### [2026-08-31] A mandatory-reading doc that is stale is worse than no doc → the flag-flip skill guarantees someone reads it mid-action
+FAIL → the `flag-flip` skill requires reading `.claude/reference/env-vars.md` before every
+flip, "no exceptions, including flips you've done before". Its `BETA_COMP_COUPON_ID` section
+opened with *"⚠️ PENDING OPS — the coupon does not exist yet"* (false since that morning) and
+instructed *"the two IDs differ, and a test-mode ID deployed to live fails every invited
+tester's checkout."*
+
+WHY that second sentence matters → **it is the same wording that already caused an
+incident.** The 2026-08-31 lab note *"Created a live Stripe coupon under a fresh id"* records
+a live coupon being created under an id no environment named, because the plan described the
+object's shape rather than its name. The env-vars row repeated the identical premise. Left
+alone it would have produced the same mistake a third time — and this time at the exact
+moment an operator was authorised to write to production, because the skill had just told
+them to read it.
+
+CORRECT → **use ONE id in both Stripe modes.** The same id is legal in both, and using one
+makes "test id deployed to live" structurally impossible instead of merely documented. Then:
+when a doc is on a skill's mandatory-reading path, **its staleness is an operational risk,
+not a documentation debt** — fix it in the same change as the action that revealed it, and
+strike through the old wording rather than deleting it, so the next reader sees the
+correction was deliberate.
+
+General lesson: **the docs a workflow forces you to read are the ones whose errors get
+acted on.** Rank doc-freshness work by whether a skill, hook, or gate points someone at the
+file at the moment of action — not by how often it is read casually.
+
+### [2026-08-31] A vault write is a DEPLOY on every synced platform → one env var redeployed a worker that never reads it
+OBSERVATION → writing `BETA_COMP_COUPON_ID` to the Infisical vault `prod` triggered Railway
+deployment `aaa79eae` on `repworth-worker`. That variable is deliberately **not** a worker
+variable — `env-vars.md` says so, and no worker path reaches `applyTierSnapshot`.
+
+WHY → one vault environment (`prod`) syncs to **both** Vercel and Railway. Any write to it
+is a deploy on every synced platform, regardless of which platform reads the key. That puts
+every vault write into trap 2 territory: a Railway redeploy MAY resolve deploy configuration
+or MAY fall back to Railpack and boot `next start`.
+
+CORRECT → treat a vault write as a production deploy of every synced service. Follow it with
+`redeploy --from-source` and confirm `tsx worker/index.ts` **and a poller cycle** in the
+worker's own log. The redeploy that the sync fires was benign here (it copied a
+config-resolved source deploy from eight minutes earlier — the G-F1 case, now seen twice),
+but a from-source deploy **resolves** configuration where a redeploy only **inherits** it.
+Two benign observations do not make the rule conditional in the safe direction.
+
+General lesson: **when one store fans out to several platforms, the blast radius of a write
+is the union of them, not the subset that reads the key.**
