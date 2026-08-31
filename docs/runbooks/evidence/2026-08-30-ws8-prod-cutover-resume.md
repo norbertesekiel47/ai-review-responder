@@ -2200,6 +2200,127 @@ Recommendation: delete it, or disable it until it is needed.
 
 Both corrections are applied in the same change as this record.
 
+---
+
+## Phase F.2 / F.2b — the Beta comp coupon. CREATED 2026-08-31.
+
+Owner decisions taken at the start of this segment, recorded verbatim:
+
+1. **Rotation of the three E-F1 secrets — deferred** to after the F.3 staging smoke and
+   before any production Checkout. One rotation then covers everything.
+2. **The stale ngrok Resend endpoint — delete.**
+3. **Creating the live-mode coupon — approved.**
+
+### F.2a — the ngrok endpoint is gone
+
+```
+DELETE https://api.resend.com/webhooks/23123295-ef9a-49ca-9463-f3b1ef5fb71c → 200 {"deleted":true}
+```
+
+Two Resend endpoints remain, and they are the two that should exist:
+
+| id | status | endpoint |
+|---|---|---|
+| `3de61a3d-…` | enabled | `https://worker.repworth.net/ingress/resend` |
+| `0e671d1f-…` | enabled | `https://repworth-worker-staging.up.railway.app/ingress/resend` |
+
+### F.2b — the deprecation check PASSES
+
+Every call in this segment pinned `Stripe-Version: 2026-05-27.dahlia`, taken from
+`STRIPE_CLIENT_CONFIG.apiVersion`. A read-back under any other version would not have
+tested the thing the 2026-08-10 review flagged.
+
+| Field | Test mode | Live mode |
+|---|---|---|
+| `id` | `repworth-beta-comp-3mo` | `repworth-beta-comp-3mo` |
+| `percent_off` | 100.0 | 100.0 |
+| `duration` | **`repeating`** | **`repeating`** |
+| `duration_in_months` | **3** | **3** |
+| `valid` | true | true |
+| `livemode` | false | **true** |
+| `times_redeemed` | 0 | 0 |
+
+**`duration: repeating` is intact on the pinned apiVersion.** The fallback recorded in the
+plan — three cycle-scoped 100% promotions — is not needed. The F.2 box in
+`beta-production-standup.md` no longer carries an open fallback field.
+
+### F.2c — an error I made, and the check that caught it
+
+I created the live coupon as **`beta_comp_3mo`** first. That id was wrong.
+
+Vercel `staging` has held `BETA_COMP_COUPON_ID="repworth-beta-comp-3mo"` since
+2026-08-21. Reading the configured value **before** declaring F.2 done is what surfaced
+the mismatch. A live coupon under an id no environment names is not a coupon; it is a
+`CheckoutCouponConfigurationError` waiting for the first invited tester.
+
+Correction, in one pass:
+
+1. Created live `repworth-beta-comp-3mo` and read it back under the pinned version.
+2. Re-read `beta_comp_3mo`'s `times_redeemed` — **0** — and only then deleted it. The
+   script refuses the delete on any non-zero count.
+3. Listed live coupons: exactly one, `repworth-beta-comp-3mo`.
+
+**Test mode still holds a second, legacy coupon `beta_comp_3mo`** (100%/repeating/3,
+`times_redeemed=3`, created 2026-08-13). Nothing points at it — the three redemptions
+predate the current env var. It is left in place: deleting a Stripe coupon strips the
+discount from subscriptions already carrying it, and those three staging subscriptions are
+not worth disturbing. **Live mode has no such twin, deliberately.**
+
+> **Lesson.** "Create the coupon" is not the first step of F.2. **Reading the id the
+> environment already names is.** The plan said "the two IDs differ", which invited a fresh
+> id; the deployment had in fact already chosen one, ten days earlier, in a place the plan
+> did not point at.
+
+### F.2d — the environment variable. Staging done, production HELD.
+
+`BETA_COMP_COUPON_ID` exists in exactly **one** place across the whole estate:
+
+| Where | State |
+|---|---|
+| Vercel `staging` | **set** to `repworth-beta-comp-3mo`, 2026-08-21 — already correct, unchanged by this run |
+| Vercel `Production` | **absent** — the F.4 gate, deliberately |
+| Infisical vault `prod` | **absent** — so no Secret Sync can push it to Vercel Production by accident |
+| Railway (either env) | absent, by design — no worker path reaches `applyTierSnapshot` |
+
+That third row matters more than it looks. The F.4 gate is not held by someone remembering
+not to set it; it is held because the value does not exist in the vault that writes to
+Vercel Production. **Setting it in the vault would un-gate F.4 silently.** When F.4 comes,
+set it on Vercel Production directly, or add it to the vault knowing that is the flip.
+
+### F.2e — the BLOCKING `onboarded_by` gate, re-run at the moment the live coupon existed
+
+`launch-checklist.md` forbids creating the live coupon while a legacy admin-onboarded
+account sits in `pending_payment`, because such an account would draw a 3-month comp it
+was never meant to have. The gate was cleared 2026-08-30 and declared satisfied *by
+construction*. It was re-run verbatim anyway, against prod `udeyaqnvpojbwgoaxwdg`, in the
+same minutes the live coupon came into existence:
+
+```
+0 rows
+```
+
+### What F.2 did NOT do
+
+- No Vercel Production variable. No production redeploy.
+- No Checkout was created, in either mode. `times_redeemed` is 0 on both live and the
+  configured test coupon.
+- The Stripe **live** webhook endpoint is still armed and still has never been delivered to.
+
+---
+
+## Phase F.3 — the ten-step staging smoke. NOT STARTED. Operator work.
+
+F.3 needs a human at a browser: admin sign-in at AAL2, an invite email, a Stripe test card,
+and eyes on the Stripe dashboard. Three of the ten steps carry the weight — step 6 (a card
+**is** collected), step 8 (the **4th** cycle renders at full price), step 10 (record the
+real Supabase error code for an already-accepted invite).
+
+Two things to set before it runs:
+
+1. Decide `ONBOARDING_DEMO_ENABLED` on staging. It is off by default, and step 4's expected
+   landing page differs between the two postures. Record which posture was tested.
+2. Prepare **two** owner email addresses. Step 10 needs a second owner who has not signed in.
+
 ## Sign-off
 
 - [x] Roles recorded (solo deviation), predecessor evidence linked, HEAD pinned

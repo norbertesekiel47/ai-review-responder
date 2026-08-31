@@ -266,9 +266,19 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       durable `checkout_coupon_decision` analytics event (migration **106**).
       The dead `pending_payment_admin_handoff` screen is deleted; owners now
       self-activate through the funnel.
-- [ ] **F2.** Create the coupon (100% off, `duration: repeating`,
+- [x] **F2. DONE 2026-08-31.** Coupon id **`repworth-beta-comp-3mo`** — the **SAME
+      id in both modes**, not two ids. Test mode pre-existed (2026-08-21); live mode
+      created 2026-08-31. One id in both modes makes the "test id deployed to live"
+      failure below structurally impossible. **The `repeating` deprecation check
+      PASSES** under the pinned `Stripe-Version: 2026-05-27.dahlia`:
+      `percent_off=100`, `duration=repeating`, `duration_in_months=3`, `valid=true`,
+      `livemode=true`. **No fallback is needed** — the three cycle-scoped promotions
+      are not required. ⚠️ **Read the id the environment already names BEFORE
+      creating anything** — the first live create used a fresh id and had to be
+      deleted. Evidence file → **F.2c**. Original text follows.
+      Create the coupon (100% off, `duration: repeating`,
       `duration_in_months: 3`) in **BOTH Stripe modes** — test mode for staging,
-      live mode for prod. **The two IDs differ**; a test-mode ID deployed to live
+      live mode for prod. ~~**The two IDs differ**~~ (they do not, here); a test-mode ID deployed to live
       fails every invited tester's checkout identically (it raises
       `CheckoutCouponConfigurationError` + a Sentry report rather than a generic
       500, so the failure is legible — but it is still a failed checkout in front
@@ -276,7 +286,13 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       Stripe apiVersion first** (deprecation risk flagged in review 2026-08-10;
       record a fallback plan — e.g. three cycle-scoped 100% promotions — in this
       box if it fails: `____`). Record both coupon IDs in `launch-checklist.md`.
-- [ ] **F2b.** Set `BETA_COMP_COUPON_ID` on **Vercel, staging first**, and
+- [x] **F2b. Staging DONE — it was already set** on Vercel `staging`
+      (`repworth-beta-comp-3mo`, 2026-08-21). Verified by readback, not assumed.
+      **Production is HELD for F4, and it is held structurally:** the key is absent
+      from Vercel `Production` **and** absent from the Infisical vault `prod`, so no
+      Secret Sync can push it there by accident. Adding it to the vault IS the F4
+      flip. Evidence file → **F.2d**. Original text follows.
+      Set `BETA_COMP_COUPON_ID` on **Vercel, staging first**, and
       redeploy. Server-only, no `NEXT_PUBLIC_` companion (invariant #13), and
       deliberately **not** a Railway/worker variable — no worker path reaches
       `applyTierSnapshot`. Empty/whitespace reads as unset. **Unsetting is the

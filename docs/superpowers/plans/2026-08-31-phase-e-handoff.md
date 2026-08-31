@@ -43,7 +43,7 @@ The ordered plan, every phase and command:
 | **Firewall** | 5 rules — 4 rate-limit + QR. The deny rule is **gone** |
 | **Infisical `prod`** | 57 keys, 0 empty. Both Secret Syncs live (`Overwrite` + Disable Secret Deletion) |
 | **Flags in prod** | `AUTO_APPROVAL_ENABLED` `AUTOPILOT_PURCHASABLE` `SELF_SERVE_SIGNUP_ENABLED` `TRIAL_ENABLED` all **`false`**; `ZERNIO_PUBLISHING_ENABLED=true` |
-| **Beta comp coupon** | ❌ Does not exist in either Stripe mode. **Phase F creates it** |
+| **Beta comp coupon** | ✅ **`repworth-beta-comp-3mo` in BOTH modes**, 2026-08-31. Same id in each. `repeating` verified against the pinned apiVersion. Vercel `staging` set; **Production held for F.4** |
 | **Resend / Zernio webhooks** | ✅ **Created and proven 2026-08-31.** Resend `3de61a3d-…`, Zernio `6a953153…`. Both delivered a `processed` `inbound_events` row |
 | **Alert sink (Discord)** | ❌ Not routed. **Phase G** |
 | **Hard blockers** | PITR drill, legal review, insurance — **all 3 open** |

@@ -3949,3 +3949,35 @@ GET https://zernio.com/api/v1/profiles  (bad key)  → 401  {"error":"Unauthoriz
 The 200 also named the production profile, so the key was proven bound to the right tenant,
 not merely valid. **When a credential is "unprovable", check whether the obstacle is the
 provider or your own wrapper.** Usually it is the wrapper, and `curl` is the answer.
+
+### [2026-08-31] Created a live Stripe coupon under a fresh id → the environment already named a different one
+FAIL → Phase F.2 says "create the **Beta comp coupon** in both Stripe modes" and warns that
+"the two IDs differ". Taking that at face value, the live coupon was created as
+`beta_comp_3mo`. Vercel `staging` had held `BETA_COMP_COUPON_ID="repworth-beta-comp-3mo"`
+for ten days. A live coupon under an id no environment names is not a coupon — it is a
+`CheckoutCouponConfigurationError` waiting for the first invited tester, and the symptom
+would have appeared in front of a founding customer.
+
+WHY → the plan described the *shape* of the object (100% off, `repeating`, 3 months) and
+the *risk* (a test id deployed to live), but the deployment had already chosen a **name**,
+in a place the plan did not point at. Creating first and reconciling afterwards is the
+wrong order for any provider object whose id an environment variable already references.
+
+CORRECT → **read the id the environment already names before creating anything.** The
+sequence that works, for any provider object bound by an env var:
+
+1. Read the configured value (`vercel env pull` to a mode-600 file, then grep one key).
+2. `GET` that id in **both** provider modes. Create only what is genuinely missing.
+3. Read back under the **pinned** API version — a read-back under the default version does
+   not test what the pin is for.
+4. Only then delete anything you created in error, and gate the delete on usage:
+   re-read `times_redeemed` and refuse on any non-zero count.
+
+Two more facts worth keeping. **The same id is legal in both Stripe modes**, and using it
+makes the "test id deployed to live" failure structurally impossible rather than merely
+documented — prefer one id over two. And **deleting a Stripe coupon strips the discount
+from subscriptions already carrying it**, so an unused-looking legacy coupon with
+`times_redeemed > 0` is not safe to tidy away; leave it and write down why.
+
+General lesson: **a plan that describes an object's shape has not told you its name.** When
+an env var already points somewhere, that variable — not the plan — is the specification.
