@@ -43,8 +43,8 @@ The ordered plan, every phase and command:
 | **Firewall** | 5 rules — 4 rate-limit + QR. The deny rule is **gone** |
 | **Infisical `prod`** | 57 keys, 0 empty. Both Secret Syncs live (`Overwrite` + Disable Secret Deletion) |
 | **Flags in prod** | `AUTO_APPROVAL_ENABLED` `AUTOPILOT_PURCHASABLE` `SELF_SERVE_SIGNUP_ENABLED` `TRIAL_ENABLED` all **`false`**; `ZERNIO_PUBLISHING_ENABLED=true` |
-| **Beta comp coupon** | ❌ Does not exist in either Stripe mode. **Phase F creates it** |
-| **Resend / Zernio webhooks** | ❌ Not created. **Phase E creates them** |
+| **Beta comp coupon** | ✅ **`repworth-beta-comp-3mo` in BOTH modes**, 2026-08-31. Same id in each. `repeating` verified against the pinned apiVersion. Vercel `staging` set; **Production held for F.4** |
+| **Resend / Zernio webhooks** | ✅ **Created and proven 2026-08-31.** Resend `3de61a3d-…`, Zernio `6a953153…`. Both delivered a `processed` `inbound_events` row |
 | **Alert sink (Discord)** | ❌ Not routed. **Phase G** |
 | **Hard blockers** | PITR drill, legal review, insurance — **all 3 open** |
 
@@ -104,7 +104,29 @@ The first four are new from the Phase D run and cost real time.
 
 ---
 
-## Phase E — the remaining live webhooks
+## Phase E — the remaining live webhooks — ✅ COMPLETE 2026-08-31
+
+> **Done.** Both endpoints were created through the **provider APIs**, not the dashboards.
+> Full record: evidence file → **Phase E** (E.0–E.3) and **Findings E-F1…E-F5**.
+> Standup §Phase E is ticked.
+>
+> **Owed out of it:** rotate `RESEND_API_KEY`, `ZERNIO_API_KEY` and
+> `ZERNIO_WEBHOOK_SECRET` — `infisical secrets` prints values by default and exposed all
+> three (E-F1). Near-zero blast radius while the database is zero-state; the window closes
+> at the first connected location.
+
+### What the plan got wrong, and the corrections that landed
+
+- Both providers expose **webhook CRUD over the API**. No browser was needed for either.
+- Resend **mints** the signing secret (`POST /webhooks` → `signing_secret`, shown once).
+  Zernio **takes** one (`secret` is a request field), so the vault value was used verbatim.
+- `webhook.test` is **not** a subscribable Zernio event; `POST /v1/webhooks/test` fires it.
+- Newer Resend has no per-endpoint "Send test" — use `delivered@resend.dev`.
+- Subscriptions are **per-user, not per-environment** at both providers, so every event now
+  reaches both workers. Benign by construction (E-F3). Do not re-point an endpoint.
+- The production **Zernio key is now PROVEN** — Phase A.6's UNPROVEN is cleared (E-F2).
+
+### The original plan, for reference
 
 Both terminate on the Railway worker (invariant #6). The routes are already live and
 correctly reject unsigned requests.

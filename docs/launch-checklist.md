@@ -206,9 +206,19 @@ Pre-invite actions from these decisions:
   (`plan-activation.ts` gates trials on `onboarded_by IS NULL`) and would strip
   the `CleanupAbandonedSignupsPoller` reference guard. Raised by the step-7
   adversarial review; see `docs/reviews/admin-invite-funnel/`.
-- [ ] Create the live-mode beta coupon (100% off, repeating, 3 months —
+- [x] Create the live-mode beta coupon (100% off, repeating, 3 months —
   verify `repeating` behaves against the pinned Stripe apiVersion) and record
-  its ID here: `____` — stand-up Phase F2.
+  its ID here: **`repworth-beta-comp-3mo`** — stand-up Phase F2.
+  **Done 2026-08-31.** The id is the SAME in both Stripe modes:
+  test `repworth-beta-comp-3mo` (pre-existing, created 2026-08-21) and live
+  `repworth-beta-comp-3mo` (created 2026-08-31). One id in both modes makes the
+  "test id deployed to live" failure the plan feared structurally impossible.
+  **The `repeating` deprecation check PASSES.** Read back under the pinned
+  `Stripe-Version: 2026-05-27.dahlia`: `percent_off=100`, `duration=repeating`,
+  `duration_in_months=3`, `valid=true`, `livemode=true`. No fallback needed —
+  the three cycle-scoped promotions are not required.
+  The `onboarded_by` gate above was re-run verbatim against prod at the moment
+  the live coupon came into existence: **0 rows.** See evidence file → **F.2**.
 - [ ] Set `BETA_COMP_COUPON_ID` to that coupon in **Vercel production** and
   redeploy (Vercel does not pick up env changes without one). Server-only, no
   `NEXT_PUBLIC_*` companion. Until it is set, every attempt snapshots NULL and

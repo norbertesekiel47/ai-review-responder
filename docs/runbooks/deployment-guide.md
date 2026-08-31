@@ -728,21 +728,29 @@ SENTRY_DSN=...
 
 - [ ] In Resend dashboard → Webhooks → Add endpoint.
 - [ ] URL: `https://worker.repworth.net/ingress/resend`
-- [ ] Signing secret: **Resend generates a Svix `whsec_…`** when you create the endpoint — copy it into the worker's `RESEND_WEBHOOK_SECRET` (NOT openssl/§1.2). Newer Resend has no per-endpoint "Send test"; fire the webhook by sending a real email (e.g. Resend API).
+- [ ] Signing secret: **Resend generates a Svix `whsec_…`** when you create the endpoint — copy it into the worker's `RESEND_WEBHOOK_SECRET` (NOT openssl/§1.2).
 - [ ] Events: `email.delivered`, `email.bounced`, `email.complained`, `email.opened` (the worker handles these — see `worker/ingress/resend.ts`).
-- [ ] Click "Send test" → check Railway logs for `[ingress/resend] processed`.
+- [ ] **Prefer the API to the dashboard.** `POST https://api.resend.com/webhooks` with `{"endpoint": …, "events": […]}` returns `201 {id, object, signing_secret}`. `signing_secret` is shown **once** — write it straight to a mode-600 file, never to a terminal.
+- [ ] **Newer Resend has no per-endpoint "Send test".** Fire the event with Resend's simulator address `delivered@resend.dev` (also `bounced@resend.dev`, `complained@resend.dev`) — it produces a real event and reaches no human. Then check Railway logs, and confirm the `inbound_events` row:
+  ```sql
+  SELECT source, event_type, status, received_at
+  FROM inbound_events WHERE source = 'resend'
+  ORDER BY received_at DESC LIMIT 1;
+  -- expect: status='processed', event_type='email.delivered'
+  ```
 
 ### 6.2 Zernio webhook
 
 - [ ] In Zernio dashboard → Webhooks (per `zernio-launch-runbook.md` §2.2).
 - [ ] URL: `https://worker.repworth.net/ingress/zernio` (exact, no trailing slash).
 - [ ] Signing secret: paste `ZERNIO_WEBHOOK_SECRET` from §1.5.
-- [ ] Subscribed events:
+- [ ] Subscribed events — **exactly these four**:
   - `account.disconnected` (required — drives connection-lost emails)
   - `account.connected` (defensive observability)
-  - `webhook.test`
   - `review.new`, `review.updated` (required — these drive ingestion)
-- [ ] Fire test webhook from Zernio dashboard. Verify in Railway logs: `[ingress/zernio] webhook.test received eventId=<uuid>`.
+- [ ] **`webhook.test` is NOT subscribable.** It is absent from the create enum. It is fired by `POST /v1/webhooks/test` with `{"webhookId": …}`, and arrives as `event: "webhook.test"`.
+- [ ] **Prefer the API to the dashboard.** `POST https://zernio.com/api/v1/webhooks/settings` with `{name, url, secret, events, isActive}`. `secret` is **caller-supplied**, so pass `ZERNIO_WEBHOOK_SECRET` verbatim — never mint a new one. `GET` the same path to list, `GET /v1/webhooks/logs` for delivery history with response codes. The full surface is in `https://zernio.com/openapi.json`.
+- [ ] Fire the test webhook. Verify in Railway logs: `[ingress/zernio] webhook.test received (event=<uuid>)`.
 - [ ] Verify in Supabase:
   ```sql
   SELECT id, source, event_type, status, received_at
@@ -753,6 +761,8 @@ SENTRY_DSN=...
   ```
 
 If you get 401 `invalid_signature`, see `zernio-launch-runbook.md` §5.1–5.2 — most common cause is webhook-secret mismatch between Zernio dashboard and Railway env.
+
+> **Webhook subscriptions are per-USER at both providers, not per-environment.** Production and staging hold different API keys, but both keys resolve to the same provider account, so `GET /v1/webhooks/settings` (Zernio) and `GET /webhooks` (Resend) return the identical list under either key — and **every event fans out to both workers**. That is benign: each worker resolves the event against its own database, so a foreign event matches zero rows. Do not "fix" it by re-pointing an endpoint. Evidence file 2026-08-30 → **E-F3**.
 
 ### 6.3 Stripe webhook (required when self-serve signup is on)
 
