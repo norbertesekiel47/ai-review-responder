@@ -475,3 +475,24 @@ measurement.
    machine-wide scan matches `…/RepWorth` as a prefix of
    `…/RepWorth-worktrees/…`. Resolved by `lsof` and documented, not waived, in
    both rounds and on both sibling branches.
+
+## Round-2 closure — the head pin
+
+Round 2's sidecar was written at `c9f2f6bb`, one commit BEFORE `0756a4ab`, the
+commit that applies the three fixes above. The evidence and the tree it described
+were therefore one commit apart, and `red-team-status.mjs` correctly refused the
+`reviewed` transition: "the tree moved since c9f2f6bbf4cc outside this run's own
+two artifacts".
+
+`head_sha` is re-pinned to `0756a4ab`. The only tree change between the two
+commits is `worker/jobs/publisher/auto-policy-downgrade.ts` (+16/-10), which is
+RT2-1's prescribed fix and nothing else.
+
+**RT2-1's fix, structurally re-verified at `0756a4ab`:** the literal
+`FROM businesses` now occurs exactly ONCE in the file, at line 122 — the query's
+own `FROM` clause. No comment above it spells the clause, so the lock-order
+test's business rung resolves to the statement rather than to a comment.
+
+**Residual risk, stated rather than hidden:** the two-round cap is spent, so no
+red-team round verified `0756a4ab` by mutation. The check above is structural
+(occurrence counting), not a re-planted mutant.
