@@ -11,14 +11,15 @@ import {
 import { APPROVAL_METHOD } from '../../../src/lib/auto-approval/types';
 import { enqueueSendNotification } from '../../../src/lib/shared/job-outbox-helpers';
 import { markOutboxCompletedIfOwned } from '../../../src/lib/shared/outbox';
-
-export type AutoPolicyDowngradeReason =
-  | 'auto_approval_disabled'
-  | 'notice_undelivered'
-  | 'judge_disabled'
-  | 'judge_unhealthy'
-  | 'autopilot_entitlement_lost'
-  | 'policy_suspended';
+// `AutoPolicyDowngradeReason` is DECLARED in `src/lib/shared/worker-types.ts`,
+// beside `AutonomySuspensionTrigger` and for the same reason: the Refusal
+// ledger's vocabulary maps every member to a **Refusal category**, and no
+// production module under `src/lib/` imports from `worker/`. This module still
+// owns the downgrade BEHAVIOUR; only the declaration moved, and it is NOT
+// re-exported — nothing outside this file has ever imported it (verified at the
+// merge base and at head), and `working-rules.md` bans a compatibility shim
+// with no named external consumer.
+import type { AutoPolicyDowngradeReason } from '../../../src/lib/shared/worker-types';
 
 // One marker per reason for both writes: the audit action AND the
 // responses.posting_error value (shared owner: src/lib/approval/audit.ts).
