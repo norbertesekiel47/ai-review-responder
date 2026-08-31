@@ -891,6 +891,15 @@ describeWithDb(
       try {
         if (db) {
           for (const id of [businessId, siblingBusinessId, thirdBusinessId, foreignBusinessId]) {
+            // #1010's rows FIRST. `refusal_events.business_id` REFERENCES
+            // `businesses(id)` with NO cascade (migration 116), and this
+            // suite's release cycle reaches `latchHalt` through
+            // `isolateItem` -> `latchSystemHalt`, which writes a
+            // `batch_halted` Refusal. Without this the DELETE below fails
+            // with `refusal_events_business_id_fkey`. Same order the ledger's
+            // own suites use; production purge hard-deletes the table
+            // explicitly for the same reason (`purge-stages.ts`).
+            await db`DELETE FROM refusal_events WHERE business_id = ${id}::uuid`;
             await db`DELETE FROM businesses WHERE id = ${id}::uuid`;
           }
           if (tenant) await cleanupTenantAccount(db, tenant);

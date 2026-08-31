@@ -56,6 +56,11 @@ import {
   type RefusalOccurredAt,
   type WriteRefusalEventInput,
 } from '../write';
+// NAMESPACE import for the SET-BASED arm (#1010 T2). A named import of an
+// export that does not exist yet fails the whole FILE at collection, which at
+// the RED phase would take the four pre-existing single-row cases down with it.
+// Same reason `approval.integration.test.ts` reaches its admin arm this way.
+import * as refusalWrite from '../write';
 
 /**
  * Declared locally rather than added to `schema-ready.ts`: that helper lives
@@ -133,6 +138,42 @@ function heldDraft(subjectId: string): WriteRefusalEventInput {
     subjectId,
     occurredAt: 'transaction_time',
   };
+}
+
+/**
+ * The `ask_withheld` lane, exactly as `commitAskDecisions` proposes it (#1010):
+ * per-location, pointing at one `solicitation_asks` row, the withheld reason
+ * verbatim as the code, and the batch's own `decidedAt` as the decision time.
+ *
+ * `subject_id` carries NO foreign key (migration 116's own comment says why), so
+ * these cases can mint subject ids without seeding the solicitation chain.
+ */
+function askWithheld(subjectId: string, occurredAt: Date = ASK_DECIDED_AT): WriteRefusalEventInput {
+  return {
+    accountId: accountId(),
+    businessId: locationId(),
+    refusalSource: 'ask_withheld',
+    refusalCode: 'no_consent',
+    allRefusalCodes: null,
+    refusalCategory: 'no_permission',
+    subjectType: 'solicitation_ask',
+    subjectId,
+    occurredAt,
+  };
+}
+
+/** One batch's decision time — every row a build proposes shares it. */
+const ASK_DECIDED_AT = new Date('2026-08-30T09:08:07.006Z');
+
+/** Every `ask_withheld` row this account carries, newest subject order-stable. */
+async function readAskRefusals(): Promise<{ subject_id: string; refusal_code: string }[]> {
+  return sql()<{ subject_id: string; refusal_code: string }[]>`
+    SELECT subject_id::text AS subject_id, refusal_code
+    FROM refusal_events
+    WHERE account_id = ${accountId()}::uuid
+      AND refusal_source = 'ask_withheld'
+    ORDER BY subject_id
+  `;
 }
 
 async function countRefusals(
@@ -320,6 +361,119 @@ describeWithDb(
       // And the value is not silently the transaction clock: a helper that
       // ignored the `Date` arm and always emitted `NOW()` would land on today.
       expect(row?.occurred_at).not.toBe(row?.now_at);
+    });
+
+    // ── #1010 T2: the SET-BASED arm, against real Postgres ──────────────────
+    //
+    // The three claims about this arm that only a database can settle: that the
+    // second spelling of the `ON CONFLICT` predicate actually INFERS
+    // `refusal_events_subject_uniq` (both within one statement and ACROSS
+    // calls), and that a successful set write belongs to the CALLER's
+    // transaction rather than to a connection of its own.
+
+    it('the set-based arm writes one row per input and leaves one row when the same subject appears twice in one call', async () => {
+      const first = randomUUID();
+      const second = randomUUID();
+
+      // BOTH duplicates in the SAME call, deliberately. `ON CONFLICT DO NOTHING`
+      // resolves a conflict against a row the statement ITSELF is inserting;
+      // `DO UPDATE` raises 21000 on exactly this shape. Two calls would prove a
+      // different, weaker thing — that case is the one below.
+      const survivors = await sql().begin(async (tx) => {
+        await refusalWrite.writeRefusalEvents(tx, [
+          askWithheld(first),
+          askWithheld(second),
+          askWithheld(first),
+        ]);
+        // Read INSIDE the transaction: a clause that reads right and infers
+        // nothing raises 23505, the transaction is poisoned, and this statement
+        // cannot run at all. That failure is the whole point of the case.
+        const [row] = await tx<{ count: string }[]>`
+          SELECT COUNT(*)::text AS count FROM refusal_events
+          WHERE account_id = ${accountId()}::uuid
+        `;
+        return Number(row?.count ?? -1);
+      });
+
+      // Three inputs, two subjects, two rows.
+      expect(survivors).toBe(2);
+
+      // …and the transaction COMMITTED, so both rows are durable and each names
+      // the subject it was proposed for.
+      expect(await readAskRefusals()).toEqual(
+        [first, second]
+          .map((subjectId) => ({ subject_id: subjectId, refusal_code: 'no_consent' }))
+          .sort((left, right) => left.subject_id.localeCompare(right.subject_id)),
+      );
+    });
+
+    it('the set-based arm commits when an input subject already exists from an earlier call', async () => {
+      // Round-1 plan review R1-7. `commitAskDecisions` — the set-insert idiom
+      // this arm follows — asserts `inserted.count === input.length`, which
+      // holds there because it has no `ON CONFLICT`. Copying that assertion here
+      // is a BUG: a subject stored by an EARLIER call legitimately lowers the
+      // count, and the throw would land inside a decision transaction, with the
+      // ledger breaking the very thing it records.
+      //
+      // De-duplicating within the call does NOT hide this. The duplicate is
+      // cross-call, so only the affected-row count can see it.
+      const carriedOver = randomUUID();
+      const fresh = randomUUID();
+
+      await sql().begin((tx) => refusalWrite.writeRefusalEvents(tx, [askWithheld(carriedOver)]));
+
+      // Two inputs, one of them already stored: ONE row is inserted, the call
+      // does NOT reject — an affected-count assertion would throw right here —
+      // and the durable rows below are what prove the transaction committed.
+      await expect(
+        sql().begin((tx) =>
+          refusalWrite.writeRefusalEvents(tx, [askWithheld(carriedOver), askWithheld(fresh)]),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(await readAskRefusals()).toHaveLength(2);
+      expect(
+        await countRefusals(sql()`subject_id = ${carriedOver}::uuid`),
+        'the carried-over subject stays ONE row, not two',
+      ).toBe(1);
+      expect(await countRefusals(sql()`subject_id = ${fresh}::uuid`)).toBe(1);
+    });
+
+    it("a set-based ledger write does not survive its caller's deciding transaction rolling back after the insert succeeds", async () => {
+      // Round-1 plan review R1-3, and the ONLY case that discriminates
+      // invariant #15 for this arm. Every other case here would pass against a
+      // helper that opened its own connection: a FAILED insert leaves nothing
+      // behind on either connection, so the two are indistinguishable when the
+      // statement raises. Here the write SUCCEEDS first and the caller aborts
+      // afterwards for a reason that has nothing to do with the ledger — a
+      // private connection has already COMMITTED its rows independently, and
+      // they are still there at the last assertion.
+      //
+      // Nothing else catches this shape: `ci:db-imports` matches the
+      // `@/lib/db/server` specifier only, so a bare `postgres(…)` constructed
+      // inside `src/lib/refusals/` is invisible to it.
+      const abort = new Error('caller aborted after the ledger wrote — unrelated to the ledger');
+      const subjects = [randomUUID(), randomUUID()];
+
+      await expect(
+        sql().begin(async (tx) => {
+          await refusalWrite.writeRefusalEvents(tx, subjects.map((id) => askWithheld(id)));
+
+          // Read inside the transaction, BEFORE aborting it. A helper that
+          // silently wrote nothing would otherwise satisfy the zero-rows
+          // assertion below by vacuum.
+          const [written] = await tx<{ count: string }[]>`
+            SELECT COUNT(*)::text AS count FROM refusal_events
+            WHERE account_id = ${accountId()}::uuid
+          `;
+          expect(Number(written?.count ?? -1)).toBe(subjects.length);
+
+          throw abort;
+        }),
+      ).rejects.toBe(abort);
+
+      // The rows went down with the decision they recorded.
+      expect(await readAskRefusals()).toEqual([]);
     });
   },
 );

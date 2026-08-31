@@ -22,6 +22,7 @@ import {
   type TenantSeed,
 } from '@/lib/shared/__tests__/live-db-tenant';
 import { insertOutreach, seedContactCsvUpload } from '@/lib/shared/__tests__/helpers/outreach-fixture';
+import { BATCH_HALTED_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
 import {
   adminHaltBatch,
   haltBatch,
@@ -255,7 +256,40 @@ async function countAuditRows(): Promise<number> {
   return row?.count ?? 0;
 }
 
+/**
+ * Every Refusal written against ONE batch (#1010). Read as `::text`: postgres.js
+ * decodes `timestamptz` to a JS `Date` and truncates microseconds (#520), and
+ * `occurred_at` here is the same `NOW()` the CAS wrote into `halted_at`.
+ */
+async function readRefusals(batchId: string): Promise<{
+  refusal_source: string;
+  refusal_code: string | null;
+  refusal_category: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  account_id: string;
+  business_id: string | null;
+  matches_halted_at: boolean | null;
+}[]> {
+  return sql()`
+    SELECT refusal.refusal_source,
+           refusal.refusal_code,
+           refusal.refusal_category,
+           refusal.subject_type,
+           refusal.subject_id::text AS subject_id,
+           refusal.account_id::text AS account_id,
+           refusal.business_id::text AS business_id,
+           (refusal.occurred_at = batch.halted_at) AS matches_halted_at
+    FROM refusal_events refusal
+    LEFT JOIN solicitation_batches batch ON batch.id = refusal.subject_id
+    WHERE refusal.subject_id = ${batchId}::uuid
+  `;
+}
+
 async function cleanupTenantRows(): Promise<void> {
+  // #1010's rows first: `refusal_events` has no-action foreign keys to
+  // `accounts` and `businesses`, and its subject is a batch this sweep deletes.
+  await sql()`DELETE FROM refusal_events WHERE account_id = ${accountId()}::uuid`;
   await sql()`DELETE FROM solicitation_outreach WHERE business_id = ${businessId}::uuid`;
   await sql()`DELETE FROM solicitation_asks WHERE business_id = ${businessId}::uuid`;
   await sql()`DELETE FROM solicitation_batches WHERE business_id = ${businessId}::uuid`;
@@ -351,6 +385,53 @@ describeWithDb(
       // The latch NEVER terminalizes the Send batch parent itself —
       // `closeBatchIfSettled` owns that, reached through the latch's join.
       expect(halt.send_closed_at).not.toBeNull();
+    });
+
+    it('a platform halt writes a refusal_events row even though it writes no account_audit_log row', async () => {
+      // #1010 T5. The two receipts are DIFFERENT ACTS with different rules, and
+      // this batch is where they visibly diverge. `account_audit_log` records a
+      // RepWorth OPERATOR acting on someone else's account — filing a
+      // platform-wide sending halt there would make the log claim a human acted
+      // — while the Refusal ledger records what RepWorth DECLINED TO DO, which a
+      // platform halt certainly is. `latchHalt`'s ledger write is its own
+      // statement, unconditional on `audit`, and that is what makes the
+      // asymmetry invisible to it.
+      const batch = await seedApprovedBatch();
+      const parentRunId = await seedSendParent(batch.batchId);
+      const rendered = await seedOutreach(batch, 'rendered');
+
+      const result = await latchUnderLock(batch.batchId, 'platform_halt');
+
+      expect(result).toMatchObject({ status: 'latched', cancelledCount: 1 });
+      expect(await countAuditRows(), 'a clock is not an operator').toBe(0);
+
+      const refusals = await readRefusals(batch.batchId);
+      // ONE row, against the BATCH — never one per cancelled Outreach row.
+      expect(refusals).toHaveLength(1);
+      expect(refusals[0]).toMatchObject({
+        refusal_source: 'batch_halted',
+        // The reason VERBATIM, and the category this lane's map assigns it —
+        // `platform_halt` and `admin_halt` share `autonomy_paused` and stay two
+        // distinct codes, because `refusal_code` is stored as written.
+        refusal_code: 'platform_halt',
+        refusal_category: BATCH_HALTED_REFUSAL_CATEGORIES.platform_halt,
+        subject_type: 'solicitation_batch',
+        subject_id: batch.batchId,
+        account_id: accountId(),
+        business_id: businessId,
+      });
+      // `occurred_at` IS the `halted_at` the same `NOW()` wrote, compared inside
+      // Postgres at full precision.
+      expect(refusals[0]!.matches_halted_at).toBe(true);
+
+      // The batch really halted and really cancelled, so the audit zero above is
+      // an absent RECEIPT rather than an absent halt.
+      expect((await readHalt(batch.batchId)).halt_reason).toBe('platform_halt');
+      expect(await readOutreachStatus(rendered)).toEqual({
+        delivery_status: 'cancelled',
+        disposition_reason: 'platform_halt',
+      });
+      expect(await readHaltSteps(parentRunId)).toHaveLength(1);
     });
 
     it('a second system halt on an already halted batch writes nothing', async () => {

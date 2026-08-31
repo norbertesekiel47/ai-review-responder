@@ -487,8 +487,17 @@ describe('solicitation batch candidate loader', () => {
         prior_batch_id: 'prior-batch-1',
         prior_decision_at: `${utcDaysAgo(7)}T00:00:00.000Z`,
       }]),
+      // The ask INSERT.
       mkTaggedResult([{ id: 'ask-1' }]),
+      // #1010: the Refusal ledger's set-based INSERT, issued between the ask
+      // INSERT and the ask→run link. This candidate withholds `over_contacted`,
+      // which maps to a **Refusal category**, so the lane writes its ONE
+      // statement here — and the return queue is positional, so the slot is
+      // required even though the statement returns nothing.
+      mkTaggedResult([]),
+      // The ask→run link UPDATE.
       mkTaggedResult([{ id: 'ask-1' }]),
+      // The `built_at` CAS.
       mkTaggedResult([{ id: 'batch-1' }]),
     );
 

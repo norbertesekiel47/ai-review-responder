@@ -1,0 +1,200 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1010-refusal-solicitation-singles-bb4cba",
+  "branch": "feat/1010-refusal-solicitation-singles",
+  "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "head_sha": "844ee28b16493f75a8d04828e77aa2f16e64225a",
+  "intake_sha256": "b7fd49c16ea687f24fe5c53ae34e32e2f771a0bef7065e33605c36cd22348012",
+  "risk": "high",
+  "round": 2,
+  "generated_at": "2026-08-31T07:34:04.723Z",
+  "inventory": [
+    {
+      "id": "RT2-INV-1",
+      "test": "a dispatch withhold writes its refusal_events row after the outreach terminal, the child run and the receipt step",
+      "file": "src/lib/solicitation/__tests__/dispatch.integration.test.ts",
+      "outcome": "killed",
+      "reason": "A1 hoist-to-top killed (expected 14 to be greater than 23); A2 middle placement killed (17 > 23); A3 completeRun/markOutboxCompletedIfOwned swap killed (20 > 21); A4 pooled-receiver killed (onTransaction false). A5 closeBatchIfSettled hoist survived and is recorded as P2 RT2-3 after arbiter reclassification."
+    },
+    {
+      "id": "RT2-INV-2",
+      "test": "a failing solicitation release cycle raises a Sentry issue and the poller still survives to its next tick",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "killed",
+      "reason": "B1 pre-fix three-line body killed (captureException 0 times); B2 rethrow deleted killed (logger.error 0 times); B3 unguarded capture killed (transport error replaced the cycle error); B4 tag value changed killed (tags toMatchObject)."
+    },
+    {
+      "id": "RT2-INV-3",
+      "test": "hands the sql singleton to runReleaseCycle",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-4",
+      "test": "start runs one cycle immediately and then one per interval",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-5",
+      "test": "start is idempotent while the timer is already armed",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-6",
+      "test": "stop clears the interval so no further cycle runs",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-7",
+      "test": "skips a second immediate run while the previous cycle is still in flight",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-8",
+      "test": "frees the single-flight flag when a cycle outruns its deadline",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-9",
+      "test": "honours a configured interval that sits above the cycle deadline",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    },
+    {
+      "id": "RT2-INV-10",
+      "test": "rejects a configured interval at or below the cycle deadline and uses the default",
+      "file": "worker/background/pollers/__tests__/SolicitationReleasePoller.test.ts",
+      "outcome": "excluded",
+      "reason": "Pre-existing case in a test file whose shared beforeEach changed (mockReset added, vi.mock(@sentry/node) added). Its production targets (createGuardedPoll, getIntervalMs) are untouched by the fix hunks and outside round 2 scope; the beforeEach change is purely additive (mockReset placed before the existing mockResolvedValue) so it cannot neutralise them. Evidence: the full file runs 9/9 green at HEAD 426ccf77 under the isolated environment."
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT2-1",
+      "severity": "P0",
+      "title": "the P1-B fix cannot observe the failure it was built for, and the gap it documents never existed: latchSystemHalt runs inside isolateItem, which never rethrows and already Sentry-captures the failure, so the new catch in runSolicitationReleaseCycle sees nothing of that class",
+      "at": "worker/background/pollers/SolicitationReleasePoller.ts:61",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "The finding is correct and the P1-B fix has been REVERTED IN FULL on the owner's decision. Verified independently before acting: recordItemFailure (release-phases.ts) already calls Sentry.captureException, guarded, with a log fallback, under tags subsystem 'solicitation-release', and isolateItem never rethrows — so the alert path existed one layer below the poller and the new capture could never observe that failure class. Two further defects the finding names were also confirmed: the fix wrote 'solicitation_release' against four existing 'solicitation-release' sites, splitting one subsystem across two tag spellings; and send_window_elapsed maps to null in BATCH_HALTED_REFUSAL_CATEGORIES, so one of the two arms cited writes no Refusal at all. SolicitationReleasePoller.ts and its test are restored to their fork-point blobs, the promised title is removed from tests_to_add, and the two poller paths are removed from allowed_edit_surface. The amendment counter is NOT decremented: surfaceAmendments stays at 2, so this branch spent its last amendment on a change that should never have landed, and the deviations file records that rather than resetting it."
+    },
+    {
+      "id": "RT2-2",
+      "severity": "P1",
+      "title": "the newly emitted subsystem:'solicitation_release' Sentry signal has no bullet and no rule row in docs/runbooks/beta-launch-alerting.md, while the #1009 precedent it names added both; it also splits the lane's established subsystem:'solicitation-release' tag value",
+      "at": "docs/runbooks/beta-launch-alerting.md:207",
+      "duty": 5,
+      "disposition": "fixed",
+      "reason": "Resolved by the RT2-1 revert rather than by editing the runbook. The signal this finding is about no longer exists: the subsystem 'solicitation_release' capture was removed with the rest of the P1-B fix, so there is no new signal needing a bullet or a rule row, and the tag-value split it identified is gone with it. The runbook stays off allowed_edit_surface and untouched, which is the correct outcome — the finding's premise was the fix, and the fix is withdrawn."
+    },
+    {
+      "id": "RT2-3",
+      "severity": "P2",
+      "title": "the new ordering case leaves closeBatchIfSettled's position unpinned: hoisting it to the top of commitWithhold (so a batch whose last row is a withhold never closes) survives both this case and the sibling batch-closure case",
+      "at": "src/lib/solicitation/__tests__/dispatch.integration.test.ts:2569",
+      "duty": 1,
+      "disposition": "open",
+      "arbiter_reasoning": "A5 is neither equivalent nor on an unexecuted branch — closeBatchIfSettled runs on this exact path and the reorder changes real behaviour. It is nevertheless NOT semantically meaningful for the tested behaviour, which is the ledger write's position relative to five named writes plus last-of-all: all five relative orders and ledgerIndex === queries.length - 1 still hold under A5. Reclassified from P0-candidate to a recorded P2."
+    },
+    {
+      "id": "RT2-4",
+      "severity": "P2",
+      "title": "D6 says the P1 fixes added ~160 test lines; git diff --numstat e9a6a50b..426ccf77 over test paths measures 246 added (164 + 82). The headline estimated_test_lines 2346 is exact and unaffected",
+      "at": "docs/superpowers/plans/feat-1010-refusal-solicitation-singles-deviations.md:69",
+      "duty": 3,
+      "disposition": "fixed",
+      "reason": "D6 now states the measured 246 rather than the estimated '~160', and says explicitly that the earlier figure was an estimate presented as a count. It also records that the 2346 headline is exact (2344 added, 2 deleted) and that the estimate is deliberately left at 2346 after the P1-B revert removed lines again, because an estimate that chases every commit is not an estimate."
+    },
+    {
+      "id": "RT-1",
+      "severity": "P1",
+      "title": "the dispatch lane's ledger-write POSITION is unpinned: moving it to the top of commitWithhold leaves the whole 33-case dispatch integration suite green, and makes the rollback case pass vacuously",
+      "at": "src/lib/solicitation/dispatch.ts:1467",
+      "duty": 1,
+      "disposition": "fixed"
+    },
+    {
+      "id": "RT-2",
+      "severity": "P1",
+      "title": "the SYSTEM halt lane adds a terminal ledger-failure path with no Sentry signal and no alerting rule row: latchSystemHalt runs under SolicitationReleasePoller, whose guarded-poll catch only calls logger.error, so attachJobFailureSink never sees it",
+      "at": "worker/background/guarded-poll.ts:108",
+      "duty": 5,
+      "disposition": "rejected",
+      "reason": "The signal half is factually false at both e9a6a50b and 426ccf77: src/lib/solicitation/release-phases.ts:96-107 (recordItemFailure) already raised a Sentry issue for exactly this failure, and release-phases.ts:69-81 (isolateItem) contains the throw before runSolicitationReleaseCycle can see it — see release.ts:791 and the repo's own release.integration.test.ts:2162-2163. Superseded by RT2-1; the surviving rule-row half is carried forward as RT2-2. Must be listed in the PR description's \"Red-team findings rejected\" section."
+    },
+    {
+      "id": "RT-3",
+      "severity": "P1",
+      "title": "vocabulary.ts's header is FALSE at HEAD as a direct result of this diff: it still says five exported lane maps have no production caller, and three of the five now have one",
+      "at": "src/lib/refusals/vocabulary.ts:44",
+      "duty": 3,
+      "disposition": "accepted-risk",
+      "reason": "OWNER-AUTHORIZED DEFERRAL, recorded rather than fixed. The finding is accepted as true: three of the five maps gain a production caller on this branch, so the header sentence is false at HEAD. It cannot be fixed on ANY of the three swarm branches — src/lib/refusals/vocabulary.ts is outside all three edit surfaces by construction, because disjoint surfaces are the premise of running them in parallel, and #1010 has spent both amendments. #1010's own D3 proposed handing it to whichever of #1011/#1012 lands last; that does not work for the same reason. Carried on the orchestrator as a post-merge documentation sweep together with three sibling staleness findings (env-vars.md, eservices-variables.md and beta-launch-alerting.md all attribute the kill switch to writeRefusalEvent alone) under one true sentence: the ledger now has two writers and its maps have callers. Owner authorized the deferral explicitly on 2026-08-31.",
+      "authorization": "AUTH-1"
+    },
+    {
+      "id": "RT-4",
+      "severity": "P2",
+      "title": "the alerting runbook attributes the disabled-ledger warning to writeRefusalEvent alone; writeRefusalEvents now emits the identical signal through the same warnLedgerDisabled()",
+      "at": "docs/runbooks/beta-launch-alerting.md:55",
+      "duty": 5,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "title": "fragile comparator: expected rows are sorted with localeCompare and compared against a Postgres ORDER BY on a uuid column, which is a different collation from the one the query establishes",
+      "at": "src/lib/refusals/__tests__/write.integration.test.ts:184",
+      "duty": 2,
+      "disposition": "open"
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "title": "evaluateAsk's already_reviewed gate has no producer, so one of the six WithholdReason members and its Refusal mapping are unreachable end-to-end through buildSolicitationBatch",
+      "at": "src/lib/solicitation/batch-builder.ts:368",
+      "duty": 4,
+      "disposition": "open"
+    }
+  ],
+  "authorizations": [
+    {
+      "id": "AUTH-1",
+      "date": "2026-08-31",
+      "finding_ids": [
+        "RT-3"
+      ],
+      "text": "Owner-authorized deferral, 2026-08-31. RT-3 is accepted as true. src/lib/refusals/vocabulary.ts is outside all three swarm edit surfaces by construction, and #1010 has spent both surface amendments, so it cannot be fixed on any swarm branch. Carried as a post-merge documentation sweep with the three sibling staleness findings under one sentence: the ledger now has two writers and its maps have callers."
+    }
+  ],
+  "counts": {
+    "inventory_total": 10,
+    "killed": 2,
+    "survived_confirmed_p0": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 8,
+    "findings_total": 10,
+    "p0_open": 0,
+    "p1_open": 0,
+    "p2_open": 4,
+    "accepted_risk": 1,
+    "fixed": 4,
+    "rejected": 1
+  },
+  "status": "CLEAR"
+}

@@ -29,12 +29,19 @@ import { enqueueGenerateSolicitationAsks } from '@/lib/shared/job-outbox-helpers
 import { QUEUE_NAMES } from '@/lib/shared/queue-names';
 import type { BuildSolicitationBatchPayload } from '@/lib/shared/worker-types';
 import { handleSolicitationBatchFailed } from '../../../../worker/jobs/solicitation-batch/failed-hook';
+import { ASK_WITHHELD_REFUSAL_CATEGORIES } from '@/lib/refusals/vocabulary';
 import { CONSENT_ATTESTATION_VERSION } from '../attestation';
-import { buildSolicitationBatch } from '../batch-builder';
+import { acquireSolicitationBatchLock, buildSolicitationBatch } from '../batch-builder';
 import { readLatestBatch } from '../batch-view';
 import { ingestContactsCsvUpload } from '../ingest';
 import { POSTAL_ADDRESS_ATTESTATION_VERSION } from '../postal-address';
-import { BATCH_CAP } from '../restraint-policy';
+import {
+  BATCH_CAP,
+  FRESHNESS_WINDOW_DAYS,
+  MIN_GAP_DAYS,
+  WITHHOLD_REASONS,
+  type WithholdReason,
+} from '../restraint-policy';
 import { recordSuppression, type SuppressionSource } from '../suppression';
 
 /**
@@ -60,6 +67,36 @@ vi.mock('@/lib/shared/job-outbox-helpers', async (importOriginal) => {
     },
   };
 });
+
+// ── #1010 T3: the `ask_withheld` lane's Refusal write site ──────────────────
+//
+// WHY THE VOCABULARY MODULE IS MOCKED. One case here has to force a REAL ledger
+// rejection from the REAL helper inside the REAL batch-build transaction — a
+// mocked-away writer would prove only that a stub can reject, and every other
+// case in this file supplies valid input. Bending ONE map entry to a category
+// migration 116's CHECK does not admit makes the set INSERT violate
+// `refusal_events_refusal_category_check`, which is exactly the writer bug the
+// design says must abort the decision rather than be caught.
+//
+// The stand-in map is DERIVED from the real one inside the factory, never
+// re-typed: every other case must run against the production vocabulary, and a
+// hand-copied map here would be a second authority over the same six reasons.
+// Same shape as `src/lib/auto-approval/__tests__/suspension.integration.test.ts`.
+const { askWithheldCategories } = vi.hoisted(() => ({
+  askWithheldCategories: {} as Record<string, string | null>,
+}));
+
+vi.mock('@/lib/refusals/vocabulary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/refusals/vocabulary')>();
+  Object.assign(askWithheldCategories, actual.ASK_WITHHELD_REFUSAL_CATEGORIES);
+  return { ...actual, ASK_WITHHELD_REFUSAL_CATEGORIES: askWithheldCategories };
+});
+
+/** The default-ON kill switch. Only the literal string 'false' disables it. */
+const LEDGER_FLAG = 'REFUSAL_LEDGER_ENABLED';
+
+/** Postgres' CHECK-violation SQLSTATE. */
+const CHECK_VIOLATION = '23514';
 
 const testDatabaseUrl = resolveTestDatabaseUrl();
 const businessId = randomUUID();
@@ -460,6 +497,191 @@ async function seedPriorAsk(input: {
   `;
 }
 
+// ── #1010 T3 fixtures: the Refusal ledger ───────────────────────────────────
+
+interface RefusalRow {
+  account_id: string;
+  business_id: string | null;
+  refusal_source: string;
+  refusal_code: string | null;
+  all_refusal_codes: string[] | null;
+  refusal_category: string;
+  vocabulary_version: string;
+  subject_type: string | null;
+  subject_id: string | null;
+  occurred_at: string;
+  created_at: string;
+}
+
+/**
+ * Every Refusal this account carries, ordered by subject so a set comparison is
+ * stable. Read as `::text` throughout: postgres.js decodes `timestamptz` to a JS
+ * `Date` and TRUNCATES microseconds (#520), and the equality this lane claims
+ * against `solicitation_asks.decided_at` lives in those digits.
+ */
+async function readRefusals(): Promise<RefusalRow[]> {
+  return sql()<RefusalRow[]>`
+    SELECT account_id::text AS account_id,
+           business_id::text AS business_id,
+           refusal_source,
+           refusal_code,
+           all_refusal_codes,
+           refusal_category,
+           vocabulary_version,
+           subject_type,
+           subject_id::text AS subject_id,
+           occurred_at::text AS occurred_at,
+           created_at::text AS created_at
+    FROM refusal_events
+    WHERE account_id = ${tenant!.accountId}::uuid
+    ORDER BY subject_id
+  `;
+}
+
+/**
+ * Each Refusal joined to the `solicitation_asks` row it claims to record, with
+ * the timestamp equality settled INSIDE Postgres.
+ *
+ * `exact` is the load-bearing column and it cannot be computed in JavaScript: a
+ * decoded `Date` loses the microseconds, so an ask lane wrongly stamping
+ * transaction time could compare EQUAL after truncation. The join is on
+ * `subject_id` alone — that is the pointer under test, and adding a contact
+ * predicate would let a mis-pointed row disappear from the result instead of
+ * failing.
+ */
+async function readAskRefusalJoins(): Promise<{
+  subject_id: string;
+  refusal_code: string | null;
+  ask_id: string | null;
+  ask_batch_id: string | null;
+  ask_status: string | null;
+  ask_withheld_reason: string | null;
+  ask_contact_id: string | null;
+  exact: boolean | null;
+  occurred_at: string;
+  decided_at: string | null;
+}[]> {
+  return sql()`
+    SELECT refusal.subject_id::text AS subject_id,
+           refusal.refusal_code,
+           ask.id::text AS ask_id,
+           ask.batch_id::text AS ask_batch_id,
+           ask.status AS ask_status,
+           ask.withheld_reason AS ask_withheld_reason,
+           ask.contact_id::text AS ask_contact_id,
+           (refusal.occurred_at = ask.decided_at) AS exact,
+           refusal.occurred_at::text AS occurred_at,
+           ask.decided_at::text AS decided_at
+    FROM refusal_events refusal
+    LEFT JOIN solicitation_asks ask ON ask.id = refusal.subject_id
+    WHERE refusal.account_id = ${tenant!.accountId}::uuid
+      AND refusal.refusal_source = 'ask_withheld'
+    ORDER BY refusal.subject_id
+  `;
+}
+
+interface RecordedQuery {
+  text: string;
+  onTransaction: boolean;
+}
+
+/**
+ * A pass-through `Sql` that records the TEXT of every statement, including the
+ * ones issued on the transaction `sql.begin` opens.
+ *
+ * A DELIBERATE SECOND COPY of `approval.integration.test.ts`'s
+ * `instrumentedExecutor`. The original lives in that file rather than in a
+ * shared helper, and `src/lib/shared/__tests__/helpers/` is outside this
+ * branch's edit surface — so this is copied rather than extracted, and the two
+ * should be unified by whoever next needs a third.
+ *
+ * It exists for exactly one claim: 5,000 mapped withholds must reach Postgres as
+ * ONE INSERT. Row counts alone cannot see the difference — a loop over the
+ * single-row helper produces the same 5,000 rows, holding the per-Business
+ * advisory lock across 5,000 sequential round trips (plan review R1-1).
+ */
+function recordingExecutor(base: postgresType.Sql): {
+  executor: postgresType.Sql;
+  queries: RecordedQuery[];
+} {
+  const queries: RecordedQuery[] = [];
+
+  const record = (argArray: unknown[], onTransaction: boolean): void => {
+    const strings = argArray[0] as TemplateStringsArray | undefined;
+    if (strings && Array.isArray(strings.raw)) {
+      queries.push({ text: strings.join(' ? '), onTransaction });
+    }
+  };
+
+  const bindTrap = (target: object, prop: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, prop);
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  };
+
+  const wrapTransaction = (tx: postgresType.TransactionSql): postgresType.TransactionSql =>
+    new Proxy(tx, {
+      apply(target, thisArg, argArray) {
+        record(argArray, true);
+        return Reflect.apply(
+          target as unknown as (...args: unknown[]) => unknown,
+          thisArg,
+          argArray,
+        );
+      },
+      get: bindTrap,
+    }) as postgresType.TransactionSql;
+
+  const executor = new Proxy(base, {
+    apply(target, thisArg, argArray) {
+      record(argArray, false);
+      return Reflect.apply(target as unknown as (...args: unknown[]) => unknown, thisArg, argArray);
+    },
+    get(target, prop) {
+      if (prop !== 'begin') return bindTrap(target, prop);
+      return (...args: unknown[]) => {
+        const callback = args[args.length - 1] as (
+          tx: postgresType.TransactionSql,
+        ) => Promise<unknown>;
+        const leading = args.slice(0, -1);
+        return (target.begin as (...forwarded: unknown[]) => Promise<unknown>)(
+          ...leading,
+          (tx: postgresType.TransactionSql) => callback(wrapTransaction(tx)),
+        );
+      };
+    },
+  }) as postgresType.Sql;
+
+  return { executor, queries };
+}
+
+/**
+ * Holds the per-Business advisory lock for `seconds`, resolving once it is
+ * actually held.
+ *
+ * `constructBatch` opens its transaction, CASes the outbox attempt and THEN
+ * takes this key — so a holder makes the build's transaction START measurably
+ * earlier than the moment it decides. `prepareBatch` never takes the key, so it
+ * runs to completion first and only construction blocks. That gap is what turns
+ * "occurred_at is the decision time, never insert time" into a measurement
+ * rather than an assertion: `refusal_events.created_at` defaults to `NOW()`,
+ * which in Postgres is `transaction_timestamp()` — transaction START.
+ */
+function holdBatchLock(holdFor: string): { held: Promise<void>; released: Promise<void> } {
+  const gate = deferred();
+  // The hold is expressed as an INTERVAL literal rather than a bound number:
+  // postgres.js infers a parameter's wire type from the JS value, and a
+  // fractional `pg_sleep` argument is one round-trip's worth of ambiguity this
+  // fixture does not need. `::interval` fixes the type at the call site.
+  const released = sql().begin(async (tx) => {
+    await acquireSolicitationBatchLock(tx, businessId);
+    gate.resolve();
+    await tx`SELECT pg_sleep(EXTRACT(EPOCH FROM ${holdFor}::interval))`;
+  }).then(() => undefined);
+  return { held: gate.promise, released };
+}
+
 describeWithDb('solicitation batch builder against live local Postgres', {
   enabled: Boolean(testDatabaseUrl),
   // 180s, not 90s: the 5000-contact window test runs 7s standalone but ~100s
@@ -507,7 +729,15 @@ describeWithDb('solicitation batch builder against live local Postgres', {
   afterEach(async () => {
     delete process.env.SOLICITATION_WATCH_ENABLED;
     delete process.env.SOLICITATION_SEND_ENABLED;
+    // The kill switch is default-ON and one case turns it off; a leak would
+    // silently turn every ledger assertion in this file into a no-op that still
+    // passes.
+    delete process.env[LEDGER_FLAG];
     enqueueFailure.error = null;
+    // #1010's rows. Cleared per case so "exactly N Refusals" means this case's,
+    // and swept BEFORE teardown deletes the account and location this table's
+    // two no-action foreign keys point at.
+    await sql()`DELETE FROM refusal_events WHERE account_id = ${tenant!.accountId}::uuid`;
     // The five #656 attestation columns plus owner_email_bounced, back to the
     // beforeAll shape. The business row is shared by every case here, and the
     // Send handoff reads it — a leaked attestation would silently un-withhold
@@ -1451,6 +1681,12 @@ describeWithDb('solicitation batch builder against live local Postgres', {
         await sql()`DELETE FROM job_outbox WHERE id = ${otherOutboxId}::uuid`;
       }
       await sql()`DELETE FROM agent_runs WHERE business_id = ${otherBusinessId}::uuid`;
+      // The build at business B withholds `no_consent`, which since #1010 is a
+      // Refusal — and `refusal_events.business_id` is a NO-ACTION foreign key,
+      // so the row has to go before the location it names. The suite-wide
+      // `afterEach` sweeps by ACCOUNT and runs after this block, so it cannot
+      // help here: this is the one location this file deletes inline.
+      await sql()`DELETE FROM refusal_events WHERE business_id = ${otherBusinessId}::uuid`;
       await sql()`DELETE FROM businesses WHERE id = ${otherBusinessId}::uuid`;
     }
   });
@@ -1904,5 +2140,478 @@ describeWithDb('solicitation batch builder against live local Postgres', {
     expect(await readBuiltAt(batch.batchId)).toBeNull();
     expect(await readAsks(batch.batchId)).toHaveLength(0);
     expect(await readGenerationOutboxRows(batch.batchId)).toEqual([]);
+  });
+
+  // ── #1010 T3: `ask_withheld` ──────────────────────────────────────────────
+  //
+  // One Refusal per withheld ask whose reason maps to a **Refusal category**,
+  // written by `commitAskDecisions` inside the transaction that inserts the
+  // asks. The lane is the HIGHEST-VOLUME one in this slice — `loadCandidateWindow`
+  // bounds the cohort at `MAX_DATA_ROWS` (5,000) and a rebuild re-evaluates the
+  // whole accumulated pool — which is why it writes a SET rather than looping
+  // the single-row helper.
+  //
+  // `already_reviewed` is DELIBERATELY ABSENT from every case below and that is
+  // not an omission: `toCandidate` hard-codes `matchedReview: null`, so the gate
+  // is unreachable through `buildSolicitationBatch` today. The exhaustive case
+  // says so in one place and pins the map entry instead of pretending to drive
+  // it.
+
+  it('a batch build writes one refusal_events row per withheld ask and none for a send decision', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    const sendableContactId = await seedContact(uploadId, daysAgoUtc(1));
+    const withheldContactIds = [
+      await seedContact(uploadId, daysAgoUtc(1), { consent: false }),
+      await seedContact(uploadId, daysAgoUtc(1), { consent: false }),
+    ];
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+    expect(result).toMatchObject({ candidateCount: 3, sendCount: 1, withholdCount: 2 });
+
+    const refusals = await readRefusals();
+    // TWO, never three: the send decision is not a Refusal. A writer that
+    // recorded every DECISION rather than every WITHHOLD passes a count-only
+    // assertion against an all-withheld fixture and fails here.
+    expect(refusals).toHaveLength(2);
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({
+        refusal_source: 'ask_withheld',
+        // The withheld reason VERBATIM, never normalised — the code is the
+        // input that keeps skew re-derivable later.
+        refusal_code: 'no_consent',
+        refusal_category: ASK_WITHHELD_REFUSAL_CATEGORIES.no_consent,
+        subject_type: 'solicitation_ask',
+        // Per-location (C3), and the code axis is a single code (C4/C5).
+        business_id: businessId,
+        all_refusal_codes: null,
+      });
+    }
+
+    // …and the two subjects are the two WITHHELD asks, not the send one.
+    const asks = await readAsks(batch.batchId);
+    const withheldAskIds = await sql()<{ id: string }[]>`
+      SELECT id::text AS id FROM solicitation_asks
+      WHERE batch_id = ${batch.batchId}::uuid AND status = 'withhold'
+      ORDER BY id
+    `;
+    expect(refusals.map((row) => row.subject_id).sort())
+      .toEqual(withheldAskIds.map((row) => row.id).sort());
+    expect(asks.find((ask) => ask.contact_id === sendableContactId)?.status).toBe('send');
+    expect(withheldContactIds).toHaveLength(2);
+  });
+
+  it('a batch build writes no refusal_events row for a velocity_banked withhold', async () => {
+    // `velocity_banked` maps to `null`, and that is the ONE null in this lane's
+    // map: a banked candidate is DEFERRED, not refused — the send caps held it
+    // back for this build and it stays in the pool for the next one. Telling the
+    // owner we declined to contact them would be false.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    for (let index = 0; index < BATCH_CAP + 2; index += 1) {
+      await seedContact(uploadId, daysAgoUtc(1));
+    }
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+    expect(result).toMatchObject({
+      candidateCount: BATCH_CAP + 2,
+      sendCount: BATCH_CAP,
+      withholdCount: 2,
+      withheldByReason: expect.objectContaining({ velocity_banked: 2 }),
+    });
+
+    // Two withheld asks exist and NEITHER is a Refusal.
+    expect(await readRefusals()).toEqual([]);
+  });
+
+  it("a batch build stamps every ask Refusal with the batch's decidedAt, never with insert time", async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    const batch = await seedBatch();
+
+    // THE MEASUREMENT, not an assertion from memory. `refusal_events.created_at`
+    // is `DEFAULT NOW()` and `NOW()` in Postgres is `transaction_timestamp()` —
+    // transaction START. Holding the per-Business advisory key forces
+    // construction's transaction to begin, block, and only then compute
+    // `decidedAt`, so the two clocks are separated by the hold. Without the
+    // hold they agree to within a millisecond and a writer stamping insert time
+    // would pass.
+    const lock = holdBatchLock('0.5 seconds');
+    await lock.held;
+    const [result] = await Promise.all([build(batch), lock.released]);
+    const built = builtBatch(result);
+    expect(built.withholdCount).toBe(2);
+
+    const refusals = await readRefusals();
+    expect(refusals).toHaveLength(2);
+
+    // Every row carries the SAME decision time — one build is one decision, so
+    // a per-row clock read would show two values.
+    const stamps = new Set(refusals.map((row) => row.occurred_at));
+    expect(stamps.size).toBe(1);
+    // …and that time is the batch's own `built_at`, which `constructBatch`
+    // stamps from the same `decidedAt`.
+    expect([...stamps][0]).toBe(await readBuiltAt(batch.batchId));
+
+    // The skew that proves it is not insert time. Migration 116 keeps
+    // `created_at` for exactly this diagnostic.
+    const [skew] = await sql()<{ min_skew_seconds: string }[]>`
+      SELECT MIN(EXTRACT(EPOCH FROM (occurred_at - created_at)))::text AS min_skew_seconds
+      FROM refusal_events
+      WHERE account_id = ${tenant!.accountId}::uuid
+    `;
+    expect(Number(skew!.min_skew_seconds)).toBeGreaterThan(0.3);
+  });
+
+  it("an ask Refusal's occurred_at equals solicitation_asks.decided_at inside PostgreSQL at full microsecond precision", async () => {
+    // Round-1 plan review R1-5. The comparison happens IN POSTGRES because
+    // postgres.js decodes `timestamptz` to a JS `Date` and truncates
+    // microseconds (#520) — an ask lane wrongly using transaction time could
+    // compare EQUAL after truncation and this claim would be unfalsifiable.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    await seedContact(uploadId, daysAgoUtc(400), { consent: true });
+    const batch = await seedBatch();
+
+    expect(builtBatch(await build(batch)).withholdCount).toBe(2);
+
+    const joins = await readAskRefusalJoins();
+    expect(joins).toHaveLength(2);
+    for (const join of joins) {
+      expect(join.ask_id, 'every Refusal resolves to an ask row').not.toBeNull();
+      expect(join.exact, `${join.occurred_at} !== ${join.decided_at}`).toBe(true);
+      // The fixture is not vacuous: sub-second digits are actually present, so
+      // the equality is not two whole seconds agreeing by accident.
+      expect(join.occurred_at).toMatch(/\.\d{1,6}/);
+    }
+  });
+
+  it('a batch build that withholds nothing writes no refusal_events row', async () => {
+    // An INSERT with an empty row set is not a decision, so the set-based arm
+    // issues no statement at all.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1));
+    await seedContact(uploadId, daysAgoUtc(1));
+    const batch = await seedBatch();
+
+    const result = builtBatch(await build(batch));
+    expect(result).toMatchObject({ candidateCount: 2, sendCount: 2, withholdCount: 0 });
+
+    expect(await readRefusals()).toEqual([]);
+  });
+
+  it('two builds evaluating the same contact write two refusal_events rows, one per decision', async () => {
+    // Round-1 plan review R1-8's other half. The ask id is minted PER BUILD, so
+    // `refusal_events_subject_uniq` does not collapse two builds into one
+    // Refusal — each build is its own decision about the same contact. A writer
+    // keyed on the CONTACT would leave one row here.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    const contactId = await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+
+    const first = await seedBatch();
+    expect(builtBatch(await build(first)).withholdCount).toBe(1);
+    const second = await seedBatch();
+    expect(builtBatch(await build(second)).withholdCount).toBe(1);
+
+    const refusals = await readRefusals();
+    expect(refusals).toHaveLength(2);
+    expect(new Set(refusals.map((row) => row.subject_id)).size).toBe(2);
+
+    // Both point at THIS contact's asks, one per batch.
+    const joins = await readAskRefusalJoins();
+    expect(joins.map((join) => join.ask_contact_id)).toEqual([contactId, contactId]);
+    expect(new Set(joins.map((join) => join.ask_batch_id)))
+      .toEqual(new Set([first.batchId, second.batchId]));
+  });
+
+  it('every ask_withheld refusal points to the exact solicitation_ask row whose decision it records', async () => {
+    // Round-1 plan review R1-8. Minting an unrelated fresh UUID per event also
+    // produces one row per withhold and dodges the unique index — the two-builds
+    // case above cannot tell the two apart. This one resolves the pointer.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    const noConsentContactId = await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    const staleContactId = await seedContact(
+      uploadId,
+      daysAgoUtc(FRESHNESS_WINDOW_DAYS.automotive + 10),
+    );
+    const batch = await seedBatch();
+
+    expect(builtBatch(await build(batch)).withholdCount).toBe(2);
+
+    const joins = await readAskRefusalJoins();
+    expect(joins).toHaveLength(2);
+    const byContact = new Map(joins.map((join) => [join.ask_contact_id, join]));
+    for (const [contactId, expectedReason] of [
+      [noConsentContactId, 'no_consent'],
+      [staleContactId, 'stale_visit'],
+    ] as const) {
+      const join = byContact.get(contactId);
+      expect(join, `no Refusal resolved to contact ${contactId}`).toBeDefined();
+      expect(join!.ask_batch_id).toBe(batch.batchId);
+      expect(join!.ask_status).toBe('withhold');
+      // The Refusal's own code and the ask's stored reason are the SAME fact,
+      // read from two tables. A row pointing at the wrong ask fails here even
+      // though its count and its timestamp are right.
+      expect(join!.ask_withheld_reason).toBe(expectedReason);
+      expect(join!.refusal_code).toBe(expectedReason);
+    }
+  });
+
+  it('a 5000-candidate batch of mapped withholds writes 5000 refusal_events rows in one INSERT', async () => {
+    // The ceiling, and the reason this lane writes a SET at all (plan §0 D-A,
+    // corrected by round-1 finding R1-9). `MAX_DATA_ROWS` bounds the window at
+    // 5,000, and the maximum MAPPED cohort is reached when every candidate fails
+    // an individual gate — here `no_consent`, by seeding no ledger rows. The
+    // all-eligible case is the OTHER one: its withholds are `velocity_banked`
+    // and write nothing at all.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await sql()`
+      WITH contacts AS (
+        INSERT INTO solicitation_contacts (
+          id, business_id, name, email, created_by_upload_id
+        )
+        SELECT
+          gen_random_uuid(), ${businessId}::uuid, 'Ceiling Candidate',
+          'ceiling-' || n::text || '@example.test', ${uploadId}::uuid
+        FROM generate_series(1, 5000) AS n
+        RETURNING id
+      )
+      INSERT INTO solicitation_visits (
+        id, contact_id, business_id, visit_date, upload_id
+      )
+      SELECT gen_random_uuid(), id, ${businessId}::uuid, ${daysAgoUtc(3)}::date, ${uploadId}::uuid
+      FROM contacts
+    `;
+    const batch = await seedBatch();
+    const { executor, queries } = recordingExecutor(sql());
+
+    const result = builtBatch(await buildSolicitationBatch(executor, {
+      batchId: batch.batchId,
+      businessId,
+      outboxId: batch.outboxId,
+      attempt: batch.attempt,
+      correlationId: 'batch-builder-refusal-ceiling',
+    }));
+
+    expect(result).toMatchObject({
+      candidateCount: 5000,
+      sendCount: 0,
+      withholdCount: 5000,
+      withheldByReason: expect.objectContaining({ no_consent: 5000 }),
+    });
+
+    const [count] = await sql()<{ total: number }[]>`
+      SELECT COUNT(*)::int AS total FROM refusal_events
+      WHERE account_id = ${tenant!.accountId}::uuid
+    `;
+    expect(count!.total).toBe(5000);
+
+    // ONE statement. Round-1 finding R1-1: a loop over the single-row helper
+    // produces exactly these 5,000 rows while issuing 5,000 sequential round
+    // trips inside a transaction holding the per-Business advisory lock AND the
+    // batch row lock, behind the `src/lib/db/admission.ts` chokepoint — and
+    // every other assertion in this case passes on it.
+    const inserts = queries.filter((query) => /INSERT INTO refusal_events/.test(query.text));
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]!.onTransaction, 'the ledger write rides the deciding transaction').toBe(true);
+  });
+
+  it('every solicitation refusal reason writes its verbatim code and mapped category, and every null-mapped reason writes nothing', async () => {
+    // ONE TITLE, THREE INSTANCES — one per lane, in each lane's own suite (this
+    // one, `dispatch.integration.test.ts`, `approval.integration.test.ts`).
+    // Plan §1: the title "spans T3, T4 and T5 and closes with them". No single
+    // suite can drive all three lanes' fixtures, and a case that covered one
+    // lane while claiming all three would be the over-claim this title exists to
+    // prevent. This instance owns the ASK lane.
+    //
+    // Round-1 finding R1-4: a call site could hard-code one valid code and one
+    // valid category and stay green under every count and timestamp assertion,
+    // filing every reason but the fixture's wrong.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+
+    const noConsentContactId = await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    const suppressedContactId = await seedContact(uploadId, daysAgoUtc(1));
+    await suppressHandle(contactEmail(suppressedContactId), 'complaint');
+    const staleContactId = await seedContact(
+      uploadId,
+      daysAgoUtc(FRESHNESS_WINDOW_DAYS.automotive + 10),
+    );
+    const overContactedContactId = await seedContact(uploadId, daysAgoUtc(1));
+    await seedPriorAsk({
+      contactId: overContactedContactId,
+      status: 'send',
+      decidedAt: new Date(Date.now() - (MIN_GAP_DAYS - 5) * 86_400_000).toISOString(),
+    });
+    // Past BATCH_CAP so the surplus banks — the lane's ONE null-mapped reason.
+    for (let index = 0; index < BATCH_CAP + 1; index += 1) {
+      await seedContact(uploadId, daysAgoUtc(1));
+    }
+
+    const batch = await seedBatch();
+    const result = builtBatch(await build(batch));
+    expect(result.withheldByReason).toMatchObject({
+      no_consent: 1,
+      suppressed: 1,
+      stale_visit: 1,
+      over_contacted: 1,
+      velocity_banked: 1,
+      // Unreachable through the builder — see below.
+      already_reviewed: 0,
+    });
+
+    const joins = await readAskRefusalJoins();
+    const refusalByContact = new Map(joins.map((join) => [join.ask_contact_id, join]));
+    const categoryByCode = new Map(
+      (await readRefusals()).map((row) => [row.refusal_code, row.refusal_category]),
+    );
+
+    for (const [contactId, reason] of [
+      [noConsentContactId, 'no_consent'],
+      [suppressedContactId, 'suppressed'],
+      [staleContactId, 'stale_visit'],
+      [overContactedContactId, 'over_contacted'],
+    ] as const) {
+      const join = refusalByContact.get(contactId);
+      expect(join, `${reason} produced no Refusal`).toBeDefined();
+      // VERBATIM — the ask's stored reason and the Refusal's code are the same
+      // string, and the category is the one this lane's map assigns it.
+      expect(join!.refusal_code).toBe(reason);
+      expect(join!.ask_withheld_reason).toBe(reason);
+      expect(categoryByCode.get(reason)).toBe(ASK_WITHHELD_REFUSAL_CATEGORIES[reason]);
+    }
+
+    // The NULL-mapped reason wrote nothing at all: five withholds, four
+    // Refusals.
+    expect(result.withholdCount).toBe(5);
+    expect(joins).toHaveLength(4);
+    expect(joins.map((join) => join.refusal_code)).not.toContain('velocity_banked');
+
+    // `already_reviewed` IS in the map and is NOT drivable here: `toCandidate`
+    // (`batch-builder.ts`) hard-codes `matchedReview: null`, so the gate cannot
+    // fire through `buildSolicitationBatch` today. Its entry is pinned rather
+    // than pretended — and the whole enum is checked for coverage, so a reason
+    // added upstream lands here as a failure rather than as silence.
+    expect(ASK_WITHHELD_REFUSAL_CATEGORIES.already_reviewed).toBe('wrong_moment');
+    const covered = new Set<WithholdReason>([
+      'no_consent',
+      'suppressed',
+      'stale_visit',
+      'over_contacted',
+      'velocity_banked',
+      'already_reviewed',
+    ]);
+    expect([...WITHHOLD_REASONS].filter((reason) => !covered.has(reason))).toEqual([]);
+  });
+
+  it("every refusal_events row these three lanes write carries the account and location already in the lane's scope", async () => {
+    // ONE TITLE, THREE INSTANCES — see the note on the exhaustive-reason case
+    // above. This instance owns the ASK lane.
+    //
+    // No lane resolves a tenant key it does not hold: the builder already has
+    // both, off the locked batch row, and a Refusal that re-derived either
+    // (through `businesses`, say) is the fan-out defect the parent effort hit.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    const batch = await seedBatch();
+
+    expect(builtBatch(await build(batch)).withholdCount).toBe(2);
+
+    const refusals = await readRefusals();
+    expect(refusals).toHaveLength(2);
+    for (const refusal of refusals) {
+      expect(refusal.account_id).toBe(tenant!.accountId);
+      // NOT NULL: C3 makes a null location mean "account-wide", which this lane
+      // is not.
+      expect(refusal.business_id).toBe(businessId);
+    }
+  });
+
+  it('a ledger failure in the ask lane rolls back the whole batch build', async () => {
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    const batch = await seedBatch();
+
+    const original = { ...askWithheldCategories };
+    // A writer bug: a category migration 116's CHECK does not admit. The helper
+    // does NOT catch it — `ON CONFLICT` covers duplicate keys only — and a CHECK
+    // violation must abort the decision, because catching it would hide the bug
+    // in the one place the ledger cannot report it.
+    askWithheldCategories.no_consent = 'a_category_the_ledger_never_named';
+    try {
+      await expect(build(batch)).rejects.toMatchObject({
+        code: CHECK_VIOLATION,
+        constraint_name: expect.stringContaining('refusal_events'),
+      });
+    } finally {
+      for (const key of Object.keys(askWithheldCategories)) delete askWithheldCategories[key];
+      Object.assign(askWithheldCategories, original);
+    }
+
+    // EVERYTHING construction wrote is gone: the asks, their child runs, the
+    // `built_at` stamp and the outbox completion — one transaction, invariant #2.
+    expect(await readBuiltAt(batch.batchId)).toBeNull();
+    expect(await readAsks(batch.batchId)).toHaveLength(0);
+    expect(await readRefusals()).toEqual([]);
+    const [childRuns] = await sql()<{ total: number }[]>`
+      SELECT COUNT(*)::int AS total FROM agent_runs
+      WHERE account_id = ${tenant!.accountId}::uuid AND kind = 'solicitation_ask'
+    `;
+    expect(childRuns!.total).toBe(0);
+    const [outbox] = await sql()<{ status: string }[]>`
+      SELECT status FROM job_outbox WHERE id = ${batch.outboxId}::uuid
+    `;
+    expect(outbox!.status).toBe('dispatched');
+  });
+
+  it('all three lanes complete their decisions unchanged when REFUSAL_LEDGER_ENABLED is false', async () => {
+    // ONE TITLE, THREE INSTANCES — see the note on the exhaustive-reason case
+    // above. This instance owns the ASK lane.
+    //
+    // The comparison is against a REAL flag-on build of the identical cohort,
+    // not against a hand-written expectation: "unchanged" is a claim about two
+    // runs agreeing, and a literal only ever proves the literal.
+    process.env.SOLICITATION_WATCH_ENABLED = 'true';
+    const uploadId = await seedCompletedUpload();
+    // EVERY candidate withholds, and every one of them for a reason that is not
+    // history-dependent. A cohort containing a `send` would make the SECOND
+    // build's decisions legitimately different — the first build's
+    // would-have-sent ask becomes `over_contacted` history — and the comparison
+    // below would be measuring the restraint policy rather than the kill switch.
+    for (let index = 0; index < 3; index += 1) {
+      await seedContact(uploadId, daysAgoUtc(1), { consent: false });
+    }
+
+    const ledgerOn = builtBatch(await build(await seedBatch()));
+    expect(await readRefusals()).toHaveLength(3);
+    await sql()`DELETE FROM refusal_events WHERE account_id = ${tenant!.accountId}::uuid`;
+
+    process.env[LEDGER_FLAG] = 'false';
+    const offBatch = await seedBatch();
+    const ledgerOff = builtBatch(await build(offBatch));
+
+    // Byte-identical decisions.
+    expect(ledgerOff.candidateCount).toBe(ledgerOn.candidateCount);
+    expect(ledgerOff.sendCount).toBe(ledgerOn.sendCount);
+    expect(ledgerOff.withholdCount).toBe(ledgerOn.withholdCount);
+    expect(ledgerOff.withheldByReason).toEqual(ledgerOn.withheldByReason);
+
+    // The batch is BUILT and its asks are stored — the switch stops the ledger
+    // and nothing else.
+    expect(await readBuiltAt(offBatch.batchId)).not.toBeNull();
+    expect(await readAsks(offBatch.batchId)).toHaveLength(3);
+    expect(await readRefusals()).toEqual([]);
   });
 });

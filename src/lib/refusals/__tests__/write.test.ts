@@ -32,6 +32,15 @@ import {
   writeRefusalEvent,
   type WriteRefusalEventInput,
 } from '../write';
+// NAMESPACE import for the SET-BASED arm (#1010 T2), on
+// `approval.integration.test.ts`'s precedent. A named import of an export that
+// does not exist yet fails the whole FILE at collection — vite's ssr transform
+// validates `importedNames` — which at the RED phase would take the five
+// pre-existing single-row cases above down with it and run none of them. A
+// namespace access is `undefined` until T2 lands, so each new case fails on its
+// own, naming the missing export. Kept after T2 for the same reason the
+// precedent kept its own: the next slice to add an arm here inherits it.
+import * as refusalWrite from '../write';
 
 // `vi.hoisted` rather than a bare `const`: the stub has to exist before the
 // module graph is loaded, and `job-failure-sink.test.ts` is the house form.
@@ -88,6 +97,34 @@ function heldDraft(subjectId: string): WriteRefusalEventInput {
   };
 }
 
+/** One batch's decision time, shared by every row a build proposes. */
+const ASK_DECIDED_AT = new Date('2026-08-30T09:08:07.006Z');
+
+/**
+ * The `ask_withheld` lane, exactly as `commitAskDecisions` writes it (#1010):
+ * a per-location Refusal pointing at one `solicitation_asks` row, the withheld
+ * reason verbatim as the code, and the batch's own `decidedAt` as the decision
+ * time.
+ */
+function askWithheld(subjectId: string, occurredAt = ASK_DECIDED_AT): WriteRefusalEventInput {
+  return {
+    accountId: '00000000-0000-4000-8000-0000000000a1',
+    businessId: '00000000-0000-4000-8000-0000000000b1',
+    refusalSource: 'ask_withheld',
+    refusalCode: 'no_consent',
+    allRefusalCodes: null,
+    refusalCategory: 'no_permission',
+    subjectType: 'solicitation_ask',
+    subjectId,
+    occurredAt,
+  };
+}
+
+/** A distinct, well-formed subject id per index — the partial index keys on it. */
+function askSubjectId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+}
+
 function squash(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -131,6 +168,32 @@ function migrationSubjectUniqPredicate(): string {
     throw new Error(`${MIGRATION_116}: could not locate refusal_events_subject_uniq's predicate`);
   }
   return squash(predicate);
+}
+
+/** The module this eval is about, on disk. */
+const WRITE_MODULE = 'src/lib/refusals/write.ts';
+
+/**
+ * Every `ON CONFLICT … DO NOTHING` clause the module SPELLS, comments removed.
+ *
+ * The strip is not cosmetic. `write.ts` discusses its own clause in prose — the
+ * header, and the block under the single-row INSERT — so a scan of the raw file
+ * matches spans of ENGLISH and would report four clauses where two exist, or
+ * compare a comment against a statement and pass.
+ *
+ * Read out of the module rather than compared to a hand-typed literal: "the two
+ * arms agree byte-for-byte" is a claim about two artifacts, and a literal
+ * expectation only ever proves the copy — which is the SECOND AUTHORITY the
+ * case exists to prevent (#1001 made this module the sole owner of the
+ * statement, and the set-based arm is the second spelling it warned about).
+ */
+function onConflictClauses(): string[] {
+  const source = readFileSync(join(process.cwd(), WRITE_MODULE), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ');
+  return [...source.matchAll(/ON CONFLICT[\s\S]*?DO NOTHING/g)].map((match) =>
+    squash(match[0]),
+  );
 }
 
 beforeEach(() => {
@@ -458,5 +521,113 @@ describe('writeRefusalEvent', () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+});
+
+// ── #1010 T2: the SET-BASED arm ──────────────────────────────────────────────
+//
+// Four of the arm's seven promised titles live here — the ones a Postgres.js
+// MOCK can settle honestly: what the module SPELLS, and how many statements it
+// issues. The other three (one row per input with in-call dedup, a commit over
+// an earlier call's subject, and the caller-rollback case) need a real database
+// and live in `write.integration.test.ts`.
+//
+// WHY THE STATEMENT COUNT IS A PROMISED TITLE AT ALL. Round-1 plan review
+// finding R1-1: every OTHER claim about this arm — all rows written, duplicates
+// handled, empty input, flag off — is satisfied by an export that simply LOOPS
+// the single-row helper. The 5,000 sequential round trips under the batch's
+// advisory lock that this arm exists to prevent would still happen, and the
+// eval would be green. `harness.sqlCalls` counts AWAITED queries, so a loop
+// reports N and this arm reports 1.
+describe('writeRefusalEvents', () => {
+  it('the set-based arm re-spells the refusal_events_subject_uniq predicate byte-for-byte, identically to the single-row arm', () => {
+    const clauses = onConflictClauses();
+
+    // TWO arms, and exactly two. A third spelling anywhere in this module is
+    // the drift #1001 declined to allow, and it fails here rather than at the
+    // first duplicate subject in production.
+    expect(clauses, `expected exactly two ON CONFLICT clauses in ${WRITE_MODULE}`)
+      .toHaveLength(2);
+
+    // The claim itself: the two arms are the SAME TEXT. Compared to each other,
+    // never to a literal — a literal is the second authority.
+    expect(clauses[1]).toBe(clauses[0]);
+
+    // …and both agree with the MIGRATION that owns the index. Postgres cannot
+    // infer a partial index unless the clause and the predicate agree, and a
+    // clause that reads right and infers nothing raises 23505 on the second
+    // write — inside the transaction that IS the decision.
+    for (const clause of clauses) {
+      expect(clause).toContain(migrationSubjectUniqPredicate());
+      expect(clause).toContain('DO NOTHING');
+      // NOT parameterised, in EITHER arm. A bind parameter inside
+      // `ON CONFLICT … WHERE` defeats inference outright (invariant #2). The
+      // module source carries `${…}` for a bound value, so neither an
+      // interpolation nor the mock's rendered `?` may appear inside the clause.
+      expect(clause).not.toContain('?');
+      expect(clause).not.toContain('${');
+    }
+  });
+
+  it('the set-based arm issues no statement for an empty input set', async () => {
+    // An INSERT of zero rows is not a decision, and `jsonb_to_recordset` over
+    // `[]` is a round trip that records nothing — inside a transaction already
+    // holding the per-Business advisory lock and the batch row lock.
+    await expect(refusalWrite.writeRefusalEvents(tx(), [])).resolves.toBeUndefined();
+    expect(harness.sqlCalls).toHaveLength(0);
+
+    // The CONTROL: one input DOES reach the transaction, so a helper that never
+    // writes anything at all cannot satisfy this title.
+    await refusalWrite.writeRefusalEvents(tx(), [askWithheld(askSubjectId(1))]);
+    expect(harness.sqlCalls).toHaveLength(1);
+  });
+
+  it('the set-based arm issues exactly one INSERT statement for every non-empty input set', async () => {
+    // R1-1's case. One statement per SET, at every size a batch build can
+    // reach: the singleton, a handful, and a cohort far past the point where a
+    // loop's cost becomes the defect. `MAX_DATA_ROWS` is 5,000; 250 is enough
+    // to separate 1 from N without making a unit case slow.
+    for (const size of [1, 2, 250]) {
+      harness.resetMockSql();
+      const inputs = Array.from({ length: size }, (_, index) =>
+        askWithheld(askSubjectId(index + 1)));
+
+      await refusalWrite.writeRefusalEvents(tx(), inputs);
+
+      expect(harness.sqlCalls, `${size} inputs must issue ONE statement`).toHaveLength(1);
+      const statement = squash(harness.sqlCalls[0]!.text);
+      // One INSERT inside that one statement, too: a helper that concatenated N
+      // inserts into a single template would still be N statements to Postgres.
+      expect(statement.match(/INSERT INTO refusal_events/g)).toHaveLength(1);
+      // The set idiom, not a VALUES list built by string concatenation — the
+      // rows ride as ONE bound JSONB parameter, which is what keeps the
+      // statement's text independent of the cohort size.
+      expect(statement).toContain('jsonb_to_recordset');
+    }
+  });
+
+  it('the set-based arm writes nothing when REFUSAL_LEDGER_ENABLED is the literal string false', async () => {
+    const inputs = [askWithheld(askSubjectId(1)), askWithheld(askSubjectId(2))];
+
+    // The CONTROL first: default-ON.
+    await refusalWrite.writeRefusalEvents(tx(), inputs);
+    expect(harness.sqlCalls).toHaveLength(1);
+
+    process.env[LEDGER_FLAG] = 'false';
+    await expect(refusalWrite.writeRefusalEvents(tx(), inputs)).resolves.toBeUndefined();
+
+    // Still one: the disabled call returned BEFORE touching the deciding
+    // transaction, exactly as the single-row arm does. The batch build itself
+    // is untouched — that is what makes the switch a lever and not a revert.
+    expect(harness.sqlCalls).toHaveLength(1);
+    // And the gap is REPORTED. The ledger cannot show its own absence, so this
+    // warning is the only evidence one exists.
+    expect(ledgerWarnings()).toHaveLength(1);
+
+    // Only the literal 'false' disables — the LLM_CIRCUIT_BREAKER_ENABLED /
+    // DB_ADMISSION_ENABLED shape, and the same rule the single-row arm follows.
+    process.env[LEDGER_FLAG] = 'FALSE';
+    await refusalWrite.writeRefusalEvents(tx(), inputs);
+    expect(harness.sqlCalls).toHaveLength(2);
   });
 });

@@ -1,9 +1,11 @@
 'use client';
 
-import {
-  ATTRIBUTION_DISPLAY_WINDOW_DAYS,
-  type AttributedReviewView,
-} from '@/lib/solicitation/attribution';
+// The constant comes from the zero-import leaf, NEVER from
+// `@/lib/solicitation/attribution` (#1010): that module is server code, and a
+// runtime edge from this file into it drags `node:async_hooks` into the browser
+// chunk and fails the build. The type import below is erased at compile time.
+import { ATTRIBUTION_DISPLAY_WINDOW_DAYS } from '@/lib/solicitation/attribution-display';
+import type { AttributedReviewView } from '@/lib/solicitation/attribution';
 import './requests.css';
 
 /**
