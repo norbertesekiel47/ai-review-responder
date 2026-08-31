@@ -94,7 +94,7 @@ export async function downgradeAutoApprovedResponseForManualReviewInTx(
     // `account_id` RIDES THE LOCK THIS TRANSACTION ALREADY TAKES, and that is a
     // decision rather than a convenience. The Refusal below needs the account
     // key and nothing else in local scope carries it; the alternatives were a
-    // second `SELECT account_id FROM businesses` (which is what
+    // second `SELECT account_id` against the same table (which is what
     // `insertAuditLogAutoPolicy` does for its own row) or exporting
     // `resolveAccountIdFromBusiness` from `src/lib/approval/audit.ts`. Both add
     // a query — and a second read — inside a decision transaction, and the
@@ -104,6 +104,13 @@ export async function downgradeAutoApprovedResponseForManualReviewInTx(
     // returns `'no-op'` before any decision is made, so the missing-business
     // case can never reach the ledger. `businesses.account_id` is NOT NULL with
     // an FK to `accounts`, so a locked row cannot carry a null or dangling key.
+    //
+    // NO COMMENT ABOVE THIS STATEMENT MAY CONTAIN THE LITERAL `FROM businesses`.
+    // `auto-policy-downgrade-lock-order.test.ts` resolves each rung of the lock
+    // ladder with `body.indexOf(...)` from the previous rung, so that string in
+    // a comment resolves the business rung to the COMMENT rather than to the
+    // query — the test keeps passing while measuring the wrong line. Red team
+    // caught exactly that in an earlier wording of the paragraph above.
     const [lockedBusiness] = await tx<{ id: string; account_id: string }[]>`
       SELECT id, account_id
       FROM businesses

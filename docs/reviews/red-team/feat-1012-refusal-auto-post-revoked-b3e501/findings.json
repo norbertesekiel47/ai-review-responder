@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1012-refusal-auto-post-revoked-b3e501",
+  "branch": "feat/1012-refusal-auto-post-revoked",
+  "fork_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "merge_base_sha": "06a163f0b4b102c88687c95862999e38a1c3f517",
+  "head_sha": "7c9bd9cdf80004d8f610e3fd27cccf56cc7b6580",
+  "intake_sha256": "ddee04e0d647f248b7b2a578d8e31b237e9e130a3cf5f2c50bafd90a5e724293",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-08-31T06:34:10.261842Z",
+  "inventory": [
+    {
+      "id": "RT-INV-01",
+      "test": "does no durable work when a newer outbox attempt owns the response",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-02",
+      "test": "claims the dispatched attempt before mutating the response and writing follow-ups",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-03",
+      "test": "uses a distinct bounded marker and reason for Autopilot entitlement loss",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "excluded",
+      "reason": "Modified by this diff only through the shared `pushDowngradeQueue` mock fixture (a mocked business row gaining `account_id`). Every assertion it makes targets pre-existing audit-marker behaviour that this diff does not change, and the reason axis it shares with the new write site is measured by RT-INV-05."
+    },
+    {
+      "id": "RT-INV-04",
+      "test": "a downgrade's refusal_events row carries the account_id read by the transaction's existing business lock",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-05",
+      "test": "every AutoPolicyDowngradeReason maps to a Refusal category and the downgrade writes it",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-06",
+      "test": "a no-op downgrade on a missing business writes no refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-07",
+      "test": "a downgrade whose guarded response UPDATE matches no row writes no refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-08",
+      "test": "each production gate routes every AutoPolicyDowngradeReason verbatim to the shared downgrade",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-09",
+      "test": "a downgrade writes exactly one refusal_events row against the response id",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-10",
+      "test": "a downgrade's refusal_events row carries subject_type response, never the approval audit row id",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-11",
+      "test": "a downgrade's refusal_events row carries occurred_at equal to the approval_audit_log created_at written by the same transaction",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-12",
+      "test": "a downgrade records the AutoPolicyDowngradeReason verbatim, so judge_disabled and judge_unhealthy stay two codes",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-13",
+      "test": "a no-op downgrade on a response that is not downgradeable writes no refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-14",
+      "test": "a downgrade that loses the outbox attempt CAS writes no refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-15",
+      "test": "a no-op downgrade with no review anchor writes no refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-16",
+      "test": "downgrading the same response twice leaves one refusal_events row and lets the second transaction commit",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-17",
+      "test": "downgrading the same response for two different reasons keeps the first refusal code and category",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-18",
+      "test": "the standalone wrapper and the in-transaction caller each write exactly one refusal_events row",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-19",
+      "test": "the in-transaction downgrade writes the refusal on the caller transaction and an outer rollback removes it",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-20",
+      "test": "a ledger failure rolls back the downgrade, the approval audit row and the notification enqueue together",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-21",
+      "test": "a ledger failure rolls back completion of the claimed outbox attempt so the publisher can retry",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    },
+    {
+      "id": "RT-INV-22",
+      "test": "REFUSAL_LEDGER_ENABLED=false changes only the refusal row and preserves the response downgrade, approval audit, notification enqueue, and outbox completion",
+      "file": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts",
+      "outcome": "killed"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RT-1",
+      "severity": "P0",
+      "duty": 3,
+      "title": "The \"13 of 19 red-to-green\" test arithmetic is false, in the deviations doc and in the durable arch-review-log",
+      "at": "docs/superpowers/plans/feat-1012-refusal-auto-post-revoked-deviations.md:8",
+      "disposition": "open"
+    },
+    {
+      "id": "RT-2",
+      "severity": "P2",
+      "duty": 1,
+      "title": "No test pins the \"the ledger write is never caught at the call site\" invariant; a call-site try/catch survives (equivalent mutation, measured)",
+      "at": "worker/jobs/publisher/auto-policy-downgrade.ts:182",
+      "arbiter_reasoning": "Reclassified from P0-candidate to equivalent. postgres.js records an uncaughtError per query inside the transaction scope and rethrows it after the callback returns, so a call-site catch cannot save the deciding transaction. Measured directly rather than argued: under the mutant the test's rejects.toMatchObject({ code: '23514' }) still matched, and every database-observable consequence (response state, audit row, notification enqueue, outbox attempt status) was identical. Recorded as P2 because the documented invariant genuinely has no oracle, not because a defect was proven.",
+      "disposition": "open"
+    },
+    {
+      "id": "RT-3",
+      "severity": "P2",
+      "duty": 2,
+      "title": "The invariant-#15 test's stated mechanism is not the one that fires: an independent-transaction write blocks on the caller's businesses FOR UPDATE rather than surviving the rollback",
+      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.integration.test.ts:602",
+      "disposition": "open"
+    },
+    {
+      "id": "RT-4",
+      "severity": "P2",
+      "duty": 2,
+      "title": "Positional bound-value indices (values[1], values[2], the ten-element toEqual) couple the unit suite to the column order of src/lib/refusals/write.ts, a file this diff does not own",
+      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:198",
+      "disposition": "open"
+    },
+    {
+      "id": "RT-5",
+      "severity": "P2",
+      "duty": 2,
+      "title": "expect(refusal.text).toContain('NOW()') is a substring proxy for the transaction-time sentinel",
+      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:251",
+      "disposition": "open"
+    },
+    {
+      "id": "RT-6",
+      "severity": "P2",
+      "duty": 2,
+      "title": "The gate source-scrape hard-codes two file paths (a third gate would be invisible), and two of the four judge-gate sites it counts sit in applyJudgeGate, which has no production importer at HEAD",
+      "at": "worker/jobs/publisher/__tests__/auto-policy-downgrade.test.ts:300",
+      "disposition": "open"
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 22,
+    "killed": 21,
+    "survived_confirmed_p0": 0,
+    "inconclusive": 0,
+    "skipped_budget": 0,
+    "excluded": 1,
+    "findings_total": 6,
+    "p0_open": 1,
+    "p1_open": 0,
+    "p2_open": 5,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

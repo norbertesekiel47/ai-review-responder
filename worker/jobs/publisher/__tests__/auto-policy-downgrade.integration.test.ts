@@ -604,8 +604,16 @@ describeWithDb('auto-policy downgrade Refusal against live local Postgres', { ti
     // ledger passes every count assertion in this file: the row exists, there is
     // exactly one of it, and its subject is right. What it cannot do is die with
     // the decision. Here the write SUCCEEDS first and the caller then aborts for
-    // a reason that has nothing to do with the ledger, so an independently
-    // committed row is still on disk at the last assertion.
+    // a reason that has nothing to do with the ledger.
+    //
+    // BE EXACT ABOUT HOW A SECOND TRANSACTION DIES HERE — an earlier wording of
+    // this comment was wrong and red team caught it by planting the mutation.
+    // An independently committed row does NOT sit on disk at the last assertion.
+    // The caller holds `businesses … FOR UPDATE`, and `refusal_events.business_id`
+    // references that row, so an insert on its own connection needs `FOR KEY
+    // SHARE` against a row this transaction has locked: it BLOCKS, and the case
+    // fails on the statement timeout instead. The test goes RED either way,
+    // which is what it is for — but the mechanism is a lock wait, not a ghost row.
     //
     // Nothing else catches this shape: `ci:db-imports` matches the
     // `@/lib/db/server` specifier only, so a bare `postgres(…)` is invisible to

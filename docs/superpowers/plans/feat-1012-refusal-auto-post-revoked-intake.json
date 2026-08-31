@@ -97,7 +97,7 @@
   "observability": [
     "One warning per disabled episode from the helper whenever REFUSAL_LEDGER_ENABLED is false.",
     "A ledger failure here reaches Sentry through attachJobFailureSink on the terminal BullMQ attempt, because both caller lanes run inside ResponsePublisherWorker.",
-    "Reconciliation query for staging: COUNT(*) of refusal_events WHERE refusal_source = 'auto_post_revoked' must equal the count of approval_audit_log rows carrying an auto-policy revoked action, per account, inside the retention window."
+    "Reconciliation query for staging: COUNT(*) of refusal_events WHERE refusal_source = 'auto_post_revoked' must be LESS THAN OR EQUAL TO the count of approval_audit_log rows carrying an auto-policy revoked action, per account, inside the retention window — never greater. It is NOT an equality: a response downgraded twice writes two audit rows and one Refusal, because the partial unique index is (refusal_source, subject_id) and ON CONFLICT DO NOTHING makes the first write win. The branch's own integration suite proves that case. A refusal count EXCEEDING the audit count means a Refusal was written for a decision that did not happen, which is the defect worth alerting on."
   ],
   "required_approvals": [
     "commit",

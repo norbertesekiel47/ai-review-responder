@@ -5,7 +5,7 @@ five are mechanical findings from executing the plan against the real code.
 
 ## D1 — seven of the nineteen eval titles cannot be RED before the write exists
 
-T1 asks for "every `tests_to_add` title as a FAILING test". Thirteen were. Seven
+T1 asks for "every `tests_to_add` title as a FAILING test". **Twelve** were. Seven
 are **negative-space or preservation** assertions whose subject is the ABSENCE of
 a Refusal row, and a row that does not exist yet cannot be asserted absent and
 fail:
@@ -22,18 +22,35 @@ They are written, non-inert (no `.todo`/`.skip`/`.fails`) and each carries real
 assertions — the kill-switch case asserts all four pre-existing effects, and each
 no-op case asserts the response, audit and notification state as well as the row
 count — so they are regression pins rather than placeholders. They are green
-before and after by construction. Measured, not assumed: at the end of T1 the
-unit suite was 3 RED / 3 pre-existing green / 3 of these, and the live-DB suite
-was 10 RED / 4 of these.
+before and after by construction.
+
+**The counts below were WRONG in the first draft of this entry and are corrected
+here; red team caught the arithmetic.** The unit suite holds 8 `it` blocks — 5
+promised titles plus 3 pre-existing — and the live-DB suite holds 14, all
+promised. So at the end of T1 the unit suite was **2 RED / 3 pre-existing green /
+3 of these**, and the live-DB suite was **10 RED / 4 of these**. That is 7
+negative-space titles and **12** genuinely red→green out of 19. The original
+"13 of 19" was impossible on its face: 13 + 7 = 20 against 19 titles, and the
+original unit line described 9 tests in an 8-test file.
 
 **Verdict:** ACCEPT — and the reasoning is right rather than merely convenient.
 An absence assertion cannot fail before the thing whose absence it asserts can
 exist; demanding a RED phase for one is demanding a broken test. What matters is
 whether these titles are RED against a WRONG implementation, and they are: a
 downgrade that wrote a Refusal on a no-op path, or a kill switch that dropped
-the audit row, fails every one of them. The counts were measured and reported
-rather than asserted, which is what makes this checkable. 13 of 19 genuinely
-red→green is the honest number and it is recorded here rather than rounded up.
+the audit row, fails every one of them. Red team confirmed that independently:
+it planted the defect each of the seven forbids, and every one died.
+
+**This verdict was originally wrong in the way that matters most, and the
+correction belongs here rather than in a quiet edit.** It praised the entry for
+reporting counts "measured rather than asserted, which is what makes this
+checkable" — and then did not check them. Red team did, and the arithmetic was
+impossible on its face: 13 red→green plus 7 negative-space is 20 against 19
+titles, and the unit line described 9 tests in a file holding 8. Verified by
+counting: 19 promised titles, 5 in the unit suite and 14 in the live-DB suite;
+the unit file has 8 `it` blocks, so 3 are pre-existing. **12 of 19 is the honest
+number.** Endorsing a measurement without re-deriving it is the same failure as
+asserting one, and it is worse coming from the reviewer than from the writer.
 
 ## D2 — the transaction has TWO `businesses` reads, and only one of them is ours
 
