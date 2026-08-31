@@ -971,11 +971,153 @@ protocol step is §6.
 
 ---
 
+### D.3 — the live Stripe webhook endpoint. CREATED, DISABLED, verified.
+
+Created 2026-08-31T05:11:48Z through `railway run --environment production`, so the
+production `sk_live_` key was used but never observed.
+
+```
+id          : we_1UANVYIhPBLaM6xAfIMs3eMN
+url         : https://worker.repworth.net/ingress/stripe
+status      : disabled
+api_version : 2026-05-27.dahlia
+livemode    : True
+application : None
+enabled_events (6):
+  - checkout.session.completed
+  - customer.subscription.deleted
+  - customer.subscription.updated
+  - invoice.paid
+  - invoice.payment_action_required
+  - invoice.payment_failed
+
+live webhook endpoints BEFORE: 0
+live webhook endpoints AFTER : 1
+D3_RESULT: PASS
+```
+
+#### The Sandbox trap (F7) is structurally avoided, not merely checked
+
+The endpoint was created **by API, with the deployed `sk_live_` key**. That key *is* the
+live account — no browser session, no account dropdown, no Sandbox context can enter the
+path. `livemode: True` on the created object and `live webhook endpoints: 1` on the
+re-run Phase 0.2 check are the two independent confirmations the plan asks for. A dashboard
+confirmation is no longer load-bearing.
+
+#### The endpoint cannot be created disabled — recorded, because the plan says otherwise
+
+`POST /v1/webhook_endpoints` accepts `url`, `enabled_events`, `api_version`, `connect`,
+`description`, `metadata`, `expand`. It has **no `disabled` parameter**. `disabled` exists
+only on the update call. Verified against this account's own OpenAPI schema
+(`openapi_spec_version 2026-06-24.preview`), not from memory.
+
+So "create it disabled" is not one act. The run was **create, then disable in the next
+call**, leaving an enabled window under a second.
+
+**Why that window is not a risk here.** Live has zero customers and zero subscriptions
+(zero-state proof), the WAF denies every production `/api/*`, and no Checkout has ever
+run in live mode — so no live event could be generated. Inbound handling is idempotent
+through `claimInboundEvent` in any case. The endpoint read back `status: disabled`.
+
+#### `api_version` is create-only — a permanent choice, recorded as such
+
+The update call accepts `url`, `enabled_events`, `description`, `metadata` and `disabled`.
+It does **not** accept `api_version`. The value is therefore frozen for the life of the
+endpoint. Changing it means deleting the endpoint and creating a new one, which mints a
+**new signing secret** and forces a fresh Infisical write, sync and worker restart.
+
+Three checks before writing it:
+
+1. The pin in `src/lib/payments/stripe-client.ts:17` is `'2026-05-27.dahlia'`.
+2. `2026-05-27.dahlia` is in the live account's accepted `api_version` enum.
+3. A live `GET /v1/account` carrying `Stripe-Version: 2026-05-27.dahlia` returned HTTP 200.
+
+**Owner approved the permanence explicitly**, 2026-08-31, after the create-only property
+was explained.
+
+> **Standing obligation, new.** The endpoint's `api_version` is frozen; the pin in
+> `stripe-client.ts` is not. A future `stripe` SDK bump that moves that pin puts the two
+> out of lockstep, and the failure is silent: the event arrives, the signature verifies,
+> the handler reads a moved or renamed field as `undefined` and takes the wrong branch.
+> **Any change to `STRIPE_CLIENT_CONFIG.apiVersion` must be paired with recreating this
+> endpoint** (delete → create → new `whsec_` → Infisical → sync → restart). Nothing in CI
+> enforces this today, because the endpoint's version lives at Stripe, not in the repo.
+
+#### Event set — exactly the six the worker handles
+
+`worker/ingress/stripe.ts:71-96` switches on `event.type` with six `case` arms and a
+`default` that logs `Unhandled event type — ignoring`. The subscription matches it exactly:
+
+| Event | Handler |
+|---|---|
+| `checkout.session.completed` | `worker/ingress/stripe/checkout-completed.ts` |
+| `invoice.paid` | `worker/ingress/stripe/invoice-paid.ts` |
+| `invoice.payment_failed` | `worker/ingress/stripe/invoice-payment-failed.ts` |
+| `invoice.payment_action_required` | `worker/ingress/stripe/invoice-payment-action-required.ts` |
+| `customer.subscription.updated` | `worker/ingress/stripe/subscription-updated.ts` |
+| `customer.subscription.deleted` | `worker/ingress/stripe/subscription-deleted.ts` |
+
+`invoice.payment_action_required` — the one the plan flags as easy to omit — **is
+subscribed**. It has a live handler; omitting it would mean a bank's 3-D Secure challenge
+on a renewal never reaches the worker.
+
+Unlike `api_version`, `enabled_events` and `url` **are** updatable, so this list is
+cheap to correct later.
+
+#### The signing secret
+
+Returned **only** in the create response — a later retrieve does not include it. Captured
+directly into a mode-600 gitignored file and never printed. Shape recorded as structure
+only: prefix `whsec_`, length 38.
+
+Written to Infisical `prod` with `infisical secrets set --file`, whose output table masks
+values:
+
+```
+│ STRIPE_WEBHOOK_SECRET │ ****** │ SECRET CREATED │
+```
+
+Verified by round-trip **hash comparison**, not by reading either value:
+
+| Check | Result |
+|---|---|
+| Infisical `prod` key count | 43 → 56 → **57** |
+| `STRIPE_WEBHOOK_SECRET` present | yes |
+| Shape | prefix `whsec_`, length 38 |
+| `sha256(vault)[:12]` vs `sha256(stripe create response)[:12]` | `50af6fce25d0` == `50af6fce25d0` — **MATCH** |
+| Empty secrets in `prod` | **0** |
+
+**The 18th boot gate now exists.** Manifest §1 row 6 moves from *missing* to *set*.
+
+#### Blocker carried into D.5 — the worker certificate is not issued
+
+Railway reports `worker.repworth.net` at `CERTIFICATE_STATUS_TYPE_VALIDATING_OWNERSHIP`
+with `verified: false`. The CNAME to `rhhe86c1.up.railway.app` reads
+`DNS_RECORD_STATUS_PROPAGATED`, and `certificate.errorMessage` is `null` — so it is still
+issuing, not failing. A direct request confirms the client-side symptom:
+
+```
+curl https://worker.repworth.net/
+curl: (60) SSL: no alternative certificate subject name matches target host name
+```
+
+**Creating the endpoint now is safe** — Stripe does not probe the URL at create time, and
+the endpoint is disabled. **Enabling it at D.5 is not**, until the certificate issues:
+every delivery would fail TLS before it reached Fastify. Owner decision, 2026-08-31:
+create now, re-check the certificate at D.5. **D.5 must not enable the endpoint while
+`verified: false`.**
+
+---
+
 ### §6 — strict worker deploy + controlled smoke
 
-- [ ] Stripe `charges_enabled` re-verified. Reading: `____` at `____`Z
-- [ ] Live webhook endpoint created **disabled**; API version matches the pin in
-      `src/lib/payments/stripe-client.ts`; `invoice.payment_action_required` subscribed
+- [x] Stripe `charges_enabled` re-verified. Reading: **`True`** (also `payouts_enabled=True`,
+      `details_submitted=True`) at **2026-08-31T05:14:26Z**
+- [x] Live webhook endpoint created **disabled**; API version matches the pin in
+      `src/lib/payments/stripe-client.ts`; `invoice.payment_action_required` subscribed —
+      `we_1UANVYIhPBLaM6xAfIMs3eMN`, `status=disabled`, `api_version=2026-05-27.dahlia`,
+      6 events, `livemode=True`, created 2026-08-31T05:11:48Z. See **D.3** above.
+      **Not yet enabled** — D.5 gates on the `worker.repworth.net` certificate issuing
 - [ ] `assertWorkerStartupEnv` passes, naming the production lane. Boot log excerpt: `____`
 - [ ] Worker Online; healthcheck green
 - [ ] `pnpm ws8:stripe-preflight --require-status-convergence` →
