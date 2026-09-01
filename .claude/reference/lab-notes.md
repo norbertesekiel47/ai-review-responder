@@ -4580,3 +4580,77 @@ further mutation and the third run was clean. This is precisely why the red-team
 the MUTATION, not the FILE. An orchestrator verifying its own fix should use that runner, or
 commit first. General rule: **before any destructive verify step, the thing you are protecting
 must already be in a commit** — a scratch copy is a recovery, not a control.
+
+---
+
+## 2026-09-01 — the first PITR restore drill: the drill passed, the document did not
+
+### [2026-09-01] A runbook's own verification SQL can be NON-EXECUTABLE, and only running it finds out
+FAIL → `pitr-restore-drill.md` §4 prescribes
+`select max(created_at) as latest_review from reviews;` as an integrity check. Executed
+against production it does not return a wrong answer — it raises:
+`ERROR: 42703: column "created_at" does not exist`. `reviews` has no such column; its
+timestamps are `review_date, detected_at, external_reply_ingested_at,
+sentiment_classified_at, triaged_at`. The paired `responses` query is correct, which is
+part of why the defect read as plausible.
+
+WHY → the query was written from the shape every other table has, not from this table's
+schema, and nothing downstream executes a runbook. It survived authoring, review, and
+**two handoffs that named the runbook as ready to run** — because reading it is enough
+to believe it and only running it is enough to know.
+
+CORRECT → `max(detected_at)`, the ingestion anchor CLAUDE.md already names. **The
+transferable part is the failure shape, not the column.** Production currently holds 0
+reviews, so a *working* query returns `null` — meaning the broken one would have been
+indistinguishable from success had it merely returned nothing. It does not; it raises,
+and it would have aborted §4 mid-verification against any non-empty table. **A
+verification step is code. An unexecuted runbook is an untested branch**, and its
+defects surface at exactly the moment it is being trusted — during a restore.
+
+### [2026-09-01] A platform's cost ESTIMATOR and its cost CONFIRMATION answer different questions
+FAIL → the owner approved the drill's spend at **$10/month prorated**, the figure from
+Supabase's `get_cost(type=project)` API — whose own tool description instructs the caller
+to repeat the cost and confirm before proceeding. The Dashboard's creation dialog then
+quoted **$0.50/month**: Compute $0, Disk $0.50. Twenty times lower.
+
+WHY → `get_cost` prices a *generic new project*. A restore-to-new-project clone inherits
+the source's compute size, which the organization's existing Pro compute credit already
+absorbs, so only the incremental disk is billable. The API answers "what does a project
+cost"; the dialog answers "what does *this* project add". Both are correct answers to
+different questions, and only one of them is the number an owner is approving.
+
+CORRECT → quote the **confirmation dialog** when one exists. When a decision must be made
+before it appears, say which of the two is being quoted and re-state the real figure
+afterwards as a deviation. The error here ran in the safe direction, which is precisely
+why it would otherwise go unrecorded. General lesson: **an estimate presented for
+approval must carry the name of the thing that produced it.**
+
+### [2026-09-01] Restore-to-new-project mirrors the DATA, not the MACHINE — and the difference is a live hazard
+Recorded from the first drill, because none of it is in the runbook and two of the three
+are only visible at creation time:
+
+- The clone provisions the **current** platform Postgres image, not the source's. Observed
+  `17.6.1.166` against a source on `17.6.1.104`. A restore therefore proves *"the data
+  restores onto today's Postgres"*, never *"the exact image comes back"* — which is also
+  what a real recovery does, so it is the honest thing to prove.
+- Its disk is provisioned at **1.5×** the source's, deliberately, for restore headroom.
+  That disk is the entire incremental cost.
+- **The live hazard:** Supabase's own clone docs warn that a clone inheriting `pg_cron`,
+  `pg_net` or `wrappers` will run the source's schedules **against its own copy of live
+  data**, from a project nobody is watching. Checked on the first drill: RepWorth has
+  **none of the three** (only `pg_stat_statements`, `pgcrypto`, `supabase_vault`,
+  `uuid-ossp`, all inert). That is what makes clone-for-forensics safe here — and it is a
+  property a single future migration can silently revoke. Re-check `pg_extension` on any
+  clone before leaving it running.
+
+### [2026-09-01] `supabase projects delete` — the flag that makes it scriptable is not in its own help
+`supabase projects delete <ref>` prompts interactively; the command's `--help` lists no way
+around it. `--yes` is a **global** flag and works: `supabase projects delete <ref> --yes`.
+
+**Do not use it bare.** The same verb deletes production. The first drill guarded it three
+ways before executing: the ref must not equal either real project ref; the ref's **live
+name**, re-read from the API at delete time, must equal the scratch name; and its
+`created_at` must fall inside the drill's own minute. The second guard is the load-bearing
+one — a ref typed from memory is the failure mode, and a ref whose *current* name is read
+back and compared cannot be a different project. **A guard a script enforces beats a
+runbook sentence that says "triple-check the ref".**
