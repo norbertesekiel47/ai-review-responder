@@ -1847,3 +1847,66 @@ disposition from D-14 and should be recorded as such.
 *"Errors were encountered while ingesting check-ins for this monitor"* — **`3x Rate limited`**,
 *"A sent check-in was dropped due to being rate limited."* Dropped check-ins on a dead-man
 switch are a false-positive source. Not investigated; recorded.
+
+---
+
+## §4.8's routing gap CLOSED on staging, 2026-09-01T19:12Z — and by a better clause than the one planned
+
+**Owner decision:** take D-17's fallback option 3 — add one clause to `3608329` — rather than
+wait on a Sentry support ticket for the dedicated-rule path.
+
+**The clause is NOT the `monitor.slug` equality that D-14 and D-17 both proposed.** The Alert
+Builder's filter list offers **`Issue category`**, and the value list offers **`outage`** — which
+is exactly the category `REPWORTH-STAGING-8` carries. Chosen over `monitor.slug eq
+health-alert-poller` for one reason, and it is the campaign's own recurring lesson:
+
+> A `monitor.slug` equality is the same shape as the filter that caused D-14 — it works for the
+> monitor in front of you and **silently excludes every monitor added later**. `Issue category is
+> equal to outage` fixes the class. It admits every cron **and** uptime monitor issue in the
+> project, including the staging `https://staging.repworth.net` uptime monitor, which has an
+> issue of its own and has been unroutable for the same reason. It cannot over-match application
+> errors, which are category `error`.
+
+**API readback after the save** (`dateUpdated 2026-09-01T19:12:49.155Z`):
+
+```
+Action Filters — logic: any-short
+  Tagged event  subsystem  eq  health_alert
+  Tagged event  cost_event eq  limit_exceeded
+  Tagged event  feature    eq  stripe_reconciliation
+  Tagged event  subsystem  eq  import_consent_analytics
+  Issue category (comparison: value: 10)        ← NEW. 10 = outage
+Actions — Email(issue_owners) + Discord 1517968864724385822
+```
+
+**Nothing else moved.** The four existing tag equalities are byte-identical, the logic is still
+`any-short`, both actions are unchanged, and `lastTriggered` still reads `2026-09-01T04:07:54Z`
+— so the scoping session 2 performed is intact and this is purely additive, which is what
+`any-short` guarantees.
+
+### What this does and does not settle
+
+**Settles:** a cron-monitor issue in `repworth-staging` now has a routing path to Discord. That
+was D-14's break, and it is closed.
+
+**Does NOT settle §4.8.** The first break stands: the monitor still creates **no issue** for a
+missed check-in, despite `failure_issue_threshold: 1` and Sentry's own definition counting
+missed check-ins (D-16). Routing an issue that is never created changes nothing on its own.
+**§4.8 remains a QUALIFIED FAIL and still needs its re-run to prove either half.**
+
+**Unverified, and it is the reason the re-run is the only proof:** whether Sentry's issue-alert
+pipeline evaluates this rule for an `outage`-category issue at all. The category filter now
+*matches*; whether the rule is *reached* is a separate question that no configuration readback
+can answer.
+
+### Production is deliberately NOT changed
+
+`3925256` carries the same four tag equalities and the same gap. It was left alone: the owner's
+instruction named `3608329`, and production additionally holds the **unfiltered** `3920752`
+(New/Existing high-priority issue → Discord), so production has a candidate path that staging
+never had. That path is **contingent on Sentry classifying a cron issue as high priority**,
+which remains unverified.
+
+**Owed:** either add the same `Issue category is equal to outage` clause to `3925256`, or verify
+that `3920752` actually takes a cron issue. Until one of the two happens, production's dead-man
+switch rests on an unverified assumption — which is precisely the state §4.8 exists to find.
