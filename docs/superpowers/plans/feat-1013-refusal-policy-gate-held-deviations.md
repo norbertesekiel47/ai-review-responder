@@ -393,12 +393,27 @@ deliberate defence in depth, and the code's own docblock now says so.
    scoped to FINDINGS with an `accepted-risk` disposition. There are no open
    findings to authorize.
 
-**The review agent refused to launder this TWICE, unprompted, and was correct
-both times.** It also declined to flip the M10 row to `killed` even though a
-later mutation legitimately resolved it, on the grounds that it would not change
-the status and the choice should stay visible. That judgement is the reason this
-override is safe to take: the sidecar is honest about exactly what was and was
-not proven.
+**WHY THE OVERRIDE IS SAFE, in the right order — the first draft of this
+paragraph inverted it, and the review agent corrected me.**
+
+The safety rests on POSITIVE EVIDENCE, not on anyone's refusal: 37 inventory
+rows, **27 killed**, every finding fixed or rejected with stated reasoning, and
+each remaining row carrying an arbiter-confirmed equivalence PROOF. That is a
+completed result, not an absent one.
+
+The agent's refusal to relabel — twice, unprompted — establishes a different and
+prior thing: that the sidecar was not laundered, so its zeros mean what they say.
+A trusted sidecar then shows the evidence is complete.
+
+The first draft said that refusal "is the reason this override is safe", which
+reads as *we overrode because the reviewer was stubborn*. It is the other way
+round: nothing was relabelled, THEREFORE the numbers can be trusted; the numbers
+are complete, THEREFORE the override is safe.
+
+**Seven rows are permanently unfalsifiable, not eight.** The eighth, M10, was
+equivalent only against round-1 oracles — its re-plant R2-3 was KILLED in round 2
+once the fallback-log assertion landed. The agent left it as the round-1 record
+rather than back-dating it, and recorded that choice so it stays visible.
 
 **The real gap, and it is NOT this branch's.** `OUTCOMES` has no member meaning
 "unfalsifiable by design". Until one exists, any branch whose guards are

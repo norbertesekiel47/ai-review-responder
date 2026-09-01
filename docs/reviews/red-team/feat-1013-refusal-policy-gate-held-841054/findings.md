@@ -1143,3 +1143,74 @@ clear oracle-class rows), no branch containing deliberate redundant
 defence-in-depth can reach `CLEAR` through this gate, however good its tests are.
 That is the finding to take to the owner, and it is a tooling limitation rather
 than a fact about this branch.
+
+---
+---
+
+# POST-REBASE STAMP — pins only
+
+A rebase onto `origin/main` (which gained dependabot commit `914a797a`) rewrote
+every SHA. **Round stays 2. Every inventory row and every disposition is
+unchanged.** New pins:
+
+| Pin | Was | Now |
+|---|---|---|
+| `head_sha` | `4fe4a7c820a4d3c2f7b5149f85d0310779f8dd8f` | `a5d52b212a5d4f4b58aa0013790956c00c5f4566` |
+| `fork_sha` / `merge_base_sha` | `566b8583a42ef7037d25a7eb8f0387d48ff948c0` | `914a797aaae7c59be1a18e056d035f530b45f3da` |
+| `intake_sha256` | `d486d8f5…` | `d486d8f5…` (recomputed, unchanged) |
+
+## The no-re-plant claim — checked, and it holds
+
+```
+$ git diff 4fe4a7c8..HEAD -- src worker
+(no output)
+```
+
+Not one byte of `src/` or `worker/` differs across the rebase, so no mutation I
+planted can have a different outcome. Re-baselined anyway: **120/120** unit,
+**25/25** integration — identical to the pre-rebase stamp.
+
+**One correction to the framing, minor.** "The only content change anywhere is
+the two-row merge-ledger tail" is not quite right: the dependabot bump also
+changed `.github/workflows/claude.yml` and `claude-code-review.yml`. That is the
+whole point of the rebase so it is a wording slip rather than a
+misrepresentation, but it is worth naming because those YAML files are NOT
+inert — `src/__tests__/ci-audit-wiring.test.ts` pins them, per `CLAUDE.md`. That
+test sits in the 29-row gate, not in my five suites, so it is the gate's green
+that covers it, not mine. `.claude/reference/arch-review-log.md`'s two-row tail
+is read by no test.
+
+## On D11's framing — one correction, and two citations confirmed
+
+**Confirmed accurate:**
+
+- `SKILL.md:180` does mandate the label. Verbatim: *"A survivor you judge
+  plausibly equivalent or unexecuted is reclassified `inconclusive` (class
+  `oracle`)."* The citation resolves exactly.
+- `OUTCOMES` genuinely has no member meaning "unfalsifiable by design" — the set
+  is `killed`, `survived-confirmed-P0`, `inconclusive`, `skipped-budget`,
+  `excluded`.
+- `p0_open`, `p1_open` and `p2_open` are all `0`, and the status is driven only
+  by the eight `inconclusive`/`oracle` rows.
+
+**The correction.** D11 reportedly cites my refusal to relabel as *the reason the
+override is safe to take*. That inverts the load-bearing part. My refusal is not
+a safety argument — on its own it establishes only that the sidecar was not
+laundered, i.e. that `p0_open = p1_open = p2_open = 0` means what it says. The
+override is safe because of the POSITIVE evidence behind those zeros: 27 killed
+mutants across 37 rows, every finding of every severity fixed or rejected, and
+eight inconclusive rows that are each an arbiter-confirmed EQUIVALENT mutant
+carrying a recorded proof — a completed result, not a missing one.
+
+Stated as it should read: *the sidecar can be trusted because nothing was
+relabelled; and a trusted sidecar shows the evidence is complete.* The version in
+D11 risks reading as "we overrode because the reviewer was stubborn", which would
+not survive scrutiny in a PR body.
+
+**One precision worth keeping in D11.** Of the eight inconclusive rows, seven are
+permanently unfalsifiable (deleting the guard or remapping the entry changes no
+observable behaviour). The eighth, **M10**, was equivalent only against the
+oracles that existed in round 1 — its re-plant `R2-3` was KILLED in round 2 once
+the fallback-log assertion landed. I left M10 `inconclusive` because it is the
+round-1 record and `R2-3` carries the resolution as its own row. So the honest
+count for "cannot ever be killed" is seven, not eight.

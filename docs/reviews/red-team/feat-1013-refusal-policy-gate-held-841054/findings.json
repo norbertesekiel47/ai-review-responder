@@ -3,13 +3,13 @@
   "mode": "feature",
   "run_id": "feature-feat-1013-refusal-policy-gate-held-841054",
   "branch": "feat/1013-refusal-policy-gate-held",
-  "fork_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
-  "merge_base_sha": "566b8583a42ef7037d25a7eb8f0387d48ff948c0",
-  "head_sha": "4fe4a7c820a4d3c2f7b5149f85d0310779f8dd8f",
+  "fork_sha": "914a797aaae7c59be1a18e056d035f530b45f3da",
+  "merge_base_sha": "914a797aaae7c59be1a18e056d035f530b45f3da",
+  "head_sha": "a5d52b212a5d4f4b58aa0013790956c00c5f4566",
   "intake_sha256": "d486d8f5807dd04f88f0f73f7c5f20d641106937c2d49f4ea198a7fcda0f5f61",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-08-31T23:54:12Z",
+  "generated_at": "2026-09-01T02:14:55Z",
   "inventory": [
     {
       "id": "M1",
