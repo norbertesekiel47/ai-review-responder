@@ -242,3 +242,81 @@ directories still green. `pnpm typecheck` and `pnpm lint` are clean.
 `promised-tests PASS` — all 56 titles matched verbatim.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D7 — Task 2's `LEFT JOIN responses` fails `ci:tenant-scope`, and its own comment says the opposite
+
+**When:** step 4, Task 2 (`getRefusalLog`).
+
+**What happened.** The plan writes `subject_resolves` as a LEFT JOIN:
+
+```sql
+LEFT JOIN responses resp
+  ON r.subject_type = 'response'
+ AND resp.id = r.subject_id
+ AND resp.business_id = r.business_id
+```
+
+and its comment claims the `business_id` correlation is what keeps
+`ci:tenant-scope` happy. It does not. The audit failed both arms:
+
+```
+src/lib/refusals/read.ts: responses: missing account_id or business_id scope
+src/lib/refusals/read.ts: responses: missing account_id or business_id scope
+```
+
+**Why the audit is right.** `localScopedBindings`
+(`scripts/ci/tenant-scope-audit.ts:1005`) proves a binding inside ONE query
+block three ways: a literal binding (`directlyScoped`), a relation to a scoped
+`accounts` row, or a relation to a scoped `businesses` row. There is no generic
+"sibling tenant table on a matching `business_id`" rule at block level — that
+shape is proven only ACROSS nesting levels, by `scopedFromAncestor`
+(`:1194`). `responses` has no `account_id` column at all, so a same-block join
+to it from `refusal_events` is unprovable by construction, and the account arm
+has no single `businessId` to bind literally.
+
+**Resolution — a correlated `EXISTS`, not a join.**
+
+```sql
+EXISTS (
+  SELECT 1 FROM responses resp
+  WHERE r.subject_type = 'response'
+    AND resp.id = r.subject_id
+    AND resp.business_id = r.business_id
+) AS subject_resolves
+```
+
+The subquery makes `r` an ancestor, `scopedFromAncestor` matches
+`resp.business_id` to `r.business_id` on the `business` kind, and the binding is
+proven. `pnpm ci:tenant-scope` passes at 371 entries against a 371 baseline — no
+allowlist entry was added, which was the point: an allowlist entry would have
+recorded a permanent exception for a query that simply had the wrong shape.
+
+It is also the shape the module's own account arm already argues for ("EXISTS,
+never a JOIN"), so the two halves of the file now agree with each other. The
+semantics are unchanged: `EXISTS` is false for a NULL `subject_id`, for an
+unresolved id, and for a response under another location — the three cases the
+promised test `distinguishes a non-null unresolved subject from a lane with no
+subject` covers, and it passes.
+
+**Two smaller corrections in the same task.**
+
+1. **The plan's `seedAccountWithLocation` fixture cannot work as written.**
+   `accounts.created_at` and `businesses.created_at` both default to `NOW()`, so
+   a tenant seeded inside a test IS its own **Coverage start** — and
+   `getRefusalLog` correctly clamps `windowStart` up to it. Every backdated
+   fixture was therefore excluded, and three cases failed reporting an empty log,
+   which reads as a broken query rather than a working clamp. The suite's helper
+   now pushes both columns 200 days back (`SEEDED_COVERAGE_AGE_MS`), behind the
+   widest selectable window, so the clamp is inert unless a case sets it. The
+   three cases that PROVE the clamp set it themselves.
+
+2. **Title 15's second clause is not assertable at T2.** `excludes Refusals after
+   windowEnd from entries **and the archived-location footnote**` is listed in
+   Task 2's turns-green, but `archivedLocations` is `null` until Task 3 adds the
+   footnote query. T2 asserts the entries half and pins `archivedLocations` to
+   `null`; the test body carries a `T3 EXTENDS THIS CASE` marker naming what Task
+   3 must add. The title is not finished until it does.
+
+**Verdict:** _(pending step 6)_
