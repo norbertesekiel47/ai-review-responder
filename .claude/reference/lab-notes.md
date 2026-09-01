@@ -4554,3 +4554,29 @@ the rule blind, which is the property that matters for a detector. If a real rat
 genuinely needed, build a Sentry **metric alert** on `count()` over the interval — that is the
 alert type that expresses "N in an hour". General lesson: **when a control cannot express the
 intent, replace the instrument, don't retune it.**
+
+---
+
+## 2026-09-01 — /feature #1013: verifying your own fix can destroy the fix
+
+### [2026-09-01] `git checkout -- <path>` restores the FILE, not the MUTATION → commit before you mutate
+FAIL → to prove a review fix actually killed its mutant, the orchestrator edited
+`worker/jobs/response-generation/persist.ts`, ran the narrowed suite, then restored with
+`git checkout -- <path>`. That is correct for the mutation and wrong for the tree:
+`persist.ts` also held UNCOMMITTED review fixes, and the checkout discarded them. **It
+happened twice.** The first pass cost the `withLedgerAttribution` wrapper and a corrected
+guards docblock — recovered from a scratch copy and re-applied through the editor, verified
+line-identical. The second cost one comment. The rule was stated after the first occurrence
+and then not followed.
+
+WHY → a restore step whose blast radius is "whatever else is uncommitted in this file" is not
+a restore. The mutation is a few characters; the checkout is the whole path. Nothing in the
+command distinguishes them, and the loss is silent — the tree simply looks clean afterwards,
+which is exactly the state the operator was trying to reach.
+
+CORRECT → **commit, then mutate.** After the second loss the fixes were committed before any
+further mutation and the third run was clean. This is precisely why the red-team skill uses
+`mutation-runner.mjs` with a journal rather than ad-hoc `git checkout`: the journal restores
+the MUTATION, not the FILE. An orchestrator verifying its own fix should use that runner, or
+commit first. General rule: **before any destructive verify step, the thing you are protecting
+must already be in a commit** — a scratch copy is a recovery, not a control.

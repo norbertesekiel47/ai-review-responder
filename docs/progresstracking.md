@@ -5502,3 +5502,132 @@ check passes. The attesting agent declined to falsify the round number. Full
 record: deviations D26.
 
 29 promised tests, all active. 27 deviations, all ACCEPT.
+
+---
+
+## 2026-08-30 — #994 **Refusal ledger**: the five remaining lane category maps (PR #1034, squash `95597c4b`)
+
+A prerequisite carved OUT of slices 3, 4 and 5 rather than duplicated inside
+them. `#1010`, `#1011` and `#1012` ran concurrently as a swarm, and all three
+needed the same maps; landing them once ahead of the swarm is what stopped three
+branches from racing for one file.
+
+Files: `src/lib/refusals/vocabulary.ts`, `src/lib/shared/worker-types.ts`,
+`src/lib/solicitation/approval.ts`, `worker/jobs/publisher/auto-policy-downgrade.ts`,
+`docs/directory.md`.
+
+## 2026-08-31 — #1012 **Refusal ledger** slice 5: the `auto_post_revoked` lane (PR #1043, squash `220f0364`)
+
+One write site in `worker/jobs/publisher/auto-policy-downgrade.ts`, plus the
+`account_id` widening the lane forces. One of the three slices run concurrently.
+
+## 2026-08-31 — #1011 **Refusal ledger** slice 4: the `outreach_withheld` RENDER lane (PR #1042, squash `7349acc6`)
+
+Four writers, and the clock moved to **decision time**. That move is what later
+made shared instants ordinary rather than freakish: both settle paths stamp
+every row with one shared `decidedAt`, which is why #1049 had to add `, o.id`
+under `selectRenderedOutreach`'s LIMIT — a non-unique ORDER BY with a LIMIT
+returns an arbitrary slice.
+
+`outreach_withheld` is the ONE lane carrying two category maps, RENDER and
+DISPATCH, because its two writers decide different things at different moments.
+
+## 2026-08-31 — #1010 **Refusal ledger** slice 3: the three solicitation lanes, and the set-based arm (PR #1044, squash `2ef07b4f`)
+
+`ask_withheld`, `batch_halted` and `outreach_withheld`/dispatch, plus
+`writeRefusalEvents` — the second statement in the module #1001 made the single
+owner of this table.
+
+**The set-based arm is not an optimisation; it is a correctness requirement.**
+The ticket said "none is high-volume" and that is false for `ask_withheld`:
+`loadCandidateWindow` bounds the cohort at `MAX_DATA_ROWS` = 5000 and a rebuild
+re-evaluates the whole accumulated pool, so looping the single-row helper would
+put up to 5,000 sequential round trips inside the transaction holding the
+per-Business advisory lock. One `jsonb_to_recordset` INSERT instead, with the
+`ON CONFLICT … WHERE subject_id IS NOT NULL` predicate re-spelled BYTE-FOR-BYTE
+and **no affected-row-count assertion** — under `DO NOTHING` a subject stored by
+an earlier call legitimately lowers the count.
+
+New production file: `src/lib/solicitation/attribution-display.ts` (row landed
+in the same PR).
+
+## 2026-08-31 — #1049 **Refusal ledger**: the post-merge sweep (PR #1049, squash `15e9f0cb`)
+
+The debt the three concurrent slices deferred, paid in one change. Four
+artifacts still said the ledger had ONE writer and that five maps had no caller;
+both became false when the swarm merged. `REFUSAL_LEDGER_FLAG` is now exported
+from the module that reads it, retiring the literal six test files each
+re-spelled.
+
+**The sharpest item was not a ledger question.** `evaluateAsk`'s
+`already_reviewed` gate is correct and unreachable (`toCandidate` hard-codes
+`matchedReview: null`), and reading the UI turned a dead-gate smell into a FALSE
+PROMISE: `GhostPipeline.tsx` told the owner *"Customers who already reviewed you
+are never asked again."* The copy was corrected to say the capability is coming;
+the gate was left alone, because the gate is not the defect. Producer is #1048.
+
+## 2026-08-31 — #1013 **Refusal ledger** slice 6: `held_draft` + `policy_gate_held` (PR #1055, squash `9d26c5a3`)
+
+The LAST write slice. Both sites sit inside the ONE `sql.begin` that carries
+invariant #4's moderation-hold atomicity.
+
+**The vocabulary is now closed and complete**, verified in
+`src/lib/refusals/vocabulary.ts`: seven lanes, eight owner-facing categories,
+seven lane category maps. `held_draft` is the one lane with **no map at all**,
+because it has no code axis (constraint C4).
+
+**The ticket's own "Volume" section is FALSE against this code, and the branch
+does not implement it (deviation D4).** It and #1003 both claim that with
+`AUTO_APPROVAL_ENABLED` off, every draft on a policy-configured account writes
+an `autonomy_paused` row. The flag off makes `auto_approval_disabled` a
+STRUCTURAL gate, so `isAutoApprovalCandidate` is false,
+`resolveAutoApprovalDecision` returns `runtimeState: null`, and NO policy row is
+read — "on a policy-configured account" is unknowable on the exact path the
+claim describes. Owner ruled the narrowing is inherited verbatim.
+
+`isGenuineAutoCandidate` is the deliverable nobody asked for: the fallback log
+and the ledger write must select identical drafts or the intake's reconciliation
+query is meaningless, so the three conditions became one type predicate.
+
+**Operational consequence for the go-live, and it is now #1014's problem.**
+`AUTO_APPROVAL_ENABLED` is off in production, so `policy_gate_held` writes ZERO
+rows there until position 4 of the ordered flip — not few, zero. Only
+`held_draft` is live at merge, and the staging ride with the flag off proved
+half this slice (deviation D12). #1014's **Coverage start** cannot be honest for
+that lane on merge ordering alone; raised on the ticket.
+
+## 2026-09-01 — #1013 **Refusal ledger**: the post-merge sweep (PR #1060)
+
+The step-8 sweep for #1013. Governance only — no file under `src/`, `worker/`
+or `supabase/`.
+
+- **D10 fixed.** `red-team-status.mjs`'s `makeGit` trimmed the WHOLE porcelain
+  output, so the first line lost the leading space of its ` M ` status field and
+  `line.slice(3)` returned a path one character short. The exclusion for the
+  report's own two files compares exact paths, so it could never match line 1 —
+  the checker failed on the artifact it had just written, and only ever on the
+  first line, which is why a second modification hid it.
+- **`equivalent` added to the red-team inventory outcomes (D11).** A claim about
+  the MUTANT, which does not block; `inconclusive/oracle` stays a claim about the
+  ORACLE and blocks exactly as before. The row must carry its proof in `reason`
+  and may not reference a finding. An ABSENT `counts.equivalent` reads as zero so
+  older sidecars still validate; no other count gets that latitude.
+- **D8 promoted** to `execution-lanes.md` as wave rule 4: every read-only review
+  axis reads a COMMITTED SHA, never the working tree. Rules 1-3 protect the tree
+  and none of them protects a concurrent reader while red team mutates it.
+- **D9 promoted** to lab-notes: `git checkout -- <path>` restores the FILE, not
+  the MUTATION, and destroyed uncommitted review fixes twice.
+- **The entropy counter moved 3 → 9, and six merges had been lost, not one.**
+  Each already had a bottom-table row, so the loss was in the bullet list and the
+  headline alone. Recovered MECHANICALLY, by replaying every merge commit since
+  #1009's and classifying on whether `git show --name-only` names a non-test file
+  under `src/`, `worker/` or `supabase/`. The ≥ 5 threshold was crossed at #1043
+  and nobody was told.
+
+Four mutants planted against the new tests, four killed. Suite 49 passed (was 41).
+
+**Deferred, not done: realigning `staging`.** A second live session held the
+parent checkout throughout, mid-§4.8 drill with the staging worker stopped, and
+a force-push to `staging` redeploys the full stack. `origin/staging` is still
+`5358bd82` — 25 ahead of and 2 behind `main`, so `--ff-only` aborts and the
+runbook's reset path applies.

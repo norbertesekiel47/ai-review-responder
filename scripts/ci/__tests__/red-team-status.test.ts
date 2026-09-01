@@ -120,6 +120,7 @@ function countsFor(sidecar: Pick<Sidecar, 'inventory' | 'findings'>): Record<str
     inventory_total: rows.length,
     killed: byOutcome('killed'),
     survived_confirmed_p0: byOutcome('survived-confirmed-P0'),
+    equivalent: byOutcome('equivalent'),
     inconclusive: byOutcome('inconclusive'),
     skipped_budget: byOutcome('skipped-budget'),
     excluded: byOutcome('excluded'),
@@ -668,6 +669,20 @@ describe('staleness and the restored tree', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('may not have been restored');
   });
+
+  // feat/1013 deviation D10. `makeGit` trimmed the WHOLE porcelain output, so
+  // the first line lost the leading space of its ` M ` status field and
+  // `line.slice(3)` returned a path one character short. The exclusion for the
+  // report's own two files compares exact paths, so it could never match line
+  // 1 — the checker failed on the very artifact it had just written. Only the
+  // FIRST line is affected, which is why a second modification hid it.
+  it('excludes the report\'s own file when it is the FIRST porcelain line', () => {
+    const { reportDir } = seedRepo();
+    write(`${reportDir}/findings.md`, '# Red-team findings\n\nStatus: CLEAR\n\nappended\n');
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain('may not have been restored');
+  });
 });
 
 describe('the classes git cannot see', () => {
@@ -763,5 +778,112 @@ describe('standalone mode', () => {
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('no red-team sidecar at');
+  });
+});
+
+// feat/1013 deviation D11. Six mutants on that branch provably preserved
+// behaviour — deleting a guard the caller already enforces. The only label
+// available was `inconclusive` (class `oracle`), which forces
+// INCOMPLETE_ORACLE and can never be resolved, so the run took the `reviewed`
+// transition over a standing objection. `equivalent` is a claim about the
+// MUTANT; `inconclusive` stays a claim about the ORACLE, and still blocks.
+describe('the equivalent outcome', () => {
+  const EQUIVALENT_ROW = {
+    id: 'M2',
+    test: 'holds the resolver precedence',
+    file: 'src/lib/thing/__tests__/thing.test.ts',
+    outcome: 'equivalent',
+    reason:
+      'the deleted guard is dominated by the caller check three lines above; '
+      + 'both branches return the same value for every reachable input',
+  };
+
+  it('does not block — a proven-equivalent mutant still reaches CLEAR', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({ ...EQUIVALENT_ROW });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('status CLEAR');
+  });
+
+  it('rejects an equivalent row that records no proof', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        id: EQUIVALENT_ROW.id,
+        test: EQUIVALENT_ROW.test,
+        file: EQUIVALENT_ROW.file,
+        outcome: 'equivalent',
+      });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must record the proof that behaviour is preserved');
+  });
+
+  it('rejects an equivalent row that also references a finding', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({ ...EQUIVALENT_ROW, finding_id: 'F1' });
+      sidecar.counts = countsFor(sidecar);
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('may not reference a finding');
+  });
+
+  // The separation is the whole point: adding `equivalent` must not soften the
+  // label it was carved out of.
+  it('leaves inconclusive/oracle blocking exactly as before', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.inventory.push({
+        id: 'M3',
+        test: 'holds the resolver precedence',
+        file: 'src/lib/thing/__tests__/thing.test.ts',
+        outcome: 'inconclusive',
+        inconclusive_class: 'oracle',
+        reason: 'the mutated module did not compile',
+      });
+      sidecar.counts = countsFor(sidecar);
+      sidecar.status = 'INCOMPLETE_ORACLE';
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('INCOMPLETE_ORACLE');
+  });
+
+  // Back-compat, and its bound. A sidecar written before this member exists
+  // omits the key; that reads as zero. No other count gets the same latitude.
+  it('reads an ABSENT equivalent count as zero', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      delete sidecar.counts.equivalent;
+    });
+    expect(check().status).toBe(0);
+  });
+
+  it('still catches a WRONG equivalent count', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      sidecar.counts.equivalent = 2;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('counts.equivalent claims 2, recomputed 0');
+  });
+
+  it('keeps an absent killed count a mismatch — the latitude is equivalent-only', () => {
+    const { reportDir } = seedRepo();
+    rewriteSidecar(reportDir, (sidecar) => {
+      delete sidecar.counts.killed;
+    });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('counts.killed');
   });
 });

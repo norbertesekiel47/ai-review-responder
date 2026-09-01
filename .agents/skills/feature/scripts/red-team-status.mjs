@@ -49,9 +49,17 @@ const STATUS_PRECEDENCE = [
   'CLEAR',
 ];
 
+// `equivalent` is NOT a softer `inconclusive`. It is a claim about the MUTANT —
+// that it provably preserves behaviour, so no test could kill it — where
+// `inconclusive/oracle` is a claim about the ORACLE, that a test SHOULD have
+// killed it and none did. Before this member existed the two collapsed into
+// one, and a run whose only survivors were provably equivalent could never
+// reach CLEAR (feat/1013 deviation D11). The row must carry the proof in its
+// `reason`, and it may not also raise a finding.
 const OUTCOMES = new Set([
   'killed',
   'survived-confirmed-P0',
+  'equivalent',
   'inconclusive',
   'skipped-budget',
   'excluded',
@@ -109,6 +117,7 @@ const COUNT_KEYS = [
   'inventory_total',
   'killed',
   'survived_confirmed_p0',
+  'equivalent',
   'inconclusive',
   'skipped_budget',
   'excluded',
@@ -181,6 +190,7 @@ export function recomputeCounts(sidecar) {
     inventory_total: rows.length,
     killed: byOutcome('killed'),
     survived_confirmed_p0: byOutcome('survived-confirmed-P0'),
+    equivalent: byOutcome('equivalent'),
     inconclusive: byOutcome('inconclusive'),
     skipped_budget: byOutcome('skipped-budget'),
     excluded: byOutcome('excluded'),
@@ -290,6 +300,14 @@ export function validateShape(sidecar) {
     }
     if (row.outcome === 'excluded' && !nonEmptyString(row.reason)) {
       errors.push(`${scope}: an excluded row must record a reason`);
+    }
+    if (row.outcome === 'equivalent') {
+      if (!nonEmptyString(row.reason)) {
+        errors.push(`${scope}: an equivalent row must record the proof that behaviour is preserved`);
+      }
+      if (row.finding_id !== undefined) {
+        errors.push(`${scope}: an equivalent row may not reference a finding — it claims the mutant changes nothing`);
+      }
     }
     if (row.outcome === 'inconclusive') {
       if (row.inconclusive_class !== 'oracle' && row.inconclusive_class !== 'infra') {
@@ -447,6 +465,12 @@ export function validateArbiterReasoning(sidecar) {
 // git and filesystem probes
 // ---------------------------------------------------------------------------
 
+// TRAILING whitespace only. A full `.trim()` also eats the LEADING space of the
+// first line, and `git status --porcelain=v1` puts the status code in columns
+// 1-2 — an unstaged modification is ` M path`. Trimming turns the first line
+// into `M path`, so the `line.slice(3)` below yields `ath` instead of `path`
+// and no exclusion can ever match line 1. The other three call sites emit a
+// single token with no leading whitespace, so they are unaffected.
 function makeGit(root) {
   return function git(args, options = {}) {
     return execFileSync('git', args, {
@@ -454,7 +478,7 @@ function makeGit(root) {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', options.quiet ? 'ignore' : 'pipe'],
-    }).trim();
+    }).replace(/\s+$/, '');
   };
 }
 
@@ -662,8 +686,12 @@ function main(argv) {
   // --- recomputed counts and status --------------------------------------
   const counts = recomputeCounts(sidecar);
   for (const key of COUNT_KEYS) {
-    if (sidecar.counts[key] !== counts[key]) {
-      errors.push(`counts.${key} claims ${sidecar.counts[key]}, recomputed ${counts[key]}`);
+    // `equivalent` post-dates the first sidecars, so an ABSENT field reads as
+    // zero for that key alone. Every other key stays required: an absent
+    // `killed` must still mismatch, or a truncated counts object validates.
+    const claimed = key === 'equivalent' ? (sidecar.counts[key] ?? 0) : sidecar.counts[key];
+    if (claimed !== counts[key]) {
+      errors.push(`counts.${key} claims ${claimed}, recomputed ${counts[key]}`);
     }
   }
   for (const key of Object.keys(sidecar.counts)) {
