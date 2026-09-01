@@ -6,9 +6,25 @@ pass, the orchestrator reminds the user to schedule an architecture review
 session (the user's call — never started automatically). A completed pass
 resets the counter to 0 and adds a row below.
 
-**Merges since last architecture pass: 3** — last reset to 0 by the
+**Merges since last architecture pass: 9** — last reset to 0 by the
 **2026-08-26 pass** (entry at the bottom of this file). Full artifacts:
 `docs/reviews/PATHFINDER-2026-08-26/`.
+
+> **⚠️ THE THRESHOLD IS CROSSED (9 ≥ 5). An architecture pass is due.** Nobody
+> may start one automatically — it is the owner's call, and this line is the
+> reminder the rule asks for.
+>
+> **The number moved 3 → 9 on 2026-09-01, and six of those merges were never
+> recorded here.** Every one of them already had a row in the bottom table, so
+> the LOSS was in the bullet list and the headline alone — which is reason 1 of
+> the four the H7 note lists, observed live. The six were recovered
+> MECHANICALLY rather than by reading this file, because the H7 note is right
+> that it cannot be hand-counted: each merge commit between #1009's merge
+> (`dbc66c61`) and HEAD was replayed and classified by whether
+> `git show --name-only` names a non-test file under `src/`, `worker/` or
+> `supabase/`. That predicate is this file's own counting rule, applied by
+> `git` instead of by attention. Re-derive it the same way; do not trust
+> this paragraph's arithmetic on its own.
 
 > ## The counting rule is under repair — do NOT hand-count this file until H7 lands
 >
@@ -74,6 +90,40 @@ Merges since the 2026-08-26 pass:
   both the write site and the kill switch proven on the deployed worker
   (`occurred_at` = `account_audit_log.created_at` to the microsecond); flags and
   seeded rows restored afterwards.
+
+> The six bullets below were added on 2026-09-01 by the #1013 post-merge sweep.
+> Each already had a bottom-table row; only this list and the headline were
+> short. `chore(1009)` (#1033) is the last entry that bumped the counter by
+> hand, and nothing bumped it for eleven weeks of merges after that.
+
+- 2026-08-30 — `feat(994)` (#1034): the five remaining **Refusal ledger** lane
+  category maps, carved out of slices 3, 4 and 5 as their shared prerequisite.
+  **COUNTS** — `src/lib/refusals/vocabulary.ts`, `src/lib/shared/worker-types.ts`,
+  `src/lib/solicitation/approval.ts`. Takes the counter to **4**. The first of
+  the six this list lost.
+- 2026-08-31 — `feat(#1012)` (#1043): the `auto_post_revoked` Refusal write and
+  the `account_id` widening — slice 5 of 7, one of three run CONCURRENTLY as a
+  swarm. **COUNTS** — `worker/jobs/publisher/auto-policy-downgrade.ts`. Takes
+  the counter to **5**. *The threshold was crossed here, and nobody was told.*
+- 2026-08-31 — `feat(#1011)` (#1042): the `outreach_withheld` RENDER lane, four
+  writers, and the clock moved to decision time — slice 4 of 7. **COUNTS** —
+  `src/lib/solicitation/ask-generation.ts`. Takes the counter to **6**.
+- 2026-08-31 — `feat(#1010)` (#1044): the three solicitation single-site lanes
+  and the ledger's set-based arm — slice 3 of 7. **COUNTS** —
+  `src/lib/refusals/write.ts`, `src/lib/solicitation/`, one dashboard component.
+  Takes the counter to **7**.
+- 2026-08-31 — `chore(refusals)` (#1049): the **Refusal ledger**'s post-merge
+  sweep, plus the `GhostPipeline` false promise it exposed. **COUNTS** —
+  `src/lib/refusals/vocabulary.ts`, four `src/lib/solicitation/` modules, two
+  dashboard components. Takes the counter to **8**. A sweep that edits
+  production files is a counting merge like any other; that it was labelled
+  `chore` is not the test.
+- 2026-08-31 — `feat(#1013)` (#1055): the `held_draft` + `policy_gate_held`
+  lanes — slice 6 of 7 and the LAST write slice. **COUNTS** —
+  `src/lib/refusals/vocabulary.ts`, `src/lib/shared/worker-types.ts`,
+  `worker/jobs/response-generation/{persist,auto-approval}.ts`. Takes the
+  counter to **9**. `policy_gate_held` writes zero rows in production until the
+  ordered `AUTO_APPROVAL_ENABLED` flip, so only `held_draft` is live at merge.
 
 ---
 

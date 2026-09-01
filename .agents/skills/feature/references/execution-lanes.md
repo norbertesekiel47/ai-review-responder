@@ -127,7 +127,7 @@ adversarial pass on the critical path twice over: once to find defects, once
 because the fixes invalidated its evidence. In the wave it runs against the
 pre-fix tree, and only the fix hunks need a second look.
 
-Three rules make the wave safe:
+Four rules make the wave safe:
 
 1. **Review agents stage their reports outside git.** Each axis writes to
    `.feature/review-staging/<axis>.md` while the wave runs. The root copies
@@ -148,6 +148,23 @@ Three rules make the wave safe:
    for the red-team finalizer, exactly as the gate waits for subagents.
 3. **The finalizer still belongs to the root**, never the subagent, so a dead
    agent cannot strand a mutation.
+4. **Every read-only axis reads a COMMITTED SHA, never the working tree.**
+   Name the SHA in the axis prompt and say to read with `git show <sha>:<path>`.
+
+   Rules 1-3 protect the TREE: the journal and the finalizer guarantee the
+   mutation is restored. None of them protects a concurrent READER, and when
+   the wave carries the red-team pass one member is mutating source files in
+   the shared worktree while the others read it. On feat/1013 the
+   spec-correctness axis found the tree dirty throughout its review and
+   observed three live mutations — including the exact `threshold !== null`
+   deletion its own first finding predicts. Its conclusions stand only because
+   it noticed and fell back to `git show HEAD:` unprompted. An axis that had
+   trusted the working tree would have reviewed a MUTANT: reporting defects
+   that do not exist at HEAD, or missing ones that do.
+
+   Serialising the wave would also fix it, and would spend the wall clock the
+   wave exists to save. Giving red team its own worktree is the other answer;
+   this rule is the cheap one, and it holds whether or not the pass is present.
 
 Order after a wave that carried the pass: finalize → commit the red-team
 report → triage every axis together → fix → gate → the scoped second red-team

@@ -176,8 +176,13 @@ No Stryker, no new dependency. Per candidate test case:
 5. **Arbiter confirmation for every P0-candidate.** Inspect the mutation and
    confirm it is semantically meaningful for the tested behaviour: not an
    equivalent mutation, and not on a branch this test never executes. Record
-   that reasoning verbatim in the finding. A survivor you judge plausibly
-   equivalent or unexecuted is reclassified `inconclusive` (class `oracle`).
+   that reasoning verbatim in the finding. A survivor you judge **plausibly**
+   equivalent or unexecuted is reclassified `inconclusive` (class `oracle`) —
+   that is a claim about the ORACLE, and it blocks. A survivor you can **prove**
+   preserves behaviour is `equivalent` instead, carrying the proof in its
+   `reason` — that is a claim about the MUTANT, and it does not block.
+   The two are not interchangeable. "I cannot see how a test would catch this"
+   is plausible, not proven, and stays `inconclusive`.
    This bound is deliberate: confirmation by inspection reduces false P0s, it
    does not eliminate them, and the recorded reasoning is the audit trail.
 6. **Restore and verify** — see The finalizer.
@@ -288,6 +293,7 @@ unknown field fails and any missing one fails, so this table is EXHAUSTIVE:
 | `counts`, `status` | derived — the checker recomputes both |
 
 **Inventory outcomes:** `killed`, `survived-confirmed-P0` (carries `finding_id`),
+`equivalent` (carries the proof as its reason, and NO `finding_id`),
 `inconclusive` (carries `inconclusive_class` of `oracle` or `infra`, plus a
 reason), `skipped-budget`, `excluded` (carries a reason).
 
