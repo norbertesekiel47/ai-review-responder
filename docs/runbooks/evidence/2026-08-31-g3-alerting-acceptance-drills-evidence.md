@@ -1965,8 +1965,149 @@ exactly that, and then whether it reaches Discord.
 
 | # | Fixture | Identifier | How to remove | State |
 |---|---|---|---|---|
-| **T14** | **§4.8 re-run** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `7f82a1a4-585e-42bd-b43f-5811272d8a44`, removed via `railway down --service repworth-worker --environment staging --project ad641d0e-… --yes` | `railway deployment redeploy --service repworth-worker --environment staging --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes`, then confirm a clean check-in lands and the monitor returns to `ok`. **Nothing else changes** — no flag, no row, no schema | ⏳ **open — stop issued 2026-09-01T20:15Z** |
+| **T14** | **§4.8 re-run** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `7f82a1a4-585e-42bd-b43f-5811272d8a44`, removed via `railway down --service repworth-worker --environment staging --project ad641d0e-… --yes` | ⚠️ **The instruction as first written here was WRONG — it omitted `--from-source` (D-18).** Correct form: `railway deployment redeploy --from-source --service repworth-worker --environment staging --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes`, then confirm the new deployment's **commit hash** matches `origin/staging` and a clean check-in lands. **Nothing else changes** — no flag, no row, no schema | ✅ **CLOSED 20:32:53Z** — deployment `49adba91` SUCCESS at 20:32:49.701Z on `5358bd82` (= `origin/staging`), clean `ok` check-in at 20:32:53.359Z, environment recovered `error` → `ok` |
 
 > Recorded **before** the stop, per the contract. Target duration ~15 minutes, matching the
 > 2026-09-01T04:14–04:28Z run that produced `missed=2`. A miss is declared 10 minutes after its
 > expected slot (5-minute schedule + 5-minute grace), so ~15 minutes yields two.
+
+## §4.8 re-run — RESULT. QUALIFIED FAIL, confirmed, and now isolated to ONE cause.
+
+**The drill is the strongest form of the finding this campaign has produced**, because every
+other link in the chain was verified *before* the worker was stopped.
+
+### Timeline, all UTC
+
+| Time | Event |
+|---|---|
+| 20:15:47Z | `railway down` issued |
+| 20:15:54.950Z | deployment `7f82a1a4` confirmed **REMOVED** — worker down |
+| 20:19Z | no check-in at the 20:19 slot; last was 20:14:07Z |
+| **20:20:16.063Z** | **`missed`** — and the environment flips **`ok` → `error`** |
+| 20:23Z | issue query returns **nothing** |
+| **20:25:18.035Z** | **`missed`** (2nd) |
+| 20:26Z | issue query returns **nothing** |
+| **20:30:22.297Z** | **`missed`** (3rd) |
+| 20:31Z | issue query returns **nothing** |
+| 20:31:36Z | restore issued |
+
+Hour bucket `2026-09-01T20:00Z`: **`ok=3, error=0, missed=3`**, against nine preceding hours at
+`ok=12, missed=0`.
+
+### The assertion, and what fails
+
+**Detection PASSES, and faster than the drill budgeted for.** The first miss was declared at
+20:20:16Z — roughly 4.5 minutes after the stop, at the expected slot rather than slot-plus-grace.
+The environment status change to `error` is immediate and correct.
+
+**Issue creation FAILS. Three consecutive missed check-ins produce no issue.**
+
+```
+search_issues  project=repworth-staging  query='monitor.slug:health-alert-poller'
+               period=24h   ← no `is:` term, per D-9
+→ "No issues found matching your search criteria."
+```
+
+And the same query over **90 d** returns exactly one issue — `REPWORTH-STAGING-8`, **status
+`resolved`, last seen 2026-06-26**, unchanged. **So it did not regress either.** Both ways an
+issue could have appeared — a new one, or a regression of the resolved one — are ruled out by
+the same query that proves the query itself works.
+
+### Why this run is conclusive where 2026-09-01T04:14Z was not
+
+Every alternative explanation was closed **before** the stop, not argued after it:
+
+| Alternative explanation | Closed by |
+|---|---|
+| "The failure threshold is too high" | **D-16.** Failure Tolerance is **1**, read in the UI, described by Sentry as *"consecutive **missed or error** check-ins"* |
+| "A *missed* check-in doesn't count, only a *failed* one" | Same UI wording — and `REPWORTH-STAGING-8`'s own failure reason is *"A missed check-in was detected"* |
+| "The absence is a query artefact" | **D-9.** No `is:` term; the identical query surfaces the resolved June issue at 90 d |
+| "There is no rule that could route it" | **D-14 fix.** `3608329` carries `Issue category = outage` since 19:12:49Z, verified by API readback |
+| "The rule's triggers can't take it" | **R4.** `3608329` holds **both** `First seen event` and `Regression event`; the June issue is resolved, so a regression was the expected shape |
+| "Something else stopped the worker" | `origin/staging` tip **is** the deployed commit; no push, no auto-deploy, deployment `REMOVED` by our own command at a recorded second |
+
+**The chain now has exactly one broken link, and it is Sentry's:** the monitor detects the
+outage, the thresholds are correct, the routing exists — and **no issue is ever created**, so
+nothing can fire and nobody is paged.
+
+**§4.8 remains a QUALIFIED FAIL.** The routing work was necessary and is not wasted: without it
+an issue, once Sentry creates one, would still have gone nowhere. But it cannot close this drill.
+
+### D-18 (2026-09-01T20:32Z) — `railway deployment redeploy` WITHOUT `--from-source` redeploys a STALE snapshot
+
+**My error, caught in the seconds after it happened.** T14's removal instruction as I wrote it
+omitted `--from-source`. Session 2's T11 row had it and said why; I dropped it.
+
+The plain `redeploy` after a `railway down` did not restore the branch tip. It created deployment
+`7401242b` at commit **`b7085c92` — "chore: add lefthook pre-push gate mirroring CI (#230)"**, a
+months-old commit. The command's own help says it plainly: *"Redeploy the latest deployment of a
+service"*, and `--from-source` is *"Pull and deploy the latest commit … from the configured
+source, instead of redeploying the existing deployment."* After `down` removes the current
+deployment, "the existing deployment" is no longer what you think it is.
+
+**Staging never ran the old code:** `7401242b` reached `FAILED` at 20:31:59Z, before serving.
+Re-issued at 20:32:01Z with `--from-source`, producing deployment `49adba91` at
+`5358bd822564869492bdbb7cbc134cf74f2ecc71` — the `origin/staging` tip.
+
+**Rule, for every future worker-stop drill:** the restore is
+`railway deployment redeploy --from-source …`, never the bare form. Verify the **commit hash** of
+the new deployment against `origin/staging`, not merely that a deployment exists — "a deployment
+is running" and "the right code is running" are different claims, and this is the second time in
+this campaign that distinction has mattered.
+
+### Teardown — executed and verified
+
+| Check | Result |
+|---|---|
+| Worker restored on the **right commit** | ✅ `49adba91` SUCCESS 20:32:49.701Z at `5358bd822564869492bdbb7cbc134cf74f2ecc71` = `origin/staging` tip |
+| The stale deployment never served | ✅ `7401242b` (commit `b7085c92`) reached **FAILED** at 20:31:59Z |
+| Clean check-in lands | ✅ `2026-09-01T20:32:53.359Z: ok, staging` |
+| Monitor recovers | ✅ environment `error` → **`ok`**; Recovery Tolerance 1 behaves as configured |
+| No health finding emitted by the outage | ✅ `search_events subsystem:health_alert` over 24 h — newest is still `04:12:36Z`. The outage produced none, and the restart produced none |
+| No `job_outbox` residue | ✅ **15 rows, all `completed`, zero pending, zero failed.** The rise from the 06:07Z baseline of 5 is ordinary staging traffic through the day (`ingest_zernio_review`, `generate_response`, `send_notification`, 08:24–12:56Z) plus three `engagement_alert` rows the worker enqueued on boot at 20:32:47Z. **The drill created none of them** |
+| Flags | ✅ untouched — this drill changes no variable |
+
+**Staging is clean. No fixture from this drill survives.**
+
+---
+
+# Session 3 verdict, updated — 2026-09-01T20:35Z
+
+## Drill state: 8 of 10 pass, and §4.8's fail is now precisely located
+
+| Drill | Verdict |
+|---|---|
+| §4.2, §4.3, §4.5, §4.4, §4.1, §4.9 | ✅ PASS (sessions 1–2) |
+| **§4.6 Unattributed suppression** | ✅ **PASS** — Discord-confirmed by the owner: one message at 11:07 PM local (= 06:07Z), and **silence** at 06:05:59Z and 06:06:38Z |
+| **§4.10 Capacity headroom** | ✅ **PASS** — peak pending 50/1500, drained in 13 min of a 30-min target, no false alarm |
+| **§4.8 Probe stopped** | ⚠️ **QUALIFIED FAIL — re-run 20:15–20:32Z. Detection passes; issue creation fails.** Three missed check-ins, threshold 1, no issue, no regression of the resolved one |
+| §4.7 Killed worker | ❌ **BLOCKED** — D-6, needs a custom domain for the staging worker |
+
+## What changed in Sentry today, all verified by API readback
+
+| Rule | Change | At |
+|---|---|---|
+| `3927243` (staging) | `Issue occurrences` filter **removed** | 18:08:43Z |
+| `3927261` (production) | `Issue occurrences` filter **removed** | 18:09:17Z |
+| `3608329` (staging) | `Issue category = outage` **added** as a 5th `any` clause | 19:12:49Z |
+| `3925256` (production) | `Issue category = outage` **added** as a 5th `any` clause | 19:19:17Z |
+
+Two orphan rules from D-17 remain and **do not work** — `3930310` and its sibling, both named
+`cron-health-alert-poller…`, both with no project and no monitor. They are the reproduction case
+for a Sentry support ticket.
+
+## Deviations D-10 … D-18
+
+Nine in one session. **Six correct a claim that was standing when the session began**, two of
+them written hours earlier, one (D-13) correcting a prediction this session made itself, and one
+(D-18) correcting an instruction this session wrote minutes before executing it.
+
+## The one thing that still has to happen for §4.8
+
+**Sentry must create an issue for a missed check-in.** Everything else is now verified working or
+verified irrelevant. The next step is not another drill — it is a **Sentry support ticket**, and
+this run is the evidence: monitor `e925e758-10ec-455e-b2f1-aeb47a8a261c`, Failure Tolerance 1,
+three consecutive `missed` check-ins at 20:20:16Z / 20:25:18Z / 20:30:22Z, environment `error`,
+zero issues created.
+
+**UTC end (session 3, §4.8 re-run): 2026-09-01T20:35Z.**
