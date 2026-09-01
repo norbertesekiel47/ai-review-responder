@@ -261,6 +261,30 @@ export async function getRefusalLog(
         ORDER BY r.occurred_at DESC, r.id DESC
       `;
 
+  // The footnote. ACCOUNT SCOPE ONLY — a location view shows one ACTIVE
+  // location and therefore hides nothing (#1005). An INNER JOIN is correct
+  // here and cannot fan out (`businesses.id` is the primary key); it also
+  // drops `business_id IS NULL` rows for free, which is right: an account-wide
+  // suspension never came "from an archived location".
+  //
+  // BOTH window bounds are bound again, for the same reason the entry query
+  // binds them: the footnote states a count for THE SAME window the tab prints,
+  // and a writer-supplied `occurred_at` after that range must not inflate it.
+  const archivedLocations = scope.kind === 'account'
+    ? (await sql<{ refusal_count: number; location_count: number }[]>`
+        SELECT
+          COUNT(*)::int                        AS refusal_count,
+          COUNT(DISTINCT r.business_id)::int   AS location_count
+        FROM refusal_events r
+        JOIN businesses b ON b.id = r.business_id
+        WHERE r.account_id = ${scope.accountId}
+          AND b.account_id = ${scope.accountId}
+          AND b.archived_at IS NOT NULL
+          AND r.occurred_at >= ${windowStart}
+          AND r.occurred_at <= ${windowEnd}
+      `)[0] ?? { refusal_count: 0, location_count: 0 }
+    : null;
+
   const entries = rows.map(toEntry);
 
   return {
@@ -273,7 +297,12 @@ export async function getRefusalLog(
     // does not have — and a null coverage start also leaves `windowStart`
     // unclamped, which is right: an unknown start cannot narrow anything.
     coverageStart: coverageStart?.toISOString() ?? null,
-    archivedLocations: null,
+    archivedLocations: archivedLocations
+      ? {
+          refusalCount: archivedLocations.refusal_count,
+          locationCount: archivedLocations.location_count,
+        }
+      : null,
     archivedPeriods: [],
   };
 }

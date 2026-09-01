@@ -571,10 +571,53 @@ describeWithDb(
       expect(log.entries).toEqual([]);
     });
 
-    // --- The footnote (T3 fills these) ---
+    // --- The footnote: an ACCOUNT-scope line, and only there (#1005) ---
 
-    it.todo('counts archived-location refusals in the account footnote for the same window');
-    it.todo('reports a zero archived-location footnote count when no archived location has refusals in the window');
+    it('counts archived-location refusals in the account footnote for the same window', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const archived = await addLocation(accountId, 'Archived Location');
+      await seedRefusal({ accountId, businessId, category: 'unsafe_content' });
+      await seedRefusal({
+        accountId, businessId: archived, source: 'ask_withheld', category: 'no_permission',
+      });
+      await seedRefusal({
+        accountId, businessId: archived, source: 'batch_halted', category: 'wrong_moment',
+      });
+      await archiveLocation(archived);
+
+      const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+
+      // The two archived rows leave the TOTAL and reappear as a count. ONE
+      // location held them, so `locationCount` is 1 and not 2.
+      expect(log.total).toBe(1);
+      expect(log.archivedLocations).toEqual({ refusalCount: 2, locationCount: 1 });
+    });
+
+    it('reports a zero archived-location footnote count when no archived location has refusals in the window', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const archived = await addLocation(accountId, 'Archived Location');
+      await seedRefusal({ accountId, businessId, category: 'unsafe_content' });
+      await archiveLocation(archived);
+
+      const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+
+      // An archived location that held nobody is a ZERO, not a null and not an
+      // absent key — the tab decides whether to render the line, and it decides
+      // from a number it was given.
+      expect(log.archivedLocations).toEqual({ refusalCount: 0, locationCount: 0 });
+    });
+
+    it('reports no footnote at all in a location scope', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const archived = await addLocation(accountId, 'Archived Location');
+      await seedRefusal({ accountId, businessId: archived, category: 'unsafe_content' });
+      await archiveLocation(archived);
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      // A location view shows ONE ACTIVE location and therefore hides nothing.
+      expect(log.archivedLocations).toBeNull();
+    });
 
     // --- Archived periods (T4 fills these) ---
 
@@ -645,18 +688,33 @@ describeWithDb(
         subjectId: randomUUID(),
         occurredAtSql: sql()`NOW() + interval '1 hour' + interval '419 microseconds'`,
       });
+      // The same two-sided fixture on an ARCHIVED location, so the footnote's
+      // own upper bound is exercised rather than assumed.
+      const archived = await addLocation(accountId, 'Archived Location');
+      await seedRefusal({
+        accountId,
+        businessId: archived,
+        category: 'unsafe_content',
+        occurredAtSql: sql()`NOW() - interval '1 hour' + interval '419 microseconds'`,
+      });
+      await seedRefusal({
+        accountId,
+        businessId: archived,
+        category: 'below_our_bar',
+        subjectId: randomUUID(),
+        occurredAtSql: sql()`NOW() + interval '1 hour' + interval '419 microseconds'`,
+      });
+      await archiveLocation(archived);
 
       const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
 
       // The past row survives its microseconds; the future row is excluded (E17).
       expect(log.total).toBe(1);
       expect(log.entries[0]?.category).toBe('unsafe_content');
-      // T3 EXTENDS THIS CASE. `archivedLocations` is null until the footnote
-      // query lands, so the footnote half of this title cannot be asserted here.
-      // Task 3 seeds an archived location with a future row and asserts the
-      // footnote count excludes it. Do not consider this title finished until it
-      // does.
-      expect(log.archivedLocations).toBeNull();
+      // The FOOTNOTE half of this title. The archived location holds one row
+      // inside the window and one after it; only the first may be counted, or
+      // the tab states a number for a wider range than the one it prints.
+      expect(log.archivedLocations).toEqual({ refusalCount: 1, locationCount: 1 });
     });
   },
 );
