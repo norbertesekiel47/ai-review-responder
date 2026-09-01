@@ -585,6 +585,17 @@ precondition below.
   worker interruption instead of two.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
+  ⚠️ **RE-RUN 2026-09-01T20:15–20:32Z. STILL A QUALIFIED FAIL, and the cause is now isolated to
+  Sentry.** Three consecutive `missed` check-ins (20:20:16Z, 20:25:18Z, 20:30:22Z), environment
+  `ok` → `error`, against nine preceding hours at `ok=12, missed=0` — and **no issue created, and
+  no regression of the resolved one** (`monitor.slug:health-alert-poller`, no `is:` term, 24 h and
+  90 d). Every alternative explanation was closed *before* the stop: threshold is 1 and counts
+  missed check-ins (D-16), the routing rule exists and was API-verified (D-14 fix), its triggers
+  hold both `First seen` and `Regression`, and the query form demonstrably surfaces resolved
+  issues. **Do not re-run this drill again for the same question — the next step is a Sentry
+  support ticket.** ⚠️ **The restore is `railway deployment redeploy --from-source …` (D-18).**
+  The bare form redeploys a stale snapshot after `railway down`; verify the new deployment's
+  COMMIT HASH against `origin/staging`, not merely that a deployment exists.
   ⚠️ **This FAILED on 2026-09-01 (G.3, D-9) and the drill needs a precondition.** The monitor
   **detects** correctly — two missed check-ins, environment `ok` → `error`, against nine
   consecutive clean hours — but **no Sentry issue is created**, so no alert rule can fire and
