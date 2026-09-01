@@ -85,7 +85,7 @@
     "src/lib/kpi/types.ts — the window vocabulary (DASHBOARD_WINDOWS, resolveDashboardWindow, DEFAULT_DASHBOARD_WINDOW).",
     "src/lib/dashboard/aggregate-queries.ts — the archived_at IS NULL scoping idiom.",
     "src/lib/refusals/write.ts — the module shape: sql/TransactionSql as an explicit parameter, no singleton import.",
-    "src/lib/auto-approval/flags.ts — autoApprovalEnabled(), the server-side flag read the route calls.",
+    "src/lib/auto-approval/flags.ts — autoApprovalRuntimeEnabled(), the server-side flag read the route calls. Note the asymmetry: the EXPORT is autoApprovalRuntimeEnabled; autoApprovalEnabled is only the payload KEY the browser sees.",
     "supabase/migrations/116_refusal_events.sql — the column comments are the read's contract, including the per-location scope predicate and the drop-the-link-never-the-row rule."
   ],
   "test_seams": [
