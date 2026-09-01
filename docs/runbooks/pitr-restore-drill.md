@@ -61,6 +61,16 @@ this check is itself part of the drill.
    - `pitr_enabled: false` → only daily physical backups exist (RPO ≈ up to 24 h).
      Either is restorable; the drill below works for both.
 
+   > **Measured 2026-09-01: `pitr_enabled` is `false` on BOTH projects**, and
+   > `walg_enabled` is `true` on both — 8 daily physical backups, a 7-day
+   > window. **PITR is not a precondition for §3.** `clone-project` requires a
+   > paid plan and *physical backups*; the add-on only buys second-granularity
+   > recovery points. Verify with the CLI, which needs no PAT:
+   >
+   > ```bash
+   > supabase backups list --project-ref udeyaqnvpojbwgoaxwdg -o json | jq 'del(.backups)'
+   > ```
+
 **Plan/add-on facts to know:**
 - PITR is a **paid add-on** (Pro+), requires **≥ Small compute**, and **is not
   covered by the Spend Cap**. Enabling PITR **stops daily backups** (PITR
@@ -114,8 +124,11 @@ union all select 'api_costs',         count(*) from api_costs;
 select count(*) as auth_users from auth.users;
 
 -- Most-recent customer activity is present (not truncated at an old WAL point)
-select max(created_at) as latest_review   from reviews;
-select max(created_at) as latest_response from responses;
+-- NOTE: `reviews` has NO `created_at` column. Its ingestion anchor is `detected_at`
+-- (CLAUDE.md § Database). Using `created_at` here raises 42703 and aborts the
+-- verification mid-run. Corrected 2026-09-01, deviation D-1.
+select max(detected_at) as latest_review   from reviews;
+select max(created_at)  as latest_response from responses;
 ```
 
 Then **spot-check the schema head**: confirm the most recent migration's object
@@ -190,7 +203,32 @@ Drills only count if the outcome is written down:
 
 | Date | Source | Method | Measured RTO | Result | Notes |
 |---|---|---|---|---|---|
-| _pending first drill_ | | | | | |
+| **2026-09-01** | prod `udeyaqnvpojbwgoaxwdg` | Restore to a New Project, from the daily physical backup `2026-09-01T11:24:14Z` | **4 min 44 s** (17 MB) | ✅ **PASS** | Every assertion held: 10 row counts, 6 id checksums, schema md5 `564fe5e8…`, `auth.users` intact, µs timestamps intact. Clone `zcqvxslotrurulisiqxi` deleted 21:33:29Z and verified gone. Cost ≈ $0.0007. Full record: [`evidence/2026-09-01-pitr-restore-drill-evidence.md`](evidence/2026-09-01-pitr-restore-drill-evidence.md) |
+
+> **Three things the first run established that this runbook did not previously say.**
+>
+> 1. **PITR is not enabled** (`pitr_enabled: false`, prod and staging). The drill does
+>    not need it; §3's clone path needs a paid plan and *physical* backups. But the real
+>    **RPO is up to 24 h**, and §0 above now says so.
+> 2. **RTO floor ≈ 5 min**, dominated by provisioning rather than by bytes. Re-measure
+>    once real data exists — 17 MB is effectively no data.
+> 3. **§4's `reviews` query was broken** (deviation D-1) and would have aborted the
+>    verification against a non-empty table. Fixed above.
+>
+> **Two operational notes for the next run:**
+>
+> - The clone's disk is provisioned at **1.5×** the source's, and it boots the *current*
+>   platform Postgres image (observed `17.6.1.166` against a source on `17.6.1.104`).
+>   The data is mirrored; the machine is not.
+> - §6's deletion can be run from the CLI —
+>   `supabase projects delete <ref> --yes` (`--yes` is a **global** flag and is absent
+>   from that command's own `--help`). Prefer it to the Dashboard **only** behind a
+>   guard that re-reads the ref's live name from the API and compares it, since the same
+>   verb deletes production. The 2026-09-01 run used three such guards.
+> - Check `pg_extension` on the clone before leaving it running. Supabase warns that a
+>   clone inheriting `pg_cron`/`pg_net`/`wrappers` will execute the source's schedules
+>   against its own copy. **RepWorth has none of the three** (verified 2026-09-01) — a
+>   future migration adding one silently invalidates that.
 
 ---
 

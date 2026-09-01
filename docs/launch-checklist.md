@@ -36,11 +36,34 @@
   runs; **not** a launch blocker, because the failure mode it would catch (a bad
   value aborting the transaction) is the one already closed above.
 
-- [ ] **First PITR restore drill** (Spec 08) — PITR is *enabled* but has **never
-  been restored end-to-end**. Runbook now exists:
-  `docs/runbooks/pitr-restore-drill.md`. Remaining: **run** the clone-to-new-project
-  drill, verify integrity, and **record the measured RTO** in that runbook's
-  results table. _Highest risk-reduction per hour of any item here._
+- [x] **First restore drill** (Spec 08) — ✅ **PASS, 2026-09-01.** Production
+  `udeyaqnvpojbwgoaxwdg` was cloned from its daily physical backup
+  (`2026-09-01T11:24:14Z`) via **Restore to a New Project**, verified, and the
+  scratch project deleted. **Measured RTO 4 min 44 s** for a 17 MB database.
+  Every predicted assertion held: 10 row counts identical, 6 id checksums
+  identical, schema md5 `564fe5e8944da0a54757a3c840cbdc1c` (52 tables / 764
+  columns / 278 indexes), `auth.users` intact, microsecond timestamps intact,
+  head-116 object `refusal_events` present. Production served reads throughout
+  and was unchanged afterwards. Real cost ≈ **$0.0007**. Evidence and verdict:
+  `docs/runbooks/evidence/2026-09-01-pitr-restore-drill-evidence.md`; results
+  table in `docs/runbooks/pitr-restore-drill.md` §7.
+  _What this does NOT prove: restore time at real data volume (17 MB is a
+  floor, not a forecast), and second-granularity recovery — see the next item._
+
+- [ ] 🔴 **RPO decision — buy the PITR add-on, or accept a 24 h RPO for beta.**
+  **Opened 2026-09-01 by the drill above; this is a NEW blocker, not a leftover.**
+  **PITR is NOT enabled.** Measured, not assumed — `pitr_enabled: false` on
+  production `udeyaqnvpojbwgoaxwdg` **and** on staging `kubdiqdhqbhwmqfditeg`,
+  with `walg_enabled: true` on both. What exists is **daily physical backups on a
+  7-day window**, so the true **RPO is up to 24 h**, not the ~2 min PITR gives.
+  An earlier version of this checklist asserted PITR was enabled; that assertion
+  was never verified and was false. Verify it yourself, no PAT needed:
+  `supabase backups list --project-ref udeyaqnvpojbwgoaxwdg -o json | jq 'del(.backups)'`.
+  **Price:** ~$100/month for 7-day retention (hourly $0.137), **not covered by
+  the Supabase Spend Cap**, and it requires ≥ Small compute. Enabling it **stops
+  daily backups** — PITR supersedes them.
+  **Accepting 24 h is a defensible beta posture. Believing the RPO is 2 minutes
+  is not.** Whichever way this goes, record it as a dated owner decision here.
 - [x] **Email auth: DKIM + SPF + DMARC** (Spec 28) — verified 2026-06-26: Resend
   reports `repworth.net` **verified**; DKIM TXT at `resend._domainkey`, SPF
   (`include:amazonses.com`) on `send.repworth.net`, DMARC published. _Follow-up
