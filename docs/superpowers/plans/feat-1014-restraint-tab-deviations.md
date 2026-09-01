@@ -54,7 +54,13 @@ renaming `.feature/intake.json` inside that worktree. That is the owner's call,
 not this run's — the worktree is one of two the owner deliberately kept, and
 nothing here needs it changed.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Nothing was written into the parked worktree and nothing
+needed to be. Every overlapping path is owned by this run and now carries its
+own code: `read.ts`, `refusals/route.ts`, the restraint route folder, both
+restraint components, `AnalyticsTabs.tsx` and the three analytics files. The
+harvest ran entirely through `git show feat/refusal-log:<path>` from this
+worktree, so that checkout was never a dependency of a tracer. The owner note
+stands unchanged — disarming that worktree is still the owner's call.
 
 ---
 
@@ -76,7 +82,13 @@ a term this surface renders and no file owns.
 `allowed_edit_surface` and lands in the tracer that ships the coverage-start
 line, not as a docs afterthought.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** `Coverage start` is now a LOCKED bullet in `CONTEXT.md`'s
+Refusal ledger section with its own `_Avoid_` line and provenance marker, landed
+in T2 alongside the read that computes it rather than as a docs afterthought.
+The surface renders it through `coverageLine()` in `RestraintReport`, and the
+promised test `RestraintReport renders the policy-gate disclosure line while
+auto-approval is disabled` asserts the coverage sentence beside the lane
+disclosure that qualifies it.
 
 ---
 
@@ -109,7 +121,13 @@ location *view* (correct) and must never be multiplied into N rows inside a
 *single* result set by a join through `businesses` (the parent effort's defect).
 Both halves are invariants; neither may be dropped as a restatement of the other.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** `CONTEXT.md` won. The intake carries I13 and does NOT
+carry the ticket's "must never disagree" clause, and the tab states which number
+it shows through `scopeLine()` — two different sentences, one per view. The
+promised test `RestraintReport states which number it shows when an account-wide
+suspension is in the window` renders both scopes and asserts both sentences. I7
+survives separately and is proven by two live-DB titles: one suspension yields
+one row per location VIEW, and exactly one row in the account total.
 
 ---
 
@@ -142,7 +160,14 @@ re-expressible. A second latent instance was fixed in the same pass:
 `owner_review_required` had also been given a subject link, and the ticket names
 exactly three links, none of them that one.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** `refusalSource` never crosses the wire; `resolveLinkKind`
+in `read.ts` decides authority server-side from the LANE, and `CATEGORY_COPY` has
+no `link` column, so the mistake is not re-expressible. The promised test
+`RestraintReport does not link a policy_gate_held response that shares
+held_draft's unsafe_content category` feeds both lanes at once — same category,
+same subject type, both with real response ids — and asserts exactly one link.
+The second latent instance is closed too: `owner_review_required` carries a
+response subject in the no-link test and renders no link.
 
 ---
 
@@ -183,7 +208,15 @@ leaves the other two surfaces broken.
 and `src/components/dashboard/reviews/ReviewsContent.tsx` are the two other
 callers. `blast-radius.sh` must list them and the review wave must look at both.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Implemented in T6 step 2b. `showError` is now
+`!state.loading && state.error != null`. The blast radius was re-checked rather
+than assumed: `AnalyticsContent.tsx` and `ReviewsContent.tsx` are the two other
+callers, and `src/components/dashboard/reviews` passes 132 tests against the
+changed panel. Three tests hold the fix — the promised `RestraintContent renders
+the restraint error card when the initial query fails without cached data`, plus
+two in `DashboardStatePanel.test.tsx`: the defect itself, and the loading
+precedence that WAS correct, so the fix cannot later be simplified into dropping
+that too. `blast-radius.sh` must still list both callers at step 7.
 
 ---
 
@@ -241,7 +274,14 @@ row that must stay green at every boundary.
 directories still green. `pnpm typecheck` and `pnpm lint` are clean.
 `promised-tests PASS` — all 56 titles matched verbatim.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** Both halves held for the rest of the run. No tracer's
+first commit imported a module a later tracer created, and every import landed
+beside its first real body. The cast came out exactly where this entry said it
+would — T6 step 2 widened `DashboardSurface` and added `beforeContent`, and
+`DashboardStatePanel.test.tsx` now calls `renderDashboardStatePanel` on its own
+signature with no cast and no `TargetPanel` type. Title 56 went from failing at
+T1 to passing at T6 without its body changing, which is the RED-to-GREEN
+transition the eval exists to produce.
 
 ---
 
@@ -319,7 +359,15 @@ subject` covers, and it passes.
    `null`; the test body carries a `T3 EXTENDS THIS CASE` marker naming what Task
    3 must add. The title is not finished until it does.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** The correlated `EXISTS` shipped and `ci:tenant-scope`
+passes at 371 entries against a 371 baseline — no allowlist entry was added,
+which was the point of not taking the easy exit. All three of the read's queries
+cleared the audit unmodified afterwards, including T3's footnote JOIN and T4's
+audit-log read. The fixture correction held: `SEEDED_COVERAGE_AGE_MS` pushes both
+`created_at` columns 200 days back, and the three cases that PROVE the clamp set
+it themselves. Title 15's deferred half is closed — T3 gave it an archived
+location with one row inside the window and one after it, and the `T3 EXTENDS
+THIS CASE` marker is gone because the work it named is done.
 
 ---
 
@@ -361,4 +409,11 @@ change would ship with its behaviour asserted nowhere:
   error` pins the half of the old comment that WAS right, so the fix cannot be
   "simplified" into dropping the loading precedence as well.
 
-**Verdict:** _(pending step 6)_
+**Verdict: ACCEPT.** No `docs/directory.md` change was made in T6 or T7, and
+`ci:directory-map` passed at every gate — 586 files under `worker` and `src/lib`
+with a row each, no stale rows. The re-check this entry promised was performed:
+`restraint/page.tsx`, `restraint.css`, `RestraintContent.tsx` and
+`RestraintReport.tsx` all sit under the two unaudited roots, so T7 added no rows
+either. The two rows the plan was RIGHT about both landed — `read.ts` in T2 and
+`refusals/route.ts` in T5 — and T2 also repaired the section intro, which still
+said "the READ half is #1014 and lives nowhere yet".
