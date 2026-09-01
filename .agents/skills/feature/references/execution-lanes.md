@@ -35,14 +35,22 @@ closed, never waives.
 - Implement in the root context.
 - Run the narrowest relevant test plus repository-required verification.
 - Perform one compact root review.
+- Claude lane: `/feature-small` owns this lane end to end.
 
 ### Small
 
-- Resolve at most the material unknowns needed for a compact intake.
-- Use a sibling worktree when starting from a long-lived branch or when the
-  current checkout is dirty.
-- Implement in the root context.
-- Perform one fresh spec/correctness review after the verified gate.
+- Resolve at most the material unknowns needed for a compact intake — six
+  fields, posted once, no sign-off at normal risk.
+- Branch in the current checkout. Use a sibling worktree only when another
+  feature is in flight there, when the checkout is dirty in files the change
+  must touch, or when starting from a long-lived branch. Isolation is a tool,
+  not a ceremony; the arming scripts are not run on this lane at normal risk.
+- Implement in the root context. No plan document, no delegation.
+- Gate with the pre-push subset plus the full test run
+  (`lint`, `typecheck`, `test`, plus `build` when the surface includes ui).
+- Perform one fresh spec/correctness review after the gate.
+- Claude lane: `/feature-small` owns this lane end to end at normal risk;
+  small work at high risk stays in the full router with an abbreviated intake.
 
 ### Standard
 
@@ -51,7 +59,9 @@ closed, never waives.
 - Root Codex implements the first tracer to establish precedent.
 - Delegate later work only when tasks have disjoint edit leases and concrete
   parallel value.
-- Run parallel spec/correctness and maintainability reviews.
+- Run the spec/correctness review; add the maintainability review only when
+  risk is high or the production diff crosses the threshold in § The review
+  wave.
 
 ### High
 
@@ -121,6 +131,17 @@ failure impact. `red-team-status.mjs` records the waiver mechanically from
 the signed-off intake — never from a claim made at transition time. The owner
 may still request the pass on a normal-risk branch; a sidecar that exists is
 always validated in full.
+
+**The standards axis is conditional the same way.** On `normal` risk the
+wave carries the spec/correctness axis alone unless the production diff —
+added plus deleted lines outside `__tests__/`, `*.test.*` and `*.spec.*`,
+measured from the fork point with `git diff --numstat` — exceeds **300
+lines**. Above that, or on `high` risk, the maintainability axis joins the
+wave. The threshold is a measurement, never an estimate from the intake:
+a 120-line normal-risk change reviewed by two strong-model agents plus
+Haiku helpers was the wave's common case, and its second axis found little
+the first had not. The measured number and the decision go in the review
+report header so a resumed session does not re-decide it.
 
 Red team used to run after review triage and its fixes. That put a full
 adversarial pass on the critical path twice over: once to find defects, once

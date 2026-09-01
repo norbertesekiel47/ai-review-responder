@@ -25,10 +25,24 @@ lane (`.agents/skills/feature/SKILL.md`) live in one place each:
 | Review axis prompts, checklists, triage | `.agents/skills/feature/references/review-prompts.md` |
 | Step ladder and live view | `.agents/skills/feature/references/progress-and-live-view.md` |
 
-Read `working-rules.md` before the first edit and `execution-lanes.md` before
-step 0. The two lanes differ in exactly two things: this lane ships to `main`
-(step 8), and it calls Claude subagents and slash commands. Everything else
-that disagrees between them is a bug in one of them.
+**Load references by section, at the step that needs them — never whole
+files up front.** Instruction load is context spent before the first file
+opens; the two references together are ~4,000 words, and a trivial or small
+run needs almost none of it. The binding schedule:
+
+| Before… | Read |
+|---|---|
+| the first edit | `working-rules.md` § Context discipline, § Authority, § Worktree path discipline |
+| step 0 | `execution-lanes.md` § Classification |
+| step 3 | `execution-lanes.md` § Tracer bullets and TDD; `intake-contract.md` only if a field is unclear |
+| step 4 | `execution-lanes.md` § Delegation contract |
+| step 5's loop | `execution-lanes.md` § The gate loop, § Reclassification and anti-thrash |
+| step 7 | `execution-lanes.md` § The review wave, § Pin the fork, § Conditional verification rounds; `review-prompts.md` for the axis being dispatched |
+
+The trivial and small lanes run `/feature-small` and open none of these
+except the first row. The two lanes differ in exactly two things: this lane
+ships to `main` (step 8), and it calls Claude subagents and slash commands.
+Everything else that disagrees between them is a bug in one of them.
 
 **Report every phase boundary.** Advance the ladder as each step closes — one
 command, and it prints the block:
@@ -58,16 +72,19 @@ Open the ladder as soon as the axes are fixed:
 node .agents/skills/feature/scripts/progress.mjs init --size <size> --risk <risk> --surface <surface>
 ```
 
-**TRIVIAL FAST PATH**: skip steps 1–4 and 6. Branch, implement here, run the
-step 5 gate, one `/code-review` pass, PR.
+**TRIVIAL and SMALL, RISK = normal → `/feature-small`.** That command is the
+whole lane on one page: six-field intake posted once, branch in this checkout
+(a worktree only when isolation is actually needed), build in this session,
+the pre-push gate, one spec-and-correctness review, PR. Hand off to it now
+and do not continue here. A half-followed full pipeline is worse than a
+smaller one followed completely — that is why the small lane has its own
+file instead of a list of steps to skip.
 
-**SMALL PATH**: skip steps 3–4 and 6, and step 1's full grilling. Ask only what
-fills an ABBREVIATED intake — `goal`, `non_goals`, `allowed_edit_surface`,
-`tests_to_add`, `estimated_prod_lines`, `estimated_test_lines`. Post it and
-proceed; sign-off only when RISK = high. Then step 2 setup as normal, implement
-IN THIS SESSION with no subagent dispatch, step 5 gate, one review axis (spec
-and correctness), step 8 by RISK lane. A half-followed full pipeline is worse
-than a smaller one followed completely.
+**SMALL, RISK = high** stays in this command: abbreviated intake (`goal`,
+`non_goals`, `allowed_edit_surface`, `tests_to_add`, `estimated_prod_lines`,
+`estimated_test_lines`) with sign-off, step 2 setup as normal, implement IN
+THIS SESSION with no subagent dispatch, step 5 gate, the step 7 wave, step 8
+by the high-risk lane.
 
 **EPIC PATH — decompose, do not implement.** This command's enforcement only
 works at feature scale, so an epic never runs steps 2–8:
@@ -466,9 +483,19 @@ three rules that make the wave safe):
 
 - **Spec & correctness agent** — the diff against the intake contract, field by
   field, plus `blast-radius.md`. Prompt in `review-prompts.md`.
-- **Standards & maintainability agent** — invoke
-  `/thermo-nuclear-code-quality-review` on the branch directly. If unavailable
-  or it errors, fall back to `/code-review` at high effort.
+- **Standards & maintainability agent (RISK = high, or a large diff)** —
+  invoke `/thermo-nuclear-code-quality-review` on the branch directly. If
+  unavailable or it errors, fall back to `/code-review` at high effort. On
+  RISK = normal this axis runs only when the production diff exceeds the
+  threshold in `execution-lanes.md` § The review wave; measure it, do not
+  estimate it:
+
+  ```bash
+  git diff --numstat "$(git merge-base HEAD origin/main)"..HEAD \
+    | awk '$3 !~ /(__tests__\/|\.test\.|\.spec\.)/ { n += $1 + $2 } END { print n+0 }'
+  ```
+
+  Record the number and the decision in the review report header either way.
 - **Adversarial approach agent (RISK = high only)** — invoke
   `/codex:adversarial-review` with `--background --base <fork-point>`, handed
   the intake and triaged deviations paths. `--background` is not optional: the
@@ -647,7 +674,15 @@ section becomes visible.
 
 ```bash
 node .agents/skills/feature/scripts/progress.mjs step ready done
+node .agents/skills/feature/scripts/phase-cost.mjs
 ```
+
+- **Cost read-back**: the second command prints the token bill per step
+  (joined from the ladder's timestamps and the harness transcripts; see
+  `progress-and-live-view.md` § Phase cost). Paste the table into the handoff
+  doc's final section and name the most expensive step in one line. After
+  five runs the pattern is the thing to trim next; a run that spent more on
+  review than on execution says so here, not in a feeling.
 
 ## Session hygiene
 

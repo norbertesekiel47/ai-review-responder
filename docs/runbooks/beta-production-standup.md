@@ -232,12 +232,24 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
 - [x] Staging endpoints stay pointed at staging; never re-point. Verified after both
       creates: both still resolve to `repworth-worker-staging.up.railway.app`.
 
-> **Owed out of Phase E — rotate three production secrets.** `infisical secrets` prints
-> values **by default**, not masked, and exposed `RESEND_API_KEY`, `ZERNIO_API_KEY` and
-> `ZERNIO_WEBHOOK_SECRET` to a session transcript. Blast radius today is near zero
-> (zero-state database, no connected location) and **closes at the first connected
-> location.** Rotating `ZERNIO_WEBHOOK_SECRET` must `PUT` subscription
-> `6a95315320358f33c89599e5`'s `secret` in the same change. Evidence file → **E-F1**.
+> **Owed out of Phase E — ✅ DONE 2026-09-01. All three production secrets rotated.**
+> `infisical secrets` printed values **by default**, not masked, exposing `RESEND_API_KEY`,
+> `ZERNIO_API_KEY` and `ZERNIO_WEBHOOK_SECRET` to a session transcript (**E-F1**). All three
+> were replaced and the change is proven end to end — fingerprints changed in the running
+> production worker, Vercel redeployed and confirmed aliased to `repworth.net`, the Zernio
+> subscription's stored `secret` byte-identical to the vault value, and a real signed
+> `webhook.test` verified and `processed` in 64 ms. Record:
+> `docs/runbooks/evidence/2026-09-01-secret-rotation-evidence.md`.
+>
+> Three corrections that outlive the incident:
+> - **`RESEND_WEBHOOK_SECRET` was NOT rotated** — it is provider-issued (Svix) and rotating it
+>   means recreating the endpoint. Still live. Its own change.
+> - **The update path is `PUT /v1/webhooks/settings` with `_id` in the BODY** — the RESTful
+>   form `PUT …/settings/{id}` 404s (D-5).
+> - **`secrets-rotation-api-keys.md` was never in scope**, despite E-F1 naming it. Its scope is
+>   `ENCRYPTION_KEY` / `SESSION_COOKIE_SECRET` / `CSRF_SECRET`; rotating those logs every owner
+>   out (D-2). Only the Zernio and email runbooks apply, and **both were rewritten** — they
+>   still described the pre-vault "write to Railway" architecture (D-1).
 
 ### Phase F — Beta activation path
 

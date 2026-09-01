@@ -45,11 +45,38 @@ node .agents/skills/feature/scripts/progress.mjs carry <parent-repo-root>
 node .agents/skills/feature/scripts/progress.mjs tracers set "T1 gate constant|T2 veto window|T3 judge precondition"
 node .agents/skills/feature/scripts/progress.mjs tracer T2 active
 node .agents/skills/feature/scripts/progress.mjs render
+node .agents/skills/feature/scripts/progress.mjs cost
 ```
 
 Every write command prints the block, so a phase boundary is one command, not
 two. Use `render` when nothing changed — on resume, or when the user asks
 where the run stands.
+
+### Phase cost
+
+Marking a step `done` also prints that step's token bill, and `cost` (or the
+standalone `scripts/phase-cost.mjs`) prints the whole table:
+
+```
+ intake locked      1.2M in (94% cached) ·   9K out ·  38 min · 41 turns
+ plan approved      3.1M in (96% cached) ·  22K out ·  55 min · 88 turns  (2 sessions summed)
+```
+
+The numbers are derived, never entered: the ladder owns WHEN each step
+closed, the harness transcripts under `~/.claude/projects/<slug>/` own how
+much every model turn cost, and `lib/phase-cost.mjs` joins the two. A step's
+bill is every assistant turn between the previous step's close and its own;
+an open step shows its cost so far. Work before `init` is not measured, so
+the `orient` row is always empty. Turns are deduplicated by message id.
+Subagent turns are included; Codex rounds run elsewhere and are not.
+
+Steps 0-1 run in the parent checkout, whose transcript directory every
+session on the repo shares. When `.feature/sessions` exists only those
+sessions count; otherwise every session whose cwd is the root counts and the
+row says how many it summed — read such a row as an upper bound. The table is
+cached at `.feature/phase-cost.json` so the handoff can cite it. Its purpose
+is the post-merge read-back in the routers' step 8: after five runs the most
+expensive step is the next thing to trim.
 
 `carry` exists because steps 0 and 1 run before the worktree does. It reads
 the parent checkout's ladder, writes it into the current worktree, and marks
