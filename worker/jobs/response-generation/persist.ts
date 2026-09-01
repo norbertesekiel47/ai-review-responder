@@ -33,6 +33,11 @@ import {
   recordOutcome,
   recordStep,
 } from '../../../src/lib/agents/run-spine';
+import {
+  HELD_DRAFT_REFUSAL_CATEGORY,
+  resolvePolicyGateRefusal,
+} from '../../../src/lib/refusals/vocabulary';
+import { REFUSAL_LEDGER_FLAG, writeRefusalEvent } from '../../../src/lib/refusals/write';
 import type { WorkerLogger } from '../../../src/lib/shared/logger';
 import { acquireTierEntitlementLock } from '../../../src/lib/accounts/billing-locks';
 import type { SubscriptionTierValue } from '../../../src/lib/accounts/tier-config';
@@ -202,6 +207,23 @@ export async function persistResponseAndNotify(sql: postgres.Sql, input: Persist
         detail: { decision: autoDecision.approved ? 'auto_approved' : 'held_for_owner' },
       });
     }
+
+    // The `policy_gate_held` Refusal (#1013). A SEPARATE statement with its OWN
+    // guard, deliberately OUTSIDE the block above — it inherits that guard's
+    // `!held` arm and NOT its `activeRun` arm. A legacy pre-spine review has no
+    // run (`recordDraftSpineCheckpoints` returns null), and inheriting
+    // `!activeRun` would silently drop rows from the lane with the highest
+    // design capacity — silent in production until `AUTO_APPROVAL_ENABLED` is
+    // on, but the one that dominates once it is (#997 resolution 1).
+    await recordPolicyGateRefusal(tx, {
+      accountId,
+      businessId,
+      responseId,
+      originLane,
+      held,
+      runtimeState,
+      autoDecision,
+    });
 
     if (autoDecision.approved) {
       if (!runtimeState) {
@@ -554,16 +576,7 @@ function logAutoApprovalFallbackIfNeeded(input: {
     return;
   }
 
-  // Narrow to genuine auto candidates: a draft on the auto-eligible lane whose
-  // account has a policy configured, so the only thing standing between it and
-  // an auto-post is a runtime prerequisite (provider moderation, subscription,
-  // active connection/location, review-hash freshness, or the runtime flag).
-  // Bad-lane / no-policy drafts were never going to auto and would otherwise log
-  // on every generated draft while AUTO_APPROVAL_ENABLED is on (spec §15).
-  const isAutoCandidate =
-    originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
-    && runtimeState.effectivePolicy.threshold !== null;
-  if (!isAutoCandidate) {
+  if (!isGenuineAutoCandidate(originLane, runtimeState)) {
     return;
   }
 
@@ -643,11 +656,163 @@ function buildAutoApprovalDecisionSummary(input: {
 }
 
 /**
+ * A GENUINE auto candidate: a draft on the auto-eligible lane whose account has
+ * a policy configured, so the only thing standing between it and an auto-post is
+ * a runtime prerequisite (provider moderation, subscription, active
+ * connection/location, review-hash freshness, or the runtime flag). Bad-lane and
+ * no-policy drafts were never going to auto (spec §15).
+ *
+ * ONE OWNER FOR THE NARROWING, and that is the point rather than a tidy-up. The
+ * fallback LOG and the `policy_gate_held` ledger write must select exactly the
+ * same drafts: the intake's reconciliation query asserts that the row count can
+ * never exceed the log-line count, and two copies of these three conditions
+ * would let that drift silently. #998 says the ledger write inherits the
+ * narrowing "unchanged" — this is what makes that literally true.
+ *
+ * A TYPE PREDICATE, so the ledger site gets its non-null `runtimeState` for free
+ * rather than re-asserting it.
+ *
+ * THIS IS ALSO WHERE THE FLAG-OFF ANSWER LIVES (deviation D4). With
+ * `AUTO_APPROVAL_ENABLED` off, every draft is a STRUCTURAL non-candidate,
+ * `resolveAutoApprovalDecision` returns `runtimeState: null` and reads no policy
+ * row at all — so this returns false and no Refusal is written. #1013's "Volume"
+ * section and #1003's operational note both claim a row on that path; both are
+ * false against this code, because "on a policy-configured account" is not
+ * knowable without a read migration 074's header deliberately avoids.
+ */
+function isGenuineAutoCandidate(
+  originLane: GenerateResponseOriginLane | null,
+  runtimeState: AutoApprovalRuntimeState | null,
+): runtimeState is AutoApprovalRuntimeState {
+  return runtimeState !== null
+    && originLane === GENERATE_RESPONSE_ORIGIN_LANE.LIVE_INGEST_NEW
+    && runtimeState.effectivePolicy.threshold !== null;
+}
+
+/**
+ * Records the `policy_gate_held` **Refusal** for a draft the auto-approval gate
+ * held for the owner. Runs on the OPEN transaction `tx`, so the row is atomic
+ * with the decision it records (#1013).
+ *
+ * FOUR GUARDS, AND ONLY THE LAST ONE DECIDES ANYTHING. Branch review round 1
+ * mutation-tested each: deleting guards 1, 2 or 3 individually changes no
+ * outcome and kills no test, because guard 4 already covers each case. They are
+ * EARLY RETURNS and defence in depth, not independent conditions — an earlier
+ * version of this docblock claimed "each answers a different question", which
+ * was false and is corrected here rather than left to mislead the next reader.
+ *
+ *   1. `held` — a high-severity flag belongs to the `held_draft` lane. #998's
+ *      suppression rule, and the ONLY condition inherited from the `policy_gate`
+ *      step's guard. REDUNDANT WITH THE VETO: `evaluateAutoApprovalCandidate`
+ *      always emits `moderation_held` when `held` is true, and that member maps
+ *      to `null`, so guard 4 suppresses the row anyway. Kept because it names
+ *      the rule at the site a reader looks for it, and because it skips work.
+ *   2. `approved` — nothing was refused. Redundant: `approved` means
+ *      `blockReasons` is empty, and the resolver returns `null` for an empty
+ *      set.
+ *   3. the candidacy narrowing — see `isGenuineAutoCandidate`. Its `originLane`
+ *      and `threshold` arms are BOTH redundant *here*: a wrong lane is a
+ *      structural block (so `runtimeState` is null and the predicate fails on
+ *      its first arm), and a null threshold emits `policy_not_enabled`, itself a
+ *      veto member. The arm that is NOT redundant is `runtimeState !== null`.
+ *      The narrowing earns its keep on the LOG side, which has no veto concept —
+ *      which is why one predicate owns both, and why the threshold arm's only
+ *      oracle is the fallback-log assertion in the integration suite.
+ *   4. the resolver returned nothing — the set was empty, or a `null`-mapped
+ *      member vetoed it. THIS is the load-bearing guard.
+ *
+ * NOT CAUGHT AT THE CALL SITE, on the same terms as the `held_draft` write and
+ * `write.ts`'s own contract: a CHECK violation is a writer bug and must abort
+ * this transaction. What `withLedgerAttribution` adds is ATTRIBUTION, not
+ * recovery — see its docblock.
+ */
+async function recordPolicyGateRefusal(
+  tx: postgres.TransactionSql,
+  args: {
+    accountId: string;
+    businessId: string;
+    responseId: string;
+    originLane: GenerateResponseOriginLane | null;
+    held: boolean;
+    runtimeState: AutoApprovalRuntimeState | null;
+    autoDecision: AutoApprovalDecision;
+  },
+): Promise<void> {
+  const { accountId, businessId, responseId, originLane, held, runtimeState, autoDecision } = args;
+
+  if (held) return;
+  if (autoDecision.approved) return;
+  if (!isGenuineAutoCandidate(originLane, runtimeState)) return;
+
+  const refusal = resolvePolicyGateRefusal(autoDecision.blockReasons);
+  if (!refusal) return;
+
+  await withLedgerAttribution('policy_gate_held', responseId, () => writeRefusalEvent(tx, {
+    accountId,
+    businessId,
+    refusalSource: 'policy_gate_held',
+    refusalCode: refusal.refusalCode,
+    allRefusalCodes: refusal.allRefusalCodes,
+    refusalCategory: refusal.refusalCategory,
+    subjectType: 'response',
+    subjectId: responseId,
+    // This lane has NO immutable stamp of its own (#997 F5) — which is exactly
+    // why `occurred_at` is writer-supplied. The gate decided inside this
+    // transaction, so its transaction timestamp IS the decision time.
+    occurredAt: 'transaction_time',
+  }));
+}
+
+/**
+ * Attribute a ledger failure to the Refusal ledger, then RETHROW unchanged.
+ *
+ * WHY THIS EXISTS, and it is not observability for its own sake. Both write
+ * sites are deliberately uncaught: a migration-116 CHECK violation is a writer
+ * bug and must abort the response persist (`write.ts`'s contract). The stated
+ * lever against such a bug is the `REFUSAL_LEDGER_ENABLED` kill switch — but
+ * branch review round 1 (adversarial axis) showed an operator could not FIND
+ * that lever. A deterministic violation aborts every persist,
+ * `generate_response` burns its attempts in about 75 seconds, and the only
+ * signal is `attachJobFailureSink`'s generic `subsystem=worker_job` issue on the
+ * terminal attempt. Nothing said "the ledger did this" or "flip its flag".
+ *
+ * IT CHANGES NO CONTROL FLOW. The error is re-thrown, so the transaction still
+ * aborts and no response commits without its required row. This is NOT the
+ * "best-effort work needs its own try/catch" rule from `.claude/CLAUDE.md` —
+ * that rule is about work AFTER a primary side effect, and swallowing here would
+ * commit a draft whose Refusal was never recorded.
+ *
+ * The capture is itself guarded: a failing reporter must never replace the real
+ * error with a reporting error.
+ */
+async function withLedgerAttribution<T>(
+  lane: 'held_draft' | 'policy_gate_held',
+  responseId: string,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    try {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { subsystem: 'refusal_ledger', refusal_lane: lane, flag: REFUSAL_LEDGER_FLAG },
+        extra: { response_id: responseId },
+      });
+    } catch {
+      // A broken reporter must not mask the writer bug it was reporting.
+    }
+    throw error;
+  }
+}
+
+/**
  * Records moderation metadata on the final output's api_costs row and, for a
- * high-severity flag, HOLDS the draft by writing a flagged_responses row. Runs
- * on the OPEN transaction `tx` so the hold stays atomic with the response
- * INSERT (invariant #4). Returns whether the draft was held (high-severity),
- * which the caller uses to skip the send_notification enqueue.
+ * high-severity flag, HOLDS the draft by writing a flagged_responses row AND its
+ * `held_draft` **Refusal** (#1013). Runs on the OPEN transaction `tx` so all
+ * three stay atomic with the response INSERT (invariant #4). Returns whether the
+ * draft was held (high-severity), which the caller uses to skip the
+ * send_notification enqueue.
  */
 async function recordModerationAndHold(
   tx: postgres.TransactionSql,
@@ -693,6 +858,33 @@ async function recordModerationAndHold(
         ${moderation.source ?? 'local_regex'}, ${moderation.reason}, ${moderation.severity}, ${FLAGGED_RESPONSE_STATUS_OPEN}
       )
     `;
+
+    // The `held_draft` Refusal, on the SAME transaction as the hold it records
+    // (#1013). Not caught: migration 116's CHECKs each name a writer bug, and a
+    // violation aborting this transaction is the designed behaviour — the lever
+    // against a writer bug is REFUSAL_LEDGER_ENABLED, not a try/catch here.
+    //
+    // `occurredAt` is the transaction-time sentinel because
+    // `flagged_responses.created_at` above is `DEFAULT NOW()` in this same
+    // transaction, and in Postgres `NOW()` is `transaction_timestamp()` — so the
+    // two agree to the microsecond. Reading that column back and passing a JS
+    // `Date` would truncate the microseconds on decode (#520) and lose exactly
+    // the equality that makes the two rows joinable.
+    //
+    // No candidacy narrowing and no `activeRun` condition: a high-severity flag
+    // is a moderation decision on every lane, and it is recorded wherever it
+    // happens.
+    await withLedgerAttribution('held_draft', responseId, () => writeRefusalEvent(tx, {
+      accountId,
+      businessId,
+      refusalSource: 'held_draft',
+      refusalCode: null,
+      allRefusalCodes: null,
+      refusalCategory: HELD_DRAFT_REFUSAL_CATEGORY,
+      subjectType: 'response',
+      subjectId: responseId,
+      occurredAt: 'transaction_time',
+    }));
   }
 
   return flaggedHigh;
