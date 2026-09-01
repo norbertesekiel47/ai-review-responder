@@ -125,6 +125,66 @@ function resolveLinkKind(
   return null;
 }
 
+interface ArchivalEvent {
+  eventType: 'location_archived' | 'location_reactivated';
+  at: Date;
+}
+
+/**
+ * Pair archive/reactivate events into periods, then keep only the periods that
+ * INTERSECT the window.
+ *
+ * This is the tab's ONLY read from a table the ledger does not own. It is
+ * CONTEXT — *when were we not watching* — and never a re-derived **Refusal**.
+ * `ArchivalPoller` never sweeps `account_audit_log`, so the history is complete
+ * for as long as the account exists.
+ *
+ * A trailing `location_archived` with no reactivation yields an OPEN period
+ * (`reactivatedAt: null`). A leading `location_reactivated` with no preceding
+ * archive is ignored: it describes a period that began before this log did, and
+ * inventing a start date for it would be the same lie the **Coverage start**
+ * exists to prevent.
+ *
+ * Exported for its own tests. `getRefusalLog` is its only production caller.
+ */
+export function pairArchivedPeriods(
+  events: ArchivalEvent[],
+  windowStart: Date,
+  windowEnd: Date,
+): ArchivedPeriod[] {
+  const periods: ArchivedPeriod[] = [];
+  let openedAt: Date | null = null;
+
+  for (const event of events) {
+    if (event.eventType === 'location_archived') {
+      // Two archives in a row cannot happen (archive refuses an archived
+      // location), so the first wins and the second is ignored rather than
+      // silently closing the first.
+      openedAt ??= event.at;
+      continue;
+    }
+    if (openedAt === null) continue;
+    periods.push({
+      archivedAt: openedAt.toISOString(),
+      reactivatedAt: event.at.toISOString(),
+    });
+    openedAt = null;
+  }
+
+  if (openedAt !== null) {
+    periods.push({ archivedAt: openedAt.toISOString(), reactivatedAt: null });
+  }
+
+  // Half-open intersection: a period touching the window at all is rendered. An
+  // OPEN period runs to the window's end by construction, so it always
+  // intersects a window it started before.
+  return periods.filter((period) => {
+    const start = new Date(period.archivedAt);
+    const end = period.reactivatedAt ? new Date(period.reactivatedAt) : windowEnd;
+    return start <= windowEnd && end >= windowStart;
+  });
+}
+
 function toEntry(row: EntryRow): RefusalLogEntry {
   return {
     id: row.id,
@@ -285,6 +345,23 @@ export async function getRefusalLog(
       `)[0] ?? { refusal_count: 0, location_count: 0 }
     : null;
 
+  // Location scope only. `account_audit_log` is a table `ArchivalPoller` never
+  // sweeps, so this history outlives the 180-day ledger retention.
+  const archivedPeriods = scope.kind === 'location'
+    ? pairArchivedPeriods(
+        (await sql<{ event_type: 'location_archived' | 'location_reactivated'; created_at: Date }[]>`
+          SELECT l.event_type, l.created_at
+          FROM account_audit_log l
+          WHERE l.account_id = ${scope.accountId}
+            AND l.location_id = ${scope.businessId}
+            AND l.event_type IN ('location_archived', 'location_reactivated')
+          ORDER BY l.created_at ASC
+        `).map((row) => ({ eventType: row.event_type, at: row.created_at })),
+        windowStart,
+        windowEnd,
+      )
+    : [];
+
   const entries = rows.map(toEntry);
 
   return {
@@ -303,6 +380,6 @@ export async function getRefusalLog(
           locationCount: archivedLocations.location_count,
         }
       : null,
-    archivedPeriods: [],
+    archivedPeriods,
   };
 }

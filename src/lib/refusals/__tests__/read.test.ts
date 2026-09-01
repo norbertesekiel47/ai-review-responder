@@ -1,24 +1,53 @@
-// The Refusal ledger's READ path — pure-helper eval (#1014 T1, RED).
+// The Refusal ledger's READ path — pure-helper eval (#1014 T4).
 //
 // This file holds NO promised title. All 22 read titles need a live database
 // and live in `read.integration.test.ts`; the intake's `tests_to_add` places
 // them there and the `promised-tests` gate row matches them there.
 //
-// What lands here instead are the two helpers Task 4 extracts from
-// `getRefusalLog` so they can be proven without a database: the archived-period
-// pairing (an `archived` audit row matched to its `reactivated` row, or to
-// `null` when the location is still archived at the end of the window) and the
-// window-intersection predicate that decides which of those periods the tab
-// shows. Both are total functions over dates. A live-DB round trip would add
-// nothing but serialization.
-//
-// They are `it.todo` because `src/lib/refusals/read.ts` does not exist yet and
-// a named import of an absent module fails the whole file at collection.
+// What lands here is the one helper Task 4 extracted from `getRefusalLog` so it
+// can be proven without a database: the archive/reactivate pairing, and the
+// window-intersection filter that decides which periods the tab shows. Both are
+// total functions over dates. A live-DB round trip would add nothing but
+// serialization, and the four cases below include two the audit log CANNOT be
+// made to produce on demand — an unmatched reactivation and a period that
+// closed before the window opened.
 
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { pairArchivedPeriods } from '@/lib/refusals/read';
 
-describe('archived-period helpers', () => {
-  it.todo('pairs each archived audit row with the reactivation that follows it');
-  it.todo('leaves reactivatedAt null for a location still archived at the end of the window');
-  it.todo('treats a period as intersecting when it starts before the window ends and ends after the window starts');
+const WINDOW_START = new Date('2026-06-03T00:00:00.000Z');
+const WINDOW_END = new Date('2026-09-01T00:00:00.000Z');
+
+describe('pairArchivedPeriods', () => {
+  it('pairs an archive with its reactivation', () => {
+    expect(pairArchivedPeriods([
+      { eventType: 'location_archived', at: new Date('2026-07-01T00:00:00.000Z') },
+      { eventType: 'location_reactivated', at: new Date('2026-08-01T00:00:00.000Z') },
+    ], WINDOW_START, WINDOW_END)).toEqual([
+      { archivedAt: '2026-07-01T00:00:00.000Z', reactivatedAt: '2026-08-01T00:00:00.000Z' },
+    ]);
+  });
+
+  it('leaves a still-archived period open', () => {
+    expect(pairArchivedPeriods([
+      { eventType: 'location_archived', at: new Date('2026-07-01T00:00:00.000Z') },
+    ], WINDOW_START, WINDOW_END)).toEqual([
+      { archivedAt: '2026-07-01T00:00:00.000Z', reactivatedAt: null },
+    ]);
+  });
+
+  it('ignores a reactivation with no preceding archive', () => {
+    // It describes a period that began before this log did. Inventing a start
+    // date for it would be the same lie the Coverage start exists to prevent.
+    expect(pairArchivedPeriods([
+      { eventType: 'location_reactivated', at: new Date('2026-07-01T00:00:00.000Z') },
+    ], WINDOW_START, WINDOW_END)).toEqual([]);
+  });
+
+  it('drops a period that closed before the window opened', () => {
+    expect(pairArchivedPeriods([
+      { eventType: 'location_archived', at: new Date('2026-01-01T00:00:00.000Z') },
+      { eventType: 'location_reactivated', at: new Date('2026-02-01T00:00:00.000Z') },
+    ], WINDOW_START, WINDOW_END)).toEqual([]);
+  });
 });

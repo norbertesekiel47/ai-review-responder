@@ -156,6 +156,23 @@ async function seedResponse(businessId: string): Promise<string> {
   return responseId;
 }
 
+/**
+ * One `account_audit_log` row. `event_type` is deliberately UNTYPED here: two
+ * cases seed non-archival types on purpose, to prove the read filters rather
+ * than assumes.
+ */
+async function seedArchivalEvent(
+  accountId: string,
+  businessId: string,
+  eventType: string,
+  createdAt: Date,
+): Promise<void> {
+  await sql()`
+    INSERT INTO account_audit_log (id, account_id, location_id, event_type, created_at)
+    VALUES (${randomUUID()}::uuid, ${accountId}::uuid, ${businessId}::uuid, ${eventType}, ${createdAt})
+  `;
+}
+
 interface SeedRefusalInput {
   accountId: string;
   /** null is the account-wide `autonomy_suspended` lane (C3). */
@@ -259,6 +276,7 @@ describeWithDb(
             SELECT id FROM businesses WHERE account_id = ${tenant.accountId}::uuid
           )
         `;
+        await sql()`DELETE FROM account_audit_log WHERE account_id = ${tenant.accountId}::uuid`;
         await sql()`DELETE FROM businesses WHERE account_id = ${tenant.accountId}::uuid`;
         await cleanupTenantAccount(sql(), tenant);
       }
@@ -619,10 +637,49 @@ describeWithDb(
       expect(log.archivedLocations).toBeNull();
     });
 
-    // --- Archived periods (T4 fills these) ---
+    // --- Archived periods, read from the audit log and never re-derived ---
 
-    it.todo('returns archived periods that intersect the window and omits periods that do not');
-    it.todo('reads archived periods from account_audit_log and never re-derives a refusal from it');
+    it('returns archived periods that intersect the window and omits periods that do not', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const day = 24 * 60 * 60 * 1000;
+      // Closed WELL before a 30d window opens — omitted.
+      await seedArchivalEvent(accountId, businessId, 'location_archived', new Date(Date.now() - 120 * day));
+      await seedArchivalEvent(accountId, businessId, 'location_reactivated', new Date(Date.now() - 100 * day));
+      // Opens and closes INSIDE the window — rendered.
+      await seedArchivalEvent(accountId, businessId, 'location_archived', new Date(Date.now() - 10 * day));
+      await seedArchivalEvent(accountId, businessId, 'location_reactivated', new Date(Date.now() - 5 * day));
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      expect(log.archivedPeriods).toHaveLength(1);
+      expect(Date.parse(log.archivedPeriods[0]?.archivedAt ?? '')).toBeGreaterThan(
+        Date.now() - 11 * day,
+      );
+      expect(log.archivedPeriods[0]?.reactivatedAt).not.toBeNull();
+      // An ACCOUNT view has no archived-period line at all — the line names one
+      // location's gaps, and an account view is not showing one location.
+      const account = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      expect(account.archivedPeriods).toEqual([]);
+    });
+
+    it('reads archived periods from account_audit_log and never re-derives a refusal from it', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const day = 24 * 60 * 60 * 1000;
+      await seedArchivalEvent(accountId, businessId, 'location_archived', new Date(Date.now() - 8 * day));
+      await seedArchivalEvent(accountId, businessId, 'location_reactivated', new Date(Date.now() - 4 * day));
+      // Audit rows that are NOT archival at all. A read that treated the log as
+      // a Refusal source would count these; this one must not see them.
+      await seedArchivalEvent(accountId, businessId, 'subscription_cancelled', new Date(Date.now() - 6 * day));
+      await seedArchivalEvent(accountId, businessId, 'location_added', new Date(Date.now() - 7 * day));
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      // ONE period, and ZERO Refusals: the audit log is CONTEXT (when were we
+      // not watching), never a lane. `refusal_events` holds no row here.
+      expect(log.archivedPeriods).toHaveLength(1);
+      expect(log.total).toBe(0);
+      expect(log.entries).toEqual([]);
+    });
 
     // --- Coverage start and the window bounds (E13, I15) ---
 
