@@ -1613,3 +1613,148 @@ precondition), §4.10 (ticked); `pool-wedge-burst-drill.md` headroom-arm cleanup
   `subsystem:autonomy_governor`.
 
 **UTC end (session 3): 2026-09-01T06:25Z.**
+
+---
+
+## §4.6 — Discord CONFIRMED by the owner. Drill closes PASS on both halves.
+
+**Owner screenshot, 2026-09-01:** exactly **one** Sentry message —
+*`solicitation_suppression_without_attribution` · REPWORTH-STAGING-12 via
+solicitation-unattributed-suppression → discord* — at **11:07 PM local (= 06:07Z)**, matching
+rule `3927243`'s `lastTriggered` of `06:07:44.526Z`.
+
+**The negative half is confirmed by the same screenshot**, and the reasoning is worth writing
+down because it is not obvious: Discord collapses consecutive messages from one app under a
+single header stamped with the **first** message in the group. The header reads **11:07 PM**.
+A page at 11:05:59 PM or 11:06:38 PM would have opened the group earlier and carried the
+header. It did not. So POSTs 1 and 2 produced **no** Discord message — which is the assertion
+§4.6 exists for: *"a notification on the first is a first-seen rule wearing a frequency
+label."*
+
+**§4.6: PASS.** Transport, ledger, log, Sentry group, rule fire and Discord delivery all
+verified.
+
+### D-16 (2026-09-01T06:40Z) — §4.8's remedy was wrong. The monitor's threshold is already 1, and the API can be made to prove it.
+
+**The handoff and the runbook both said to open the monitor and "set an issue-creating
+failure threshold". That instruction cannot help: it is already set correctly.**
+
+The value is not exposed by the monitor endpoint, which is why two sessions treated it as
+UI-only. It **is** exposed — as a snapshot embedded in any cron issue the monitor has
+produced. `REPWORTH-STAGING-8` carries it:
+
+```
+monitor.config: {
+  "checkin_margin": 5,
+  "failure_issue_threshold": 1,     ← one failed check-in creates an issue
+  "recovery_threshold": 1,
+  "max_runtime": 5,
+  "schedule": "*/5 * * * *",
+  "schedule_type": 1,
+  "timezone": "UTC"
+}
+```
+
+This agrees with the panel's *"Detect: One failed check-in"* that session 2 read. Two
+independent sources, one conclusion: **the threshold is 1, two check-ins were missed, and no
+issue was created.** The finding is not "misconfigured tolerance".
+
+**Three further facts this issue settles, each of which had been an assumption:**
+
+1. **The monitor CAN create issues, and has.** `REPWORTH-STAGING-8` — *"Cron failure:
+   health-alert-poller"*, issue type `monitor_check_in_failure`, category **`outage`**, failure
+   reason *"A missed check-in was detected"*, **225 occurrences** across 2026-06-26. So a
+   **missed** check-in does count toward `failure_issue_threshold`; the missed/failed
+   distinction is not the blocker either.
+2. **D-14 is confirmed by direct evidence rather than by inference.** The issue's complete tag
+   set is `environment`, `interface_type`, `level`, `monitor.id`, `monitor.incident`,
+   `monitor.slug`. **No `subsystem`, no `cost_event`, no `feature`** — so `3608329` and
+   `3925256` genuinely cannot route it.
+3. **`monitor.slug` IS a tag**, so `Tagged event: monitor.slug eq health-alert-poller` is a
+   viable filter for the dedicated rule, rather than a hoped-for one.
+
+**And one lead that is now the best hypothesis for the real cause.** The only cron issue this
+monitor has ever produced is tagged **`environment: production`** — on a project whose
+check-ins are all `staging`. That is the stale `production` environment §2a exists to clean
+up (#610). The monitor today lists exactly one environment, `staging`, which has **never**
+produced a cron issue. Production's own monitor has never produced one either
+(`search_issues` `monitor.slug:health-alert-poller` over 90 d against `repworth-production`,
+no `is:` term → zero results).
+
+**Why the notification target is still the thing to check, and now for a code-grounded
+reason.** The monitor is auto-created by `recordProbeCheckIn`
+(`worker/background/pollers/health-alert/emit.ts`), whose `monitorConfig` upsert passes only
+`schedule`, `checkinMargin` and `timezone`. It passes **no owner and no alert rule** — and
+those are not fields an SDK check-in upsert can set. `find_monitors` reports `owner: null` on
+**both** monitors, consistent with that. So the gap is where session 2 said it was; the
+*reason* is that nothing in our code has ever been able to set it.
+
+**Revised §4.8 remedy — VERIFY, do not set:**
+
+1. Confirm `failure_issue_threshold` reads **1** in the UI. Do not change it.
+2. Attach a **notification target / owner** to the monitor — the field the SDK upsert cannot
+   reach.
+3. Check the monitor's **environment list** for a stale `production` entry, and whether the
+   `staging` environment has any incident history at all.
+4. Create the **dedicated routing rule** (below), because even a created issue has nowhere to
+   go today.
+
+Only then spend a worker stop on the re-run.
+
+## Decision — rule 6's threshold. Delegated to best practice by the owner, 2026-09-01.
+
+**Remove the `Issue occurrences` filter from rule 6 in BOTH projects.** Keep the `Every event`
+trigger, keep `Tagged event feature eq solicitation_lane`, keep the 60-minute throttle.
+
+**Three reasons, in order of weight:**
+
+1. **A detector for an open blocker must not be silent on its first occurrences.** D-13
+   measured that `value: 4` means the first four page nobody. This alert is #965's detector,
+   #965 is unexplained staging Outreach loss, and it is a prod-flip blocker. A rule that
+   guarantees four silent occurrences of exactly the thing you are hunting is the wrong
+   trade — and unattributed suppression is not routine traffic by construction: it happens
+   only via the seconds-wide #630 commit race, an account purge, or a send whose terminal CAS
+   lost.
+2. **The filter is the wrong instrument, not a mistuned one.** The intent — *"more than 3 in
+   one hour"* — is a **rate**. `IssueOccurrencesFilter` is a lifetime count with no interval.
+   Tuning a cumulative counter cannot approximate a rate: four singles spread over a year
+   trip it exactly as four in a minute do, and after that it never resets.
+3. **Volume control already exists and is the right kind.** The 60-minute Action Throttle caps
+   this at one page per hour per issue regardless of event rate — which is the standard way to
+   damp a noisy detector without ever making it blind.
+
+**If it proves noisy, the correct fix is a Sentry METRIC alert** on `count()` of
+`feature:solicitation_lane` over a 1-hour window. That is the alert type that actually
+expresses "N in an interval". Do not reach back for the occurrence filter.
+
+**Rule 6's shape after the change:**
+
+| Section | Value |
+|---|---|
+| **WHEN** | `An event or issue activity is captured` — the only trigger |
+| **IF** | `Tagged event` · `feature` `eq` `solicitation_lane` — the only filter |
+| **THEN** | Discord → `1517968864724385822` (staging) / `1544045194264051842` (production) |
+| Throttle | 60 minutes |
+
+**This does not invalidate §4.6's PASS.** The drill proved the trigger set, the filter
+mechanics, the tag match and Discord delivery. Widening the rule strictly increases what it
+catches; it removes no assertion the drill made.
+
+## Decision — §4.8's routing. Delegated to best practice by the owner, 2026-09-01.
+
+**A dedicated cron rule per project, not a widening of `3608329` / `3925256`.**
+
+The catch-all rules were deliberately scoped last night to four subsystem/feature tags.
+Widening them to admit cron issues would either re-open the noise that scoping closed, or
+require an `any-short` clause so broad it silently re-admits everything else too. A separate
+rule keeps each concern independently tunable and independently readable — which is the whole
+reason rule 6 was built as its own rule rather than folded into `3608329`.
+
+Filter on `monitor.slug`, now verified as a real tag on `REPWORTH-STAGING-8`.
+
+> **Caveat, recorded rather than assumed:** cron issues are category `outage` / type
+> `monitor_check_in_failure`, not `error`. Whether Sentry's issue-alert pipeline evaluates
+> this rule for an `outage`-category issue is **unverified** — there is no cron issue to test
+> against, which is D-16's whole point. The rule is the correct first step and the §4.8
+> re-run is what proves it. **If the re-run creates an issue and the rule still does not
+> fire, the answer is the monitor's own notification configuration, not the rule.**

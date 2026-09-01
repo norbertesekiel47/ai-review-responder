@@ -4512,3 +4512,45 @@ defensible on inertness — completed rows trip no health check — but it left 
 rows where the previous teardown had deliberately restored it to 5, and every later drill and
 Phase H sanity check reads that table. **A cleanup tool's success message is scoped to what it
 was built to delete, not to what the run created.**
+
+### [2026-09-01] A config value "the API does not expose" was exposed all along — in the artifact the thing produced
+FAIL → two sessions recorded the Sentry cron monitor's `failure_issue_threshold` as UI-only
+("the API does not expose either field"), and both wrote the same remedy: open the monitor and
+**set** an issue-creating failure threshold. The remedy was inert. The threshold is already `1`.
+
+WHY → the monitor endpoint returns `schedule`, `checkin_margin`, `max_runtime` and stops. But a
+cron **issue** embeds a full snapshot of the monitor's config at the moment it fired.
+`REPWORTH-STAGING-8` carries `{"failure_issue_threshold": 1, "recovery_threshold": 1, …}`. The
+value was one query away, in the object the monitor produces rather than the object that
+describes it.
+
+CORRECT → when an endpoint omits a field, look at what the system *emitted*, not only at what it
+*reports about itself*. That one issue also retired two other standing assumptions in the same
+read: the monitor **can** create issues (225 occurrences, and the failure reason is *"A missed
+check-in was detected"*, so missed check-ins DO count toward the threshold), and its complete tag
+set is `environment / interface_type / level / monitor.id / monitor.incident / monitor.slug` —
+which turns "a cron issue probably carries no application tags" from inference into evidence, and
+turns "filter the new rule on `monitor.slug`" from a hope into a verified option.
+
+General lesson: **"the API doesn't expose it" is a claim about one endpoint.** Before building a
+remedy on it, check the telemetry the subsystem has already produced — configuration snapshots
+ride along with events far more often than the describing endpoint admits.
+
+### [2026-09-01] A cumulative counter cannot approximate a rate, and tuning it is the wrong repair
+FAIL → rule 6 was specified as *"more than 3 in one hour"* and built with Sentry's
+`Issue occurrences` filter set to 4. The filter has no interval: it counts the group's lifetime
+occurrences and never resets. The first instinct on discovering the off-by-one (D-13) is to
+change the number.
+
+WHY → the number is not the defect. `N` events spread over a year trip a cumulative counter
+exactly as `N` events in a minute do, and once tripped it stays tripped forever — so the rule
+does not damp a burst, it just delays the alert's own birth by `N` occurrences and then pages on
+everything. For a detector of a rare-by-construction condition, those `N` silent occurrences are
+the exact events being hunted.
+
+CORRECT → drop the occurrence filter; keep the `Every event` trigger, the tag filter, and the
+**60-minute Action Throttle**. The throttle caps volume per issue per hour without ever making
+the rule blind, which is the property that matters for a detector. If a real rate condition is
+genuinely needed, build a Sentry **metric alert** on `count()` over the interval — that is the
+alert type that expresses "N in an hour". General lesson: **when a control cannot express the
+intent, replace the instrument, don't retune it.**

@@ -123,10 +123,23 @@ uses an obviously fictional `.test` recipient. **Leave the row.** Baseline befor
 **Do not re-run the drill until the monitor is fixed.** The chain breaks at issue creation:
 detection works, no issue is created, so no rule can fire.
 
+> **CORRECTED session 3 (D-16): do NOT set the failure threshold — it is already 1.**
+> `REPWORTH-STAGING-8` embeds the monitor's own config:
+> `{"failure_issue_threshold": 1, "recovery_threshold": 1, "checkin_margin": 5, "max_runtime": 5}`.
+> That issue also proves the monitor CAN create issues (225 occurrences, 2026-06-26, *"A missed
+> check-in was detected"* — so a **missed** check-in does count), and lists its complete tag
+> set: `environment`, `interface_type`, `level`, `monitor.id`, `monitor.incident`,
+> `monitor.slug`. The gap is the monitor's **notification target / owner**, which
+> `recordProbeCheckIn`'s upsert cannot set — it passes only `schedule`, `checkinMargin`,
+> `timezone`, and `find_monitors` reports `owner: null` on both. **Best lead:** the only cron
+> issue this monitor ever made is tagged `environment: production` on a staging project (the
+> stale environment §2a cleans up); the `staging` environment has never made one.
+
 **Owner action, UI only** (`https://repworth-nv.sentry.io/monitors/` → `health-alert-poller`,
-staging): confirm the notification target and the issue-creating failure threshold. The panel
-reads *"Detect: One failed check-in"*, so one miss should suffice and two did not. **Repeat on
-production** — it runs the identical monitor. Then re-run: stop the worker ~12 minutes.
+staging): **verify** the failure threshold reads 1, attach a notification target/owner, and
+check the environment list for a stale `production` entry. **Repeat on production** — it runs
+the identical monitor and has never produced a cron issue either. Then re-run: stop the worker
+~12 minutes.
 
 **Why it matters most:** every other §4 signal is emitted **by** the `HealthAlertPoller`. If
 that poller dies they all stop silently, and this monitor is the only thing that would say so.

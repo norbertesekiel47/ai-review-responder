@@ -486,8 +486,26 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       rule; fixing the monitor alone cannot make the drill pass. **D-15** — `release` cannot
       clean the §4.10 headroom arm (it is scoped `status='pending'`) and reports "inventory
       clean" anyway.
-      **Still open: §4.8** (needs the monitor fix **and** a cron routing rule, both projects)
-      and **§4.7** (BLOCKED — needs a custom domain for the staging worker).
+      **§4.6's Discord delivery is owner-confirmed** — exactly one message at 11:07 PM local
+      (= 06:07Z), matching `lastTriggered`, and Discord's message grouping puts the group
+      header at 11:07 PM, which confirms the silence at 11:05:59 PM and 11:06:38 PM. §4.6
+      closes PASS on both halves.
+      **D-16 corrects §4.8's remedy.** The monitor's `failure_issue_threshold` is **already 1**
+      — read from the config snapshot embedded in `REPWORTH-STAGING-8`, the one cron issue this
+      monitor has ever made (225 occurrences, 2026-06-26). So "set the threshold" was inert
+      advice in two handoffs. That issue also proves missed check-ins DO count, and gives the
+      cron issue's complete tag set — confirming D-14 by evidence and making `monitor.slug` a
+      verified filter key. The real gap is the monitor's **notification target/owner**, which
+      `recordProbeCheckIn`'s upsert cannot set.
+      **Two owner decisions taken on best practice, 2026-09-01:** (a) **drop rule 6's
+      occurrence filter** in both projects — a detector for an open blocker must not be silent
+      on its first N occurrences, and a cumulative counter cannot express the intended rate;
+      the 60-minute throttle is the correct volume control, and a metric alert is the correct
+      instrument if a real rate condition is ever needed. (b) **a dedicated cron routing rule**
+      per project rather than widening `3608329`/`3925256`, keeping last night's scoping intact.
+      **Still open: §4.8** (needs the monitor's notification target, the cron routing rule, and
+      then a re-run — both projects) and **§4.7** (BLOCKED — needs a custom domain for the
+      staging worker).
       Previous 6-of-10 record follows.
       ~~**G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.**~~ §4.2, §4.3, §4.5,
       §4.4, §4.1 and §4.9 all pass with owner-confirmed Discord delivery. **§4.8 is a QUALIFIED
