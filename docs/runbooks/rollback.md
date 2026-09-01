@@ -113,11 +113,19 @@ To recover from a bad migration:
 3. **For bad data**, fix with a single explicit `BEGIN … COMMIT` transaction;
    account-status changes go through `writeAccountAuditLog` in the same tx
    (CLAUDE.md). Re-validate predicates with `SELECT … FOR UPDATE` before mutating.
-4. **For catastrophic data loss**, restore from Supabase backups / PITR — full
+4. **For catastrophic data loss**, restore from Supabase backups — full
    procedure (the safe clone-to-new-project drill vs. the destructive in-place
    restore, plus integrity checks) in **`pitr-restore-drill.md`**. Never run an
    in-place restore as a *test*: it rewinds and downs the named project — drill
    via *Restore to a New Project* instead.
+
+   > **Know your real RPO before you need it. There is no PITR.** Measured
+   > 2026-09-01: `pitr_enabled: false` on production and staging alike. The only
+   > recovery points are **daily physical backups on a 7-day window**, so an
+   > incident can cost **up to 24 hours of writes**. Do not go looking for a
+   > second-granularity restore in an incident — the add-on is not bought. The
+   > newest recovery point is the answer to
+   > `supabase backups list --project-ref udeyaqnvpojbwgoaxwdg -o json`.
 
 Rule of thumb: a code rollback must never require a schema rollback. If it does,
 the migration wasn't expand/contract — fix forward.
