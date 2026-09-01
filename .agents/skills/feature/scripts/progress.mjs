@@ -32,6 +32,7 @@ import {
   renderTerminal,
   repoRoot,
 } from './lib/feature-snapshot.mjs';
+import { phaseCosts, renderCostRow, renderCosts, writePhaseCosts } from './lib/phase-cost.mjs';
 
 const SIZES = ['trivial', 'small', 'standard', 'epic'];
 const RISKS = ['normal', 'high'];
@@ -45,7 +46,8 @@ const USAGE = `usage:
   progress.mjs tracers set "T1 title|T2 title|..."
   progress.mjs tracer <id> <${TRACER_STATUSES.join('|')}> [--note "..."]
   progress.mjs render
-  progress.mjs json`;
+  progress.mjs json
+  progress.mjs cost`;
 
 function fail(message) {
   console.error(message);
@@ -193,8 +195,29 @@ switch (command) {
       }
     }
 
-    save({ ...progress, steps });
+    const saved = save({ ...progress, steps });
     console.log(renderTerminal(buildSnapshot(root)));
+
+    // A closing step prints its own token bill so the cost of a phase is seen
+    // at the boundary, not reconstructed at the end. Best-effort: a missing
+    // transcript directory must never block the ladder.
+    if (status === 'done') {
+      try {
+        const report = phaseCosts(root, saved);
+        writePhaseCosts(root, report);
+        const row = report.rows.find((entry) => entry.id === id);
+        if (row) console.log(`\n cost:${renderCostRow(row)}`);
+      } catch (error) {
+        console.error(`(phase cost unavailable: ${error?.message ?? error})`);
+      }
+    }
+    break;
+  }
+
+  case 'cost': {
+    const report = phaseCosts(root, require_(load()));
+    writePhaseCosts(root, report);
+    console.log(renderCosts(report));
     break;
   }
 

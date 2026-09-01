@@ -13,11 +13,18 @@ source of truth or recreate a hierarchy between implementation and review agents
 
 ## Non-negotiable rules
 
-Read [working-rules.md](references/working-rules.md) before the first edit. It
-owns context discipline, the anti-slop rules, authority, worktree path
-discipline, and the no-bash-writes rule for BOTH lanes — this lane and the
-Claude lane (`.claude/commands/feature.md`). A rule that appears to differ
-between the two routers is a bug in one of them, never a lane difference.
+Read [working-rules.md](references/working-rules.md) § Context discipline,
+§ Authority and § Worktree path discipline before the first edit; open
+§ Anti-slop at the first edit that adds a file, a dependency, or more than
+~150 lines. It owns context discipline, the anti-slop rules, authority,
+worktree path discipline, and the no-bash-writes rule for BOTH lanes — this
+lane and the Claude lane (`.claude/commands/feature.md`). A rule that appears
+to differ between the two routers is a bug in one of them, never a lane
+difference.
+
+Load every other reference by section, at the step that cites it — never a
+whole file up front. Trivial and small lanes open only the sections named
+above.
 
 Read `AGENTS.md`, `.claude/CLAUDE.md`, `CONTEXT.md`, and the closest relevant
 project references before making architectural assumptions.
@@ -82,8 +89,10 @@ Inspect the request and likely code surface. Classify independent axes:
 
 Treat worker, webhook, migration/schema, billing, approval/autonomy, auth,
 tenant isolation, destructive data, and production-operation changes as high
-risk. Read [execution-lanes.md](references/execution-lanes.md) for lane rules,
-question budgets, TDD, and delegation.
+risk. Read [execution-lanes.md](references/execution-lanes.md) § Classification
+and § Lane behavior now; its other sections are cited by the step that needs
+them (TDD at step 3, delegation at step 4, the gate loop at step 5, the wave
+at step 6).
 
 Open the ladder as soon as the three axes are fixed:
 
@@ -309,8 +318,12 @@ concurrent reviewers, and breaking one corrupts the red-team pass.
 
 - trivial: one compact root review
 - small: one fresh spec/correctness review
-- standard: parallel spec/correctness and maintainability reviews
-- high: the standard pair plus only the applicable risk axis
+- standard: the spec/correctness review, plus the maintainability review
+  only when the measured production diff exceeds the threshold in
+  execution-lanes.md § The review wave (`git diff --numstat` from the fork
+  point, test files excluded; record the number in the report header)
+- high: spec/correctness and maintainability, plus only the applicable risk
+  axis
 
 Only a high-risk lane carries the red-team member; a normal-risk run records
 a waiver instead (execution-lanes.md § The review wave). The wave's reviewers stage their

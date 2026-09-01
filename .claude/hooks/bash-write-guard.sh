@@ -14,10 +14,24 @@
 # targets mirror the edit-surface guard: .feature/, docs/, CONTEXT.md, plus
 # /tmp and /dev.
 set -uo pipefail
+# The token loops below split the command with unquoted expansion. Without -f
+# a token such as `*` or `src/*` would glob against the cwd and be replaced by
+# file names before the guard sees it.
+set -f
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 [ -n "$COMMAND" ] || exit 0
+
+# Cheap pre-filter: every shape this guard can block carries one of these
+# substrings. A plain read (ls, grep, git log, pnpm test) exits here before
+# the session lookup and the two `git worktree list` calls. Substring match,
+# deliberately broad — a false "maybe" costs 20 ms, a false "no" is a miss.
+case "$COMMAND" in
+  *'>'*|*sed*|*tee*|*mv*|*cp*) ;;
+  *) exit 0 ;;
+esac
+
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
 # --- Arming: any registered armed worktree this session is engaged with ---
