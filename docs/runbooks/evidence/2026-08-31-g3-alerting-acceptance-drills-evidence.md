@@ -1941,3 +1941,32 @@ The monitor's `failure_issue_threshold` is 1, Sentry's own wording counts missed
 were missed on 2026-09-01, and no issue appeared. That break is untouched by this change.
 **§4.8 stays a QUALIFIED FAIL**, and the re-run — stop the worker ~12 minutes — is the only
 thing that can prove either half now.
+
+---
+
+# §4.8 RE-RUN — 2026-09-01T20:15Z
+
+**Both breaks are now addressed on the routing side.** D-14's gap is closed in both projects by
+the `Issue category is equal to outage` clause. D-16 showed the monitor's own thresholds were
+never wrong. What has **never** been observed is an issue being created at all. This run tests
+exactly that, and then whether it reaches Discord.
+
+## Re-run preflight
+
+| # | Check | Result | UTC |
+|---|---|---|---|
+| R1 | No concurrent staging work | ✅ `origin/staging` tip `5358bd82` **is** the deployed commit; deployment `7f82a1a4` SUCCESS since 04:28:57Z, nothing queued | 20:13Z |
+| R2 | Monitor baseline clean | ✅ `ok` at 20:14:07Z; **nine consecutive hours at `ok=12, error=0, missed=0`** (11:00Z–19:00Z) | 20:14Z |
+| R3 | Routing path exists | ✅ `3608329` carries `Issue category (value: 10)` since 19:12:49Z, verified by API readback | 19:13Z |
+| R4 | Trigger set can take a cron issue | ✅ `3608329` triggers include **`First seen event`** and **`Regression event`**. `REPWORTH-STAGING-8` is **resolved**, so a new failure is a *regression*, not a first-seen — and the rule holds both | 20:14Z |
+| R5 | Threshold confirmed, not assumed | ✅ Failure Tolerance **1**, *"consecutive **missed or error** check-ins"*, read in the UI (D-16) | 18:15Z |
+
+## Teardown ledger — the re-run
+
+| # | Fixture | Identifier | How to remove | State |
+|---|---|---|---|---|
+| **T14** | **§4.8 re-run** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `7f82a1a4-585e-42bd-b43f-5811272d8a44`, removed via `railway down --service repworth-worker --environment staging --project ad641d0e-… --yes` | `railway deployment redeploy --service repworth-worker --environment staging --project ad641d0e-dc01-4250-b71c-db1beedb9c8c --yes`, then confirm a clean check-in lands and the monitor returns to `ok`. **Nothing else changes** — no flag, no row, no schema | ⏳ **open — stop issued 2026-09-01T20:15Z** |
+
+> Recorded **before** the stop, per the contract. Target duration ~15 minutes, matching the
+> 2026-09-01T04:14–04:28Z run that produced `missed=2`. A miss is declared 10 minutes after its
+> expected slot (5-minute schedule + 5-minute grace), so ~15 minutes yields two.
