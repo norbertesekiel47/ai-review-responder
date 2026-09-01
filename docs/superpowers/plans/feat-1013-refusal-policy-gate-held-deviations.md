@@ -435,3 +435,66 @@ reader finds `head_sha` one documentation commit behind `HEAD`, compare
 every point where it mattered, and the agent verified it rather than assuming.
 
 **Verdict:** ACCEPT
+
+---
+
+## D12 — the staging ride proves `held_draft` only; `policy_gate_held` is deferred
+
+**Raised:** step 8, 2026-08-31. **Owner decision in session.**
+
+**What was intended.** The intake's observability section says staging must run
+with `AUTO_APPROVAL_ENABLED` on, or the ride proves only half the slice. That is
+still true.
+
+**What the `flag-flip` skill found when the flip was attempted.** Staging's
+autonomy flags are NOT in the state the ordered go-live requires (design doc
+§8.4: `TRIAGE_ENABLED` → `ESCALATION_ENABLED` → `JUDGE_ENABLED` +
+`GOVERNOR_ENABLED` → `AUTO_APPROVAL_ENABLED`):
+
+| Flag | Position | Staging |
+|---|---|---|
+| `TRIAGE_ENABLED` | 1 | **false** |
+| `ESCALATION_ENABLED` | 2 | **false** |
+| `JUDGE_ENABLED` | 3 | true |
+| `GOVERNOR_ENABLED` | 3 | **false** |
+| `AUTO_APPROVAL_ENABLED` | 4 | false |
+
+Flipping position 4 would skip two positions. The skill's rule is "never enable a
+later flag while an earlier one is off", and the coupling is real rather than
+ceremonial: with `TRIAGE_ENABLED=false`, newly ingested reviews carry null triage
+columns, BOTH triage gates pass, and the auto-approval triage veto is inert.
+`JUDGE_ENABLED=true` would still block posting — but that is the backstop, not
+the design.
+
+**Decision: do not flip.** #1013 lands on staging and smokes `held_draft`, which
+needs no autonomy flag. `policy_gate_held` ships on its live-DB evidence.
+
+**What that evidence actually is, so the gap is measured rather than waved at.**
+25 live-Postgres integration cases exercise the real write path through
+`persistResponseAndNotify`, including: the veto rule at BOTH orderings, the
+precedence winner and its category and the verbatim co-occurring set,
+`occurred_at` equality to the microsecond compared IN the database, a review with
+no spine run, four atomicity cases, the kill switch, and the rethrow oracle. Red
+team mutation-tested that surface and killed 27 of 37.
+
+**What is NOT proven, stated plainly:** that the lane writes correctly under REAL
+Zernio ingest with a real auto-approval policy on a real account. Every unit of
+that path is proven; their composition under live ingest is not.
+
+**When it gets proven:** at the ordered Autopilot go-live, when
+`AUTO_APPROVAL_ENABLED` is turned on for real in staging behind the three earlier
+flags. That flip already owes a smoke; this lane joins it. Named in the PR body
+so a reviewer sees the gap rather than infers coverage.
+
+**Rejected alternative — flip only `AUTO_APPROVAL_ENABLED` and revert after.**
+It would have exercised the lane in one step. Rejected because the ordering rule
+exists to keep staging a faithful rehearsal of the production sequence, and
+because a slice's ride is the wrong reason to perform the staging half of a
+go-live.
+
+**A second finding, not this branch's:** staging already sits out of order —
+`JUDGE_ENABLED=true` with `GOVERNOR_ENABLED=false`, when `env-vars.md` says
+enable them together after migration 076 and the suspension drill. Reported to
+the owner; not touched here.
+
+**Verdict:** ACCEPT
