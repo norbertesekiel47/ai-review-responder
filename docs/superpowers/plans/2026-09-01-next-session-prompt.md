@@ -8,7 +8,8 @@
 ---
 
 Continue the RepWorth beta launch. **Phase H is the only item left before beta tester one — and
-it cannot start yet.** The last session ended at 2026-09-01T22:45Z with `main` at `e4338f1c`.
+it cannot start yet.** The last session ended at 2026-09-01T22:45Z. Do not trust any SHA quoted in
+a handoff — other sessions merge to `main` in parallel, and two did on 2026-09-01. Pull first.
 
 Start by reading these, in order:
 
