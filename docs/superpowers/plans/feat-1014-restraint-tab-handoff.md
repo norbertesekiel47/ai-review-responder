@@ -15,12 +15,32 @@ row is a pointer.
 | Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1014-restraint-tab` |
 | Branch | `feat/1014-restraint-tab` |
 | Fork point | `23facb7bf2371023e748a4918599299149c23b2f` (= `origin/main`, 0 behind at plan time) |
-| HEAD at this handoff | `56fbe932a03860efdfe0c42d9779994098530e97` |
+| HEAD at this handoff | `029cbd08` (round-1 fixes) |
 | Classification | `size=standard · risk=high · surface=ui` |
-| Phase | `worktree_ready` → step 3 (plan gate in flight) |
+| Phase | `worktree_ready` → step 3 (round 2 verification in flight) |
 | Ladder | `.feature/progress.json` — 8 tracers registered, 0 done |
 | Amendments used | 1 of 2 |
-| Plan review rounds | 1 of 3 |
+| Plan review rounds | **2 of 3** |
+| Intake shape | 56 tests · 15 invariants · 19 edge cases · 21 surface entries |
+
+### Plan round 1 — `REVISE`, 9 findings, all verified, all accepted
+
+Full table with per-finding evidence: the plan's **Review appendix — plan
+round 1**. Two outcomes a resumed session must not re-litigate:
+
+- **Finding 4 was a design error, not a missing test** (deviations **D4**). The
+  first plan keyed link authority on the **Refusal category**, which does not
+  carry the lane. Two lanes share `unsafe_content` and both carry a response
+  subject. Links now come from a server-resolved `linkKind`; `CATEGORY_COPY` has
+  no `link` column so the mistake is not re-expressible.
+- **Finding 5 fixes a pre-existing shared-module bug** (deviations **D5**).
+  `DashboardStatePanel.tsx:61` gated `showError` on `hasData`. The fix reaches
+  `/dashboard/analytics` and `/dashboard/reviews`; `blast-radius.sh` must list
+  both and step 7 must look at both.
+
+Round 2 is verification-only: it checks whether its OWN nine findings closed and
+whether a fix regressed anything. It may not open new fronts. Its output lands
+in `.feature/plan-review-r2.md`; the prompt is `.feature/plan-review-r2-prompt.md`.
 
 **Authoritative state lives on disk, never in a summary.** Re-read
 `.feature/state.json`, `.feature/progress.json` and `.feature/gate-status.json`
@@ -68,10 +88,14 @@ Their reasoning is in the intake and in `CONTEXT.md`; only the outcome is here.
 
 Round 1 output lands in `.feature/plan-review-r1.md`.
 
-**A verification round resumes that id and never starts fresh:**
+**A verification round resumes that id and never starts fresh.** `resume` takes
+`[SESSION_ID] [PROMPT]` and inherits the resumed session's sandbox and cwd — it
+REJECTS `--sandbox` and `-C`, which is how the first round-2 attempt failed. Put
+the prompt on stdin:
 
 ```bash
-codex exec resume 01a05eee-b142-7410-a022-6e3dca104ea7 "<the findings-and-fixes delta>"
+cat .feature/plan-review-r2-prompt.md \
+  | codex exec resume 01a05eee-b142-7410-a022-6e3dca104ea7 - > .feature/plan-review-r2.md 2>&1
 ```
 
 Ask first whether a round is owed at all:
