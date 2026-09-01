@@ -860,6 +860,100 @@ cheap now that the fixture is understood.
 > one.** That deploy also carried the restored `GLOBAL_DAILY_COST_LIMIT_CENTS=200`, completing
 > T8 — confirmed at runtime.
 
+## The Sentry configuration work — rule 6 built, `3608329` scoped, two of my own claims corrected
+
+**Done in the Sentry UI via the browser, 2026-09-01T05:05–05:35Z.** The MCP has read tools for
+alert rules (`find_alert_rules`, `get_alert_rule`) and **no create or update tool** — re-tested
+against the catalog, not assumed from the earlier note. Every change below is verified by
+**API readback**, never by the UI's own confirmation.
+
+### Rule 6 now exists in BOTH projects
+
+| | Staging | Production |
+|---|---|---|
+| Rule | **`3927243`** `solicitation-unattributed-suppression → discord` | **`3927261`** `Prod — solicitation-unattributed-suppression → discord` |
+| Triggers | `Every event` — **the only one** | `Every event` — **the only one** |
+| Filters (logic **`all`**) | `Issue occurrences ≥ 4` **AND** `Tagged event feature eq solicitation_lane` | identical |
+| Action | Discord `443670` → `1517968864724385822` | Discord `443670` → `1544045194264051842` |
+| Throttle | 60 min | 60 min |
+
+**This is §4.6's assertion expressed as configuration.** POSTs 1–3 fire the trigger and fail
+the `≥ 4` filter, so nothing pages; POST 4 passes both. The four default state-change triggers
+were **deliberately removed** — leaving `First seen event` would have paged on POST #1 and
+made the drill unpassable regardless of the frequency filter.
+
+**D-3's production half is closed**, and closed *before* solicitation sending is ever enabled
+in production, which is the right order.
+
+### `3608329` scoped
+
+```
+Triggers      : First seen · Reappeared · Resolved · Regression · Every event   (all 5 intact)
+Action Filters: logic ANY
+                subsystem  eq  health_alert
+                cost_event eq  limit_exceeded
+                feature    eq  stripe_reconciliation
+                subsystem  eq  import_consent_analytics
+Actions       : Email + Discord 1517968864724385822                             (unchanged)
+```
+
+Nothing was removed. D-2's `Every event` trigger survives; what went is the `Any event`
+catch-all **filter** that made the rule page on every issue in the project. Staging now
+matches production's posture. The costs recorded in advance under D-3 are now live:
+`subsystem:refusal_ledger` and `subsystem:autonomy_governor` no longer page on staging, and
+still have no rule in either project.
+
+### D-8 — CORRECTION. The frequency capability exists. I said it did not.
+
+**What I claimed mid-session:** that Sentry's trigger list offers no frequency condition, that
+the whole class was gone, and therefore that **rule 6 was unbuildable** and §4.6 permanently
+unsatisfiable.
+
+**That was wrong.** The capability moved from the **trigger** section to the **filter**
+section. It is listed as **"Issue frequency"** under *Filter by issue attributes* and stores
+as `Issue occurrences`. I opened the trigger dropdown, did not find it, and generalised from
+one place to the whole product.
+
+**D-2's account carries the same gap and should be read with this correction.** D-2 concluded
+there was *"no 'seen more than 0 times in one hour' option"* and settled for `Every event` plus
+a throttle. That fix is **not wrong** — repeats do now page, which was its purpose — but the
+reason given for it is incomplete, and left unchallenged it would have written off rules 4 and
+5 the same way. **Rules 4 and 5 are buildable.** Rule 5 stays superseded on its own merits
+(the owner's decision, because `Every event` already supplies the repeat on
+`subsystem:health_alert`), not because Sentry cannot express it.
+
+General lesson: **a capability that has moved looks exactly like a capability that has been
+removed, from inside the place it used to be.** Before concluding a product cannot do
+something, check the adjacent surface.
+
+### D-9 — CORRECTION to §4.8's evidence. My query was wrong; the finding is stronger.
+
+**What I reported:** two missed check-ins produced no Sentry issue, established by
+`search_issues` with `monitor.slug:health-alert-poller`, which returned nothing.
+
+**The query was invalid.** `search_issues` defaults to `is:unresolved`. A cron-failure issue
+for this monitor **does exist** — *"Cron failure: health-alert-poller: Your monitor is failing:
+A missed check-in was detected"* — and is **`resolved`**, last seen two months ago. It was
+invisible to my query by construction.
+
+**Re-checked properly and the finding survives, on better evidence:**
+
+- The monitor's own detail panel states the thresholds outright: **"Detect: One failed
+  check-in. Resolve: One successful check-in."** So **one** miss should raise an issue. There
+  were **two**.
+- `detector:7655183` over 24 h **with no status filter at all** returns **"No issues match your
+  search"**. Nothing was created, and the resolved issue did not regress.
+- Nine consecutive clean hours precede the stop (`ok=12`/`13`, `missed=0` every hour), so both
+  misses are attributable to it.
+
+So §4.8's verdict is unchanged — **the dead-man switch detects and pages nobody** — and the
+earlier caveat *"two misses may simply be below the threshold"* is now **retired**: the
+threshold is documented in the UI as one.
+
+General lesson, and it is the same shape as D-5: **a search tool's default filter is part of
+the query.** `is:unresolved` is applied silently, and an absence it produces is not evidence of
+absence.
+
 ## Teardown ledger
 
 **Three fixtures, all created 2026-08-31T21:08Z for §4.2 and §4.3.** Rows written to this
@@ -934,7 +1028,7 @@ these findings join the **same pre-existing Sentry groups** that stayed silent a
 | §4.9 Backlog over threshold | open | Not attempted |
 | §4.10 Capacity burst headroom | open | Not attempted |
 
-**6 of 10 pass** (§4.2, §4.3, §4.5 fully; §4.4, §4.1, §4.9 pending only the owner's Discord confirmation). **1 qualified fail** (§4.8 — detects, does not page). **2 blocked** (§4.6 on rule 6, §4.7 on D-6). **1 unattempted** (§4.10). G.3 is **not** complete.
+**6 of 10 pass, all Discord-confirmed.** **1 qualified fail** (§4.8 — detects, does not page). **1 unblocked tonight and not yet run** (§4.6). **1 blocked** (§4.7, D-6). **1 unattempted** (§4.10). G.3 is **not** complete.
 
 ---
 
@@ -975,3 +1069,63 @@ drills that directly assert repeat-notification behaviour, so they re-test D-2 f
 angle. Then §4.4, §4.9, §4.10, and §4.1+§4.7 as a merged pair.
 
 **UTC end (this session's portion): 2026-08-31T21:39Z.**
+
+---
+
+# Session 2 verdict — 2026-09-01T05:47Z
+
+**PARTIAL PASS, and the campaign's value is again the deviations rather than the drill count.**
+
+## Drill state: 6 of 10 pass
+
+| Drill | Verdict |
+|---|---|
+| §4.2 Failed publish | ✅ PASS (session 1) |
+| §4.3 Zero-delivery | ✅ PASS (session 1) |
+| §4.5 Send-breaker re-page | ✅ **PASS** — 2 pages 65 min apart across 13 emissions, Discord-confirmed |
+| §4.4 Cost-cap | ✅ **PASS** — terminal at 1/5 attempts, zero provider spend, Discord-confirmed 8:58 PM |
+| §4.1 Stuck outbox | ✅ **PASS** — `1961s old (> 900s)`, Discord-confirmed 9:08 PM. **Declared unrunnable by D-1; it was not** |
+| §4.9 Backlog depth | ✅ **PASS** — `2350 (> 1500)`, fires **and clears**, Discord-confirmed 9:07 PM |
+| §4.8 Probe stopped | ⚠️ **QUALIFIED FAIL** — detects, pages nobody (D-9) |
+| §4.6 Unattributed suppression | 🔓 **UNBLOCKED tonight** — rule 6 now exists in both projects. Not yet run |
+| §4.7 Killed worker | ❌ **BLOCKED** — D-6, infrastructural |
+| §4.10 Capacity headroom | ⏳ not attempted |
+
+## Deviations D-5 … D-9
+
+| # | Finding |
+|---|---|
+| **D-5** | Staging sat behind a Vercel SSO wall. A `302` was read as a login redirect without following it — pass and fail shared a status code |
+| **D-6** | §4.7 cannot run on staging: Sentry refuses `*.railway.app` (platform cap, 1000 monitors). Production is monitorable only via its custom domain |
+| **D-7** | D-1's own remedy was wrong. It compared the loops' *cadences*; the deciding fact was their *phase* |
+| **D-8** | **My correction.** The frequency capability exists — it moved from trigger to filter. Rule 6 was buildable all along |
+| **D-9** | **My correction.** `search_issues` defaults to `is:unresolved`; my §4.8 query was invalid. The finding survives on better evidence |
+
+**Three of five are corrections to this campaign's own earlier conclusions**, two of them to
+claims I made in this session. That is the honest headline: the drills mostly passed, and the
+reasoning around them needed more repair than the system did.
+
+## Production changes made tonight
+
+1. **Rule 6 created** (`3927261`) — closes D-3's live gap before solicitation sending is enabled.
+2. Nothing else. No production flag, schema, data or deploy change.
+
+## Staging changes
+
+Rule 6 (`3927243`), `3608329` scoped, and **teardown complete**: T7–T11 all closed and verified
+by query. `job_outbox` back to the demo's own 5 rows, zero failed, zero pending, breaker closed,
+`GLOBAL_DAILY_COST_LIMIT_CENTS` restored to `200` and confirmed at runtime.
+
+## Owed, carried forward
+
+- **§4.6** — runnable now. Probe script written; the four POSTs leave one permanent
+  `solicitation_suppressions` row by design.
+- **§4.10** — 30-minute headroom drill, unattempted.
+- **§4.7** — needs `worker-staging.repworth.net` before it can ever run.
+- **§4.8** — re-run after the cron monitor's notification target is set.
+- **Two §1 signals still have no rule in either project**: `subsystem:refusal_ledger`,
+  `subsystem:autonomy_governor`.
+- **Runbook**: §1a-do should record that "Issue frequency" is a **filter**, so rules 4 and 5 are
+  not written off as unbuildable.
+
+**UTC end (session 2): 2026-09-01T05:47Z.**

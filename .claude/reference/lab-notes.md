@@ -4367,3 +4367,75 @@ Two things worth copying:
   repeat. After it, it means the throttle is holding the page — which is the intended
   posture. An observation is not a diagnosis; read it against the configuration that
   produced it.
+
+## 2026-09-01 — WS8 G.3 session 2: four drills pass, and three of five deviations correct the campaign itself
+
+### [2026-09-01] A capability that MOVED looks exactly like one that was REMOVED, from inside the place it used to be
+FAIL → Mid-session I told the owner Sentry's frequency condition "no longer exists in this UI",
+that the whole class was gone, and therefore that **rule 6 was unbuildable** and drill §4.6
+permanently unsatisfiable. I had opened the WHEN/trigger dropdown, read its five options, and
+scrolled to confirm the list was complete.
+
+WHY → the list *was* complete. The frequency condition is not a trigger any more. It sits in
+the **IF/filter** section as **"Issue frequency"** (stored as `Issue occurrences`), one dropdown
+lower on the same form. The evidence for "it is gone" and the evidence for "it moved" are
+identical when you only look where it used to be.
+
+CORRECT → rule 6 is buildable exactly as specified: `Every event` as the sole trigger, gated by
+an **`all`** filter of `Issue occurrences ≥ 4` AND `Tagged event feature eq solicitation_lane`.
+POSTs 1-3 fire the trigger and fail the filter; POST 4 passes both — which is §4.6's assertion
+expressed as configuration. Built in both projects and verified by API readback.
+
+**This also amends D-2 (2026-08-31), which is the part worth carrying.** D-2 concluded there was
+"no seen-more-than-0-times option" and settled for `Every event` + a 60-minute throttle. That fix
+is not wrong — repeats page now, which was the point — but its *reason* is incomplete, and left
+standing it would have written off runbook rules 4 and 5 as unbuildable too. They are buildable.
+Rule 5 remains superseded on its own merits, not on Sentry's limitations.
+
+General lesson: **before concluding a product cannot do something, check the adjacent surface.**
+An exhaustive read of one menu proves that menu is exhaustive, nothing more.
+
+### [2026-09-01] A search tool's DEFAULT FILTER is part of the query → an absence it produces is not evidence of absence
+FAIL → §4.8 stopped the staging worker and the cron monitor recorded two missed check-ins. I
+reported that no Sentry issue was created, citing `search_issues` with
+`monitor.slug:health-alert-poller`, which returned nothing — and citing it twice, believing the
+monitor-scoped form was the rigorous version of the earlier text search.
+
+WHY → `search_issues` defaults to `is:unresolved`. A cron-failure issue for that monitor **does
+exist** — *"Your monitor is failing: A missed check-in was detected"* — and is **resolved**, last
+seen two months ago. It was invisible to both queries by construction, not by absence.
+
+CORRECT → re-check with the status filter removed. `detector:7655183` over 24 h with no
+`is:` term still returns "No issues match your search", and the monitor's own panel states the
+thresholds outright: **"Detect: One failed check-in."** So one miss should raise an issue and two
+did not. **The finding survives and is stronger** — the earlier hedge "two misses may simply be
+below the threshold" is retired, because the threshold is documented as one.
+
+Same shape as the Vercel SSO miss the day before (**D-5**), where a `302` was recorded as a login
+redirect without following it: in both, the tool answered a narrower question than the one being
+asked, and the narrowing was invisible in the output.
+
+General lesson: **when a query returns nothing, print the query the tool actually ran before
+believing the nothing.** Defaults that are convenient in a UI are silent premises in an API.
+
+### [2026-09-01] The drill declared unrunnable was runnable — the fixture shape was wrong, not the alert
+FAIL → D-1 (2026-08-31) declared §4.1 "stuck outbox" unrunnable: `checkOldestPendingOutbox` and
+the `OutboxPoller` share a predicate, and the dispatcher runs 60x faster, so a single aged row is
+always claimed first. D-1 then proposed folding §4.1 into the worker-stop drill.
+
+WHY THE REMEDY ALSO FAILED (**D-7**) → checked against the boot logs before running it.
+`OutboxPoller` starts within ~1s of boot and claims on a 5s cadence; `HealthAlertPoller` does
+**not** run a cycle at boot — its first is a full interval later (boot 21:01:44Z, first cycle
+21:06:50Z). A restart therefore makes the race *worse* by about five minutes. D-1 compared the
+two loops' **cadences**; the deciding fact was their **phase**.
+
+CORRECT → the alert reads `MIN(available_at)` across **all** claimable pending rows, so the
+honest fixture is a backlog the dispatcher cannot drain within one interval — which is also
+exactly what the alert means ("dispatch backed up"). 4000 past-dated claimable rows put both
+`outbox_pending_age` and `backlog_depth` over threshold in a single cycle: three findings at
+04:07:36Z, `Oldest claimable outbox row is 1961s old (> 900s)` among them, Discord-confirmed.
+§4.1 therefore folds into **§4.9**, not §4.7.
+
+General lesson: **"this alert cannot be exercised" is almost always "this FIXTURE cannot exercise
+it".** Before recording a drill as impossible, ask what state the alert is actually reading and
+whether a different-shaped fixture produces it.

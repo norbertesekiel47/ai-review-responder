@@ -467,8 +467,25 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       **Until then, treat production as unmonitored by Sentry crons and uptime.**
       Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
       `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
-- [ ] **G3. IN PROGRESS 2026-08-31 — 2 of 10 drills PASS, after they found and fixed a
-      PRODUCTION alerting defect.** ⚠️ **A recurring ops finding pages nobody.** §4.2 and §4.3 both
+- [ ] **G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.** §4.2, §4.3, §4.5,
+      §4.4, §4.1 and §4.9 all pass with owner-confirmed Discord delivery. **§4.8 is a QUALIFIED
+      FAIL** — the cron dead-man switch detects a stopped worker (2 missed check-ins, `ok` →
+      `error`) and **creates no issue, so pages nobody**; its panel says the threshold is one
+      failed check-in, so this is a real gap and production runs the identical monitor. **§4.6
+      is unblocked but not yet run** — rule 6 was created in BOTH projects on 2026-09-01
+      (`3927243` staging, `3927261` production), closing D-3's live production gap before
+      solicitation sending is ever enabled there; staging's catch-all `3608329` was scoped to
+      the same four tag filters production carries. **§4.7 is BLOCKED infrastructurally (D-6)**
+      — Sentry refuses `*.railway.app` (platform-wide cap of 1000 uptime monitors), so staging
+      has no worker uptime monitor and cannot get one until the worker has a custom domain.
+      **§4.10 unattempted.** Two of the five session-2 deviations are corrections to my own
+      earlier claims (D-8 frequency-condition location, D-9 an invalid `is:unresolved` query),
+      and D-7 corrects D-1: §4.1 was **not** unrunnable — it folds into §4.9, not §4.7, and now
+      passes. Teardown complete, staging clean. Evidence:
+      `docs/runbooks/evidence/2026-08-31-g3-alerting-acceptance-drills-evidence.md`.
+      Original 2 of 10 record follows.
+      ~~**G3. IN PROGRESS 2026-08-31 — 2 of 10 drills PASS, after they found and fixed a
+      PRODUCTION alerting defect.**~~ ⚠️ **A recurring ops finding pages nobody.** §4.2 and §4.3 both
       fired correctly and both reached Sentry; **neither produced a page**. Cause is issue
       GROUPING: `emitHealthFindings` uses `Sentry.captureMessage`, so a repeat finding joins
       its existing group, and **both** alert rules trigger only on *First seen / Resolved /

@@ -229,7 +229,30 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > `subsystem:import_consent_analytics`, specified as *frequency*-conditioned, currently
 > shares a first-seen-plus-`Every event` rule. Split it if it proves noisy.
 >
-> **Rule 5 is SUPERSEDED, by owner decision 2026-08-31T22:33Z.** Its whole purpose was
+> **⚠️ CORRECTION 2026-09-01 (G.3 D-8) — the frequency condition EXISTS. Read this before
+> concluding any rule here is unbuildable.** It is no longer a **trigger**; it is a **filter**.
+> In the Alert Builder it appears as **"Issue frequency"** under *Filter by issue attributes*
+> and stores as `Issue occurrences`. An earlier session looked only in the trigger dropdown,
+> found five state-change options, and concluded the whole class had been removed — which would
+> have written off rules 4, 5 and 6 as impossible. **Rules 4, 5 and 6 are all buildable.**
+>
+> **The shape that works**, proven by rules `3927243` (staging) and `3927261` (production):
+>
+> | Section | Value |
+> |---|---|
+> | **WHEN** | `An event or issue activity is captured` — **the only trigger** |
+> | **IF** | logic **`all`** · `Issue occurrences ≥ N` **AND** `Tagged event <key> eq <value>` |
+> | **THEN** | Discord → the environment's channel ID |
+> | Throttle | 60 minutes |
+>
+> **Delete the four default state-change triggers.** A new rule ships with *A new issue is
+> created / resolved / escalates / regresses* pre-populated, and leaving `First seen event` in
+> place makes the rule fire on occurrence **one** — defeating the frequency filter entirely and
+> making §4.6 unpassable no matter what the filter says. Note "at least N" means
+> "more than N−1": for *"more than 3 in one hour"*, set **4**.
+>
+> **Rule 5 is SUPERSEDED, by owner decision 2026-08-31T22:33Z** — on its own merits, NOT because
+> Sentry cannot express it. Its whole purpose was
 > the *repeat* page on an open breaker. D-2's fix supplies that on every rule via the
 > `Every event` trigger, and the breaker finding carries `subsystem:health_alert`, which
 > both surviving rules filter on. Building rule 5 now would deliver a **second** Discord
@@ -522,6 +545,18 @@ precondition below.
   worker interruption instead of two.
 - [ ] **Probe stopped** — stop just the poll loop (or block check-in emission);
   expect the Sentry Cron monitor to page on the missed check-in.
+  ⚠️ **This FAILED on 2026-09-01 (G.3, D-9) and the drill needs a precondition.** The monitor
+  **detects** correctly — two missed check-ins, environment `ok` → `error`, against nine
+  consecutive clean hours — but **no Sentry issue is created**, so no alert rule can fire and
+  nobody is paged. The monitor's own panel states **"Detect: One failed check-in"**, so one miss
+  should have been enough. **Before running this drill, open the monitor in the UI and confirm
+  it has a notification target and an issue-creating failure threshold**; the API does not
+  expose either field. Verify an absence with `detector:<id>` and **no** `is:` term —
+  `search_issues` defaults to `is:unresolved` and will hide a resolved issue, which is how the
+  first run mis-reported this.
+  **Why it outranks the other drills:** this monitor is the dead-man switch for the whole
+  `HealthAlertPoller`. Every other §4 signal is emitted BY that poller, so if it dies they all
+  stop silently and this is the only thing that would say so.
 - [ ] **Backlog depth over threshold (the drill's over-threshold arm)** — via
   `scripts/burst-drill-load.ts inject --events ~1600 --available-in-min <K≥15>`,
   hold `job_outbox` pending `> HEALTH_ALERT_BACKLOG_DEPTH_THRESHOLD` (default
