@@ -10,6 +10,15 @@
  * missing, self-inconsistent, or STALE red-team report fails a phase change
  * rather than being noticed later.
  *
+ * THE REQUIREMENT IS RISK-SCOPED (2026-08-31). A feature-lane run whose
+ * signed-off intake declares `risk: high` requires the sidecar; absence is
+ * failure. A `risk: normal` run may omit the pass — absence records a WAIVED
+ * pass instead, derived ONLY from `.feature/intake.json` (missing, unreadable,
+ * or risk-less intakes fail closed). A sidecar that exists is always validated
+ * in full, whatever the risk. Rationale: the review wave's cost must scale
+ * with failure impact, and the repository's deterministic gate plus the review
+ * axes remain the normal-risk safety layer.
+ *
  * IT NEVER TRUSTS THE SIDECAR'S OWN SUMMARY. `status` and `counts` are
  * RECOMPUTED from the deduped inventory rows and finding dispositions, then
  * compared against what the file claims. A sidecar that says `CLEAR` while its
@@ -573,13 +582,50 @@ function main(argv) {
   const reportPath = join(reportDir, 'findings.md');
 
   if (!existsSync(join(root, sidecarPath))) {
+    // The risk-scoped waiver (2026-08-31). A feature-lane run requires the
+    // sidecar when the SIGNED-OFF intake declares `risk: high`. A normal-risk
+    // run may omit the pass: the deterministic gate plus the review axes are
+    // its safety layer, and this branch records the waiver instead. The waiver
+    // fails CLOSED — it derives risk only from `.feature/intake.json` (the
+    // locked contract the user signed off at intake; the schema stays strict
+    // and closed, so no new field exists to abuse), and a missing, unreadable,
+    // or risk-less intake is failure, never a waiver. A sidecar that EXISTS is
+    // always validated in full further down, regardless of risk.
+    if (parsed.mode === 'feature') {
+      const waiverIntakePath = join(root, '.feature', 'intake.json');
+      let waiverRisk = null;
+      let waiverProblem = 'missing .feature/intake.json';
+      if (existsSync(waiverIntakePath)) {
+        try {
+          waiverRisk = normalizeRisk(JSON.parse(readFileSync(waiverIntakePath, 'utf8')));
+          waiverProblem = waiverRisk === null
+            ? 'the intake declares neither `risk` nor `classification`'
+            : null;
+        } catch {
+          waiverProblem = '.feature/intake.json is not valid JSON';
+        }
+      }
+      if (waiverRisk === 'normal') {
+        console.log(
+          `red-team-status: WAIVED — no red-team sidecar at ${sidecarPath}; the signed-off `
+          + 'intake declares risk normal, and the red-team pass is required only for risk high. '
+          + 'A sidecar that exists is always validated in full.',
+        );
+        process.exit(0);
+      }
+      fail([
+        `no red-team sidecar at ${sidecarPath}`,
+        waiverRisk === 'high'
+          ? 'the signed-off intake declares risk high — a high-risk feature-lane run requires '
+            + 'the red-team pass, and absence is failure'
+          : `cannot derive a normal-risk waiver (${waiverProblem}) — the waiver fails closed, `
+            + 'so absence is failure',
+      ]);
+    }
     fail([
       `no red-team sidecar at ${sidecarPath}`,
-      parsed.mode === 'feature'
-        ? 'a feature-lane run requires the sidecar UNCONDITIONALLY — absence is failure, and no '
-          + 'intake field can waive it (the intake schema is strict and closed)'
-        : 'a standalone run writes its report to that path — absence means the pass did not '
-          + 'complete, or --issue/--head do not name the run being checked',
+      'a standalone run writes its report to that path — absence means the pass did not '
+        + 'complete, or --issue/--head do not name the run being checked',
     ]);
   }
   if (!existsSync(join(root, reportPath))) {
