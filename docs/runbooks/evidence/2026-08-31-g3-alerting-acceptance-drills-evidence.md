@@ -588,6 +588,188 @@ CORRECT → before inferring a flag from a status code, confirm the response act
 the handler you reasoned about. A middleware/proxy matcher that catches everything makes every
 such inference worthless.
 
+### D-6 (2026-09-01T04:05Z) — §4.7 cannot run on staging: the worker has no monitorable domain
+
+**§4.7 says:** stop the worker process; expect the external `/ready` check to page.
+
+**There is no such check on staging.** Every uptime monitor in the org, read back from the API:
+
+| Monitor | Project | Target | Interval |
+|---|---|---|---|
+| `7669160` | `repworth-staging` | `https://staging.repworth.net` — **the Vercel UI** | 60 s |
+| `8341697` | `repworth-production` | `https://worker.repworth.net/ready` | 300 s |
+| `8341701` | `repworth-production` | `https://repworth.net/api/health` | 300 s |
+
+Stopping the staging **worker** does not touch `staging.repworth.net`, which is served by Vercel.
+So the drill's assertion has nothing to assert against.
+
+**Attempting to create the missing monitor produced the root cause**, which is better than the
+symptom. Sentry rejected it outright:
+
+> `The domain *.railway.app has already been used in 1000 uptime monitoring alerts, which is
+> the limit. You cannot create any additional alerts for this domain.`
+
+That is a **platform-wide cap on the shared Railway domain**, across all Sentry customers — not
+a quota on this account. Production is monitorable only because its worker sits behind the
+**custom domain** `worker.repworth.net` (added in Phase A). The staging worker has only
+`repworth-worker-staging.up.railway.app`.
+
+**So the gap is infrastructural, not an oversight**, and it has a precise remedy: give the
+staging worker a custom domain (e.g. `worker-staging.repworth.net`), then create the monitor.
+That is DNS work and outward-facing; it is recorded as owed rather than done inside a drill.
+
+**Disposition: §4.7 BLOCKED on staging.** Note what is and is not proven:
+
+- The **production** worker `/ready` monitor exists and is `active`/`ok` (`8341697`), so the
+  capability the drill exists to verify is in place where it actually matters.
+- What stays unproven is the **staging** rehearsal of it. §4 forbids stopping the production
+  worker, so this drill has no environment in which it is both runnable and permitted.
+
+⚠️ **A second observation, recorded because it weakens the one staging monitor that does
+exist.** `7669160` targets `https://staging.repworth.net`, which — with Vercel Authentication
+re-enabled — answers **302 to `vercel.com/sso-api`**. The monitor reported `uptimeStatus: ok`
+in that state. A monitor that treats an auth-wall redirect as success cannot distinguish "the
+app is healthy" from "the app is unreachable behind a redirect". Worth an assertion on status
+code or body before it is trusted as a staging liveness signal.
+
+### D-7 (2026-09-01T04:08Z) — D-1's own remedy does not work either. §4.1 belongs with §4.9, not §4.7.
+
+D-1 proposed folding §4.1 into the worker-stop drill: stop the worker, insert the aged
+`pending` row, restart, and catch `outbox_pending_age` on the first cycle. **Checked against
+the boot logs before running it, and it fails for the same reason the original did.**
+
+| Loop | When it first runs after boot | Cadence |
+|---|---|---|
+| `OutboxPoller` | **immediately** — `Starting` at boot +~1 s, first claim within 5 s | 5 s |
+| `HealthAlertPoller` | **one full interval later** — boot 21:01:44Z, first cycle **21:06:50Z** | 300 s |
+
+The health poller does **not** run a cycle at boot. So on restart the dispatcher claims the
+aged row roughly **five minutes** before the alert can read it — a wider margin than the
+original race, not a narrower one. Stopping the worker changes *when* the row is claimed, not
+*who* claims it first.
+
+**CORRECT → the only honest `outbox_pending_age` fixture is a backlog the dispatcher cannot
+drain.** The alert reads the OLDEST pending row against a 900 s threshold; with a single row,
+any running dispatcher removes it. With a backlog large enough that the 50-row batch at 5 s
+cannot keep pace, the oldest row keeps ageing while the poller works, and crosses 900 s with
+the system fully healthy — which is also the honest meaning of the alert: *dispatch is backed
+up*.
+
+**Disposition: §4.1 folds into §4.9 (backlog), NOT §4.7 (worker stop).** This supersedes D-1's
+reordering, which was proposed in good faith on a plausible reading of the cadences and is
+wrong. The runbook edit made earlier in this campaign — which put the stuck-outbox fixture
+inside the killed-worker drill — must be re-corrected.
+
+**General lesson, and it is the same one twice.** D-1 diagnosed a race by comparing two
+*cadences* (5 s vs 300 s). The remedy failed because the deciding fact was not the cadence but
+the **phase** — whether each loop runs at boot or waits an interval. When a fix turns on
+timing, check the start-up behaviour, not only the steady-state period.
+
+## §4.4 — Cost-cap hit. PASS on the finding; Discord confirmation owed.
+
+**Flag flip (T8), recorded before it was made:** `GLOBAL_DAILY_COST_LIMIT_CENTS` on the Railway
+**staging** worker, pre-flip **`200`** → **`1`**. Read back at runtime, never from config, and
+without dumping any other variable:
+
+```
+railway run --service repworth-worker --environment staging \
+  -- node -e "console.log('GLOBAL_DAILY_COST_LIMIT_CENTS=' + process.env.GLOBAL_DAILY_COST_LIMIT_CENTS)"
+```
+
+**Vercel deliberately NOT flipped.** The variable is read by `src/lib/costs/tracker.ts` (the
+worker's enforcement path) and by `src/lib/admin/cost-report-service.ts` (an admin display).
+Only the worker path is under test; flipping Vercel would have changed an admin figure and
+tested nothing.
+
+**Trap 2 earned its keep, visibly.** Two deployments landed minutes apart:
+
+| Deployment | Created | Status | Carries the flip? |
+|---|---|---|---|
+| `f373c530` | 03:52:58Z | SUCCESS 03:54:52Z | **No** — an auto-deploy from the `staging` branch re-sync to `main` (`914a797a`), landing *before* the variable write |
+| `09b7e0a5` | 03:55:49Z | SUCCESS 03:57:35Z | **Yes** — the explicit `redeploy --from-source` |
+
+Had the drill trusted the first deploy — which reported healthy, with a fresh uptime — it would
+have run against the **old** 200-cent cap and drawn a false conclusion from a real-looking
+result. Boot confirmed as the worker, not the UI: all pollers `Starting`, `readiness cure
+complete`, and a poller cycle in the same log.
+
+**Fixture (T9).** One `generate_response` row on the **`on_demand_generate`** lane — chosen
+because that lane and `suppress_notification=true` **independently** exclude the draft from
+auto-approval (invariant #3), so the fixture cannot post publicly under any flag state.
+
+**Result, from the outbox row itself:**
+
+```
+status: failed   attempts: 1 / 5   completion_reason: null
+last_error: "Global daily cost limit exceeded"
+dispatched 03:58:20.811Z → failed 03:58:21.281Z   (470 ms)
+```
+
+| Assertion | Evidence |
+|---|---|
+| The cap fires on the **global** scope | `last_error` is the global message, not the per-account one |
+| It is **terminal**, not retried | `attempts: 1` of `max_attempts: 5`. Budget-exceeded is TERMINAL by design; a retry here would burn the cap again for nothing |
+| **No provider spend** | The 15¢ pessimistic reserve is taken *before* the LLM call, so the completion was never requested. The drill costs nothing |
+| Reaches Sentry | `REPWORTH-STAGING-17`, `Cost cap exhausted — draft dropped for business 01a05ac6-…`, tagged `cost_event:limit_exceeded`, 03:58:21Z |
+| Rule fires | `3608329` `lastTriggered` 23:37:07Z → **03:58:40.761Z**, 19 s after the event |
+| **Pages Discord** | ⏳ owner confirmation owed |
+
+**Attribution is unambiguous.** Between §4.5's page 2 at 23:37:07Z and this event, the only
+Sentry activity was four more breaker events (23:41:50–23:56:50, all throttled, no page — an
+incidental re-confirmation that the 60-minute throttle holds), then nothing until 03:58:21Z.
+
+**This drill never depended on the D-2 fix, and that was predicted in advance.** Its title
+carries the `businessId`, so unlike every health finding it is **not** a constant string —
+each business mints its own Sentry group and `First seen event` fires. It is the one §4 drill
+whose original first-seen assumption was always correct.
+
+**Flag restored to `200`** immediately after the observation.
+
+## §4.1 + §4.9 — one fixture, both drills. PASS on the findings; Discord confirmation owed.
+
+Per **D-7**, §4.1 folds into §4.9, not §4.7. The fixture is a backlog the dispatcher cannot
+drain within one poller interval: **4000 rows, past-dated 30 minutes, claimable**, using the
+burst script's own conventions (topic `stripe_subscription_mirror_sync`, `aggregate_type`
+`account`, random non-existent `account_id`) so the handler self-completes with no spend and
+never lands in `failed`.
+
+**Both predicates verified verbatim before the wait**, so a non-firing poller stayed
+distinguishable from a non-matching fixture:
+
+```sql
+-- checkOldestPendingOutbox (checks.ts:114-118)
+SELECT EXTRACT(EPOCH FROM (NOW() - MIN(available_at)))::int AS age
+FROM job_outbox WHERE status = 'pending' AND available_at <= NOW();   -- 1807  (> 900)
+```
+
+**One cycle, three findings** — `Health alert findings {"count":3}` at **04:07:36.481Z**:
+
+| Issue | Title | Drill |
+|---|---|---|
+| `REPWORTH-STAGING-1A` | *Oldest claimable outbox row is **1961s** old (> 900s) — dispatch backed up or stalled* | **§4.1 FIRES** |
+| `REPWORTH-STAGING-19` | *job_outbox backlog depth is **2350** pending rows (> 1500)* | **§4.9 FIRES** |
+| `REPWORTH-STAGING-18` | *1 `generate_response` job(s) exhausted retries and failed in the last 3600s* | unplanned — see below |
+
+Rule `3608329` `lastTriggered` 03:58:40Z → **04:07:54.047Z**, 18 s after the cycle.
+
+**The third finding is a free cross-validation of §4.2 on a new topic.** §4.4's fixture failed
+terminally, and `checkFailedOutboxByTopic` caught it — the same check §4.2 exercised on
+`publish_response`, now demonstrated on `generate_response`. Not planned, and worth more than
+a planned repeat would have been: it shows the check is topic-general rather than fitted to
+the one topic it was first tested against.
+
+**§4.9's second half — that it CLEARS — is satisfied by the drain itself.** No `release` was
+needed: the dispatcher drained 4000 rows in roughly seven minutes (~540/min, matching the
+script's ~600/min estimate), and by 04:12Z the state was `claimable_pending 0`,
+`oldest_age −1` (no rows at all), `dispatching 0`. Both predicates return null, so the
+following cycle emits neither finding.
+
+> **§4.1 was called "unrunnable" by D-1 and is now demonstrated.** The original diagnosis was
+> right that a *single* aged row cannot survive the dispatcher. It was wrong to conclude the
+> alert could not be exercised at all: the alert reads `MIN(available_at)` over *all* claimable
+> pending rows, so a backlog large enough to outlast one 300 s interval fires it with the system
+> otherwise healthy — which is also precisely what the alert means.
+
 ## Teardown ledger
 
 **Three fixtures, all created 2026-08-31T21:08Z for §4.2 and §4.3.** Rows written to this
@@ -602,6 +784,10 @@ ledger BEFORE the fixtures existed, per the contract.
 | **T5** | **REGRESSION run** — `responses` fresh `pending_approval` | `01a059c9-0000-7000-9000-000000000043` | `DELETE FROM responses WHERE id = '01a059c9-0000-7000-9000-000000000043'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T6** | **REGRESSION run** — `job_outbox` completed `send_notification` | `01a059c9-0000-7000-9000-000000000044` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000044'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T7** | **§4.5** — one OPEN `solicitation_send_breaker` trip (`reset_at IS NULL`, `trip_reason='hard_bounce_rate'`) | `01a05a00-0000-7000-9000-000000000045` | **Clear it at `/admin/solicitation`, NOT by SQL** — the breaker never self-clears and `resetSendBreaker` is the only sanctioned arm (it writes `reset_at`, `reset_by`, a mandatory `reset_note`, and migration 110's `reset_consistency` CHECK enforces the note). The drill row is then a normal closed trip and is **left in place** as its own record | ⏳ **OPEN — created 2026-08-31T22:29:01Z** |
+| **T8** | **§4.4 FLAG FLIP** — `GLOBAL_DAILY_COST_LIMIT_CENTS` on the **Railway staging worker** | pre-flip value **`200`**, flipped to **`1`** | Restore to **`200`**, then `railway deployment redeploy --from-source --service repworth-worker --environment staging --yes`. **A flag flip is a fixture** — this row exists because the pre-flip value is not recoverable from anywhere else once overwritten | ⏳ **OPEN — flipped 2026-09-01T03:55Z** |
+| **T9** | **§4.4** — one `generate_response` outbox row on the **`on_demand_generate`** lane, to trigger a draft against a 1-cent cap | `01a05b00-0000-7000-9000-000000000046` (review `01a05acf-fdef-7579-b350-9f843f345fc3`) | `DELETE FROM job_outbox WHERE id = '01a05b00-0000-7000-9000-000000000046'`. **Lane chosen for safety:** `on_demand_generate` is excluded from auto-approval **twice** over — by the lane itself and by `suppress_notification=true` — through `isAutoApprovalCandidate` (invariant #3), so the fixture cannot post publicly under any flag state. `live_ingest_new` was deliberately NOT used | ✅ **removed 04:14Z, verified 0 rows** |
+| **T10** | **§4.9 + §4.1 (merged per D-7)** — bulk `job_outbox` backlog: past-dated, claimable, above the 1500 depth threshold | payload marker `__drill = "G3-4.1-4.9"` | `pnpm tsx scripts/burst-drill-load.ts release --drill-tag G3-4.1-4.9 --confirm-staging kubdiqdhqbhwmqfditeg`, or `DELETE FROM job_outbox WHERE payload->>'__drill' = 'G3-4.1-4.9'`. Rows use the script's own conventions — topic `stripe_subscription_mirror_sync`, `aggregate_type` `account`, a random non-existent `account_id` — so the handler self-completes with **no LLM or external spend** and never lands in `failed`, tripping none of the other health checks | ✅ **removed 04:14Z, verified 0 rows** |
+| **T11** | **§4.8** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `09b7e0a5-a1ae-445e-9a6c-6671ccb315d5` | `railway deployment redeploy --from-source --service repworth-worker --environment staging --project ad641d0e-… --yes`. **This restore also completes T8** — the `200` cost-cap value was written with `skipDeploys`, so the running process still holds `1` until this deploy lands | ⏳ **OPEN** |
 
 **T4–T6 are the D-2 regression test**, created 21:36Z after both alert rules gained the
 `Every event` trigger and a 60-minute throttle. Same shapes as T1–T3, same review
