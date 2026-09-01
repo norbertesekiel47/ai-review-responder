@@ -355,3 +355,57 @@ branch loosening its own gate). Filed as a step-8 follow-up.
 **Verdict:** ACCEPT
 
 ---
+
+## D11 — OVERRIDE: the `reviewed` transition taken over a standing `INCOMPLETE_ORACLE`
+
+**Raised:** step 7.5, 2026-08-31. **Owner-approved in session, 2026-08-31.**
+Recorded rather than buried, on #1009's D26 precedent.
+
+**The objection, stated in full so it is not softened.** `red-team-status.mjs`
+reports `INCOMPLETE_ORACLE`, and every non-CLEAR status blocks the transition.
+The phase was set to `reviewed` anyway, with the owner's approval.
+
+**What the sidecar actually says.** 37 inventory rows · 27 killed · 1
+`survived-confirmed-P0` (RT-15, now `fixed`) · 8 `inconclusive`/`oracle` · 1
+`excluded`. Sixteen findings: 15 fixed, 1 rejected. **`p0_open`, `p1_open` and
+`p2_open` are all 0.** The status is driven ONLY by the `inconclusive` rows.
+
+**Why those rows cannot be resolved.** Six are arbiter-confirmed EQUIVALENT
+mutants: deleting `recordPolicyGateRefusal`'s guard 1, 2 or 3, or remapping
+`moderation_held`, changes no observable behaviour, because a later guard already
+covers each case. No oracle can kill a mutation that changes nothing — that is
+the definition of equivalence, not a gap in the tests. The redundancy is
+deliberate defence in depth, and the code's own docblock now says so.
+
+**Three escapes were checked and all three refused:**
+
+1. **Reclassify to `excluded`.** It WOULD clear the status — only
+   `inconclusive` + class `oracle` triggers `INCOMPLETE_ORACLE`. REJECTED:
+   `red-team/SKILL.md:180` says "equivalent or unexecuted is reclassified
+   `inconclusive` (class `oracle`)". The skill mandates the label the agent used.
+   Changing it to reach green would override the protocol for the sole purpose of
+   getting a green light.
+2. **Let a later mutation resolve the rows** — the one escape `SKILL.md:313`
+   allows. Impossible here for the same reason: no later mutation can
+   discriminate a behaviour-preserving change.
+3. **An `authorizations` entry in the sidecar.** Does not apply:
+   `recomputeStatus` reads inventory rows, and the authorization mechanism is
+   scoped to FINDINGS with an `accepted-risk` disposition. There are no open
+   findings to authorize.
+
+**The review agent refused to launder this TWICE, unprompted, and was correct
+both times.** It also declined to flip the M10 row to `killed` even though a
+later mutation legitimately resolved it, on the grounds that it would not change
+the status and the choice should stay visible. That judgement is the reason this
+override is safe to take: the sidecar is honest about exactly what was and was
+not proven.
+
+**The real gap, and it is NOT this branch's.** `OUTCOMES` has no member meaning
+"unfalsifiable by design". Until one exists, any branch whose guards are
+deliberately redundant — which is a QUALITY, not a defect — cannot reach `CLEAR`.
+Filed as a step-8 follow-up alongside D10's `makeGit` defect.
+
+**What this override does NOT waive:** every P0 and P1 was fixed and each fix was
+verified by re-planting its mutation. Nothing ships on an accepted risk.
+
+**Verdict:** ACCEPT
