@@ -320,3 +320,45 @@ subject` covers, and it passes.
    3 must add. The title is not finished until it does.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D8 — Task 6 asks for a `docs/directory.md` row that the file's own rule forbids
+
+**When:** step 4, Task 6 (the tab bar and the state-panel slot).
+
+**What happened.** Task 6 Step 7 says to "add the `docs/directory.md` row for
+`AnalyticsTabs.tsx`, then commit", and lists `docs/directory.md` among its files.
+`docs/directory.md:16` states the opposite:
+
+> A mention inside a description is NOT a row. `src/app/**` and
+> `src/components/**` are described at folder level by design and are not
+> audited.
+
+`ci:directory-map` is complete for `worker/` and `src/lib/` only, which is why it
+passed before and after this task with no edit. There is no
+`src/components/dashboard/analytics/` table to add a row to, and no per-file
+table for the analytics routes either — adding a lone row would have created a
+section the convention says should not exist.
+
+**Resolution.** No `docs/directory.md` change in T6. The plan's own file table
+carries `docs/directory.md` for tasks 2, 5, 6, 7 and 8; it is correct for 2 and 5
+(`src/lib/refusals/read.ts` and `src/app/api/dashboard/refusals/route.ts`, both
+rows already landed) and wrong for 6. Task 7 and Task 8 are re-checked against
+the same rule when they run — `restraint/page.tsx`, `restraint.css`,
+`RestraintContent.tsx` and `RestraintReport.tsx` all sit under the two unaudited
+roots.
+
+**Two tests beyond the promised set, and both are D5's proof.** The
+`showError` fix has no promised title of its own at this tracer — title 48 is
+`RestraintContent`'s and lands in Task 7 — so without these the shared-module
+change would ship with its behaviour asserted nowhere:
+
+- `shows the error card on a first-load failure instead of an endless skeleton`
+  is the defect itself: not loading, an error, and `hasData` false precisely
+  BECAUSE the fetch failed.
+- `keeps showing the skeleton while a request is in flight, even with a stale
+  error` pins the half of the old comment that WAS right, so the fix cannot be
+  "simplified" into dropping the loading precedence as well.
+
+**Verdict:** _(pending step 6)_

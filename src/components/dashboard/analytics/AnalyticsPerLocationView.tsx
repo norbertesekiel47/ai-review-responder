@@ -6,6 +6,7 @@ import type { DashboardDataActive } from '@/lib/dashboard/types';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { LiveRegion } from '@/components/ui/LiveRegion';
+import { AnalyticsTabs } from '@/components/dashboard/analytics/AnalyticsTabs';
 import { ReputationHeroBand } from '@/components/dashboard/kpi/ReputationHeroBand';
 import { ReputationTrendChart } from '@/components/dashboard/kpi/ReputationTrendChart';
 import { IntelligenceBriefCard } from '@/components/dashboard/kpi/IntelligenceBriefCard';
@@ -48,6 +49,11 @@ export function AnalyticsPerLocationView({ active, refresh, periodToolbar }: Pro
         {periodToolbar}
       </TopBar>
       <div className="content content--analytics">
+        {/* Routed tab bar: first child of the content box, not a capped subnav
+            row, so it lines up with the full-bleed analytics grid beneath it.
+            Outside the ternary — Restraint stays reachable from the empty
+            state, which is exactly when an owner has least to look at here. */}
+        <AnalyticsTabs active="metrics" />
         {hasAnything ? (
           <>
             <LiveRegion message="Analytics ready." />

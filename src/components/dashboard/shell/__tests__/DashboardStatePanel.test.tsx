@@ -19,13 +19,15 @@
 // Fixing it only in the new component inverts the defect rather than removing
 // it. The scaffold owns the slot; both routes pass their bar into it.
 //
-// THE CAST IS TEMPORARY AND TASK 6 DELETES IT. `renderDashboardStatePanel`
-// today takes three parameters and its `DashboardSurface` union has two members,
-// so the call below does not typecheck against the current signature. Casting to
-// the TARGET signature keeps `pnpm typecheck` green at the RED phase while the
-// assertion still fails at run time — the panel throws on an unknown surface.
-// Once Task 6 widens the union and adds the fourth parameter, the cast comes out
-// and the call stands on its own.
+// The temporary cast T1 needed is GONE: Task 6 widened the union and added the
+// fourth parameter, so the call stands on its own signature.
+//
+// THE SECOND CASE IS NOT #1014's. `DashboardStatePanel.tsx:61` gated `showError`
+// on `hasData`, so a FIRST-load failure fell through to the skeleton branch and
+// the owner watched a loading animation that never resolved. The fix reaches
+// `/dashboard/analytics` and `/dashboard/reviews` as well, which is outside this
+// ticket — taken anyway, and recorded as deviation D5, because the Restraint tab
+// cannot satisfy its own promised error-state behaviour while it stands.
 
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -45,27 +47,11 @@ vi.mock('@/components/dashboard/shell/TopBar', () => ({
 
 import { renderDashboardStatePanel } from '@/components/dashboard/shell/DashboardStatePanel';
 
-interface FetchState {
-  loading: boolean;
-  hasData: boolean;
-  error: string | null;
-}
-
-/** The signature Task 6 ships. See the note above on why this cast exists. */
-type TargetPanel = (
-  surface: 'analytics' | 'reviews' | 'restraint',
-  state: FetchState,
-  topBarActions?: ReactNode,
-  beforeContent?: ReactNode,
-) => ReactNode | null;
-
-const renderPanel = renderDashboardStatePanel as unknown as TargetPanel;
-
 describe('renderDashboardStatePanel', () => {
   it('renderDashboardStatePanel renders the restraint surface with its before-content slot', () => {
     render(
       <>
-        {renderPanel(
+        {renderDashboardStatePanel(
           'restraint',
           { loading: true, hasData: false, error: null },
           undefined,
@@ -76,5 +62,49 @@ describe('renderDashboardStatePanel', () => {
 
     expect(screen.getByRole('navigation', { name: 'Analytics views' })).toBeInTheDocument();
     expect(screen.getByText('Loading what we held back…')).toBeInTheDocument();
+    // The TopBar names the SURFACE; the tab bar names the sub-route. Two
+    // headings competing for the same fact is what this slot removes.
+    expect(screen.getByRole('heading', { name: 'Analytics' })).toBeInTheDocument();
+  });
+
+  it('shows the error card on a first-load failure instead of an endless skeleton', () => {
+    const { container } = render(
+      <>
+        {renderDashboardStatePanel(
+          'restraint',
+          // The FIRST-load failure: not loading, an error, and no data yet —
+          // `hasData` is false precisely BECAUSE the fetch failed.
+          { loading: false, hasData: false, error: 'Failed to fetch refusals' },
+          undefined,
+          <nav aria-label="Analytics views">tabs</nav>,
+        )}
+      </>,
+    );
+
+    expect(screen.getByText('Unable to load your restraint record')).toBeInTheDocument();
+    // The message reaches BOTH sinks: the visible card and the assertive live
+    // region, which is what makes the failure perceivable rather than merely
+    // rendered.
+    expect(container.querySelector('.card')?.textContent).toContain('Failed to fetch refusals');
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to fetch refusals');
+    expect(container.querySelector('.dashboard-skeleton')).toBeNull();
+    // The slot survives the error branch too, so the owner can still leave.
+    expect(screen.getByRole('navigation', { name: 'Analytics views' })).toBeInTheDocument();
+  });
+
+  it('keeps showing the skeleton while a request is in flight, even with a stale error', () => {
+    const { container } = render(
+      <>
+        {renderDashboardStatePanel(
+          'analytics',
+          { loading: true, hasData: false, error: 'stale' },
+        )}
+      </>,
+    );
+
+    // Loading still takes precedence — that half of the old comment was right,
+    // and the first conjunct is what enforces it.
+    expect(container.querySelector('.dashboard-skeleton')).not.toBeNull();
+    expect(screen.queryByText('Unable to load analytics')).toBeNull();
   });
 });
