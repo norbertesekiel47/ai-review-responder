@@ -184,3 +184,61 @@ and `src/components/dashboard/reviews/ReviewsContent.tsx` are the two other
 callers. `blast-radius.sh` must list them and the review wave must look at both.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D6 — Task 1's example import crashes collection, and its "real failing test" rule collides with the typecheck gate row
+
+**When:** step 4, Task 1 (the eval).
+
+**What happened.** Two of Task 1's own instructions cannot both be followed as
+written.
+
+**First, the import.** Task 1 Step 2 gives this "example shape" for the read
+suite:
+
+```typescript
+import { getRefusalLog } from '@/lib/refusals/read';
+```
+
+`src/lib/refusals/read.ts` does not exist until Task 2. A named import of an
+absent module fails the whole FILE at collection, so vitest reports zero titles
+rather than 22 pending ones — and `promised-tests` would still pass, because it
+greps source text, which is precisely how this would have gone unnoticed. Task
+1's own Step 4 states the opposite expectation: "todos reported, zero passes for
+unimplemented behaviour, **no import crash**". The sibling suite
+`write.integration.test.ts` documents the same trap in its own header and
+reaches an absent export through a namespace import for that reason.
+
+**Second, the failing test.** Step 2's rule is that a title whose module EXISTS
+but whose behaviour is unimplemented is a real `it()` that FAILS. Exactly one of
+the 56 qualifies — title 56, because `DashboardStatePanel.tsx` is the shared
+scaffold and already exists. Task 6 Step 5 supplies the body verbatim. But that
+body passes `'restraint'` to a two-member union and a fourth argument to a
+three-parameter function, so it does not typecheck, and `typecheck` is a gate
+row that must stay green at every boundary.
+
+**Resolution.**
+
+1. **No T1 file imports a module a later task creates.** The six all-`it.todo`
+   files import `describe` and `it` from vitest and nothing else. Tasks 2, 5, 6,
+   7 and 8 each add their import alongside their first real body. The example
+   snippet is treated as illustrative of the `it.todo` shape, which is what the
+   surrounding prose actually specifies, not of the import list.
+2. **Title 56 is a real failing test, called through a cast to the TARGET
+   signature.** `DashboardStatePanel.test.tsx` declares the four-parameter,
+   three-member-union type Task 6 ships and casts the import to it once. The
+   test compiles today and fails at run time for the right reason — the panel
+   reads `SURFACE_STATE_COPY['restraint']`, gets `undefined`, and throws on
+   `copy.title`. **Task 6 Step 2 deletes the cast** when it widens the union and
+   adds the parameter; the call body then stands unchanged. The alternative —
+   demoting title 56 to `it.todo` — was rejected: it would leave the one title
+   that CAN fail today silently green, and the RED phase's whole value is that
+   the eval fails before the implementation lands.
+
+**Evidence at T1.** `pnpm vitest run` over the five directories reports
+`1 failed | 58 todo`, no collection error, and every pre-existing suite in those
+directories still green. `pnpm typecheck` and `pnpm lint` are clean.
+`promised-tests PASS` — all 56 titles matched verbatim.
+
+**Verdict:** _(pending step 6)_
