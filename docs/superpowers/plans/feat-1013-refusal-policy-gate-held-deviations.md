@@ -423,4 +423,15 @@ Filed as a step-8 follow-up alongside D10's `makeGit` defect.
 **What this override does NOT waive:** every P0 and P1 was fixed and each fix was
 verified by re-planting its mutation. Nothing ships on an accepted risk.
 
+**A SELF-REFERENTIAL LAG, recorded because it will confuse the next reader.**
+The sidecar pins `head_sha`, and the checker calls the evidence stale whenever
+the tree moves outside its own two artifacts. This paragraph — documentation
+ABOUT the sidecar — is such a move. So a sidecar can never be current in the same
+commit as a correction to the record about it: stamping it, then editing this
+file, re-stales it, and stamping again needs another commit. The loop closes only
+by making the stamp the LAST write before the push, which is what was done. If a
+reader finds `head_sha` one documentation commit behind `HEAD`, compare
+`git diff <head_sha>..HEAD -- src worker`; on this branch that diff is empty at
+every point where it mattered, and the agent verified it rather than assuming.
+
 **Verdict:** ACCEPT
