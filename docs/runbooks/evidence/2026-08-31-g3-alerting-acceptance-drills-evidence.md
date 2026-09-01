@@ -1129,3 +1129,487 @@ by query. `job_outbox` back to the demo's own 5 rows, zero failed, zero pending,
   not written off as unbuildable.
 
 **UTC end (session 2): 2026-09-01T05:47Z.**
+
+---
+
+# Session 3 — resume, 2026-09-01T06:00Z
+
+**Scope, in the owner's order:** §4.6, then §4.10, then §4.8's re-run after the cron
+monitor is fixed. Then the PITR restore drill, then the secret rotation, then Phase H.
+
+**Resumed from** `docs/superpowers/plans/2026-09-01-g3-remainder-handoff.md`. Teardown
+ledger read first: T1–T6 and T8–T11 closed, T7 closed at `/admin/solicitation` per its own
+row's instruction. Staging is clean.
+
+## Resume preflight
+
+| # | Check | Result | UTC |
+|---|---|---|---|
+| P1 | Open PRs merged before new work | ✅ PR #1053 already merged at `ff34b34d`. Only #646 remains open — CONFLICTING and obsolete, recommended for closure, not merged | 06:00Z |
+| P2 | `main` up to date | ✅ `git pull --ff-only` → "Already up to date" at `ff34b34d` | 06:00Z |
+| P3 | No concurrent staging work | ✅ Latest staging deploy `7f82a1a4` SUCCESS 04:28:57Z at `5358bd82`, which **is** `origin/staging`'s tip. Nothing queued or building | 06:02Z |
+| P4 | Staging worker domain | ✅ `repworth-worker-staging.up.railway.app`, the only service domain; no custom domain (which is D-6's blocker for §4.7) | 06:03Z |
+| P5 | Rule 6 staging config, by API readback | ✅ `3927243` — trigger `Every event` **only**; filter logic `all`, `Issue occurrences value:4` AND `Tagged event feature eq solicitation_lane`; action Discord `1517968864724385822`; frequency 60 min | 06:01Z |
+| P6 | Rule 6 production config, by API readback | ✅ `3927261` — byte-identical conditions, Discord `1544045194264051842` | 06:01Z |
+| P7 | Suppression-ledger baseline | ⚠️ **0 rows**, not the 5 recorded in session 2 — see **D-12** | 06:04Z |
+| P8 | Target Sentry group baseline | ⚠️ `REPWORTH-STAGING-12` exists with **2 occurrences** (2026-08-26). This changes the drill's arithmetic — see **D-11** | 06:03Z |
+
+### D-10 (2026-09-01T06:05Z) — the session-2 probe script would have failed every POST with 401
+
+**Found by reading the ingress before running it, not by running it.**
+
+Session 2 wrote the §4.6 probe during the §4.5 throttle wait and recorded it as "ready to
+run". It signs with
+
+```js
+createHmac('sha256', secret)          // the RAW secret string as the key
+```
+
+`worker/ingress/resend.ts:62-66` verifies with
+
+```js
+const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+createHmac('sha256', secretBytes)     // the DECODED bytes as the key
+```
+
+Svix secrets are `whsec_` + base64. Keying the HMAC with the printable string instead of
+the bytes it encodes produces a different digest for every payload, so **all four POSTs
+would have returned `401 invalid_signature`** and the drill would have recorded "no page"
+for POSTs 1–3 — which is the *expected* result — and then "no page" on POST 4 as well, and
+concluded rule 6 was broken. A wrong probe that produces the right answer three times out
+of four is the worst shape of fixture defect: it looks like it is working.
+
+**Corrected** in the session-3 probe. The key derivation is now copied from the ingress and
+the line says so.
+
+**General lesson, same family as D-7:** the session-2 note said the signature scheme was
+"resolved from code and config, not assumed". It was resolved from the *comment* above
+`verifySignature`, which states the scheme correctly and says nothing about the key
+derivation six lines below it. Reading the doc comment is not reading the code.
+
+### D-11 (2026-09-01T06:05Z) — rule 6's frequency filter is LIFETIME, not hourly. The drill's arithmetic changes.
+
+**§4.6 and §1a-do both describe rule 6 as "more than 3 in one hour".** That is not what is
+built, in either project.
+
+The API readback shows the filter as `Issue occurrences (comparison: value: 4)` — a bare
+value with **no interval**. That is Sentry's
+`sentry.rules.filters.issue_occurrences.IssueOccurrencesFilter`: *"the issue has happened at
+least N times"*, evaluated against the group's cumulative `times_seen`. The interval-scoped
+form (`EventFrequencyCondition`, *"seen more than N times in <interval>"*) carries an
+`interval` parameter and this rule has none.
+
+**Consequence for the drill.** `REPWORTH-STAGING-12` already stands at **2 occurrences**
+from the #967 smoke of 2026-08-26. So the count the filter reads does not start at zero:
+
+| POST | Group `times_seen` after | `≥ 4`? | Expected Discord |
+|---|---|---|---|
+| 1 | 3 | no | **silent** |
+| 2 | 4 | **yes** | **PAGE** |
+| 3 | 5 | yes | silent — 60-min action throttle |
+| 4 | 6 | yes | silent — 60-min action throttle |
+
+The runbook's "POSTs 1–3 silent, only the 4th pages" is therefore **not** the assertion this
+configuration can produce. The assertion that survives, and that still proves everything
+§4.6 exists to prove, is: **a sub-threshold POST is silent, and the threshold-crossing POST
+pages.** POST 2 is also the *discriminator* between the two readings — if it pages the
+filter is lifetime, if it stays silent the filter is hourly after all and the run continues
+to POST 4.
+
+**Consequence for production, which is the part that outranks the drill.** Production's rule
+6 has the same lifetime filter and production's group does not exist yet, so:
+
+1. **The first three unattributed suppressions in production will page nobody.** This alert
+   is #965's detector and #965 is an open prod-flip blocker. Three silent occurrences is a
+   real gap, not a tuning preference.
+2. **From the fourth onward every occurrence pages**, bounded only by the 60-minute throttle
+   — the count never resets, so the rule ratchets permanently from "quiet" to "page hourly".
+
+Neither behaviour is what the runbook describes. Recorded here; the disposition is an owner
+decision, taken after the drill proves the mechanics.
+
+### D-12 (2026-09-01T06:04Z) — the recorded suppression baseline was stale
+
+Session 2 recorded "Baseline suppressions = **5**, one of which is that smoke's
+`probe-967-20260826@example.test` row". At 06:04Z:
+
+```sql
+SELECT (SELECT count(*) FROM solicitation_suppressions) AS suppressions,
+       (SELECT count(*) FROM solicitation_outreach)     AS outreach,
+       (SELECT count(*) FROM solicitation_contacts)     AS contacts,
+       (SELECT count(*) FROM job_outbox)                AS outbox_rows;
+-- suppressions 0 | outreach 0 | contacts 0 | outbox_rows 5
+```
+
+All three solicitation tables are **empty**. `job_outbox` is at the demo's own 5 rows, which
+matches session 2's teardown exactly — so the outbox number was right and the suppression
+number was not. The likeliest explanation is that "5" was read off `job_outbox` rather than
+`solicitation_suppressions`; it cannot be re-derived now.
+
+Consequences, both favourable: the drill's row is the ledger's **only** row, so a post-POST
+count of 1 is unambiguous evidence; and the #967 smoke's `probe-967-20260826@example.test`
+row is gone, so it is not evidence of anything and should not be cited again.
+
+**Carried forward as a rule:** a baseline is only evidence if it is re-taken in the session
+that uses it. This one was four hours old and wrong.
+
+## Teardown ledger — session 3
+
+| # | Fixture | Identifier | How to remove | State |
+|---|---|---|---|---|
+| **T12** | **§4.6** — one PERMANENT `solicitation_suppressions` row, global scope, channel `email`, source `complaint`, `account_id NULL`, minted from the signed payload by `suppressWithoutAttribution` | normalized handle `g3-drill-46-fictional@example.test` | **DO NOT REMOVE.** The Suppression ledger has no expiry and no ordinary delete path by design, and the admin **Correction path** is a compliance surface, not a cleanup tool. The recipient is fictional (RFC 2606 `.test`, can never resolve) and the row is account-less, so it blocks nothing real. **Left in place as its own record**, exactly as the §4.5 breaker row is | ⏳ **open — row created by POST #1** |
+
+> Recorded **before** the first POST, per the contract. No other fixture: the drill writes no
+> outbox row, flips no flag, and stops no worker.
+
+| **T13** | **§4.10 headroom arm** — 1000 synthetic `stripe_subscription_mirror_sync` `job_outbox` rows, immediately claimable, injected over 10 min | payload marker `__drill = "G3-4.10"` | **`release` does NOT clean this arm — see D-15.** It is scoped `status = 'pending'`, and headroom-arm rows self-complete, so it deleted 0. Removed instead with the same scoped predicate on the completed rows: `DELETE FROM job_outbox WHERE topic = 'stripe_subscription_mirror_sync' AND payload->>'__drill' = 'G3-4.10' AND status = 'completed'`. No LLM or external spend; the topic never lands in `failed`, so it trips no other health check | ✅ **removed 06:23Z — verified `job_outbox` = 5 completed rows, 0 drill rows** |
+
+> Recorded **before** injection, per the contract.
+
+---
+
+## §4.6 — Unattributed suppression (#967, rule 6). Findings PASS; Discord confirmation owed.
+
+**Four svix-signed `email.complained` POSTs to `https://repworth-worker-staging.up.railway.app/ingress/resend`,
+one recipient reused, four distinct `email_id`s and four distinct `svix-id`s.** Run under
+`railway run --service repworth-worker --environment staging` so `RESEND_WEBHOOK_SECRET`
+never transits the transcript. Probe source: session-3 scratchpad `g3-46-probe.mjs`,
+corrected per **D-10**.
+
+### Transport — all four accepted
+
+| POST | UTC | `email_id` | HTTP |
+|---|---|---|---|
+| 1 | 06:05:59.339Z | `g3_46_s3_probe_1788242758687_1` | **200** `{"received":true}` |
+| 2 | 06:06:38.697Z | `g3_46_s3_probe_1788242798286_1` | **200** |
+| 3 | 06:07:36.602Z | `g3_46_s3_probe_1788242856179_1` | **200** |
+| 4 | 06:07:36.963Z | `g3_46_s3_probe_1788242856603_2` | **200** |
+
+A `200` on POST 1 is itself the proof that **D-10's correction was the right one** — the
+session-2 key derivation would have returned `401 invalid_signature` here.
+
+### The ledger — one row, from four POSTs
+
+Baseline at 06:04:07Z: `solicitation_suppressions` = **0 rows** (D-12). After POST 1:
+
+```sql
+SELECT id, scope, channel, normalized_handle, account_id, source, created_at
+  FROM solicitation_suppressions ORDER BY created_at DESC;
+-- 01a05b93-0df6-77b6-b7e5-b423156d2b9b | global | email |
+--   g3-drill-46-fictional@example.test | account_id NULL | complaint |
+--   2026-09-01 06:05:59.071427+00
+```
+
+After all four POSTs: **still exactly 1 row.** First-write-wins holds across the run, which
+is the property the drill's "reuse ONE fake recipient" instruction exists to demonstrate.
+`account_id` is `NULL` — forced, not chosen: the fallback has no account context, and the
+purge contract requires a post-purge global row not to re-introduce account provenance.
+
+### The worker log — the write happened, and said so once
+
+```json
+{"level":"warn","logger":"ingress/resend/solicitation","timestamp":"2026-09-01T06:05:59.296Z",
+ "msg":"solicitation webhook matched no outreach row — global opt-out written from the signed payload",
+ "event":"email.complained","provider_message_id":"g3_46_s3_probe_1788242758687_1",
+ "source":"complaint","ledger_row_written":true}
+```
+
+`ledger_row_written: true` on POST 1 and **`false`** on POST 2 (read off the Sentry event's
+extra data) — the lane distinguishes "wrote a row" from "an equal-or-earlier opt-out already
+won", exactly as `recordSuppression` documents. No recipient address appears in any log line.
+
+### Sentry — the group advanced one occurrence per POST
+
+`REPWORTH-STAGING-12`, `solicitation_suppression_without_attribution`, culprit
+`POST /ingress/resend`, tags `feature: solicitation_lane`, `event: email.complained`,
+`source: complaint`, `environment: staging`,
+`release: 5358bd822564869492bdbb7cbc134cf74f2ecc71` (= `origin/staging` tip, so the process
+under test is the branch tip).
+
+| Moment | Occurrences | Rule fired? (`lastTriggered`, API) |
+|---|---|---|
+| baseline 06:03Z | 2 | — |
+| after POST 1 (06:05:59Z) | **3** | no |
+| after POST 2 (06:06:38Z) | **4** | **no** — see **D-13** |
+| after POSTs 3–4 (06:07:36Z) | **6** | **YES, once, at 06:07:44.526Z** |
+
+`search_events` over 24 h returns `count() = 2` for the message, confirming exactly the two
+events this session added and no others.
+
+### The assertion, as D-11 requires it to be stated
+
+**Both halves are proven from the API and the database:**
+
+1. **The negative** — POST 1 raised the group to 3 and the `all` filter's first clause was
+   false, so no action could run. This is the half §4.6 exists for: *"a notification on the
+   first is a first-seen rule wearing a frequency label."* One silent POST already disproves
+   that, because a `First seen event` trigger would have fired on POST 1 regardless of count.
+2. **The positive** — POST 2 raised the group to 4, satisfying both filter clauses at once.
+
+**What only the owner can close:** whether Discord actually received the message. Sentry's
+own record says the rule fired **once**, at **06:07:44.526Z** — read from
+`find_alert_rules`' `lastTriggered` on rule `3927243`, which was `null`/absent before this
+run. `lastTriggered` proves Sentry fired; only a human proves Discord received.
+
+### D-13 (2026-09-01T06:11Z) — CORRECTION to D-11. `Issue occurrences: 4` fires on the FIFTH occurrence, not the fourth.
+
+D-11 predicted, from the filter's stated meaning (*"the issue has happened at least N
+times"*), that POST 2 would page — it took the group to exactly 4. **It did not.** The rule's
+`lastTriggered` is `2026-09-01T06:07:44.526Z`, roughly 8 s after POSTs 3 and 4 and roughly
+66 s after POST 2. A throttled rule does not update `lastTriggered` — the frequency check
+runs before the fire is recorded — so this is one fire, and it is not POST 2's.
+
+**The behaviour, stated only as far as the evidence supports it:** configured with
+`value: 4`, the filter admits an event only once the group has **more than** 4 occurrences.
+The fire lands on occurrence **5 or 6** (POSTs 3 and 4 are 0.36 s apart and the 60-minute
+throttle admits only one of them, so this run cannot separate them). Whether the
+implementation is "post-increment `> 4`" or "pre-increment `≥ 4`" is not distinguishable
+here, and both describe the same predicate: **the Nth configured value pages on occurrence
+N+1.**
+
+**D-11's core finding stands and its arithmetic moves by one.** The filter is still
+cumulative and still has no interval. For **production**, where the group does not yet
+exist:
+
+- The first **four** unattributed suppressions page nobody — not the first three.
+- From the fifth onward every occurrence pages, bounded only by the 60-minute throttle. The
+  count never resets, so the rule ratchets permanently from silent to hourly.
+
+This alert is #965's detector and #965 is an open prod-flip blocker, so four silent
+occurrences is the number that matters. **Owner decision owed:** leave `4` (pages from the
+5th), or set the value to `0` so the rule pages on every occurrence and relies on the
+60-minute throttle for volume control. The runbook's "more than 3 in one hour" describes
+neither, and is corrected in §4.6 and §1a-do in this session.
+
+**General lesson, and it is the third of its kind in this campaign:** D-11 read the filter's
+documented meaning and predicted from it; the documented meaning was off by one. The
+prediction was written down *before* the run, which is the only reason the discrepancy was
+visible at all — an unrecorded prediction would have been silently rewritten to match the
+result.
+
+### D-14 (2026-09-01T06:14Z) — §4.8 has a SECOND break, downstream of the first, and last night's scoping created it
+
+**Found while preparing §4.8's re-run, by reading the routing rules rather than the monitor.**
+
+§4.8's recorded finding is that the cron monitor detects an outage and creates no issue, so
+no rule can fire. That is one break. There is a second, and fixing the monitor alone will
+not make the drill pass.
+
+**Staging, rule `3608329` as it stands at 05:35:20Z (API readback):**
+
+```
+Action Filters — logic: any-short
+  Tagged event  subsystem  eq  health_alert
+  Tagged event  cost_event eq  limit_exceeded
+  Tagged event  feature    eq  stripe_reconciliation
+  Tagged event  subsystem  eq  import_consent_analytics
+Actions — Email(issue_owners) + Discord 1517968864724385822
+```
+
+A Sentry cron-monitor issue — *"Your monitor is failing: A missed check-in was detected"* —
+is generated by Sentry, not by our SDK. It carries **none** of `subsystem`, `cost_event` or
+`feature`. With `any-short` logic over four tag equalities, it matches **nothing**, so the
+rule cannot route it. **`3608329` is now the only Discord rule in the staging project that a
+cron issue could have used, and it can no longer take one.**
+
+**This is a consequence of last night's scoping, and it was not among the consequences
+recorded.** Session 2 recorded in advance that scoping `3608329` would stop
+`subsystem:refusal_ledger` and `subsystem:autonomy_governor` from paging. It did not record
+that the same change cut the cron-monitor path — because at the time §4.8 had already run
+(04:07–04:28Z) and the scoping landed at 05:35Z, so nothing re-tested the path afterwards.
+
+**Production is NOT in the same state, and the difference matters.** `repworth-production`
+carries an **unfiltered** rule that staging does not:
+
+| Rule | Project | Triggers | Action filters | Discord |
+|---|---|---|---|---|
+| `3920752` | production | New high priority issue; Existing high priority issue | **none** | `repworth-prod` |
+| `3925256` | production | five state + Every event | the same four tag equalities | `repworth-prod` |
+| `3608329` | staging | five state + Every event | the same four tag equalities | `repworth-staging` |
+
+So a production cron issue has a candidate path through `3920752` — **contingent on Sentry
+classifying it high priority**, which is unverified and cannot be verified without an issue
+to inspect. Staging has no path at all.
+
+**§4.8's re-run therefore needs TWO fixes, in this order:**
+
+1. **Make the monitor create an issue** — UI only, both projects (below).
+2. **Give staging a rule that can route it.** Either add a fifth filter condition to
+   `3608329` that a cron issue satisfies, or — preferred, because it keeps `3608329`'s
+   scoping intact and mirrors how rule 6 was built — create a **dedicated rule 7** for the
+   cron monitor in each project.
+
+**Until both are done, re-running §4.8 can only reproduce the same qualified fail**, and
+would waste a worker stop doing it. This is why the drill's precondition box now says to
+verify the monitor in the UI *before* running.
+
+---
+
+## §4.10 — Capacity-burst headroom arm (#474, ticket #480). PASS.
+
+### Execution gate, verified before injecting
+
+| Gate | Result | UTC |
+|---|---|---|
+| A recorded **#507 PASS/closure**, not merely a closed 24h window | ✅ issue #507 CLOSED 2026-07-20T19:10:04Z with a PASS comment: *"zero health-alert timeouts and zero errors across the entire window since the poller resumed … (~36h, exceeding the 24h bar by 12h)"* | 06:08Z |
+| Clean `HealthAlertPoller` baseline — no `health-alert-checks timed out`, no standing `backlog_depth` | ✅ `{"logger":"HealthAlertPoller","msg":"Idle heartbeat","idle_min":30}` at 06:04:00Z; no finding emitted since 04:12:36Z | 06:08Z |
+| `HEALTH_ALERT_POLL_INTERVAL_MS` removed → 5-minute cadence | ✅ absent from the staging worker's `variableNames` (read via `get-service-config`, which returns names only — `list-variables` returns plaintext VALUES and was not called) | 06:07Z |
+| Backlog at baseline | ✅ `job_outbox` = 5 rows, all `completed`; **0 pending** | 06:07Z |
+| No concurrent staging push | ✅ deploy `7f82a1a4` (04:28:57Z) is still current and matches `origin/staging` | 06:02Z |
+
+### The run
+
+```
+railway run --service repworth-worker --environment staging --project ad641d0e-… -- \
+  pnpm tsx scripts/burst-drill-load.ts inject \
+    --events 1000 --duration-min 10 --drill-tag G3-4.10 --confirm-staging kubdiqdhqbhwmqfditeg
+```
+
+Started **06:09Z**, exit 0. `--available-in-min` left at its default `0` — the headroom arm.
+
+### Assertion 1 — the backlog climbs and drains, well inside the target
+
+The script's own per-batch reading held at **`backlog_depth.job_outbox(pending)=50`** on all
+20 batches — that is the count immediately after inserting a 50-row batch, before the
+5-second `OutboxPoller` claims it.
+
+**Independent samples taken against the database between batches read `pending = 0` every
+time** (06:10Z, 06:13Z, 06:16Z, 06:19Z). Drain outpaces injection so completely that the
+queue never holds a backlog between batches:
+
+| UTC | pending | dispatching | completed | failed |
+|---|---|---|---|---|
+| 06:10Z | 0 | 0 | 55 | 0 |
+| 06:13Z | 0 | 0 | 101 | 0 |
+| 06:16Z | 0 | 3 | 252 | 0 |
+| 06:19Z | 0 | 31 | 974 | 0 |
+| **06:22Z** | **0** | **0** | **1005** | **0** |
+
+**Peak pending observed: 50** against a threshold of **1500** — 3.3% of it. Drain complete at
+06:22Z, **13 minutes** after the burst started, against a 30-minute target. **Zero rows in
+`failed`**, so the burst tripped no other health check either.
+
+### Assertion 2 — no false alarm, proven by completed cycles rather than by silence
+
+The §4.9 definition is explicit that absence of an alert is not enough: it must be a
+**completed** poller cycle that checked in clean. Three did, spanning the whole drill:
+
+```
+2026-09-01T06:19:08.081Z: ok, staging
+2026-09-01T06:14:12.047Z: ok, staging
+2026-09-01T06:09:13.058Z: ok, staging
+```
+
+And no health finding of any kind was emitted in the window. Queried with an explicit tag
+filter and no `is:` term, per **D-9**:
+
+```
+search_events dataset=errors project=repworth-staging query='subsystem:health_alert' period=24h
+→ newest finding is `outbox_failed:generate_response` at 2026-09-01T04:12:36Z.
+   Nothing after it. No `backlog_depth:job_outbox`.
+```
+
+Rule `3608329`'s `lastTriggered` is **unchanged at `2026-09-01T04:07:54.047Z`** — session 2's
+§4.1/§4.9 fire — so nothing routed to Discord during this drill either. Both halves agree.
+
+**§4.10 PASSES.** Dispatch-drain and `backlog_depth` observability hold under the #474 design
+burst, with no false alarm. Honest scope, unchanged from the runbook: this proves
+**outbox dispatch-drain**, not full ingest→draft→notification pipeline throughput.
+
+### D-15 (2026-09-01T06:23Z) — `release` cannot clean the headroom arm, and the runbook says the wrong thing about it
+
+`scripts/burst-drill-load.ts release` is scoped `status = 'pending'`:
+
+```
+[burst-drill] release tag=G3-4.10 scoped DELETE WHERE topic = 'stripe_subscription_mirror_sync'
+  AND payload->>'__drill' = 'G3-4.10' AND status = 'pending' AND created_at >= NOW() - make_interval(hours => 24)
+[burst-drill] deleted 0 pending drill row(s).
+[burst-drill] inventory clean — 0 PENDING row(s) tagged 'G3-4.10' remain.
+```
+
+That is correct for the **over-threshold** arm, whose rows are future-dated and never
+claimed. Headroom-arm rows **self-complete**, so `release` deletes nothing and reports
+"inventory clean" — which is true of pending rows and misleading about the run.
+
+The runbook's headroom-arm step 5 says *"no manual cleanup is needed for this arm"*. That is
+defensible — completed rows are inert and no health check counts them — but it leaves
+`job_outbox` at **1005** rows where session 2's teardown deliberately restored it to **5**,
+and every later drill and Phase H sanity check reads that table. Removed with the same
+scoped predicate on `status = 'completed'`; verified back to 5 rows, 0 drill rows.
+
+**Runbook fixed in this session:** the headroom arm now names the completed-row DELETE
+instead of saying no cleanup is needed, and says why `release` does not cover it.
+
+---
+
+# Session 3 verdict — 2026-09-01T06:25Z
+
+**PARTIAL PASS. G.3 moves from 6 of 10 to 8 of 10, and — for the third session running — the
+deviations are worth more than the drill count.**
+
+## Drill state: 8 of 10 pass
+
+| Drill | Verdict |
+|---|---|
+| §4.2 Failed publish | ✅ PASS (session 1) |
+| §4.3 Zero-delivery | ✅ PASS (session 1) |
+| §4.5 Send-breaker re-page | ✅ PASS (session 2) |
+| §4.4 Cost-cap | ✅ PASS (session 2) |
+| §4.1 Stuck outbox | ✅ PASS (session 2) |
+| §4.9 Backlog depth | ✅ PASS (session 2) |
+| **§4.6 Unattributed suppression** | ✅ **PASS** — 4 POSTs, 1 permanent ledger row, rule fired once at 06:07:44.526Z. Discord confirmation owed |
+| **§4.10 Capacity headroom** | ✅ **PASS** — peak pending 50/1500, drained in 13 min of a 30-min target, zero `failed`, no false alarm |
+| §4.8 Probe stopped | ⚠️ **QUALIFIED FAIL** — and **two** breaks now, not one (D-14) |
+| §4.7 Killed worker | ❌ **BLOCKED** — D-6, infrastructural |
+
+## Deviations D-10 … D-15
+
+| # | Finding |
+|---|---|
+| **D-10** | The §4.6 probe session 2 recorded as "ready to run" would have returned `401` on **every** POST — raw secret string as the HMAC key where the ingress uses the decoded bytes |
+| **D-11** | Rule 6's frequency filter is **cumulative with no interval**, not "in one hour" — the runbook describes a rule Sentry cannot express this way |
+| **D-12** | The recorded suppression baseline of 5 was stale; all three solicitation tables were empty |
+| **D-13** | **Correction to D-11.** `Issue occurrences: N` fires on occurrence **N+1**. Predicted a page at 4; it came at 5/6 |
+| **D-14** | **§4.8 has a second break.** A cron issue carries no application tags, so staging's newly-scoped `3608329` cannot route it — and it is staging's only Discord rule. Created by last night's scoping, after the drill ran |
+| **D-15** | `release` cannot clean the §4.10 headroom arm — scoped `status='pending'` — and prints "inventory clean" regardless |
+
+**Four of six correct a claim that was standing when the session began**, two of them written
+by session 2 hours earlier, and one (D-13) correcting a prediction this session made itself.
+The pattern across all three sessions is now unambiguous: **the reasoning around this
+campaign needs more repair than the system does.**
+
+## What made the difference this session
+
+**Every one of D-10, D-11 and D-14 was found by reading before running, not by running.** The
+probe defect, the filter semantics and the routing gap would all have surfaced as drill
+failures, and two of the three would have been misread — a `401` reads as a broken rule, and
+a §4.8 re-run would have reproduced the same qualified fail and spent a worker stop doing it.
+
+**And D-13 was only visible because D-11's prediction was written down before the run.** An
+unrecorded prediction gets silently rewritten to match the result.
+
+## Changes made
+
+**Production:** none. No flag, schema, data, deploy or rule change.
+
+**Staging:** one permanent `solicitation_suppressions` row for a fictional `.test` recipient
+(T12, left in place by design). Nothing else — T13 removed and verified, `job_outbox` back to
+its 5 demo rows.
+
+**Documentation:** `beta-launch-alerting.md` §1a-do (frequency-filter semantics corrected),
+§4.6 (ticked, plus the D-10 signing trap and the D-11/D-13 arithmetic), §4.8 (D-14
+precondition), §4.10 (ticked); `pool-wedge-burst-drill.md` headroom-arm cleanup (D-15);
+`beta-production-standup.md` G3; `lab-notes.md`; this file; the session-2 handoff.
+
+## Owed, carried forward
+
+- **§4.6 Discord** — owner confirmation of one message at ~06:07:44Z, and of **silence** at
+  06:05:59Z and 06:06:38Z. The silence is the half that matters.
+- **§4.8** — the monitor fix **and** a dedicated cron routing rule, in both projects.
+- **§4.7** — needs `worker-staging.repworth.net` before it can ever run.
+- **An owner decision on rule 6's threshold** in production: leave `4` (silent for the first
+  four, then hourly forever) or set `0` (every occurrence, throttled hourly).
+- **Two §1 signals still have no rule in either project**: `subsystem:refusal_ledger`,
+  `subsystem:autonomy_governor`.
+
+**UTC end (session 3): 2026-09-01T06:25Z.**

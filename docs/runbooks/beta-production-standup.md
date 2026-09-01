@@ -467,7 +467,29 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       **Until then, treat production as unmonitored by Sentry crons and uptime.**
       Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
       `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
-- [ ] **G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.** §4.2, §4.3, §4.5,
+- [ ] **G3. IN PROGRESS — 8 of 10 drills PASS as of 2026-09-01T06:25Z.** Session 3 added
+      **§4.6 PASS** and **§4.10 PASS**. §4.6: four svix-signed `email.complained` POSTs, all
+      `200`, one permanent ledger row from four POSTs (first-write-wins), Sentry group 2 → 6,
+      rule `3927243` `lastTriggered 06:07:44.526Z`. §4.10: peak pending **50** against the
+      1500 threshold, drained in **13 min** against a 30-min target, zero `failed`, no
+      `backlog_depth` finding, three clean poller check-ins spanning the drill; teardown
+      verified back to 5 `job_outbox` rows.
+      **Six deviations, and four of them correct standing claims.** **D-10** — the §4.6 probe
+      session 2 recorded as "ready" would have returned `401` on every POST (it keyed the HMAC
+      with the raw `whsec_…` string; the ingress uses the decoded bytes). **D-11/D-13** — rule
+      6's `Issue occurrences: 4` is **cumulative with no interval** and fires on occurrence
+      **5**, not 4; the runbook's "more than 3 in one hour" describes neither, and in
+      production the first FOUR unattributed suppressions will page nobody. **D-12** — the
+      recorded suppression baseline of 5 was stale; the table was empty. **D-14** — **§4.8 has
+      a second break**: a Sentry cron issue carries no `subsystem`/`cost_event`/`feature` tag,
+      so staging's newly-scoped `3608329` cannot route it and staging has no other Discord
+      rule; fixing the monitor alone cannot make the drill pass. **D-15** — `release` cannot
+      clean the §4.10 headroom arm (it is scoped `status='pending'`) and reports "inventory
+      clean" anyway.
+      **Still open: §4.8** (needs the monitor fix **and** a cron routing rule, both projects)
+      and **§4.7** (BLOCKED — needs a custom domain for the staging worker).
+      Previous 6-of-10 record follows.
+      ~~**G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.**~~ §4.2, §4.3, §4.5,
       §4.4, §4.1 and §4.9 all pass with owner-confirmed Discord delivery. **§4.8 is a QUALIFIED
       FAIL** — the cron dead-man switch detects a stopped worker (2 missed check-ins, `ok` →
       `error`) and **creates no issue, so pages nobody**; its panel says the threshold is one

@@ -305,8 +305,24 @@ pending stays low throughout.)
    volume against the #474 target before shipping.
 5. **Confirm the drain** — pending should trend back to baseline within 30
    minutes of the burst starting. Headroom-arm rows self-complete (the
-   mirror-sync handler completes for a missing account); no manual cleanup is
-   needed for this arm.
+   mirror-sync handler completes for a missing account).
+6. **Clean up — and do NOT use `release` for this arm (G.3 D-15, 2026-09-01).**
+   `release` is scoped `status = 'pending'`, which is right for the
+   over-threshold arm (future-dated rows, never claimed) and deletes **zero**
+   here, then reports `inventory clean` — true of pending rows, misleading
+   about the run. The completed rows are inert and no health check counts them,
+   but leaving 1000 of them moves `job_outbox` off the baseline every later
+   drill and every Phase H sanity check reads. Remove them with the same scoped
+   predicate:
+
+   ```sql
+   DELETE FROM job_outbox
+    WHERE topic = 'stripe_subscription_mirror_sync'
+      AND payload->>'__drill' = '<TAG>'
+      AND status = 'completed';
+   ```
+
+   Then verify the table is back to its pre-drill count.
 
 Record the observed backlog climb, drain time, and non-alert in **Results**
 below.
