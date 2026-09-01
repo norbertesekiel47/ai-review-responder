@@ -107,6 +107,8 @@
     "src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx",
     "src/components/dashboard/analytics/AnalyticsAggregateView.tsx",
     "src/components/dashboard/analytics/AnalyticsPerLocationView.tsx",
+    "src/components/dashboard/analytics/AnalyticsContent.tsx",
+    "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
     "src/components/dashboard/shell/DashboardStatePanel.tsx",
     "src/components/dashboard/shell/__tests__/DashboardStatePanel.test.tsx",
     "CONTEXT.md",
