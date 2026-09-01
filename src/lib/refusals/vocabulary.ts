@@ -452,6 +452,15 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
  * `| null` in the constraint is therefore load-bearing here in a way it is not
  * in `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES`: seven members genuinely need it.
  */
+// EXPORTED WITH NO EXTERNAL IMPORTER, ON PURPOSE. `persist.ts` consumes
+// `resolvePolicyGateRefusal`, never this map — so `fallow` correctly reports no
+// consumer. It stays exported anyway, for the reason this module's own header
+// gives: "a vocabulary is read by humans as often as it is called, so an
+// interface smaller than its content would hide the very thing callers need to
+// see. Depth is the wrong goal here." Making these two private would also make
+// them the only lane vocabularies that are, and would put #1003's MANDATED
+// exhaustiveness test out of reach of the data it must assert.
+// fallow-ignore-next-line unused-export
 export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
   policy_not_enabled: null,
   rating_below_threshold: 'owner_review_required',
@@ -539,6 +548,10 @@ export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
  * TOTAL or the `satisfies` guard stops protecting the others. What is recorded
  * here is only that their POSITION is untested by construction.
  */
+// Exported with no external importer, for the same reason as the map above —
+// `resolvePolicyGateRefusal` is its only runtime consumer, and the eval asserts
+// this locked order directly.
+// fallow-ignore-next-line unused-export
 export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
   // 1 — unsafe_content
   'moderation_flagged',
