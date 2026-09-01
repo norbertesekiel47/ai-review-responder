@@ -189,6 +189,11 @@ confirmation closes the chain end to end:
 | **§4.3** Zero-delivery | ✅ `zero_delivery_notifications` | ✅ `REPWORTH-STAGING-G` | ✅ **after the D-2 fix** | **PASS** |
 | **§4.5** Send breaker re-page | ✅ `solicitation_send_breaker_tripped`, **13 emissions at exact 300 s cadence** | ✅ `REPWORTH-STAGING-11` — a group first seen **ten days earlier**, so no first-seen event was available | ✅ **TWICE — 22:32:07Z and 23:37:07Z, 65 min apart.** Both owner-confirmed; both footers name the issue and the rule | **PASS** |
 | **§4.6** Unattributed suppression | — | — | — | **BLOCKED** (D-3 — rule 6 does not exist) |
+| **§4.4** Cost-cap hit | ✅ terminal failure, `Global daily cost limit exceeded`, **1 of 5 attempts**, zero provider spend | ✅ `REPWORTH-STAGING-17`, tag `cost_event:limit_exceeded` | ✅ rule fired 03:58:40Z, 19 s after the event — ⏳ owner confirmation owed | **PASS (pending Discord)** |
+| **§4.1** Stuck outbox | ✅ `Oldest claimable outbox row is **1961s** old (> 900s)` — **runnable after all, see D-7** | ✅ `REPWORTH-STAGING-1A` | ✅ rule fired 04:07:54Z — ⏳ owner confirmation owed | **PASS (pending Discord)** |
+| **§4.9** Backlog over threshold | ✅ `backlog depth **2350** (> 1500)`, **and clears** — next cycle 3 findings → 1 | ✅ `REPWORTH-STAGING-19` | ✅ same rule fire — ⏳ owner confirmation owed | **PASS (pending Discord)** |
+| **§4.7** Killed worker | — | — | — | **BLOCKED** (D-6 — no monitorable staging domain) |
+| **§4.8** Probe stopped | ✅ **2 missed check-ins**, monitor `ok` → `error` | ❌ **no issue created** | ❌ **nothing to page on** | **QUALIFIED FAIL** |
 
 > Both were a **QUALIFIED FAIL** on the first run at 21:11Z/21:16Z — the finding fired and
 > reached Sentry, but no page was produced. They pass on the 21:36Z re-run, **after** D-2 was
@@ -770,6 +775,91 @@ following cycle emits neither finding.
 > pending rows, so a backlog large enough to outlast one 300 s interval fires it with the system
 > otherwise healthy — which is also precisely what the alert means.
 
+### §4.8 — QUALIFIED FAIL. The dead-man switch detects the outage and pages nobody.
+
+**Fixture (T11):** staging worker stopped at **04:14:10Z** (`railway down`), confirmed by
+`/ready` and `/api/health` both returning **404** and the deployment reading `REMOVED`.
+
+**The dead-man switch detects the outage.** Read from the monitor itself:
+
+```
+Status: error          Last check-in: 2026-09-01T04:12:36Z    Next expected: 04:20:00Z
+Recent: 04:21:29.396Z  missed, staging
+        04:12:39.253Z  ok        04:07:39.593Z  ok        04:02:41.876Z  ok
+Stats 04:00 hour: ok=3, missed=1
+```
+
+Before the stop the monitor had run clean for nine straight hours — `ok=12`/`13` per hour,
+`missed=0` throughout. So the miss is attributable to the stop and nothing else.
+
+**But no Sentry ISSUE exists for it**, and therefore no alert rule can fire on it. Checked two
+ways: a text search over issues first seen in the last hour (four results, all this campaign's
+own drills), and the monitor-scoped query the API itself recommends,
+`monitor.slug:health-alert-poller` — **no issues found**. Rule `3608329`'s `lastTriggered`
+stayed at 04:07:54Z.
+
+⚠️ **This is NOT yet recorded as a defect, and the distinction matters.** Sentry cron monitors
+raise an issue only after crossing a **failure threshold**, and exactly **one** miss has
+occurred. Declaring "the dead-man switch pages nobody" on a single data point would be the same
+mistake D-6 nearly produced — reading one observation as a conclusion when the mechanism has a
+documented threshold. The worker is being held down through two further expected check-ins
+(04:25, 04:30) to find the actual threshold empirically.
+
+
+### §4.8 result — two misses, monitor red, no issue, no page
+
+**Observation window: 04:14:10Z → 04:28:57Z** (worker down ~15 min).
+
+```
+04:34:09.057Z  ok       <- recovered
+04:29:07.934Z  ok       <- recovered
+04:25:53.447Z  MISSED
+04:21:29.396Z  MISSED
+04:12:39.253Z  ok       <- last check-in before the stop
+Stats, 04:00 hour: ok=5, missed=2
+```
+
+Nine consecutive clean hours precede it (`ok=12`/`13`, `missed=0` every hour), so both misses
+are attributable to the stop.
+
+| Link in the chain | Result |
+|---|---|
+| Worker stops | ✅ `/ready` and `/api/health` both **404**; deployment `REMOVED` |
+| Cron monitor detects | ✅ **2 missed check-ins**, environment status `ok` → **`error`** |
+| An issue is created | ❌ **none** — checked by text search over issues first-seen in the last hour (4 results, all this campaign's own drills) **and** by the monitor-scoped query the API itself recommends, `monitor.slug:health-alert-poller` |
+| An alert rule fires | ❌ `3608329` `lastTriggered` unmoved at **04:07:54Z** |
+| **Pages Discord** | ❌ **nothing to page on** |
+
+**Stated precisely, because the distinction is the whole finding.** What is proven is that
+**two** consecutive missed check-ins, on a monitor with a 5-minute margin, produced no Sentry
+issue. What is **not** proven is the configured threshold: Sentry cron monitors raise an issue
+only after crossing a `failure_issue_threshold`, and **the MCP does not expose that field** —
+it is UI-only, the same surface as rules 5 and 6. So the correct claim is *"two misses were not
+enough"*, not *"the monitor can never page"*.
+
+**Why this matters more than any other drill in §4.** The cron monitor is the **dead-man switch
+for the entire health-alert system**. Every other finding in this campaign — the breaker, the
+cost cap, the backlog, the stuck outbox — is emitted *by* the `HealthAlertPoller`. If that
+poller dies, all of them stop silently, and this monitor is the only thing that would say so.
+An unpaged dead-man switch is the one failure that hides every other failure.
+
+**And production runs the identical monitor** (`e891f020`, same `*/5 * * * *`, same 5-minute
+margin), so the same question applies there and has the same UI-only answer.
+
+**Owner action (Sentry UI, alongside rule 6):** open
+`https://repworth-nv.sentry.io/crons/repworth-staging/health-alert-poller/`, read the failure
+threshold and the notification target, and set them so a missed check-in raises an issue that
+rule `3608329` can route. Repeat on `repworth-production`. **Then re-run this drill** — it is
+cheap now that the fixture is understood.
+
+> **The recovery was not mine, and that is worth recording.** The worker came back at 04:28:57Z
+> because **another session pushed to the `staging` branch** — deployment `7f82a1a4`, commit
+> `5358bd82` *"docs(#1013): red-team sidecar final stamp"*. Staging auto-deploys on push. The
+> drill's observation window was already complete, so nothing was lost, but a concurrent push
+> can silently end a worker-stop drill. **Check for concurrent staging work before the next
+> one.** That deploy also carried the restored `GLOBAL_DAILY_COST_LIMIT_CENTS=200`, completing
+> T8 — confirmed at runtime.
+
 ## Teardown ledger
 
 **Three fixtures, all created 2026-08-31T21:08Z for §4.2 and §4.3.** Rows written to this
@@ -784,10 +874,10 @@ ledger BEFORE the fixtures existed, per the contract.
 | **T5** | **REGRESSION run** — `responses` fresh `pending_approval` | `01a059c9-0000-7000-9000-000000000043` | `DELETE FROM responses WHERE id = '01a059c9-0000-7000-9000-000000000043'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T6** | **REGRESSION run** — `job_outbox` completed `send_notification` | `01a059c9-0000-7000-9000-000000000044` | `DELETE FROM job_outbox WHERE id = '01a059c9-0000-7000-9000-000000000044'` | ✅ **removed 21:38Z, verified 0 rows** |
 | **T7** | **§4.5** — one OPEN `solicitation_send_breaker` trip (`reset_at IS NULL`, `trip_reason='hard_bounce_rate'`) | `01a05a00-0000-7000-9000-000000000045` | **Clear it at `/admin/solicitation`, NOT by SQL** — the breaker never self-clears and `resetSendBreaker` is the only sanctioned arm (it writes `reset_at`, `reset_by`, a mandatory `reset_note`, and migration 110's `reset_consistency` CHECK enforces the note). The drill row is then a normal closed trip and is **left in place** as its own record | ⏳ **OPEN — created 2026-08-31T22:29:01Z** |
-| **T8** | **§4.4 FLAG FLIP** — `GLOBAL_DAILY_COST_LIMIT_CENTS` on the **Railway staging worker** | pre-flip value **`200`**, flipped to **`1`** | Restore to **`200`**, then `railway deployment redeploy --from-source --service repworth-worker --environment staging --yes`. **A flag flip is a fixture** — this row exists because the pre-flip value is not recoverable from anywhere else once overwritten | ⏳ **OPEN — flipped 2026-09-01T03:55Z** |
+| **T8** | **§4.4 FLAG FLIP** — `GLOBAL_DAILY_COST_LIMIT_CENTS` on the **Railway staging worker** | pre-flip value **`200`**, flipped to **`1`** | Restore to **`200`**, then `railway deployment redeploy --from-source --service repworth-worker --environment staging --yes`. **A flag flip is a fixture** — this row exists because the pre-flip value is not recoverable from anywhere else once overwritten | ✅ **restored to `200` and CONFIRMED LIVE at runtime 04:35Z**, via deployment `7f82a1a4` |
 | **T9** | **§4.4** — one `generate_response` outbox row on the **`on_demand_generate`** lane, to trigger a draft against a 1-cent cap | `01a05b00-0000-7000-9000-000000000046` (review `01a05acf-fdef-7579-b350-9f843f345fc3`) | `DELETE FROM job_outbox WHERE id = '01a05b00-0000-7000-9000-000000000046'`. **Lane chosen for safety:** `on_demand_generate` is excluded from auto-approval **twice** over — by the lane itself and by `suppress_notification=true` — through `isAutoApprovalCandidate` (invariant #3), so the fixture cannot post publicly under any flag state. `live_ingest_new` was deliberately NOT used | ✅ **removed 04:14Z, verified 0 rows** |
 | **T10** | **§4.9 + §4.1 (merged per D-7)** — bulk `job_outbox` backlog: past-dated, claimable, above the 1500 depth threshold | payload marker `__drill = "G3-4.1-4.9"` | `pnpm tsx scripts/burst-drill-load.ts release --drill-tag G3-4.1-4.9 --confirm-staging kubdiqdhqbhwmqfditeg`, or `DELETE FROM job_outbox WHERE payload->>'__drill' = 'G3-4.1-4.9'`. Rows use the script's own conventions — topic `stripe_subscription_mirror_sync`, `aggregate_type` `account`, a random non-existent `account_id` — so the handler self-completes with **no LLM or external spend** and never lands in `failed`, tripping none of the other health checks | ✅ **removed 04:14Z, verified 0 rows** |
-| **T11** | **§4.8** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `09b7e0a5-a1ae-445e-9a6c-6671ccb315d5` | `railway deployment redeploy --from-source --service repworth-worker --environment staging --project ad641d0e-… --yes`. **This restore also completes T8** — the `200` cost-cap value was written with `skipDeploys`, so the running process still holds `1` until this deploy lands | ⏳ **OPEN** |
+| **T11** | **§4.8** — staging worker STOPPED to starve the `health-alert-poller` cron check-ins | deployment `09b7e0a5-a1ae-445e-9a6c-6671ccb315d5` | `railway deployment redeploy --from-source --service repworth-worker --environment staging --project ad641d0e-… --yes`. **This restore also completes T8** — the `200` cost-cap value was written with `skipDeploys`, so the running process held `1` until a deploy landed | ✅ **worker restored 04:28:57Z**; see the note on the concurrent push |
 
 **T4–T6 are the D-2 regression test**, created 21:36Z after both alert rules gained the
 `Every event` trigger and a 60-minute throttle. Same shapes as T1–T3, same review
@@ -844,7 +934,7 @@ these findings join the **same pre-existing Sentry groups** that stayed silent a
 | §4.9 Backlog over threshold | open | Not attempted |
 | §4.10 Capacity burst headroom | open | Not attempted |
 
-**3 of 10 pass. 5 remain unattempted, 2 blocked (§4.1 by D-1, §4.6 by D-3).** G.3 is **not** complete.
+**6 of 10 pass** (§4.2, §4.3, §4.5 fully; §4.4, §4.1, §4.9 pending only the owner's Discord confirmation). **1 qualified fail** (§4.8 — detects, does not page). **2 blocked** (§4.6 on rule 6, §4.7 on D-6). **1 unattempted** (§4.10). G.3 is **not** complete.
 
 ---
 
