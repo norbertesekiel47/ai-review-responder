@@ -124,3 +124,7 @@ Verify a value only by **length + SHA-256 prefix**, never by reading it.
 
 | Date | Actor | Secret | Verification |
 |---|---|---|---|
+| 2026-09-01 | @norbertesekiel + agent | `ZERNIO_API_KEY` — `1d47c066425e8011` → **`6d1d14c1ea4ce593`** | Raw `GET /v1/profiles` → `200`, names `repworth-prod-019e4e19-…` (right tenant). Fingerprint changed in the running prod worker. **Old key revoked, verified absent from `GET /v1/api-keys`.** |
+| 2026-09-01 | @norbertesekiel + agent | `ZERNIO_WEBHOOK_SECRET` — `d2a90be01f98b202` → **`ba67fb48f0661c75`** | Vault-first cutover, then `PUT /v1/webhooks/settings` `{_id, secret}` → `200`. Zernio's stored secret **byte-identical** to the vault value. **`POST /v1/webhooks/test` → `inbound_events` `webhook.test / processed` in 64 ms** — the live worker verified an HMAC Zernio signed with the new secret. |
+
+Record: `docs/runbooks/evidence/2026-09-01-secret-rotation-evidence.md`.

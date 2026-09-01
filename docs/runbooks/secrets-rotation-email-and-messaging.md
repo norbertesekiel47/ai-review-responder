@@ -126,3 +126,8 @@ Verify only by **length + SHA-256 prefix**, never by reading.
 
 | Date | Actor | Secret | Verification |
 |---|---|---|---|
+| 2026-09-01 | @norbertesekiel + agent | `RESEND_API_KEY` — `4465dc3c4d547996` → **`ac70820f8ab8ed0e`** | `GET /domains` → `200`, `repworth.net` **verified**. Fingerprint changed in the running prod worker; Vercel redeployed and confirmed **aliased to `repworth.net`**. **Old key `b1d63eef-…` (`repWorth`) deleted → `200`, verified absent by re-list.** Lane proof (an actual approval email) deferred to Phase H §9.4. |
+
+Not rotated: `RESEND_WEBHOOK_SECRET` (`799db5754a6eeafc`) — provider-issued, still live, its own change.
+
+Record: `docs/runbooks/evidence/2026-09-01-secret-rotation-evidence.md`.

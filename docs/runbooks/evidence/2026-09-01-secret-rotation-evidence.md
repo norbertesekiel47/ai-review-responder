@@ -166,12 +166,12 @@ which are live until explicitly revoked, and the **plaintext files on disk**.
 
 | # | Fixture | Identifier | How to remove | Created | Done |
 |---|---|---|---|---|---|
-| T1 | Old `RESEND_API_KEY` | fingerprint `4465dc3c4d547996` | Resend dashboard → API Keys → revoke the **old** key. Verify: it no longer lists | pre-existing | [ ] |
-| T2 | Old `ZERNIO_API_KEY` | fingerprint `1d47c066425e8011` | Zernio → revoke the old key. Verify: a raw `GET /v1/profiles` under it returns **401** | pre-existing | [ ] |
-| T3 | Old `ZERNIO_WEBHOOK_SECRET` | fingerprint `d2a90be01f98b202` | superseded by the `PUT` to subscription `6a95315320358f33c89599e5`. Verify: a payload signed with the old secret is **rejected** | pre-existing | [ ] |
-| **T2b** | **Second Zernio key — minted ~21:50Z and EXPOSED in-session (D-3). Never installed.** | not recorded here by design | Zernio → revoke. Verify: it no longer appears in the key list | **21:50Z** | [ ] |
-| T4 | Plaintext key files on disk | `.scratch/rotate-*.txt` | `rm -P` (overwrite before unlink). Verify: `ls .scratch/rotate-*` returns nothing | 21:44Z onward | [ ] |
-| T5 | Fingerprint helper | `.scratch/fp.js` | delete. Contains no secret — it prints hashes — but it is drill scaffolding | 21:42Z | [ ] |
+| T1 | Old `RESEND_API_KEY` | `b1d63eef-e22e-4096-864c-674cc362e6c3` (`repWorth`), fp `4465dc3c4d547996` | `DELETE /api-keys/{id}` → 200, list re-read | pre-existing | **[x] 22:31:24Z** |
+| T2 | Old `ZERNIO_API_KEY` | fp `1d47c066425e8011` | owner-revoked; absent from `GET /v1/api-keys` | pre-existing | **[x] 22:29Z** |
+| T3 | Old `ZERNIO_WEBHOOK_SECRET` | fp `d2a90be01f98b202` | superseded by the 21:55:59Z `PUT`; dead by construction | pre-existing | **[x] 21:55:59Z** |
+| **T2b** | **Zernio key exposed in-session (D-3). Never installed** — proven distinct from the installed one | fp `1826d92ca953c45f` | owner-revoked; absent from `GET /v1/api-keys` | **21:50Z** | **[x] 22:29Z** |
+| T4 | Plaintext key files on disk | `.scratch/rotate-*.txt` + 12 probe/response artifacts | `rm -P`; verified by re-scan | 21:44Z onward | **[x] 22:31:39Z** |
+| T5 | Fingerprint helper | `.scratch/fp.js` | shredded with the rest | 21:42Z | **[x] 22:31:39Z** |
 
 > **T1–T3 are the ones that matter.** A rotation that installs new credentials and leaves the
 > old ones live has not reduced the blast radius by one bit — it has doubled the number of
@@ -184,12 +184,12 @@ which are live until explicitly revoked, and the **plaintext files on disk**.
 
 | # | Path | Status |
 |---|---|---|
-| U1 | All three fingerprints changed in the running production worker | ⏳ open |
-| U2 | Vercel serves the new `RESEND_API_KEY` (needs a redeploy, not just an env write) | ⏳ open |
-| U3 | The Zernio subscription `secret` matches the vault value | ⏳ open |
-| U4 | A real inbound Zernio webhook verifies under the new secret | ⏳ open |
-| U5 | Approval email still sends under the new Resend key | ⏳ open |
-| U6 | **Each old credential is dead** — not merely replaced | ⏳ open |
+| U1 | All three fingerprints changed in the running production worker | ✅ closed 21:53Z |
+| U2 | Vercel serves the new `RESEND_API_KEY` | ✅ closed 21:57:40Z — aliased to `repworth.net` |
+| U3 | The Zernio subscription `secret` matches the vault value | ✅ closed 21:56Z — byte-identical |
+| U4 | A real inbound Zernio webhook verifies under the new secret | ✅ closed 21:56:21Z — `processed` in 64 ms |
+| U5 | Approval email still sends under the new Resend key | ⚠️ **deferred to Phase H §9.4** — the key is proven against the Resend API (`200`, `repworth.net` verified); no production email was sent to prove the *lane*, deliberately |
+| U6 | **Each old credential is dead** — not merely replaced | ✅ closed 22:31:24Z |
 
 ---
 
@@ -442,3 +442,134 @@ grep -rlE 'whsec_[A-Za-z0-9+/=]{10,}|re_[A-Za-z0-9_]{20,}|sk_[A-Za-z0-9]{40,}|rk
 > was in `.scratch/resend-whsec.txt` and is **still live in production** — it was not part of
 > this rotation. Shredding the file removed the *disk copy*; it did not rotate the credential.
 > A file being gone is not a secret being safe.
+
+---
+
+## U6 — every old credential is dead. CLOSED 22:31Z, and it needed two attempts.
+
+**Zernio — both keys gone, verified by listing.** `GET /v1/api-keys` (an endpoint the earlier
+records did not know existed) returns four keys, and neither the old production key nor the
+exposed one is among them:
+
+| id | name | created |
+|---|---|---|
+| `69f460cf…` | `RepWorth_Test` | 2026-05-01 |
+| `6a12a519…` | `CLI (Norberts-MacBook-Pro.local)` | 2026-05-24 |
+| `6a1b5af8…` | `RepWorth-Staging-Key` | 2026-05-30 |
+| **`6a974840…`** | **`RepWorth-Production-Key`** | **2026-09-01T21:48:48Z** — live |
+
+### A check worth writing down, because the timeline invited a wrong conclusion
+
+The surviving key's `createdAt` (21:48:48Z) is **earlier** than the D-3 exposed paste. That is
+consistent with a bad story — that the clipboard still held the exposed key and production was
+running it. Checked rather than assumed:
+
+```
+installed-in-production sha256_16 = 6d1d14c1ea4ce593
+exposed-in-transcript   sha256_16 = 1826d92ca953c45f
+→ different keys
+```
+
+**Production never ran the exposed key.** The suspicious timestamp was a coincidence of
+ordering, and the only way to know that was to hash both. **A plausible reconstruction of a
+timeline is not evidence about which bytes are installed.**
+
+### D-7 (2026-09-01T22:29Z) — the preflight captured fingerprints but no PROVIDER-SIDE KEY LIST, and that is why one revocation could not be verified
+
+The owner reported all three revoked. Zernio was verifiable immediately: list the keys, observe
+both are absent. **Resend was not.** Its list still held five keys — one new, four older — and
+nothing in a fingerprint identifies *which dashboard row* the old key was. `4465dc3c4d547996`
+is a hash of a value the agent never held.
+
+The old key was identified **by elimination and name** (`repWorth`, created 2026-04-07, the
+only row not explained by staging or the solicitation lane) — an **inference**, and recorded
+as one rather than as a verification. The owner confirmed it, said it was revoked, and a
+re-list showed it **STILL PRESENT** with the count unchanged at 5. The dashboard action had not
+taken effect.
+
+**CORRECT — capture the provider's key list in preflight, alongside the fingerprints.** Then
+revocation is verified by simple set difference and needs no inference and no owner round-trip.
+Fingerprints prove *the new value landed*; a before-list proves *which old thing must vanish*.
+The two answer different questions and the run needs both.
+
+### The deletion, executed via the API behind three guards
+
+The dashboard revocation had silently not applied, so the owner's decision was executed
+through `DELETE /api-keys/{id}`:
+
+| Guard | Assertion | Result |
+|---|---|---|
+| G1 | target id ≠ the id production is running (`66efd971…`) | pass |
+| G2 | the **live** row for that id is still named `repWorth` — re-read from the API, not from this file | pass |
+| G3 | production's `RESEND_API_KEY` fingerprint already equals `ac70820f8ab8ed0e` | pass |
+
+G3 is the one that makes the delete safe rather than merely correct: **it refuses to revoke an
+old credential until production is measurably serving the new one.**
+
+```
+DELETE HTTP 200
+remaining: repworth-prod-key · solicitation-staging · send reviews key · repworth-staging
+b1d63eef-… → GONE — verified revoked
+```
+
+---
+
+## Teardown — complete and verified
+
+Every ledger row executed. Then the whole directory was re-scanned rather than trusting the
+row ticks:
+
+```
+$ grep -rlE 'whsec_…|re_…|sk_…|eyJ…' .scratch
+  clean
+```
+
+15 files shredded with `rm -P` in this phase (3 key files, the fingerprint helper, 11
+probe/response artifacts), on top of D-6's 18. **`.scratch/` now holds no live-secret pattern
+at all** — the first time that has been true in this repository since at least 2026-08-29.
+
+---
+
+# Verdict — 2026-09-01T22:32Z
+
+## ✅ **PASS.** All three E-F1 secrets rotated, proven in production, and the old credentials are dead.
+
+| Secret | Old | New | Old key status |
+|---|---|---|---|
+| `RESEND_API_KEY` | `4465dc3c4d547996` | **`ac70820f8ab8ed0e`** | **deleted**, verified by re-list |
+| `ZERNIO_API_KEY` | `1d47c066425e8011` | **`6d1d14c1ea4ce593`** | **revoked**, absent from the key list |
+| `ZERNIO_WEBHOOK_SECRET` | `d2a90be01f98b202` | **`ba67fb48f0661c75`** | **overwritten** by the 21:55:59Z `PUT` |
+
+**Elapsed: 21:46Z → 22:32Z, 46 minutes**, of which the rotation itself was ~10.
+
+### The verification ladder, and why only the top two rungs count
+
+1. The vault write returns `exit 0` — **proves nothing about any platform.**
+2. `railway run … sha256` — proves the **variable** is set, not that the **process** holds it.
+3. **A real signed event.** Zernio signed with the new secret; production verified the HMAC and
+   `processed` it in 64 ms. **The only check that proves the live process and the remote system
+   agree** — and it settles both halves of a two-system cutover with one event.
+4. **The old credential is gone.** Before this, a rotation has not reduced the blast radius; it
+   has *doubled the number of valid keys*.
+
+### Seven deviations. Two are the findings; five are traps.
+
+| # | |
+|---|---|
+| **D-3** | **The remediation reproduced the incident.** The "safe handoff" put a live key in the transcript via a `!` command, while remediating an identical exposure. *"The agent never sees the value"* and *"the value is not exposed"* are different claims. |
+| **D-6** | **The disk was a larger exposure than the transcript ever was.** 18 files, ten full credential dumps and a live session, every one from a legitimate step, accumulated by the sessions remediating E-F1. |
+| D-1 | Both in-scope runbooks described the pre-vault architecture. Rewritten. |
+| D-2 | `secrets-rotation-api-keys.md` was never in scope, despite E-F1 naming it. |
+| D-4 | `vercel env ls`'s age column does not track a synced write. |
+| D-5 | Zernio's update is `PUT /v1/webhooks/settings` with `_id` in the **body**. |
+| D-7 | The preflight captured fingerprints but no provider-side key list — which is why one revocation needed an inference and an owner round-trip. |
+
+### Still open, and deliberately
+
+1. **`RESEND_WEBHOOK_SECRET` (`799db5754a6eeafc`) was not rotated and is still live.** It is
+   provider-issued (Svix); rotating it means recreating the endpoint. Its disk copy was
+   shredded — **a file being gone is not a credential being safe.**
+2. **U5 — no production email was sent.** The key is proven against the Resend API; the
+   *lane* is proven by Phase H §9.4, which sends one deliberately.
+
+**UTC start 2026-09-01T21:46Z · UTC end 2026-09-01T22:32Z.**
