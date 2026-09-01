@@ -4654,3 +4654,93 @@ name**, re-read from the API at delete time, must equal the scratch name; and it
 one — a ref typed from memory is the failure mode, and a ref whose *current* name is read
 back and compared cannot be a different project. **A guard a script enforces beats a
 runbook sentence that says "triple-check the ref".**
+
+---
+
+## 2026-09-01 — the E-F1 secret rotation: the remediation reproduced the incident, and the disk was worse than the transcript
+
+### [2026-09-01] "The agent never sees the value" and "the value is not exposed" are DIFFERENT CLAIMS
+FAIL → rotating three secrets that had leaked into a transcript, the agent designed a handoff
+where the owner mints each key and the agent reads only a file. It instructed:
+`! umask 077 && printf '%s' 'PASTE_KEY_HERE' > .scratch/key.txt`, with the real key
+substituted. The owner did exactly that, and **a `!`-prefixed command is echoed into the
+transcript verbatim** — so a production API key was exposed in plaintext at the moment of its
+creation, during the remediation of an identical exposure. The agent had written *"no value is
+ever a shell argument"* into that same evidence file minutes earlier.
+
+WHY → the design goal was stated as *"no value passes through the agent"*, and the mechanism
+satisfies that goal perfectly. It is the wrong goal. The repo rule — *"never place a secret as
+a literal argument in a Bash command; it lands in transcript history"* — **does not
+distinguish who types the command**, and that is precisely why it is worded that way.
+
+CORRECT → the clipboard, which puts the secret in no command at all:
+`umask 077 && pbpaste | tr -d '\n' > file && wc -c < file`. Browser → clipboard → file, never a
+command line, a shell history, or a transcript. Clear the clipboard after. `tr -d '\n'` is
+load-bearing, not tidiness: an HMAC keys on the exact byte string, so one invisible trailing
+newline yields a signature mismatch indistinguishable from a wrong secret.
+
+**General lesson, and it is not about secrets.** A remediation step is written by the same
+hands, in the same session, under the same assumptions that produced the original defect —
+and it arrives wearing the authority of a fix, so it gets *less* scrutiny than the thing it
+repairs. **Re-derive the requirement the remedy is supposed to satisfy, in the remedy's own
+terms, before executing it.**
+
+### [2026-09-01] A working directory ACCUMULATES secrets, and no step's cleanup is anyone's step
+FAIL → shredding one flagged file prompted a pattern scan of `.scratch/`. It found **18 more**
+plaintext-secret files from three prior sessions: ten complete production credential dumps
+(`vercel env pull` output, Railway variable snapshots, Infisical verification JSON — the entire
+production environment, twice over), a Playwright `storageState` holding a **live authenticated
+session**, two Stripe webhook secrets, four scripts with embedded keys, and a provider-issued
+`whsec_`.
+
+WHY → **every one came from a legitimate step.** Pull the env to compare it. Snapshot before a
+risky write. Save the API response that shows a one-time secret. Nobody was careless, and no
+single act was wrong. The exposure is cumulative and belongs to no step. It also *reads* as
+safe from every local check: `.scratch/` is gitignored and mode-700, so "is it committed?"
+answers no every time — **gitignore protects the repository, not the disk**, nor a backup, nor
+anything with filesystem read. The irony is exact: this pile was built by the sessions
+remediating a one-time transcript print of a strict *subset* of the same material.
+
+CORRECT → **a command that writes a secret to disk creates a FIXTURE**, and a fixture gets a
+teardown-ledger row *before* the command runs — `vercel env pull` included. That is how the
+same run handled its own pull: pulled, fingerprinted in-process, `rm -P` seconds later. The
+rule "never print a secret" was already known and followed; what was missing is that *writing*
+one is creating something that must be removed. Periodic sweep:
+`grep -rlE 'whsec_[A-Za-z0-9+/=]{10,}|re_[A-Za-z0-9_]{20,}|sk_[A-Za-z0-9]{40,}|eyJ[A-Za-z0-9_-]{30,}' .scratch`
+And note what shredding does **not** do: `RESEND_WEBHOOK_SECRET` was in one of those files and
+is **still live**. A file being gone is not a credential being safe.
+
+### [2026-09-01] Rotation is proven by the OLD key failing, and by a signed event — not by a write succeeding
+Four verification layers, in increasing strength. Only the last two are conclusive:
+
+1. **The vault write returns exit 0.** Proves nothing about any platform.
+2. **`railway run … node -e '<sha256 of process.env.X>'`** proves the *variable* is set. It does
+   **not** prove the running process holds it.
+3. **A real signed event.** `POST /v1/webhooks/test` → Zernio signs an HMAC with the new secret,
+   production verifies it, `inbound_events` shows `webhook.test / processed` in 64 ms. **This is
+   the only check that proves the live process and the remote system agree**, and it settles
+   both halves of a two-system cutover with one event.
+4. **The old credential returns 401.** Until this, a rotation has not reduced the blast radius —
+   it has *doubled the number of valid keys*.
+
+For a two-system secret (vault + provider subscription), go **vault first → confirm the boot →
+then the provider**. During the gap the worker rejects old-signed events, which is correct
+behaviour: it never accepts an unverified one. The inverse order puts the failure on the
+inbound path.
+
+### [2026-09-01] Three CLI traps found while rotating — each cost a wrong conclusion or a 404
+- **`vercel env ls`'s age column does not track a synced write.** It read `2d ago` for all three
+  keys minutes after a sync that had demonstrably landed. Believing it would have made revoking
+  the old key an outage. Fingerprint the pulled value instead — **measure the value, never the
+  metadata about the value.** Same shape as trap 12.
+- **`vercel redeploy` takes no `--yes`** (it has `--no-wait` and `--target`) and fails with
+  *"Deployment belongs to a different team"* unless `--scope` is passed explicitly — **even with
+  exactly one team on the account.** And after it: `vercel inspect <url> | grep -A3 Aliases`.
+  A `Ready` deployment can serve nobody; "a deployment is running" and "production is running
+  it" are different claims.
+- **Zernio's webhook update is `PUT /v1/webhooks/settings` with `_id` in the BODY**, not
+  `PUT …/settings/{id}`, which 404s. Every internal doc phrases it as *"PUT subscription X's
+  secret"*, which reads RESTful. Send **only** `{_id, secret}` — the API leaves unprovided
+  fields untouched, so a minimal body cannot regress `url` or `events` the way an echoed-back
+  GET can. The 404's own response body named `openapi.json`; **the API answered the question,
+  and the second guess was unnecessary.**
