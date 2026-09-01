@@ -1,10 +1,24 @@
 # Handoff — feat/1013-refusal-policy-gate-held
 
-**Written 2026-08-31**, at the step 3→4 boundary of the `/feature` run for #1013.
+**Written 2026-08-31** at the step 3→4 boundary. **CLOSED 2026-09-01** when the
+sweep finished — read § POST-MERGE at the bottom FIRST for what it left behind.
 
 This document REFERENCES the artifacts by path. It never restates them. A
 resumed session bootstraps from: this file → intake → plan → deviations →
 review findings. **It never needs the prior transcript.**
+
+> ## ✅ STATUS: MERGED AND SWEPT — one task deferred, one not run
+>
+> #1013 merged to `main` as `9d26c5a3` (PR #1055, squash, 2026-09-01 04:53Z).
+> Phase `shipped`. Local gate GREEN at the branch tip, CI was 10/10. The
+> step-8 sweep ran as `chore/1013-post-merge-sweep` (PR #1060).
+>
+> **Do NOT re-run steps 0-7, and do not re-run the sweep.** Two items are
+> genuinely open and both are named in § POST-MERGE: realigning `staging`
+> (deferred behind a live §4.8 drill) and the `document-feature` pass (never
+> authorized). Everything else above that heading is historical context.
+>
+> The branch and its worktree were removed at cleanup. This file is the record.
 
 ---
 
@@ -155,3 +169,79 @@ highest-volume lane for every legacy pre-spine review (#997 resolution 1).
 Test title 18 is the regression pin, and
 `persist.test.ts`'s run-spine describe already has the sole `findActiveReviewRun.mockResolvedValue(null)`
 precedent to build it on.
+
+---
+
+# POST-MERGE — CLOSED 2026-09-01
+
+**The sweep is done.** It ran as `chore/1013-post-merge-sweep` (PR #1060), and
+this section is now a record rather than a work list. One task is deferred, one
+finding is new, and both are named below. Everything above this heading is
+historical context for #1013 itself.
+
+## What happened to each task
+
+| # | Task | Outcome |
+|---|---|---|
+| 1 | Realign `staging` | **DEFERRED — not done.** See the blocker below. |
+| 2 | Merge counter | Done. 3 → **9**; six merges had been lost, not one. |
+| 3 | Worktree cleanup | Done. Four merged worktrees removed; `test_1013` dropped. |
+| 4 | Comment on #1014 | Done — the Coverage-start constraint, with the correction. |
+| 5 | Promote **D8** | Done. Wave rule 4 in `execution-lanes.md`. |
+| 6 | Promote **D9** | Done. `lab-notes.md`, 2026-09-01 section. |
+| 7a | Fix **D10** | Done, and proved by measurement. Regression test included. |
+| 7b | `equivalent` outcome | Done. Seven tests; four mutants planted and killed. |
+| 8 | `document-feature` sweep | **NOT RUN.** Out of the sweep's authorized scope. |
+
+## 🚧 The blocker MOVED, and the new one is different in kind
+
+The original blocker — uncommitted `/feature` risk-gate work in the parent
+checkout — **resolved itself**. It merged to `main` as `cec1f290` (PR #1058) on
+2026-09-01: the red-team sidecar requirement is now scoped by the intake's
+signed-off `risk`, with `risk: normal` recording a mechanical `WAIVED`. Nothing
+was lost and nothing needed absorbing.
+
+**The blocker that replaced it is concurrency.** While this sweep ran, a second
+live session was working in the parent checkout — committing, switching
+branches, and pulling `main` (three reflog events inside one minute, and a live
+`until railway status …` poll loop). That session was mid-**§4.8 drill** with
+the staging worker stopped.
+
+Two consequences, both load-bearing:
+
+1. **Task 1 was deferred, not skipped.** A `reset --hard` plus
+   `--force-with-lease` to `staging` auto-deploys the full staging stack and
+   would have destroyed a running drill. `staging` is still diverged —
+   `origin/staging` at `5358bd82`, 25 ahead of and 2 behind `main`, so
+   `--ff-only` aborts and the runbook's reset path is the answer. **Do this
+   once §4.8 finishes**, per `deployment-guide.md` § Re-sync staging. Never
+   substitute a sync merge.
+2. **The sweep ran in its own sibling worktree.** Two sessions in one working
+   tree collide. Check `git reflog` and `ps` for a live session before editing
+   the parent checkout, exactly as this run did.
+
+## Two facts that will confuse you if you do not have them
+
+**The standing `INCOMPLETE_ORACLE` on this branch is now FIXABLE, and was not
+retro-fixed.** `equivalent` exists as of PR #1060, so the class of mutant that
+forced D11's override has an honest label. #1013's own sidecar was NOT relabelled
+— editing a shipped review record to improve its verdict is the defect class this
+effort caught repeatedly. D11 stands as written.
+
+**The staging ride was PARTIAL and that is recorded, not an oversight.** It
+proved deployment and schema only. `policy_gate_held` needs
+`AUTO_APPROVAL_ENABLED`, which would skip two positions in the ordered go-live;
+`held_draft` had no moderation-flagged draft to observe, because staging has
+zero `flagged_responses` rows, ever. Deviation **D12**. The lane's real-ingest
+proof is owed by the go-live flip — and that same fact is now the open question
+on **#1014**, because merge ordering alone does not make its Coverage start
+honest.
+
+## Housekeeping
+
+* **Staging secrets were exposed twice in session transcripts** (Railway
+  variable listings). The owner intends to rotate. Do not list all Railway
+  variables — filter to the keys you need. **Still open.**
+* Test DB `test_1013` was dropped at cleanup.
+* Codex plan-review session id `01a059b8-2b34-7131-b1cc-d44ba9f3847f` — no
+  longer needed; the plan is closed.
