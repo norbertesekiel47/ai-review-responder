@@ -117,7 +117,8 @@
     "src/components/dashboard/shell/DashboardStatePanel.tsx",
     "src/components/dashboard/shell/__tests__/DashboardStatePanel.test.tsx",
     "CONTEXT.md",
-    "docs/directory.md"
+    "docs/directory.md",
+    ".claude/reference/arch-review-log.md"
   ],
   "tests_to_add": [
     "renders the stored refusal_category and never re-derives it from refusal_code",
