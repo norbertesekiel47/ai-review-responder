@@ -1899,14 +1899,45 @@ pipeline evaluates this rule for an `outage`-category issue at all. The category
 *matches*; whether the rule is *reached* is a separate question that no configuration readback
 can answer.
 
-### Production is deliberately NOT changed
+### Production brought to parity, 2026-09-01T19:19Z — owner-approved
 
-`3925256` carries the same four tag equalities and the same gap. It was left alone: the owner's
-instruction named `3608329`, and production additionally holds the **unfiltered** `3920752`
-(New/Existing high-priority issue → Discord), so production has a candidate path that staging
-never had. That path is **contingent on Sentry classifying a cron issue as high priority**,
-which remains unverified.
+`3925256` carried the same four tag equalities and the same gap. The same clause is now on it.
+API readback (`dateUpdated 2026-09-01T19:19:17.059Z`):
 
-**Owed:** either add the same `Issue category is equal to outage` clause to `3925256`, or verify
-that `3920752` actually takes a cron issue. Until one of the two happens, production's dead-man
-switch rests on an unverified assumption — which is precisely the state §4.8 exists to find.
+```
+Action Filters — logic: any-short
+  Tagged event  subsystem  eq  health_alert
+  Tagged event  cost_event eq  limit_exceeded
+  Tagged event  feature    eq  stripe_reconciliation
+  Tagged event  subsystem  eq  import_consent_analytics
+  Issue category (comparison: value: 10)        ← NEW. 10 = outage
+Actions — Discord 1544045194264051842
+```
+
+Again purely additive: the four tag equalities are byte-identical, logic is still `any-short`,
+the Discord action is unchanged, and `lastTriggered` is still `Never` (this rule has not yet
+fired in production).
+
+**Why parity mattered even though production had a candidate path.** Production also holds the
+**unfiltered** `3920752` (New/Existing **high priority** issue → Discord), which staging never
+had. But that path is contingent on Sentry classifying a cron issue as *high priority*, and
+nothing verifies that — no production cron issue has ever existed
+(`search_issues monitor.slug:health-alert-poller` over 90 d against `repworth-production`, no
+`is:` term → zero results). **A dead-man switch resting on an unverified classification is
+exactly the state §4.8 exists to find**, so it was replaced with a deterministic one.
+
+**A second gain, not planned but real.** Production runs three uptime monitors —
+`prod worker /ready` (`https://worker.repworth.net/ready`), `prod app /api/health`
+(`https://repworth.net/api/health`) — and staging runs one for `https://staging.repworth.net`.
+Uptime-monitor issues are **also** category `outage`. All four were unroutable for the same
+reason a cron issue was, and this one clause fixes every one of them in both projects. The
+`monitor.slug` equality originally planned would have fixed exactly one monitor and left the
+other four silent.
+
+### What remains open on §4.8
+
+**Both projects now route an outage-category issue to Discord. Neither project creates one.**
+The monitor's `failure_issue_threshold` is 1, Sentry's own wording counts missed check-ins, two
+were missed on 2026-09-01, and no issue appeared. That break is untouched by this change.
+**§4.8 stays a QUALIFIED FAIL**, and the re-run — stop the worker ~12 minutes — is the only
+thing that can prove either half now.
