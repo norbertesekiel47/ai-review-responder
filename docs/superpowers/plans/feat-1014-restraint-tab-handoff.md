@@ -15,13 +15,18 @@ row is a pointer.
 | Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1014-restraint-tab` |
 | Branch | `feat/1014-restraint-tab` |
 | Fork point | `23facb7bf2371023e748a4918599299149c23b2f` (= `origin/main`, 0 behind at plan time) |
-| HEAD at this handoff | `029cbd08` (round-1 fixes) |
+| HEAD at this handoff | `a62096ba` (round-2 fixes) |
 | Classification | `size=standard · risk=high · surface=ui` |
-| Phase | `worktree_ready` → step 3 (round 2 verification in flight) |
+| Phase | `worktree_ready` → step 3 (round 3 verification in flight) |
 | Ladder | `.feature/progress.json` — 8 tracers registered, 0 done |
 | Amendments used | 1 of 2 |
-| Plan review rounds | **2 of 3** |
+| Plan review rounds | **3 of 3 — THE CAP. There is no round 4.** |
 | Intake shape | 56 tests · 15 invariants · 19 edge cases · 21 surface entries |
+
+**If round 3 returns REVISE, do not dispatch another round.** Surface the
+remaining disagreement to the owner with both positions; their call substitutes
+for APPROVED. The round-3 prompt already asks the reviewer to name the single
+highest-severity blocker for exactly this reason.
 
 ### Plan round 1 — `REVISE`, 9 findings, all verified, all accepted
 
@@ -38,9 +43,28 @@ round 1**. Two outcomes a resumed session must not re-litigate:
   `/dashboard/analytics` and `/dashboard/reviews`; `blast-radius.sh` must list
   both and step 7 must look at both.
 
-Round 2 is verification-only: it checks whether its OWN nine findings closed and
-whether a fix regressed anything. It may not open new fronts. Its output lands
-in `.feature/plan-review-r2.md`; the prompt is `.feature/plan-review-r2-prompt.md`.
+### Plan round 2 — `REVISE`, 8 of 9 closed, 1 rejected
+
+Full table: the plan's **Review appendix — plan round 2**. Three of the four
+open items were defects that MY ROUND-1 FIXES INTRODUCED — Task 2's module did
+not typecheck, because the code block declared `RefusalLogEntry` a second time
+and the `linkKind` edit reached only the shared-contract copy. That pattern is
+the reason the round exists, and it is why round 3 was dispatched rather than
+self-verified.
+
+**One finding was REJECTED, and it is the only rejection across all rounds.**
+Round 2 claimed the new `occurred_at <= windowEnd` bound re-triggers the #520
+microsecond trap. It does not: `.claude/CLAUDE.md:210` scopes that trap to a row
+compared against a window derived FROM that row, and both bounds come from one
+`Date.now()`. The full argument is in the plan under Task 2, "Note on BOTH
+bounds" — **read it before re-raising this**, and note the constructive half WAS
+taken (the fixture seeds `+ interval '419 microseconds'`).
+
+### Round 3 — verification-only, in flight
+
+Scope: are the round-2 items closed, did those fixes regress anything, and does
+the rejection of finding 1 hold. Output `.feature/plan-review-r3.md`; prompt
+`.feature/plan-review-r3-prompt.md`.
 
 **Authoritative state lives on disk, never in a summary.** Re-read
 `.feature/state.json`, `.feature/progress.json` and `.feature/gate-status.json`
