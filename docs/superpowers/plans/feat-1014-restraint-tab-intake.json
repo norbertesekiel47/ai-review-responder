@@ -50,7 +50,9 @@
     "I10 — src/lib/refusals/vocabulary.ts stays presentation-free and client-safe. This change adds no export to it and no import of it that reaches a runtime graph.",
     "I11 — Tenant scoping is application-side. Every query in read.ts names account_id in its own WHERE clause; no subquery inherits scope from an outer block.",
     "I12 — The route's error arm is withDashboardOwnerRead's fixed errorMessage. It never maps or echoes a database error body.",
-    "I13 — The account total and the sum of per-location views legitimately DISAGREE when an autonomy_suspended row is in the window (CONTEXT.md:165, LOCKED). The tab states which number it shows rather than forcing them equal."
+    "I13 — The account total and the sum of per-location views legitimately DISAGREE when an autonomy_suspended row is in the window (CONTEXT.md:165, LOCKED). The tab states which number it shows rather than forcing them equal.",
+    "I14 — Link authority is per-LANE, never per-category. Two lanes share the unsafe_content category (held_draft, and policy_gate_held via moderation_flagged) and both carry a response subject, so a category-keyed link rule gives a policy-gate row a held draft's link. The read resolves authority into a linkKind field server-side; refusalSource itself never crosses the wire.",
+    "I15 — Every Refusal query is bounded at BOTH ends of the window. occurred_at is writer-supplied, not a database clock, so an unbounded upper edge admits a row the displayed range excludes."
   ],
   "edge_cases": [
     "E1 — Empty window: one plain sentence, window-scoped, no absolute claim, never an error card and never an empty grid.",
@@ -68,7 +70,10 @@
     "E13 — Account created after the window start: Coverage start clamps to accounts.created_at and the window's stated start is the later of the two.",
     "E14 — Location created mid-window: the location view's Coverage start is businesses.created_at.",
     "E15 — Widest selectable window (90d / 12w) against the 180-day retention floor: retention exceeds every selectable window, so no row can age out of a window the owner can select.",
-    "E16 — Rows exist for a lane whose subject table was purged by offboarding: unreachable in practice, because a purge deletes the account's refusal_events rows in the same stage. No special case."
+    "E16 — Rows exist for a lane whose subject table was purged by offboarding: unreachable in practice, because a purge deletes the account's refusal_events rows in the same stage. No special case.",
+    "E17 — A Refusal whose writer-supplied occurred_at is after windowEnd (clock skew, a long transaction): excluded. Every Refusal query is bounded at BOTH ends, because occurred_at is writer-supplied and the tab displays windowEnd as the range it covers.",
+    "E18 — A policy_gate_held row sharing held_draft's unsafe_content category: it carries a response subject (C1) and the SAME category, so a link rule keyed on category alone would give it a held draft's review link. Link authority is per-LANE and is resolved server-side into linkKind; the component never re-derives it.",
+    "E19 — getRefusalLog called directly for an archived location: returns no rows. The route already 404s that case, but the read seam enforces I9 itself rather than trusting its one caller."
   ],
   "existing_patterns_to_follow": [
     "src/app/api/dashboard/agent-team/route.ts — the route this one mirrors with one name changed. Same owner gate, same request parse, same aggregate-vs-location branch, same { window, ...payload } body.",
@@ -133,6 +138,10 @@
     "returns an empty log without error when refusal_events holds no rows",
     "isolates one account's refusals from another account's in the same window",
     "isolates one location's refusals from a sibling location's in the same account",
+    "excludes Refusals after windowEnd from entries and the archived-location footnote",
+    "returns windowStart clamped to accounts.created_at when the account was created inside the selected window",
+    "distinguishes a non-null unresolved subject from a lane with no subject",
+    "returns no rows for a location that is archived",
     "GET /api/dashboard/refusals returns the window and the log for an account scope",
     "GET /api/dashboard/refusals returns the window and the log for a location scope",
     "GET /api/dashboard/refusals rejects a request for a location outside the caller's account",
@@ -156,6 +165,9 @@
     "RestraintReport keeps the row and drops only the link when the subject no longer resolves",
     "RestraintReport shows no draft text, review text or moderation reason for a held draft",
     "RestraintReport renders the window-scoped empty sentence and makes no claim about all time",
+    "RestraintReport makes no claim about all time in a populated window",
+    "RestraintReport does not link a policy_gate_held response that shares held_draft's unsafe_content category",
+    "RestraintContent renders the restraint error card when the initial query fails without cached data",
     "RestraintReport renders the policy-gate disclosure line while auto-approval is disabled",
     "RestraintReport omits the policy-gate disclosure line while auto-approval is enabled",
     "RestraintReport renders the archived-location footnote with no link and no instruction",

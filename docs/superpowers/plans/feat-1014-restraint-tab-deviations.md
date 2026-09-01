@@ -110,3 +110,77 @@ location *view* (correct) and must never be multiplied into N rows inside a
 Both halves are invariants; neither may be dropped as a restatement of the other.
 
 **Verdict:** _(pending step 6)_
+
+---
+
+## D4 — Plan round 1 found a design error of mine: link authority was keyed on the category, which does not carry the lane
+
+**When:** step 3, plan-skeptic round 1 (session `01a05eee-b142-7410-a022-6e3dca104ea7`).
+
+**What happened.** The first plan dropped `refusalSource` from the read DTO
+entirely, on the reasoning that fewer server concepts should cross the wire, and
+keyed the tab's links off the **Refusal category** instead. Dropping
+`refusal_code` and `all_refusal_codes` was correct (ADR 0023). Dropping the LANE
+was not.
+
+`held_draft` maps to `unsafe_content` (`vocabulary.ts:244`) and so does
+`policy_gate_held`'s `moderation_flagged` (`vocabulary.ts:471`) — **verified, not
+taken on the reviewer's word** — and migration 116's CHECK C1 gives both lanes
+`subject_type = 'response'`. A category-keyed link rule therefore hands a
+policy-gate row the same review link a held draft gets: a link to a draft the
+owner was never asked to review. Every one of the original 49 promised tests
+would have stayed green, because they exercise a held-draft link and a no-link
+category and never the same-category collision.
+
+**Resolution.** The lane stays server-side and is projected into a `linkKind`
+field by `resolveLinkKind` in `read.ts`. `refusalSource` still never crosses the
+wire. Captured as intake invariant **I14** and edge case **E18**, with the
+failing test
+`RestraintReport does not link a policy_gate_held response that shares held_draft's unsafe_content category`.
+`CATEGORY_COPY` loses its `link` column outright, so the mistake is not
+re-expressible. A second latent instance was fixed in the same pass:
+`owner_review_required` had also been given a subject link, and the ticket names
+exactly three links, none of them that one.
+
+**Verdict:** _(pending step 6)_
+
+---
+
+## D5 — Fixing the Restraint tab's error state also fixes a pre-existing bug on two other surfaces
+
+**When:** step 3, plan-skeptic round 1.
+
+**What happened.** `DashboardStatePanel.tsx:61` reads:
+
+```typescript
+const showError = !state.loading && state.hasData && state.error != null;
+```
+
+The `hasData` conjunct gates the error card. On a FIRST-load failure `loading` is
+false, `error` is set and `hasData` is false — so the panel falls through to the
+skeleton branch and the owner watches a loading animation that never resolves.
+The comment above it ("Loading takes precedence over a stale error while data is
+absent") describes the `loading === true` case, which the first conjunct already
+handles.
+
+**Why this run takes it anyway.** It is a pre-existing defect in a shared module
+and the fix reaches `/dashboard/analytics` and `/dashboard/reviews`, which is
+outside #1014's ticket. Two reasons override that:
+
+1. The Restraint tab cannot satisfy its own promised error-state behaviour while
+   it stands — the promised test
+   `RestraintContent renders the restraint error card when the initial query fails without cached data`
+   fails against the current panel.
+2. The change is strictly an improvement on both other surfaces: an error card
+   replaces an endless skeleton. There is no state in which the old behaviour is
+   preferable.
+
+The alternative — having `RestraintContent` pass `hasData: true` on error — was
+rejected: it makes the component lie to the panel to route around a bug, and
+leaves the other two surfaces broken.
+
+**Blast radius to re-check at step 7.** `src/components/dashboard/analytics/AnalyticsContent.tsx`
+and `src/components/dashboard/reviews/ReviewsContent.tsx` are the two other
+callers. `blast-radius.sh` must list them and the review wave must look at both.
+
+**Verdict:** _(pending step 6)_
