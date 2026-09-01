@@ -67,12 +67,16 @@ function check(...args: string[]): CheckResult {
  *
  * Re-deriving the slug in the test would create a second owner of the identity
  * rule; asking the checker is both shorter and a real assertion — an operator
- * with no sidecar needs exactly this path.
+ * with no sidecar needs exactly this path. Since the risk-scoped waiver, a
+ * normal-risk feature run reports the path on stdout inside its WAIVED line
+ * (exit 0) while every failing shape still names it on stderr, so both streams
+ * are searched.
  */
 function reportDirFromAbsence(...args: string[]): string {
-  const { stderr } = check(...args);
-  const match = stderr.match(/no red-team sidecar at (\S+)\/findings\.json/);
-  if (!match?.[1]) throw new Error(`could not read the expected path from:\n${stderr}`);
+  const { stdout, stderr } = check(...args);
+  const combined = `${stderr}\n${stdout}`;
+  const match = combined.match(/no red-team sidecar at (\S+)\/findings\.json/);
+  if (!match?.[1]) throw new Error(`could not read the expected path from:\n${combined}`);
   return match[1];
 }
 
@@ -236,18 +240,71 @@ describe('the CLI contract', () => {
   });
 });
 
-describe('absence', () => {
-  it('fails when no sidecar exists and names the exact path it expected', () => {
+describe('absence — the risk-scoped waiver', () => {
+  // A bare repo with a commit and, optionally, a locked intake. The waiver
+  // reads risk ONLY from `.feature/intake.json`, so these fixtures never
+  // write a sidecar.
+  function seedBareRepo(intake?: Record<string, unknown> | string): void {
     git('init', '-q', '-b', BRANCH);
     git('config', 'user.email', 'red-team@example.test');
     git('config', 'user.name', 'red team');
     write('a.txt', 'a\n');
     git('add', 'a.txt');
     git('commit', '-qm', 'base');
+    if (typeof intake === 'string') write('.feature/intake.json', intake);
+    else if (intake) write('.feature/intake.json', `${JSON.stringify(intake, null, 2)}\n`);
+  }
+
+  it('fails closed when no sidecar exists and no intake can supply a risk', () => {
+    seedBareRepo();
     const result = check();
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('docs/reviews/red-team/');
     expect(result.stderr).toContain('absence is failure');
+    expect(result.stderr).toContain('fails closed');
+  });
+
+  it('waives the sidecar when the signed-off intake declares risk normal', () => {
+    seedBareRepo({ risk: 'normal' });
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('WAIVED');
+    expect(result.stdout).toContain('no red-team sidecar at docs/reviews/red-team/');
+  });
+
+  it('waives equally from the Claude lane `classification` spelling', () => {
+    seedBareRepo({ classification: 'normal' });
+    const result = check();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('WAIVED');
+  });
+
+  it('requires the sidecar when the intake declares risk high', () => {
+    seedBareRepo({ risk: 'high' });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('high-risk feature-lane run requires');
+    expect(result.stderr).toContain('absence is failure');
+  });
+
+  it('requires the sidecar for a Claude lane `classification: high` intake', () => {
+    seedBareRepo({ classification: 'high' });
+    expect(check().status).toBe(1);
+  });
+
+  it('fails closed on an unreadable intake rather than waiving', () => {
+    seedBareRepo('{not json');
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('not valid JSON');
+    expect(result.stderr).toContain('fails closed');
+  });
+
+  it('fails closed on an intake that declares no risk at all', () => {
+    seedBareRepo({ goal: 'something' });
+    const result = check();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('neither `risk` nor `classification`');
   });
 
   // The remedy differs by mode, so the message must too: a feature run is

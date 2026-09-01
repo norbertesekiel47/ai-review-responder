@@ -430,7 +430,7 @@ accumulation.
 This is ENFORCED: the `reviewed` transition parses the file and refuses when
 any entry lacks a resolved **Verdict:** ACCEPT. A RE-PLAN verdict also refuses.
 
-## 7. REVIEW WAVE — every axis and the red team, in one dispatch
+## 7. REVIEW WAVE — every axis, plus the red team when RISK = high, in one dispatch
 
 **Take main BEFORE this step, then freeze the fork.** Check drift now
 (`git rev-list --count HEAD..origin/main`) and rebase or merge if it is
@@ -480,10 +480,14 @@ three rules that make the wave safe):
   Write the brief per `review-prompts.md` § Dispatching a Codex round — context
   in the brief, no cloned delegates. Record its session id; a branch
   verification round in rounds 2–3 resumes it rather than starting cold.
-- **Red-team pass** — the `red-team` skill in a FRESH subagent, on committed
-  HEAD. It receives the locked intake, the pinned fork/merge-base/head SHAs and
-  the claimed evidence — never your reasoning or the implementer's. Read
-  `.claude/skills/red-team/SKILL.md` for the protocol.
+- **Red-team pass (RISK = high only)** — the `red-team` skill in a FRESH
+  subagent, on committed HEAD. It receives the locked intake, the pinned
+  fork/merge-base/head SHAs and the claimed evidence — never your reasoning
+  or the implementer's. Read `.claude/skills/red-team/SKILL.md` for the
+  protocol. A RISK = normal wave carries no red-team member:
+  `red-team-status.mjs` records the waiver from the signed-off intake
+  (execution-lanes.md § The review wave). The owner may still request the
+  pass; a sidecar that exists is always validated in full.
 
 All agents receive the triaged deviations file and their axis's accepted-
 findings checklist (`docs/reviews/finding-checklists/<axis>.md`, when it
@@ -541,9 +545,15 @@ here.**
 
 ## 7.5 RED TEAM — finalize, prove, then set the phase
 
-The pass itself ran in step 7's wave. This step owns everything that must
-happen after it, and it owns the `reviewed` transition, so the phase can never
-claim reviewed without adversarial evidence.
+For RISK = high, the pass itself ran in step 7's wave. This step owns
+everything that must happen after it, and it owns the `reviewed` transition,
+so a high-risk phase can never claim reviewed without adversarial evidence.
+
+**RISK = normal short path:** when the wave carried no red-team pass, skip
+items 1–4 below. Run the final gate (item 5), run the checker (item 6 — it
+prints WAIVED from the signed-off intake), then set the phase (item 7). If a
+pass WAS run on a normal-risk branch, its sidecar exists and the full
+sequence applies.
 
 **Order is load-bearing — the report commit moves HEAD, so it happens BEFORE
 the final gate, not after:**
@@ -590,7 +600,8 @@ listed in a "Red-team findings rejected" section of the PR description.
 ## 8. SHIP — lane-dependent
 
 **Before any external action, in both lanes**, re-run
-`node .agents/skills/feature/scripts/red-team-status.mjs`. It is the same cheap
+`node .agents/skills/feature/scripts/red-team-status.mjs` (on RISK = normal it
+passes by recording the waiver). It is the same cheap
 command step 7.5 ran, and the commits between then and now — a staging ride, a
 fix, a rebase — are exactly what makes that evidence stale. Open the PR with
 `gh pr create --draft` (draft PRs run no CI), then run the checker once more

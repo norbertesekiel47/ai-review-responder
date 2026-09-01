@@ -19,6 +19,13 @@ public posting, durable data, webhooks, workers, migrations, production
 operations, or recovery. Otherwise use `normal`. When uncertain, select high
 and name the uncertainty.
 
+Risk also decides the red-team requirement (2026-08-31 risk-gate change):
+`high` requires the adversarial pass and `red-team-status.mjs` fails its
+absence; `normal` may omit it, and the checker records a WAIVED pass derived
+from the signed-off intake. The failure direction stays safe: an uncertain
+classification selects `high`, and a missing or unreadable intake fails
+closed, never waives.
+
 ## Lane behavior
 
 ### Trivial
@@ -99,12 +106,21 @@ Never dispatch two editing agents with overlapping leases. Prefer a read-only
 subagent when the task is diagnosis, research, design comparison, or review.
 The root agent inspects every resulting diff and owns integration.
 
-## The review wave — one parallel dispatch, red team included
+## The review wave — one parallel dispatch, red team when risk is high
 
 Both lane routers dispatch ONE wave, in ONE message, the moment the review
 gate is green. The wave contains every required review axis for the lane
-(above) **and the red-team pass**. They all read the same committed SHA, and
-none of them may edit, so wall clock is the slowest member, not the sum.
+(above) **and, when `risk` is `high`, the red-team pass**. They all read the
+same committed SHA, and none of them may edit, so wall clock is the slowest
+member, not the sum.
+
+A `normal`-risk wave carries no red-team member: the deterministic gate, the
+promised-tests row, and the review axes are that lane's safety layer, and the
+adversarial pass's cost (174 minutes measured on feat/1008) must scale with
+failure impact. `red-team-status.mjs` records the waiver mechanically from
+the signed-off intake — never from a claim made at transition time. The owner
+may still request the pass on a normal-risk branch; a sidecar that exists is
+always validated in full.
 
 Red team used to run after review triage and its fixes. That put a full
 adversarial pass on the critical path twice over: once to find defects, once
@@ -133,15 +149,17 @@ Three rules make the wave safe:
 3. **The finalizer still belongs to the root**, never the subagent, so a dead
    agent cannot strand a mutation.
 
-Order after the wave: finalize → commit the red-team report → triage every
-axis together → fix → gate → the scoped second red-team round → full review
-gate → status check → `reviewed`.
+Order after a wave that carried the pass: finalize → commit the red-team
+report → triage every axis together → fix → gate → the scoped second red-team
+round → full review gate → status check → `reviewed`. A normal-risk wave with
+no pass collapses to: triage → fix → gate → full review gate → status check
+(it prints WAIVED) → `reviewed`.
 
-The second round is scoped to the fix hunks and their direct callers, and it
-is not optional: fixes always land after the wave, so the sidecar is always
-stale against HEAD by then. This spends the two-round cap by design. A P0
-found in round 2 has no round 3 behind it — take it to the user, the same
-answer the cap has always given.
+When the pass ran, the second round is scoped to the fix hunks and their
+direct callers, and it is not optional: fixes always land after the wave, so
+the sidecar is always stale against HEAD by then. This spends the two-round
+cap by design. A P0 found in round 2 has no round 3 behind it — take it to
+the user, the same answer the cap has always given.
 
 ## Pin the fork — do not take main after the wave opens
 

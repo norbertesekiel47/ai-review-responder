@@ -300,9 +300,10 @@ post-rebase re-run, against 95 s for taking main beforehand. If main must be
 taken mid-review the round is VOID — re-run the full gate and open a fresh one.
 Read [execution-lanes.md](references/execution-lanes.md) § Pin the fork.
 
-Dispatch every required axis AND the red-team pass in ONE parallel wave; route
-mechanical passes (logging, checklist sweeps, doc greps) to cheaper subagents.
-Read [execution-lanes.md](references/execution-lanes.md) § The review wave
+Dispatch every required axis — plus, for high-risk work, the red-team pass —
+in ONE parallel wave; route mechanical passes (logging, checklist sweeps, doc
+greps) to cheaper subagents. Read
+[execution-lanes.md](references/execution-lanes.md) § The review wave
 first — it carries the three rules that keep a live mutation safe beside
 concurrent reviewers, and breaking one corrupts the red-team pass.
 
@@ -311,7 +312,8 @@ concurrent reviewers, and breaking one corrupts the red-team pass.
 - standard: parallel spec/correctness and maintainability reviews
 - high: the standard pair plus only the applicable risk axis
 
-Every lane also carries the red-team member. The wave's reviewers stage their
+Only a high-risk lane carries the red-team member; a normal-risk run records
+a waiver instead (execution-lanes.md § The review wave). The wave's reviewers stage their
 reports in `.feature/review-staging/<axis>.md`; the root copies them into
 `docs/reviews/<branch>/` after the finalizer returns. The reason is judgement,
 not a checker: `red-team-status.mjs` ignores untracked paths on purpose, but
@@ -353,10 +355,16 @@ node .agents/skills/feature/scripts/progress.mjs step review done
 
 ### 6.5 Close the red-team pass and transition
 
-Section 6 asks whether the change is right, and its wave already ran the pass
-that tries to prove it wrong. This section owns everything after that pass, and
-it owns the `reviewed` transition, so no run reaches review-ready without
-adversarial evidence.
+Section 6 asks whether the change is right, and — for high-risk work — its
+wave already ran the pass that tries to prove it wrong. This section owns
+everything after that pass, and it owns the `reviewed` transition, so no
+high-risk run reaches review-ready without adversarial evidence.
+
+**Normal-risk short path:** when the wave carried no red-team pass, skip
+steps 1–6 below. Run the review gate, then transition — the status check
+inside the transition derives the waiver from the signed-off intake and
+prints WAIVED. If a pass WAS run on a normal-risk branch anyway, its sidecar
+exists and the full sequence below applies.
 
 The red-team skill is a VERIFIER, not a reviewer: its mutations of production
 files are the one narrow exception to "never let a reviewer edit", because they
