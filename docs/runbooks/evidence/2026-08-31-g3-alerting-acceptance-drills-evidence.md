@@ -1758,3 +1758,92 @@ Filter on `monitor.slug`, now verified as a real tag on `REPWORTH-STAGING-8`.
 > against, which is D-16's whole point. The rule is the correct first step and the §4.8
 > re-run is what proves it. **If the re-run creates an issue and the rule still does not
 > fire, the answer is the monitor's own notification configuration, not the rule.**
+
+---
+
+## Sentry configuration executed by browser, 2026-09-01T18:00–18:20Z
+
+### DONE — rule 6's occurrence filter removed in BOTH projects
+
+Confirmed by API readback after the edit, not from the form:
+
+| | Staging `3927243` | Production `3927261` |
+|---|---|---|
+| Trigger | `Every event` — the only one | identical |
+| Filter (`all`) | `Tagged event feature eq solicitation_lane` — **the only one** | identical |
+| Discord | `1517968864724385822` | `1544045194264051842` |
+| Throttle | 60 minutes | 60 minutes |
+| `dateUpdated` | `2026-09-01T18:08:43.821Z` | `2026-09-01T18:09:17.120Z` |
+
+`3927243` keeps `lastTriggered 2026-09-01T06:07:44.526Z`, so §4.6's evidence is intact. Its
+detail page independently corroborates the drill: **Total Triggers 1** over 14 days, the single
+entry being `Sep 1, 6:07 AM UTC` against issue `solicitation_suppression_without_attribution`.
+
+### D-16 CONFIRMED IN THE UI, and the vocabulary matters
+
+The staging monitor's edit form reads:
+
+- **Failure Tolerance = 1** — *"Create a new issue when this many consecutive **missed or error**
+  check-ins are processed."* So a **missed** check-in counts, in Sentry's own words, and the
+  threshold is already correct. Every "set the threshold" instruction in the handoffs is retired.
+- **Recovery Tolerance = 1**, Grace Period 5, Max Runtime 5.
+- **Issue Ownership → Assign: unset.**
+- A banner: *"This monitor is managed in code and updates automatically with each check-in.
+  Changes made here may be overwritten!"* — consistent with `recordProbeCheckIn`'s upsert.
+
+**And the actual gap, found in the UI and not visible from the API:** section **6. Alert** —
+*"Configure alerting on this Monitor to get notified on issues"* — is **EMPTY**. No alert is
+connected to the monitor. Beneath it: *"Alerts configured for all Issues in the project
+`repworth-staging` will also apply to this Monitor"* — which is precisely the path D-14 showed
+is closed, because `3608329`'s four tag equalities cannot match a cron issue.
+
+**So §4.8's chain is now fully mapped:** the monitor detects correctly, its thresholds are
+correct, it has **no connected alert**, and the one project-wide rule that would otherwise apply
+filters on tags a cron issue does not carry.
+
+### D-17 (2026-09-01T18:20Z) — BLOCKED. Sentry's monitor-alert UI cannot create a working rule.
+
+**Three distinct paths were tried. All three fail, and two of them fail while appearing to
+succeed.**
+
+| # | Path | Result |
+|---|---|---|
+| 1 | Monitor edit → **Create New Alert** → fill form → Create | Page goes **blank** (React crash). A rule **IS** created — but with **no project and no monitor**. Repeated once, producing a second orphan |
+| 2 | Rule edit → Source **"Alert on specific monitors"** → Connect Monitors → `health-alert-poller` → Save | Form shows the monitor connected. Save appears to run (`Last modified` advances). **The connection does not persist** |
+| 3 | Monitor edit → **Connect Existing Alerts** → Connect | Section 6 immediately re-renders as *"6. Connected Alerts"* listing the rule. Closing the drawer goes **blank**. **The connection does not persist** |
+
+Sentry states the outcome itself, on the rule's own page:
+
+> ⚠️ **"This alert is not connected to a project or monitor and will not trigger."**
+
+**Two orphan rules exist and MUST NOT be mistaken for working alerting** — they are exactly the
+"looks configured, pages nobody" shape this whole campaign is about:
+
+| Rule | Name | State |
+|---|---|---|
+| `3930310` | `cron-health-alert-poller to discord` | Project `—`, Monitor `—`, will not trigger |
+| (sibling) | `cron-health-alert-poller -> discord` | Project `—`, Monitor `—`, will not trigger |
+
+Neither appears in `find_alert_rules(projectSlug='repworth-staging')`, because neither belongs
+to a project — the API and the UI agree that they are orphans.
+
+**Assessment:** this is a defect in Sentry's new alert UI, not a configuration mistake. The
+create call omits the project, and both connect paths crash before committing. **§4.8 stays
+BLOCKED**, now on a vendor defect rather than on our own configuration — which is a different
+disposition from D-14 and should be recorded as such.
+
+**Options, for the owner:**
+
+1. **Sentry support ticket**, quoting D-17's three paths. The orphan rules are reproducible
+   evidence.
+2. **Create the rule through the Sentry API** (`POST /api/0/projects/repworth-nv/repworth-staging/rules/`)
+   with a PAT, bypassing the UI entirely. This needs a token the session does not hold.
+3. **Widen `3608329`** with a fifth `Tagged event monitor.slug eq health-alert-poller` clause —
+   its `any-short` logic makes this additive, so it re-opens the cron path without touching the
+   four existing clauses. **This contradicts the "dedicated rule" decision above**, and is the
+   pragmatic fallback if 1 and 2 are unavailable.
+
+**Also observed, and separately worth a line:** the staging monitor's page carries a red banner
+*"Errors were encountered while ingesting check-ins for this monitor"* — **`3x Rate limited`**,
+*"A sent check-in was dropped due to being rate limited."* Dropped check-ins on a dead-man
+switch are a false-positive source. Not investigated; recorded.
