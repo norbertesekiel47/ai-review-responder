@@ -135,8 +135,17 @@ export type AutonomySuspensionTrigger =
  * exceptions are test files (about twenty, in `__tests__` directories under
  * `src/lib/`), which carry no bundle and no boundary.
  * `worker/jobs/publisher/auto-policy-downgrade.ts` still owns the BEHAVIOUR and
- * re-exports this type, so its callers are unchanged; this file owns only the
- * union, so both sides can name it.
+ * IMPORTS this type back; this file owns only the union, so both sides can name
+ * it.
+ *
+ * (CORRECTED by #1013 T2: this sentence used to say that module "re-exports
+ * this type, so its callers are unchanged". It does not, and never did after
+ * the move — `auto-policy-downgrade.ts`'s own import comment records that
+ * nothing outside that file had ever imported it, verified at the merge base
+ * and at head, and that `working-rules.md` bans a compatibility shim with no
+ * named external consumer. The false clause was left behind when that
+ * correction landed, and it is fixed here rather than cited by the new
+ * declaration below.)
  *
  * (That path is spelled without a glob star on purpose: a `*` followed by `/`
  * inside a block comment CLOSES it, and an earlier wording of this very
@@ -154,6 +163,59 @@ export type AutoPolicyDowngradeReason =
   | 'judge_unhealthy'
   | 'autopilot_entitlement_lost'
   | 'policy_suspended';
+
+/**
+ * Every reason the auto-approval gate declines to auto-post a draft.
+ *
+ * DECLARED HERE RATHER THAN IN THE WORKER MODULE THAT USES IT, on the two
+ * precedents directly above and for the identical reason: the Refusal ledger's
+ * vocabulary (`src/lib/refusals/vocabulary.ts`) maps every member to a
+ * **Refusal category** or to explicit `null`, and no PRODUCTION module under
+ * `src/lib/` imports from `worker/`. `worker/jobs/response-generation/auto-approval.ts`
+ * still owns every GATE and imports this union back; this file owns only the
+ * declaration, so both sides can name it (#1013 deviation D2).
+ *
+ * NOT RE-EXPORTED from the worker module, on `AutoPolicyDowngradeReason`'s
+ * finding: `working-rules.md` bans a compatibility shim with no named external
+ * consumer. The one other reader — `auto-approval.test.ts` — imports the
+ * declaration directly.
+ *
+ * TWENTY-TWO MEMBERS, and the count is load-bearing rather than incidental.
+ * #1003 partitions them into a seven-member veto set (mapped `null`) and the
+ * fifteen-member `AUTO_APPROVAL_BLOCK_PRECEDENCE`, and `vocabulary.test.ts`
+ * asserts that partition by PARSING this declaration as text — nothing at run
+ * time can enumerate a bare TypeScript union. So a twenty-third member added
+ * here without a category decision fails that test rather than resolving to no
+ * category and silently writing no row.
+ *
+ * The ORDER here is the evaluation order `evaluateAutoApprovalCandidate` reads
+ * them in, and it is deliberately NOT the precedence order. #1003 rejected
+ * reusing it as a precedence: a suspended week would report "Sent to you" where
+ * the owner needs "Autonomy paused".
+ */
+export type AutoApprovalBlockReason =
+  | 'policy_not_enabled'
+  | 'rating_below_threshold'
+  | 'bad_origin_lane'
+  | 'unsupported_version'
+  | 'suppressed_notification'
+  | 'review_content_hash_missing'
+  | 'review_content_changed_before_persist'
+  | 'current_rating_missing'
+  | 'provider_moderation_disabled'
+  | 'provider_moderation_error'
+  | 'moderation_flagged'
+  | 'moderation_held'
+  | 'publisher_subscription_denied'
+  | 'archived_location'
+  | 'active_zernio_connection_missing'
+  | 'auto_approval_disabled'
+  | 'triage_high_severity'
+  | 'triage_fallback'
+  | 'rating_below_positive_quadrant'
+  | 'daily_cap_exhausted'
+  | 'policy_suspended'
+  | 'autopilot_tier_required';
 
 export type AutonomySuspensionEvidence =
   | { verdict_id: string }
