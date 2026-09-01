@@ -15,18 +15,34 @@ row is a pointer.
 | Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1014-restraint-tab` |
 | Branch | `feat/1014-restraint-tab` |
 | Fork point | `23facb7bf2371023e748a4918599299149c23b2f` (= `origin/main`, 0 behind at plan time) |
-| HEAD at this handoff | `a62096ba` (round-2 fixes) |
+| HEAD at this handoff | `d0a74924` |
 | Classification | `size=standard · risk=high · surface=ui` |
-| Phase | `worktree_ready` → step 3 (round 3 verification in flight) |
+| Phase | **`plan_approved` — step 3 COMPLETE, step 4 is next** |
 | Ladder | `.feature/progress.json` — 8 tracers registered, 0 done |
 | Amendments used | 1 of 2 |
-| Plan review rounds | **3 of 3 — THE CAP. There is no round 4.** |
+| Plan review rounds | **3 of 3 — spent. There is no round 4.** |
 | Intake shape | 56 tests · 15 invariants · 19 edge cases · 21 surface entries |
 
-**If round 3 returns REVISE, do not dispatch another round.** Surface the
-remaining disagreement to the owner with both positions; their call substitutes
-for APPROVED. The round-3 prompt already asks the reviewer to name the single
-highest-severity blocker for exactly this reason.
+## ⚠ THE RUN IS PARKED — re-arm before the first edit
+
+`.feature/intake.json` was renamed to `.feature/intake.parked.json` so the
+session could hand back with a red gate. **The edit-surface guard is therefore
+DISARMED.** Re-arm before touching anything:
+
+```bash
+cd /Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1014-restraint-tab
+mv .feature/intake.parked.json .feature/intake.json
+bash scripts/arm-check.sh     # must print ARMED — if it does not, STOP
+```
+
+Do NOT re-run `scripts/feature-setup.sh` to re-arm: it re-initialises the ladder
+and would discard the 8 registered tracers and the amendment counter.
+`/feature-resume feat/1014-restraint-tab` handles this correctly; the manual
+rename above is the equivalent.
+
+**The gate is RED on `ci:feature-surface` alone, and that is correct** — 14
+surface entries name files the tracers have not created yet. It cannot go green
+before step 4. Do not chase it and do not narrow the surface to silence it.
 
 ### Plan round 1 — `REVISE`, 9 findings, all verified, all accepted
 
@@ -60,11 +76,23 @@ compared against a window derived FROM that row, and both bounds come from one
 bounds" — **read it before re-raising this**, and note the constructive half WAS
 taken (the fixture seeds `+ interval '419 microseconds'`).
 
-### Round 3 — verification-only, in flight
+### Plan round 3 — `REVISE` on one word; resolved. **Plan APPROVED.**
 
-Scope: are the round-2 items closed, did those fixes regress anything, and does
-the rejection of finding 1 hold. Output `.feature/plan-review-r3.md`; prompt
-`.feature/plan-review-r3-prompt.md`.
+Full table: the plan's **Review appendix — plan round 3**. Every substantive item
+CLOSED, and the reviewer ran a virtual TypeScript compilation of the Task 2 and
+Task 5 blocks that PASSED — so the typecheck failure round 2 found is genuinely
+gone. The sole blocker was Task 7 step 3 reading "Write the 5 tests" against its
+own turns-green line of 6. Fixed.
+
+**The rejection of round-2 finding 1 HOLDS and the reviewer agreed.** Do not
+re-raise the `occurred_at <= windowEnd` / #520 question; it is settled by both
+sides, and the argument is in the plan under Task 2, "Note on BOTH bounds".
+
+Outputs: `.feature/plan-review-r{1,2,3}.md`, prompts
+`.feature/plan-review-r{2,3}-prompt.md`, round-1 brief
+`.feature/plan-review-brief.md`. All gitignored — they do not survive a worktree
+removal, which is why every conclusion that matters was copied into the plan's
+review appendices and committed.
 
 **Authoritative state lives on disk, never in a summary.** Re-read
 `.feature/state.json`, `.feature/progress.json` and `.feature/gate-status.json`
@@ -157,18 +185,30 @@ not absorb or discard it.
 
 ## Next actions, in order
 
-1. Read `.feature/plan-review-r1.md`. Triage its findings table; fix what is
-   real, reject the rest with stated reasoning recorded in the plan's review
-   appendix.
-2. On `VERDICT: APPROVED` (or after the owner's call at round 3):
-   `bash scripts/feature-state.sh set-phase plan_approved` and
-   `node .agents/skills/feature/scripts/progress.mjs step plan done`.
-3. Step 4 — T1 ALONE first. After it completes, diff `git status --porcelain`
-   against `allowed_edit_surface`; an out-of-surface path means enforcement did
-   not bind, and the run STOPS there. Only then may T2 and T6 dispatch in
-   parallel; every other tracer is serial.
-4. Step 5 gate, step 6 deviations read-back (D1–D3 each need a `Verdict:`),
-   step 7 the ONE-message review wave with the red-team pass.
+Steps 0–3 are DONE. Start here.
+
+1. **Re-arm** (see the parked-run box above). `arm-check.sh` must print ARMED.
+2. **Step 4 — T1 ALONE.** It authors all 56 promised titles as failing tests.
+   It runs alone deliberately: its completion is the enforcement spot check.
+3. **After T1, diff `git status --porcelain` against `allowed_edit_surface`.**
+   An out-of-surface path means the guard did not bind — STOP and report. Do not
+   dispatch further tracers.
+4. Only then may **T2 and T6 dispatch in parallel** — they are the one mutually
+   independent pair (disjoint files, no shared edge). Every other tracer is
+   serial: T3 and T4 follow T2 in the same file, T5 needs T2, T8 precedes T7.
+5. **Step 5 gate.** `bash scripts/verify-gate.sh` — full, never `--fast`, at
+   every boundary. The subagent barrier applies: no gate while a tracer subagent
+   is in flight, and any HEAD move VOIDS the previous result.
+6. **Step 6 deviations read-back.** D1–D5 each need a resolved `Verdict: ACCEPT`
+   or the `reviewed` transition refuses. **D4 and D5 are the two that matter** —
+   D4 is a design error round 1 caught, D5 changes two surfaces outside this
+   ticket.
+7. **Step 7 — take main BEFORE the wave, then freeze the fork.** One message,
+   parallel: spec/correctness, `/thermo-nuclear-code-quality-review`,
+   `/codex:adversarial-review --background`, and the red-team pass (RISK=high).
+   `blast-radius.sh` must list `AnalyticsContent.tsx` and `ReviewsContent.tsx`
+   because of D5.
+8. **Step 7.5** owns the `reviewed` transition. **Step 8** ships.
 
 ## Step 8 needs the owner — two items
 
