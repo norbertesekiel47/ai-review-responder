@@ -1,0 +1,248 @@
+/* Restraint (`/dashboard/analytics/restraint`) — the **Restraint tab**: what we
+   chose not to do in the selected window, and why. Console (Harbor) tokens only
+   (`_styles/tokens.css`); colocated with the route so the whole surface is one
+   deletable folder, matching requests.css / contacts.css.
+
+   NO NEW SPECIAL SURFACE. The Console allows exactly three surfaces that break
+   the flat white card — the gradient hero, the Rep Pulse gauge and the inverted
+   deep panel — one instance each, on the dashboard. The summary card here is a
+   plain Harbor card carrying a large numeral, not a fourth. Its weight comes
+   from the display-scale figure and the sentence beside it, never from a fill.
+
+   Geometry note: the tab bar is the first child of `.content--analytics`, not a
+   `.reviews-subnav`-style row. That row is capped at 1024px and centred, which
+   is right for the Reviews reading column and wrong here — the analytics canvas
+   is full-bleed with 32px gutters, so a capped row would leave the tabs inset
+   from every card below them on a wide screen.
+
+   Contrast (against `--rw-card` #FFFFFF): `--rw-app-text-muted` #5C6B72 ≈ 5.7:1
+   is the floor for every word on this surface. `--rw-sage-deep` #3E6B65 ≈ 6.0:1
+   carries the counts and the links. Nothing here uses `--rw-coral`, which is
+   decorative-only and may never carry text. */
+
+/* The Restraint body column. One vertical rhythm for the loading and error
+   branches and for the summary + per-category sections. 16px matches the
+   `.content--analytics` section gap so the two do not disagree. */
+.rst-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- Summary card: the count, stated as a sentence ---------- */
+
+/* The Interpretation Rule: the figure and the words it means are one line, so
+   the number is never read without the sentence that qualifies it. */
+.rst-summary-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.rst-summary-count {
+  font: var(--rw-app-stat);
+  font-family: var(--rw-font-display);
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rst-summary-cap {
+  font-size: 15px;
+  color: var(--rw-app-text-muted);
+}
+
+.rst-summary-sub,
+.rst-summary-empty {
+  margin: 10px 0 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--rw-app-text-muted);
+  max-width: 62ch;
+}
+
+/* The empty window is the whole card, so it carries no lead-in above it. */
+.rst-summary-empty {
+  margin-top: 0;
+}
+
+/* ---------- Category sections ---------- */
+
+.rst-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rst-group-title {
+  font: var(--rw-app-h2);
+  font-family: var(--rw-font-display);
+  margin: 0;
+}
+
+/* A teal count pill, and it carries its own noun ("4 times") rather than a bare
+   figure — the Evidence Color Rule: the wash never has to be read as meaning. */
+.rst-group-count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rw-sage-deep);
+  background: var(--rw-sage-soft);
+  border: 1px solid var(--rw-sage-line);
+  border-radius: var(--rw-radius-pill);
+  padding: 4px 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rst-group-sentence {
+  margin: 6px 0 14px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--rw-app-text-muted);
+  max-width: 62ch;
+}
+
+/* The category's ONE fixed destination, drawn once beside the sentence rather
+   than repeated on every row — `href` links are the same page for every entry
+   in the category, so a per-row copy is the same fact five times. Per-entry
+   review links stay on the row, where they differ. */
+.rst-group-link {
+  font-weight: 600;
+  color: var(--rw-sage-deep);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rw-sage-line);
+  transition: color 160ms var(--rw-ease), border-color 160ms var(--rw-ease);
+}
+
+.rst-group-link:hover {
+  color: var(--rw-accent-700);
+  border-bottom-color: var(--rw-accent-700);
+}
+
+.rst-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A row is a date and, where the vocabulary gives one, a link. There is no
+   third column: the read carries no reason text, and a slot shaped like one
+   would imply a detail the owner could open. */
+.rst-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+
+.rst-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.rst-row-when {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rst-row-ago {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+
+.rst-row-link {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-sage-deep);
+  text-decoration: none;
+  border-radius: var(--rw-radius-sm);
+  transition: color 160ms var(--rw-ease);
+}
+
+.rst-row-link:hover {
+  color: var(--rw-accent-700);
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rst-row-link,
+  .rst-group-link { transition: none; }
+}
+
+/* ---------- Error branch ---------- */
+
+.rst-error-body {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--rw-app-text-muted);
+}
+
+/* ---------- Below the shell breakpoint ----------
+   The count pill and the link both stop being right-aligned: at this width the
+   row wraps, and an `auto` margin would strand them against an edge with the
+   date on the line above. */
+@media (max-width: 768px) {
+  .rst-group-count,
+  .rst-row-link {
+    margin-left: 0;
+  }
+
+  .rst-row-link {
+    flex-basis: 100%;
+  }
+}
+
+/* ── The disclosure lines (#1014) ──────────────────────────────────────────
+   Four contingent sentences live under the summary: which number this is, the
+   **Coverage start**, the lane that is not yet recording, and the
+   archived-location footnote — plus one line per archived period in a location
+   view. They are DISCLOSURES, not decoration: each exists because leaving it
+   out would let a true number be read as a false claim.
+
+   Quieter than `.rst-summary-sub` (13px against 14px) and set on
+   `--rw-app-text-muted` #5C6B72 ≈ 5.7:1 on `--rw-card`, which is the floor for
+   every word on this surface. They must NOT compete with the count.
+
+   The block is separated by one soft hairline on its FIRST line only — the same
+   internal-divider idiom `.rst-row` already uses, not a second border around a
+   card. The One Card Rule forbids stacking a second border to manufacture
+   depth; a single divider inside one surface is not that. */
+.rst-note {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--rw-app-text-muted);
+  max-width: 62ch;
+}
+
+.rst-note:first-of-type {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+
+/* Which number this is. It leads the block because every other line qualifies a
+   count the owner has already read, and this one says what the count IS. */
+.rst-note-scope {
+  color: var(--rw-app-text);
+}
+
+/* The archived-location footnote carries NO LINK and NO INSTRUCTION (#1005):
+   reactivation can be denied and enqueues a Stripe increment, and a trust
+   surface does not sell a billed, refusable action to show a number. Styled as
+   a plain sentence for exactly that reason — nothing here should read as an
+   affordance. */
+.rst-note-footnote {
+  font-variant-numeric: tabular-nums;
+}
