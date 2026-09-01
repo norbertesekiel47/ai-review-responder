@@ -7,7 +7,51 @@ This file explains what is actually built in the repository today, how it maps t
 > and NOT a file inventory (that's `.claude/reference/` + [docs/directory.md](directory.md)).
 > Older snapshots are archived — see the pointer further down.
 
-Last updated: 2026-08-30 (**Refusal ledger** — Quick summary immediately below. Prior entry: Review QR.)
+Last updated: 2026-09-01 (**Refusal ledger — the write path is complete.** Quick summary immediately below. Prior entry: the ledger's slice 1.)
+
+## Quick summary — **Refusal ledger**: every lane now writes (2026-09-01, PRs #1034/#1044/#1042/#1043/#1049/#1055)
+
+**Every one of the seven Refusal lanes now records its decisions. The table is
+written; nothing reads it yet — the reader is the Restraint tab, #1014, and it
+is the last slice.**
+
+The closed vocabulary, verified in `src/lib/refusals/vocabulary.ts`:
+
+* **Seven lanes** (`REFUSAL_SOURCES`) — `held_draft`, `auto_post_revoked`,
+  `autonomy_suspended`, `ask_withheld`, `outreach_withheld`, `batch_halted`,
+  `policy_gate_held`.
+* **Eight owner-facing categories** (`REFUSAL_CATEGORIES`), frozen at write
+  beside the `vocabulary_version` that froze them.
+* **Seven lane category maps.** Six lanes carry one map each, except
+  `outreach_withheld`, which has two — its RENDER and DISPATCH writers decide
+  different things at different moments. `held_draft` is **the one lane with no
+  map at all**, because it has no code axis (constraint C4).
+
+**What each slice added.** #1034 landed the five remaining category maps as a
+shared prerequisite, carved out of the three slices that would otherwise have
+raced for them. #1010 gave the three solicitation single-site lanes their
+writers and added the ledger's **set-based arm** (`writeRefusalEvents`, one
+`jsonb_to_recordset` INSERT) — needed because `ask_withheld` can reach 5,000
+rows in one build, and looping the single-row helper would put that many round
+trips inside a transaction holding the per-Business advisory lock. #1011 wired
+the `outreach_withheld` RENDER lane and moved its clock to decision time. #1012
+added `auto_post_revoked` and widened `account_id`. #1049 swept the debt those
+three deferred. #1013 closed it with `held_draft` and `policy_gate_held`, both
+inside the ONE `sql.begin` that carries invariant #4's moderation-hold
+atomicity.
+
+**One lane is live in code but silent in production, and that matters for
+#1014.** `AUTO_APPROVAL_ENABLED` is `false` in production, which makes
+`auto_approval_disabled` a STRUCTURAL gate: `isAutoApprovalCandidate` returns
+false, no policy row is read, and `policy_gate_held` writes **zero** rows —
+not few, zero. It turns on at position 4 of the ordered go-live flip, never at
+a merge. So the **Coverage start** #1014 plans to render from
+`accounts.created_at` is not yet honest for that lane. Raised on #1014;
+merge ordering alone does not settle it.
+
+**What is left.** Slice 7 of 7 — the **Restraint tab** (#1014): the report, the
+archived-location footnote and the archived-period line. Reads render the
+STORED `refusal_category` and never re-derive it.
 
 ## Quick summary — **Refusal ledger**, slice 1 of 7 (2026-08-30, PR #1019)
 
@@ -72,12 +116,13 @@ The new shape:
 
 **#1009 SHIPPED 2026-08-31** (#1031) — the insert helper, its
 `REFUSAL_LEDGER_ENABLED` kill switch, the `ArchivalPoller` sweep arm and the
-first write site. Next: the remaining TEN write sites (#1010–#1013); the
-**Restraint tab** (#1014). #1008 could not say where the FIRST write site
-lands and named #1009's PR as the change that would. **#1009 settled it
-(D16): the first site is `autonomy_suspended`, one site inside
-`suspendAccountAutonomy`, shipped beside the helper — the other ten follow in
-#1010–#1013.** The deciding evidence was never the artifact count, which is
+first write site. **Superseded — every remaining write site has since
+shipped, across #1034/#1010/#1011/#1012/#1049/#1013. See the entry at the top
+of this file. Only the Restraint tab (#1014) is left.** #1008 could not say
+where the FIRST write site lands and named #1009's PR as the change that
+would. **#1009 settled it (D16): the first site is `autonomy_suspended`, one
+site inside `suspendAccountAutonomy`, shipped beside the helper — and the rest
+followed across #1010–#1013.** The deciding evidence was never the artifact count, which is
 tied: it is #1004's verbatim slice order and #1009's ticket body §5.
 
 ## Quick summary — **Review QR** (2026-08-26, PR #982)
