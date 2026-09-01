@@ -64,6 +64,33 @@
   daily backups** — PITR supersedes them.
   **Accepting 24 h is a defensible beta posture. Believing the RPO is 2 minutes
   is not.** Whichever way this goes, record it as a dated owner decision here.
+
+  > ### ✅ DECIDED — 2026-09-01, @norbertesekiel
+  >
+  > **RepWorth runs beta on the existing daily physical backups and accepts an
+  > RPO of up to 24 hours.** The PITR add-on is **not** bought at this time.
+  >
+  > **What is accepted:** in a data-loss incident, every write since the last
+  > daily physical backup is unrecoverable — worst case ~24 h, best case minutes.
+  > At beta scale (single-digit businesses, 17 MB of data) the recoverable
+  > material is small and re-creatable: reviews re-ingest from Google, and drafts
+  > regenerate. **Posted replies are the exception — they live on Google, not in
+  > our database, so a restore cannot un-post or lose them.**
+  >
+  > **Why not buy it now:** ~$100/month against zero paying customers, not
+  > covered by the Spend Cap, and enabling it **stops** the daily backups that
+  > the 2026-09-01 drill actually proved end-to-end. Buying it would replace a
+  > **demonstrated** recovery path with an undemonstrated one, on the eve of the
+  > first live test.
+  >
+  > **Revisit trigger — this decision expires, it is not permanent.** Re-open the
+  > moment ANY of these is true: (a) the first **paying** customer activates,
+  > (b) production holds data for more than **5** businesses, or (c) any customer
+  > contract or DPA states an RPO. Whichever comes first.
+  >
+  > **This closes the blocker as a recorded exception, not as a completed item.**
+  > The box below stays unticked deliberately — the work was not done, the risk
+  > was accepted.
 - [x] **Email auth: DKIM + SPF + DMARC** (Spec 28) — verified 2026-06-26: Resend
   reports `repworth.net` **verified**; DKIM TXT at `resend._domainkey`, SPF
   (`include:amazonses.com`) on `send.repworth.net`, DMARC published. _Follow-up
