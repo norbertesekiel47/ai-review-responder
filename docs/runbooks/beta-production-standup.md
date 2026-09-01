@@ -467,7 +467,47 @@ proof, endpoint creation, 077, first deploy, smoke, 078, resume/open.
       **Until then, treat production as unmonitored by Sentry crons and uptime.**
       Monitors live at `https://repworth-nv.sentry.io/monitors/` — the
       `…/crons/<project>/<slug>/` path 404s. Evidence file → **Phase G.2**.
-- [ ] **G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.** §4.2, §4.3, §4.5,
+- [ ] **G3. IN PROGRESS — 8 of 10 drills PASS as of 2026-09-01T06:25Z.** Session 3 added
+      **§4.6 PASS** and **§4.10 PASS**. §4.6: four svix-signed `email.complained` POSTs, all
+      `200`, one permanent ledger row from four POSTs (first-write-wins), Sentry group 2 → 6,
+      rule `3927243` `lastTriggered 06:07:44.526Z`. §4.10: peak pending **50** against the
+      1500 threshold, drained in **13 min** against a 30-min target, zero `failed`, no
+      `backlog_depth` finding, three clean poller check-ins spanning the drill; teardown
+      verified back to 5 `job_outbox` rows.
+      **Six deviations, and four of them correct standing claims.** **D-10** — the §4.6 probe
+      session 2 recorded as "ready" would have returned `401` on every POST (it keyed the HMAC
+      with the raw `whsec_…` string; the ingress uses the decoded bytes). **D-11/D-13** — rule
+      6's `Issue occurrences: 4` is **cumulative with no interval** and fires on occurrence
+      **5**, not 4; the runbook's "more than 3 in one hour" describes neither, and in
+      production the first FOUR unattributed suppressions will page nobody. **D-12** — the
+      recorded suppression baseline of 5 was stale; the table was empty. **D-14** — **§4.8 has
+      a second break**: a Sentry cron issue carries no `subsystem`/`cost_event`/`feature` tag,
+      so staging's newly-scoped `3608329` cannot route it and staging has no other Discord
+      rule; fixing the monitor alone cannot make the drill pass. **D-15** — `release` cannot
+      clean the §4.10 headroom arm (it is scoped `status='pending'`) and reports "inventory
+      clean" anyway.
+      **§4.6's Discord delivery is owner-confirmed** — exactly one message at 11:07 PM local
+      (= 06:07Z), matching `lastTriggered`, and Discord's message grouping puts the group
+      header at 11:07 PM, which confirms the silence at 11:05:59 PM and 11:06:38 PM. §4.6
+      closes PASS on both halves.
+      **D-16 corrects §4.8's remedy.** The monitor's `failure_issue_threshold` is **already 1**
+      — read from the config snapshot embedded in `REPWORTH-STAGING-8`, the one cron issue this
+      monitor has ever made (225 occurrences, 2026-06-26). So "set the threshold" was inert
+      advice in two handoffs. That issue also proves missed check-ins DO count, and gives the
+      cron issue's complete tag set — confirming D-14 by evidence and making `monitor.slug` a
+      verified filter key. The real gap is the monitor's **notification target/owner**, which
+      `recordProbeCheckIn`'s upsert cannot set.
+      **Two owner decisions taken on best practice, 2026-09-01:** (a) **drop rule 6's
+      occurrence filter** in both projects — a detector for an open blocker must not be silent
+      on its first N occurrences, and a cumulative counter cannot express the intended rate;
+      the 60-minute throttle is the correct volume control, and a metric alert is the correct
+      instrument if a real rate condition is ever needed. (b) **a dedicated cron routing rule**
+      per project rather than widening `3608329`/`3925256`, keeping last night's scoping intact.
+      **Still open: §4.8** (needs the monitor's notification target, the cron routing rule, and
+      then a re-run — both projects) and **§4.7** (BLOCKED — needs a custom domain for the
+      staging worker).
+      Previous 6-of-10 record follows.
+      ~~**G3. IN PROGRESS — 6 of 10 drills PASS as of 2026-09-01T05:47Z.**~~ §4.2, §4.3, §4.5,
       §4.4, §4.1 and §4.9 all pass with owner-confirmed Discord delivery. **§4.8 is a QUALIFIED
       FAIL** — the cron dead-man switch detects a stopped worker (2 missed check-ins, `ok` →
       `error`) and **creates no issue, so pages nobody**; its panel says the threshold is one

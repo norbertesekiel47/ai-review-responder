@@ -241,15 +241,40 @@ _If_ (filter), _Then_ (action) → name it → Save.
 > | Section | Value |
 > |---|---|
 > | **WHEN** | `An event or issue activity is captured` — **the only trigger** |
-> | **IF** | logic **`all`** · `Issue occurrences ≥ N` **AND** `Tagged event <key> eq <value>` |
+> | **IF** | logic **`all`** · `Issue occurrences` = N **AND** `Tagged event <key> eq <value>` |
 > | **THEN** | Discord → the environment's channel ID |
 > | Throttle | 60 minutes |
 >
 > **Delete the four default state-change triggers.** A new rule ships with *A new issue is
 > created / resolved / escalates / regresses* pre-populated, and leaving `First seen event` in
 > place makes the rule fire on occurrence **one** — defeating the frequency filter entirely and
-> making §4.6 unpassable no matter what the filter says. Note "at least N" means
-> "more than N−1": for *"more than 3 in one hour"*, set **4**.
+> making §4.6 unpassable no matter what the filter says.
+>
+> **⚠️ WHAT `Issue occurrences: N` ACTUALLY MEANS (G.3 D-11/D-13, 2026-09-01 — MEASURED, and it
+> contradicts the sentence that stood here).** This block previously read *"at least N means
+> more than N−1: for 'more than 3 in one hour', set 4"*. Both halves are wrong.
+>
+> 1. **There is no interval.** The filter carries a bare `value` and no `interval` parameter —
+>    it is `IssueOccurrencesFilter` over the group's **cumulative** count, not
+>    `EventFrequencyCondition`. "In one hour" is not expressible this way. The count **never
+>    resets**, so such a rule ratchets permanently from silent to page-on-every-event.
+> 2. **It is off by one from its own label.** Rule `3927243` with `value: 4` against a group
+>    standing at 2 occurrences stayed silent at 3 **and at 4**, and fired once at 5/6
+>    (`lastTriggered 2026-09-01T06:07:44.526Z`). Configured `N` pages on occurrence **N+1**.
+>
+> **Consequences when building or reading any rule here:** budget a drill from the group's
+> **current** occurrence count, never from zero — read it first. And understand what the value
+> buys in production: with `N`, the first `N` occurrences page nobody, and from `N+1` every
+> occurrence pages, bounded only by the throttle.
+>
+> **DEFAULT TO NO OCCURRENCE FILTER (owner decision 2026-09-01).** For a detector whose events
+> are rare by construction, the filter guarantees `N` silent occurrences of the exact condition
+> you are hunting, and it cannot express a rate at all — a cumulative counter treats `N` events
+> spread over a year the same as `N` in a minute, and never resets. Use the `Every event`
+> trigger plus the tag filter, and let the **60-minute Action Throttle** cap the volume: that
+> damps a noisy detector without ever making it blind. **If a genuine rate condition is needed,
+> build a Sentry METRIC alert** on `count()` over the interval — that is the alert type that
+> expresses "N in an hour". Do not reach back for the occurrence filter.
 >
 > **Rule 5 is SUPERSEDED, by owner decision 2026-08-31T22:33Z** — on its own merits, NOT because
 > Sentry cannot express it. Its whole purpose was
@@ -519,7 +544,8 @@ precondition below.
   self-clears, and `resetSendBreaker` is the only sanctioned arm (a mandatory
   `reset_note` is enforced by migration 110's `reset_consistency` CHECK). **Do not
   clear it with SQL.**
-- [ ] **Unattributed suppression (#967, rule 6)** — POST **four** svix-signed
+- [x] **Unattributed suppression (#967, rule 6)** — ✅ **PASS 2026-09-01** (G.3
+  session 3). POST **four** svix-signed
   `email.complained` payloads to the staging worker's `/ingress/resend` within
   one hour, each carrying the `lane: solicitation` tag, an `email_id` that
   matches no `solicitation_outreach` row, and a `to` address. Expect **200** on
@@ -536,6 +562,20 @@ precondition below.
   The `email_id` must differ per request — a repeated `svix-id` is deduped by
   `claimInboundEvent` and a repeated `provider_message_id` is not what varies
   here. Working probe shape: `docs/reviews/fix-967-post-purge-global-optout/staging-smoke.md`.
+  ⚠️ **Sign with the DECODED secret bytes, not the secret string (G.3 D-10).**
+  `worker/ingress/resend.ts` keys the HMAC with
+  `Buffer.from(secret.replace(/^whsec_/, ''), 'base64')`. Keying it with the
+  printable `whsec_…` string returns `401 invalid_signature` on every POST — and
+  a `401` produces the *expected* "no page" for the sub-threshold POSTs, so the
+  defect only shows on the last one and reads as a broken rule.
+  ⚠️ **"More than 3 in one hour" is NOT what rule 6 implements (G.3 D-11/D-13).**
+  The filter is `Issue occurrences`, a **cumulative** count with **no interval**;
+  and configured with value `N` it fires on occurrence **N+1**, not `N`. Measured:
+  a group at 2 occurrences stayed silent at 3 and at 4, and fired once at 5/6.
+  So **budget the drill from the group's CURRENT occurrence count, not from
+  zero** — read it first — and expect the page on the POST that takes the group
+  past the configured value. In production this means the first `N` unattributed
+  suppressions page nobody and every one after that pages, hourly, forever.
 - [ ] **Killed worker — and the stuck-outbox drill rides on it (G.3 D-1).** Stop the
   worker process; expect the external `/ready` check to page. **While it is stopped,
   insert the stuck-outbox fixture** (`job_outbox` row `status='pending',
@@ -554,6 +594,35 @@ precondition below.
   expose either field. Verify an absence with `detector:<id>` and **no** `is:` term —
   `search_issues` defaults to `is:unresolved` and will hide a resolved issue, which is how the
   first run mis-reported this.
+  ⚠️ **DO NOT "SET THE FAILURE THRESHOLD" — IT IS ALREADY 1 (G.3 D-16, 2026-09-01).** The
+  value is not on the monitor endpoint, which is why two sessions called it UI-only, but it
+  **is** embedded in any cron issue the monitor has produced: `REPWORTH-STAGING-8` carries
+  `monitor.config: {"failure_issue_threshold": 1, "recovery_threshold": 1, "checkin_margin": 5,
+  "max_runtime": 5, …}`, agreeing with the panel's *"Detect: One failed check-in"*. That same
+  issue also settles two other assumptions: the monitor **can** create issues (225 occurrences
+  on 2026-06-26, failure reason *"A missed check-in was detected"*, so a **missed** check-in
+  does count), and its complete tag set is `environment`, `interface_type`, `level`,
+  `monitor.id`, `monitor.incident`, `monitor.slug`. **Verify the threshold; do not change it.**
+  The gap to close is the monitor's **notification target / owner** — a field
+  `recordProbeCheckIn`'s `monitorConfig` upsert cannot set (it passes only `schedule`,
+  `checkinMargin`, `timezone`), which is why `find_monitors` reports `owner: null` on both
+  monitors. Best lead on the underlying cause: the only cron issue this monitor ever produced
+  is tagged `environment: **production**` on a staging project — the stale environment §2a
+  exists to clean up — and the `staging` environment has never produced one.
+  ⚠️ **THERE IS A SECOND BREAK, DOWNSTREAM OF THE FIRST (G.3 D-14, 2026-09-01). Fixing the
+  monitor alone cannot make this drill pass.** A Sentry cron-monitor issue is generated by
+  Sentry, not by our SDK, so it carries **none** of `subsystem`, `cost_event` or `feature`.
+  Staging's `3608329` and production's `3925256` both filter on four `Tagged event`
+  equalities over exactly those keys, under `any-short` logic — so neither can route a cron
+  issue. On staging `3608329` is the only Discord rule, so there is **no path at all**;
+  production additionally has the unfiltered `3920752` (New/Existing **high priority**
+  issue → Discord), which is a candidate path but is contingent on Sentry classifying the
+  cron issue high priority, and that is unverified. The scoping that created the staging gap
+  landed at 2026-09-01T05:35Z, *after* the drill ran, so nothing re-tested the path.
+  **Before re-running, do BOTH:** (a) give the monitor an issue-creating failure threshold
+  and a notification target in the UI, and (b) give each project a rule that can route the
+  resulting issue — prefer a **dedicated cron rule** over widening `3608329`/`3925256`, which
+  keeps their deliberate scoping intact.
   **Why it outranks the other drills:** this monitor is the dead-man switch for the whole
   `HealthAlertPoller`. Every other §4 signal is emitted BY that poller, so if it dies they all
   stop silently and this is the only thing that would say so.
@@ -567,7 +636,10 @@ precondition below.
   `backlog_depth` observability under a held burst — **not** full
   ingest→draft→notification pipeline throughput. Full step-by-step procedure
   (Part B, over-threshold arm): `docs/runbooks/pool-wedge-burst-drill.md`.
-- [ ] **#474 capacity burst (headroom, ticket #480)** — via
+- [x] **#474 capacity burst (headroom, ticket #480)** — ✅ **PASS 2026-09-01**
+  (G.3 session 3: peak pending **50** against the 1500 threshold, drained in
+  **13 min** against a 30-min target, zero `failed`, no `backlog_depth` finding,
+  three clean poller check-ins spanning the drill). Via
   `scripts/burst-drill-load.ts inject --events 1000 --duration-min 10`
   (immediately-claimable, the drill's headroom arm). Watch
   `GET /internal/queue-health` `backlog.job_outbox` climb then drain to
