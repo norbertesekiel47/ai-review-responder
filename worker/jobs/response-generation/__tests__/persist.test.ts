@@ -144,6 +144,22 @@ function queuePersistRows(input: {
   );
   if (input.flaggedHigh) {
     txQueue.push([]); // INSERT flagged_responses
+    // The held_draft Refusal (#1013) costs TWO queue entries here, and the
+    // second one is a MOCK ARTIFACT rather than a second statement.
+    //
+    // `mockTx` (the hoisted block at the top of this file) shifts `txQueue` on
+    // EVERY tagged-template call, awaited or not. `writeRefusalEvent` builds its
+    // decision time with `occurredAtFragment`, which evaluates `tx`NOW()`` as an
+    // INTERPOLATED FRAGMENT — real Postgres.js never executes that, but this
+    // mock cannot tell a fragment from a query and consumes a result for it.
+    //
+    // So: one entry for the NOW() fragment, one for the INSERT. Do NOT "tidy"
+    // this to a single push — the queue is STATEMENT-ORDER-SENSITIVE, and an
+    // off-by-one here surfaces much later as
+    // `auto_approval_invalid_subscription_tier:undefined` when the runtime-state
+    // read consumes the policy row instead of its own.
+    txQueue.push([]); // tx`NOW()` fragment (mock artifact, not a real query)
+    txQueue.push([]); // INSERT refusal_events
   }
   if (!input.structural) {
     txQueue.push(
@@ -166,6 +182,21 @@ function queuePersistRows(input: {
   } else if (input.notify ?? true) {
     txQueue.push([]); // INSERT send_notification outbox
   }
+  // NO push for the `policy_gate_held` Refusal (#1013), and that is deliberate
+  // rather than an omission. On a HELD path it consumes two entries (the
+  // `tx`NOW()`` fragment plus the INSERT, see the flaggedHigh branch above), but
+  // it runs AFTER every row-CONSUMING read in the flow — the runtime-state
+  // SELECTs, the cap count and the connection lookup are all behind it — and the
+  // only statement after it on that path is the send_notification INSERT, whose
+  // result nothing reads. `mockTx` yields `[]` for an exhausted queue, so the
+  // shift is harmless there.
+  //
+  // It never runs on the APPROVED path at all (guard 2 in
+  // `recordPolicyGateRefusal`), which is the path whose `RETURNING
+  // auto_post_scheduled_at` row a test actually depends on.
+  //
+  // If a future statement is added AFTER the ledger write that reads its result,
+  // this comment stops being true and the branch needs its two pushes.
 }
 
 function baseInput(overrides: Partial<Parameters<typeof persistResponseAndNotify>[1]> = {}) {

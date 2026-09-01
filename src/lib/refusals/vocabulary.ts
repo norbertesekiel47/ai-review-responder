@@ -27,12 +27,23 @@
  * ban covers `src/app/**` and `src/components/**`, not this file. `import type`
  * erases at compile time, so nothing here can reach a runtime graph at all.
  *
- * WHAT THIS FILE DELIBERATELY DOES NOT HOLD. There is no `refusalCategoryFor`
- * resolver and no owner label table — the **Restraint tab** (#1014) owns
- * presentation — and no map for the two lanes #1013 writes: `policy_gate_held`
- * carries #1003's 22-member precedence order and veto set, and `held_draft`
- * carries the fixed category #1001 declined to pin in the schema. Both arrive
- * with that slice.
+ * WHAT THIS FILE DELIBERATELY DOES NOT HOLD, and the boundary is PRESENTATION
+ * rather than "no functions". There is no owner label table and no sentence
+ * copy — the **Restraint tab** (#1014) owns all of that, and a label map here
+ * would make a wording change a vocabulary change.
+ *
+ * WRITE-TIME precedence is the other side of that line and DOES live here
+ * (#1013): `resolvePolicyGateRefusal` reduces a gate decision's block reasons to
+ * the one **Refusal category** a row records. It is vocabulary, not
+ * presentation — it decides what is STORED, never what is shown — and it stays
+ * pure, so the file remains the client-safe leaf the tab can import.
+ *
+ * (An earlier wording of this paragraph said the file holds no
+ * `refusalCategoryFor` resolver at all. #1013 revisited that and moved the line
+ * to presentation. Be honest about what changed: #1009's intake listed
+ * `refusalCategoryFor` as its own non-goal, SEPARATE from the label table, so
+ * this is a decision reversed with reasons rather than a re-reading of what the
+ * rule always meant.)
  *
  * WHY THE OTHER FIVE MAPS ARRIVE TOGETHER, AHEAD OF THEIR WRITE SITES. #1009
  * said each map would land with the slice that writes its lane, and that was
@@ -43,18 +54,21 @@
  * stated rather than hidden: for as long as this file was ahead of them, five
  * exported constants had no production caller.
  *
- * THAT COST IS NOW PAID. #1010, #1011 and #1012 all merged 2026-08-31, so SIX of
- * the seven maps have exactly one production caller each:
- * `AUTONOMY_SUSPENDED` (#1009), `ASK_WITHHELD` / `BATCH_HALTED` /
- * `OUTREACH_WITHHELD_DISPATCH` (#1010), `OUTREACH_WITHHELD_RENDER` (#1011) and
- * `AUTO_POST_REVOKED` (#1012).
+ * THAT COST IS NOW PAID IN FULL. #1010, #1011 and #1012 merged 2026-08-31 and
+ * #1013 completes the set, so ALL SEVEN lane vocabularies have a production
+ * caller: `AUTONOMY_SUSPENDED` (#1009), `ASK_WITHHELD` / `BATCH_HALTED` /
+ * `OUTREACH_WITHHELD_DISPATCH` (#1010), `OUTREACH_WITHHELD_RENDER` (#1011),
+ * `AUTO_POST_REVOKED` (#1012), and `HELD_DRAFT_REFUSAL_CATEGORY` /
+ * `POLICY_GATE_HELD_REFUSAL_CATEGORIES` (#1013, both in
+ * `worker/jobs/response-generation/persist.ts`).
  *
- * `POLICY_GATE_HELD_REFUSAL_CATEGORIES` is the ONE that still has none — its
- * slice has not landed. Correct that sentence when it does, rather than deleting
- * this paragraph: a count is the kind of claim that goes stale silently.
+ * Keep this paragraph rather than deleting it now that the count is complete: a
+ * count is the kind of claim that goes stale silently, and the next lane added
+ * to `REFUSAL_SOURCES` makes "all seven" wrong the moment it lands.
  */
 
 import type {
+  AutoApprovalBlockReason,
   AutoPolicyDowngradeReason,
   AutonomySuspensionTrigger,
 } from '@/lib/shared/worker-types';
@@ -84,7 +98,10 @@ import type { WithholdReason } from '@/lib/solicitation/restraint-policy';
  * carry the old spelling and there is never a backfill (#1002).
  *
  * `policy_gate_held` sits LAST because it joined the parent effort's six in
- * #1003, not because it matters least — it is in fact the highest-volume lane.
+ * #1003, not because it matters least — it is the highest-volume lane BY
+ * DESIGN CAPACITY. Its actual volume is zero while `AUTO_APPROVAL_ENABLED` is
+ * off, which is production today; see `recordPolicyGateRefusal` and #1013's
+ * deviation D4.
  */
 export const REFUSAL_SOURCES = [
   'held_draft', // A high-severity moderation flag. No code axis at all (C4).
@@ -194,7 +211,7 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 // ABOUT WHAT THAT BUYS, because an earlier wording of this paragraph — and of
 // `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES` below — claimed it stops an OMISSION
 // from type-checking, which is false. `satisfies Record<Enum, V>` demands every
-// key whatever `V` is, so a missing key is a compile error in all six maps
+// key whatever `V` is, so a missing key is a compile error in all seven maps
 // either way. What the narrower value type controls is whether `null` is
 // SPELLABLE: in a lane where every code is a Refusal, `Record<Enum,
 // RefusalCategory>` makes "not a Refusal" unwritable, so nobody can silence a
@@ -202,6 +219,29 @@ export const REFUSAL_VOCABULARY_VERSION = 'refusal_vocab_2026-08-30.1';
 // a **Refusal**", never a missing entry and never a default; each one carries
 // its own reason.
 // ---------------------------------------------------------------------------
+
+/**
+ * `held_draft` — the ONE lane with no map, because it has no code axis at all.
+ *
+ * A single frozen literal rather than a `Record`: C4 makes `refusal_code IS
+ * NULL` biconditional with this lane, so there is nothing to key a map on.
+ * `flagged_responses.reason` is moderation prose that may never leave the
+ * server, and the row exists only for a `high`-severity flag — so the lane
+ * itself is the whole fact.
+ *
+ * `satisfies RefusalCategory` is the guard, and it is the same one the seven
+ * maps get from their `Record` constraint: a value migration 116's
+ * `refusal_category` CHECK would reject is a COMPILE error here rather than a
+ * `23514` inside a deciding transaction.
+ *
+ * #1001 CONSIDERED PINNING THIS IN THE SCHEMA AND DECLINED, and the reasoning is
+ * why this constant exists in TypeScript instead: a CHECK tying `held_draft` to
+ * `unsafe_content` is true today, but it would make a future re-map
+ * migration-bearing, and #995 ruled the category set is migration-bearing on ADD
+ * only. Two owners, one fact each — the vocabulary owns the mapping, the
+ * database owns the closed set.
+ */
+export const HELD_DRAFT_REFUSAL_CATEGORY = 'unsafe_content' satisfies RefusalCategory;
 
 /**
  * `autonomy_suspended` — every `AutonomySuspensionTrigger` is the same
@@ -376,3 +416,259 @@ export const AUTO_POST_REVOKED_REFUSAL_CATEGORIES = {
   autopilot_entitlement_lost: 'autonomy_paused',
   policy_suspended: 'autonomy_paused',
 } as const satisfies Record<AutoPolicyDowngradeReason, RefusalCategory>;
+
+/**
+ * `policy_gate_held` — why the auto-approval gate held a draft for the owner.
+ * Written by `recordPolicyGateRefusal` (#1013). The highest-volume lane by
+ * design capacity, and SILENT in production until `AUTO_APPROVAL_ENABLED` is
+ * turned on — see that function's guards and #1013's deviation D4.
+ *
+ * All 22 `AutoApprovalBlockReason` members, values harvested verbatim from
+ * #998's locked map. SEVEN ARE `null`, and each is a recorded decision that this
+ * code is not a **Refusal** rather than an omission:
+ *
+ *   * `policy_not_enabled` — no autonomy was granted, so nothing was declined.
+ *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
+ *     structural. The draft was never a candidate.
+ *   * `moderation_held` — the `held_draft` lane already records it, and this
+ *     entry ALONE is sufficient to keep the row off this lane.
+ *     `evaluateAutoApprovalCandidate` emits `moderation_held` whenever `held` is
+ *     true, and a `null` member VETOES the whole row whatever else co-occurs —
+ *     so a held draft cannot write here even though `moderation_flagged` also
+ *     fires at `high` severity.
+ *
+ *     (CORRECTED, branch review round 1: this bullet used to say the entry was
+ *     "NOT sufficient" and that `recordPolicyGateRefusal`'s `!held` guard is
+ *     what stops the duplicate. That reasoning is #998's, written BEFORE #1003
+ *     made `null` a veto rather than a rank — it reads `null` as if it lost a
+ *     ranking contest to `moderation_flagged`, which is the exact misreading the
+ *     veto rule exists to prevent. The `!held` guard is real and stays, but it is
+ *     defence in depth and an early return, not the mechanism.)
+ *   * `archived_location` — the owner archived it. An owner act is not our
+ *     restraint.
+ *   * `autopilot_tier_required` — the account never held Autopilot, so there was
+ *     no autonomy to pause.
+ *
+ * `| null` in the constraint is therefore load-bearing here in a way it is not
+ * in `AUTONOMY_SUSPENDED_REFUSAL_CATEGORIES`: seven members genuinely need it.
+ */
+// EXPORTED WITH NO EXTERNAL IMPORTER, ON PURPOSE. `persist.ts` consumes
+// `resolvePolicyGateRefusal`, never this map — so `fallow` correctly reports no
+// consumer. It stays exported anyway, for the reason this module's own header
+// gives: "a vocabulary is read by humans as often as it is called, so an
+// interface smaller than its content would hide the very thing callers need to
+// see. Depth is the wrong goal here." Making these two private would also make
+// them the only lane vocabularies that are, and would put #1003's MANDATED
+// exhaustiveness test out of reach of the data it must assert.
+// fallow-ignore-next-line unused-export
+export const POLICY_GATE_HELD_REFUSAL_CATEGORIES = {
+  policy_not_enabled: null,
+  rating_below_threshold: 'owner_review_required',
+  bad_origin_lane: null,
+  unsupported_version: null,
+  suppressed_notification: null,
+  review_content_hash_missing: 'missing_information',
+  review_content_changed_before_persist: 'below_our_bar',
+  current_rating_missing: 'missing_information',
+  provider_moderation_disabled: 'watchdog_unavailable',
+  provider_moderation_error: 'watchdog_unavailable',
+  moderation_flagged: 'unsafe_content',
+  moderation_held: null,
+  publisher_subscription_denied: 'autonomy_paused',
+  archived_location: null,
+  active_zernio_connection_missing: 'missing_information',
+  auto_approval_disabled: 'autonomy_paused',
+  triage_high_severity: 'owner_review_required',
+  triage_fallback: 'watchdog_unavailable',
+  rating_below_positive_quadrant: 'owner_review_required',
+  daily_cap_exhausted: 'owner_review_required',
+  policy_suspended: 'autonomy_paused',
+  autopilot_tier_required: null,
+} as const satisfies Record<AutoApprovalBlockReason, RefusalCategory | null>;
+
+/**
+ * The order that decides WHICH of several co-occurring codes a row records.
+ * Locked by #1003. Fifteen members — the 22 minus the seven `null`s above.
+ *
+ * AN EXPLICIT MEMBER CONSTANT, NEVER `REFUSAL_CATEGORIES` ORDER, and that is the
+ * whole reason it exists rather than being derived. #995 ruled that reordering
+ * `REFUSAL_CATEGORIES` is PRESENTATION ONLY and does not bump
+ * `vocabulary_version`. A resolver that read its rank from that array would make
+ * a reorder silently change what future rows record, and #995's ruling would be
+ * false. The two orders are independent on purpose, and they legitimately
+ * DISAGREE: `below_our_bar` is 3rd there and 5th here, `missing_information`
+ * last there and 4th here.
+ *
+ * #998 proposed a test pinning the two in agreement and #1003 REJECTED it for
+ * exactly that reason — it fails on day one, and making it pass re-couples the
+ * arrays. Do not add one.
+ *
+ * ORDERING PRINCIPLE: most durable veto first — rank by which reason still holds
+ * when every other reason is fixed. A flagged draft stays unpostable with
+ * autonomy on, a fresh cap and a met threshold; owner-choice reasons rank last
+ * because they are the only ones that evaporate when the rest are fixed.
+ *
+ * The case that decides it: autonomy suspended for a week, 45 drafts each
+ * carrying `policy_suspended` AND `rating_below_threshold`. This order reports
+ * "Autonomy paused — 45". Reusing `evaluateAutoApprovalCandidate`'s evaluation
+ * order would report "Sent to you — 45", which is false.
+ *
+ * ORDER WITHIN A TIER changes the stored `refusal_code` only, never the
+ * `refusal_category` — so it is a support-detail choice and carries no
+ * `vocabulary_version` obligation (#1003). That is also why a within-tier
+ * reorder is deliberately NOT pinned by any test: there is no contract to
+ * break. A CROSS-tier move is pinned, and must be.
+ *
+ * SIX OF THE 22 MEMBERS CANNOT REACH THIS RESOLVER TODAY (red-team rounds 1-2,
+ * recorded so nobody reads their rank as tested behaviour):
+ *
+ *   * `bad_origin_lane`, `unsupported_version`, `suppressed_notification` —
+ *     each is a STRUCTURAL block, so `runtimeState` is null and
+ *     `isGenuineAutoCandidate` returns false before the resolver is called.
+ *     They stay in the map as #998's recorded decisions, not as live entries.
+ *   * `review_content_changed_before_persist` — the content-freshness gate
+ *     (ADR 0017) returns from the persist BEFORE the gate runs, so this member
+ *     never co-occurs with a write. It is the ONLY member of precedence tier 5,
+ *     which makes `below_our_bar` currently unreachable on this lane.
+ *   * `policy_not_enabled` — a null threshold fails the narrowing first.
+ *   * `moderation_held` — and this one is DIFFERENT from the five above, which
+ *     is why an earlier version of this paragraph said "five" and was wrong.
+ *     Its sole emitter is `when(input.held, 'moderation_held')`, so it exists
+ *     iff `held` is true — and `recordPolicyGateRefusal`'s guard 1 returns
+ *     before the resolver on exactly that condition. The other five are blocked
+ *     by a structural or narrowing failure; this one is blocked only by a guard
+ *     that same function documents as redundant defence in depth. THE TWO MASK
+ *     EACH OTHER: the map entry is what makes guard 1 redundant, and guard 1 is
+ *     what makes the map entry unreachable. Deleting EITHER alone is
+ *     behaviour-preserving; deleting BOTH writes a duplicate `unsafe_content`
+ *     row for every held draft. Red team proved that pair directly.
+ *
+ * None of the six is dead code to delete: each is a real
+ * `AutoApprovalBlockReason` the gate can still emit, and the map must stay
+ * TOTAL or the `satisfies` guard stops protecting the others. What is recorded
+ * here is only that their POSITION is untested by construction.
+ */
+// Exported with no external importer, for the same reason as the map above —
+// `resolvePolicyGateRefusal` is its only runtime consumer, and the eval asserts
+// this locked order directly.
+// fallow-ignore-next-line unused-export
+export const AUTO_APPROVAL_BLOCK_PRECEDENCE = [
+  // 1 — unsafe_content
+  'moderation_flagged',
+  // 2 — watchdog_unavailable
+  'provider_moderation_error',
+  'provider_moderation_disabled',
+  'triage_fallback',
+  // 3 — autonomy_paused
+  'policy_suspended',
+  'publisher_subscription_denied',
+  'auto_approval_disabled',
+  // 4 — missing_information
+  'active_zernio_connection_missing',
+  'current_rating_missing',
+  'review_content_hash_missing',
+  // 5 — below_our_bar
+  'review_content_changed_before_persist',
+  // 6 — owner_review_required
+  'triage_high_severity',
+  'rating_below_positive_quadrant',
+  'rating_below_threshold',
+  'daily_cap_exhausted',
+] as const satisfies readonly AutoApprovalBlockReason[];
+
+/**
+ * One draft's Refusal, or `null` when the draft is not one.
+ *
+ * `allRefusalCodes` is a NON-EMPTY tuple because migration 116's C5 rejects an
+ * empty array outright — NULL means "this lane has no code axis" and `'{}'`
+ * would be a different fact.
+ */
+export interface PolicyGateRefusal {
+  refusalCode: AutoApprovalBlockReason;
+  refusalCategory: RefusalCategory;
+  allRefusalCodes: readonly [AutoApprovalBlockReason, ...AutoApprovalBlockReason[]];
+}
+
+/**
+ * Reduce a gate decision's block reasons to ONE **Refusal**, or to nothing.
+ *
+ * PURE, and it must stay so: no DB handle, no clock, no flag read. That is what
+ * keeps this module a client-safe leaf the **Restraint tab** (#1014) can import,
+ * and what makes the whole thing table-testable.
+ *
+ * THE ORDER OF THE THREE STEPS IS THE CONTRACT:
+ *
+ *   1. EMPTY IN, NOTHING OUT. An approved draft refused nothing.
+ *   2. ANY `null`-MAPPED MEMBER VETOES THE WHOLE ROW, whatever its position
+ *      (#1003). `null` never competes in precedence — it removes the draft from
+ *      the ledger. A downgraded Autopilot account keeps its policy row, so a
+ *      2-star review there yields `['autopilot_tier_required',
+ *      'rating_below_positive_quadrant']`; if `null` merely LOST a ranking, the
+ *      owner would read "We wanted you to decide this one" about a draft that
+ *      was always going to them and that we chose nothing about.
+ *   3. ONLY THEN does precedence pick a winner.
+ *
+ * A code in NEITHER list THROWS. An unrecognised code is a fault, not a
+ * category: a default would file an unmapped refusal under a plausible-looking
+ * heading and the owner could not tell the difference. `Object.hasOwn` and not
+ * truthiness is the test, because `null` is a decision and `undefined` is not.
+ * The `satisfies` clause above makes this unreachable while the map is total —
+ * it is an assertion of an impossible state, which `working-rules.md` prefers to
+ * defensive handling that would hide the bug.
+ *
+ * IT MAY THROW INSIDE A DECIDING TRANSACTION, and that is deliberate on the same
+ * terms as `write.ts`'s uncaught INSERT: a writer bug aborts the decision, and
+ * the lever against it is `REFUSAL_LEDGER_ENABLED`, not a silent default.
+ */
+export function resolvePolicyGateRefusal(
+  blockReasons: readonly AutoApprovalBlockReason[],
+): PolicyGateRefusal | null {
+  const [first, ...rest] = blockReasons;
+  // Destructured rather than length-checked: this is what gives the non-empty
+  // tuple type C5 requires, from the same check that handles the empty case.
+  if (first === undefined) return null;
+
+  // The map is read through its OWN type, never widened to
+  // `Record<string, RefusalCategory | null>`. An annotation like that erases the
+  // `as const satisfies` literal types, and the loss is not cosmetic: with the
+  // precise type, `AUTO_APPROVAL_BLOCK_PRECEDENCE`'s members index to a union of
+  // their fifteen literal categories — none of them `null` — so mapping a
+  // precedence member to `null` later is a COMPILE error here. Widened, it
+  // compiled and threw at run time INSIDE the deciding transaction instead.
+  // (Branch review round 1, standards axis P1.)
+  //
+  // ONE pass over EVERY member before any ranking — the veto is about presence,
+  // never position, so a short-circuit on the first ranked member would let a
+  // later `null` through.
+  for (const code of blockReasons) {
+    if (!Object.hasOwn(POLICY_GATE_HELD_REFUSAL_CATEGORIES, code)) {
+      throw new Error(`unmapped_auto_approval_block_reason:${code}`);
+    }
+    if (POLICY_GATE_HELD_REFUSAL_CATEGORIES[code] === null) return null;
+  }
+
+  const winner = AUTO_APPROVAL_BLOCK_PRECEDENCE.find((member) => blockReasons.includes(member));
+  if (winner === undefined) {
+    // Unreachable while the map is total and the partition holds — every
+    // non-`null` member is in the precedence list, and `vocabulary.test.ts`
+    // asserts that. Reaching it means a member was mapped to a category and
+    // never ranked, so the row would have no code to record.
+    throw new Error(`unranked_auto_approval_block_reason:${blockReasons.join(',')}`);
+  }
+
+  // No null-check on the lookup, and its ABSENCE is the guard. `winner` is a
+  // member of the precedence tuple, so this indexes to a non-nullable union —
+  // TypeScript proves what a run-time `veto_member_won_precedence` throw used to
+  // assert. That throw is deleted rather than kept "for safety": it was
+  // unreachable by construction, and `working-rules.md` says defensive handling
+  // of a state the invariants exclude hides real bugs.
+  return {
+    refusalCode: winner,
+    refusalCategory: POLICY_GATE_HELD_REFUSAL_CATEGORIES[winner],
+    // The input VERBATIM, in its own order — the evaluation order is itself
+    // evidence for whoever debugs the gate, and sorting or de-duplicating here
+    // would discard it. C5 requires the winner to be a member, and it is: the
+    // `find` above drew it from this very array.
+    allRefusalCodes: [first, ...rest],
+  };
+}
