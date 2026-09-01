@@ -5,11 +5,11 @@
   "branch": "feat/1013-refusal-policy-gate-held",
   "fork_sha": "914a797aaae7c59be1a18e056d035f530b45f3da",
   "merge_base_sha": "914a797aaae7c59be1a18e056d035f530b45f3da",
-  "head_sha": "a5d52b212a5d4f4b58aa0013790956c00c5f4566",
+  "head_sha": "4b6939e8933af3a73b3f3bcfdf2f217b129749c4",
   "intake_sha256": "d486d8f5807dd04f88f0f73f7c5f20d641106937c2d49f4ea198a7fcda0f5f61",
   "risk": "high",
   "round": 2,
-  "generated_at": "2026-09-01T02:14:55Z",
+  "generated_at": "2026-09-01T02:22:39Z",
   "inventory": [
     {
       "id": "M1",
