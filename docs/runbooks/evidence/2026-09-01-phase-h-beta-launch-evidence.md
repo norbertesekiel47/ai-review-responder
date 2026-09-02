@@ -335,6 +335,44 @@ that actually decides the outcome. The new suite asserts the ROWS ARE GONE, and 
 **negative control** that re-runs the pre-fix order and asserts it still raises `23503` and
 leaves all three rows — so the suite cannot pass vacuously if a future migration adds a cascade.
 
+
+### §D-7 resolution — verified at the send layer, 2026-09-02T05:35:00Z
+
+The owner updated Supabase Auth's SMTP password from the vault's rotated `RESEND_API_KEY`,
+browser to browser (Infisical copy button → Supabase dashboard field). **No value passed through
+a command, a shell history or a transcript** — trap 16, applied correctly this time.
+
+**Verified by a real send that writes no rows.** `POST /api/auth/forgot-password` with an
+existing owner address triggers `resetPasswordForEmail` through the same SMTP credential and
+creates no `users`/`accounts`/`businesses` row — so a second failure could not orphan anything
+while the D-8 fix is still unmerged.
+
+The route returns a generic `{"ok":true}` `200` on **every** outcome (success, unknown email,
+role mismatch) by design, so the HTTP response is not evidence. The Auth log is:
+
+| UTC | path | status | error |
+|---|---|---|---|
+| 05:15:54Z | `/invite` | **500** | `535 "Authentication credentials invalid"` |
+| 05:35:00Z | `/recover` | **200** | *(empty)* |
+
+**The prediction was written before the run** and named both outcomes explicitly.
+
+**One trap re-encountered:** the first log query filtered `path in ('/recover','/invite')` and
+returned empty ~40 s after the send. That is ingestion lag, not absence — and it is trap 12's
+shape exactly. Widening the window and dropping the path filter found the row. *An absence from
+a filtered query is not evidence of absence, including when the filter is a time window.*
+
+**U9 is FULLY CLOSED.** The `200` proved Supabase handed the message to Resend without a
+credential rejection; **the owner then confirmed the reset email arrived in the inbox.** Both
+halves of the lane are now demonstrated — the credential is accepted AND the message is
+delivered. This is the same ladder the rotation used: a write returning success proves nothing,
+a status code proves the handoff, and only the artifact arriving proves the lane.
+
+**Note what this does NOT close.** This message went through **Supabase Auth's SMTP**
+credential. §9.4's approval email goes through the **Resend API** in the worker. They are two
+different consumers of the same rotated key, and D-7 is precisely the lesson that proving one
+does not prove the other. **U5 stays open until a production approval email sends.**
+
 ---
 
 ## Teardown ledger
@@ -374,7 +412,7 @@ Open until closed by evidence. The campaign cannot be declared PASS while any re
 
 | # | Path | Closes at |
 |---|---|---|
-| U9 | **Supabase Auth can send email again** (D-7) — proven by a real invite arriving, not by a saved settings form | H.0b retry |
+| U9 | **Supabase Auth can send email again** (D-7) | ✅ **FULLY CLOSED 2026-09-02.** `/recover` 200 at 05:35:00Z (no 535), **and the owner confirmed the reset email ARRIVED** — accepted by Supabase, delivered by Resend, landed in the inbox |
 | U1 | Production Sentry receives an error from the live UI | §9.1 — **probe invalid, see D-5.** Needs a corrected trigger |
 | U2 | A Zernio OAuth connect completes against a real GBP and writes `status='active'` | §8 |
 | U3 | The Import offer renders to the owner and an acceptance enqueues the backfill | §9.2 |
@@ -410,10 +448,52 @@ is known to be a problem.
 
 ## Verdict
 
-⏳ **IN PROGRESS — BLOCKED.** Opened 2026-09-01T23:21Z.
+⏸️ **PAUSED BY THE OWNER, 2026-09-02T05:4xZ — not blocked.** Opened 2026-09-01T23:21Z.
 
-**H.0b FAILED at 2026-09-02T05:15:54Z.** Root cause is **D-7**, not the funnel: Supabase Auth's
-SMTP credential was invalidated by the 2026-09-01 rotation and no Auth email can leave
-production. **D-8** then prevented the compensating rollback from removing anything.
+Both defects that stopped the first attempt are **closed**. The campaign stopped at a clean
+state: no fixture is open, no flag was flipped, no worker was stopped, and production is at the
+exact pre-H.0b baseline.
 
-**Phase H cannot proceed until D-7 is fixed** — H.0c is an invite email.
+### Resume from here — the next step is H.0b, and nothing before it needs redoing
+
+| # | Step | State |
+|---|---|---|
+| — | Preflight P1–P18 | ✅ done, all measured this session |
+| — | §9.1 read-only half | ✅ worker healthy, both ingress lanes proven. **U1 open on a bad probe (D-5), not a failure** |
+| — | Orphan cleanup T1–T3 | ✅ executed and verified by absence |
+| — | **D-7** Supabase Auth SMTP | ✅ **FIXED + verified end to end** (U9) |
+| — | **D-8** rollback dead code | ✅ **FIXED**, 5 + 3 tests, in PR #1067 — ⚠️ **NOT merged, NOT deployed** |
+| **→** | **H.0b** create tester one | ⏳ **NEXT.** `/admin/businesses/new` — `norbertliverpool+beta1@gmail.com` · `Norbert Sunn` · `Tanicia Resort` |
+| | H.0c–H.0d | invite → password → location+demo → Copilot → **checkout MUST read $0.00** |
+| | H.0e | **both digest flags OFF before §8** (D-4) |
+| | §8 | owner connects Google; he is already a manager of the listing |
+| | — | **owner accepts the Import offer** — the gate §9.2 omitted (D-2) |
+| | §9.2 → §9.7 | per `deployment-guide.md`, as corrected by this file |
+
+### Read these before resuming
+
+1. **D-6** — `norbertliverpool@gmail.com` (no `+beta1`) is F.4's address and still exists on the
+   cancelled account. Submitting it returns **409**. The alias is deliberate.
+2. **D-8 is not deployed.** Until #1067 merges and Vercel redeploys, an onboarding failure
+   orphans rows again. Cleanup is one transaction: `users → businesses → accounts`, inside an
+   explicit `begin … commit` (**D-8a** — two edges are `DEFERRABLE INITIALLY DEFERRED`, so
+   autocommit fails on `accounts_owner_user_id_fkey`).
+3. **U5 is still open and D-7 is why it matters.** The proven email went through Supabase Auth's
+   **SMTP**; §9.4's approval email goes through the **Resend API** in the worker. Two consumers,
+   one key. Proving one never proved the other — that is the whole finding.
+4. **§9.6 is unchanged and unstarted.** The GBP owner has agreed in principle; the specific
+   review has NOT been named. §10's two-person rule needs that before the Approve click.
+
+### Deviations, eight, and six corrected a claim that was already standing
+
+`D-1` §8 blocked by `cancelled`, ordered not parallel · `D-2` §9.2's mechanism is wrong, a third
+gate exists · `D-3` a `zernio` inbound row is not ingestion · `D-4` digests already on ·
+`D-5` §9.1's Sentry probe cannot pass · `D-6` the planned owner email would have 409'd ·
+**`D-7` the rotation had an unlisted consumer** · **`D-8`/`D-8a` the rollback was dead code, and
+my own first correction to it was also wrong**.
+
+**Not one was found by something failing a check.** D-7 and D-8 surfaced because a real
+onboarding was attempted; the other six because predicates were read from source and
+predictions written down before running anything.
+
+**UTC start 2026-09-01T23:21Z · paused 2026-09-02T05:4xZ.**
