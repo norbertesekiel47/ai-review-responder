@@ -279,8 +279,24 @@ describe('RestraintReport', () => {
     // F21 was raised about (red team F33). This closes the set the same way and
     // says nothing about whitespace.
     const row = container.querySelector('.rst-row');
+    // BOTH, and dropping either is what broke this. `children` is an
+    // HTMLCollection of ELEMENT children, so a leaked field rendered as a bare
+    // JSX expression is a text node and never appears in it — the exact leak the
+    // sentinel list misses walked straight past the children-only form (red team
+    // F35). Normalising whitespace keeps the text assertion from pinning the
+    // absence of a separator, which is the fragility that replaced it.
     expect([...(row?.children ?? [])].map((el) => [el.tagName, el.textContent]))
       .toEqual([['TIME', 'Aug 20, 2026'], ['A', 'See the review']]);
+    // TEXT NODES, asserted separately rather than folded into one string. An
+    // equality over the joined text would pin the absence of a separator
+    // between the two elements all over again, which is the fragility F33 was
+    // raised about. What closes the set without saying anything about
+    // whitespace is this: every DIRECT text child of the row must be blank.
+    const strayText = [...(row?.childNodes ?? [])]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join('');
+    expect(strayText.trim()).toBe('');
     expect(screen.getByRole('link', { name: /See the review/ }))
       .toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
   });
@@ -410,9 +426,14 @@ describe('RestraintReport', () => {
     // passed every case in this file — up to five blank paragraphs inside
     // `.rst-notes`, each carrying the margin, and every `key` colliding on ''
     // (red team F27).
-    for (const paragraph of container.querySelectorAll('.rst-note')) {
-      expect(paragraph.textContent).not.toBe('');
-    }
+    // The COUNT, not a per-node emptiness check. `not.toBe('')` is one
+    // character wide — a note returning ' ' renders the same blank paragraph
+    // and passes — and the loop is vacuous-safe only by fixture (red team F37).
+    // One line survives here: the scope sentence. The ledger is recording, the
+    // window is not truncated, auto-approval is on and nothing is archived, so
+    // every other builder returns null — which is what makes this the case that
+    // catches an omitted line rendering as a blank paragraph.
+    expect(container.querySelectorAll('.rst-note')).toHaveLength(1);
   });
 
   it('says how many rows it is showing when the window holds more than the read returned', () => {
@@ -489,6 +510,18 @@ describe('RestraintReport', () => {
     // both mutation forms survived the whole suite, because nothing queried by
     // role (red team F29).
     expect(screen.getByRole('region', { name: 'What we held back' })).toBeInTheDocument();
+  });
+
+  it('exposes every category section as a named region landmark too', () => {
+    renderReport(logWith([
+      { category: 'unsafe_content' },
+      { category: 'no_permission', linkKind: 'contacts' },
+    ]));
+
+    // The same rule applies one level down, and `CategorySection`'s own
+    // `aria-labelledby` could be deleted with all cases green (red team F38).
+    // One summary region plus one per category group.
+    expect(screen.getAllByRole('region')).toHaveLength(3);
   });
 
   it('uses singular phrasing for a single archived location', () => {

@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -179,6 +180,32 @@ describe('RestraintContent', () => {
     });
   });
 
+  it('re-fetches when the window changes, so the query key carries its inputs', async () => {
+    // ONE REQUEST PER KEY, which the case above claims in a comment and does
+    // not test — it only ever mounts once. Collapsing the key to a constant
+    // left all 28 cases green while making the period toolbar and the location
+    // switcher inert: the owner picks 90 days and reads the 30-day answer, with
+    // no error and no spinner (red team F36).
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => PAYLOAD } as unknown as Response;
+    }));
+
+    renderContent();
+    await screen.findByText('What we held back');
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('window=30d');
+
+    await userEvent.click(screen.getByRole('button', { name: '90 days' }));
+
+    await waitFor(() => {
+      expect(urls).toHaveLength(2);
+    });
+    expect(urls[1]).toContain('window=90d');
+    expect(urls[1]).toContain('scope=all');
+  });
+
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
     vi.stubGlobal('fetch', pendingFetch());
     renderContent();
@@ -282,11 +309,53 @@ describe('RestraintContent', () => {
     ['archivedPeriods[].reactivatedAt', { ...PAYLOAD, archivedPeriods: [{ archivedAt: '2026-08-05T00:00:00.000Z', reactivatedAt: 7 }] }],
     ['archivedLocations.refusalCount', { ...PAYLOAD, archivedLocations: { refusalCount: 'many', locationCount: 0 } }],
     ['truncated', { ...PAYLOAD, truncated: 'no' }],
+    ['entry.id', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], id: 7 }] }],
+    ['entry.category', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], category: 'not_a_category' }] }],
+    ['entry.occurredAt', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], occurredAt: 7 }] }],
+    ['entry.subjectType', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], subjectType: 7 }] }],
+    ['entry.subjectId', { ...PAYLOAD, entries: [{ ...PAYLOAD.entries[0], subjectId: 7 }] }],
+    ['archivedPeriods[].archivedAt', { ...PAYLOAD, archivedPeriods: [{ archivedAt: 7, reactivatedAt: null }] }],
+    ['archivedLocations.locationCount', { ...PAYLOAD, archivedLocations: { refusalCount: 0, locationCount: 'two' } }],
+    ['coverageStart', { ...PAYLOAD, coverageStart: 7 }],
+    ['windowStart', { ...PAYLOAD, windowStart: 7 }],
+    ['scope', { ...PAYLOAD, scope: 'global' }],
+    ['autoApprovalEnabled', { ...PAYLOAD, autoApprovalEnabled: 'yes' }],
   ])('rejects a payload whose %s has the wrong type', async (_label, body) => {
     vi.stubGlobal('fetch', jsonFetch(body));
     renderContent();
 
     expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+  });
+
+  // THE NULL ARMS, which nothing exercised because the fixture carries no null
+  // anywhere. Deleting every `value === null ||` left all 28 cases green, and
+  // that mutant is the dangerous direction: null is the COMMON production
+  // shape here — `reviewId` and `linkKind` on any lane with no resolvable
+  // subject, `subjectId`/`subjectType` on the account-scoped lanes,
+  // `coverageStart` by migration 001, `archivedLocations` in every location
+  // scope. A guard that lost them rejects nearly every real payload and blanks
+  // the whole tab (red team F34).
+  it('ACCEPTS the legal nulls the DTO is built to carry', async () => {
+    vi.stubGlobal('fetch', jsonFetch({
+      ...PAYLOAD,
+      coverageStart: null,
+      archivedLocations: null,
+      archivedPeriods: [{ archivedAt: '2026-08-05T00:00:00.000Z', reactivatedAt: null }],
+      entries: [{
+        ...PAYLOAD.entries[0],
+        subjectType: null,
+        subjectId: null,
+        reviewId: null,
+        linkKind: null,
+      }],
+    }));
+    renderContent();
+
+    // It RENDERS. The guard rejecting this payload is the outage the mutation
+    // above describes, so this case fails in the opposite direction to every
+    // other case in the block.
+    expect(await screen.findByText('What we held back')).toBeInTheDocument();
+    expect(screen.queryByText('Unable to load your restraint record')).toBeNull();
   });
 
   it('RestraintContent renders the restraint error card when the initial query fails without cached data', async () => {
