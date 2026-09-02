@@ -504,46 +504,103 @@ describe('RestraintReport', () => {
     expect(plain[0]?.className).toBe('rst-note');
   });
 
-  it('leaks nothing on a row that carries no link, and no attribute channel', () => {
-    // THE ROW SHAPES THAT DIFFER. The previous sweep was added to the
-    // single-row redaction case, whose one row always links, so a leak on a
-    // NO-LINK row survived it (red team F42) — the diagnosis was right and the
-    // remedy landed in the wrong test. This fixture renders both shapes.
-    // `subjectType` is set on BOTH rows: a channel that renders it only when
-    // present is invisible against the helper's `?? null` default.
+  it('renders every row shape as exactly its own two facts, and nothing else', () => {
+    // ALL FOUR LINK KINDS, and the WHOLE shape of each row — tags, text and
+    // every attribute name AND value. Each narrower form missed something real:
+    // text nodes alone missed a leak wrapped in an element; tags without text
+    // missed a leak INSIDE the <time> (red team F46); an attribute-name
+    // allowlist missed a value smuggled through an allowed name (F49); and a
+    // two-row fixture never rendered the contacts or auto-approval shapes (F47).
+    // A row shows the date and, when it links, the label. That is the contract.
     const { container } = renderReport(logWith([
       { category: 'unsafe_content', subjectType: 'response', subjectId: RESPONSE_ID, reviewId: REVIEW_ID, linkKind: 'review' },
+      { category: 'autonomy_paused', subjectType: 'response', subjectId: RESPONSE_ID, linkKind: 'auto-approval' },
+      { category: 'no_permission', subjectType: 'solicitation_ask', subjectId: RESPONSE_ID, linkKind: 'contacts' },
       { category: 'below_our_bar', subjectType: 'response', subjectId: RESPONSE_ID, linkKind: null },
     ]));
 
-    const rows = [...container.querySelectorAll('.rst-row')];
-    expect(rows).toHaveLength(2);
-
-    // THE WHOLE SHAPE of each row, closed three ways. Text nodes alone missed a
-    // leak wrapped in a new empty element; an attribute allowlist alone missed
-    // the same; and `not.toContain(RESPONSE_ID)` is bound to the one value the
-    // fixture happens to use rather than to a contract (red team F42).
-    const allowed = new Set(['class', 'datetime', 'data-testid', 'href', 'aria-label']);
-    const expectedTags = [['TIME', 'A'], ['TIME']];
-    for (const [index, anyRow] of rows.entries()) {
-      // 1. ELEMENT children: exactly the tags this row shape emits. A linking
-      //    row is a time plus an anchor; a row with no link is a time alone.
-      expect([...anyRow.children].map((el) => el.tagName)).toEqual(expectedTags[index]);
-      // 2. TEXT children of the row: all blank.
-      const stray = [...anyRow.childNodes]
+    const attrs = (el: Element) =>
+      Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
+    const shape = (li: Element) => ({
+      attrs: attrs(li),
+      strayText: [...li.childNodes]
         .filter((node) => node.nodeType === Node.TEXT_NODE)
         .map((node) => node.textContent ?? '')
-        .join('');
-      expect(stray.trim()).toBe('');
-      // 3. ATTRIBUTES, by NAME, on the row and every descendant — so a new
-      //    `data-` channel fails whatever value it carries.
-      expect([...anyRow.attributes].map((a) => a.name)).toEqual(['class']);
-      for (const child of anyRow.querySelectorAll('*')) {
-        for (const attribute of child.attributes) {
-          expect(allowed, `unexpected attribute ${attribute.name}`).toContain(attribute.name);
-        }
-      }
-    }
+        .join('')
+        .trim(),
+      children: [...li.children].map((el) => ({
+        tag: el.tagName,
+        text: el.textContent,
+        attrs: attrs(el),
+      })),
+    });
+
+    const when = {
+      class: 'rst-row-when',
+      datetime: '2026-08-20T10:00:00.000Z',
+      'data-testid': 'refusal-date',
+    };
+    const timeChild = { tag: 'TIME', text: 'Aug 20, 2026', attrs: when };
+    const link = (label: string, href: string) => ({
+      tag: 'A',
+      text: label,
+      attrs: {
+        class: 'rst-row-link',
+        href,
+        'aria-label': `${label} — Aug 20, 2026`,
+      },
+    });
+
+    // Rows appear in CATEGORY order, not seed order — the groups are ordered by
+    // the vocabulary, safety-bearing first.
+    expect([...container.querySelectorAll('.rst-row')].map(shape)).toEqual([
+      {
+        attrs: { class: 'rst-row' },
+        strayText: '',
+        children: [timeChild, link('See the review', `/dashboard/reviews/${REVIEW_ID}/timeline`)],
+      },
+      // below_our_bar: no link, so a time alone. The shape a leak hid behind.
+      { attrs: { class: 'rst-row' }, strayText: '', children: [timeChild] },
+      {
+        attrs: { class: 'rst-row' },
+        strayText: '',
+        children: [timeChild, link('See your contacts', '/dashboard/requests/contacts')],
+      },
+      {
+        attrs: { class: 'rst-row' },
+        strayText: '',
+        children: [timeChild, link('Automatic posting settings', '/settings/auto-approval')],
+      },
+    ]);
+  });
+
+  it('gives every category its own owner-facing heading', () => {
+    // ALL EIGHT. The outline case reads the two headings its fixture renders,
+    // so swapping any of the other six survived (red team F48). These strings
+    // are what the owner is told a Refusal WAS, so a swap misreports the
+    // decision rather than merely looking untidy.
+    const { container } = renderReport(logWith([
+      { category: 'unsafe_content' },
+      { category: 'watchdog_unavailable' },
+      { category: 'below_our_bar' },
+      { category: 'no_permission' },
+      { category: 'wrong_moment' },
+      { category: 'autonomy_paused' },
+      { category: 'missing_information' },
+      { category: 'owner_review_required' },
+    ]));
+
+    expect([...container.querySelectorAll('.rst-group-title')].map((h) => h.textContent))
+      .toEqual([
+        'Not safe to send',
+        'Could not be checked',
+        'Not good enough',
+        'No permission to contact',
+        'Not the right moment',
+        'Acting on your behalf paused',
+        'Missing information',
+        'Sent to you for review',
+      ]);
   });
 
   it('exposes the summary as a named region landmark', () => {
