@@ -37,14 +37,16 @@ export function PlaceAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<PlaceSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The mounted <gmp-place-autocomplete>; null until the Maps library has loaded.
+  // Kept in state so the `gmp-select` subscription lives in its own effect below,
+  // where add/remove are visibly paired in one body (react-doctor
+  // `effect-needs-cleanup` cannot follow a listener attached inside a promise).
+  const [autocompleteEl, setAutocompleteEl] = useState<HTMLElement | null>(null);
   const onPlaceSelectEvent = useEffectEvent(onPlaceSelect);
 
   useEffect(() => {
     let cancelled = false;
     let element: HTMLElement | null = null;
-    // The `gmp-select` listener is attached inside the loader promise, so it is
-    // bound to this controller and detached by `abort()` in the cleanup below.
-    const listeners = new AbortController();
 
     // Force light theme on the web component (system may be in dark mode)
     const styleId = 'gmp-autocomplete-light';
@@ -84,48 +86,10 @@ export function PlaceAutocomplete({
         }
         element.style.width = '100%';
 
-        const handleSelect = async (event: Event) => {
-          try {
-            const { placePrediction } = event as any;
-            if (!placePrediction) {
-              setError('Failed to get place prediction');
-              return;
-            }
-
-            const place = placePrediction.toPlace();
-            await place.fetchFields({
-              fields: ['id', 'formattedAddress', 'location'],
-            });
-
-            if (cancelled) return;
-
-            if (!place.location || !place.id) {
-              setError('Place has no location data');
-              return;
-            }
-
-            const result: PlaceSelection = {
-              placeId: place.id,
-              formattedAddress: place.formattedAddress ?? '',
-              lat: place.location.lat(),
-              lng: place.location.lng(),
-            };
-
-            setSelection(result);
-            setError(null);
-            onPlaceSelectEvent(result);
-          } catch (err: unknown) {
-            if (cancelled) return;
-
-            setError('Failed to load place details');
-            console.error('[PlaceAutocomplete]', err);
-          }
-        };
-
-        element.addEventListener('gmp-select', handleSelect, { signal: listeners.signal });
 
         containerRef.current.replaceChildren();
         containerRef.current.appendChild(element);
+        setAutocompleteEl(element);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -136,10 +100,60 @@ export function PlaceAutocomplete({
 
     return () => {
       cancelled = true;
-      listeners.abort();
       element?.remove();
+      setAutocompleteEl(null);
     };
   }, [ariaLabel, ariaLabelledBy, placeholder]);
+
+  // Subscribe to the element's selection event; unsubscribe on unmount or when
+  // the element is replaced.
+  useEffect(() => {
+    if (!autocompleteEl) return;
+    let cancelled = false;
+    const handleSelect = async (event: Event) => {
+      try {
+        const { placePrediction } = event as any;
+        if (!placePrediction) {
+          setError('Failed to get place prediction');
+          return;
+        }
+
+        const place = placePrediction.toPlace();
+        await place.fetchFields({
+          fields: ['id', 'formattedAddress', 'location'],
+        });
+
+        if (cancelled) return;
+
+        if (!place.location || !place.id) {
+          setError('Place has no location data');
+          return;
+        }
+
+        const result: PlaceSelection = {
+          placeId: place.id,
+          formattedAddress: place.formattedAddress ?? '',
+          lat: place.location.lat(),
+          lng: place.location.lng(),
+        };
+
+        setSelection(result);
+        setError(null);
+        onPlaceSelectEvent(result);
+      } catch (err: unknown) {
+        if (cancelled) return;
+
+        setError('Failed to load place details');
+        console.error('[PlaceAutocomplete]', err);
+      }
+    };
+
+    autocompleteEl.addEventListener('gmp-select', handleSelect);
+    return () => {
+      cancelled = true;
+      autocompleteEl.removeEventListener('gmp-select', handleSelect);
+    };
+  }, [autocompleteEl]);
 
   const handleClear = () => {
     setSelection(null);
