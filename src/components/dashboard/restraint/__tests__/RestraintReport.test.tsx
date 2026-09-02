@@ -559,14 +559,12 @@ describe('RestraintReport', () => {
       },
     });
 
-    // Rows appear in CATEGORY order, not seed order — the groups are ordered by
-    // the vocabulary, safety-bearing first.
-    // AND the descendant scan, which the whole-shape map does not subsume: that
-    // map reads the row and its DIRECT children, so an empty element nested
-    // INSIDE the <time> carrying an attribute survives it (red team F50). The
-    // previous commit deleted this loop when it introduced the map — replacing
-    // coverage rather than adding to it — and it is the branch's only
-    // descendant-wide DOM scan.
+    // A SECOND, independent reading of the same rows, kept deliberately. The map
+    // above now walks descendants too, so this loop is no longer the only thing
+    // standing between a nested element and the owner — but it is cheap, it fails
+    // with a name rather than a diff, and removing a check while adding one is
+    // exactly how coverage was traded away twice on this branch (red team F50,
+    // F52). It stays because redundancy here costs nothing.
     const allowed = new Set(['class', 'datetime', 'data-testid', 'href', 'aria-label']);
     for (const anyRow of container.querySelectorAll('.rst-row')) {
       for (const descendant of anyRow.querySelectorAll('*')) {
@@ -576,6 +574,8 @@ describe('RestraintReport', () => {
       }
     }
 
+    // Rows appear in CATEGORY order, not seed order — the groups are ordered by
+    // the vocabulary, safety-bearing first.
     expect([...container.querySelectorAll('.rst-row')].map(shape)).toEqual([
       {
         attrs: { class: 'rst-row' },
