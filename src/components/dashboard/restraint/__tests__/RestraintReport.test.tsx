@@ -553,6 +553,21 @@ describe('RestraintReport', () => {
 
     // Rows appear in CATEGORY order, not seed order — the groups are ordered by
     // the vocabulary, safety-bearing first.
+    // AND the descendant scan, which the whole-shape map does not subsume: that
+    // map reads the row and its DIRECT children, so an empty element nested
+    // INSIDE the <time> carrying an attribute survives it (red team F50). The
+    // previous commit deleted this loop when it introduced the map — replacing
+    // coverage rather than adding to it — and it is the branch's only
+    // descendant-wide DOM scan.
+    const allowed = new Set(['class', 'datetime', 'data-testid', 'href', 'aria-label']);
+    for (const anyRow of container.querySelectorAll('.rst-row')) {
+      for (const descendant of anyRow.querySelectorAll('*')) {
+        for (const attribute of descendant.attributes) {
+          expect(allowed, `unexpected attribute ${attribute.name}`).toContain(attribute.name);
+        }
+      }
+    }
+
     expect([...container.querySelectorAll('.rst-row')].map(shape)).toEqual([
       {
         attrs: { class: 'rst-row' },
@@ -600,6 +615,35 @@ describe('RestraintReport', () => {
         'Acting on your behalf paused',
         'Missing information',
         'Sent to you for review',
+      ]);
+  });
+
+  it('gives every category its own owner-facing sentence', () => {
+    // The SENTENCES, the fuller half of what the owner is told a Refusal was.
+    // Six of the eight were read by no test and swapping two survived the whole
+    // suite (red team F51) — the same shape as the headings, one record above
+    // them in the same file.
+    const { container } = renderReport(logWith([
+      { category: 'unsafe_content' },
+      { category: 'watchdog_unavailable' },
+      { category: 'below_our_bar' },
+      { category: 'no_permission' },
+      { category: 'wrong_moment' },
+      { category: 'autonomy_paused' },
+      { category: 'missing_information' },
+      { category: 'owner_review_required' },
+    ]));
+
+    expect([...container.querySelectorAll('.rst-group-sentence')].map((p) => p.textContent))
+      .toEqual([
+        'We held a reply back because it was not safe to send.',
+        'We did not post because our reviewer was unavailable.',
+        'We did not send a message that was not good enough.',
+        'We did not contact someone who had not agreed to hear from us.',
+        'We waited because it was not the right moment.',
+        'We stopped acting on your behalf.',
+        'We stopped because we did not have what we needed.',
+        'We sent a reply to you for review instead of posting it.',
       ]);
   });
 
