@@ -59,6 +59,9 @@ Every row below was measured in this session. None is quoted from a handoff.
 | P12 | Import consent state on the existing business | ⚠️ `pending` | 23:22Z | `import_decision = 'pending'`, `import_offer_expires_at = null`. **Block 3 — see D-2.** |
 | P13 | §10 rule 6 digests on the existing business | ⚠️ **both ON** | 23:22Z | `weekly_summary_enabled = true`, `monthly_impact_enabled = true`. Must be off before any testing on a real owner's row. |
 | P14 | Schema permits a second row on the same Place ID | ✅ | 23:25Z | `businesses_account_place_uniq` is `(account_id, google_place_id) WHERE archived_at IS NULL` — **per account**, so a new account does not collide. `zernio_connections_one_active_per_business` is per business; the old row has none. |
+| P16 | Production flag values (owner-read, Vercel dashboard) | ✅ | 2026-09-02T00:0xZ | `ONBOARDING_DEMO_ENABLED=true` · `BETA_COMP_COUPON_ID=repworth-beta-comp-3mo` · `AUTOPILOT_PURCHASABLE=false` · `ZERNIO_PUBLISHING_ENABLED=true`. All four as required. **Values read from the dashboard, never from `vercel env ls`'s age column** (trap 19). |
+| P17 | The live comp coupon exists and is valid — **the F.2 failure mode** | ✅ | 00:0xZ | `GET /v1/coupons/repworth-beta-comp-3mo` on `acct_1TUcR7IhPBLaM6xA` **livemode:true** → `percent_off: 100`, `duration: repeating`, `duration_in_months: 3`, `valid: true`, `redeem_by: null`, `max_redemptions: null`, `times_redeemed: 1`. The id matches the Vercel value **byte for byte** — F.2 shipped a live coupon under an id no environment named; this one is named by both. `times_redeemed: 1` is F.4. |
+| P18 | Live Prices active | ✅ | 00:0xZ | 6 active live Prices. **Copilot founding base `price_1Tu0tlIhPBLaM6xAqs62deIQ` = $19.00** — the subtotal F.4's checkout showed. Copilot base $29, extra location $15; Autopilot $49/$69/$20. |
 | P15 | PITR / RPO posture | ⚠️ | 2026-09-01 21:14Z | `pitr_enabled: false` on prod and staging. Real RPO ≤ 24 h. **Owner decision 2026-09-01: accept 24 h through beta**, recorded as a dated block in `launch-checklist.md`. |
 
 ---
@@ -174,6 +177,164 @@ There is also **no dedicated Sentry test route** in `src/app/` — searched for
 **Corrected probe owed in `deployment-guide.md` §9.1.** U1 must close on an error that actually
 reaches `captureException` or an uncaught route throw — not on a 401.
 
+
+### D-6 (2026-09-02T00:1xZ) — the planned owner email would have 409'd on the first click. Caught before the submit, not after.
+
+**Owner decisions this session:** owner email `norbertliverpool@gmail.com` (F.4's address, kept
+separate from the admin identity `norbertesekiel@gmail.com`); the owner authorizes §8 with his
+own Google account, on which he is **already a manager** of the Tanicia Resort listing.
+
+The first of those two would have failed. `norbertliverpool@gmail.com` **already exists** in
+production:
+
+```
+users: 01a0596a-…-27fba8886d5a  norbertesekiel@gmail.com   admin  account_id NULL
+       01a05975-…-b22b9491eae4  norbertliverpool@gmail.com owner  account_id 01a05975-…-b6fb26bf58d1
+```
+
+That `account_id` is the **cancelled** F.4 account. `createBusinessTx` normalizes the address
+and writes it against a unique constraint on `users.email`; a 23505 there raises
+`DuplicateEmailError`, which `admin-onboarding-service.ts:236-241` translates to
+**`409 DUPLICATE_EMAIL — "A user with this email already exists"`**.
+
+**Two independent dead ends, and the second is the quieter one.** Even if the create had
+succeeded, `resolveFunnelEntry`'s precedence sends a `cancelled` owner to row 5 → `/dashboard`.
+`cancelled` is neither `pending_payment` (rows 1–3, the checkout lane) nor full access (row 4).
+**The existing owner cannot reach checkout at all** — so "sign in as the F.4 owner and pay
+again" is not a workaround either.
+
+**Resolution — a Gmail plus-alias.** `createBusinessTx` normalizes with `trim().toLowerCase()`
+and nothing else; no plus-tag stripping anywhere on the path. So
+**`norbertliverpool+beta1@gmail.com`** is a distinct `users.email` value, delivers to the same
+inbox the owner reads, creates a genuinely new account and business, and leaves F.4 untouched as
+the restore anchor. `businesses_account_place_uniq` is per-account, so the shared Tanicia Resort
+Place ID is not a conflict (P14).
+
+**How this was found matters more than the fix.** Nothing failed. The plan said "submit the
+form"; reading `users` before the click, and then the collision path from source, is what turned
+a live 409 into a one-word change. **The generalisable shape: a form's first field is a query
+you have not run yet.**
+
+
+### D-7 (2026-09-02T05:15:54Z) — 🔴 **INCIDENT. The 2026-09-01 rotation broke Supabase Auth's outbound email, and this is how we found out.**
+
+H.0b was submitted at **05:15:52Z**. `createBusinessTx` committed. `inviteUserByEmail` then
+failed, and the Auth log names the cause without ambiguity:
+
+```
+path: /invite   status: 500   error_code: unexpected_failure
+error: 535 "Authentication credentials invalid"
+auth_event.action: user_invited
+traits.user_email: norbertliverpool+beta1@gmail.com
+traits.user_id:    cf7d44b3-e5ee-429c-9e61-fbe644fb9f59
+time: 2026-09-02T05:15:54Z
+```
+
+**SMTP 535 is a credential rejection.** Supabase Auth's custom SMTP password is no longer valid.
+
+**The cause is the rotation, and the timing is conclusive.** `RESEND_API_KEY` was rotated at
+2026-09-01T21:52Z and the old key was **deleted** at 22:31Z. Supabase Auth sends through Resend
+SMTP, whose password **is a Resend API key**. The rotation moved the key in three places —
+the vault, Vercel, Railway — and in the Zernio subscription. **Supabase Auth's SMTP settings is
+a FOURTH holder of that credential, and it was not in anyone's inventory.**
+
+F.4's invite sent successfully on 2026-08-31T20:27Z, *before* the rotation. **This was the first
+Auth email production has attempted since.** The rotation's own evidence file closed U1–U6 and
+listed U5 (no production email sent) as deliberately open — U5 was open on the **Resend API**
+lane. Nobody asked about the **SMTP** lane, because nobody knew it was a consumer.
+
+**Blast radius is larger than this campaign.** Supabase Auth sends invites, password resets and
+email confirmations. **All three are down in production right now.** No customer has hit it only
+because there are no customers yet.
+
+**The generalisable lesson, and it is the sharpest one this launch has produced:**
+`ROT-D7` already recorded that a rotation preflight must capture the **provider's key list**.
+That is necessary and not sufficient. **A rotation must also enumerate every CONSUMER of the
+credential, and a consumer is not always a variable in a vault** — here it is a password field
+in a third party's dashboard, holding a copy of a key that a *different* provider issued.
+Fingerprints, boot gates and signed webhooks all passed. **Every check the rotation ran was
+scoped to the consumers it already knew about.**
+
+### D-8 (2026-09-02T05:15:54Z) — the compensating rollback is DEAD CODE. It cannot succeed while a business row exists.
+
+The invite failure triggered `rollbackProvisionedBusiness`
+(`src/lib/onboarding/admin-onboarding-service.ts:189-199`), which deleted **nothing** — all
+three rows survive. Not a partial delete; a total one, silently swallowed by the caller's
+`catch`.
+
+Its delete order is:
+
+```
+job_outbox → users → accounts → businesses
+```
+
+But `fk_businesses_account` is `FOREIGN KEY (account_id) REFERENCES accounts(id)` — **NO
+`ON DELETE CASCADE`**, verified against production. So `DELETE FROM accounts` raises `23503`
+while the `businesses` row still points at it, the enclosing `sql.begin` aborts, and every
+earlier delete in the transaction is rolled back with it.
+
+**The function can never work.** It is reached only when a business row exists, and a business
+row is exactly what makes it fail. `users` deletes fine only because `fk_users_account` is
+`DEFERRABLE INITIALLY DEFERRED`; nothing else is.
+
+The doc comment above it reasons about the wrong edge — *"businesses last —
+channel_enrollments cascade-deletes via businesses.id ON DELETE CASCADE"*. That cascade is
+real (verified), but it is the `businesses → channel_enrollments` edge. The comment never
+considers `businesses → accounts`, which is the one that blocks.
+
+**Correct order: `job_outbox → users → businesses → accounts`.** Deleting `businesses` first
+cascades `channel_enrollments` (one such row exists here), which then frees `accounts`.
+
+**Owed: a code fix and a regression test.** The error message the operator sees —
+*"the cleanup rollback partially failed"* — is also wrong: it did not partially fail, it wholly
+failed. "Partially" is the message the `hasOrphans` branch prints whether one row or all three
+survive.
+
+
+### D-8a (2026-09-02T05:4xZ) — a correction to D-8, found by executing my own remedy
+
+D-8 named the correct order as `job_outbox → users → businesses → accounts`. Executing the
+first `DELETE FROM users` **as a standalone statement** raised:
+
+```
+23503: update or delete on table "users" violates foreign key constraint
+       "accounts_owner_user_id_fkey" on table "accounts"
+```
+
+A **third** edge, unlisted in D-8: `accounts.owner_user_id → users.id`. The full cycle is
+
+| Edge | Deferral |
+|---|---|
+| `accounts.owner_user_id → users.id` | **DEFERRABLE INITIALLY DEFERRED** |
+| `users.account_id → accounts.id` | **DEFERRABLE INITIALLY DEFERRED** |
+| `businesses.account_id → accounts.id` | immediate, no cascade |
+| `businesses.onboarded_by → users.id` | immediate, no cascade (points at the ADMIN user) |
+
+**D-8's order is right, and only inside a transaction.** Both deferrable edges are checked at
+COMMIT; in autocommit each statement is its own transaction, so the check fires immediately and
+the users delete fails. The production cleanup therefore ran as one explicit
+`begin … commit`, and the fix's doc comment now says so.
+
+**This is the session's third instance of the same shape** — PITR-D1, D-5, and now this: a
+remedy that is only wrong when executed. It was caught because the delete was run as one
+statement and verified, rather than assumed.
+
+## Resolution — D-8 fixed, and the test that could not have caught it replaced
+
+| Item | State |
+|---|---|
+| `rollbackProvisionedBusiness` delete order | ✅ `job_outbox → users → **businesses** → accounts` |
+| Operator message | ✅ no longer claims "partially failed"; it names the required order |
+| Doc comment | ✅ rewritten — the old one justified the order via the businesses→channel_enrollments cascade, which is real but is not the edge that blocks |
+| Mocked characterization suite | ✅ order corrected, plus an explicit businesses-before-accounts assertion. **5 passed** |
+| **New live-DB suite** `admin-onboarding-rollback.integration.test.ts` | ✅ **3 passed** against real Postgres |
+
+**The mocked suite pinned the bug as correct for as long as the bug lived.** A mock `sql` has
+no foreign keys, so a characterization test over emitted SQL text is blind to the constraint
+that actually decides the outcome. The new suite asserts the ROWS ARE GONE, and carries a
+**negative control** that re-runs the pre-fix order and asserts it still raises `23503` and
+leaves all three rows — so the suite cannot pass vacuously if a future migration adds a cascade.
+
 ---
 
 ## Teardown ledger
@@ -183,17 +344,27 @@ creation time and ticked only after removal is VERIFIED by query, never assumed.
 
 | # | Fixture | Identifier | Removal | State |
 |---|---|---|---|---|
-| T1 | *(none yet — no fixture created as of 23:30Z)* | — | — | — |
+| T1 | `public.users` — `norbertliverpool+beta1@gmail.com`, `auth_id` NULL | `01a0608b-89a9-7543-9352-51a0f42bd769` | `DELETE FROM users WHERE id = …` | ✅ **CLOSED 2026-09-02T05:5xZ**, verified by absence |
+| T2 | `businesses` — `Tanicia Resort`, no Place ID. Cascades 1 `channel_enrollments` row | `01a0608b-89a9-7543-9352-4ee520cc71ad` | `DELETE FROM businesses WHERE id = …` | ✅ **CLOSED**, verified by absence |
+| T3 | `accounts` — `pending_payment`, `copilot`, no Stripe customer | `01a0608b-89a9-7543-9352-572df241de52` | `DELETE FROM accounts WHERE id = …` — **after T2** (D-8) | ✅ **CLOSED**, verified by absence |
+
+**Created unintentionally at 2026-09-02T05:15:52Z by the failed H.0b, and orphaned by D-8.**
+They are fixtures now regardless of intent. Delete order is load-bearing: `users` →
+`businesses` → `accounts`. No `auth.users` row survives — Supabase rolled its own back
+(verified: `auth.users` holds exactly 2 rows, both pre-existing).
+
+| # | Fixture | Identifier | Removal | State |
+|---|---|---|---|---|
 
 **Planned rows, to be filled in at creation:**
 
 | # | Fixture (planned) | Removal plan | Note |
 |---|---|---|---|
-| T-a | New production account + business for tester one | **NOT torn down** — it is the beta row, by owner decision | Recorded here so the ledger is complete, not because it is disposable |
+| T-a | New production account + business for tester one — owner `norbertliverpool+beta1@gmail.com`, business `Tanicia Resort`, Place ID `ChIJqb_7RPR5UDcR6xUi5sIklYk` | **NOT torn down** — it is the beta row, by owner decision | Recorded so the ledger is complete, not because it is disposable. F.4's row is untouched. |
 | T-b | Live Stripe subscription under the Beta comp coupon | **NOT cancelled** — F.4's mistake was cancelling; tester one keeps it | The $0 invoice still captures a card |
 | T-c | Zernio connection to Tanicia Resort's GBP | `/api/zernio/disconnect` if the campaign aborts | Live third-party binding |
 | T-d | One posted reply on Google (§9.6) | **NOT reversible by the app.** The GBP owner deletes it manually in Google's UI | This is why §9.6 is the line in the sand |
-| T-e | `ZERNIO_PUBLISHING_ENABLED` if flipped | Restore recorded pre-flip value; vault write ⇒ redeploy `--from-source` | Record the pre-flip value BEFORE flipping |
+| T-e | `ZERNIO_PUBLISHING_ENABLED` if flipped | Restore to **`true`** — the pre-flip value, **recorded 2026-09-02 before any flip**. Vault write ⇒ redeploy `--from-source` | The kill switch is a flip to `false`. It is a vault write, therefore a deploy: trap 11, then trap 2 |
 
 ---
 
@@ -203,6 +374,7 @@ Open until closed by evidence. The campaign cannot be declared PASS while any re
 
 | # | Path | Closes at |
 |---|---|---|
+| U9 | **Supabase Auth can send email again** (D-7) — proven by a real invite arriving, not by a saved settings form | H.0b retry |
 | U1 | Production Sentry receives an error from the live UI | §9.1 — **probe invalid, see D-5.** Needs a corrected trigger |
 | U2 | A Zernio OAuth connect completes against a real GBP and writes `status='active'` | §8 |
 | U3 | The Import offer renders to the owner and an acceptance enqueues the backfill | §9.2 |
@@ -238,4 +410,10 @@ is known to be a problem.
 
 ## Verdict
 
-⏳ **IN PROGRESS.** Opened 2026-09-01T23:21Z.
+⏳ **IN PROGRESS — BLOCKED.** Opened 2026-09-01T23:21Z.
+
+**H.0b FAILED at 2026-09-02T05:15:54Z.** Root cause is **D-7**, not the funnel: Supabase Auth's
+SMTP credential was invalidated by the 2026-09-01 rotation and no Auth email can leave
+production. **D-8** then prevented the compensating rollback from removing anything.
+
+**Phase H cannot proceed until D-7 is fixed** — H.0c is an invite email.
