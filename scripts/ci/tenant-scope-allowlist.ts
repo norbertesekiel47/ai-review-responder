@@ -233,7 +233,17 @@ export interface TenantScopeAllowlistEntry {
 //     response row in the table to return one page of groups. Same three
 //     tables, same admin-after-require-role justification; the three
 //     snippets were refreshed to the new text, count unchanged.
-export const ALLOWLIST_BASELINE = 371;
+//   - 2026-09-02 (371 → 373): UX-audit X5/X15 — admin list filters. X5 gave
+//     /admin/businesses a name search + subscription-status filter: the page
+//     CTE grew a `${whereClause}` (+ `b.account_id`), so its three snippets
+//     were refreshed in place, and the unfiltered
+//     `SELECT COUNT(*) FROM businesses` became the same JOIN + WHERE as the
+//     page CTE — one entry (businesses) replaced by two (businesses,
+//     accounts). X15 gave /admin/jobs a business link per failed row: the
+//     failed page now LEFT JOINs `businesses` on the payload's guarded
+//     `businessId` — one new entry. Net +2; every statement is an
+//     admin-after-require-role cross-tenant read by design.
+export const ALLOWLIST_BASELINE = 373;
 
 interface CategoryPathRule {
   allowedPrefixes: readonly string[];
@@ -543,9 +553,16 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/business-summary.ts",
     table: "businesses",
-    sqlSnippet: "SELECT COUNT(*)::int AS total FROM businesses",
+    sqlSnippet: "SELECT COUNT(*)::int AS total FROM businesses b JOIN accounts a ON a.id = b.account_id ${whereClause}",
     category: 'admin-after-require-role',
-    reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+    reason: "Admin-only /admin/businesses filtered total (X5): same JOIN + WHERE as the page CTE so the count matches the page; cross-tenant after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/business-summary.ts",
+    table: "accounts",
+    sqlSnippet: "SELECT COUNT(*)::int AS total FROM businesses b JOIN accounts a ON a.id = b.account_id ${whereClause}",
+    category: 'admin-after-require-role',
+    reason: "Admin-only /admin/businesses filtered total (X5): accounts joined only to filter on subscription_status; cross-tenant after requireRole(admin).",
   },
   {
     file: "src/lib/admin/flagged-service.ts",
@@ -1256,21 +1273,21 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
   {
     file: "src/lib/admin/business-summary.ts",
     table: "accounts",
-    sqlSnippet: "WITH page AS ( SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
+    sqlSnippet: "WITH page AS ( SELECT b.id, b.account_id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ${whereClause} ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/business-summary.ts",
     table: "businesses",
-    sqlSnippet: "WITH page AS ( SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
+    sqlSnippet: "WITH page AS ( SELECT b.id, b.account_id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ${whereClause} ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
   {
     file: "src/lib/admin/business-summary.ts",
     table: "responses",
-    sqlSnippet: "WITH page AS ( SELECT b.id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
+    sqlSnippet: "WITH page AS ( SELECT b.id, b.account_id, b.name, b.category, a.subscription_status, b.last_sync_at FROM businesses b JOIN accounts a ON a.id = b.account_id ${whereClause} ORDER BY b.name ASC, b.id ASC ${pageClause} ) SELECT b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at, COUNT(CASE WHEN resp.status = 'pending_approval' THEN 1 END)::int AS pending_approval_count, COUNT(CASE WHEN resp.status = 'awaiting_owner_connect' THEN 1 END)::int AS pending_reconnect_count, COUNT(resp.id) FILTER (WHERE resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS total_responses, COUNT(*) FILTER (WHERE resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)::int AS completed_responses, ROUND(EXTRACT(EPOCH FROM AVG(resp.approved_at - resp.created_at) FILTER (WHERE resp.approved_at IS NOT NULL AND resp.created_at >= CURRENT_DATE - ${RESPONSE_METRICS_WINDOW_DAYS}::int)) / 3600.0, 1)::float AS avg_response_time_hours, MAX(GREATEST(resp.created_at, resp.approved_at, resp.posted_at)) AS last_activity FROM page b LEFT JOIN responses resp ON resp.business_id = b.id AND resp.status != 'superseded' GROUP BY b.id, b.account_id, b.name, b.category, b.subscription_status, b.last_sync_at ORDER BY b.name ASC, b.id ASC",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
   },
@@ -1294,6 +1311,13 @@ export const tenantScopeAllowlist: TenantScopeAllowlistEntry[] = [
     sqlSnippet: "WITH biz AS (SELECT UNNEST(${businessIds}::uuid[]) AS id), notif AS ( SELECT nd.business_id, COUNT(DISTINCT nd.response_id)::int AS notified_count, COUNT(DISTINCT nd.response_id) FILTER ( WHERE r.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[]) )::int AS approved_count FROM notification_deliveries nd JOIN responses r ON r.id = nd.response_id WHERE nd.business_id IN (SELECT id FROM biz) AND nd.template = 'approval_request' AND nd.sent_at IS NOT NULL AND nd.sent_at >= CURRENT_DATE - 30 GROUP BY nd.business_id ), resp AS ( SELECT rp.business_id, COUNT(*) FILTER (WHERE rp.status = 'pending_approval')::int AS pending_count, EXTRACT(DAY FROM CURRENT_TIMESTAMP - MAX(rp.approved_at) FILTER (WHERE rp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])) )::int AS days_since_approval, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 7)::float AS avg_hours_current, AVG(EXTRACT(EPOCH FROM rp.approved_at - rp.created_at) / 3600.0) FILTER (WHERE rp.approved_at IS NOT NULL AND rp.created_at >= CURRENT_DATE - 35 AND rp.created_at < CURRENT_DATE - 7)::float AS avg_hours_prev FROM responses rp WHERE rp.business_id IN (SELECT id FROM biz) GROUP BY rp.business_id ) SELECT b.id AS business_id, CASE WHEN COALESCE(n.notified_count, 0) >= 3 THEN n.approved_count::float / NULLIF(n.notified_count, 0) ELSE NULL END AS approval_rate, COALESCE(n.notified_count, 0)::int AS notified_count, COALESCE(rp.pending_count, 0)::int AS pending_count, rp.days_since_approval, EXTRACT(DAY FROM CURRENT_TIMESTAMP - bs.created_at)::int AS account_age_days, rp.avg_hours_current, rp.avg_hours_prev FROM biz b JOIN businesses bs ON bs.id = b.id LEFT JOIN notif n ON n.business_id = b.id LEFT JOIN resp rp ON rp.business_id = b.id",
     category: 'admin-after-require-role',
     reason: "Admin-only route or service intentionally performs this statement after requireRole(admin).",
+  },
+  {
+    file: "src/lib/admin/jobs-service.ts",
+    table: "businesses",
+    sqlSnippet: "SELECT jo.id, jo.topic, jo.last_error, jo.attempts, jo.max_attempts, jo.created_at, b.id AS business_id, b.name AS business_name FROM job_outbox jo LEFT JOIN businesses b ON b.id = CASE WHEN jo.payload->>'businessId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (jo.payload->>'businessId')::uuid END WHERE jo.status = 'failed' ${topicClause} ORDER BY jo.created_at DESC LIMIT ${limit} OFFSET ${offset}",
+    category: 'admin-after-require-role',
+    reason: "Admin-only /admin/jobs failed page (X15): resolves each failed row's payload businessId to a business name across all tenants after requireRole(admin).",
   },
   {
     file: "src/lib/admin/notifications-service.ts",
