@@ -278,6 +278,19 @@ describe('RestraintReport', () => {
     // so a bullet or a wrapper reddened it with no behaviour change — the shape
     // F21 was raised about (red team F33). This closes the set the same way and
     // says nothing about whitespace.
+    // EVERY row, not the first. A leak on the no-link row survived, and the
+    // two-row fixture below renders exactly that shape (red team F42).
+    for (const anyRow of container.querySelectorAll('.rst-row')) {
+      const stray = [...anyRow.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? '')
+        .join('');
+      expect(stray.trim()).toBe('');
+    }
+    // The ATTRIBUTE channel too: `textContent` cannot see a subject id carried
+    // in a `title`, a `data-` attribute or an `aria-label`.
+    expect(container.innerHTML).not.toContain(RESPONSE_ID);
+
     const row = container.querySelector('.rst-row');
     // BOTH, and dropping either is what broke this. `children` is an
     // HTMLCollection of ELEMENT children, so a leaked field rendered as a bare
@@ -520,8 +533,18 @@ describe('RestraintReport', () => {
 
     // The same rule applies one level down, and `CategorySection`'s own
     // `aria-labelledby` could be deleted with all cases green (red team F38).
-    // One summary region plus one per category group.
-    expect(screen.getAllByRole('region')).toHaveLength(3);
+    // NAMES, not a count: collapsing `headingId` to a constant left every
+    // landmark reading the same and duplicated the DOM ids, with the count
+    // assertion green (red team F41).
+    const names = screen.getAllByRole('region').map((el) => el.getAttribute('aria-label')
+      ?? el.getAttribute('aria-labelledby'));
+    expect(new Set(names).size).toBe(3);
+    expect(screen.getByRole('region', { name: 'What we held back' })).toBeInTheDocument();
+    // Each category section is named by its own heading, so the two groups are
+    // distinguishable to a screen reader rather than three identical regions.
+    const groupHeadings = screen.getAllByRole('heading', { level: 2 })
+      .map((h) => h.textContent);
+    expect(new Set(groupHeadings).size).toBe(groupHeadings.length);
   });
 
   it('uses singular phrasing for a single archived location', () => {

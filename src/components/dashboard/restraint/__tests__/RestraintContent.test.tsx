@@ -24,8 +24,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ReactNode } from 'react';
 
+// MUTABLE, via `vi.hoisted` so the hoisted factory can read it. A constant mock
+// made the whole SCOPE dimension unobservable: the query key could drop
+// `currentScope` and the URL could hardcode `scope=all`, both with the suite
+// green, while the location switcher went inert (red team F39).
+const scopeState = vi.hoisted(() => ({ current: 'all' as string }));
 vi.mock('@/contexts/LocationContext', () => ({
-  useLocationScope: () => ({ currentScope: 'all' }),
+  useLocationScope: () => ({ currentScope: scopeState.current }),
 }));
 vi.mock('@/components/dashboard/shell/TopBar', () => ({
   TopBar: ({ title, children }: { title: string; children?: ReactNode }) => (
@@ -74,11 +79,15 @@ function renderContent() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(
+  // A FRESH element each time: React bails out of a re-render given the
+  // identical element reference, and the scope change has to reach the hook.
+  const tree = () => (
     <QueryClientProvider client={client}>
       <RestraintContent />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(tree());
+  return { ...view, rerenderTree: () => view.rerender(tree()) };
 }
 
 /** A fetch that never settles — the genuine pending state, not a fast success. */
@@ -95,6 +104,7 @@ function jsonFetch(body: unknown, ok = true, status = 200) {
 }
 
 beforeEach(() => {
+  scopeState.current = 'all';
   vi.stubGlobal('fetch', jsonFetch(PAYLOAD));
 });
 
@@ -204,6 +214,31 @@ describe('RestraintContent', () => {
     });
     expect(urls[1]).toContain('window=90d');
     expect(urls[1]).toContain('scope=all');
+  });
+
+  it('re-fetches when the location scope changes, not only the window', async () => {
+    // THE OTHER HALF OF THE KEY. The window control was pinned and the scope
+    // one was not, because the context mock was a constant — so dropping
+    // `currentScope` from the key, or hardcoding the `scope` parameter, both
+    // passed (red team F39).
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => PAYLOAD } as unknown as Response;
+    }));
+
+    const { rerenderTree } = renderContent();
+    await screen.findByText('What we held back');
+    expect(urls[0]).toContain('scope=all');
+
+    scopeState.current = 'b1111111-1111-1111-1111-111111111111';
+    rerenderTree();
+
+    await waitFor(() => {
+      expect(urls).toHaveLength(2);
+    });
+    expect(urls[1]).toContain('scope=b1111111-1111-1111-1111-111111111111');
+    expect(urls[1]).toContain('window=30d');
   });
 
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
@@ -335,6 +370,53 @@ describe('RestraintContent', () => {
   // `coverageStart` by migration 001, `archivedLocations` in every location
   // scope. A guard that lost them rejects nearly every real payload and blanks
   // the whole tab (red team F34).
+  // EVERY live `linkKind`, accepted. Deleting `value === 'auto-approval'` or
+  // `value === 'contacts'` from `isLinkKind` left the suite green, and either
+  // loss blanks the whole tab for any window holding one — the same direction
+  // as the null arms (red team F40). The previous commit's claim that the sweep
+  // "covers every conjunct" was FALSE for exactly these two.
+  it.each(['review', 'auto-approval', 'contacts', null])(
+    'ACCEPTS a linkKind of %s',
+    async (linkKind) => {
+      vi.stubGlobal('fetch', jsonFetch({
+        ...PAYLOAD,
+        entries: [{ ...PAYLOAD.entries[0], linkKind }],
+      }));
+      renderContent();
+
+      expect(await screen.findByText('What we held back')).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    ['an array', [] as unknown],
+    ['a string', 'restraint' as unknown],
+    ['a number', 7 as unknown],
+  ])('rejects a body that is not an object at all (%s)', async (_label, body) => {
+    // These pin the BEHAVIOUR, not the `isObject` conjunct: an array, a string
+    // and a number all fail the next conjunct anyway, so deleting `isObject`
+    // leaves them rejected either way. The case below is the one that pins it.
+    vi.stubGlobal('fetch', jsonFetch(body));
+    renderContent();
+
+    expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+  });
+
+  it('rejects a null body with our own sentence, never a raw TypeError', async () => {
+    // `typeof null === 'object'`, so the top-level `isObject` arm's ONLY
+    // observable job is this one: without it the chain dereferences null and a
+    // `Cannot read properties of null` message is what reaches the owner. The
+    // message is the assertion — the error CARD renders either way.
+    vi.stubGlobal('fetch', jsonFetch(null));
+    renderContent();
+
+    expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('alert'))
+        .toHaveTextContent('Your restraint record came back incomplete');
+    });
+  });
+
   it('ACCEPTS the legal nulls the DTO is built to carry', async () => {
     vi.stubGlobal('fetch', jsonFetch({
       ...PAYLOAD,
