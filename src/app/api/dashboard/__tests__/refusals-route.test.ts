@@ -327,12 +327,8 @@ describe('GET /api/dashboard/refusals', () => {
     // test files were consolidated to stop re-spelling. If a third appears, or
     // if `write` ever contributes a FUNCTION here, the route has grown a second
     // owner and this assertion should fail.
-    expect(code.match(/@\/lib\/refusals\/\w+/g)?.sort()).toEqual([
-      '@/lib/refusals/read',
-      '@/lib/refusals/write',
-    ]);
-    expect(code).toContain('REFUSAL_LEDGER_FLAG');
-    expect(code).not.toContain('writeRefusalEvent');
+    // The refusals domain reaches this file through exactly ONE symbol.
+    expect(code.match(/@\/lib\/refusals\/\w+/g)).toEqual(['@/lib/refusals/read']);
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -571,6 +567,15 @@ describe('GET /api/dashboard/refusals', () => {
 
     // Read live per call, never cached at module construction — the same rule
     // `ci:process-env` enforces on the write side.
+    //
+    // The route spells the flag name as a LITERAL because `ci:env-registry`
+    // cannot resolve an imported identifier. This is the pin that stops the
+    // literal and the write side's constant drifting apart: rename one and this
+    // fails, rather than the route silently reading a flag nobody sets.
+    const { REFUSAL_LEDGER_FLAG } = await import('@/lib/refusals/write');
+    expect(REFUSAL_LEDGER_FLAG).toBe('REFUSAL_LEDGER_ENABLED');
+    expect(routeCodeWithoutComments()).toContain("'REFUSAL_LEDGER_ENABLED'");
+
     process.env.REFUSAL_LEDGER_ENABLED = original;
   });
 

@@ -4,7 +4,6 @@ import { jsonResponse } from '@/lib/auth/route-helpers';
 import { readFlagEnabledByDefault } from '@/lib/config/flags';
 import { sql } from '@/lib/db/server';
 import { getRefusalLog } from '@/lib/refusals/read';
-import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import {
   resolveDashboardLocation,
   resolveDashboardRequest,
@@ -68,7 +67,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // is `autoApprovalEnabled`, because that is what the browser is being told.
     // Do not assume the two names match — round 1 caught this exact import.
     const autoApproval = autoApprovalRuntimeEnabled();
-    const ledgerRecording = readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG);
+    // THE LITERAL, not the imported `REFUSAL_LEDGER_FLAG`, and that is a
+    // constraint rather than a preference: `ci:env-registry` resolves a flag
+    // name only from a string literal or a same-file const, so an imported
+    // identifier makes this read invisible to the registry that exists to keep
+    // every production env read documented. The route test pins this string
+    // against `REFUSAL_LEDGER_FLAG`, so the two cannot drift apart silently.
+    const ledgerRecording = readFlagEnabledByDefault('REFUSAL_LEDGER_ENABLED');
 
     if (scopePolicy.mode === 'aggregate') {
       const log = await getRefusalLog(sql, { kind: 'account', accountId }, window);
