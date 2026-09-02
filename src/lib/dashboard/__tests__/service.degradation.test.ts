@@ -43,8 +43,10 @@ function preHandledRejection(reason: Error): Promise<never> {
 }
 
 /**
- * Seeds all 12 SQL results in source order (business first, then the 11
- * auxiliary queries; the remaining batch slots are the Redis pending marker
+ * Seeds all 11 SQL results in source order (business first, then the 10
+ * auxiliary queries: reviewCounts, totalResponded, weeklySeries, ranking,
+ * recentReviews, monthlyBrief, weeklyBrief, zernioConn, queuedReconnect,
+ * unresolvedIncident; the remaining batch slots are the Redis pending marker
  * and the reputation batch — skipped without includeReputationMetrics — not
  * SQL). `rejectAt` replaces one seed with a rejection.
  */
@@ -52,9 +54,8 @@ function seedQueries(opts: { rejectAt?: number; reason?: Error } = {}) {
   harness.resetMockSql();
   const results: unknown[] = [
     [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }],
-    [{ count: 3 }],
+    [{ stars: 5, total_count: 3, count: 3 }],
     [{ count: 2 }],
-    [],
     [],
     [],
     [],
@@ -126,6 +127,55 @@ describe('getActiveDashboardData degradation', () => {
     expect(data.business.name).toBe('Biz');
     expect(data.valueSummary.totalReviewsHandled).toBe(2);
     expect(mockReportCaughtError).not.toHaveBeenCalled();
+  });
+
+  it('degrades the all-time total AND the breakdown together when their shared scan rejects', async () => {
+    // Index 1 = reviewCounts: one GROUP BY scan feeds both widgets, so one
+    // failure, one report, both empty — and everything else intact.
+    seedQueries({ rejectAt: 1, reason: new Error('reviews scan timeout') });
+
+    const data = await getActiveDashboardData(mockSql, BUSINESS_ID);
+
+    // A zero denominator renders a 0% rate rather than a 500 (the total's only
+    // consumer); the breakdown renders its empty state.
+    expect(data.valueSummary.currentResponseRate).toBe(0);
+    expect(data.ratingBreakdown.total).toBe(0);
+    expect(data.valueSummary.totalReviewsHandled).toBe(2);
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(1);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'dashboard/service',
+      expect.any(Error),
+      expect.objectContaining({ widget: 'reviewCountRows', degraded: true }),
+    );
+  });
+
+  it('degrades the reputation summary with the weekly series it rides on (velocity + trend share one scan)', async () => {
+    // Index 3 = weeklySeries. With the reputation flag on, the reputation
+    // member has no trend rows to render and degrades as ONE widget; the
+    // remaining reputation statements (rate, star, timeSaved, pending) are
+    // never issued. Two reports: velocityRows and reputationRows.
+    seedQueries({ rejectAt: 3, reason: new Error('weekly scan timeout') });
+
+    const data = await getActiveDashboardData(mockSql, BUSINESS_ID, {
+      includeReputationMetrics: true,
+    });
+
+    expect(data.reviewVelocity).toEqual([]);
+    expect(data.reputationSummary).toBeUndefined();
+    expect(data.valueSummary.totalReviewsHandled).toBe(2);
+    expect(mockReportCaughtError).toHaveBeenCalledTimes(2);
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'dashboard/service',
+      expect.any(Error),
+      expect.objectContaining({ widget: 'velocityRows', degraded: true }),
+    );
+    expect(mockReportCaughtError).toHaveBeenCalledWith(
+      'dashboard/service',
+      expect.any(Error),
+      expect.objectContaining({ widget: 'reputationRows', degraded: true }),
+    );
+    // 11 seeded statements were issued; none of the 4 reputation statements.
+    expect(harness.sqlCalls).toHaveLength(11);
   });
 
   it('reports the pending-marker Redis degradation instead of only console-logging it', async () => {

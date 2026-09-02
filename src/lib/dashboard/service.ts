@@ -42,8 +42,22 @@ import {
 
 const HANDLED = [...HANDLED_STATUSES] as string[];
 
+/** One `GROUP BY star_rating` row: all-time total + windowed count per bucket. */
+interface ReviewCountRow {
+  stars: number | null;
+  total_count: number;
+  count: number;
+}
+
+/** One zero-filled week: velocity count + sentiment average (NULL when empty). */
+interface WeeklySeriesRow {
+  week_start: unknown;
+  count: unknown;
+  avg_score: unknown;
+}
+
 // Short TTL cache for the per-location payload, mirroring the aggregate-service
-// fail-open block (#487). This is the single-location landing's 14-query batch,
+// fail-open block (#487). This is the single-location landing's 15-statement batch,
 // so repeated loads within the TTL — tab switches, the KPI poll, several owners
 // of the same location — reuse one computation. 45s staleness is invisible next
 // to the pipeline's own multi-second latency.
@@ -70,7 +84,7 @@ function locationCacheKey(businessId: string, opts?: ActiveDashboardOpts): strin
 
 /**
  * Thrown when the businesses row vanishes between the route's preflight
- * SELECT and the service's 8-query assembly. Extremely rare in practice
+ * SELECT and the service's multi-statement assembly. Extremely rare in practice
  * (TOCTOU window is sub-millisecond and no normal flow deletes a business
  * out from under an authenticated owner), but kept as an explicit signal
  * so the route can return 404 instead of 500.
@@ -140,7 +154,7 @@ async function buildActiveDashboardData(
   const velocitySpanWeeks = trendWeeks - 1;
   // P10 fail-fast shape (plan R2): the fatal business lookup runs OUTSIDE the
   // allSettled batch so its rejection surfaces immediately instead of waiting
-  // for all 13 auxiliaries to settle (up to statement_timeout, 30s).
+  // for all 12 auxiliaries to settle (up to statement_timeout, 30s).
   // Promise.resolve() adopts the lazy Postgres.js thenable up front, starting
   // the query before the auxiliary batch is built; the settled batch already
   // has handlers attached, so an early throw leaves no unhandled rejection.
@@ -161,7 +175,7 @@ async function buildActiveDashboardData(
     `,
   );
   // Business first, ALONE: it is the fatal identity read, so resolving it
-  // before the wave means a missing business throws without dispatching 13
+  // before the wave means a missing business throws without dispatching 12
   // auxiliary queries. (It also removes the unhandled-rejection hazard the old
   // ordering had to work around by attaching handlers up front.)
   const businessRows = await businessPromise;
@@ -171,8 +185,8 @@ async function buildActiveDashboardData(
   }
 
   // SEQUENTIAL via settledInOrder — do NOT swap this back to Promise.allSettled
-  // (#505). This wave is 13 members wide (11 sql + a Redis marker + the
-  // 5-query reputation batch) on the SHARED `sql` client, whose pool is
+  // (#505). This wave is 12 members wide (10 sql + a Redis marker + the
+  // 4-query reputation batch) on the SHARED `sql` client, whose pool is
   // `DB_POOL_MAX` = 3 on Vercel; /api/dashboard/route.ts passes that singleton,
   // not the larger `sqlRead`. Fan-out that far past the pool makes postgres.js
   // pipeline the excess onto already-open connections over the Supavisor
@@ -183,10 +197,23 @@ async function buildActiveDashboardData(
   // Added latency lands only on a cache MISS (45s Redis TTL). The members are
   // now THUNKS: passing promises would dispatch them before settledInOrder saw
   // them, which is the concurrency being removed.
+  //
+  // Statement budget (service.statement-count.test.ts pins it): two former
+  // members were folded into scans that already existed — the all-time review
+  // total rides the rating-breakdown GROUP BY (same table, same rows), and
+  // the reputation sentiment trend rides the velocity series (same table,
+  // same anchor, same weeks). Each fold shares ONE failure domain: the total
+  // degrades with the breakdown, and the trend — hence the whole reputation
+  // summary — degrades with velocity. Do not fold across tables; the banner
+  // trio and the two briefs stay separate on purpose.
+  //
+  // The weekly series is captured here so the reputation member (last, and
+  // sequential) can reuse it instead of re-scanning the same weeks.
+  let weeklySeriesRows: WeeklySeriesRow[] | null = null;
   const [
-    totalReviewSettled,
+    reviewCountSettled,
     totalRespondedSettled,
-    velocitySettled,
+    weeklySeriesSettled,
     rankingSettled,
     recentReviewSettled,
     monthlyBriefSettled,
@@ -194,16 +221,27 @@ async function buildActiveDashboardData(
     zernioConnectionSettled,
     queuedReconnectSettled,
     unresolvedIncidentSettled,
-    ratingBreakdownSettled,
     pendingSettled,
     reputationSettled,
   ] = await settledInOrder([
-    // Total reviews (all time)
-    () => sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
+    // Review counts in ONE scan: `total_count` is the all-time total per star
+    // bucket (summed below — the NULL-star group counts toward the total too),
+    // `count` is the windowed 1–5★ breakdown (#405): true distribution across
+    // the selected window — NOT the recentReviews sample. star_rating is
+    // INTEGER CHECK (1..5) or NULL (migration 001), so a direct GROUP BY is
+    // exact. The window reaches SQL only as a bound integer via make_interval
+    // (issue #403); zero-fill + ordering happen in buildRatingBreakdown.
+    () => sql<ReviewCountRow[]>`
+      SELECT star_rating AS stars,
+             COUNT(*)::int AS total_count,
+             COUNT(*) FILTER (
+               WHERE star_rating IS NOT NULL
+                 AND ${reviewTimeWindowFilter(sql, '', windowDays)}
+             )::int AS count
       FROM reviews
       WHERE business_id = ${businessId}
         AND status <> ${REVIEW_STATUS.DELETED}
+      GROUP BY star_rating
     `,
     // Total responded (distinct reviews with non-superseded responses)
     () => sql<{ count: number }[]>`
@@ -214,17 +252,26 @@ async function buildActiveDashboardData(
         AND r.status <> ${REVIEW_STATUS.DELETED}
         AND resp.status = ANY(${[...HANDLED_STATUSES] as string[]}::text[])
     `,
-    // Review velocity: last `trendWeeks` weeks (zero-filled), window-driven.
-    () => sql<{ week_start: unknown; count: unknown }[]>`
+    // Weekly series: last `trendWeeks` weeks (zero-filled), window-driven.
+    // `count` is the review velocity; `avg_score` is the sentiment trend the
+    // reputation batch renders (same rows, same weeks, one scan). Sentiment
+    // trend semantics: AVG over the same reviews the velocity counts, NULL for
+    // an empty week (the LEFT JOIN keeps the week; buildReputationSummary
+    // treats NULL as "no data").
+    async () => {
+      const rows = await sql<WeeklySeriesRow[]>`
       SELECT gs::date AS week_start,
-             COALESCE(r.cnt, 0)::int AS count
+             COALESCE(r.cnt, 0)::int AS count,
+             r.avg_score::float AS avg_score
       FROM generate_series(
         DATE_TRUNC('week', NOW() - make_interval(weeks => ${velocitySpanWeeks})),
         DATE_TRUNC('week', NOW()),
         INTERVAL '1 week'
       ) gs
       LEFT JOIN (
-        SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk, COUNT(*) AS cnt
+        SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk,
+               COUNT(*) AS cnt,
+               AVG(sentiment_score) AS avg_score
         FROM reviews
         WHERE business_id = ${businessId}
           AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks})
@@ -232,7 +279,10 @@ async function buildActiveDashboardData(
         GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})
       ) r ON r.wk = gs::date
       ORDER BY week_start ASC
-    `,
+    `;
+      weeklySeriesRows = rows;
+      return rows;
+    },
     // Ranking snapshots (all with rank_position)
     () => sql<DashboardRankingRow[]>`
       SELECT keyword, snapshot_date, rank_position
@@ -338,20 +388,6 @@ async function buildActiveDashboardData(
       WHERE business_id = ${businessId}
         AND resolved_at IS NULL
     `,
-    // Reviews-by-rating breakdown (#405): true 1–5★ distribution across the
-    // selected window — NOT the recentReviews sample. star_rating is
-    // INTEGER CHECK (1..5) or NULL (migration 001), so a direct GROUP BY is
-    // exact. The window reaches SQL only as a bound integer via make_interval
-    // (issue #403); zero-fill + ordering happen in buildRatingBreakdown.
-    () => sql<{ stars: number; count: number }[]>`
-      SELECT star_rating AS stars, COUNT(*)::int AS count
-      FROM reviews
-      WHERE business_id = ${businessId}
-        AND status <> ${REVIEW_STATUS.DELETED}
-        AND star_rating IS NOT NULL
-        AND ${reviewTimeWindowFilter(sql, '', windowDays)}
-      GROUP BY star_rating
-    `,
     // In-flight connect flow marker. Lives in Redis only — the DB row
     // (zernio_connections) is not inserted until select-location succeeds.
     // Surfacing this lets the dashboard render a "Connecting…" UX during the
@@ -359,20 +395,25 @@ async function buildActiveDashboardData(
     // would 409 on retry and confuse the owner.
     () => readPendingMarker(businessId),
     // Opt-in reputation batch (single-location landing only), fetched in the
-    // SAME parallel wave as the main batch — running it afterwards cost a full
-    // extra pool round-trip wave per landing request. Aggregate/connect
-    // callers omit the flag and pay nothing.
-    () =>
-      opts?.includeReputationMetrics
-        ? fetchReputationRows(sql, businessId, windowDays, trendWeeks)
-        : Promise.resolve(null),
+    // SAME sequential wave as the main batch — running it afterwards cost a
+    // full extra pool round-trip wave per landing request. Aggregate/connect
+    // callers omit the flag and pay nothing. The sentiment trend comes from
+    // the weekly series above; if that member failed, the whole reputation
+    // summary degrades with it (one failure domain, see the wave comment).
+    async () => {
+      if (!opts?.includeReputationMetrics) return null;
+      if (!weeklySeriesRows) {
+        throw new Error('reputation batch skipped: weekly series unavailable');
+      }
+      return fetchReputationRows(sql, businessId, windowDays, weeklySeriesRows);
+    },
   ]);
 
   // Fallbacks are typed (not bare []) so T infers as the plain row-array
   // type rather than Postgres.js's RowList intersection.
-  const totalReviewRows = widgetOrFallback(totalReviewSettled, [] as { count: number }[], 'totalReviewRows', { businessId });
+  const reviewCountRows = widgetOrFallback(reviewCountSettled, [] as ReviewCountRow[], 'reviewCountRows', { businessId });
   const totalRespondedRows = widgetOrFallback(totalRespondedSettled, [] as { count: number }[], 'totalRespondedRows', { businessId });
-  const velocityRows = widgetOrFallback(velocitySettled, [] as { week_start: unknown; count: unknown }[], 'velocityRows', { businessId });
+  const velocityRows = widgetOrFallback(weeklySeriesSettled, [] as WeeklySeriesRow[], 'velocityRows', { businessId });
   const rankingRows = widgetOrFallback(rankingSettled, [] as DashboardRankingRow[], 'rankingRows', { businessId });
   const recentReviewRows = widgetOrFallback(recentReviewSettled, [] as Record<string, unknown>[], 'recentReviewRows', { businessId });
   const monthlyBriefRows = widgetOrFallback(monthlyBriefSettled, [] as DashboardBriefRow[], 'monthlyBriefRows', { businessId });
@@ -380,13 +421,17 @@ async function buildActiveDashboardData(
   const zernioConnectionRows = widgetOrFallback(zernioConnectionSettled, [] as DashboardZernioConnectionRow[], 'zernioConnectionRows', { businessId });
   const queuedReconnectRows = widgetOrFallback(queuedReconnectSettled, [] as { count: number }[], 'queuedReconnectRows', { businessId });
   const unresolvedIncidentRows = widgetOrFallback(unresolvedIncidentSettled, [] as { count: number }[], 'unresolvedIncidentRows', { businessId });
-  const ratingBreakdownRows = widgetOrFallback(ratingBreakdownSettled, [] as { stars: number; count: number }[], 'ratingBreakdownRows', { businessId });
   const pendingRaw = widgetOrFallback(pendingSettled, null, 'pendingRaw', { businessId });
   // Reputation degrades as ONE widget: fetchReputationRows batches its five
   // queries internally, so any failure inside nulls the whole summary.
   const reputationRows = widgetOrFallback(reputationSettled, null, 'reputationRows', { businessId });
 
-  const totalReviews = totalReviewRows[0]?.count ?? 0;
+  // One scan feeds both: the all-time total sums EVERY group (unrated reviews
+  // included), the breakdown keeps only the rated groups' windowed counts.
+  const totalReviews = reviewCountRows.reduce((sum, row) => sum + Number(row.total_count ?? 0), 0);
+  const ratingBreakdownRows = reviewCountRows
+    .filter((row) => row.stars != null)
+    .map((row) => ({ stars: Number(row.stars), count: Number(row.count ?? 0) }));
   const totalResponded = totalRespondedRows[0]?.count ?? 0;
 
   const reputationSummary = reputationRows
@@ -423,22 +468,29 @@ function daysSince(date: Date): number {
 
 /**
  * Windowed reputation metrics: current vs prior `windowDays`-day buckets via
- * FILTER (single round-trip per metric), plus the `trendWeeks`-week sentiment
- * trend and the authoritative pending-approval count. Response-rate history uses
- * `approved_at <= prior window end` so late approvals don't retro-inflate the
- * prior period (PLAN.md A.2). All scoped by business_id. Intervals are
- * PARAMETERIZED (issue #403): `windowDays` / `priorEndDays` (= 2×windowDays) /
- * `trendWeeks` reach SQL only as bound integers via make_interval(...).
+ * FILTER (single round-trip per metric), plus the authoritative
+ * pending-approval count. The `trendWeeks`-week sentiment trend is NOT queried
+ * here: it is the `avg_score` column of the weekly series the main wave already
+ * fetched (same reviews, same anchor, same weeks), passed in as `weeklySeries`.
+ * Response-rate history uses `approved_at <= prior window end` so late
+ * approvals don't retro-inflate the prior period (PLAN.md A.2). All scoped by
+ * business_id. Intervals are PARAMETERIZED (issue #403): `windowDays` /
+ * `priorEndDays` (= 2×windowDays) reach SQL only as bound integers via
+ * make_interval(...).
  *
  * Avg star and the sentiment trend bucket on the Review-time anchor (ADR 0019,
  * #757); response rate stays on detected_at (workflow KPI) and timeSaved keys
- * on approved_at (action timestamp) — neither may be re-anchored.
+ * on approved_at (action timestamp) — neither may be re-anchored. Rate and
+ * star are deliberately separate statements even though both scan `reviews`:
+ * service.review-time-anchor.test.ts pins that the rate query never spells the
+ * anchor and the star query never spells a bare detected_at, a per-statement
+ * guarantee a merged statement cannot give.
  */
 async function fetchReputationRows(
   sql: Sql,
   businessId: string,
   windowDays: number,
-  trendWeeks: number,
+  weeklySeries: readonly WeeklySeriesRow[],
 ): Promise<{
   rate: RateWindowRow;
   star: StarWindowRow;
@@ -447,11 +499,10 @@ async function fetchReputationRows(
   pendingApprovalCount: number;
 }> {
   const priorEndDays = windowDays * 2;
-  const trendSpanWeeks = trendWeeks - 1;
   // SEQUENTIAL, one query in flight at a time — do NOT re-introduce a Promise.all
-  // here (#505). This is a 5-query fan-out on the SHARED `sql` client, whose pool
+  // here (#505). This is a 4-query fan-out on the SHARED `sql` client, whose pool
   // is `DB_POOL_MAX` = 3 on Vercel (src/lib/db/server.ts) — /api/dashboard/route.ts
-  // passes that singleton, not the larger `sqlRead`. Fan-out (5) > pool (3) makes
+  // passes that singleton, not the larger `sqlRead`. Fan-out (4) > pool (3) makes
   // postgres.js pipeline the excess queries onto already-open connections over the
   // Supabase Supavisor TRANSACTION pooler; a pipelined query's response parks
   // server-side in state=active / wait_event=ClientRead and is never read — a
@@ -540,27 +591,11 @@ async function fetchReputationRows(
           AND resp.approved_at IS NOT NULL
           AND resp.approved_at >= NOW() - make_interval(days => ${priorEndDays})
   `;
-  const trendRows = await sql<SentimentTrendRow[]>`
-        SELECT gs::date AS week_start,
-               agg.avg_score::float AS avg_score,
-               COALESCE(agg.cnt, 0)::int AS cnt
-        FROM generate_series(
-          DATE_TRUNC('week', NOW() - make_interval(weeks => ${trendSpanWeeks})),
-          DATE_TRUNC('week', NOW()),
-          INTERVAL '1 week'
-        ) gs
-        LEFT JOIN (
-          SELECT DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})::date AS wk,
-                 AVG(sentiment_score) AS avg_score,
-                 COUNT(*) AS cnt
-          FROM reviews
-          WHERE business_id = ${businessId}
-            AND status <> ${REVIEW_STATUS.DELETED}
-            AND ${reviewTimeAnchor(sql, '')} >= NOW() - make_interval(weeks => ${trendWeeks})
-          GROUP BY DATE_TRUNC('week', ${reviewTimeAnchor(sql, '')})
-        ) agg ON agg.wk = gs::date
-        ORDER BY week_start ASC
-  `;
+  const trendRows: SentimentTrendRow[] = weeklySeries.map((row) => ({
+    week_start: row.week_start,
+    avg_score: row.avg_score,
+    cnt: row.count,
+  }));
   const pendingApprovalCount = await getPendingApprovalCount(sql, businessId);
 
   return {
