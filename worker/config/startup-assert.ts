@@ -116,12 +116,15 @@ export function assertCoreInfraEnv(): void {
 }
 
 /**
- * Boot-time guard for workers whose correctness depends on serialized job
- * execution. UpdateStripeOverageWorker's operation-scoped Stripe idempotency
- * keys (overage-sync.ts) assume no two overage jobs run concurrently — its
- * registration must carry concurrency: 1. Called at the registration site in
- * worker/index.ts with the EFFECTIVE Worker options (worker.opts), so an edit
- * of the options object fails the boot instead of silently double-running jobs.
+ * Boot-time guard for workers registered as a single-consumer lane.
+ * UpdateStripeOverageWorker's operation-scoped Stripe idempotency keys
+ * (overage-sync.ts) assume no two overage jobs for one account run
+ * concurrently. The replica-safe guarantee is the per-account
+ * `pg_advisory_xact_lock` inside the handler's transaction; concurrency: 1 is
+ * defense in depth and a Stripe rate bound, and its registration must keep it.
+ * Called at the registration site in worker/index.ts with the EFFECTIVE Worker
+ * options (worker.opts), so an edit of the options object fails the boot
+ * instead of silently widening the lane.
  */
 export function assertSingleConcurrencyWorker(
   queueName: string,
