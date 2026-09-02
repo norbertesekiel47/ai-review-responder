@@ -39,6 +39,21 @@ export interface RefusalLogEntry {
   subjectType: RefusalSubjectType | null;
   subjectId: string | null;
   /**
+   * The REVIEW this row's subject belongs to, or null.
+   *
+   * IT IS NOT `subjectId`, AND THAT DISTINCTION IS THE WHOLE POINT. A
+   * response-subject row stores a `responses.id` (`persist.ts:758,885`), and the
+   * only review route is `/dashboard/reviews/[reviewId]/timeline` — so linking
+   * `subjectId` on a `reviews/` path is wrong twice over: wrong segment and
+   * wrong identifier. The first cut did exactly that, and three promised tests
+   * asserted the broken href rather than a reachable destination.
+   *
+   * Non-null ALSO means the subject resolves, which is why it replaced the
+   * `subject_resolves` boolean rather than joining it: one field answers both
+   * questions and cannot disagree with itself.
+   */
+  reviewId: string | null;
+  /**
    * WHERE THIS ROW MAY LINK, resolved SERVER-SIDE. Invariant I14.
    *
    * It exists because link authority is per-LANE and the category does not
@@ -71,8 +86,17 @@ export type RefusalLogScope =
   | { kind: 'location'; accountId: string; businessId: string };
 
 export interface RefusalLog {
+  /**
+   * The TRUE count in the window, from its own `COUNT(*)` — never
+   * `entries.length`.
+   *
+   * The two differ whenever the window holds more than `ENTRY_LIMIT` rows, and
+   * the headline number must stay true when they do. Deriving it from the
+   * capped array would make the tab under-report exactly when it has most to
+   * report, which is the false-zero class one step short of zero.
+   */
   total: number;
-  /** Newest first. */
+  /** Newest first, capped at `ENTRY_LIMIT`. */
   entries: RefusalLogEntry[];
   /** ISO 8601 lower bound actually queried, CLAMPED to `coverageStart` (E13). */
   windowStart: string;
@@ -84,17 +108,52 @@ export interface RefusalLog {
   archivedLocations: ArchivedLocationSummary | null;
   /** Location scope only; [] in an account scope. */
   archivedPeriods: ArchivedPeriod[];
+  /**
+   * `total > entries.length` — the window holds more than this read returned.
+   *
+   * Carried as a FACT rather than left for the component to recompute, so the
+   * sentence an owner reads and the query that produced it cannot drift apart.
+   */
+  truncated: boolean;
 }
+
+/**
+ * How many entries one read returns.
+ *
+ * NEITHER ARM WAS BOUNDED BEFORE, and `total` was `entries.length`. One
+ * `solicitation` batch build can propose `MAX_DATA_ROWS` (5,000) `ask_withheld`
+ * Refusals in a single transaction (`contacts-csv.ts`, used at
+ * `batch-builder.ts:499`), retention is 180 days and the widest window is 90 —
+ * so an owner could be served every one of them, over a connection pool that is
+ * shared across tenants (`src/lib/db/admission.ts`). The nearest precedent caps
+ * and counts separately (`src/lib/escalations/list.ts:78`, `LIMIT 20`).
+ *
+ * 200 is chosen to be far above a normal window and far below a pathological
+ * one; the tab states plainly when it truncates rather than silently showing a
+ * prefix.
+ */
+export const ENTRY_LIMIT = 200;
 
 interface EntryRow {
   id: string;
-  /** Server-side ONLY — it decides `linkKind` and never reaches the wire. */
+  /**
+   * Server-side ONLY — it decides `linkKind` and is never a DTO field.
+   *
+   * "Never reaches the wire" would overstate it, and a branch review said so:
+   * CHECK C1 makes `subject_type` one-to-one with the lane for four of the seven
+   * sources, and `linkKind: 'review'` pins a fifth, so a determined reader can
+   * INFER the lane from fields that are shipped. That is not an ADR 0023 breach
+   * — the ADR names `all_refusal_codes` and moderation prose, neither of which
+   * is inferable — but the absence of the column is not the same as the absence
+   * of the information, and this comment should not claim it is.
+   */
   refusal_source: RefusalSource;
   refusal_category: RefusalCategory;
   subject_type: RefusalSubjectType | null;
   subject_id: string | null;
   occurred_at: Date;
-  subject_resolves: boolean;
+  /** `responses.review_id`, or null when the subject does not resolve. */
+  subject_review_id: string | null;
 }
 
 interface CoverageRow {
@@ -110,16 +169,24 @@ interface CoverageRow {
  * rule would give it a held draft's link to a draft the owner was never asked
  * to review.
  *
- * The two category-keyed links carry no subject and are safe to key that way.
+ * The two category-keyed links are safe to key that way for a different reason
+ * than the first draft of this comment claimed. It said they "carry no
+ * subject", which is false — `autonomy_paused` also arrives from
+ * `auto_post_revoked` and `batch_halted`, and `no_permission` from
+ * `ask_withheld` and `outreach_withheld`, all of which DO carry subjects. What
+ * makes them safe is that their destinations are FIXED pages, identical for
+ * every lane that maps to the category, so no lane can be sent somewhere
+ * another lane's owner should not go.
+ *
  * Everything else links nowhere: the ticket names exactly three links, and
  * `owner_review_required` is not one of them.
  */
 function resolveLinkKind(
   source: RefusalSource,
   category: RefusalCategory,
-  subjectResolves: boolean,
+  reviewId: string | null,
 ): RefusalLogEntry['linkKind'] {
-  if (source === 'held_draft') return subjectResolves ? 'review' : null;
+  if (source === 'held_draft') return reviewId === null ? null : 'review';
   if (category === 'autonomy_paused') return 'auto-approval';
   if (category === 'no_permission') return 'contacts';
   return null;
@@ -192,7 +259,8 @@ function toEntry(row: EntryRow): RefusalLogEntry {
     occurredAt: row.occurred_at.toISOString(),
     subjectType: row.subject_type,
     subjectId: row.subject_id,
-    linkKind: resolveLinkKind(row.refusal_source, row.refusal_category, row.subject_resolves),
+    reviewId: row.subject_review_id,
+    linkKind: resolveLinkKind(row.refusal_source, row.refusal_category, row.subject_review_id),
   };
 }
 
@@ -268,12 +336,12 @@ export async function getRefusalLog(
     ? await sql<EntryRow[]>`
         SELECT r.id, r.refusal_source, r.refusal_category, r.subject_type,
                r.subject_id, r.occurred_at,
-               EXISTS (
-                 SELECT 1 FROM responses resp
+               (
+                 SELECT resp.review_id::text FROM responses resp
                  WHERE r.subject_type = 'response'
                    AND resp.id = r.subject_id
                    AND resp.business_id = r.business_id
-               ) AS subject_resolves
+               ) AS subject_review_id
         FROM refusal_events r
         WHERE r.account_id = ${scope.accountId}
           AND (r.business_id = ${scope.businessId} OR r.business_id IS NULL)
@@ -286,6 +354,7 @@ export async function getRefusalLog(
               AND b.archived_at IS NULL
           )
         ORDER BY r.occurred_at DESC, r.id DESC
+        LIMIT ${ENTRY_LIMIT}
       `
     // The account arm excludes an ARCHIVED location's rows while KEEPING the
     // account-wide ones (`business_id IS NULL`, the `autonomy_suspended` lane).
@@ -299,12 +368,12 @@ export async function getRefusalLog(
     : await sql<EntryRow[]>`
         SELECT r.id, r.refusal_source, r.refusal_category, r.subject_type,
                r.subject_id, r.occurred_at,
-               EXISTS (
-                 SELECT 1 FROM responses resp
+               (
+                 SELECT resp.review_id::text FROM responses resp
                  WHERE r.subject_type = 'response'
                    AND resp.id = r.subject_id
                    AND resp.business_id = r.business_id
-               ) AS subject_resolves
+               ) AS subject_review_id
         FROM refusal_events r
         WHERE r.account_id = ${scope.accountId}
           AND r.occurred_at >= ${windowStart}
@@ -319,6 +388,7 @@ export async function getRefusalLog(
             )
           )
         ORDER BY r.occurred_at DESC, r.id DESC
+        LIMIT ${ENTRY_LIMIT}
       `;
 
   // The footnote. ACCOUNT SCOPE ONLY — a location view shows one ACTIVE
@@ -362,10 +432,53 @@ export async function getRefusalLog(
       )
     : [];
 
+  // The TRUE total, counted rather than derived. `entries` is capped at
+  // `ENTRY_LIMIT`, so `entries.length` under-reports exactly when the window has
+  // most to report. Two statements instead of a window function: the entry query
+  // is the one that must stay sargable against
+  // `idx_refusal_events_account_window`, and a `COUNT(*) OVER ()` would make it
+  // carry the whole window's work to return 200 rows.
+  //
+  // Both arms re-spell their tenant keys literally, for the same reason the
+  // entry arms do — `ci:tenant-scope` reads QUERY BLOCKS.
+  const [totalRow] = scope.kind === 'location'
+    ? await sql<{ total: number }[]>`
+        SELECT COUNT(*)::int AS total
+        FROM refusal_events r
+        WHERE r.account_id = ${scope.accountId}
+          AND (r.business_id = ${scope.businessId} OR r.business_id IS NULL)
+          AND r.occurred_at >= ${windowStart}
+          AND r.occurred_at <= ${windowEnd}
+          AND EXISTS (
+            SELECT 1 FROM businesses b
+            WHERE b.id = ${scope.businessId}
+              AND b.account_id = ${scope.accountId}
+              AND b.archived_at IS NULL
+          )
+      `
+    : await sql<{ total: number }[]>`
+        SELECT COUNT(*)::int AS total
+        FROM refusal_events r
+        WHERE r.account_id = ${scope.accountId}
+          AND r.occurred_at >= ${windowStart}
+          AND r.occurred_at <= ${windowEnd}
+          AND (
+            r.business_id IS NULL
+            OR EXISTS (
+              SELECT 1 FROM businesses b
+              WHERE b.id = r.business_id
+                AND b.account_id = ${scope.accountId}
+                AND b.archived_at IS NULL
+            )
+          )
+      `;
+
   const entries = rows.map(toEntry);
 
+  const total = totalRow?.total ?? entries.length;
+
   return {
-    total: entries.length,
+    total,
     entries,
     windowStart: windowStart.toISOString(),
     windowEnd: windowEnd.toISOString(),
@@ -381,5 +494,6 @@ export async function getRefusalLog(
         }
       : null,
     archivedPeriods,
+    truncated: total > entries.length,
   };
 }

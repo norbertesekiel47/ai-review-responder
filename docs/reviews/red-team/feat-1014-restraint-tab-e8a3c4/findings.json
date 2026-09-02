@@ -1,0 +1,712 @@
+{
+  "schema": 1,
+  "mode": "feature",
+  "run_id": "feature-feat-1014-restraint-tab-e8a3c4",
+  "branch": "feat/1014-restraint-tab",
+  "fork_sha": "b55b07822ef92f6c85047e6f42b5513ea8427257",
+  "merge_base_sha": "b55b07822ef92f6c85047e6f42b5513ea8427257",
+  "head_sha": "3716d2530251b2ab6f48d1a53023e4bc82393b76",
+  "intake_sha256": "bdda96281dd7b49171f0f662540c20172c166cb402dc23066c0964c98a37c6d8",
+  "risk": "high",
+  "round": 1,
+  "generated_at": "2026-09-01T23:55:12Z",
+  "inventory": [
+    {
+      "id": "M1",
+      "test": "distinguishes a non-null unresolved subject from a lane with no subject",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "resolveLinkKind's lane key (`source === 'held_draft'`) rewritten to a category key (`category === 'unsafe_content'`). The one covering test passed, and so did all 23 cases in the suite.",
+      "finding_id": "F1"
+    },
+    {
+      "id": "M2",
+      "test": "returns a single account-total row for a suspension and never multiplies it across locations",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "account arm's archived-location EXISTS replaced by `JOIN businesses ON b.account_id = r.account_id` \u2014 the parent effort's fan-out shape. Test failed."
+    },
+    {
+      "id": "M3",
+      "test": "never selects all_refusal_codes",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "`all_refusal_codes` + `refusal_code` added to both entry SELECTs, to `EntryRow` and to the DTO via `toEntry`. Test failed on the exact key-set assertion and the serialized-wire sentinels."
+    },
+    {
+      "id": "M4",
+      "test": "excludes Refusals after windowEnd from entries and the archived-location footnote",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "account entry arm lost `AND r.occurred_at <= ${windowEnd}`. Test failed."
+    },
+    {
+      "id": "M4b",
+      "test": "scopes a location read to account_id and (business_id = $2 OR business_id IS NULL)",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "LOCATION entry arm lost `AND r.occurred_at <= ${windowEnd}` (read.ts:281). The covering test passed, and so did all 23 cases.",
+      "finding_id": "F2"
+    },
+    {
+      "id": "M4c",
+      "test": "excludes Refusals after windowEnd from entries and the archived-location footnote",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "account entry arm lost its LOWER bound `AND r.occurred_at >= ${windowStart}` (read.ts:310). The window test passed, and so did all 23 cases.",
+      "finding_id": "F3"
+    },
+    {
+      "id": "M5",
+      "test": "excludes Refusals after windowEnd from entries and the archived-location footnote",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "the archived-location footnote query lost `AND r.occurred_at <= ${windowEnd}`. Test failed on the footnote half of the assertion."
+    },
+    {
+      "id": "M6",
+      "test": "returns windowStart clamped to accounts.created_at when the account was created inside the selected window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "the Coverage-start clamp replaced by `const windowStart = selectedStart;`. Test failed."
+    },
+    {
+      "id": "M7a",
+      "test": "shows the error card on a first-load failure instead of an endless skeleton",
+      "file": "src/components/dashboard/shell/__tests__/DashboardStatePanel.test.tsx",
+      "outcome": "killed",
+      "reason": "`&& state.hasData` restored onto `showError` (the pre-fix predicate). Test failed."
+    },
+    {
+      "id": "M7b",
+      "test": "RestraintContent renders the restraint error card when the initial query fails without cached data",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "killed",
+      "reason": "same `showError` reversion. Test failed \u2014 the fix is proven at both the panel and the consumer."
+    },
+    {
+      "id": "M8",
+      "test": "reports no footnote at all in a location scope",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "the account-only guard on the footnote widened to run in a location scope too. Test failed."
+    },
+    {
+      "id": "M10",
+      "test": "ignores a reactivation with no preceding archive",
+      "file": "src/lib/refusals/__tests__/read.test.ts",
+      "outcome": "killed",
+      "reason": "`if (openedAt === null) continue;` changed to open a period at the unmatched reactivation. Test failed."
+    },
+    {
+      "id": "M11",
+      "test": "leaves a still-archived period open",
+      "file": "src/lib/refusals/__tests__/read.test.ts",
+      "outcome": "killed",
+      "reason": "the trailing-open-period push deleted. Test failed."
+    },
+    {
+      "id": "M12",
+      "test": "GET /api/dashboard/refusals exercises the impersonation path without mocking requireRole",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "killed",
+      "reason": "the case forced back onto the mocked gate (`useRequireRoleMock.value = true` + a `mockRequireRole` resolution). Test failed \u2014 SC-3 is genuinely closed and the case is not vacuous."
+    },
+    {
+      "id": "M15",
+      "test": "returns no rows for a location that is archived",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "the location arm's own archived-location EXISTS guard deleted. Test failed \u2014 invariant #9 is enforced by the read, not only by its route caller."
+    },
+    {
+      "id": "M16",
+      "test": "orders newest first within each category",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "killed",
+      "reason": "both `ORDER BY r.occurred_at DESC, r.id DESC` flipped to ASC. Test failed."
+    },
+    {
+      "id": "M17",
+      "test": "distinguishes a non-null unresolved subject from a lane with no subject",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "survived-confirmed-P0",
+      "reason": "`AND resp.business_id = r.business_id` removed from BOTH `subject_resolves` subqueries (read.ts:275, :306). The covering test passed, and so did all 23 cases.",
+      "finding_id": "F4"
+    },
+    {
+      "id": "M22",
+      "test": "RestraintContent renders the shared dashboard state panel while loading",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "inconclusive",
+      "reason": "`scope={currentScope === 'all' ? 'account' : 'location'}` inverted. Survived the named test and all six in the file \u2014 but the mutated expression is NEVER EVALUATED: every one of the six cases returns at `if (panel) return panel`, so no test reaches the success render. An unexecuted branch, not a proven-fake oracle.",
+      "inconclusive_class": "oracle",
+      "finding_id": "F5"
+    },
+    {
+      "id": "M23",
+      "test": "RestraintReport renders the policy-gate disclosure line while auto-approval is disabled",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "inconclusive",
+      "reason": "`coverageLine`'s null arm changed from `return null` to a rendered sentence. Survived the named test and all 17 in the file \u2014 but no fixture sets `coverageStart: null`, so the mutated branch is never taken. Unexecuted, not proven-fake.",
+      "inconclusive_class": "oracle",
+      "finding_id": "F6"
+    },
+    {
+      "id": "M24",
+      "test": "RestraintReport.test.tsx \u2014 file-level run of all 17 cases",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "inconclusive",
+      "reason": "three singular count arms mutated together (`'1 archived location'`->`'1 archived locations'`, `'thing'`->`'things'`, `'time'`->`'times'`). All 17 passed. The archived-location arm is unexecuted (the only locationCount:1 fixture has refusalCount:0 and returns null first), so the bundled mutant cannot isolate one oracle claim \u2014 the two arms that ARE executed and unasserted are reported as F9 instead.",
+      "inconclusive_class": "oracle",
+      "finding_id": "F9"
+    },
+    {
+      "id": "DIRB-page",
+      "test": "no covering test exists",
+      "file": "src/app/(authenticated)/dashboard/analytics/restraint/page.tsx",
+      "outcome": "inconclusive",
+      "reason": "Direction B: a new production hunk (the routed page that mounts RestraintContent and imports the route-colocated stylesheet) with no identified covering candidate in any Vitest project and no e2e spec.",
+      "inconclusive_class": "oracle",
+      "finding_id": "F8"
+    },
+    {
+      "id": "DIRB-css",
+      "test": "not behaviourally testable",
+      "file": "src/app/(authenticated)/dashboard/analytics/restraint/restraint.css",
+      "outcome": "excluded",
+      "reason": "A stylesheet: no Vitest oracle can observe a rule change. Reviewed statically instead \u2014 see F11."
+    },
+    {
+      "id": "INT-1",
+      "test": "renders the stored refusal_category and never re-derives it from refusal_code",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-4",
+      "test": "scopes an account read to account_id alone",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-6",
+      "test": "isolates one account's refusals from another account's in the same window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-7",
+      "test": "isolates one location's refusals from a sibling location's in the same account",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-8",
+      "test": "returns one row per location view for a single account-wide suspension",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-11",
+      "test": "returns an empty log without error when refusal_events holds no rows",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-12",
+      "test": "excludes rows belonging to an archived location from the account total",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-13",
+      "test": "excludes rows belonging to an archived location from a location total",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-15",
+      "test": "counts archived-location refusals in the account footnote for the same window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-16",
+      "test": "reports a zero archived-location footnote count when no archived location has refusals in the window",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-18",
+      "test": "returns archived periods that intersect the window and omits periods that do not",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-19",
+      "test": "reads archived periods from account_audit_log and never re-derives a refusal from it",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-20",
+      "test": "clamps the account coverage start to accounts.created_at",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "INT-21",
+      "test": "clamps a location coverage start to businesses.created_at",
+      "file": "src/lib/refusals/__tests__/read.integration.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "PURE-1",
+      "test": "pairs an archive with its reactivation",
+      "file": "src/lib/refusals/__tests__/read.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "PURE-4",
+      "test": "drops a period that closed before the window opened",
+      "file": "src/lib/refusals/__tests__/read.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-1",
+      "test": "GET /api/dashboard/refusals returns the window and the log for an account scope",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-2",
+      "test": "GET /api/dashboard/refusals returns the window and the log for a location scope",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-3",
+      "test": "GET /api/dashboard/refusals rejects a request for a location outside the caller's account",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-5",
+      "test": "GET /api/dashboard/refusals omits all_refusal_codes from the body at any depth",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-6",
+      "test": "GET /api/dashboard/refusals omits all_refusal_codes and moderation prose from the error arm",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-7",
+      "test": "GET /api/dashboard/refusals omits all_refusal_codes and moderation prose from its logs",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-8",
+      "test": "GET /api/dashboard/refusals reports autoApprovalEnabled as a payload boolean",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "ROUTE-9",
+      "test": "GET /api/dashboard/refusals serves an owner whose subscription is past_due",
+      "file": "src/app/api/dashboard/__tests__/refusals-route.test.ts",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RC-1",
+      "test": "RestraintContent fetches through useQuery and hand-rolls no keying, staleness or abort",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RC-3",
+      "test": "RestraintContent renders the shared dashboard state panel on error",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RC-4",
+      "test": "RestraintContent keeps the Analytics tab bar visible while loading",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RC-5",
+      "test": "RestraintContent keeps the Analytics tab bar visible on error",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-1",
+      "test": "RestraintReport groups rows under one owner sentence per category across categories with several rows each",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-2",
+      "test": "RestraintReport orders rows newest first within a category given an unsorted input",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-3",
+      "test": "RestraintReport links a held draft to its review",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-4",
+      "test": "RestraintReport links an autonomy_paused row to the auto-approval settings",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-5",
+      "test": "RestraintReport links a no_permission row to the contacts list",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-6",
+      "test": "RestraintReport renders no link for a category that carries none",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-7",
+      "test": "RestraintReport keeps the row and drops only the link when the subject no longer resolves",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-8",
+      "test": "RestraintReport does not link a policy_gate_held response that shares held_draft's unsafe_content category",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-9",
+      "test": "RestraintReport shows no draft text, review text or moderation reason for a held draft",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-10",
+      "test": "RestraintReport renders the window-scoped empty sentence and makes no claim about all time",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-11",
+      "test": "RestraintReport makes no claim about all time in a populated window",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-13",
+      "test": "RestraintReport omits the policy-gate disclosure line while auto-approval is enabled",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-14",
+      "test": "RestraintReport renders the archived-location footnote with no link and no instruction",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-15",
+      "test": "RestraintReport omits the archived-location footnote when the count is zero",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-16",
+      "test": "RestraintReport renders one archived-period line per intersecting period in a location view",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "RR-17",
+      "test": "RestraintReport states which number it shows when an account-wide suspension is in the window",
+      "file": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "TABS-1",
+      "test": "AnalyticsTabs marks the active route with aria-current and uses no tab role",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsTabs.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "DSP-1",
+      "test": "renderDashboardStatePanel renders the restraint surface with its before-content slot",
+      "file": "src/components/dashboard/shell/__tests__/DashboardStatePanel.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "DSP-3",
+      "test": "keeps showing the skeleton while a request is in flight, even with a stale error",
+      "file": "src/components/dashboard/shell/__tests__/DashboardStatePanel.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-1",
+      "test": "leads the per-location grid with the reputation KPI strip, then the three charts",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-2",
+      "test": "renders the windowed rating breakdown from the aggregate field, paired with the sample sentiment mix",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-3",
+      "test": "renders velocity without a ranking card when ranking is null",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-4",
+      "test": "renders the aggregate variants with a KPI strip and no per-location trend",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-5",
+      "test": "explains the All-Locations response-rate denominator includes imported history",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-6",
+      "test": "renders the windowed rating breakdown in aggregate scope",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-7",
+      "test": "shows a loading state",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-8",
+      "test": "shows an error state",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-9",
+      "test": "shows an empty state when a young account has no chartable data",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    },
+    {
+      "id": "AC-10",
+      "test": "renders a graceful unavailable state for a non-active subscription",
+      "file": "src/components/dashboard/analytics/__tests__/AnalyticsContent.test.tsx",
+      "outcome": "skipped-budget",
+      "reason": "in-scope candidate not executed: the 30-run per-round budget was spent on the ten named claims and the highest-value read-path predicates. Baseline-green at HEAD (73/73 across both projects) but no mutation was applied to it."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "resolveLinkKind's per-LANE link authority \u2014 the tab's whole defence against a policy-gate row wearing a held draft's review link \u2014 is asserted by no test",
+      "at": "src/lib/refusals/read.ts:122",
+      "reason": "Rewriting the lane key to a category key (`source === 'held_draft'` -> `category === 'unsafe_content'`) leaves all 23 live-DB cases green. Only ONE integration case asserts `linkKind` at all, and its three fixtures cannot separate the two rules: its `held_draft` rows all carry `unsafe_content`, and its only non-`held_draft` subject-bearing fixture is unresolvable, so both rules return null. The promised collision test (intake title 47) lives on RestraintReport, which is handed a `linkKind` and cannot detect a wrong one \u2014 RestraintReport.tsx:63-65 says so itself. Add a live-DB case seeding a `policy_gate_held` row with category `unsafe_content` and a RESOLVING response subject, asserting `linkKind` is null beside a `held_draft` row that resolves to 'review'.",
+      "arbiter_reasoning": "Not equivalent: for a `policy_gate_held` row with category `unsafe_content` and a resolving `responses` subject, the original returns null and the mutant returns 'review' \u2014 exactly the wrong-link collision migration 116's CHECK C1 makes representable (both lanes take subject_type 'response'). Not an unexecuted branch: line 122 is evaluated for every entry the read returns, in every one of the 23 cases."
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "the LOCATION entry arm's upper window bound is asserted by no test",
+      "at": "src/lib/refusals/read.ts:281",
+      "reason": "Deleting `AND r.occurred_at <= ${windowEnd}` from the location arm leaves all 23 cases green. The promised bound test (intake title 19) exercises the ACCOUNT arm and the footnote only. read.ts:233-235 states the bound exists because `occurred_at` is writer-supplied and a clock-skewed row must not appear after the range the tab prints \u2014 that is true of a location view too. Extend title 19, or add its location-scope twin.",
+      "arbiter_reasoning": "Not equivalent: a location-scope read of a row dated after `windowEnd` is included by the mutant and excluded by the original; the suite proves the same predicate matters on the account arm. Not unexecuted: the location arm runs in eight cases, including the two that pin its scope predicate."
+    },
+    {
+      "id": "F3",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "the account entry arm's LOWER window bound is asserted by no test \u2014 nothing proves the selected window filters at its opening edge",
+      "at": "src/lib/refusals/read.ts:310",
+      "reason": "Deleting `AND r.occurred_at >= ${windowStart}` from the account arm leaves all 23 cases green. Every seeded Refusal is minutes old while `windowStart` is at most 90 days back, so no fixture can distinguish a bounded window from an unbounded one. This is the predicate that makes '30d' mean 30 days, and the same clamp E13 exists to move. Seed a row older than `windowStart` (e.g. `NOW() - interval '45 days'`) in a 30d read and assert it is absent.",
+      "arbiter_reasoning": "Not equivalent: without the predicate an account read returns the entire retained ledger regardless of the selected window, and the summary sentence would then name a range it did not query. Not unexecuted: the account arm's WHERE clause runs in roughly twenty of the 23 cases."
+    },
+    {
+      "id": "F4",
+      "severity": "P0",
+      "duty": 1,
+      "disposition": "open",
+      "title": "the `subject_resolves` business correlation \u2014 read.ts's stated cross-location guard \u2014 is asserted by no test",
+      "at": "src/lib/refusals/read.ts:275",
+      "reason": "Removing `AND resp.business_id = r.business_id` from BOTH subqueries leaves all 23 cases green. read.ts:253-256 sells that clause as 'stronger than a bare id match either way: a response belonging to another location cannot resolve', and it is what stops a `held_draft` row linking to a sibling location's review. Every fixture seeds the response under the Refusal's own business, so the correlation is never exercised. Seed a `held_draft` Refusal on location A whose `subject_id` is a response owned by sibling location B and assert `linkKind` is null.",
+      "arbiter_reasoning": "Not equivalent: with a cross-location subject the original yields subject_resolves false (linkKind null) and the mutant yields true (a 'review' link into another location's review). Not unexecuted: the correlated EXISTS is evaluated for every returned row in all 23 cases; only the discriminating DATA is missing."
+    },
+    {
+      "id": "F5",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "RestraintContent's success path is rendered by no test, so the `scope` prop that picks which owner-facing sentence appears is unwired-untested",
+      "at": "src/components/dashboard/restraint/RestraintContent.tsx:62",
+      "reason": "All six RestraintContent cases return at `if (panel) return panel` \u2014 one reads the source as text, the other five stub a pending or failing fetch. Inverting the `scope` ternary changes nothing, because the JSX is never constructed. The prop decides between 'This is your whole account\u2026' and 'This is one location\u2026' \u2014 the D3 disclosure CONTEXT.md requires \u2014 and RestraintReport.tsx:23-28 explicitly refuses to derive it, on the grounds that passing it is safer. Nothing proves it is passed correctly. Add one case with a resolving fetch that asserts the report renders and that a non-'all' scope produces the location sentence."
+    },
+    {
+      "id": "F6",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "the null-`coverageStart` branch is rendered by no test, though three documents call it load-bearing",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:121",
+      "reason": "No fixture in the 17-case suite sets `coverageStart: null`, so replacing `return null` with a rendered sentence stays green. `businesses.created_at` really is nullable \u2014 confirmed against the live schema, not just migration 001 \u2014 and CONTEXT.md's Coverage start bullet, read.ts:372-375 and coverageLine's own comment all state that the tab must OMIT the line rather than name a date it does not have. The read's matching behaviour (a null coverage start also leaves `windowStart` unclamped) is equally unasserted. Add a `{ coverageStart: null }` override asserting no 'We have been watching since' text, and a live-DB case with `businesses.created_at = NULL`."
+    },
+    {
+      "id": "F7",
+      "severity": "P1",
+      "duty": 2,
+      "disposition": "open",
+      "title": "the ADR 0023 redaction assertion on the component is an absence-of-substring proxy that cannot fail for the reason it claims",
+      "at": "src/components/dashboard/restraint/__tests__/RestraintReport.test.tsx:245",
+      "reason": "`expect(container.textContent).not.toMatch(/reason|draft|moderat/i)` stands in for 'shows no draft text, review text or moderation reason'. It cannot catch a real leak \u2014 the DTO carries no prose field, so there is nothing for the component to render \u2014 while it CAN redden on an innocuous copy change: any future category sentence or link label containing 'draft' or 'reason' fails it. That is the absence-of-tag proxy shape (passes while the bug exists, fails on the fix). Replace it with a positive closure: assert the row's rendered text set is exactly {formatted date} plus the optional link label, so any added field fails whatever it is spelled."
+    },
+    {
+      "id": "F8",
+      "severity": "P1",
+      "duty": 1,
+      "disposition": "open",
+      "title": "the routed Restraint page has no covering test in any project",
+      "at": "src/app/(authenticated)/dashboard/analytics/restraint/page.tsx:13",
+      "reason": "Direction B: `page.tsx` is a new production file with no Vitest importer and no e2e spec, so nothing proves the route exists, mounts `RestraintContent`, or pulls in `restraint.css` \u2014 while `AnalyticsTabs` now links to it from three surfaces (AnalyticsContent's state panel, AnalyticsAggregateView, AnalyticsPerLocationView) and would produce a 404 if the page were lost. It is the thinnest possible hunk (a `force-dynamic` export and a two-line component), so accept-risk is a defensible adjudication \u2014 but the rule records an uncovered production hunk as P1, and this is one."
+    },
+    {
+      "id": "F9",
+      "severity": "P2",
+      "duty": 2,
+      "disposition": "open",
+      "title": "the singular arms of three owner-facing count phrases are rendered by existing fixtures and asserted by nothing",
+      "at": "src/components/dashboard/restraint/RestraintReport.tsx:285",
+      "reason": "Mutating `'thing'`->`'things'`, `'time'`->`'times'` and `'1 archived location'`->`'1 archived locations'` together leaves all 17 cases green, so '1 things we chose not to do' and '1 times' would ship. Two of the three arms are actually EXECUTED by the single-entry link fixtures \u2014 they are rendered and simply not asserted. On a surface whose own header says 'THIS COMPONENT OWNS EVERY OWNER-FACING SENTENCE' and whose comment calls the words the contract, the plural forms are pinned and the singular forms are not. Recorded, not blocking: no behaviour beyond copy is at risk."
+    },
+    {
+      "id": "F10",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "docs/directory.md\u2019s new `read.ts` row overstates trap (d): two of the three link kinds ARE keyed on the Refusal category",
+      "at": "docs/directory.md:892",
+      "reason": "The row says 'link authority is the server-resolved `linkKind`, never the **Refusal category**'. read.ts:123-124 keys `auto-approval` on `category === 'autonomy_paused'` and `contacts` on `category === 'no_permission'`; only the review link is lane-keyed. read.ts:113-115 states the distinction correctly ('The two category-keyed links carry no subject and are safe to key that way'). The directory row's trailing clause carries the real reason, so a reader who finishes the sentence is not misled \u2014 which is why this is recorded rather than raised as a false claim. Narrow it to 'the REVIEW link is never keyed on the Refusal category'. Every other citation in the change resolves: flags.ts:3, vocabulary.ts:30-33, DashboardStatePanel.tsx:61 at the fork, console.css's section-enter-6 ceiling, DESIGN.md \u00a7 Tabs (line 530), migration 116's C1/C3, ReviewsTabs, CardViewTabs.tsx:15, BatchReport.tsx:218, VAL-LOC-044 (13 hits, 8 files), and both nullability claims verified against the live schema."
+    },
+    {
+      "id": "F11",
+      "severity": "P2",
+      "duty": 4,
+      "disposition": "open",
+      "title": "restraint.css ships three rule sets for elements no component renders",
+      "at": "src/app/(authenticated)/dashboard/analytics/restraint/restraint.css:112",
+      "reason": "`.rst-group-link` (:112, :120, and a reduced-motion rule at :179), `.rst-row-ago` (:157) and `.rst-error-body` (:184) match nothing: a repo-wide grep over .ts/.tsx finds no emitter. `.rst-error-body` in particular is the fingerprint of a local error card the ticket deliberately replaced with the shared state panel, so this is an incomplete cleanup rather than forward-looking CSS. Sibling search recorded: every other `rst-` class the component emits IS styled (`.rst-summary` and `.rst-group` intentionally carry no rules of their own \u2014 they compose with `.card`)."
+    },
+    {
+      "id": "F12",
+      "severity": "P2",
+      "duty": 3,
+      "disposition": "open",
+      "title": "five new production files were added with no docs/directory.md row, and CI cannot see it",
+      "at": "docs/directory.md:454",
+      "reason": "`ci:directory-map` passes (586 files) because it only enforces `worker/` and `src/lib/`, and `src/lib/refusals/read.ts` correctly got its row. But the map also maintains per-file rows for `src/components/` (including `dashboard/AgentTeamStrip.tsx`, this ticket's own cited precedent) and for route-colocated app files (including `dashboard/requests/requests.css`). RestraintContent.tsx, RestraintReport.tsx, AnalyticsTabs.tsx, the restraint `page.tsx` and `restraint.css` have none. Non-blocking \u2014 the CLAUDE.md rule scopes the requirement to the two enforced roots \u2014 but the code map other agents read is now incomplete for this feature."
+    }
+  ],
+  "authorizations": [],
+  "counts": {
+    "inventory_total": 79,
+    "killed": 13,
+    "survived_confirmed_p0": 4,
+    "equivalent": 0,
+    "inconclusive": 4,
+    "skipped_budget": 57,
+    "excluded": 1,
+    "findings_total": 12,
+    "p0_open": 4,
+    "p1_open": 4,
+    "p2_open": 4,
+    "accepted_risk": 0,
+    "fixed": 0,
+    "rejected": 0
+  },
+  "status": "OPEN_P0"
+}

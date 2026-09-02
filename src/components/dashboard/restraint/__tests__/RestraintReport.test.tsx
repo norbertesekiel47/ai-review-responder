@@ -58,6 +58,7 @@ vi.mock('next/link', () => ({
 import { RestraintReport, type RestraintPayload } from '@/components/dashboard/restraint/RestraintReport';
 
 const RESPONSE_ID = 'a1111111-1111-1111-1111-111111111111';
+const REVIEW_ID = 'c3333333-3333-3333-3333-333333333333';
 const WINDOW_START = '2026-08-02T00:00:00.000Z';
 const WINDOW_END = '2026-09-01T00:00:00.000Z';
 
@@ -73,6 +74,7 @@ function entry(seed: EntrySeed): RefusalLogEntry {
     occurredAt: seed.occurredAt ?? '2026-08-20T10:00:00.000Z',
     subjectType: seed.subjectType ?? null,
     subjectId: seed.subjectId ?? null,
+    reviewId: seed.reviewId ?? null,
     // NEVER defaulted from the category. Authority is per-LANE and the category
     // does not carry the lane — a fixture that inferred it here would make the
     // policy-gate case unwritable.
@@ -93,8 +95,11 @@ function logWith(
     coverageStart: '2026-05-04T00:00:00.000Z',
     archivedLocations: null,
     archivedPeriods: [],
+    truncated: false,
     window: '30d',
+    scope: 'account',
     autoApprovalEnabled: true,
+    ledgerRecording: true,
     ...overrides,
   };
 }
@@ -103,8 +108,10 @@ function renderReport(
   log: RestraintPayload,
   scope: 'account' | 'location' = 'account',
 ) {
+  // `scope` rides the PAYLOAD — the server decides it (S2). The parameter is
+  // kept for readability at the call sites.
   return render(
-    <RestraintReport log={log} scope={scope} tabs={null} periodToolbar={null} />,
+    <RestraintReport log={{ ...log, scope }} tabs={null} periodToolbar={null} />,
   );
 }
 
@@ -138,7 +145,7 @@ describe('RestraintReport', () => {
     ]));
 
     const dates = screen.getAllByTestId('refusal-date').map((node) => node.textContent);
-    expect(dates).toEqual(['30 Aug 2026', '28 Aug 2026', '26 Aug 2026']);
+    expect(dates).toEqual(['Aug 30, 2026', 'Aug 28, 2026', 'Aug 26, 2026']);
   });
 
   // ── The three links, and the two ways a row carries none ───────────────
@@ -148,25 +155,28 @@ describe('RestraintReport', () => {
       category: 'unsafe_content',
       subjectType: 'response',
       subjectId: RESPONSE_ID,
+      reviewId: REVIEW_ID,
       linkKind: 'review',
     }]));
 
-    expect(screen.getByRole('link', { name: 'See the review' }))
-      .toHaveAttribute('href', `/dashboard/reviews/${RESPONSE_ID}`);
+    // The REVIEW id on the route that exists — not the response id on one that
+    // does not. Both halves of this href were wrong in the first cut.
+    expect(screen.getByRole('link', { name: /See the review/ }))
+      .toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
   });
 
   it('RestraintReport links an autonomy_paused row to the auto-approval settings', () => {
     renderReport(logWith([{ category: 'autonomy_paused', linkKind: 'auto-approval' }]));
 
-    expect(screen.getByRole('link', { name: 'Automatic posting settings' }))
+    expect(screen.getByRole('link', { name: /Automatic posting settings/ }))
       .toHaveAttribute('href', '/settings/auto-approval');
   });
 
   it('RestraintReport links a no_permission row to the contacts list', () => {
     renderReport(logWith([{ category: 'no_permission', linkKind: 'contacts' }]));
 
-    expect(screen.getByRole('link', { name: 'See your contacts' }))
-      .toHaveAttribute('href', '/dashboard/contacts');
+    expect(screen.getByRole('link', { name: /See your contacts/ }))
+      .toHaveAttribute('href', '/dashboard/requests/contacts');
   });
 
   it('RestraintReport renders no link for a category that carries none', () => {
@@ -194,7 +204,7 @@ describe('RestraintReport', () => {
     }]));
 
     expect(screen.queryAllByRole('link')).toHaveLength(0);
-    expect(screen.getByTestId('refusal-date')).toHaveTextContent('30 Aug 2026');
+    expect(screen.getByTestId('refusal-date')).toHaveTextContent('Aug 30, 2026');
     expect(screen.getByText('We held a reply back because it was not safe to send.')).toBeInTheDocument();
   });
 
@@ -205,6 +215,7 @@ describe('RestraintReport', () => {
         category: 'unsafe_content',
         subjectType: 'response',
         subjectId: RESPONSE_ID,
+        reviewId: REVIEW_ID,
         linkKind: 'review',
         occurredAt: '2026-08-30T10:00:00.000Z',
       },
@@ -223,7 +234,7 @@ describe('RestraintReport', () => {
 
     const links = screen.getAllByRole('link');
     expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute('href', `/dashboard/reviews/${RESPONSE_ID}`);
+    expect(links[0]).toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
     // Both rows are shown; only one of them links.
     expect(screen.getAllByTestId('refusal-date')).toHaveLength(2);
   });
@@ -235,15 +246,30 @@ describe('RestraintReport', () => {
       category: 'unsafe_content',
       subjectType: 'response',
       subjectId: RESPONSE_ID,
+      reviewId: REVIEW_ID,
       // REQUIRED. The component reads authority from `linkKind`, never from the
       // category — a fixture that omits it renders no link and the assertion
       // below fails for the wrong reason.
       linkKind: 'review',
     }]));
 
-    // The DTO carries no prose to leak, and the component invents none.
-    expect(container.textContent).not.toMatch(/reason|draft|moderat/i);
-    expect(screen.getByRole('link')).toHaveAttribute('href', `/dashboard/reviews/${RESPONSE_ID}`);
+    // SENTINELS, not English words. The first cut banned /reason|draft|moderat/i,
+    // which could never catch a leak — the DTO has no prose field to leak — but
+    // could redden on an innocent copy change. These strings are the shapes an
+    // actual leak would carry.
+    const leaked = [
+      'hate speech directed at a named staff member',
+      'moderation_high_severity',
+      'all_refusal_codes',
+      'refusalCode',
+      'refusalSource',
+      'held_draft',
+    ];
+    for (const sentinel of leaked) {
+      expect(container.textContent, `rendered ${sentinel}`).not.toContain(sentinel);
+    }
+    expect(screen.getByRole('link', { name: /See the review/ }))
+      .toHaveAttribute('href', `/dashboard/reviews/${REVIEW_ID}/timeline`);
   });
 
   // ── What the window does and does not claim ────────────────────────────
@@ -252,7 +278,7 @@ describe('RestraintReport', () => {
     const { container } = renderReport(logWith([]));
 
     expect(screen.getByText(
-      'We did not hold anything back between 2 Aug 2026 and 1 Sept 2026.',
+      'We did not hold anything back between Aug 2, 2026 and Sep 1, 2026.',
     )).toBeInTheDocument();
     // The parked sentence is retired PERMANENTLY (#1000): #1002's pre-ledger
     // tail and #996's 180-day floor leave holes the ledger never closes.
@@ -273,7 +299,7 @@ describe('RestraintReport', () => {
 
     // The count is bounded by the same two dates the empty sentence names, so a
     // populated window is no more absolute than an empty one.
-    expect(container.textContent).toContain('between 2 Aug 2026 and 1 Sept 2026');
+    expect(container.textContent).toContain('between Aug 2, 2026 and Sep 1, 2026');
     expect(container.textContent).not.toMatch(/all time|in total|ever held|since you joined/i);
   });
 
@@ -288,7 +314,7 @@ describe('RestraintReport', () => {
     expect(screen.getByText(/only recorded once automatic posting is switched on/))
       .toBeInTheDocument();
     // And the Coverage start it qualifies is on the page beside it.
-    expect(screen.getByText('We have been watching since 4 May 2026.')).toBeInTheDocument();
+    expect(screen.getByText('We have been watching since May 4, 2026.')).toBeInTheDocument();
   });
 
   it('RestraintReport omits the policy-gate disclosure line while auto-approval is enabled', () => {
@@ -299,7 +325,7 @@ describe('RestraintReport', () => {
     expect(container.textContent).not.toContain('only recorded once automatic posting is switched on');
     // Non-vacuous: the other disclosure lines still render, so the assertion is
     // about this line and not about the block being absent.
-    expect(screen.getByText('We have been watching since 4 May 2026.')).toBeInTheDocument();
+    expect(screen.getByText('We have been watching since May 4, 2026.')).toBeInTheDocument();
   });
 
   // ── Archived locations and archived periods ────────────────────────────
@@ -331,7 +357,7 @@ describe('RestraintReport', () => {
   });
 
   it('RestraintReport renders one archived-period line per intersecting period in a location view', () => {
-    renderReport(
+    const { container } = renderReport(
       logWith([{ category: 'unsafe_content' }], {
         archivedLocations: null,
         archivedPeriods: [
@@ -345,8 +371,74 @@ describe('RestraintReport', () => {
 
     // Without these a reactivated location reads flat-then-spike under a
     // Coverage start claiming we watched throughout.
-    expect(screen.getByText(/archived from 5 Aug 2026 to 12 Aug 2026/)).toBeInTheDocument();
-    expect(screen.getByText(/archived from 25 Aug 2026 to now/)).toBeInTheDocument();
+    expect(screen.getByText(/archived from Aug 5, 2026 to Aug 12, 2026/)).toBeInTheDocument();
+    // An OPEN period must not claim a reactivation that has not happened.
+    expect(screen.getByText(/has been archived since Aug 25, 2026/)).toBeInTheDocument();
+    expect(container.textContent).not.toContain('caught up when it came back. This location has been');
+  });
+
+  it('omits the coverage line entirely when the ledger has no start date for this view', () => {
+    const { container } = renderReport(
+      logWith([{ category: 'unsafe_content' }], { coverageStart: null }),
+    );
+
+    // `businesses.created_at` is nullable (migration 001). Three separate docs
+    // call this branch load-bearing and no fixture exercised it. The tab OMITS
+    // the line rather than naming a date it does not have.
+    expect(container.textContent).not.toContain('We have been watching since');
+    // Non-vacuous: the other disclosures still render.
+    expect(container.textContent).toContain('This is your whole account');
+  });
+
+  it('says how many rows it is showing when the window holds more than the read returned', () => {
+    renderReport(logWith([{ category: 'unsafe_content' }], { total: 431, truncated: true }));
+
+    // The COUNT stays true and the LIST is what shortened, so the sentence says
+    // exactly that rather than implying the total was capped too.
+    expect(screen.getByText('Showing the 1 most recent of 431. The count above is the full window.'))
+      .toBeInTheDocument();
+    expect(screen.getByText('431')).toBeInTheDocument();
+  });
+
+  it('omits the truncation line when the window fits', () => {
+    const { container } = renderReport(logWith([{ category: 'unsafe_content' }]));
+    expect(container.textContent).not.toContain('Showing the');
+  });
+
+  it('says recording is paused when the ledger kill switch is off', () => {
+    renderReport(logWith([], { ledgerRecording: false }));
+
+    // Without this the tab prints a confident empty window while nothing is
+    // being written — a false zero produced by an operator action.
+    expect(screen.getByText(/Recording is paused for your account right now/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/It is not a record that nothing happened/))
+      .toBeInTheDocument();
+  });
+
+  it('omits the recording-paused line while the ledger is recording', () => {
+    const { container } = renderReport(logWith([], { ledgerRecording: true }));
+    expect(container.textContent).not.toContain('Recording is paused');
+  });
+
+  it('uses singular phrasing for a single Refusal', () => {
+    renderReport(logWith([{ category: 'unsafe_content' }]));
+    expect(screen.getByText(/thing we chose not to do/)).toBeInTheDocument();
+    expect(screen.getByText('1 time')).toBeInTheDocument();
+  });
+
+  it('gives each repeated row link an accessible name that names its own row', () => {
+    renderReport(logWith([
+      { category: 'no_permission', linkKind: 'contacts', occurredAt: '2026-08-25T10:00:00.000Z' },
+      { category: 'no_permission', linkKind: 'contacts', occurredAt: '2026-08-24T10:00:00.000Z' },
+    ]));
+
+    // The visible label repeats down the group; the ACCESSIBLE name must not, or
+    // a screen-reader user hears the same phrase twice with nothing to tell the
+    // rows apart.
+    const names = screen.getAllByRole('link').map((el) => el.getAttribute('aria-label'));
+    expect(new Set(names).size).toBe(2);
+    expect(names).toContain('See your contacts — Aug 25, 2026');
   });
 
   // ── Which number this view shows (D3) ──────────────────────────────────
@@ -365,7 +457,10 @@ describe('RestraintReport', () => {
     // every location once each and once in the account total — so the tab says
     // which one this is rather than pretending they reconcile (D3).
     expect(screen.getByText(
-      'This is one location. Pauses that affect every location are counted here and at each of your other locations.',
+      'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.',
     )).toBeInTheDocument();
+    // NOT "at each of your other locations" — a single-location account has
+    // none, and the copy would describe a fleet the owner does not have.
+    expect(screen.queryByText(/at each of your other locations/)).toBeNull();
   });
 });

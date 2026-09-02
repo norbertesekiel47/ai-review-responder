@@ -50,6 +50,7 @@ const PAYLOAD = {
     occurredAt: '2026-08-20T10:00:00.000Z',
     subjectType: 'response',
     subjectId: 'a1111111-1111-1111-1111-111111111111',
+    reviewId: 'c3333333-3333-3333-3333-333333333333',
     linkKind: 'review',
   }],
   windowStart: '2026-08-02T00:00:00.000Z',
@@ -57,8 +58,11 @@ const PAYLOAD = {
   coverageStart: '2026-05-04T00:00:00.000Z',
   archivedLocations: { refusalCount: 0, locationCount: 0 },
   archivedPeriods: [],
+  truncated: false,
   window: '30d',
+  scope: 'account',
   autoApprovalEnabled: true,
+  ledgerRecording: true,
 };
 
 /**
@@ -98,6 +102,30 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('RestraintPage', () => {
+  it('mounts the orchestrator and nothing else', async () => {
+    // The thinnest hunk on the branch had no covering test in any project. It is
+    // one line of behaviour, but it is the line that decides whether the route
+    // renders at all.
+    const { default: RestraintPage, dynamic } = await import(
+      '@/app/(authenticated)/dashboard/analytics/restraint/page'
+    );
+
+    // `force-dynamic` because the payload is per-owner and per-window; a cached
+    // render would serve one owner's restraint record to another.
+    expect(dynamic).toBe('force-dynamic');
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    vi.stubGlobal('fetch', jsonFetch(PAYLOAD));
+    render(
+      <QueryClientProvider client={client}>
+        <RestraintPage />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('What we held back')).toBeInTheDocument();
+  });
+});
+
 describe('RestraintContent', () => {
   it('RestraintContent fetches through useQuery and hand-rolls no keying, staleness or abort', () => {
     const source = readFileSync(
@@ -107,13 +135,17 @@ describe('RestraintContent', () => {
 
     // Structural, not a line count: the claim is that the hand-rolled machinery
     // is GONE, and a line count would pass while it hid in a helper.
+    // The CLAIM is that the hand-rolled machinery is gone, so the pins are the
+    // three constructs that would implement it. The first cut also pinned the
+    // exact query-key string and the exact `({ signal })` spelling, which
+    // couples this test to incidental formatting rather than to the claim — a
+    // rename of the key or a destructure on the next line would redden it while
+    // the component still fetched through useQuery.
     expect(source).toContain('useQuery');
-    expect(source).toContain("queryKey: ['dashboard-refusals'");
+    expect(source).toMatch(/queryKey:\s*\['dashboard-refusals'/);
     expect(source).not.toContain('useEffect');
     expect(source).not.toContain('AbortController');
     expect(source).not.toContain('useRef');
-    // The abort signal comes FROM the query, so the component never makes one.
-    expect(source).toContain('({ signal })');
   });
 
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
@@ -151,6 +183,41 @@ describe('RestraintContent', () => {
 
     expect(await screen.findByRole('navigation', { name: 'Analytics views' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Restraint' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('renders the report on the success path with the scope the server sent', async () => {
+    renderContent();
+
+    // EVERY other case in this file returns at the state panel, so the success
+    // branch — and the payload `scope` that picks the D3 sentence — was never
+    // rendered at all. A mutation there survived the whole suite.
+    expect(await screen.findByText('What we held back')).toBeInTheDocument();
+    expect(screen.getByText(
+      'This is your whole account. Pauses that affect every location are counted once here.',
+    )).toBeInTheDocument();
+  });
+
+  it('takes scope from the payload, not from its own location context', async () => {
+    // `useLocationScope` is mocked to 'all' at the top of this file, so a
+    // component that answered this question from client state would say
+    // "your whole account". The server said 'location'.
+    vi.stubGlobal('fetch', jsonFetch({ ...PAYLOAD, scope: 'location' }));
+    renderContent();
+
+    expect(await screen.findByText(
+      'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.',
+    )).toBeInTheDocument();
+  });
+
+  it('rejects a payload that is missing a required field rather than rendering a partial record', async () => {
+    const { ledgerRecording: _dropped, ...incomplete } = PAYLOAD;
+    vi.stubGlobal('fetch', jsonFetch(incomplete));
+    renderContent();
+
+    // The guards must actually REJECT — this is what makes them guards rather
+    // than decoration, and it is the assertion the boolean-returning versions
+    // could not support.
+    expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
   });
 
   it('RestraintContent renders the restraint error card when the initial query fails without cached data', async () => {

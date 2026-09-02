@@ -15,18 +15,15 @@ import type {
 /** What `GET /api/dashboard/refusals` returns: the log plus the two route fields. */
 export interface RestraintPayload extends RefusalLog {
   window: string;
+  /** The SERVER's scope decision. Never re-derived by the browser (S2). */
+  scope: 'account' | 'location';
   autoApprovalEnabled: boolean;
+  /** `REFUSAL_LEDGER_ENABLED`. False means the ledger is not recording. */
+  ledgerRecording: boolean;
 }
 
 interface Props {
   log: RestraintPayload;
-  /**
-   * Which view this is. Passed rather than derived: `scopeLine` needs it, and
-   * the alternative — inferring it from `archivedLocations !== null` — couples
-   * the sentence an owner reads to the nullability of a footnote field, so a
-   * later change to the read would flip the claim silently.
-   */
-  scope: 'account' | 'location';
   /** The routed Analytics tab bar. */
   tabs: ReactNode;
   /** The window selector. */
@@ -87,11 +84,18 @@ const CATEGORY_HEADING: Record<RefusalCategory, string> = {
   owner_review_required: 'Sent to you for review',
 };
 
-const LINK_LABEL = {
+/**
+ * Every destination is a route that EXISTS. The first cut shipped two that did
+ * not: `/dashboard/contacts` (the page is `/dashboard/requests/contacts`) and
+ * `/dashboard/reviews/<id>` (the only review page is `.../[reviewId]/timeline`).
+ * Three promised tests asserted those hrefs, so the eval encoded the bug rather
+ * than catching it — the tests now assert a destination the router can reach.
+ */
+const LINK_LABEL: Record<NonNullable<RefusalLogEntry['linkKind']>, string> = {
   review: 'See the review',
   'auto-approval': 'Automatic posting settings',
   contacts: 'See your contacts',
-} as const;
+};
 
 /**
  * `linkKind` → href. Presentation only; the authority decision already happened
@@ -102,11 +106,13 @@ const LINK_LABEL = {
 function hrefFor(entry: RefusalLogEntry): string | null {
   switch (entry.linkKind) {
     case 'review':
-      return entry.subjectId ? `/dashboard/reviews/${encodeURIComponent(entry.subjectId)}` : null;
+      // `reviewId`, NOT `subjectId` — the subject is a `responses.id` and this
+      // path takes a review id. The server resolves one from the other.
+      return entry.reviewId ? `/dashboard/reviews/${encodeURIComponent(entry.reviewId)}/timeline` : null;
     case 'auto-approval':
       return '/settings/auto-approval';
     case 'contacts':
-      return '/dashboard/contacts';
+      return '/dashboard/requests/contacts';
     case null:
       return null;
   }
@@ -133,6 +139,32 @@ function coverageLine(log: RestraintPayload): string | null {
  * account-created coverage for a lane that has never been able to write, which
  * `CONTEXT.md` forbids.
  */
+/**
+ * The ledger is not recording at all.
+ *
+ * `REFUSAL_LEDGER_ENABLED` is a default-ON kill switch checked inside the insert
+ * helpers, and the registry entry for it states the problem this line solves:
+ * "an absent row and a decision that never happened look identical at read
+ * time". Without this the tab prints a confident empty window while nothing is
+ * being written — a false zero produced by an operator action, on the one
+ * surface whose value is being accurate about what we did not do.
+ */
+function ledgerLine(ledgerRecording: boolean): string | null {
+  if (ledgerRecording) return null;
+  return 'Recording is paused for your account right now, so this window may be incomplete. It is not a record that nothing happened.';
+}
+
+/**
+ * The window holds more than one read returns (`ENTRY_LIMIT`).
+ *
+ * The COUNT is still true — only the list is shortened — so the sentence says
+ * exactly that rather than implying the total is capped too.
+ */
+function truncationLine(log: RestraintPayload): string | null {
+  if (!log.truncated) return null;
+  return `Showing the ${log.entries.length} most recent of ${log.total}. The count above is the full window.`;
+}
+
 function policyGateLine(autoApprovalEnabled: boolean): string | null {
   if (autoApprovalEnabled) return null;
   return 'One kind of decision — a reply an automatic policy check holds — is only recorded once automatic posting is switched on. It is off for your account today.';
@@ -173,8 +205,14 @@ function archivedFootnote(summary: ArchivedLocationSummary | null): string | nul
  * down, at the PERIOD rather than the lane.
  */
 function archivedPeriodLine(period: ArchivedPeriod): string {
-  const end = period.reactivatedAt ? formatDate(period.reactivatedAt) : 'now';
-  return `This location was archived from ${formatDate(period.archivedAt)} to ${end}. We watched nothing while it was archived, and caught up when it came back.`;
+  const start = formatDate(period.archivedAt);
+  // An OPEN period has not come back, so it must not be told it did. The first
+  // cut used one sentence for both and claimed a reactivation that never
+  // happened for a location that is archived right now.
+  if (period.reactivatedAt === null) {
+    return `This location has been archived since ${start}. We have watched nothing for it since then.`;
+  }
+  return `This location was archived from ${start} to ${formatDate(period.reactivatedAt)}. We watched nothing while it was archived, and caught up when it came back.`;
 }
 
 /**
@@ -190,7 +228,9 @@ function archivedPeriodLine(period: ArchivedPeriod): string {
 function scopeLine(kind: 'account' | 'location'): string {
   return kind === 'account'
     ? 'This is your whole account. Pauses that affect every location are counted once here.'
-    : 'This is one location. Pauses that affect every location are counted here and at each of your other locations.';
+    // NOT "at each of your other locations" — a single-location account has
+    // none, and the tab would be describing a fleet the owner does not have.
+    : 'This is one location. A pause that affects the whole account is counted here, and again under every other location you have.';
 }
 
 // ── Grouping ────────────────────────────────────────────────────────────────
@@ -229,11 +269,17 @@ function groupByCategory(entries: RefusalLogEntry[]): CategoryGroup[] {
  *
  * UTC because the stamp is a server instant and a viewer's zone must not slide a
  * Refusal onto a different day. The LOCALE is pinned rather than left to the
- * machine: an unpinned formatter renders "30 Aug 2026" on one developer's box
- * and "Aug 30, 2026" on another, which makes an assertion on the rendered text
- * pass or fail by environment.
+ * machine: an unpinned formatter renders one string on one developer's box and
+ * another elsewhere, which makes an assertion on rendered text pass or fail by
+ * environment.
+ *
+ * `en-US` because that is what the Console already does at 18 sites. The first
+ * cut pinned `en-GB` and cited `BatchReport.tsx` as precedent — that file
+ * actually passes `undefined`, so the citation was wrong and the result was the
+ * same window reading "2 Aug 2026" here and "Aug 2" on the Metrics tab one click
+ * away.
  */
-const DAY_FORMAT = new Intl.DateTimeFormat('en-GB', {
+const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: 'short',
   day: 'numeric',
@@ -252,18 +298,31 @@ function enterStagger(index: number): string {
 
 // ── The component ───────────────────────────────────────────────────────────
 
-export function RestraintReport({ log, scope, tabs, periodToolbar }: Props) {
+export function RestraintReport({ log, tabs, periodToolbar }: Props) {
   const groups = groupByCategory(log.entries);
-  const coverage = coverageLine(log);
-  const policyGate = policyGateLine(log.autoApprovalEnabled);
-  const footnote = archivedFootnote(log.archivedLocations);
+  // Ordered deliberately: which number this is, then everything that qualifies
+  // it. `ledger` leads the qualifiers because a paused ledger undercuts every
+  // line below it.
+  const notes = [
+    scopeLine(log.scope),
+    ledgerLine(log.ledgerRecording),
+    truncationLine(log),
+    coverageLine(log),
+    policyGateLine(log.autoApprovalEnabled),
+    archivedFootnote(log.archivedLocations),
+    ...log.archivedPeriods.map(archivedPeriodLine),
+  ].filter((line): line is string => line !== null);
 
   return (
     <>
       <TopBar title="Analytics">{periodToolbar}</TopBar>
       <div className="content content--analytics">
         {tabs}
-        <LiveRegion message="Restraint record ready." />
+        <LiveRegion
+          message={log.total === 0
+            ? 'Nothing was held back in this window.'
+            : `${log.total} ${log.total === 1 ? 'thing' : 'things'} held back in this window.`}
+        />
         <div className="rst-stack">
           <section
             className="card rst-summary section-enter section-enter-1"
@@ -287,20 +346,20 @@ export function RestraintReport({ log, scope, tabs, periodToolbar }: Props) {
                   </span>
                 </p>
                 <p className="rst-summary-sub">
-                  Grouped by what stopped us, newest first. None of it was sent.
+                  Grouped by what stopped us, newest first.
                 </p>
               </>
             )}
 
-            <p className="rst-note rst-note-scope">{scopeLine(scope)}</p>
-            {coverage && <p className="rst-note">{coverage}</p>}
-            {policyGate && <p className="rst-note">{policyGate}</p>}
-            {footnote && <p className="rst-note rst-note-footnote">{footnote}</p>}
-            {log.archivedPeriods.map((period) => (
-              <p className="rst-note" key={`${period.archivedAt}-${period.reactivatedAt ?? 'open'}`}>
-                {archivedPeriodLine(period)}
-              </p>
-            ))}
+            {/* A WRAPPER, not `:first-of-type` on the notes themselves. The
+                first `<p>` in this card is always the summary line, so
+                `.rst-note:first-of-type` matched nothing and the divider that
+                separates the count from its qualifiers never rendered at all. */}
+            <div className="rst-notes">
+              {notes.map((line) => (
+                <p className="rst-note" key={line}>{line}</p>
+              ))}
+            </div>
           </section>
 
           {groups.map((group, index) => (
@@ -349,9 +408,16 @@ function EntryRow({ entry }: { entry: RefusalLogEntry }) {
       <time className="rst-row-when" dateTime={entry.occurredAt} data-testid="refusal-date">
         {formatDate(entry.occurredAt)}
       </time>
-      {href !== null && (
-        <Link className="rst-row-link" href={href}>
-          {LINK_LABEL[entry.linkKind as keyof typeof LINK_LABEL]}
+      {href !== null && entry.linkKind !== null && (
+        // The visible label repeats down a group; the ACCESSIBLE name must not,
+        // or a screen-reader user hears "See your contacts" five times with no
+        // way to tell the rows apart. The date is what distinguishes them.
+        <Link
+          className="rst-row-link"
+          href={href}
+          aria-label={`${LINK_LABEL[entry.linkKind]} — ${formatDate(entry.occurredAt)}`}
+        >
+          {LINK_LABEL[entry.linkKind]}
         </Link>
       )}
     </li>

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { autoApprovalRuntimeEnabled } from '@/lib/auto-approval/flags';
 import { jsonResponse } from '@/lib/auth/route-helpers';
+import { readFlagEnabledByDefault } from '@/lib/config/flags';
 import { sql } from '@/lib/db/server';
 import { getRefusalLog } from '@/lib/refusals/read';
+import { REFUSAL_LEDGER_FLAG } from '@/lib/refusals/write';
 import {
   resolveDashboardLocation,
   resolveDashboardRequest,
@@ -21,11 +23,26 @@ import {
  * INVARIANT #12 — orchestrate only. No source query, no category mapping, no
  * filtering: those belong to `@/lib/refusals/read`.
  *
- * INVARIANT #13 — `autoApprovalEnabled` is read HERE and shipped as a payload
- * boolean. The browser learns flag state from an API response and never from a
- * `NEXT_PUBLIC_*` companion. It is read here rather than inside `getRefusalLog`
- * so the read module stays flag-blind and table-testable — `resolveFunnelEntry`
- * establishes that precedent and this follows it.
+ * INVARIANT #13 — TWO server-read flags are shipped as payload booleans. The
+ * browser learns flag state from an API response and never from a
+ * `NEXT_PUBLIC_*` companion. Both are read here rather than inside
+ * `getRefusalLog` so the read module stays flag-blind and table-testable —
+ * `resolveFunnelEntry` establishes that precedent and this follows it.
+ *
+ * `ledgerRecording` EXISTS BECAUSE THE LEDGER CANNOT SHOW ITS OWN ABSENCE.
+ * `REFUSAL_LEDGER_ENABLED` is a default-ON kill switch checked inside the insert
+ * helpers, and its own registry entry states the consequence: "an absent row and
+ * a decision that never happened look identical at read time". With it off the
+ * tab would print "We did not hold anything back between X and Y" — a confident
+ * false zero on the one surface whose entire value is being accurate about what
+ * RepWorth did not do. The read stays flag-blind; the tab says so instead.
+ *
+ * `scope` is returned rather than inferred by the browser. The SERVER decides
+ * aggregate-vs-location (`resolveDashboardRequest`, itself gated on
+ * `MULTI_LOCATION_ENABLED`), so a client that re-derived it from its own
+ * location context could render "this is your whole account" over a
+ * single-location payload. The sibling on this route takes the server's word the
+ * same way (`AnalyticsContent` via `isAggregate(data)`).
  *
  * INVARIANT #15 — this file IS a composition root, which is why it may import
  * the `sql` singleton and hand it down.
@@ -51,10 +68,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // is `autoApprovalEnabled`, because that is what the browser is being told.
     // Do not assume the two names match — round 1 caught this exact import.
     const autoApproval = autoApprovalRuntimeEnabled();
+    const ledgerRecording = readFlagEnabledByDefault(REFUSAL_LEDGER_FLAG);
 
     if (scopePolicy.mode === 'aggregate') {
       const log = await getRefusalLog(sql, { kind: 'account', accountId }, window);
-      return jsonResponse({ window, autoApprovalEnabled: autoApproval, ...log });
+      return jsonResponse({
+        window,
+        scope: 'account' as const,
+        autoApprovalEnabled: autoApproval,
+        ledgerRecording,
+        ...log,
+      });
     }
 
     const location = await resolveDashboardLocation(sql, {
@@ -69,6 +93,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { kind: 'location', accountId, businessId: location.locationId },
       window,
     );
-    return jsonResponse({ window, autoApprovalEnabled: autoApproval, ...log });
+    return jsonResponse({
+      window,
+      scope: 'location' as const,
+      autoApprovalEnabled: autoApproval,
+      ledgerRecording,
+      ...log,
+    });
   });
 }

@@ -11,9 +11,20 @@ import {
 import { renderDashboardStatePanel } from '@/components/dashboard/shell/DashboardStatePanel';
 import { useLocationScope, type LocationScope } from '@/contexts/LocationContext';
 import { REFUSAL_CATEGORIES, type RefusalCategory } from '@/lib/refusals/vocabulary';
+import type {
+  ArchivedLocationSummary,
+  ArchivedPeriod,
+  RefusalLogEntry,
+} from '@/lib/refusals/read';
 import { type DashboardWindow, DEFAULT_DASHBOARD_WINDOW } from '@/lib/kpi/types';
 
-const FETCH_FAILED_MESSAGE = 'Unable to load your restraint record';
+/**
+ * DELIBERATELY NOT the state panel's `errorHeading`, which is the byte-identical
+ * "Unable to load your restraint record". When the two matched, a network
+ * failure rendered the same sentence twice — once as the card's h2 and once as
+ * its body — which reads as a rendering bug rather than an explanation.
+ */
+const FETCH_FAILED_MESSAGE = 'We could not reach your restraint record just now. Try again in a moment.';
 
 /**
  * `/dashboard/analytics/restraint` — the **Restraint tab**'s orchestrator.
@@ -54,12 +65,15 @@ export function RestraintContent() {
   );
   if (panel) return panel;
 
+  // `scope` comes from the PAYLOAD, not from `currentScope`. The server decides
+  // aggregate-vs-location (`resolveDashboardRequest`, itself gated on
+  // `MULTI_LOCATION_ENABLED`), so a client that answered that question from its
+  // own location context could render "this is your whole account" over a
+  // single-location payload. `AnalyticsContent` takes the server's word the same
+  // way, via `isAggregate(data)`.
   return (
     <RestraintReport
       log={query.data as RestraintPayload}
-      // 'all' IS the account view. Passed explicitly rather than derived from a
-      // nullable field of the payload — see `RestraintReport`'s `scope` prop.
-      scope={currentScope === 'all' ? 'account' : 'location'}
       tabs={tabs}
       periodToolbar={periodToolbar}
     />
@@ -104,10 +118,14 @@ const REFUSAL_CATEGORY_NAMES: ReadonlySet<string> = new Set(REFUSAL_CATEGORIES);
 /**
  * A TYPE GUARD, not a `boolean` (#1000 ST-8).
  *
- * The parked version returned `boolean`, so the two object guards that called it
+ * The parked version returned `boolean`, so the object guards that called it
  * narrowed nothing for that field — `category` stayed `unknown` and the
- * surrounding `value is RefusalEntry` cast was doing the work unaided. One token
- * fixes it, and the fix is what makes the cast honest.
+ * surrounding cast was doing the work unaided.
+ *
+ * FIXING ONLY THIS ONE WAS NOT ENOUGH, and a branch review caught it: the three
+ * composite guards below were written returning `boolean` too, so
+ * `.every(isRefusalEntry)` narrowed nothing and reintroduced the same defect one
+ * level down. Every guard in this file now states what it proves.
  */
 function isRefusalCategory(value: unknown): value is RefusalCategory {
   return typeof value === 'string' && REFUSAL_CATEGORY_NAMES.has(value);
@@ -121,23 +139,24 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
-function isRefusalEntry(value: unknown): boolean {
+function isRefusalEntry(value: unknown): value is RefusalLogEntry {
   return isObject(value)
     && typeof value.id === 'string'
     && isRefusalCategory(value.category)
     && typeof value.occurredAt === 'string'
     && isNullableString(value.subjectType)
     && isNullableString(value.subjectId)
+    && isNullableString(value.reviewId)
     && isLinkKind(value.linkKind);
 }
 
-function isArchivedPeriod(value: unknown): boolean {
+function isArchivedPeriod(value: unknown): value is ArchivedPeriod {
   return isObject(value)
     && typeof value.archivedAt === 'string'
     && isNullableString(value.reactivatedAt);
 }
 
-function isArchivedLocations(value: unknown): boolean {
+function isArchivedLocations(value: unknown): value is ArchivedLocationSummary | null {
   return value === null
     || (isObject(value)
       && typeof value.refusalCount === 'number'
@@ -155,6 +174,9 @@ function isRestraintPayload(value: unknown): value is RestraintPayload {
     && isArchivedLocations(value.archivedLocations)
     && Array.isArray(value.archivedPeriods)
     && value.archivedPeriods.every(isArchivedPeriod)
+    && typeof value.truncated === 'boolean'
     && typeof value.window === 'string'
-    && typeof value.autoApprovalEnabled === 'boolean';
+    && (value.scope === 'account' || value.scope === 'location')
+    && typeof value.autoApprovalEnabled === 'boolean'
+    && typeof value.ledgerRecording === 'boolean';
 }

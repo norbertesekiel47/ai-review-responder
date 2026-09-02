@@ -159,6 +159,7 @@ function refusalLogFixture(): RefusalLog {
         occurredAt: '2026-08-20T10:00:00.000Z',
         subjectType: 'response',
         subjectId: 'r0000000-0000-0000-0000-000000000001',
+        reviewId: 'v0000000-0000-0000-0000-000000000001',
         linkKind: 'review',
       },
       {
@@ -167,6 +168,7 @@ function refusalLogFixture(): RefusalLog {
         occurredAt: '2026-08-18T10:00:00.000Z',
         subjectType: null,
         subjectId: null,
+        reviewId: null,
         linkKind: 'auto-approval',
       },
     ],
@@ -175,6 +177,7 @@ function refusalLogFixture(): RefusalLog {
     coverageStart: '2026-05-01T00:00:00.000Z',
     archivedLocations: { refusalCount: 0, locationCount: 0 },
     archivedPeriods: [],
+    truncated: false,
   };
 }
 
@@ -307,7 +310,9 @@ describe('GET /api/dashboard/refusals', () => {
     );
     expect(await response.json()).toEqual({
       window: '30d',
+      scope: 'account',
       autoApprovalEnabled: expect.any(Boolean),
+      ledgerRecording: expect.any(Boolean),
       ...refusalLogFixture(),
     });
 
@@ -316,7 +321,18 @@ describe('GET /api/dashboard/refusals', () => {
     for (const forbidden of ['sql`', 'SELECT', 'JOIN', 'WHERE', '.map(', '.filter(', '.reduce(', '.sort(']) {
       expect(code, `route source contains ${forbidden}`).not.toContain(forbidden);
     }
-    expect(code.match(/@\/lib\/refusals\/\w+/g)).toEqual(['@/lib/refusals/read']);
+    // TWO modules, and the second is a CONSTANT not a behaviour. `read` is the
+    // route's only source of refusal DATA; `write` contributes the flag NAME
+    // (`REFUSAL_LEDGER_FLAG`) so this file does not re-spell a literal that six
+    // test files were consolidated to stop re-spelling. If a third appears, or
+    // if `write` ever contributes a FUNCTION here, the route has grown a second
+    // owner and this assertion should fail.
+    expect(code.match(/@\/lib\/refusals\/\w+/g)?.sort()).toEqual([
+      '@/lib/refusals/read',
+      '@/lib/refusals/write',
+    ]);
+    expect(code).toContain('REFUSAL_LEDGER_FLAG');
+    expect(code).not.toContain('writeRefusalEvent');
 
     process.env.MULTI_LOCATION_ENABLED = originalEnv;
   });
@@ -540,6 +556,42 @@ describe('GET /api/dashboard/refusals', () => {
     process.env.AUTO_APPROVAL_ENABLED = originalFlag;
   });
 
+  it('reports ledgerRecording so the tab cannot print a false zero while the ledger is off', async () => {
+    mockRequireRole.mockResolvedValue(ownerUser());
+    const original = process.env.REFUSAL_LEDGER_ENABLED;
+
+    // Default-ON: only the exact literal 'false' disables it.
+    delete process.env.REFUSAL_LEDGER_ENABLED;
+    expect((await (await GET(makeRequest())).json()).ledgerRecording).toBe(true);
+
+    process.env.REFUSAL_LEDGER_ENABLED = 'false';
+    const off = await (await GET(makeRequest())).json();
+    expect(off.ledgerRecording).toBe(false);
+    expect(typeof off.ledgerRecording).toBe('boolean');
+
+    // Read live per call, never cached at module construction — the same rule
+    // `ci:process-env` enforces on the write side.
+    process.env.REFUSAL_LEDGER_ENABLED = original;
+  });
+
+  it('returns the scope the SERVER decided, not one the browser can infer', async () => {
+    const originalEnv = process.env.MULTI_LOCATION_ENABLED;
+    process.env.MULTI_LOCATION_ENABLED = 'true';
+    mockRequireRole.mockResolvedValue(ownerUser());
+
+    const aggregate = await (await GET(
+      makeRequest('http://localhost:3000/api/dashboard/refusals?scope=all'),
+    )).json();
+    expect(aggregate.scope).toBe('account');
+
+    const scoped = await (await GET(
+      makeRequest(`http://localhost:3000/api/dashboard/refusals?scope=${LOCATION_ID}`),
+    )).json();
+    expect(scoped.scope).toBe('location');
+
+    process.env.MULTI_LOCATION_ENABLED = originalEnv;
+  });
+
   // ── Subscription guard (invariant #11) ──────────────────────────────
 
   it('GET /api/dashboard/refusals serves an owner whose subscription is past_due', async () => {
@@ -551,8 +603,15 @@ describe('GET /api/dashboard/refusals', () => {
     // route reaches auth through `withDashboardOwnerRead`, whose owner gate is
     // `requireOwnerWithAccount` — which deliberately does NOT check the
     // writable-subscription gate.
+    //
+    // The 200 alone was weak evidence, because nothing in this suite establishes
+    // a subscription state at all: the route never reads one, so a mocked owner
+    // is a past-due owner as far as this code path can tell. What carries the
+    // signal is that NO subscription statement is issued and no gate is named.
     expect(response.status).toBe(200);
     expect(mockGetRefusalLog).toHaveBeenCalledTimes(1);
+    // The route issued no query of its own — a subscription check would be one.
+    expect(sqlCallCount.value).toBe(0);
 
     // The structural half, because the risk is a later edit swapping the gate:
     // this route must name no writable or subscription gate of its own.

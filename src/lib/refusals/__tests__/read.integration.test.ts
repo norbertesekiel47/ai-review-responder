@@ -50,7 +50,7 @@ import {
   type RefusalCategory,
   type RefusalSource,
 } from '../vocabulary';
-import { getRefusalLog } from '../read';
+import { ENTRY_LIMIT, getRefusalLog } from '../read';
 
 /**
  * Declared locally rather than added to `schema-ready.ts`: that helper lives
@@ -142,7 +142,7 @@ async function setLocationCreatedAt(businessId: string, at: Date): Promise<void>
  * subject actually RESOLVES. `refusal_events.subject_id` carries no foreign key,
  * so an unresolved subject needs no seed at all — a fresh UUID is one.
  */
-async function seedResponse(businessId: string): Promise<string> {
+async function seedResponse(businessId: string): Promise<{ responseId: string; reviewId: string }> {
   const reviewId = randomUUID();
   const responseId = randomUUID();
   await sql()`
@@ -153,7 +153,7 @@ async function seedResponse(businessId: string): Promise<string> {
     INSERT INTO responses (id, review_id, business_id, response_text, original_draft_text)
     VALUES (${responseId}::uuid, ${reviewId}::uuid, ${businessId}::uuid, 'text', 'draft')
   `;
-  return responseId;
+  return { responseId, reviewId };
 }
 
 /**
@@ -327,7 +327,7 @@ describeWithDb(
       // omission is the whole access control (ADR 0023) — asserting the key is
       // absent would still pass if a value leaked under another name.
       expect(Object.keys(log.entries[0] ?? {}).sort()).toEqual(
-        ['category', 'id', 'linkKind', 'occurredAt', 'subjectId', 'subjectType'],
+        ['category', 'id', 'linkKind', 'occurredAt', 'reviewId', 'subjectId', 'subjectType'],
       );
       const wire = JSON.stringify(log);
       expect(wire).not.toContain('moderation_flagged');
@@ -345,7 +345,7 @@ describeWithDb(
         businessId,
         source: 'held_draft',
         category: 'unsafe_content',
-        subjectId: resolvable,
+        subjectId: resolvable.responseId,
         occurredAt: new Date(Date.now() - 3 * 60_000),
       });
       // A non-null id whose subject has aged away. `subject_id` carries no FK,
@@ -372,8 +372,13 @@ describeWithDb(
 
       // The row is KEPT in every case; only the link is contingent.
       expect(log.total).toBe(3);
-      expect(resolved?.subjectId).toBe(resolvable);
+      expect(resolved?.subjectId).toBe(resolvable.responseId);
+      // The REVIEW id, resolved server-side — not the subject id. The only
+      // review route takes a review id, so projecting the response id would
+      // build a link to a page that cannot exist.
+      expect(resolved?.reviewId).toBe(resolvable.reviewId);
       expect(resolved?.linkKind).toBe('review');
+      expect(unresolved?.reviewId).toBeNull();
       expect(unresolved?.subjectId).not.toBeNull();
       expect(unresolved?.linkKind).toBeNull();
       expect(suspension?.subjectId).toBeNull();
@@ -588,6 +593,120 @@ describeWithDb(
       expect(log.total).toBe(0);
       expect(log.entries).toEqual([]);
     });
+
+    // --- The four properties the comments call load-bearing and no test
+    // --- asserted. Each of these was a surviving mutation in red-team round 1.
+
+    it('keys the review link on the LANE, so a policy_gate_held response with held_draft\'s category gets none', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const held = await seedResponse(businessId);
+      const gated = await seedResponse(businessId);
+      await seedRefusal({
+        accountId, businessId, source: 'held_draft', category: 'unsafe_content',
+        subjectId: held.responseId, occurredAt: new Date(Date.now() - 2 * 60_000),
+      });
+      // SAME category, SAME subject type, and a subject that RESOLVES — the only
+      // difference is the lane. Re-keying `resolveLinkKind` on the category was a
+      // mutation that survived the entire suite, because no fixture had a
+      // resolvable subject on the other unsafe_content lane.
+      await seedRefusal({
+        accountId, businessId, source: 'policy_gate_held', category: 'unsafe_content',
+        subjectId: gated.responseId, occurredAt: new Date(Date.now() - 60_000),
+      });
+
+      const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      const [gatedRow, heldRow] = log.entries;
+
+      expect(heldRow?.linkKind).toBe('review');
+      expect(heldRow?.reviewId).toBe(held.reviewId);
+      expect(gatedRow?.linkKind).toBeNull();
+      // The row is KEPT and its review is RESOLVABLE — it simply may not link.
+      expect(gatedRow?.reviewId).toBe(gated.reviewId);
+    });
+
+    it('bounds the LOCATION arm at windowEnd, not only the account arm', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      await seedRefusal({
+        accountId, businessId, category: 'unsafe_content',
+        occurredAtSql: sql()`NOW() - interval '1 hour' + interval '419 microseconds'`,
+      });
+      await seedRefusal({
+        accountId, businessId, category: 'below_our_bar', subjectId: randomUUID(),
+        occurredAtSql: sql()`NOW() + interval '1 hour' + interval '419 microseconds'`,
+      });
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      expect(log.total).toBe(1);
+      expect(log.entries[0]?.category).toBe('unsafe_content');
+    });
+
+    it('bounds the ACCOUNT arm at windowStart, so a row older than the window is excluded', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const day = 24 * 60 * 60 * 1000;
+      await seedRefusal({
+        accountId, businessId, category: 'unsafe_content',
+        occurredAt: new Date(Date.now() - 2 * day),
+      });
+      // 45 days back, OUTSIDE a 30d window but INSIDE the 200-day coverage the
+      // helper seeds — so only the lower bound can exclude it. Every other
+      // fixture in this suite is minutes old, which is why deleting this bound
+      // was invisible.
+      await seedRefusal({
+        accountId, businessId, category: 'below_our_bar', subjectId: randomUUID(),
+        occurredAt: new Date(Date.now() - 45 * day),
+      });
+
+      const thirty = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+      expect(thirty.total).toBe(1);
+      expect(thirty.entries[0]?.category).toBe('unsafe_content');
+
+      // Non-vacuous: a 90d window reaches it, so the row exists and the 30d
+      // result is a BOUND rather than a missing seed.
+      const ninety = await getRefusalLog(sql(), { kind: 'account', accountId }, '90d');
+      expect(ninety.total).toBe(2);
+    });
+
+    it('resolves a review only when the response belongs to the same location', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const sibling = await addLocation(accountId);
+      // The response lives under the SIBLING; the Refusal is filed against this
+      // location. `resp.business_id = r.business_id` is what must reject it, and
+      // deleting that correlation was a surviving mutation.
+      const foreign = await seedResponse(sibling);
+      await seedRefusal({
+        accountId, businessId, source: 'held_draft', category: 'unsafe_content',
+        subjectId: foreign.responseId,
+      });
+
+      const log = await getRefusalLog(sql(), { kind: 'location', accountId, businessId }, '30d');
+
+      expect(log.total).toBe(1);
+      expect(log.entries[0]?.reviewId).toBeNull();
+      expect(log.entries[0]?.linkKind).toBeNull();
+    });
+
+    it('caps entries at ENTRY_LIMIT while total stays the true window count', async () => {
+      const { accountId, businessId } = await seedAccountWithLocation();
+      const extra = 3;
+      for (let i = 0; i < ENTRY_LIMIT + extra; i += 1) {
+        await seedRefusal({
+          accountId, businessId, category: 'unsafe_content', subjectId: randomUUID(),
+          occurredAt: new Date(Date.now() - i * 1000),
+        });
+      }
+
+      const log = await getRefusalLog(sql(), { kind: 'account', accountId }, '30d');
+
+      // The LIST is capped; the COUNT is not. Deriving total from entries.length
+      // would under-report exactly when the window has most to report.
+      expect(log.entries).toHaveLength(ENTRY_LIMIT);
+      expect(log.total).toBe(ENTRY_LIMIT + extra);
+      expect(log.truncated).toBe(true);
+      // Newest-first survives the cap, so the rows dropped are the oldest.
+      const times = log.entries.map((e) => Date.parse(e.occurredAt));
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+    }, 60_000);
 
     // --- The footnote: an ACCOUNT-scope line, and only there (#1005) ---
 

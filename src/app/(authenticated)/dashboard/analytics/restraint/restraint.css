@@ -1,7 +1,9 @@
 /* Restraint (`/dashboard/analytics/restraint`) — the **Restraint tab**: what we
    chose not to do in the selected window, and why. Console (Harbor) tokens only
-   (`_styles/tokens.css`); colocated with the route so the whole surface is one
-   deletable folder, matching requests.css / contacts.css.
+   (`_styles/tokens.css`); colocated with the route, which is where the stylesheet
+   is imported from. The COMPONENTS live under `src/components/dashboard/restraint/`,
+   so this folder is not self-contained — an earlier version of this comment said
+   it was.
 
    NO NEW SPECIAL SURFACE. The Console allows exactly three surfaces that break
    the flat white card — the gradient hero, the Rep Pulse gauge and the inverted
@@ -105,29 +107,18 @@
   max-width: 62ch;
 }
 
-/* The category's ONE fixed destination, drawn once beside the sentence rather
-   than repeated on every row — `href` links are the same page for every entry
-   in the category, so a per-row copy is the same fact five times. Per-entry
-   review links stay on the row, where they differ. */
-.rst-group-link {
-  font-weight: 600;
-  color: var(--rw-sage-deep);
-  text-decoration: none;
-  border-bottom: 1px solid var(--rw-sage-line);
-  transition: color 160ms var(--rw-ease), border-color 160ms var(--rw-ease);
-}
 
-.rst-group-link:hover {
-  color: var(--rw-accent-700);
-  border-bottom-color: var(--rw-accent-700);
-}
 
+/* Capped like the prose beside it. The analytics canvas is full-bleed, so an
+   uncapped row stranded its link ~1,600px from its own date at 1440px — the two
+   halves of one fact, too far apart to read as one. */
 .rst-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
+  max-width: 62ch;
 }
 
 /* A row is a date and, where the vocabulary gives one, a link. There is no
@@ -154,15 +145,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rst-row-ago {
-  font-size: 13px;
-  color: var(--rw-app-text-muted);
-}
 
+/* Padded to a real target. As shipped this was a bare 13px inline link — about
+   20px tall — against DESIGN.md's >= 44px on mobile. The negative inline margin
+   keeps the text optically flush with the row despite the new padding, so the
+   target grows without the layout moving. */
 .rst-row-link {
   margin-left: auto;
+  margin-right: -10px;
+  padding: 12px 10px;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--rw-sage-deep);
   text-decoration: none;
   border-radius: var(--rw-radius-sm);
@@ -175,17 +169,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rst-row-link,
-  .rst-group-link { transition: none; }
-}
-
-/* ---------- Error branch ---------- */
-
-.rst-error-body {
-  margin: 4px 0 0 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--rw-app-text-muted);
+  .rst-row-link {
+    transition: none;
+  }
 }
 
 /* ---------- Below the shell breakpoint ----------
@@ -218,6 +204,15 @@
    internal-divider idiom `.rst-row` already uses, not a second border around a
    card. The One Card Rule forbids stacking a second border to manufacture
    depth; a single divider inside one surface is not that. */
+/* The disclosure block. The border lives on the WRAPPER because the first `<p>`
+   in this card is always the summary line — `.rst-note:first-of-type` matched
+   nothing, so the divider and the separation it carried never rendered at all. */
+.rst-notes {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rw-app-border-soft);
+}
+
 .rst-note {
   margin: 8px 0 0 0;
   font-size: 13px;
@@ -226,10 +221,8 @@
   max-width: 62ch;
 }
 
-.rst-note:first-of-type {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--rw-app-border-soft);
+.rst-note:first-child {
+  margin-top: 0;
 }
 
 /* Which number this is. It leads the block because every other line qualifies a
