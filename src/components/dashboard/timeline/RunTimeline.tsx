@@ -14,7 +14,7 @@ const RUN_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
 });
 
 /** Where "Waiting on you" is answered: the queue owns approve/edit (D21). */
-export const WAITING_ON_OWNER_CTA = {
+const WAITING_ON_OWNER_CTA = {
   href: '/dashboard/reviews',
   label: 'Approve or edit the draft',
 } as const;

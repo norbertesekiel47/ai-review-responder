@@ -14,7 +14,7 @@ export const inputClass =
 // has no multi-line input and nothing async to narrate.
 
 /** The ids `Field` hands its control: `id` for the input, `describedBy` for its error line. */
-export interface FieldIds {
+interface FieldIds {
   id: string;
   describedBy: string | undefined;
   invalid: boolean;

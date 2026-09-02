@@ -39,7 +39,7 @@ const getSnapshot = (): number | null => nowSnapshot;
 const getServerSnapshot = (): number | null => null;
 
 /** Epoch ms captured after mount; `null` on the server and during hydration. */
-export function useNow(): number | null {
+function useNow(): number | null {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 

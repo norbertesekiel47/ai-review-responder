@@ -60,7 +60,7 @@ type OutboxStatus = (typeof OUTBOX_IN_FLIGHT_STATUSES)[number] | 'completed' | '
 export type DeliveryStatus = 'delivered' | 'failed' | 'pending';
 
 /** Demo generation states (`prospect_demos.generation_status`); `running` pulses. */
-export type DemoGenerationStatus = 'queued' | 'running' | 'completed' | 'failed';
+type DemoGenerationStatus = 'queued' | 'running' | 'completed' | 'failed';
 
 export const STATUS_BADGE_VOCABULARIES = {
   subscription: vocabulary<SubscriptionStatusValue>({

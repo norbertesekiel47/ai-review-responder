@@ -9,7 +9,7 @@ import { useRefreshHeld } from '@/components/dashboard/shell/refresh-hold';
 import { useLocationScope } from '@/contexts/LocationContext';
 
 /** Background refresh cadence for every live list surface. */
-export const AUTO_REFRESH_INTERVAL_MS = 60_000;
+const AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 interface Props {
   title: string;

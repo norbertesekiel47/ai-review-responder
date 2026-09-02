@@ -14,7 +14,7 @@ type OffboardingStatusResponse = {
 
 /** How often the page re-reads the teardown status while one is active (D29).
  *  The copy on the page promises live updates; this is what keeps it true. */
-export const OFFBOARDING_STATUS_POLL_MS = 30_000;
+const OFFBOARDING_STATUS_POLL_MS = 30_000;
 
 export function OffboardingStatusClient() {
   const {

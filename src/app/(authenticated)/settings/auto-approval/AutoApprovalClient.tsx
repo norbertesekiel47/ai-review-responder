@@ -631,7 +631,7 @@ export function AutoApprovalClient({ initialState }: Props) {
  * over everything; otherwise the account default decides the sentence and
  * per-location overrides are named so "Off" is never a false comfort.
  */
-export function describePolicyStatus(data: AutoApprovalSettingsResponse): {
+function describePolicyStatus(data: AutoApprovalSettingsResponse): {
   tone: 'on' | 'off' | 'suspended';
   title: string;
   /** Supporting lines, each rendered on its own so a reason stays findable text. */
@@ -739,7 +739,7 @@ function PolicyStatusBanner({
  * before → after, plus one concrete example so "4–5★" reads as a review, not a
  * setting. Exported for its own tests.
  */
-export function describeExpansion(
+function describeExpansion(
   before: PolicyExposure,
   after: PolicyExposure,
   defaultCap: number,
@@ -1160,7 +1160,7 @@ function normalizeCapDraft(draft: string): number | null {
 }
 
 /** The sentence shown when a typed cap was pulled back into range; null otherwise. */
-export function clampNoteFor(draft: string, normalized: number | null): string | null {
+function clampNoteFor(draft: string, normalized: number | null): string | null {
   if (normalized === null) return null;
   const parsed = Number.parseInt(draft.trim(), 10);
   if (Number.isNaN(parsed) || parsed === normalized) return null;
@@ -1399,7 +1399,7 @@ function fieldKey(request: AutoApprovalPatchRequest): string {
 }
 
 /** Maps a PATCH failure body onto one owner-facing sentence. Never surfaces a raw code. */
-export function errorMessage(body: unknown, status: number): string {
+function errorMessage(body: unknown, status: number): string {
   const error = readErrorCode(body);
   if (!error) return `This change did not save (${status}). Try again.`;
 

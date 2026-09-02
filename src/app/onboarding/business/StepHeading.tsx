@@ -23,7 +23,7 @@ export function StepHeading({
   );
 }
 
-export const WIZARD_TOTAL_STEPS = 3;
+const WIZARD_TOTAL_STEPS = 3;
 
 /** "Step 1 of 3 — Profile". One owner for the format so every step matches. */
 export function wizardStepLabel(step: number, name: string): string {

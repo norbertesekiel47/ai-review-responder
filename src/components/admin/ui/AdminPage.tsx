@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ADMIN_NAV_GROUPS, type AdminNavGroupLabel } from '../nav-config';
 
 /** One intermediate breadcrumb between the group and this page's title. */
-export interface AdminCrumb {
+interface AdminCrumb {
   href: string;
   label: string;
 }

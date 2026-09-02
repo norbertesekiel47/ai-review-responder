@@ -11,7 +11,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import type { LocationScope } from '@/contexts/LocationContext';
 import type { PendingApprovalsPage } from '@/lib/dashboard/pending-approvals';
 
-export const PENDING_APPROVALS_QUERY_KEY = 'dashboard-pending-approvals';
+const PENDING_APPROVALS_QUERY_KEY = 'dashboard-pending-approvals';
 
 export interface PendingApprovalsQueue {
   items: PendingApprovalsPage['items'] | null;

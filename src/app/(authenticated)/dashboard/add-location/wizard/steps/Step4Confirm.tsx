@@ -55,7 +55,7 @@ function LocationAddedNotice({ connectHref }: { connectHref: string | null }) {
 }
 
 /** The voice row's one phrase: copied from a named location, default, or customised. */
-export function voiceSummary({
+function voiceSummary({
   copyFromLocationId,
   voiceIsDefault,
   existingLocations,
