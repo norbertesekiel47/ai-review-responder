@@ -17,13 +17,15 @@ let mockSql: Sql;
 
 const BUSINESS_ID = 'biz-feed-1';
 
+// Sequential sql call order (no reputation flag): 0 business, 1 reviewCounts,
+// 2 totalResponded, 3 weeklySeries, 4 ranking, 5 recentReviews, 6 monthlyBrief,
+// 7 weeklyBrief, 8 zernioConn, 9 queuedReconnect, 10 unresolvedIncident.
 function seedDashboardQueries() {
   harness.resetMockSql();
   harness.sqlReturnQueue.push(
     [{ name: 'Biz', created_at: new Date('2026-01-01T00:00:00Z') }],
-    [{ count: 0 }],
-    [{ count: 0 }],
     [],
+    [{ count: 0 }],
     [],
     [],
     [],
