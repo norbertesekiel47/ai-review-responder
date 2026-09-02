@@ -21,6 +21,25 @@ export interface LegalDoc {
 const version = '2026-06-09';
 const effectiveDate = '2026-06-09';
 
+const LEGAL_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+/**
+ * Renders an ISO `YYYY-MM-DD` legal date the way a reader says it — "9 June 2026".
+ * Split by hand rather than via `Date`, so the day never shifts with the
+ * server's time zone. Anything that is not `YYYY-MM-DD` comes back unchanged.
+ */
+export function formatLegalDate(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const [, year, month, day] = match;
+  const monthName = LEGAL_MONTHS[Number(month) - 1];
+  if (!monthName) return isoDate;
+  return `${Number(day)} ${monthName} ${year}`;
+}
+
 const subProcessorRows: string[][] = [
   ['OpenAI', 'AI draft generation', 'Review text, business context, generated responses'],
   ['Anthropic', 'AI draft fallback', 'Review text, business context, generated responses'],

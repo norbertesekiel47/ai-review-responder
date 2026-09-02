@@ -5,10 +5,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, m, domAnimation } from 'motion/react';
-import { NAV_LINKS } from './marketing-links';
+import { EARLY_ACCESS_CTA, NAV_LINKS } from './marketing-links';
 
 interface SiteNavProps {
-  /** When true, the right-side Log in / signup cluster is hidden. */
+  /**
+   * When true, the nav offers no door at all: neither the owner-auth cluster
+   * nor the early-access pill. The "coming soon" posture, mirrored by the
+   * page CTA bands.
+   */
   comingSoon?: boolean;
   /** Controls whether owner self-serve auth links are exposed. */
   selfServeEnabled?: boolean;
@@ -46,6 +50,10 @@ const ArrowDisc = () => (
  */
 export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEnabled = false }: SiteNavProps) {
   const showOwnerAuth = selfServeEnabled && !comingSoon;
+  // With self-serve off the header still needs one door: the early-access pill
+  // to the lead-capture route, the same label the landing nav carries. Before
+  // this, a visitor on /features had no CTA until the closing band.
+  const showEarlyAccess = !selfServeEnabled && !comingSoon;
   const signupLabel = trialEnabled ? 'Start free trial' : 'Create account';
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -119,6 +127,12 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEna
                   </Link>
                 </>
               )}
+              {showEarlyAccess && (
+                <Link href={EARLY_ACCESS_CTA.href} className="rw-pill rw-pill-forest">
+                  {EARLY_ACCESS_CTA.label}
+                  <ArrowDisc />
+                </Link>
+              )}
 
               {/* Mobile hamburger toggle (44px touch target) */}
               <button
@@ -182,6 +196,14 @@ export function SiteNav({ comingSoon = false, selfServeEnabled = false, trialEna
                       </Link>
                       <Link href="/signup" onClick={closeMenu} className="rw-pill rw-pill-forest">
                         {signupLabel}
+                      </Link>
+                    </>
+                  )}
+                  {showEarlyAccess && (
+                    <>
+                      <div className="rw-nav-menu-sep" aria-hidden="true" />
+                      <Link href={EARLY_ACCESS_CTA.href} onClick={closeMenu} className="rw-pill rw-pill-forest">
+                        {EARLY_ACCESS_CTA.label}
                       </Link>
                     </>
                   )}

@@ -7,7 +7,10 @@ describe('FeaturesContent', () => {
   it('renders the final CTA as an early access waitlist form', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
 
-    expect(html).toContain('Join waitlist');
+    expect(html).toContain('Get early access.');
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Get early access</);
+    expect(html).not.toContain('Join waitlist');
+    expect(html).not.toContain('Join the early access waitlist');
     expect(html).toContain('value="features"');
     expect(html).toContain('value="waitlist"');
     expect(html).toContain('class="rw-foot'); // footer now carries extra layout classes
@@ -46,16 +49,67 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('Tacos El Primo');
     expect(html).not.toContain('Mama Rosa');
 
-    expect(html).toContain('Illustrative targets, not live performance data.');
+    expect(html).toContain('How the system is built, not measured results.');
   });
 
-  it('reconciles the response-rate claim to a single figure (96%)', () => {
+  it('shows product facts in the hero stack, never invented performance figures', () => {
     const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const stack = html.slice(html.indexOf('feat-hero-stats'), html.indexOf('rw-feat-marquee-mask'));
 
-    expect(html).toContain('96');
-    // The fabricated "100% responded" / "100%" response-rate claim is gone.
-    expect(html).not.toContain('100% responded');
-    expect(html).not.toContain('>100<');
+    // Three facts about how the pipeline is built (design of record §8).
+    expect(stack).toContain('of auto-posts reviewed');
+    expect(stack).toContain('veto window before an');
+    expect(stack).toContain('languages Reply');
+    expect(stack).toContain('<small>%</small>');
+    expect(stack).toContain('<small>min</small>');
+    expect(stack).toContain('<small>+</small>');
+    expect(stack).toContain('How the system is built, not measured results.');
+    // The invented targets are gone — no "Target:/Goal:/Aim:" framing, no
+    // response-rate or turnaround figures dressed as KPIs.
+    expect(stack).not.toMatch(/Target:|Goal:|Aim:/);
+    expect(stack).not.toContain('Illustrative targets');
+    expect(stack).not.toContain('96');
+    expect(stack).not.toContain('58');
+    expect(stack).not.toContain('sec');
+  });
+
+  it('reframes the results chapter as dashboard chrome with no fabricated before/after', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    const start = html.indexOf('id="f-roi"');
+    const roi = html.slice(start, html.indexOf('</section>', start));
+
+    expect(roi).toContain('Response rate');
+    expect(roi).toContain('Average rating');
+    expect(roi).toContain('Local map rank');
+    expect(roi).toContain('No sample numbers here');
+    // Invented before → after pairs and the sample weekly total are gone.
+    for (const figure of ['12%', '96', '4.1', '4.6', '#14', '#3', '1.6', '14 reviews', 'feat-roi-before', 'feat-roi-after']) {
+      expect(roi).not.toContain(figure);
+    }
+    // The time-saved heuristic is the product's own constant, as a formula.
+    expect(roi).toContain('About 7 minutes per handled review');
+    expect(roi).toContain('handled reviews × 7 min');
+  });
+
+  it('puts the same forest pill in the hero as /how-it-works, anchored to the CTA band', () => {
+    const html = renderToStaticMarkup(createElement(FeaturesContent));
+    expect(html).toMatch(/<a(?=[^>]*href="#feat-cta")(?=[^>]*class="rw-pill rw-pill-forest")[^>]*>Get early access</);
+    expect(html).toContain('id="feat-cta"');
+    // The pill comes before the pricing text link inside the hero link row.
+    expect(html).toMatch(/feat-hero-links[\s\S]{0,400}?href="#feat-cta"[\s\S]{0,400}?href="\/pricing"/);
+  });
+
+  it('turns the hero pill into the /signup door when self-serve is on, and hides it when coming soon', () => {
+    const on = renderToStaticMarkup(
+      createElement(FeaturesContent, { selfServeEnabled: true, signupCtaLabel: 'Create account' })
+    );
+    const hero = on.slice(on.indexOf('feat-hero-links'), on.indexOf('feat-hero-stats'));
+    expect(hero).toMatch(/<a(?=[^>]*href="\/signup")(?=[^>]*class="rw-pill rw-pill-forest")[^>]*>Create account</);
+    expect(on).not.toContain('href="#feat-cta"');
+
+    const soon = renderToStaticMarkup(createElement(FeaturesContent, { comingSoon: true }));
+    expect(soon).not.toContain('href="#feat-cta"');
+    expect(soon).not.toContain('href="/signup"');
   });
 
   it('describes the lineup honestly (agents, watchdogs, modes)', () => {
@@ -100,8 +154,8 @@ describe('FeaturesContent', () => {
     expect(html).not.toContain('unflagged');
     expect(html).not.toContain('independent AI');
     expect(html).not.toContain('via webhook');
-    // metrics are labelled as targets in the label itself, not just the footnote
-    expect(html).toContain('Target: time from review');
+    // the hero stack states how the pipeline is built, not a performance target
+    expect(html).toContain('by the Judge');
     // real digest sections + time-saved estimate now named
     expect(html).toContain('Estimated time saved this week');
     expect(html).toContain('Time saved · estimate');
@@ -183,10 +237,11 @@ describe('FeaturesContent', () => {
 
     expect(html).toContain('Nothing is posted without your go-ahead');
     expect(html).toContain('Insights · every Monday');
-    // the illustrative disclaimers must stay attached to their figures
-    expect(html).toContain('Illustrative targets, not live performance data.');
+    // the one remaining illustrative figure (08 Voice) keeps its disclaimer;
+    // the hero facts and the results tiles carry no figures to disclaim
+    expect(html).toContain('How the system is built, not measured results.');
     expect(html).toContain('Illustrative target, not live performance data.');
-    expect(html).toContain('Sample dashboard with illustrative numbers');
+    expect(html).toContain('No sample numbers here: the tiles fill with your own.');
   });
 
   it('presents the weekly brief as the Insights agent', () => {

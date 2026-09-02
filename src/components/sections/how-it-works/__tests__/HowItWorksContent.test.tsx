@@ -7,7 +7,12 @@ describe('HowItWorksContent', () => {
   it('renders the final CTA as an early access waitlist form', () => {
     const html = renderToStaticMarkup(createElement(HowItWorksContent));
 
-    expect(html).toContain('Join waitlist');
+    expect(html).toContain('Get early access');
+    expect(html).not.toContain('Join waitlist');
+    expect(html).not.toContain('Join the waitlist');
+    // The CTA band's h2 is the same one phrase as the pills (M4 handoff).
+    expect(html).toContain('<h2 id="hiw-cta-h">Get early access.</h2>');
+    expect(html).not.toContain('Join the early access waitlist.');
     expect(html).toContain('value="how-it-works"');
     expect(html).toContain('value="waitlist"');
     // SiteFooter renders `class="rw-foot flex-col items-stretch"`.
@@ -61,6 +66,9 @@ describe('HowItWorksContent', () => {
     expect(html).toContain('of auto-posts reviewed by the Judge');
     expect(html).toContain('Typical figures shown for illustration');
     expect(html).toContain('Sample walkthrough below: illustrative reviews and business, not real customers.');
+    // The stacking sentence is wrapped so how-it-works.css can drop it below 1041px,
+    // where the steps are plain cards and do not stack (M16).
+    expect(html).toContain('<span class="hiw-stack-hint"> Scroll: each step stacks on the last.</span>');
     // stale claims gone
     expect(html).not.toContain('Four steps from new review');
     expect(html).not.toContain('15 hrs');

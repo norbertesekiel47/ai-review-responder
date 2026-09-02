@@ -216,6 +216,7 @@
 .pr-plan-cta {
   display: inline-flex;
   align-items: center;
+  min-height: 44px;
   border-radius: 9999px;
   padding: 12px 22px;
   font-size: 15px;
@@ -271,21 +272,50 @@
 /* ---------- Compare (paper band; the matrix as a ledger) ---------- */
 /* The intro's 56px now comes from the shared `.rw-dl-intro.is-tight`, set on
    the element in PricingContent.tsx. */
+/* A real <table> (column headers with scope, one <tbody> per section, a row
+   header on every feature) laid out as grids: the table, its row groups and
+   its rows are blocks so each <tr> can be a 3-column grid ≥721px and a single
+   column ≤720px. The markup restates every table role because a table part
+   with a non-table `display` loses its implicit role in some engines. */
 .pr-matrix {
+  display: block;
+  width: 100%;
   max-width: 960px;
   margin: 0 auto;
+  border-collapse: collapse;
+  border-spacing: 0;
   background: var(--rw-paper);
   border: 1px solid var(--rw-line);
   border-radius: 8px;
   overflow: hidden;
 }
+.pr-matrix thead,
+.pr-matrix tbody { display: block; }
 .pr-matrix-row {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
   border-top: 1px solid var(--rw-line);
 }
-.pr-matrix-row:first-child { border-top: 0; }
-.pr-matrix-cell { padding: 14px 20px; font-size: 15px; }
+.pr-matrix thead .pr-matrix-row:first-child { border-top: 0; }
+/* <th> resets: the ledger is one weight (DM Sans 400) and reads left-aligned. */
+.pr-matrix-cell {
+  display: block;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+  color: var(--rw-ink2);
+}
+/* The one-line gloss under a feature label (the veto window). */
+.pr-matrix-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--rw-ink2-mute);
+  max-width: 34ch;
+}
 .pr-matrix-cell.num { border-left: 1px solid var(--rw-line); }
 .pr-matrix-cell.hdr { padding: 20px; font-size: 13px; color: var(--rw-ink2-mute); }
 .pr-matrix-cell.hdr.first { align-self: end; }
@@ -349,10 +379,13 @@
 .pr-cta-pill { width: 100%; justify-content: center; }
 .pr-plan-pick { border: 0; margin: 0 0 14px; padding: 0; }
 .pr-plan-pick-lbl { font-size: 14px; color: rgba(255, 255, 255, 0.78); margin-bottom: 8px; padding: 0; }
+/* min-height 44px: the radio chip is a tap target on a phone; the padding stays
+   so the chip reads as the same quiet outline, only tall enough to hit. */
 .pr-plan-pick-opt {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 9999px;
   padding: 8px 14px;
@@ -389,10 +422,23 @@
   .pr-plan-bd { display: flex; flex-direction: column; grid-row: auto; padding: 0 24px; }
   .pr-plans-band { padding-bottom: 56px; }
   .pr-price-amt { font-size: 56px; }
-  /* The matrix stacks: hide the header row; each value cell self-labels via
-     its data-plan attribute so the Autopilot column is never off-screen. */
-  .pr-matrix-row.hdr-row { display: none; }
+  /* The matrix stacks: the header row leaves the layout but stays in the
+     accessibility tree (clipped, not display:none) so the column headers still
+     label every cell; each value cell self-labels visually via its data-plan
+     attribute so the Autopilot column is never off-screen. */
+  .pr-matrix-row.hdr-row {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
   .pr-matrix-row { grid-template-columns: 1fr; }
+  .pr-matrix tbody:first-of-type .pr-matrix-row:first-child { border-top: 0; }
   .pr-matrix-cell.first { padding-bottom: 4px; }
   .pr-matrix-cell.num {
     display: flex;

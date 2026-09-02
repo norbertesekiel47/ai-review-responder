@@ -1,40 +1,38 @@
 import Link from 'next/link';
-import { BrandLogo } from '@/components/ui/BrandLogo';
+import { SiteShell } from '@/components/ui/SiteShell';
+import { selfServeSignupEnabled } from '@/lib/auth/flags';
+import { trialEnabled as isTrialEnabled } from '@/lib/payments/flags';
 
-// Branded root 404 — island layout on the sage background, server-rendered
-// (no client motion needed for a static error surface).
+/**
+ * Branded root 404 in the Island chrome: SiteShell gives it the same nav pill,
+ * bone island and footer as every marketing page (the demo 404 does the same
+ * with its own island), so a visitor on a dead URL keeps the site's doors and
+ * legal links. Server-rendered; the flags are read here (invariant #13) so the
+ * nav offers the right door. There is deliberately no "Go to dashboard": an
+ * anonymous visitor would only bounce to /login, and a signed-in owner already
+ * has the nav.
+ */
 export default function NotFound() {
+  const selfServeEnabled = selfServeSignupEnabled();
+  const trialOn = selfServeEnabled && isTrialEnabled();
   return (
-    <div className="min-h-screen bg-rw-sage relative">
-      <div className="relative z-10 min-h-screen py-20 px-4 flex items-center justify-center">
-        <main className="w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl px-8 py-16 text-center">
-          <div className="flex items-center justify-center gap-2 mb-10">
-            <BrandLogo size={32} />
-            <span className="text-sm tracking-wider uppercase text-rw-teal">RepWorth</span>
-          </div>
-          <p className="text-sm tracking-wider uppercase text-rw-teal mb-3">404</p>
-          <h1 className="text-4xl md:text-5xl font-medium text-rw-ink mb-4">
-            Page not found
-          </h1>
-          <p className="text-lg text-rw-ink-soft leading-relaxed mb-10">
-            The page you&apos;re looking for doesn&apos;t exist or has moved.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/"
-              className="px-8 py-4 bg-rw-teal text-white rounded-full shadow-lg hover:shadow-xl transition-shadow"
-            >
-              Back to home
-            </Link>
-            <Link
-              href="/dashboard"
-              className="px-8 py-4 bg-white text-rw-teal rounded-full border border-rw-teal/20 hover:border-rw-teal/40 transition-colors"
-            >
-              Go to dashboard
-            </Link>
-          </div>
-        </main>
+    <SiteShell scope="rw-not-found" selfServeEnabled={selfServeEnabled} trialEnabled={trialOn}>
+      <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
+        <p className="text-sm tracking-wider uppercase text-rw-teal-strong mb-3">404</p>
+        <h1 className="text-4xl md:text-5xl font-medium text-rw-ink mb-4">Page not found</h1>
+        <p className="text-lg text-rw-ink-soft leading-relaxed max-w-md mb-10">
+          The page you&apos;re looking for doesn&apos;t exist or has moved.
+        </p>
+        <Link
+          href="/"
+          className="inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium"
+        >
+          Back to home
+        </Link>
+        <Link href="/help/contact" className="text-sm text-rw-teal-strong underline mt-6">
+          Tell us what you were looking for
+        </Link>
       </div>
-    </div>
+    </SiteShell>
   );
 }

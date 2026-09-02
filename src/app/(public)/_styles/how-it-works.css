@@ -276,7 +276,7 @@
   background: var(--rw-paper);
   border: 1px solid var(--rw-line);
   border-radius: 8px;
-  padding: 32px 28px 30px 32px;
+  padding: 32px 28px 30px;
   min-height: 236px;
   display: flex;
   flex-direction: column;
@@ -290,19 +290,23 @@
   .hiw-stat { opacity: 0; transform: translateY(16px); }
   .hiw-stat.is-in { opacity: 1; transform: none; }
 }
+/* The card's bar accent: a 4px top bar, the same anatomy as the dossier steps
+   (8px) and the pipeline panel (4px), one grade thinner — a supporting card.
+   It used to be a 10px full-height side tab, the loudest bar the system allows,
+   on the quietest card on the page. The entrance draws it left→right. */
 .hiw-stat::before {
   content: '';
   position: absolute;
   left: 0;
+  right: 0;
   top: 0;
-  bottom: 0;
-  width: 10px;
+  height: 4px;
   background: var(--bar);
-  transform-origin: top;
+  transform-origin: left;
   transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.2s;
 }
 @media (scripting: enabled) {
-  .hiw-stat::before { transform: scaleY(0); }
+  .hiw-stat::before { transform: scaleX(0); }
   .hiw-stat.is-in::before { transform: none; }
 }
 .hiw-stat-n { font-size: 48px; line-height: 1; }
@@ -506,13 +510,15 @@
   overflow: hidden;
   position: relative;
 }
+/* Same 4px top bar as the stat cards: the panel restates the pipeline the
+   dossier steps already carry at 8px, so it wears the thinner grade. */
 .hiw-hood > div::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   top: 0;
-  height: 6px;
+  height: 4px;
   background: var(--bar);
 }
 .hiw-hood-n { font-size: 15px; color: var(--rw-ink2-mute); margin-top: 6px; }
@@ -553,6 +559,9 @@
   .hiw-ov > div:nth-child(3) { border-right: 0; }
   .hiw-ov > div:nth-child(n + 4) { border-top: 1px solid var(--rw-line); }
   .hiw-step { position: static; }
+  /* The overview's "Scroll: each step stacks on the last" is only true of the
+     sticky deck above; below it the steps are plain cards. */
+  .hiw-stack-hint { display: none; }
   /* Below this width the steps are plain stacked cards, not a deck, so there is
      no ribbon for the fill to build — and the six even slices of the stack's
      scroll range no longer line up with cards of very different heights. Solid

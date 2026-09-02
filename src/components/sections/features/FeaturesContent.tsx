@@ -15,6 +15,7 @@ import {
 } from 'react';
 import { SiteShell } from '@/components/ui/SiteShell';
 import { HeroWash } from '@/components/ui/HeroWash';
+import { EARLY_ACCESS_CTA } from '@/components/ui/marketing-links';
 import { LeadIntakeForm } from '../lead-intake/LeadIntakeForm';
 import { useReveal } from '@/hooks/useReveal';
 import { ReviewStars } from './FeatPrimitives';
@@ -59,16 +60,23 @@ const HERO_LINES = [
   'without the gate.',
 ];
 
-// Illustrative targets — the stack's fine print labels them as such. The bar
-// is each card's colour bar (sage / teal / mist), wiping in with the card.
-const HERO_METRICS = [
-  { target: 58, suffix: 'min', label: 'Target: time from review\nposted to reply', bar: 'var(--rw-sage-bar)' },
-  { target: 96, suffix: '%', label: 'Goal: response rate\nacross all reviews', bar: 'var(--rw-teal-bar)' },
-  { target: 30, suffix: 'sec', label: 'Aim: your time per\napproval, after week 4', bar: 'var(--rw-mist-bar)' },
+// Product facts, not performance figures: each is how the shipped pipeline is
+// built (design of record §8 — the Judge reviews 100% of auto-posts, the
+// owner-set veto window is 15 or 30 minutes, the drafting rules name 30+
+// languages). No customer data exists to measure against (PRODUCT.md
+// "Evidence on Hand"), so nothing here is a target or a result — the earlier
+// "58 min / 96% / 30 sec" targets were invented numbers styled as KPIs. The bar
+// is the chapter the fact comes from (06 Watchdogs / 05 Autopilot / 07
+// Languages), so the colour means the same thing here as in the index.
+// `counts` holds one number, or the two halves of a pair joined by `join`.
+const HERO_FACTS = [
+  { counts: [100], unit: '%', label: 'of auto-posts reviewed\nby the Judge', bar: 'var(--rw-ink2)' },
+  { counts: [15, 30], join: '/', unit: 'min', label: 'veto window before an\nAutopilot reply posts', bar: 'var(--rw-gold-bar)' },
+  { counts: [30], unit: '+', label: 'languages Reply\ncan draft in', bar: 'var(--rw-sage-bar)' },
 ] as const;
 
-const METRIC_DELAY_MS = 600;
-const METRIC_STAGGER_MS = 280;
+const FACT_DELAY_MS = 600;
+const FACT_STAGGER_MS = 280;
 
 // Illustrative sample reviews; not real customer testimonials. Multilingual to
 // show the language-detection feature; no invented names or business claims.
@@ -97,9 +105,15 @@ const MARQUEE_TRACK = [
 function HeroSection({
   heroIn,
   values,
+  comingSoon,
+  signupCtaLabel,
 }: {
   heroIn: boolean;
-  values: readonly [number, number, number];
+  /** One entry per fact, in HERO_FACTS order; each holds that fact's counted number(s). */
+  values: readonly (readonly number[])[];
+  comingSoon: boolean;
+  /** The /signup door label when self-serve is on; null means the early-access door. */
+  signupCtaLabel: string | null;
 }) {
   return (
     <section className={cn('feat-hero rw-dl-wash-host', heroIn && 'is-in')} aria-labelledby="feat-h1">
@@ -121,35 +135,53 @@ function HeroSection({
             approve every reply on Copilot, or let policy-cleared replies post themselves on
             Autopilot.
           </p>
-          <div className="feat-hero-links feat-fade d2">
+          {/* The same door /how-it-works puts in its hero: the forest pill,
+              then the pricing text link. Before this the hero had only the
+              text link, and with self-serve off the nav had no CTA either, so
+              the first door was the closing band, nine chapters down. */}
+          <div className="feat-hero-links feat-fade d2 flex flex-wrap items-center gap-x-5 gap-y-3">
+            {comingSoon ? null : signupCtaLabel !== null ? (
+              <Link href="/signup" className="rw-pill rw-pill-forest">
+                {signupCtaLabel}
+              </Link>
+            ) : (
+              <a href="#feat-cta" className="rw-pill rw-pill-forest">
+                {EARLY_ACCESS_CTA.label}
+              </a>
+            )}
             <Link href="/pricing" className="rw-dl-txtlink">
               See pricing <span aria-hidden="true">→</span>
             </Link>
           </div>
         </div>
 
-        {/* The three targets as a stack of stat cards: left bar wipes in, cards
+        {/* The three facts as a stack of stat cards: left bar wipes in, cards
             stagger top → bottom, numbers count up (the /how-it-works stat card). */}
         <div className="feat-hero-stats">
-          {HERO_METRICS.map((m, i) => (
+          {HERO_FACTS.map((fact, i) => (
             <div
-              key={m.label}
+              key={fact.label}
               className="feat-stat"
               style={
                 {
-                  '--bar': m.bar,
-                  '--m-delay': `${METRIC_DELAY_MS + i * METRIC_STAGGER_MS}ms`,
+                  '--bar': fact.bar,
+                  '--m-delay': `${FACT_DELAY_MS + i * FACT_STAGGER_MS}ms`,
                 } as CSSProperties
               }
             >
               <div className="feat-stat-n">
-                {values[i]}
-                <small>{m.suffix}</small>
+                {(values[i] ?? []).map((n, j) => (
+                  <span key={j}>
+                    {j > 0 && ('join' in fact ? fact.join : '')}
+                    {n}
+                  </span>
+                ))}
+                <small>{fact.unit}</small>
               </div>
-              <div className="feat-stat-d">{m.label}</div>
+              <div className="feat-stat-d">{fact.label}</div>
             </div>
           ))}
-          <p className="rw-dl-fine feat-fade d3">Illustrative targets, not live performance data.</p>
+          <p className="rw-dl-fine feat-fade d3">How the system is built, not measured results.</p>
         </div>
       </div>
 
@@ -265,10 +297,11 @@ function FeaturesCta({
 }) {
   const showSignupCta = signupCtaLabel !== null;
   return (
-    <section aria-label="Call to action" className="rw-dl-cta">
+    // `id` is the hero pill's anchor while self-serve is off.
+    <section id="feat-cta" aria-label="Call to action" className="rw-dl-cta">
       <div className="rw-dl-col">
         <div>
-          <h2>{showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}</h2>
+          <h2>{showSignupCta ? 'Start with Copilot today.' : `${EARLY_ACCESS_CTA.label}.`}</h2>
           <p className="rw-dl-cta-sub">
             {showSignupCta
               ? 'Connect your Google Business Profile and get your first drafts in minutes.'
@@ -332,10 +365,13 @@ export function FeaturesContent({
     return () => window.clearTimeout(id);
   }, [prefersReducedMotion]);
 
-  // Metrics count up in step with their card's stagger.
-  const m1 = useCountUp(HERO_METRICS[0].target, { active: heroIn, duration: 1400, delayMs: METRIC_DELAY_MS, round: true });
-  const m2 = useCountUp(HERO_METRICS[1].target, { active: heroIn, duration: 1400, delayMs: METRIC_DELAY_MS + METRIC_STAGGER_MS, round: true });
-  const m3 = useCountUp(HERO_METRICS[2].target, { active: heroIn, duration: 1400, delayMs: METRIC_DELAY_MS + 2 * METRIC_STAGGER_MS, round: true });
+  // Facts count up in step with their card's stagger (both halves of the
+  // veto-window pair share the second card's delay).
+  const countOpts = (i: number) => ({ active: heroIn, duration: 1400, delayMs: FACT_DELAY_MS + i * FACT_STAGGER_MS, round: true });
+  const judge = useCountUp(HERO_FACTS[0].counts[0], countOpts(0));
+  const vetoShort = useCountUp(HERO_FACTS[1].counts[0], countOpts(1));
+  const vetoLong = useCountUp(HERO_FACTS[1].counts[1], countOpts(1));
+  const languages = useCountUp(HERO_FACTS[2].counts[0], countOpts(2));
 
   const scrollTo = (id: ChapterId) => {
     refs[id].current?.scrollIntoView({
@@ -346,7 +382,12 @@ export function FeaturesContent({
 
   return (
     <SiteShell scope="rw-feat-page" comingSoon={comingSoon} selfServeEnabled={selfServeEnabled} trialEnabled={trialEnabled}>
-      <HeroSection heroIn={heroIn} values={[m1, m2, m3]} />
+      <HeroSection
+        heroIn={heroIn}
+        values={[[judge], [vetoShort, vetoLong], [languages]]}
+        comingSoon={comingSoon}
+        signupCtaLabel={selfServeEnabled ? signupCtaLabel : null}
+      />
       <FeatureIndex onJump={scrollTo} />
 
       <ChapterGroup group="Your agent team">

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { LazyMotion, domAnimation, m } from 'motion/react';
 import { PageShell } from '@/components/ui/PageShell';
+import { SiteFooter } from '@/components/ui/SiteFooter';
 import { SiteNav } from '@/components/ui/SiteNav';
+import { EARLY_ACCESS_CTA } from '@/components/ui/marketing-links';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 
 type DemoStatusVariant = 'loading' | 'error' | 'expired';
@@ -63,6 +65,9 @@ export function DemoStatusIsland({ variant, businessName, selfServeEnabled, tria
             </div>
           )}
         </main>
+        {/* The footer a prospect landing cold still needs: legal links + the
+            site's doors, a sibling of <main> so it keeps its landmark role. */}
+        <SiteFooter />
       </PageShell>
     </LazyMotion>
   );
@@ -123,11 +128,7 @@ function LoadingIsland({ businessName }: { businessName?: string }) {
   const showElapsed = elapsedSeconds >= 75;
 
   return (
-    <div
-      role="status"
-      aria-label="Demo generation status"
-      className="px-8 py-20 md:py-28 flex flex-col items-center text-center"
-    >
+    <div className="px-8 py-20 md:py-28 flex flex-col items-center text-center">
       <LoadingBody businessName={businessName} showElapsed={showElapsed} elapsedSeconds={elapsedSeconds} />
     </div>
   );
@@ -156,9 +157,13 @@ function LoadingBody({
       )}
       <p className="text-lg text-rw-ink-soft">Your demo is being generated…</p>
       <p className="text-sm text-rw-teal-strong italic mt-2">This usually takes under a minute.</p>
-      {showElapsed && (
-        <p className="text-sm text-rw-teal-strong mt-1">Still working… {elapsedSeconds}s elapsed.</p>
-      )}
+      {/* The live region is ONLY the sentence that changes, and it is in the
+          DOM from the first render (empty) so assistive tech announces the
+          change when it arrives. With `role="status"` on the whole block, the
+          heading and the static copy were re-announced too. */}
+      <p role="status" aria-atomic="true" className="text-sm text-rw-teal-strong mt-1 min-h-5">
+        {showElapsed ? `Still working… ${elapsedSeconds}s elapsed.` : null}
+      </p>
     </>
   );
 }
@@ -186,7 +191,7 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
       </h1>
       <p className="text-lg text-rw-ink-soft max-w-md mb-8">
         Your demo{businessName ? ` for ${businessName}` : ''} is still generating. You can keep waiting,
-        try again, or book a demo and we&apos;ll walk you through it.
+        try again, or get early access and we&apos;ll walk you through RepWorth when demos open.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
         <m.button
@@ -199,10 +204,10 @@ function TimedOutBody({ businessName }: { businessName?: string }) {
           Try again
         </m.button>
         <Link
-          href="/book-a-demo"
+          href={EARLY_ACCESS_CTA.href}
           className="inline-block px-8 py-4 border border-rw-teal-strong text-rw-teal-strong rounded-full font-medium"
         >
-          Book a demo
+          {EARLY_ACCESS_CTA.label}
         </Link>
       </div>
       <Link href="/" className="text-sm text-rw-teal-strong underline mt-6">
@@ -260,14 +265,14 @@ function MessageBody({ variant, businessName }: { variant: 'error' | 'expired'; 
           className="inline-block"
         >
           <Link
-            href="/book-a-demo"
+            href={EARLY_ACCESS_CTA.href}
             className={
               variant === 'error'
                 ? 'inline-block px-8 py-4 border border-rw-teal-strong text-rw-teal-strong rounded-full font-medium'
                 : 'inline-block px-8 py-4 bg-rw-teal-strong text-white rounded-full shadow-lg font-medium'
             }
           >
-            Book a demo
+            {EARLY_ACCESS_CTA.label}
           </Link>
         </m.div>
       </div>

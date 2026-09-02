@@ -4,7 +4,8 @@ import { trialEnabled as isTrialEnabled, trialPeriodDays } from '@/lib/payments/
 import { HowItWorksContent } from '@/components/sections/how-it-works/HowItWorksContent';
 
 export const metadata: Metadata = {
-  title: 'How it works · RepWorth',
+  // Bare name: the root layout's title template appends " · RepWorth".
+  title: 'How it works',
   description:
     'Watch, triage, draft, gate, post, judge. On Copilot you approve every reply; on Autopilot, policy-cleared replies post after a veto window you control.',
 };

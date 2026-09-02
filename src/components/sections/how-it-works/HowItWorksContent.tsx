@@ -213,7 +213,7 @@ export function HowItWorksContent({
                 </Link>
               ) : (
                 <a href="#hiw-cta" className="rw-pill rw-pill-forest">
-                  Join the waitlist
+                  Get early access
                 </a>
               )}
               <Link href="/pricing" className="rw-dl-txtlink">
@@ -265,7 +265,9 @@ export function HowItWorksContent({
           </Reveal>
           <p className="rw-dl-fine hiw-fine-center">
             Sample walkthrough below: illustrative reviews and business, not real customers.
-            Scroll: each step stacks on the last.
+            {/* The steps only stack (position: sticky) ≥1041px — how-it-works.css
+                hides this sentence below that, where they are plain cards. */}
+            <span className="hiw-stack-hint"> Scroll: each step stacks on the last.</span>
           </p>
         </div>
       </section>
@@ -386,7 +388,7 @@ export function HowItWorksContent({
         <div className="rw-dl-col">
           <div>
             <h2 id="hiw-cta-h">
-              {showSignupCta ? 'Start with Copilot today.' : 'Join the early access waitlist.'}
+              {showSignupCta ? 'Start with Copilot today.' : 'Get early access.'}
             </h2>
             <p className="rw-dl-cta-sub">
               {showSignupCta

@@ -296,6 +296,50 @@
   color: var(--rw-lp-tiers-muted);
 }
 
+/* ---------- the door ----------
+   The link to /pricing, after the movement note. Same grammar as the
+   watchdogs section's `.rw-lp-watch-pipeline-link` (gold text, underline on
+   hover, the arrow nudges), kept as its own class so the tiers section owns
+   its rule and the focus test can name it. */
+
+.rw-lp-tiers-door {
+  margin: 1.25rem 0 0;
+  text-align: center;
+}
+
+.rw-lp-tiers-pricing-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  /* 6px vertical padding lifts the ~19px line to a 24px+ target — the same
+     target-size trick the footer links use. */
+  padding: 0.375rem 0.125rem;
+  font-family: var(--rw-font-display);
+  font-weight: 300;
+  font-size: clamp(0.9375rem, 1.2vw, 1.0625rem);
+  color: var(--rw-lp-accent, #dcc489);
+  text-decoration: none;
+  border-radius: 2px;
+}
+
+.rw-lp-tiers-pricing-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.rw-lp-tiers-pricing-arrow {
+  transition: transform 200ms ease;
+}
+
+.rw-lp-tiers-pricing-link:hover .rw-lp-tiers-pricing-arrow {
+  transform: translateX(3px);
+}
+
+.rw-lp-tiers-pricing-link:focus-visible {
+  outline: 2px solid var(--rw-lp-accent);
+  outline-offset: 3px;
+}
+
 /* ---------- stacked below 720px ----------
    The gauge stays (it is compact enough for a phone), centred above the
    stacked modes; the modes hang from a short vertical travel line and the

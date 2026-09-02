@@ -61,7 +61,8 @@ type LeadIntakeFormProps = {
 };
 
 const DEFAULT_COPY = {
-  button: 'Join waitlist',
+  // The one early-access phrase, shared with every pill that leads to this form.
+  button: 'Get early access',
   loading: 'Joining...',
   successHeading: "You're on the waitlist.",
   successBody: "We'll reach out when early access opens for your area.",
@@ -69,15 +70,35 @@ const DEFAULT_COPY = {
 
 const HONEYPOT_FIELD_NAME = LEAD_INTAKE_HONEYPOT_FIELD;
 
+// The success card's one next step: the page the visitor has not read yet.
+// From /how-it-works that is pricing; from anywhere else it is how it works.
+const SUCCESS_NEXT_STEP: Record<LeadSource, { label: string; href: string }> = {
+  landing: { label: 'See how it works', href: '/how-it-works' },
+  features: { label: 'See how it works', href: '/how-it-works' },
+  'how-it-works': { label: 'See plans and pricing', href: '/pricing' },
+  'book-a-demo': { label: 'See how it works', href: '/how-it-works' },
+  pricing: { label: 'See how it works', href: '/how-it-works' },
+  unknown: { label: 'See how it works', href: '/how-it-works' },
+};
+
+// M17: the one field whose hint used to live in its placeholder, where it
+// vanished on focus. Now a visible line under the label, wired via
+// aria-describedby alongside any validation error.
+const MAPS_HINT = 'Paste your listing’s Google Maps link so we can look at your reviews before we reach out.';
+
 const TONE_STYLES = {
+  // `onTeal` is the dark-band tone. Every caller today mounts it on the Daylight
+  // ink CTA band (`.rw-dl-cta`, `--rw-ink2`), so the focus ring's offset is ink:
+  // a teal-strong offset drew a teal halo on a near-black surface.
   onTeal: {
     form: 'max-w-md mx-auto space-y-4',
     label: 'block text-sm font-medium text-white mb-1.5',
-    // Opaque white fields with ink text: typed values and placeholders clear AA on any
-    // dark band (white-on-translucent measured 3.5:1 on teal-strong, ~2:1 on teal).
-    // Labels, required marks and errors stay white on the band (≥5.4:1 on teal-strong).
+    hint: 'mb-1.5 -mt-0.5 text-sm text-white/80',
+    // Opaque white fields with ink text: typed values clear AA on any dark band
+    // (white-on-translucent measured 3.5:1 on teal-strong, ~2:1 on teal).
+    // Labels, hints, required marks and errors stay white on the band.
     input:
-      'w-full rounded-lg bg-white border border-white px-4 py-3 text-rw-ink placeholder-rw-ink-soft focus:outline-none focus:ring-2 focus:ring-rw-cream focus:ring-offset-2 focus:ring-offset-rw-teal-strong transition-all aria-[invalid=true]:border-rw-error aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-rw-error/50',
+      'w-full rounded-lg bg-white border border-white px-4 py-3 text-rw-ink placeholder-rw-ink-soft focus:outline-none focus:ring-2 focus:ring-rw-cream focus:ring-offset-2 focus:ring-offset-rw-ink2 transition-all aria-[invalid=true]:border-rw-error aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-rw-error/50',
     required: 'text-white',
     error: 'mt-1.5 text-sm font-medium text-white',
     button:
@@ -89,11 +110,14 @@ const TONE_STYLES = {
       'rounded-2xl bg-white/10 border border-white/30 p-8 text-center',
     successHeading: 'text-2xl text-white mb-2',
     successBody: 'text-white/90',
+    successLink:
+      'mt-6 inline-flex min-h-11 items-center gap-2 text-white underline underline-offset-4 decoration-white/50 hover:decoration-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-cream focus-visible:ring-offset-2 focus-visible:ring-offset-rw-ink2 rounded-sm',
     hoverShadow: '0 20px 40px rgba(0,0,0,0.2)',
   },
   light: {
     form: 'space-y-4',
     label: 'block text-sm font-medium text-rw-ink mb-1.5',
+    hint: 'mb-1.5 -mt-0.5 text-sm text-rw-ink-soft',
     input:
       'w-full rounded-lg bg-rw-cream/50 border border-rw-teal/30 px-4 py-3 text-rw-ink placeholder-rw-ink-soft focus:outline-none focus:ring-2 focus:ring-rw-teal-strong/40 transition-all text-sm aria-[invalid=true]:border-rw-error aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-rw-error/30',
     required: 'text-rw-error',
@@ -107,6 +131,8 @@ const TONE_STYLES = {
       'rounded-2xl bg-white border border-rw-teal/20 shadow-lg p-8 text-center',
     successHeading: 'text-2xl text-rw-ink font-medium mb-2',
     successBody: 'text-rw-ink-soft',
+    successLink:
+      'mt-6 inline-flex min-h-11 items-center gap-2 text-rw-teal-strong underline underline-offset-4 decoration-rw-teal-strong/40 hover:decoration-rw-teal-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-teal-strong focus-visible:ring-offset-2 rounded-sm',
     hoverShadow: '0 20px 40px rgba(151,179,174,0.3)',
   },
 };
@@ -183,6 +209,8 @@ export function LeadIntakeForm({
   const fieldId = (field: LeadIntakeField) => `${fieldPrefix}-${field}`;
   const errorId = (field: LeadIntakeField) => `${fieldId(field)}-error`;
   const formErrorId = `${fieldPrefix}-form-error`;
+  const mapsHintId = `${fieldId('googleMapsUrl')}-hint`;
+  const nextStep = SUCCESS_NEXT_STEP[source];
 
   // One ref holding a record of the input elements, populated via callback refs
   // below. Avoids reading ref `.current` during render (react-hooks/refs); the
@@ -264,6 +292,9 @@ export function LeadIntakeForm({
         >
           <h3 className={styles.successHeading}>{resolvedCopy.successHeading}</h3>
           <p className={styles.successBody}>{resolvedCopy.successBody}</p>
+          <Link href={nextStep.href} className={styles.successLink}>
+            {nextStep.label} <span aria-hidden="true">→</span>
+          </Link>
         </m.div>
       </LazyMotion>
     );
@@ -306,7 +337,6 @@ export function LeadIntakeForm({
             ref={(el) => { fieldRefs.current.name = el; }}
             id={fieldId('name')}
             type="text"
-            placeholder="Your name"
             value={name}
             onChange={(e) => dispatch({ type: 'setName', name: e.target.value })}
             disabled={isLoading}
@@ -327,7 +357,6 @@ export function LeadIntakeForm({
             ref={(el) => { fieldRefs.current.email = el; }}
             id={fieldId('email')}
             type="email"
-            placeholder="Email address"
             value={email}
             onChange={(e) => dispatch({ type: 'setEmail', email: e.target.value })}
             disabled={isLoading}
@@ -348,7 +377,6 @@ export function LeadIntakeForm({
             ref={(el) => { fieldRefs.current.businessName = el; }}
             id={fieldId('businessName')}
             type="text"
-            placeholder="Business name"
             value={businessName}
             onChange={(e) => dispatch({ type: 'setBusinessName', businessName: e.target.value })}
             disabled={isLoading}
@@ -365,18 +393,22 @@ export function LeadIntakeForm({
           <label htmlFor={fieldId('googleMapsUrl')} className={styles.label}>
             Google Maps link <span className="font-normal opacity-80">(optional)</span>
           </label>
+          <p id={mapsHintId} className={styles.hint}>{MAPS_HINT}</p>
           <input
             ref={(el) => { fieldRefs.current.googleMapsUrl = el; }}
             id={fieldId('googleMapsUrl')}
             type="url"
             inputMode="url"
-            placeholder="https://maps.google.com/... (helps us prep)"
+            placeholder="https://maps.google.com/…"
             value={googleMapsUrl}
             onChange={(e) => dispatch({ type: 'setGoogleMapsUrl', googleMapsUrl: e.target.value })}
             disabled={isLoading}
             className={styles.input}
             autoComplete="url"
             {...getLeadIntakeFieldErrorProps('googleMapsUrl', fieldErrors, errorId('googleMapsUrl'))}
+            aria-describedby={
+              fieldErrors.googleMapsUrl ? `${mapsHintId} ${errorId('googleMapsUrl')}` : mapsHintId
+            }
             name="googleMapsUrl"
           />
           {renderError('googleMapsUrl')}
@@ -409,11 +441,10 @@ export function LeadIntakeForm({
         </m.button>
 
         <p className={styles.consent}>
-          By joining you agree to our{' '}
+          We&apos;ll only use this to contact you about early access.{' '}
           <Link href="/legal/privacy" className={styles.consentLink}>
             Privacy Policy
           </Link>
-          .
         </p>
       </form>
     </LazyMotion>

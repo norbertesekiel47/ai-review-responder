@@ -149,6 +149,9 @@ export function AgentFlipCard({
   const toggle = useCallback(() => setFlipped((v) => !v), []);
 
   return (
+    // `aria-label` names the control, not its contents: without it the button's
+    // accessible name was both faces concatenated (~60 words per card). The
+    // faces stay in the DOM and readable as text; the name is the action.
     <button
       type="button"
       className="rw-lp-flip"
@@ -156,6 +159,7 @@ export function AgentFlipCard({
       data-status={status}
       data-tier={tier}
       aria-pressed={flipped}
+      aria-label={`${name}: show details`}
       onClick={canHover ? undefined : toggle}
     >
       <span className="rw-lp-flip-inner">

@@ -18,6 +18,9 @@ vi.mock('@/components/ui/PageShell', () => ({
 vi.mock('@/components/ui/SiteNav', () => ({
   SiteNav: () => createElement('nav', { 'data-testid': 'site-nav' }),
 }));
+vi.mock('@/components/ui/SiteFooter', () => ({
+  SiteFooter: () => createElement('footer', { 'data-testid': 'site-footer' }),
+}));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     createElement('a', { href, ...props }, children),
@@ -115,7 +118,8 @@ describe('DemoStatusIsland', () => {
       }),
     );
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /book a demo/i })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.getByRole('link', { name: 'Get early access' })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.queryByText(/book a demo/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to repworth/i })).toHaveAttribute('href', '/');
     act(() => {
       vi.advanceTimersByTime(15000);
@@ -131,7 +135,55 @@ describe('DemoStatusIsland', () => {
       }),
     );
     expect(screen.getByText(/this demo link has expired/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /book a demo/i })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.getByRole('link', { name: 'Get early access' })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.queryByText(/book a demo/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the site footer after main in every variant', () => {
+    for (const variant of ['loading', 'error', 'expired'] as const) {
+      const { container, unmount } = render(
+        createElement(DemoStatusIsland, { variant, selfServeEnabled: false }),
+      );
+      const main = container.querySelector('main#main-content');
+      const footer = screen.getByTestId('site-footer');
+      expect(main).not.toBeNull();
+      expect(footer.previousElementSibling).toBe(main);
+      unmount();
+    }
+  });
+
+  it('timed-out recovery labels its door "Get early access", not a demo booking', () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    render(createElement(DemoStatusIsland, { variant: 'loading', selfServeEnabled: false }));
+    act(() => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    expect(screen.getByRole('link', { name: 'Get early access' })).toHaveAttribute('href', '/book-a-demo');
+    expect(screen.queryByText(/book a demo/i)).not.toBeInTheDocument();
+  });
+
+  it('scopes the live region to the elapsed-time sentence, not the whole loading block', () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    render(
+      createElement(DemoStatusIsland, {
+        variant: 'loading',
+        businessName: "Joe's Coffee",
+        selfServeEnabled: false,
+      }),
+    );
+    const status = screen.getByRole('status');
+    // Present from the first render (so the change is announced) but empty,
+    // and it never contains the heading or the static copy.
+    expect(status).toHaveTextContent('');
+    expect(status).not.toContainElement(screen.getByRole('heading', { name: "Joe's Coffee" }));
+    expect(status).not.toHaveTextContent(/being generated/i);
+    act(() => {
+      vi.advanceTimersByTime(76_000);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(/Still working… 7\ds elapsed\./);
+    expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
   it('loading variant omits the business name heading when not provided', () => {

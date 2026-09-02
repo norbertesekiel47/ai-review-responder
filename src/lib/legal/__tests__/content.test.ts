@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { legalDocs } from '../content';
+import { formatLegalDate, legalDocs } from '../content';
+
+describe('formatLegalDate', () => {
+  it('says an ISO date the way a reader does (M23)', () => {
+    expect(formatLegalDate('2026-06-09')).toBe('9 June 2026');
+    expect(formatLegalDate('2026-12-31')).toBe('31 December 2026');
+    expect(formatLegalDate('2027-01-01')).toBe('1 January 2027');
+  });
+
+  it('returns anything that is not YYYY-MM-DD unchanged', () => {
+    expect(formatLegalDate('v2')).toBe('v2');
+    expect(formatLegalDate('2026-13-01')).toBe('2026-13-01');
+  });
+
+  it('formats every published effective date', () => {
+    for (const doc of Object.values(legalDocs)) {
+      expect(formatLegalDate(doc.effectiveDate)).toMatch(/^\d{1,2} [A-Z][a-z]+ \d{4}$/);
+    }
+  });
+});
 
 describe('legal content', () => {
   it('publishes material Terms sections on the route-backed typed document', () => {

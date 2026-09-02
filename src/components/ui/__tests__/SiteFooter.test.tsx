@@ -2,6 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SiteFooter } from '../SiteFooter';
+import { NAV_LINKS, PRODUCT_BLURB } from '../marketing-links';
+import { BLURB as LANDING_FOOTER_BLURB } from '@/components/sections/landing/footer/footer-copy';
 
 describe('SiteFooter', () => {
   it('renders the self-contained rw-foot footer with the dynamic copyright', () => {
@@ -19,6 +21,13 @@ describe('SiteFooter', () => {
     expect(html).toContain('href="/features"');
     expect(html).toContain('href="/pricing"');
     expect(html).toContain('href="/how-it-works"');
+  });
+
+  it('lists the Product column in the header-nav order', () => {
+    const html = renderToStaticMarkup(createElement(SiteFooter));
+    const product = html.slice(html.indexOf('aria-label="Product"'), html.indexOf('aria-label="Legal"'));
+    const hrefs = [...product.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    expect(hrefs).toEqual(NAV_LINKS.map((link) => link.href));
   });
 
   it('renders the full Legal column links', () => {
@@ -45,8 +54,17 @@ describe('SiteFooter', () => {
 
     expect(html).toContain('rw-foot-dl');
     expect(html).toContain('rw-foot-brand');
-    expect(html).toContain('with a gate you control');
+    expect(html).toContain('the gate you control');
     expect(html).toContain('rw-foot-copy');
+  });
+
+  it('describes the product with the same sentence as the landing footer, in the chrome noun', () => {
+    const html = renderToStaticMarkup(createElement(SiteFooter));
+    expect(html).toContain(PRODUCT_BLURB);
+    expect(LANDING_FOOTER_BLURB).toBe(PRODUCT_BLURB);
+    // "Fleet" is landing voice; the chrome says "team".
+    expect(PRODUCT_BLURB).not.toMatch(/fleet/i);
+    expect(PRODUCT_BLURB).toMatch(/team of AI agents/);
   });
 
   it('uses no legacy teal utilities or raw hex colours', () => {

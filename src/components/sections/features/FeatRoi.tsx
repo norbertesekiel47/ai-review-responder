@@ -4,11 +4,16 @@ import { type RefObject } from 'react';
 import { cn } from '@/lib/ui/cn';
 import { FeatIntro } from './FeatIntro';
 import { useReveal } from '@/hooks/useReveal';
+import { MINUTES_SAVED_PER_RESPONSE } from '@/lib/dashboard/constants';
 
+// The dashboard's tiles as chrome: each names a metric and what it measures,
+// with no figure in it. No customer data exists to quote (PRODUCT.md "Evidence
+// on Hand"), and the earlier before → after pairs (12% → 96%, 4.1 → 4.6,
+// #14 → #3) were invented numbers styled as measured KPIs.
 const ROI_TILES = [
-  { label: 'Response rate', before: '12%', after: '96', afterUnit: '%', bar: 'var(--rw-teal-bar)' },
-  { label: 'Avg rating', before: '4.1', after: '4.6', afterUnit: '★', bar: 'var(--rw-sage-bar)' },
-  { label: 'Local map rank', before: '#14', after: '#3', afterUnit: '', bar: 'var(--rw-mist-bar)' },
+  { label: 'Response rate', desc: 'Before RepWorth and after, on your own reviews.', bar: 'var(--rw-teal-bar)' },
+  { label: 'Average rating', desc: 'Over time, from your Google listing.', bar: 'var(--rw-sage-bar)' },
+  { label: 'Local map rank', desc: 'Where you sit for the search terms we track for you.', bar: 'var(--rw-mist-bar)' },
 ];
 
 /* ================== 09 ROI (wide chapter) ================== */
@@ -29,7 +34,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
               <>
                 Response rate before and after. Your average rating over time. Estimated time saved.
                 Where you sit on the local map for the search terms we track for you.
-                <span className="feat-roi-note"> Sample dashboard with illustrative numbers. Yours shows your own.</span>
+                <span className="feat-roi-note"> No sample numbers here: the tiles fill with your own.</span>
               </>
             }
           />
@@ -38,16 +43,7 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
             {ROI_TILES.map((t) => (
               <div key={t.label} className="feat-roi-tile" style={{ ['--bar' as string]: t.bar }}>
                 <div className="feat-roi-lbl">{t.label}</div>
-                <div className="feat-roi-nums">
-                  <span className="feat-roi-before">{t.before}</span>
-                  <svg className="feat-roi-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                  <span className="feat-roi-after">
-                    {t.after}
-                    {t.afterUnit && <small>{t.afterUnit}</small>}
-                  </span>
-                </div>
+                <p className="feat-roi-sub">{t.desc}</p>
               </div>
             ))}
 
@@ -55,14 +51,13 @@ export function FeatRoi({ innerRef }: { innerRef: RefObject<HTMLElement | null> 
               <div>
                 <div className="feat-roi-lbl">Time saved · estimate</div>
                 <p className="feat-roi-sub">
-                  About 7 minutes per handled review, shown on your dashboard and in the weekly
-                  brief.
+                  About {MINUTES_SAVED_PER_RESPONSE} minutes per handled review, shown on your dashboard
+                  and in the weekly brief.
                 </p>
               </div>
-              <div className="feat-roi-nums">
-                <span className="feat-roi-after">1.6<small> hrs</small></span>
-                <span className="feat-roi-meta">this week · 14 reviews</span>
-              </div>
+              {/* The formula, not a sample total: the product's own constant,
+                  so the copy cannot drift from what the dashboard computes. */}
+              <span className="feat-roi-meta">handled reviews × {MINUTES_SAVED_PER_RESPONSE} min</span>
             </div>
 
             <div className="feat-roi-map">

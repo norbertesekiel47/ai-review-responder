@@ -26,7 +26,7 @@ export function FeedbackThanksContent() {
         <span className="text-sm tracking-wider uppercase text-rw-teal-strong">RepWorth</span>
       </div>
 
-      <m.div className="px-8 pb-12 pt-6 text-center" role="status" {...entryReveal}>
+      <m.div className="px-8 pb-12 pt-6 text-center" {...entryReveal}>
         <div
           className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full bg-rw-teal-strong/15"
           aria-hidden="true"
@@ -37,7 +37,9 @@ export function FeedbackThanksContent() {
         </div>
 
         <h1 className="mb-3 text-3xl font-medium text-rw-ink">Thank you</h1>
-        <p className="mb-8 leading-relaxed text-rw-ink-soft">
+        {/* The live region is the one sentence that confirms the outcome — not the
+            block with the h1, which made the whole page body a status region. */}
+        <p role="status" className="mb-8 leading-relaxed text-rw-ink-soft">
           Your feedback has been recorded. It goes straight to the team that builds RepWorth.
         </p>
 
