@@ -528,7 +528,15 @@ describe('RestraintReport', () => {
         .map((node) => node.textContent ?? '')
         .join('')
         .trim(),
-      children: [...li.children].map((el) => ({
+      // EVERY DESCENDANT, not just direct children. The branch had two
+      // attribute-reading assertions and their gaps intersected: this map read
+      // name AND value but only one level deep, while the loop below read
+      // descendant-wide but names only. Neither covered a descendant carrying
+      // an ALLOWED name with an arbitrary value — an `<i aria-label={subjectType} />`
+      // nested inside the <time> (red team F52). Walking descendants closes
+      // name, value and depth in one place, and any nested element also shows
+      // up here as an extra entry.
+      elements: [...li.querySelectorAll('*')].map((el) => ({
         tag: el.tagName,
         text: el.textContent,
         attrs: attrs(el),
@@ -572,19 +580,19 @@ describe('RestraintReport', () => {
       {
         attrs: { class: 'rst-row' },
         strayText: '',
-        children: [timeChild, link('See the review', `/dashboard/reviews/${REVIEW_ID}/timeline`)],
+        elements: [timeChild, link('See the review', `/dashboard/reviews/${REVIEW_ID}/timeline`)],
       },
       // below_our_bar: no link, so a time alone. The shape a leak hid behind.
-      { attrs: { class: 'rst-row' }, strayText: '', children: [timeChild] },
+      { attrs: { class: 'rst-row' }, strayText: '', elements: [timeChild] },
       {
         attrs: { class: 'rst-row' },
         strayText: '',
-        children: [timeChild, link('See your contacts', '/dashboard/requests/contacts')],
+        elements: [timeChild, link('See your contacts', '/dashboard/requests/contacts')],
       },
       {
         attrs: { class: 'rst-row' },
         strayText: '',
-        children: [timeChild, link('Automatic posting settings', '/settings/auto-approval')],
+        elements: [timeChild, link('Automatic posting settings', '/settings/auto-approval')],
       },
     ]);
   });
