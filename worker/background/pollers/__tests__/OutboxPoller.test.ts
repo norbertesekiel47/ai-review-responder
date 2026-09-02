@@ -6,7 +6,8 @@ const {
   txReturnQueue,
   mockSql,
   mockTx,
-  mockQueueAdd,
+  mockQueueAddBulk,
+  mockQueueAddBulkPublish,
   mockCaptureMessage,
   mockAddBreadcrumb,
 } = vi.hoisted(() => {
@@ -24,7 +25,8 @@ const {
     txReturnQueue,
     mockSql,
     mockTx,
-    mockQueueAdd: vi.fn(),
+    mockQueueAddBulk: vi.fn(),
+    mockQueueAddBulkPublish: vi.fn(),
     mockCaptureMessage: vi.fn(),
     mockAddBreadcrumb: vi.fn(),
   };
@@ -32,7 +34,10 @@ const {
 
 vi.mock('../../../../src/lib/db/server', () => ({ sql: mockSql, jsonb: (v: unknown) => v }));
 vi.mock('../../../queues', () => ({
-  topicToQueue: { send_notification: { add: mockQueueAdd } },
+  topicToQueue: {
+    send_notification: { addBulk: mockQueueAddBulk },
+    publish_response: { addBulk: mockQueueAddBulkPublish },
+  },
 }));
 vi.mock('@sentry/node', () => ({
   captureMessage: mockCaptureMessage,
@@ -51,6 +56,8 @@ function sqlText(call: unknown[]): string {
 function findSql(calls: unknown[][], ...needles: string[]): unknown[] | undefined {
   return calls.find((c) => needles.every((n) => sqlText(c).includes(n)));
 }
+type BulkJob = { name: string; data: Record<string, unknown>; opts: { jobId: string } };
+
 function outboxEntry(overrides: Record<string, unknown> = {}) {
   return {
     id: 'out-1',
@@ -130,7 +137,7 @@ describe('OutboxPoller.pollOutbox', () => {
     await pollOutbox();
 
     expect(errorSpy).toHaveBeenCalled();
-    expect(mockQueueAdd).toHaveBeenCalledOnce(); // dispatch still happened
+    expect(mockQueueAddBulk).toHaveBeenCalledOnce(); // dispatch still happened
   });
 
   // ── Phase 2 + 3: dispatch ──
@@ -138,15 +145,13 @@ describe('OutboxPoller.pollOutbox', () => {
     sqlReturnQueue.push([outboxEntry()]); // claim
     await pollOutbox();
 
-    expect(mockQueueAdd).toHaveBeenCalledOnce();
-    const [topicArg, payloadArg, optsArg] = mockQueueAdd.mock.calls[0] as [
-      string,
-      Record<string, unknown>,
-      { jobId: string },
-    ];
-    expect(topicArg).toBe('send_notification');
-    expect(payloadArg).toEqual({ response_id: 'resp-1', outbox_id: 'out-1', outbox_attempt: 1 });
-    expect(optsArg).toEqual({ jobId: 'out-1_1' });
+    expect(mockQueueAddBulk).toHaveBeenCalledOnce();
+    const [jobs] = mockQueueAddBulk.mock.calls[0] as [BulkJob[]];
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.name).toBe('send_notification');
+    expect(jobs[0]?.data).toEqual({ response_id: 'resp-1', outbox_id: 'out-1', outbox_attempt: 1 });
+    // jobId shape is unchanged by bulk dispatch: `${outbox_id}_${attempt}`.
+    expect(jobs[0]?.opts).toEqual({ jobId: 'out-1_1' });
 
     // Pin the optimistic-lock guard: the dispatched update must scope to the
     // claimed row's dispatching state + attempt, not blindly set 'dispatched'.
@@ -162,16 +167,16 @@ describe('OutboxPoller.pollOutbox', () => {
   it('returns without dispatching when no pending rows are claimed', async () => {
     sqlReturnQueue.push([]); // empty claim
     await pollOutbox();
-    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockQueueAddBulk).not.toHaveBeenCalled();
   });
 
   it('parses a JSON-string payload into an object before enqueueing', async () => {
     sqlReturnQueue.push([outboxEntry({ payload: JSON.stringify({ response_id: 'resp-1' }) })]);
     await pollOutbox();
 
-    const payloadArg = (mockQueueAdd.mock.calls[0] as unknown[])[1];
-    expect(payloadArg).toEqual({ response_id: 'resp-1', outbox_id: 'out-1', outbox_attempt: 1 });
-    expect(typeof payloadArg).toBe('object');
+    const [jobs] = mockQueueAddBulk.mock.calls[0] as [BulkJob[]];
+    expect(jobs[0]?.data).toEqual({ response_id: 'resp-1', outbox_id: 'out-1', outbox_attempt: 1 });
+    expect(typeof jobs[0]?.data).toBe('object');
   });
 
   // ── Unknown topic ──
@@ -179,7 +184,7 @@ describe('OutboxPoller.pollOutbox', () => {
     sqlReturnQueue.push([outboxEntry({ topic: 'bogus_topic' })]);
     await pollOutbox();
 
-    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockQueueAddBulk).not.toHaveBeenCalled();
     expect(mockCaptureMessage).toHaveBeenCalledOnce();
     expect(String((mockCaptureMessage.mock.calls[0] as unknown[])[0])).toContain('Unknown topic');
 
@@ -190,7 +195,7 @@ describe('OutboxPoller.pollOutbox', () => {
 
   // ── Attempt-guard / dead-letter on dispatch failure ──
   it('resets the row to pending when enqueue fails and attempts remain', async () => {
-    mockQueueAdd.mockRejectedValueOnce(new Error('redis down'));
+    mockQueueAddBulk.mockRejectedValueOnce(new Error('redis down'));
     sqlReturnQueue.push([outboxEntry({ attempts: 1, max_attempts: 5 })]);
     await pollOutbox();
 
@@ -201,7 +206,7 @@ describe('OutboxPoller.pollOutbox', () => {
   });
 
   it('dead-letters the row to failed when enqueue fails and attempts are exhausted', async () => {
-    mockQueueAdd.mockRejectedValueOnce(new Error('redis down'));
+    mockQueueAddBulk.mockRejectedValueOnce(new Error('redis down'));
     sqlReturnQueue.push([outboxEntry({ attempts: 5, max_attempts: 5 })]);
     await pollOutbox();
 
@@ -217,7 +222,7 @@ describe('OutboxPoller.pollOutbox', () => {
     try {
       // queue.add never settles — without the dispatch timeout this would hang
       // the whole cycle forever (ioredis offline queue, maxRetriesPerRequest:null).
-      mockQueueAdd.mockReturnValueOnce(new Promise(() => {}));
+      mockQueueAddBulk.mockReturnValueOnce(new Promise(() => {}));
       sqlReturnQueue.push([outboxEntry({ attempts: 1, max_attempts: 5 })]); // claim
 
       const p = pollOutbox();
@@ -244,7 +249,7 @@ describe('OutboxPoller.pollOutbox', () => {
 
       // Before the deadline, a fresh tick is a no-op (overlap guard holds).
       await pollOutbox();
-      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockQueueAddBulk).not.toHaveBeenCalled();
 
       // Past the deadline (default max cycle = 4× 30s interval = 120s), a new
       // cycle supersedes the wedged one and dispatches normally.
@@ -252,7 +257,7 @@ describe('OutboxPoller.pollOutbox', () => {
       sqlReturnQueue.push([outboxEntry()]); // fresh cycle's claim
       await pollOutbox();
 
-      expect(mockQueueAdd).toHaveBeenCalledOnce();
+      expect(mockQueueAddBulk).toHaveBeenCalledOnce();
       const stallLog = errorSpy.mock.calls.find(
         (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('exceeded max duration'),
       );
@@ -260,5 +265,160 @@ describe('OutboxPoller.pollOutbox', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── Bulk dispatch (one Redis round trip per topic group, one UPDATE per group) ──
+  describe('bulk dispatch', () => {
+    it('calls addBulk once per topic group with every id of that group, then one dispatched UPDATE per group', async () => {
+      sqlReturnQueue.push([
+        outboxEntry({ id: 'n-1' }),
+        outboxEntry({ id: 'p-1', topic: 'publish_response', payload: { response_id: 'r-9' } }),
+        outboxEntry({ id: 'n-2', attempts: 2 }),
+      ]);
+      await pollOutbox();
+
+      expect(mockQueueAddBulk).toHaveBeenCalledOnce();
+      expect(mockQueueAddBulkPublish).toHaveBeenCalledOnce();
+      const [notifJobs] = mockQueueAddBulk.mock.calls[0] as [BulkJob[]];
+      const [publishJobs] = mockQueueAddBulkPublish.mock.calls[0] as [BulkJob[]];
+      expect(notifJobs.map((j) => j.opts.jobId)).toEqual(['n-1_1', 'n-2_2']);
+      expect(publishJobs.map((j) => j.opts.jobId)).toEqual(['p-1_1']);
+      expect(publishJobs[0]?.data).toEqual({ response_id: 'r-9', outbox_id: 'p-1', outbox_attempt: 1 });
+
+      // One attempt-scoped bulk UPDATE per group (2 groups → 2), paired via
+      // unnest(ids, attempts) so a stale cycle cannot overwrite a re-claimed row.
+      const dispatchedUpdates = mockSql.mock.calls.filter(
+        (c: unknown[]) => sqlText(c).includes("status = 'dispatched'") && sqlText(c).includes('unnest('),
+      );
+      expect(dispatchedUpdates).toHaveLength(2);
+      const notifUpdate = dispatchedUpdates.find((c: unknown[]) =>
+        (c[1] as string[]).includes('n-1'),
+      ) as unknown[];
+      expect(notifUpdate[1]).toEqual(['n-1', 'n-2']);
+      expect(notifUpdate[2]).toEqual([1, 2]);
+      expect(sqlText(notifUpdate)).toContain("status = 'dispatching'");
+      expect(sqlText(notifUpdate)).toContain('attempts = claimed.attempts');
+    });
+
+    it('on a bulk failure re-pends the whole group (all-or-nothing) with the error, attempt-scoped', async () => {
+      mockQueueAddBulk.mockRejectedValueOnce(new Error('redis down'));
+      sqlReturnQueue.push([
+        outboxEntry({ id: 'n-1', attempts: 1 }),
+        outboxEntry({ id: 'n-2', attempts: 3 }),
+      ]);
+      await pollOutbox();
+
+      const pendingReset = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error', 'unnest(');
+      expect(pendingReset).toBeDefined();
+      expect(String((pendingReset as unknown[])[1])).toBe('redis down');
+      expect((pendingReset as unknown[])[2]).toEqual(['n-1', 'n-2']);
+      expect((pendingReset as unknown[])[3]).toEqual([1, 3]);
+      expect(findSql(mockSql.mock.calls, "status = 'failed'", 'last_error')).toBeUndefined();
+    });
+
+    it('splits a failed group by attempt budget: exhausted rows dead-letter, the rest re-pend', async () => {
+      mockQueueAddBulk.mockRejectedValueOnce(new Error('redis down'));
+      sqlReturnQueue.push([
+        outboxEntry({ id: 'n-1', attempts: 5, max_attempts: 5 }),
+        outboxEntry({ id: 'n-2', attempts: 2, max_attempts: 5 }),
+      ]);
+      await pollOutbox();
+
+      const failed = findSql(mockSql.mock.calls, "status = 'failed'", 'last_error') as unknown[];
+      const pending = findSql(mockSql.mock.calls, "status = 'pending'", 'last_error') as unknown[];
+      expect(failed[2]).toEqual(['n-1']);
+      expect(pending[2]).toEqual(['n-2']);
+    });
+
+    it('a bulk failure in one topic group does not stop the next group from dispatching', async () => {
+      mockQueueAddBulk.mockRejectedValueOnce(new Error('redis down'));
+      sqlReturnQueue.push([
+        outboxEntry({ id: 'n-1' }),
+        outboxEntry({ id: 'p-1', topic: 'publish_response' }),
+      ]);
+      await pollOutbox();
+
+      expect(mockQueueAddBulkPublish).toHaveBeenCalledOnce();
+      const dispatched = findSql(mockSql.mock.calls, "status = 'dispatched'", 'unnest(') as unknown[];
+      expect(dispatched[1]).toEqual(['p-1']);
+    });
+
+    it('an unknown-topic row is failed individually and excluded from the bulk group', async () => {
+      sqlReturnQueue.push([
+        outboxEntry({ id: 'n-1' }),
+        outboxEntry({ id: 'x-1', topic: 'bogus_topic' }),
+      ]);
+      await pollOutbox();
+
+      const [jobs] = mockQueueAddBulk.mock.calls[0] as [BulkJob[]];
+      expect(jobs.map((j) => j.opts.jobId)).toEqual(['n-1_1']);
+      expect(mockCaptureMessage).toHaveBeenCalledOnce();
+    });
+  });
+
+  // ── Drain loop (re-claim inside the tick while batches come back full) ──
+  describe('drain loop', () => {
+    const batch = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => outboxEntry({ id: `${prefix}-${i}` }));
+    // The sql mock shifts one queued result per sql() call, and each claimed
+    // batch (one topic group here) is followed by exactly one bulk
+    // `dispatched` UPDATE — so every claim result is followed by its UPDATE result.
+    const queueBatch = (prefix: string, n: number) => {
+      sqlReturnQueue.push(batch(prefix, n));
+      sqlReturnQueue.push([]); // the group's dispatched UPDATE
+    };
+
+    it('re-claims after a FULL batch and stops on the first short batch', async () => {
+      queueBatch('a', 50); // full (default OUTBOX_BATCH_SIZE = 50)
+      queueBatch('b', 50); // full
+      queueBatch('c', 7); // short → stop
+      queueBatch('d', 50); // must never be claimed this tick
+      await pollOutbox();
+
+      const claims = mockSql.mock.calls.filter((c: unknown[]) => sqlText(c).includes('FOR UPDATE SKIP LOCKED'));
+      expect(claims).toHaveLength(3);
+      expect(mockQueueAddBulk).toHaveBeenCalledTimes(3);
+      const sizes = mockQueueAddBulk.mock.calls.map((c: unknown[]) => (c[0] as BulkJob[]).length);
+      expect(sizes).toEqual([50, 50, 7]);
+      expect(sqlReturnQueue).toHaveLength(2); // the 'd' batch (+ its UPDATE) was left for the next tick
+    });
+
+    it('does not re-claim when the first batch is already short', async () => {
+      queueBatch('a', 3);
+      queueBatch('b', 50);
+      await pollOutbox();
+
+      const claims = mockSql.mock.calls.filter((c: unknown[]) => sqlText(c).includes('FOR UPDATE SKIP LOCKED'));
+      expect(claims).toHaveLength(1);
+      expect(sqlReturnQueue).toHaveLength(2);
+    });
+
+    it('stops re-claiming once the drain budget is spent even though the batch was full', async () => {
+      vi.useFakeTimers();
+      try {
+        queueBatch('a', 50);
+        queueBatch('b', 50);
+        queueBatch('c', 50); // must not be claimed: budget spent after 'b'
+        // Each addBulk consumes 2.5s of fake time, so after two full batches the
+        // 4s default OUTBOX_DRAIN_BUDGET_MS is exceeded.
+        mockQueueAddBulk.mockImplementation(async () => {
+          await vi.advanceTimersByTimeAsync(2_500);
+          return [];
+        });
+
+        await pollOutbox();
+
+        const claims = mockSql.mock.calls.filter((c: unknown[]) => sqlText(c).includes('FOR UPDATE SKIP LOCKED'));
+        expect(claims).toHaveLength(2);
+        expect(sqlReturnQueue).toHaveLength(2);
+        const budgetLog = logSpy.mock.calls.find(
+          (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('Drain budget spent'),
+        );
+        expect(budgetLog).toBeDefined();
+      } finally {
+        mockQueueAddBulk.mockReset();
+        vi.useRealTimers();
+      }
+    });
   });
 });
