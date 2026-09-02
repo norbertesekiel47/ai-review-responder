@@ -239,6 +239,18 @@ describe('RestraintContent', () => {
     });
     expect(urls[1]).toContain('scope=b1111111-1111-1111-1111-111111111111');
     expect(urls[1]).toContain('window=30d');
+
+    // A SECOND location, because account-vs-location is not the whole key. A
+    // component that answered "am I aggregate?" and stopped would collapse every
+    // location onto one cache key, so switching between two locations would show
+    // the first one's answer (red team F43).
+    scopeState.current = 'b2222222-2222-2222-2222-222222222222';
+    rerenderTree();
+
+    await waitFor(() => {
+      expect(urls).toHaveLength(3);
+    });
+    expect(urls[2]).toContain('scope=b2222222-2222-2222-2222-222222222222');
   });
 
   it('RestraintContent renders the shared dashboard state panel while loading', async () => {
@@ -333,6 +345,13 @@ describe('RestraintContent', () => {
       renderContent();
 
       expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+      // THE MESSAGE, not just the card. The heading renders for ANY error, so a
+      // guard that threw a raw TypeError instead of REJECTING passed all 32
+      // sweep rows (red team F44). The sentence is what says we rejected it.
+      await waitFor(() => {
+        expect(screen.getByRole('alert'))
+          .toHaveTextContent('Your restraint record came back incomplete');
+      });
     },
   );
 
@@ -360,6 +379,10 @@ describe('RestraintContent', () => {
     renderContent();
 
     expect(await screen.findByText('Unable to load your restraint record')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('alert'))
+        .toHaveTextContent('Your restraint record came back incomplete');
+    });
   });
 
   // THE NULL ARMS, which nothing exercised because the fixture carries no null
@@ -415,6 +438,23 @@ describe('RestraintContent', () => {
       expect(screen.getByRole('alert'))
         .toHaveTextContent('Your restraint record came back incomplete');
     });
+  });
+
+  // EVERY category the vocabulary admits, accepted. Narrowing
+  // `REFUSAL_CATEGORY_NAMES` rejects a legal payload — the over-restrictive
+  // direction the wrong-type rows cannot see, and the same shape as the
+  // `linkKind` arms. Round 6 left this one excluded on scope; this closes it.
+  it.each([
+    'unsafe_content', 'watchdog_unavailable', 'below_our_bar', 'no_permission',
+    'wrong_moment', 'autonomy_paused', 'missing_information', 'owner_review_required',
+  ])('ACCEPTS a category of %s', async (category) => {
+    vi.stubGlobal('fetch', jsonFetch({
+      ...PAYLOAD,
+      entries: [{ ...PAYLOAD.entries[0], category, linkKind: null }],
+    }));
+    renderContent();
+
+    expect(await screen.findByText('What we held back')).toBeInTheDocument();
   });
 
   it('ACCEPTS the legal nulls the DTO is built to carry', async () => {

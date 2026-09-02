@@ -278,17 +278,6 @@ describe('RestraintReport', () => {
     // so a bullet or a wrapper reddened it with no behaviour change — the shape
     // F21 was raised about (red team F33). This closes the set the same way and
     // says nothing about whitespace.
-    // EVERY row, not the first. A leak on the no-link row survived, and the
-    // two-row fixture below renders exactly that shape (red team F42).
-    for (const anyRow of container.querySelectorAll('.rst-row')) {
-      const stray = [...anyRow.childNodes]
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .map((node) => node.textContent ?? '')
-        .join('');
-      expect(stray.trim()).toBe('');
-    }
-    // The ATTRIBUTE channel too: `textContent` cannot see a subject id carried
-    // in a `title`, a `data-` attribute or an `aria-label`.
     expect(container.innerHTML).not.toContain(RESPONSE_ID);
 
     const row = container.querySelector('.rst-row');
@@ -515,6 +504,48 @@ describe('RestraintReport', () => {
     expect(plain[0]?.className).toBe('rst-note');
   });
 
+  it('leaks nothing on a row that carries no link, and no attribute channel', () => {
+    // THE ROW SHAPES THAT DIFFER. The previous sweep was added to the
+    // single-row redaction case, whose one row always links, so a leak on a
+    // NO-LINK row survived it (red team F42) — the diagnosis was right and the
+    // remedy landed in the wrong test. This fixture renders both shapes.
+    // `subjectType` is set on BOTH rows: a channel that renders it only when
+    // present is invisible against the helper's `?? null` default.
+    const { container } = renderReport(logWith([
+      { category: 'unsafe_content', subjectType: 'response', subjectId: RESPONSE_ID, reviewId: REVIEW_ID, linkKind: 'review' },
+      { category: 'below_our_bar', subjectType: 'response', subjectId: RESPONSE_ID, linkKind: null },
+    ]));
+
+    const rows = [...container.querySelectorAll('.rst-row')];
+    expect(rows).toHaveLength(2);
+
+    // THE WHOLE SHAPE of each row, closed three ways. Text nodes alone missed a
+    // leak wrapped in a new empty element; an attribute allowlist alone missed
+    // the same; and `not.toContain(RESPONSE_ID)` is bound to the one value the
+    // fixture happens to use rather than to a contract (red team F42).
+    const allowed = new Set(['class', 'datetime', 'data-testid', 'href', 'aria-label']);
+    const expectedTags = [['TIME', 'A'], ['TIME']];
+    for (const [index, anyRow] of rows.entries()) {
+      // 1. ELEMENT children: exactly the tags this row shape emits. A linking
+      //    row is a time plus an anchor; a row with no link is a time alone.
+      expect([...anyRow.children].map((el) => el.tagName)).toEqual(expectedTags[index]);
+      // 2. TEXT children of the row: all blank.
+      const stray = [...anyRow.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? '')
+        .join('');
+      expect(stray.trim()).toBe('');
+      // 3. ATTRIBUTES, by NAME, on the row and every descendant — so a new
+      //    `data-` channel fails whatever value it carries.
+      expect([...anyRow.attributes].map((a) => a.name)).toEqual(['class']);
+      for (const child of anyRow.querySelectorAll('*')) {
+        for (const attribute of child.attributes) {
+          expect(allowed, `unexpected attribute ${attribute.name}`).toContain(attribute.name);
+        }
+      }
+    }
+  });
+
   it('exposes the summary as a named region landmark', () => {
     renderReport(logWith([{ category: 'unsafe_content' }]));
 
@@ -542,9 +573,13 @@ describe('RestraintReport', () => {
     expect(screen.getByRole('region', { name: 'What we held back' })).toBeInTheDocument();
     // Each category section is named by its own heading, so the two groups are
     // distinguishable to a screen reader rather than three identical regions.
-    const groupHeadings = screen.getAllByRole('heading', { level: 2 })
-      .map((h) => h.textContent);
-    expect(new Set(groupHeadings).size).toBe(groupHeadings.length);
+    // THE STRINGS, not merely their distinctness. Swapping two CATEGORY_HEADING
+    // values keeps them distinct and no restraint test read one (red team F45),
+    // so the owner could be told a held draft was "No permission to contact".
+    // The summary's own heading leads the list, so this pins the whole level-2
+    // outline in document order — one more thing a swap would disturb.
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent))
+      .toEqual(['What we held back', 'Not safe to send', 'No permission to contact']);
   });
 
   it('uses singular phrasing for a single archived location', () => {
