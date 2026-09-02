@@ -417,3 +417,61 @@ with a row each, no stale rows. The re-check this entry promised was performed:
 either. The two rows the plan was RIGHT about both landed — `read.ts` in T2 and
 `refusals/route.ts` in T5 — and T2 also repaired the section intro, which still
 said "the READ half is #1014 and lives nowhere yet".
+
+---
+
+## D9 — the plan's ship order prescribes a staging ride; this branch skips it
+
+**The plan says (§"Ship order (step 8) — RISK=high", step 2-3):** realign
+`staging` first, then push the branch to `staging` and verify the tab end to end
+on the staging stack.
+
+**What happened instead:** the branch goes straight to a PR against `main`. No
+`staging` push, no `staging` reset.
+
+**Why.** `CLAUDE.md` triggers a staging ride for a change touching the **worker**,
+a **webhook**, a **migration**, or **billing**. This branch touches none of them —
+`git diff --name-only` over the whole branch returns no path under `worker/` or
+`supabase/migrations/`, and nothing billing- or ingress-related. Migration 116 is
+already on both Supabase projects, so there is nothing to promote in lockstep.
+The plan chose a ride because the run is RISK=high, which is stricter than the
+standing rule rather than required by it.
+
+**What the ride would have cost.** `staging` is a disposable integration anchor
+and is currently **7 commits ahead of `main` and 1 behind** — the plan's recorded
+figures (`5358bd82`, 8 ahead, 25 behind) are stale and were re-measured rather
+than trusted. Riding a diverged tip proves nothing, so a ride implies
+`git reset --hard origin/main` plus `--force-with-lease`, discarding those 7
+commits. That is a destructive, outward-facing action taken to prove a UI-and-read
+change that a per-PR preview deploy already renders.
+
+**Owner decision 2026-09-02: skip the ride, go straight to PR.** Recorded here
+rather than left as an unexplained departure from the plan's own ship order.
+
+**Verdict: ACCEPT.**
+
+---
+
+## D10 — the red-team sidecar is stale against HEAD, and the phase does not claim otherwise
+
+**The facts, in order.** The tenth and final red-team pass returned `CLEAR` at
+`6b90d6b9`; the report and sidecar were committed at `98cdbf7c`; the branch then
+merged `origin/main` (7 commits) at `8cfc03ae`, and the full gate is GREEN there.
+
+`red-team-status.mjs` now reports one issue: *"the tree moved since 6b90d6b9
+outside this run's own two artifacts"*. That is correct and expected — the rule
+fires on any commit, and a merge is one.
+
+**Why the evidence is nonetheless sound.** `git diff --name-only 98cdbf7c HEAD`
+lists 38 files and **not one of them is owned by this branch** — no `refusals`,
+no `restraint`, no `dashboard/analytics` path appears. The merge brought main's
+own reviewed work; it changed nothing the red-team pass measured.
+
+**What was deliberately NOT done.** The phase was left at `gate_green` rather than
+forced back to `reviewed`. Stamping `reviewed` over a failing checker would be
+precisely the class of false claim this branch's own red-team record spends ten
+passes correcting. The `reviewed` transition happened, is recorded, and was valid
+at `98cdbf7c`; anyone needing a green checker at the merged HEAD must re-run the
+pass, and this entry is the reason they would.
+
+**Verdict: ACCEPT.**

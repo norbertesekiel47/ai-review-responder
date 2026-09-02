@@ -1,8 +1,7 @@
 # feat/1014-restraint-tab — handoff
 
 A resumed session bootstraps from THIS file, then the paths it names. It never
-needs the prior transcript. Nothing below is restated from another file; every
-row is a pointer.
+needs the prior transcript. Every row is a pointer, not a restatement.
 
 **Resume with:** `/feature-resume feat/1014-restraint-tab`
 
@@ -14,30 +13,33 @@ row is a pointer.
 |---|---|
 | Worktree | `/Users/norbertesekiel/Developer/startups/RepWorth-worktrees/feat-1014-restraint-tab` |
 | Branch | `feat/1014-restraint-tab` |
-| Fork point | `b55b0782` — main was taken and merged at `3716d253` BEFORE the wave opened |
-| HEAD at this handoff | `a818e7ec` (this doc's own commit moves it by one — re-derive) |
+| Fork point | `b55b0782`; `origin/main` merged at `8cfc03ae` — **0 behind** |
 | Classification | `size=standard · risk=high · surface=ui` |
-| Phase | **`gate_green` — steps 0–5 DONE, step 6 review triage DONE, step 7.5 is next** |
-| Gate | **GREEN**, `lastGreenGateSha = a818e7ec`, fingerprint current |
-| Main drift | 0 at time of writing |
-| Amendments | **2 of 2 — SPENT.** A third needs a new owner sign-off and the tooling refuses without one. |
+| Phase | **`gate_green`** — steps 0–7.5 DONE. See the warning below on why it is not `reviewed`. |
+| Gate | **GREEN** at the merged HEAD, 33 rows, zero failures |
+| Red team | **`CLEAR`** — 10 passes, 53 findings, 51 fixed, 2 rejected, **0 open** |
+| Amendments | **2 of 2 — SPENT.** A third needs new owner sign-off; the tooling refuses without one. |
 | Plan review rounds | 3 of 3 — spent |
 | Tracers | 8 of 8 done |
+| Next external action | **open the PR to `main`** (owner approved 2026-09-02; staging ride skipped, see D9) |
 
-## ⚠ THE ONE THING BLOCKING THE TRANSITION
+## ⚠ READ THIS BEFORE TRUSTING THE PHASE
 
-`node .agents/skills/feature/scripts/red-team-status.mjs` exits non-zero:
-status `OPEN_P0`, with F5–F8 recorded as open P1s.
+`red-team-status.mjs` FAILS at HEAD with one issue: *"the tree moved since
+`6b90d6b9` outside this run's own two artifacts"*. That is correct, expected, and
+**not** a sign the pass is incomplete.
 
-**Every one of those findings is fixed in `84f821ab`.** The sidecar does not know
-that, because it is red team's own artifact and records round 1's state.
+The tenth pass returned `CLEAR` at `6b90d6b9`. The report was committed at
+`98cdbf7c`. The branch then merged `origin/main`. The staleness rule fires on any
+commit, and a merge is one.
 
-**Do NOT hand-edit the sidecar to say "fixed".** The honest close is a fresh
-red-team round against current HEAD, which re-checks its own findings instead of
-trusting a claim. That is step 7.5's job and it owns the `reviewed` transition.
+`git diff --name-only 98cdbf7c HEAD` lists 38 files and **none is owned by this
+branch** — no `refusals`, no `restraint`, no `dashboard/analytics` path. The merge
+changed nothing the red-team pass measured.
 
-Round 1's report and sidecar (committed, read them before re-running):
-`docs/reviews/red-team/feat-1014-restraint-tab-e8a3c4/{findings.md,findings.json}`
+The phase was deliberately left at `gate_green` rather than stamped `reviewed`
+over a failing checker. Full reasoning: **deviations D10**. If you need a green
+checker at the merged HEAD, re-run the pass — do not hand-edit the sidecar.
 
 ---
 
@@ -46,84 +48,43 @@ Round 1's report and sidecar (committed, read them before re-running):
 | What | Path |
 |---|---|
 | Intake (LOCKED; amended twice) | `docs/superpowers/plans/feat-1014-restraint-tab-intake.json` |
-| Plan (8 tracers) | `docs/superpowers/plans/2026-09-01-1014-restraint-tab.md` |
-| Deviations **D1–D8, all verdicted ACCEPT** | `docs/superpowers/plans/feat-1014-restraint-tab-deviations.md` |
+| Plan (8 tracers; its ship order is superseded by D9) | `docs/superpowers/plans/2026-09-01-1014-restraint-tab.md` |
+| Deviations **D1–D10, all ACCEPT** | `docs/superpowers/plans/feat-1014-restraint-tab-deviations.md` |
 | Review wave reports (5 axes) | `docs/reviews/feat-1014-restraint-tab/` |
-| Blast radius (pinned at the frozen fork) | `docs/reviews/feat-1014-restraint-tab/blast-radius.md` |
-| Screenshots, 390px + 1440px, 7 states | `.feature/screenshots/shots/` — **gitignored**, regenerate with the two scripts beside them |
-| Glossary (LOCKED) | `CONTEXT.md` § Refusal ledger — now including **Coverage start**, coined by this run |
+| **Red-team record — read this one** | `docs/reviews/red-team/feat-1014-restraint-tab-e8a3c4/findings.md` |
+| Glossary (LOCKED) | `CONTEXT.md` § Refusal ledger — including **Coverage start**, coined by this run |
 | Ticket | `gh issue view 1014` — and its ONE comment, which corrects the body |
 
 ---
 
-## What the review wave found, and why it mattered
+## What the red-team record says, in three lines
 
-Five axes in one parallel dispatch against a frozen SHA: spec/correctness,
-standards, security/tenancy, UI/accessibility, red team. **31 findings against a
-green gate** — none of them reachable by a deterministic check.
+Ten passes, not the skill's two — passes 3–10 ran under an explicit owner
+override of the cap, recorded in the report rather than hidden.
 
-**The most important result is a negative one.** Security found **no tenancy
-defect**: scoping is correct in all six statements and defended at two
-independent layers. That was the run's top risk reason.
+Round 2 found seven real defects in shipped code. **Every round after it found
+defects in the previous round's own fixes**, and the open-P0 count fell
+7 → 4 → 3 → 0 and stayed at zero for six passes.
 
-Four findings were HIGH and all are fixed:
+Two failure modes recurred and are both named in the report: a test that asserts
+a *different statement* than the one it claims, and a narrower assertion
+presented as a superset of what it replaced. The report also records **four false
+claims made in this branch's own commit messages**.
 
-1. **Two of the three links went nowhere.** `/dashboard/contacts` has no route,
-   and the held-draft link was wrong twice — no `/dashboard/reviews/[id]` page
-   exists, and `subject_id` is a `responses.id`, not a `reviews.id`. Three
-   promised tests asserted the broken hrefs, so **the eval encoded the bug**.
-   The read now projects `reviewId`; `subject_resolves` is gone.
-2. **The read ignored `REFUSAL_LEDGER_ENABLED`.** Kill switch off ⇒ the tab
-   printed a confident empty window. The route now ships `ledgerRecording`.
-3. **Four mutations survived the whole suite** — link authority by lane, both
-   window bounds, the cross-location guard. Five new live-DB cases close them.
-4. **No `LIMIT`, and `total = entries.length`**, against a lane that can write
-   5,000 rows in one batch. `ENTRY_LIMIT` caps the list; `total` is its own
-   `COUNT`.
+## What remains
 
-Two findings were REJECTED with reasons recorded in the review log: per-file
-`docs/directory.md` rows (contradicts that file's rule at line 16 and **D8**),
-and the adjacent optional positional params (the deliberate additive choice that
-keeps `ReviewsContent` untouched).
-
-## Four owner decisions this run is built on
-
-Taken 2026-09-01, not reopenable without a new sign-off:
-
-1. **Ship the row cap now** — `ENTRY_LIMIT`, a separate `COUNT`, and a stated
-   truncation line.
-2. **Surface the kill switch** — `ledgerRecording` on the payload plus a
-   disclosure line, symmetric with the existing policy-gate line.
-3. **Dates follow the Console's `en-US`**, not the `en-GB` first shipped.
-4. **Accessibility fixes only** from the UI axis (UA-5, UA-6, UA-8).
-
-**Deferred to follow-up tickets by that same decision:** a retry affordance on
-the shared error card (UA-4) and lifting the analytics window into the URL
-(UA-7). Both change behaviour on two surfaces beyond this ticket. Open them at
-step 8 alongside the post-flip Coverage-start ticket the intake declares a
-non-goal.
-
----
-
-## Next actions, in order
-
-1. **Re-run the red-team pass against current HEAD** (step 7.5). It must
-   re-verify F1–F8 itself. `red-team-status.mjs` must exit 0 before anything
-   else — a `reviewed` phase with a stale sidecar is refused by design.
-2. **If it finds anything, fix, re-run the FULL gate, and repeat.** Never a
-   `--fast` run as evidence.
-3. **Transition to `reviewed`** — step 7.5 owns it, not step 6.
-4. **Step 8 ships.** RISK=high, so the plan's ship order applies.
-
-## Step 8 needs the owner — two items
-
-1. **Realign `staging` BEFORE the ride.** It is diverged from `main`;
-   `git merge --ff-only main` aborts after a squash merge, and the runbook's
-   answer is `git reset --hard origin/main` + `--force-with-lease`. **Ask the
-   owner for the exact command** — do not guess. A ride against a diverged tip
-   proves nothing. Re-measure the divergence first; the numbers in the older
-   handoff are stale.
-2. **No migration to promote.** 116 is already on both Supabase projects.
+1. **Open the PR** — `gh pr create --draft`, then `gh pr ready`. Draft PRs run no
+   CI on this repo; `changes` and `lint` gate on `draft == false`.
+2. **The PR body owes a "Red-team findings rejected" section.** Both entries are
+   written and ready to paste from `findings.md` § "Red-team findings rejected":
+   **F12** (contradicted by `docs/directory.md:16-17`) and **F31** (true, deferred —
+   disclosing `ARCHIVAL_EVENT_LIMIT` truncation needs a DTO field and a new
+   owner-facing sentence, and both surface amendments are spent).
+3. **PAUSE for explicit merge approval.** Do not merge on a general go-ahead.
+4. **After merge, open two follow-up tickets:** the post-flip ≤90-day **Coverage
+   start** window (an intake non-goal), and F31's truncation disclosure.
+5. **No migration to promote.** 116 is already on both Supabase projects.
+6. **No staging ride** — owner decision 2026-09-02, reasoning in D9.
 
 **Authoritative state lives on disk, never in a summary.** Re-read
 `.feature/state.json`, `.feature/progress.json` and `.feature/gate-status.json`
