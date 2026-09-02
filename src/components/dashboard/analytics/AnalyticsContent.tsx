@@ -5,6 +5,7 @@ import { renderDashboardStatePanel } from '@/components/dashboard/shell/Dashboar
 import { SubscriptionUnavailableCard } from '@/components/dashboard/shell/SubscriptionUnavailableCard';
 import { AnalyticsAggregateView } from '@/components/dashboard/analytics/AnalyticsAggregateView';
 import { AnalyticsPerLocationView } from '@/components/dashboard/analytics/AnalyticsPerLocationView';
+import { AnalyticsTabs } from '@/components/dashboard/analytics/AnalyticsTabs';
 import { PeriodToolbar } from '@/components/dashboard/analytics/PeriodToolbar';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import { useSyncPendingCount } from '@/hooks/useSyncPendingCount';
@@ -36,7 +37,14 @@ export function AnalyticsContent() {
   // Loading/error scaffold (shared) keeps the period toolbar visible and usable
   // through every branch (#403). The guard also narrows `data` to non-null below.
   if (loading || error || !data) {
-    return renderDashboardStatePanel('analytics', { loading, hasData: data != null, error }, periodToolbar);
+    // The tab bar goes into the scaffold's own slot so it survives loading and
+    // error, rather than reappearing only once data lands (#1000 ST-2).
+    return renderDashboardStatePanel(
+      'analytics',
+      { loading, hasData: data != null, error },
+      periodToolbar,
+      <AnalyticsTabs active="metrics" />,
+    );
   }
 
   if (isAggregate(data)) {
