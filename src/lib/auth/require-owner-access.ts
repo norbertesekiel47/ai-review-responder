@@ -59,7 +59,7 @@ export interface OwnerAccess {
  * all) without dropping the row for the layout, which wants the name/email
  * even when it is about to redirect on role.
  */
-export interface RenderOwnerRow {
+interface RenderOwnerRow {
   id: string;
   role: string;
   account_id: string | null;
