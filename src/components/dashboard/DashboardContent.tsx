@@ -148,7 +148,11 @@ function DashboardOperationalContent() {
   // all surfaces that read the dashboard payload (#346).
   useSyncPendingCount(data, loading);
 
-  if (error) {
+  // A failed FIRST fetch shows the error card. A failed background refresh
+  // over data already on screen keeps that data (stale-while-revalidate, UX
+  // audit D1) — replacing a working dashboard with a red card for one missed
+  // tick would be worse than the tick.
+  if (error && !data) {
     return (
       <>
         <TopBar title="Dashboard" />
@@ -160,8 +164,8 @@ function DashboardOperationalContent() {
     );
   }
 
-  // VAL-DASH-025: Loading state with skeleton/spinner
-  if (loading || !data) {
+  // VAL-DASH-025: the skeleton renders only while nothing is on screen yet.
+  if (!data) {
     return (
       <>
         <TopBar title="Dashboard" />
@@ -262,6 +266,7 @@ function DashboardOperationalContent() {
   const subtitle = pastDueData
     ? 'Payment overdue — please update your payment method'
     : activeSubtitle;
+  const hasPendingApprovals = reputation.pendingApprovalCount > 0;
 
   return (
     <>
@@ -329,6 +334,16 @@ function DashboardOperationalContent() {
             readOnly={pastDueData?.isReadOnly ?? false}
           />
         )}
+        {/* The one thing the owner can DO from this page leads (UX audit D8):
+            while drafts are waiting, the approvals strip sits directly under
+            the banners, above the retrospective cards — on a phone it used to
+            be the last block, several screens down. Caught up, it stays a calm
+            doorway beside Analytics at the foot (Zone 6). */}
+        {hasPendingApprovals && (
+          <div className="section-enter section-enter-1">
+            <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
+          </div>
+        )}
         {/* Zone 1 — hero row: reputation hero + Rep Pulse gauge */}
         <div className="section-enter section-enter-2 hero-row">
           <ReputationHeroBand
@@ -351,15 +366,21 @@ function DashboardOperationalContent() {
           <AgentTeamStrip scope={currentScope} />
         </div>
         <NeedsAttentionList />
-        {/* Zone 6 — the two doorways, side by side. Both are one-line strips
-            that point off the dashboard: approvals → Reviews, the other →
-            Analytics. Stacked they were two full-width bands carrying one line
-            each; paired they are one band, and the reader sees both exits at
-            once. `.dash-pair` drops to one column at 900px. */}
-        <div className="section-enter section-enter-6 dash-pair">
-          <PendingApprovalsStrip count={reputation.pendingApprovalCount} />
-          <AnalyticsLinkCard />
-        </div>
+        {/* Zone 6 — the doorways off the dashboard. Caught up: the calm
+            approvals strip and Analytics side by side, one band (`.dash-pair`
+            drops to one column at 1200px). Drafts waiting: the approvals strip
+            already led the page above, so Analytics stands alone here rather
+            than half-filling a two-column band. */}
+        {hasPendingApprovals ? (
+          <div className="section-enter section-enter-6">
+            <AnalyticsLinkCard />
+          </div>
+        ) : (
+          <div className="section-enter section-enter-6 dash-pair">
+            <PendingApprovalsStrip count={0} />
+            <AnalyticsLinkCard />
+          </div>
+        )}
       </div>
     </>
   );

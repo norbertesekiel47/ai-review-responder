@@ -1,16 +1,33 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UploadStatus } from '@/lib/solicitation/uploads';
 import type { IngestReport } from '@/lib/solicitation/ingest';
 
 vi.mock('@/contexts/LocationContext', () => ({
-  useLocationScope: () => ({ currentScope: 'loc-1' }),
+  useLocationScope: () => ({
+    currentScope: 'loc-1',
+    locations: [],
+    isMultiLocation: false,
+    selectedLabel: 'Location 1',
+    setLocationScope: () => {},
+    setLocations: () => {},
+  }),
+}));
+
+// ContactsClient renders TopBar, which mounts the account menu; jsdom has no
+// app router, so give it one.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
 import { UploadCard } from '../UploadCard';
 import { ContactList } from '../ContactList';
+import { ContactsClient } from '../ContactsClient';
 
 const ATTESTATION = {
   attestationText: 'I confirm these customers are mine.',
@@ -395,5 +412,114 @@ describe('ContactList', () => {
     expect(
       screen.getByRole('button', { name: /stop sending requests/i }),
     ).toBeInTheDocument();
+  });
+});
+
+// ── Mounted triggers, cards below 720px, the tab bar (UX audit D25, D26, D28) ─
+
+describe('ContactList — the confirm step keeps its trigger', () => {
+  const contact = {
+    id: 'c1',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    phone: '+14155552671',
+    lastVisitDate: '2026-01-05',
+    visitCount: 2,
+    suppression: null,
+  };
+
+  it('keeps Delete mounted and focused while its confirm row is open, and a second press cancels', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse(200, { contacts: [contact], total: 1 })),
+    );
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+
+    const trigger = await screen.findByRole('button', { name: /delete ada lovelace/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(trigger);
+    expect(screen.getByText(/hard delete/i)).toBeInTheDocument();
+    // Still in the document, still focused, and it now names the row it opened.
+    expect(trigger).toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const controlled = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+    expect(controlled).not.toBeNull();
+    expect(within(controlled!).getByRole('button', { name: /delete permanently/i })).toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(screen.queryByText(/hard delete/i)).toBeNull();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it("keeps Don't contact mounted while its confirm row is open", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse(200, { contacts: [contact], total: 1 })),
+    );
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+
+    const trigger = await screen.findByRole('button', { name: /don't contact ada lovelace/i });
+    await user.click(trigger);
+    expect(screen.getByText(/we will stop sending ada lovelace review requests/i)).toBeInTheDocument();
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('labels every body cell with its column so the card layout can repeat it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse(200, { contacts: [contact], total: 1 })),
+    );
+    render(<ContactList epoch={0} onRefresh={() => {}} />);
+    await screen.findByText('Ada Lovelace');
+
+    const labels = Array.from(document.querySelectorAll('td[data-label]')).map((cell) =>
+      cell.getAttribute('data-label'),
+    );
+    expect(labels).toEqual(['Name', 'Email', 'Phone', 'Last visit', 'Visits']);
+    // No inline styles left on the table: the collapse is CSS-owned.
+    expect(document.querySelector('table')?.getAttribute('style')).toBeNull();
+  });
+});
+
+describe('contacts.css — the table collapses to cards below 720px (D26)', () => {
+  const css = readFileSync(
+    resolve(process.cwd(), 'src/app/(authenticated)/dashboard/requests/contacts/contacts.css'),
+    'utf-8',
+  );
+
+  it('switches the table to block cards and repeats each column label from data-label', () => {
+    const narrow = css.slice(css.indexOf('@media (max-width: 720px)'));
+    expect(narrow).toMatch(/\.ct-table td \{ display: block; \}/);
+    expect(narrow).toMatch(/content: attr\(data-label\)/);
+    // 44px targets for the row actions once they are thumb-driven.
+    expect(narrow).toMatch(/\.ct-actions \.btn \{ min-height: 44px; \}/);
+  });
+
+  it('uses Console tokens only — no raw hex', () => {
+    // Comments are stripped first: they cite PR numbers (#544) and token hex values.
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+});
+
+describe('ContactsClient — the Requests ↔ Contacts tab bar (D28)', () => {
+  it('renders the tab bar with Contacts current and a link back to Requests', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { contacts: [], total: 0 })));
+    render(<ContactsClient {...ATTESTATION} />);
+
+    const tabs = screen.getByRole('navigation', { name: 'Requests views' });
+    expect(within(tabs).getByRole('link', { name: 'Contacts' })).toHaveAttribute('aria-current', 'page');
+    expect(within(tabs).getByRole('link', { name: 'Requests' })).toHaveAttribute(
+      'href',
+      '/dashboard/requests',
+    );
+    // The subtitle no longer asserts watch-mode, which this page cannot know.
+    expect(screen.queryByText(/watch-mode only/i)).toBeNull();
+    expect(screen.getByText(/nothing sends without your approval/i)).toBeInTheDocument();
   });
 });

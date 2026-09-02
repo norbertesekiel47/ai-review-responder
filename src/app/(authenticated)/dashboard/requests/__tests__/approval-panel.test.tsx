@@ -27,6 +27,8 @@ import type {
 import {
   ApprovalPanel,
   excludedOutreachIds,
+  parseVetoDeadline,
+  vetoDeadlineCopy,
   type ApprovalPanelProps,
 } from '../ApprovalPanel';
 
@@ -772,8 +774,17 @@ describe('regenerate control', () => {
     );
 
     // Disabled, but still LABELLED as approve: nothing is being approved, and a
-    // button that said "Approving…" here would name the wrong act.
-    expect(screen.getByRole('button', { name: /Approve and send/ })).toBeDisabled();
+    // button that said "Approving…" here would name the wrong act. And it says
+    // WHY, in one line the button describes itself with (UX audit D7) — a
+    // disabled verb with no reason reads as a broken one.
+    const approve = screen.getByRole('button', { name: /Approve and send/ });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAccessibleDescription(
+      'You can approve once the new version of that message is ready.',
+    );
+    expect(
+      screen.getByText('You can approve once the new version of that message is ready.'),
+    ).toBeInTheDocument();
     // BOTH — the dedup is per batch, so a second request would 409 anyway.
     for (const control of regenControls()) expect(control).toBeDisabled();
     // The accessible NAME carries the in-flight label, so the state is not
@@ -987,14 +998,41 @@ describe('withdraw control', () => {
     fireEvent.click(withdrawControls()[0]!);
 
     // The first tap ARMS: the confirm pair appears for that row, and nothing
-    // was posted — a terminal act is never one mis-tap away.
+    // was posted — a terminal act is never one mis-tap away. The trigger STAYS
+    // MOUNTED (UX audit D25) — unmounting it dropped keyboard focus to <body>
+    // — and reads as expanded over the confirm group it now controls.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(confirmWithdrawButton()).toHaveAccessibleName(/Dana Reeve/);
     expect(keepButton()).toBeInTheDocument();
+    expect(withdrawControls()).toHaveLength(2);
+    expect(withdrawControls()[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(withdrawControls()[0]).toHaveAttribute(
+      'aria-controls',
+      screen.getByRole('group').id,
+    );
+    expect(withdrawControls()[1]).toHaveAttribute('aria-expanded', 'false');
     // Only ONE row is armed at a time: arming Sam moves the confirm.
-    fireEvent.click(withdrawControls()[0]!);
+    fireEvent.click(withdrawControls()[1]!);
     expect(confirmWithdrawButton()).toHaveAccessibleName(/Sam Okafor/);
     expect(screen.queryAllByRole('button', { name: /^Confirm: withdraw/i })).toHaveLength(1);
+    expect(withdrawControls()[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(withdrawControls()[1]).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a second press on the armed trigger is the Keep answer, and focus stays on it', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve')]);
+
+    const trigger = withdrawControls()[0]!;
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(confirmWithdrawButton()).not.toBeNull();
+
+    fireEvent.click(trigger);
+    expect(confirmWithdrawButton()).toBeNull();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // The whole point of D25: the focused element never left the document.
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('confirming a withdrawal posts batchId and askId and announces the remaining count', async () => {
@@ -1115,12 +1153,16 @@ describe('withdraw control', () => {
     fireEvent.click(haltButton()!);
 
     // Disabled, not gone: the arming survives, because the write has not
-    // answered and the row is still live on screen.
+    // answered and the row is still live on screen. Both triggers stay mounted
+    // (D25) — Dana's expanded over her confirm pair, Sam's resting — and both
+    // refuse clicks.
     expect(confirmWithdrawButton()).toBeDisabled();
     expect(keepButton()).toBeDisabled();
-    expect(withdrawControls()).toHaveLength(1);
-    expect(withdrawControls()[0]).toHaveAccessibleName(/Sam Okafor/);
-    expect(withdrawControls()[0]).toBeDisabled();
+    expect(withdrawControls()).toHaveLength(2);
+    expect(withdrawControls()[0]).toHaveAccessibleName(/Dana Reeve/);
+    expect(withdrawControls()[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(withdrawControls()[1]).toHaveAccessibleName(/Sam Okafor/);
+    for (const control of withdrawControls()) expect(control).toBeDisabled();
   });
 
   it('no Withdraw control renders before approval', () => {
@@ -1179,5 +1221,80 @@ describe('withdraw control', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'This message is no longer waiting to send, so it cannot be withdrawn. Reload the page to see where the batch stands.',
     );
+  });
+});
+
+// ── The veto deadline (UX audit D5) ─────────────────────────────────────────
+
+describe('veto deadline', () => {
+  const NOW = new Date('2026-08-16T12:03:20Z');
+  const vetoLane = () =>
+    sendLane({
+      batchState: 'veto_window',
+      approvedAt: '2026-08-16 12:00:00+00',
+      vetoDeadlineAt: '2026-08-16 12:15:00+00',
+    });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('parses the Postgres ::text form the read model sends', () => {
+    expect(parseVetoDeadline('2026-08-16 12:15:00+00')).toBe(Date.parse('2026-08-16T12:15:00Z'));
+    expect(parseVetoDeadline('2026-08-16T12:15:00.000Z')).toBe(Date.parse('2026-08-16T12:15:00Z'));
+    expect(parseVetoDeadline('not a time')).toBeNull();
+  });
+
+  it('counts down in whole minutes, then under a minute, then says the window closed', () => {
+    const deadline = Date.parse('2026-08-16T12:15:00Z');
+    expect(vetoDeadlineCopy(deadline, NOW.getTime()).remaining).toBe('12 min left.');
+    expect(vetoDeadlineCopy(deadline, deadline - 30_000).remaining).toBe('Less than a minute left.');
+    expect(vetoDeadlineCopy(deadline, deadline + 1).remaining).toMatch(/window has closed/i);
+    // The absolute half never moves with the clock.
+    expect(vetoDeadlineCopy(deadline, NOW.getTime()).absolute).toBe(
+      vetoDeadlineCopy(deadline, deadline + 1).absolute,
+    );
+  });
+
+  it('tells the owner when the undo closes: an absolute time plus a live remainder', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    renderPanel(vetoLane(), [rendered('1', 'Dana Reeve')]);
+
+    const expectedTime = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date('2026-08-16T12:15:00Z'));
+    expect(screen.getByText(`You can still stop this until ${expectedTime}.`)).toBeInTheDocument();
+
+    // The remainder lives in a polite live region and appears once the browser
+    // has a clock — never as NaN on the server render.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('12 min left.');
+
+    // It is LIVE: five minutes later it says so without a refetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    expect(region).toHaveTextContent('7 min left.');
+  });
+
+  it('renders no deadline line for the approved and sending states, whose window has passed', () => {
+    vi.stubGlobal('fetch', vi.fn());
+    renderPanel(
+      sendLane({
+        batchState: 'sending',
+        approvedAt: '2026-08-16 11:00:00+00',
+        vetoDeadlineAt: '2026-08-16 11:15:00+00',
+      }),
+      [rendered('1', 'Dana Reeve')],
+    );
+    expect(screen.queryByText(/you can still stop this until/i)).toBeNull();
   });
 });

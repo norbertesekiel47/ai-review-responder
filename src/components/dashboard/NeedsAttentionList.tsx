@@ -38,6 +38,39 @@ const OPEN_ESCALATION_STATUSES = new Set<unknown>([
   ESCALATION_STATUS.ESCALATED,
   ESCALATION_STATUS.ACKNOWLEDGED,
 ]);
+
+// Owner copy for the two open statuses and the three triage actions. The raw
+// enum words ("Escalated", "Respond and escalate") used to render de-snake-cased
+// with no explanation (UX audit D33). Exhaustive records so a new vocabulary
+// value forces a label.
+const STATUS_COPY: Record<OpenEscalationStatus, string> = {
+  escalated: 'New — needs a look',
+  acknowledged: "You've seen this",
+};
+
+const SEVERITY_PHRASE: Record<TriageSeverity, string> = {
+  low: 'a low-severity issue',
+  medium: 'a medium-severity issue',
+  high: 'a high-severity issue',
+};
+
+const ACTION_PHRASE: Record<TriageOutput['suggested_action'], string> = {
+  respond: 'reply to the customer',
+  escalate: 'reach out to the customer directly',
+  respond_and_escalate: 'reply and reach out to the customer directly',
+};
+
+/**
+ * One plain sentence on why Guardian raised this: the severity it saw and what
+ * it suggests the owner do. Built from the two facts the queue read carries;
+ * the per-issue detail (`triage_issues`) is not on this wire today.
+ */
+export function guardianReasonSentence(
+  severity: TriageSeverity,
+  suggestedAction: TriageOutput['suggested_action'],
+): string {
+  return `Guardian flagged ${SEVERITY_PHRASE[severity]} and suggests you ${ACTION_PHRASE[suggestedAction]}.`;
+}
 const TRIAGE_SEVERITY_VALUES = new Set<unknown>(TRIAGE_SEVERITIES);
 const SUGGESTED_ACTION_VALUES = new Set<unknown>(TRIAGE_SUGGESTED_ACTIONS);
 const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
@@ -94,16 +127,16 @@ export function NeedsAttentionList() {
               <span className={`badge escalation-badge escalation-badge--${item.severity}`}>
                 {TRIAGE_SEVERITY_LABELS[item.severity]}
               </span>
-              <span className="needs-attention-status">{formatIdentifier(item.status)}</span>
+              <span className="needs-attention-status">{STATUS_COPY[item.status]}</span>
               <time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time>
             </div>
             <div className="needs-attention-review">
               <strong>{item.businessName}</strong>
               <span>{item.reviewRating != null ? `${item.reviewRating}/5 rating` : 'No rating'}</span>
-              <span>{formatIdentifier(item.suggestedAction)}</span>
+              <span>{guardianReasonSentence(item.severity, item.suggestedAction)}</span>
             </div>
             <Link
-              href={`/dashboard/reviews/${item.reviewId}/timeline`}
+              href={`/dashboard/reviews/${item.reviewId}/timeline?from=dashboard`}
               className="needs-attention-link"
             >
               <Icon name="clock" size={16} aria-hidden="true" />
@@ -167,11 +200,6 @@ function isValidReviewRating(value: unknown): value is number | null {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
-}
-
-function formatIdentifier(value: string): string {
-  const words = value.replaceAll('_', ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function formatDate(value: string): string {

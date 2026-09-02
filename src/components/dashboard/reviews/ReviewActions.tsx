@@ -3,13 +3,15 @@
 import { useContext, useState } from 'react';
 import { QueryClientContext } from '@tanstack/react-query';
 import { DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY } from '@/components/dashboard/NeedsAttentionList';
+import { describeActionFailure, type DraftAction } from '@/components/dashboard/reviews/action-copy';
+import { ReplyEditor } from '@/components/dashboard/reviews/ReplyEditor';
+import { useRefreshHold } from '@/components/dashboard/shell/refresh-hold';
 import type { OpenEscalationStatus } from '@/lib/escalations/types';
 import type { TriageSeverity } from '@/lib/reviews/triage-schema';
-import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
 
 type ActionState =
   | { kind: 'idle' }
-  | { kind: 'loading'; action: 'approve' | 'edit' | 'regenerate' }
+  | { kind: 'loading'; action: DraftAction }
   | { kind: 'editing' }
   | { kind: 'success'; message: string }
   | { kind: 'limit'; message: string }
@@ -26,7 +28,8 @@ export interface ReviewEscalation {
  * Failed dashboard POST — carries the HTTP status + parsed error body so
  * callers can distinguish expected outcomes (e.g. the regenerate daily cap)
  * from real failures. `message` is the server's error code or a generic
- * `Failed (status)` fallback, matching what the error panel should show.
+ * `Failed (status)` fallback; owner-facing copy is derived by
+ * `describeActionFailure`, never shown raw.
  */
 class DashboardActionError extends Error {
   constructor(
@@ -61,13 +64,12 @@ function ActionNotice({
   onDismiss: () => void;
 }) {
   return (
-    <div className="mt-1">
+    <div className="mt-1 space-y-1">
       <p className="text-xs" role={role} style={{ color }}>{message}</p>
       <button
         type="button"
         onClick={onDismiss}
-        className="text-xs mt-0.5"
-        style={{ color: 'var(--rw-sage-deep)' }}
+        className="btn btn-tertiary"
       >
         {dismissLabel}
       </button>
@@ -79,25 +81,38 @@ export function ReviewActions({
   reviewId,
   responseText,
   onSuccess,
+  onRegenerateStarted,
 }: {
   reviewId: string;
   responseText: string | null;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
+  /**
+   * Called once the regenerate request is accepted. The row owner swaps in its
+   * "writing a new reply" state (UX audit D10); when absent, a text confirmation
+   * renders here instead.
+   */
+  onRegenerateStarted?: () => void;
 }) {
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
   const [editText, setEditText] = useState(responseText ?? '');
+  // An owner mid-edit must never lose the textarea to the 60 s auto-refresh.
+  useRefreshHold(state.kind === 'editing');
 
   async function runDraftAction(
-    action: 'approve' | 'edit' | 'regenerate',
+    action: DraftAction,
     successMessage: string,
-    failureMessage: string,
     init?: RequestInit,
   ) {
     setState({ kind: 'loading', action });
     try {
       await postDashboardAction(`/api/dashboard/reviews/${reviewId}/${action}`, init);
+      if (action === 'regenerate' && onRegenerateStarted) {
+        setState({ kind: 'idle' });
+        onRegenerateStarted();
+        return;
+      }
       setState({ kind: 'success', message: successMessage });
-      onSuccess();
+      void onSuccess();
     } catch (err) {
       // The per-review daily cap is an expected outcome, not an error — show
       // the server's friendly message instead of a red failure (issue #335).
@@ -113,12 +128,21 @@ export function ReviewActions({
         });
         return;
       }
-      setState({ kind: 'error', message: err instanceof Error ? err.message : failureMessage });
+      const failure = describeActionFailure(
+        action,
+        err instanceof DashboardActionError
+          ? { status: err.status, code: err.body.error }
+          : { status: 0 },
+      );
+      // A stale row (already handled elsewhere) refreshes the queue so the
+      // settled state replaces the card — the same posture as EscalationActions.
+      if (failure.stale) void onSuccess();
+      setState({ kind: 'error', message: failure.message });
     }
   }
 
   if (state.kind === 'success') {
-    return <p className="text-xs mt-1" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>;
+    return <p className="text-xs mt-1" role="status" style={{ color: 'var(--rw-sage-deep)' }}>{state.message}</p>;
   }
 
   if (state.kind === 'limit') {
@@ -138,6 +162,7 @@ export function ReviewActions({
       <ActionNotice
         message={state.message}
         color="var(--rw-danger)"
+        role="alert"
         dismissLabel="Try again"
         onDismiss={() => setState({ kind: 'idle' })}
       />
@@ -149,18 +174,17 @@ export function ReviewActions({
   if (state.kind === 'editing') {
     return (
       <div className="mt-2 space-y-2">
-        <textarea
-          aria-label="Edit reply text"
+        <ReplyEditor
+          id={`reply-editor-${reviewId}`}
+          label="Edit reply text"
           value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-          maxLength={MAX_REPLY_LENGTH}
+          onChange={setEditText}
           rows={4}
-          className="textarea"
         />
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => runDraftAction('edit', 'Approved with edits!', 'Edit failed', {
+            onClick={() => runDraftAction('edit', 'Approved with edits!', {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ editedText: editText }),
             })}
@@ -184,7 +208,7 @@ export function ReviewActions({
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onClick={() => runDraftAction('approve', 'Approved!', 'Approval failed')}
+        onClick={() => runDraftAction('approve', 'Approved!')}
         disabled={isLoading}
         className="btn btn-primary"
       >
@@ -200,7 +224,7 @@ export function ReviewActions({
       </button>
       <button
         type="button"
-        onClick={() => runDraftAction('regenerate', 'New draft requested — check your email', 'Regenerate failed')}
+        onClick={() => runDraftAction('regenerate', 'Writing a new reply — it will appear here shortly.')}
         disabled={isLoading}
         className="btn btn-tertiary"
       >
@@ -212,21 +236,25 @@ export function ReviewActions({
 
 type EscalationActionState =
   | { kind: 'idle' }
-  | { kind: 'loading'; action: 'acknowledge' | 'resolve' }
+  | { kind: 'loading' }
   | { kind: 'error'; message: string };
 
 /**
- * Acknowledge/Resolve for an open Guardian escalation (WS3). Rendered by the
- * review card for ANY card with an open escalation, independent of draft
- * state — moderation-HELD drafts (response text withheld) are exactly the
- * high-severity lane and must still be actionable.
+ * The one owner control for an open Guardian escalation (WS3): "Mark as
+ * handled", which resolves it (resolve implies acknowledge — a direct
+ * escalated → resolved transition is legal and stamps both timestamps). Two
+ * unexplained buttons, Acknowledge and Resolve, used to sit here beside the
+ * three draft actions (UX audit D14). Rendered by the review card for ANY card
+ * with an open escalation, independent of draft state — moderation-HELD drafts
+ * (response text withheld) are exactly the high-severity lane and must still
+ * be actionable.
  */
 export function EscalationActions({
   escalation,
   onSuccess,
 }: {
   escalation: ReviewEscalation;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }) {
   const [state, setState] = useState<EscalationActionState>({ kind: 'idle' });
   // Read the client optionally (not useQueryClient, which throws): the queue
@@ -234,31 +262,28 @@ export function EscalationActions({
   // primary effect and must not depend on a provider being mounted.
   const queryClient = useContext(QueryClientContext);
 
-  async function handleTransition(action: 'acknowledge' | 'resolve') {
-    setState({ kind: 'loading', action });
+  async function markHandled() {
+    setState({ kind: 'loading' });
     try {
-      await postDashboardAction(`/api/dashboard/escalations/${escalation.id}/${action}`);
-      onSuccess();
+      await postDashboardAction(`/api/dashboard/escalations/${escalation.id}/resolve`);
+      void onSuccess();
       // The needs-attention queue reads the same escalations; keep it in sync.
       void queryClient?.invalidateQueries({ queryKey: DASHBOARD_OPEN_ESCALATIONS_QUERY_KEY });
-      // Back to idle, NOT a terminal success panel: the refreshed escalation
-      // badge is the confirmation, and Resolve must stay reachable after an
-      // Acknowledge (and any draft actions stay independently usable).
+      // Back to idle, NOT a terminal success panel: the refreshed card is the
+      // confirmation, and any draft actions stay independently usable.
       setState({ kind: 'idle' });
     } catch (err) {
       // A 409 means the escalation was already transitioned elsewhere (e.g. a
       // second tab) — a benign race, not a failure. Mirror the timeline
       // actions: refresh the feed so the settled state replaces the stale card.
       if (err instanceof DashboardActionError && err.status === 409) {
-        onSuccess();
+        void onSuccess();
         setState({ kind: 'idle' });
         return;
       }
       setState({
         kind: 'error',
-        message: err instanceof Error
-          ? err.message
-          : action === 'acknowledge' ? 'Acknowledge failed' : 'Resolve failed',
+        message: err instanceof Error ? err.message : 'Marking as handled failed',
       });
     }
   }
@@ -268,6 +293,7 @@ export function EscalationActions({
       <ActionNotice
         message={state.message}
         color="var(--rw-danger)"
+        role="alert"
         dismissLabel="Try again"
         onDismiss={() => setState({ kind: 'idle' })}
       />
@@ -275,26 +301,20 @@ export function EscalationActions({
   }
 
   const isLoading = state.kind === 'loading';
+  const helper = escalation.status === 'acknowledged'
+    ? "You've seen this one. Mark it handled once you've followed up with the customer."
+    : "Guardian flagged this review for you. Mark it handled once you've followed up with the customer.";
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      {escalation.status === 'escalated' && (
-        <button
-          type="button"
-          onClick={() => handleTransition('acknowledge')}
-          disabled={isLoading}
-          className="btn btn-secondary"
-        >
-          {isLoading && state.action === 'acknowledge' ? 'Acknowledge...' : 'Acknowledge'}
-        </button>
-      )}
+    <div className="mt-2 space-y-2">
+      <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>{helper}</p>
       <button
         type="button"
-        onClick={() => handleTransition('resolve')}
+        onClick={() => void markHandled()}
         disabled={isLoading}
         className="btn btn-secondary"
       >
-        {isLoading && state.action === 'resolve' ? 'Resolve...' : 'Resolve'}
+        {isLoading ? 'Marking as handled...' : 'Mark as handled'}
       </button>
     </div>
   );

@@ -1,7 +1,6 @@
 import type { AgentPersona } from '@/lib/agents/run-spine';
 import type { ReviewTimelineStep } from '@/lib/agents/read';
-import { formatIdentifier } from './format';
-import { safeFactsForStep } from './step-facts';
+import { describeStep, safeFactsForStep, stepStatusLabel } from './step-facts';
 
 const STEP_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -28,8 +27,17 @@ export function PersonaMark({ persona }: { persona: AgentPersona }) {
   );
 }
 
+/**
+ * One step of a run, in the owner's words (UX audit D19/D20): a plain label
+ * and a one-sentence explanation from `describeStep`, a TEXT chip for a step
+ * that failed or was skipped (the rail dot alone only differed by colour), and
+ * the allowlisted facts. No identifiers and no latency — those read as a debug
+ * trace and say nothing about the decision.
+ */
 export function TimelineStepRow({ step }: { step: ReviewTimelineStep }) {
+  const copy = describeStep(step.stepKey);
   const facts = safeFactsForStep(step.stepKey, step.detail);
+  const statusLabel = stepStatusLabel(step);
 
   return (
     <li className={`timeline-step timeline-step--${step.status}`}>
@@ -37,11 +45,21 @@ export function TimelineStepRow({ step }: { step: ReviewTimelineStep }) {
       <div className="timeline-step__body">
         <div className="timeline-step__header">
           <PersonaMark persona={step.attributedAgent} />
-          <h3>{formatIdentifier(step.stepKey)}</h3>
+          <h3>{copy.label}</h3>
+          {statusLabel !== null && (
+            <span
+              className={`timeline-run-state timeline-step__status timeline-run-state--${
+                step.status === 'failed' ? 'failed' : 'cancelled'
+              }`}
+            >
+              {statusLabel}
+            </span>
+          )}
           <span className="timeline-step__time">{formatTimestamp(step.createdAt)}</span>
         </div>
+        {copy.explain !== null && <p className="timeline-step__explain">{copy.explain}</p>}
         {facts.length > 0 && (
-          <dl className="timeline-step__facts" aria-label={`${formatIdentifier(step.stepKey)} facts`}>
+          <dl className="timeline-step__facts" aria-label={`${copy.label} details`}>
             {facts.map((fact) => (
               <div key={fact.key} className="timeline-step__fact">
                 <dt>{fact.label}</dt>
@@ -49,9 +67,6 @@ export function TimelineStepRow({ step }: { step: ReviewTimelineStep }) {
               </div>
             ))}
           </dl>
-        )}
-        {step.latencyMs != null && (
-          <span className="timeline-step__latency">{step.latencyMs.toLocaleString()} ms</span>
         )}
       </div>
     </li>

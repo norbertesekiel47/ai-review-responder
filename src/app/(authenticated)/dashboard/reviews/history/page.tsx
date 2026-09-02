@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db/server';
 import { requireOwnerAccess } from '@/lib/auth/require-owner-access';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
-import { Icon } from '@/components/dashboard/shell/Icon';
 import { ReviewsTabs } from '@/components/dashboard/reviews/ReviewsTabs';
 import { editRepliesEnabled } from '@/lib/past-replies/flags';
 import { loadPastRepliesPageView } from '@/lib/past-replies/load-replies';
@@ -47,10 +46,13 @@ export default async function PastRepliesPage({
         <ReviewsTabs active="history" />
         {/* The Reviews list is single-location by construction (every query is
             business_id-scoped). In aggregate scope this shows the current/primary
-            location only; switch it via the sidebar LocationPicker. */}
-        <span className="reviews-showing" title="Switch locations from the picker in the sidebar.">
+            location only. The switch lives in the shell's location picker, so
+            this is a plain statement of fact — no chevron that promises a menu
+            it cannot open, and the hint is visible text, not a tooltip (UX
+            audit D17). */}
+        <span className="reviews-showing">
           Showing: <strong>{view.locationDisplayName}</strong>
-          <Icon name="chevron-down" size={12} aria-hidden="true" />
+          <span className="reviews-showing-hint">Switch locations from the location picker.</span>
         </span>
       </div>
       <PastRepliesClient

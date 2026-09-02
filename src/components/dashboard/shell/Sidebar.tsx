@@ -100,7 +100,9 @@ export function Sidebar({ businessName, solicitationEnabled }: Props) {
         {activeNav === 'reviews' && (
           <div className="nav-children">
             <NavChild href="/dashboard/reviews" label="Needs action" />
-            <NavChild href="/dashboard/reviews/history" label="Past replies" />
+            {/* Same name as the tab it opens (UX audit D16) — never "Past replies",
+                which names the pre-#671 surface (CONTEXT.md → Reviews list). */}
+            <NavChild href="/dashboard/reviews/history" label="All Reviews" />
           </div>
         )}
         {solicitationEnabled && (

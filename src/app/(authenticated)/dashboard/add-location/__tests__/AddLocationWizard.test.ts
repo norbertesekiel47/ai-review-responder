@@ -151,10 +151,14 @@ describe('Step 2 Zernio informational-only (no OAuth redirect)', () => {
     // No /api/zernio/connect/start fetch call (the OAuth initiation)
     expect(source).not.toContain('/api/zernio/connect/start');
 
-    // Step 2 shows the connect-later message and a link to the connect flow
+    // Step 2 is informational: it names the connect step that follows the
+    // wizard and carries NO link out of it (UX audit D23 — a live link
+    // mid-wizard discarded every filled-in field) and no Continue of its own.
     const step2 = readWizardSource('../wizard/steps/Step2GoogleBusiness.tsx');
-    expect(step2).toContain('Connect later from Settings');
-    expect(step2).toContain('/dashboard/connect');
+    expect(step2).toContain('Connecting comes right after this');
+    expect(step2).not.toContain('href=');
+    expect(step2).not.toContain('/dashboard/connect');
+    expect(step2).not.toContain('<button');
   });
 
   it('has no zernioConnecting or zernioConnected state variables', () => {

@@ -82,7 +82,7 @@ describe('/dashboard/connect Console restyle contract', () => {
   it('uses Console .btn-secondary for the pending cancel control', () => {
     mockUseDashboardData.mockReturnValue(activeData({ status: 'pending', pendingFlow: { status: 'oauth_in_progress' }, queuedReconnectCount: 0, hasUnresolvedIncident: false }));
     const { getByRole } = render(<ConnectPage />);
-    expect(getByRole('button', { name: /^cancel$/i })).toHaveClass('btn', 'btn-secondary');
+    expect(getByRole('button', { name: /^cancel this attempt$/i })).toHaveClass('btn', 'btn-secondary');
   });
 
   it('uses Console .btn-secondary for the interrupted clear-attempt control', () => {

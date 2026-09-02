@@ -2,9 +2,12 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { ReviewsCard } from '@/components/dashboard/reviews/ReviewsCard';
 
 afterEach(() => vi.unstubAllGlobals());
+
+type CardProps = ComponentProps<typeof ReviewsCard>;
 
 const REVIEWS = [
   {
@@ -35,24 +38,40 @@ const REVIEWS = [
   },
 ];
 
+function renderCard(items: CardProps['items'], overrides: Partial<CardProps> = {}) {
+  return render(
+    <ReviewsCard
+      items={items}
+      pendingTotal={items.filter((item) => item.responseStatus === 'pending_approval').length}
+      total={items.length}
+      hasMore={false}
+      onLoadMore={() => {}}
+      onActionSuccess={() => {}}
+      {...overrides}
+    />,
+  );
+}
+
 describe('ReviewsCard', () => {
   it('renders only the pending queue, with no in-card tabs (All Recent dropped)', () => {
-    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} />);
+    renderCard(REVIEWS);
     expect(screen.getByText('Daniel')).toBeInTheDocument();
-    // Posted reviews live on the Reviews → History tab now, never in the queue.
+    // Posted reviews live on the Reviews → All Reviews tab now, never in the queue.
     expect(screen.queryByText('Sarah')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /all recent/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /needs action/i })).not.toBeInTheDocument();
   });
 
-  it('renders the empty state when no pending reviews', () => {
+  it('renders the empty state when no pending reviews, without email framing (UX audit D34)', () => {
     const onlyPosted = [REVIEWS[1]!];
-    render(<ReviewsCard recentReviews={onlyPosted} onActionSuccess={() => {}} />);
+    renderCard(onlyPosted);
     expect(screen.getByText('All caught up!')).toBeInTheDocument();
+    expect(screen.getByText(/we'll let you know/i)).toBeInTheDocument();
+    expect(screen.queryByText(/email/i)).not.toBeInTheDocument();
   });
 
   it('hides pending review action buttons in read-only mode', () => {
-    render(<ReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} readOnly />);
+    renderCard(REVIEWS, { readOnly: true });
 
     expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
@@ -80,51 +99,49 @@ describe('ReviewsCard escalation actions independent of draft state (WS3)', () =
     },
   ];
 
-  it('shows Acknowledge/Resolve on a card with an open escalation and NO pending draft', () => {
-    render(<ReviewsCard recentReviews={HELD_ESCALATED} onActionSuccess={() => {}} />);
+  it('shows the single Mark as handled control on a card with an open escalation and NO pending draft', () => {
+    renderCard(HELD_ESCALATED);
 
-    expect(screen.getByRole('button', { name: /acknowledge/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /resolve/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /mark as handled/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /acknowledge|^resolve$/i })).not.toBeInTheDocument();
     // Draft actions stay gated on the draft itself.
     expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^regenerate$/i })).not.toBeInTheDocument();
   });
 
-  it('POSTs acknowledge from a draft-less card and refreshes on 200', async () => {
+  it('POSTs resolve from a draft-less card and refreshes on 200', async () => {
     const onActionSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ success: true, status: 'acknowledged' }),
+      json: async () => ({ success: true, status: 'resolved' }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<ReviewsCard recentReviews={HELD_ESCALATED} onActionSuccess={onActionSuccess} />);
-    fireEvent.click(screen.getByRole('button', { name: /acknowledge/i }));
+    renderCard(HELD_ESCALATED, { onActionSuccess });
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     await waitFor(() => expect(onActionSuccess).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/dashboard/escalations/esc-held/acknowledge',
+      '/api/dashboard/escalations/esc-held/resolve',
       { method: 'POST' },
     );
   });
 
-  it('renders exactly one escalation button set alongside draft actions when a draft exists', () => {
+  it('renders exactly one escalation control alongside draft actions when a draft exists', () => {
     const withDraft = [
       { ...HELD_ESCALATED[0]!, id: 'r-draft', responseText: 'We are so sorry — please reach out.' },
     ];
-    render(<ReviewsCard recentReviews={withDraft} onActionSuccess={() => {}} />);
+    renderCard(withDraft);
 
     expect(screen.getByRole('button', { name: /^approve$/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /acknowledge/i })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /resolve/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /mark as handled/i })).toHaveLength(1);
   });
 
   it('hides escalation actions in read-only mode (routes reject non-writable subscriptions)', () => {
-    render(<ReviewsCard recentReviews={HELD_ESCALATED} onActionSuccess={() => {}} readOnly />);
+    renderCard(HELD_ESCALATED, { readOnly: true });
 
-    expect(screen.queryByRole('button', { name: /acknowledge/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /resolve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /mark as handled/i })).not.toBeInTheDocument();
   });
 });

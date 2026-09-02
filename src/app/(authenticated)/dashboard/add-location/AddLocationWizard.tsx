@@ -9,7 +9,8 @@
 //
 // Steps:
 //   1. Place autocomplete + display_label input
-//   2. Google Business info (informational only, connect later from Settings)
+//   2. Google Business info (informational only — the connect flow runs right
+//      after the wizard submits, never from inside it)
 //   3. Voice config (ToneChipPicker + ListEditor + copy-from-existing shortcut)
 //   4. Confirm-and-pay with proration preview
 //
@@ -72,7 +73,9 @@ export function AddLocationWizard(props: Props) {
             />
           )}
 
-          {wiz.step === 2 && <Step2GoogleBusiness onNext={wiz.goNext} />}
+          {/* Step 2 has no button of its own: the shell's Continue below is
+              the ONE way forward (UX audit D23 — two Continues, one step). */}
+          {wiz.step === 2 && <Step2GoogleBusiness />}
 
           {wiz.step === 3 && (
             <Step3Voice
@@ -82,7 +85,7 @@ export function AddLocationWizard(props: Props) {
               voiceLoading={wiz.voiceLoading}
               onCopyFromExisting={wiz.copyFromExisting}
               onVoiceFieldChange={wiz.setVoiceField}
-              onNext={wiz.goNext}
+              onUseDefaults={wiz.useDefaultVoice}
             />
           )}
 
@@ -93,6 +96,7 @@ export function AddLocationWizard(props: Props) {
               inputMode={wiz.inputMode}
               googleMapsUrl={wiz.googleMapsUrl}
               copyFromLocationId={wiz.copyFromLocationId}
+              voiceIsDefault={wiz.voiceIsDefault}
               existingLocations={wiz.existingLocations}
               billingSnapshot={props.billingSnapshot}
               billingPreview={wiz.billingPreview}

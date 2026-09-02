@@ -48,6 +48,12 @@ export function computeTrendDomain(stars: number[]): { min: number; max: number 
   return { min, max };
 }
 
+/** "last 8 weeks" was hard-coded in two charts while the series follows the
+ *  period picker (UX audit D36): the span IS the number of weekly buckets. */
+export function trendSpanLabel(weeks: number): string {
+  return weeks === 1 ? 'last week' : `last ${weeks} weeks`;
+}
+
 /** The plotted series: weeks carrying a star-equivalent, index kept for x. */
 export function starTrendPoints(trend: ReputationSummary['trend']): StarPoint[] {
   return trend

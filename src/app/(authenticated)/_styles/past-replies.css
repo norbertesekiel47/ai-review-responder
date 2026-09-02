@@ -211,6 +211,8 @@
   margin-top: auto;
   padding-top: 4px;
 }
+/* Pill + explanation stacked (the not-on-Google state, D18). */
+.pr-prov--stack { flex-direction: column; align-items: flex-start; gap: 0; }
 .pr-prov-badge {
   display: inline-flex;
   align-items: center;
@@ -342,6 +344,18 @@
   letter-spacing: 0.02em;
   cursor: default;
 }
+
+/* The owner-safe reason + next step under a reply that did not reach Google.
+   Rendered INDEPENDENT of EDIT_REPLIES_ENABLED (UX audit D18): the flag gates
+   the recovery verb, never the explanation. Body register, not an alarm — the
+   pill above already carries the attention colour. */
+.pr-recovery-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rw-app-text-muted);
+}
+.pr-recovery-note strong { color: var(--rw-app-text); font-weight: 600; }
 
 /* Recovery CTA — blush/warm-beige attention state, matching brand accent. */
 .pr-recovery-btn {

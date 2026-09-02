@@ -51,7 +51,7 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it('shows the success message and advances on a normal regenerate', async () => {
+  it('shows an in-place confirmation (no email framing) and advances on a normal regenerate', async () => {
     const onSuccess = vi.fn();
     vi.stubGlobal(
       'fetch',
@@ -63,8 +63,34 @@ describe('ReviewActions regenerate cap (issue #335)', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /regenerate/i }));
 
-    await waitFor(() => screen.getByText(/new draft requested/i));
+    await waitFor(() => screen.getByText(/writing a new reply/i));
+    expect(screen.queryByText(/email/i)).toBeNull();
     expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  // UX audit D10: the row owner takes over with its writing state.
+  it('hands off to onRegenerateStarted instead of refreshing when the row owns the generating state', async () => {
+    const onSuccess = vi.fn();
+    const onRegenerateStarted = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ok: true, status: 200, body: { success: true } }),
+      ),
+    );
+
+    render(
+      <ReviewActions
+        reviewId="rev-1"
+        responseText="hi"
+        onSuccess={onSuccess}
+        onRegenerateStarted={onRegenerateStarted}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /regenerate/i }));
+
+    await waitFor(() => expect(onRegenerateStarted).toHaveBeenCalledOnce());
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });
 
@@ -87,26 +113,48 @@ describe('ReviewActions approve and save-edit', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
   });
 
-  it('surfaces the server error on a failed approve and resets on Try again', async () => {
+  // UX audit D12: owner copy, never the server's sentence; a stale row refreshes.
+  it('maps a 409 not-pending failure to owner copy, refreshes the queue, and resets on Try again', async () => {
     const onSuccess = vi.fn();
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        jsonResponse({ ok: false, status: 409, body: { error: 'Response is not pending' } }),
+        jsonResponse({ ok: false, status: 409, body: { error: 'Response is no longer pending approval (current status: superseded)' } }),
       ),
     );
 
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
 
-    await waitFor(() => screen.getByText(/not pending/i));
-    expect(onSuccess).not.toHaveBeenCalled();
+    await waitFor(() => screen.getByRole('alert'));
+    expect(screen.getByRole('alert')).toHaveTextContent(/already handled/i);
+    expect(screen.queryByText(/superseded|no longer pending/i)).toBeNull();
+    expect(onSuccess).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    const tryAgain = screen.getByRole('button', { name: /try again/i });
+    // UX audit D13: recovery buttons carry `.btn` so they are tappable on phones.
+    expect(tryAgain).toHaveClass('btn', 'btn-tertiary');
+    fireEvent.click(tryAgain);
     expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
   });
 
-  it('falls back to a generic Failed (status) message when the error body is unparseable', async () => {
+  it('maps a machine code to owner copy without showing the code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ok: false, status: 402, body: { error: 'past_due_read_only' } }),
+      ),
+    );
+
+    render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    await waitFor(() => screen.getByRole('alert'));
+    expect(screen.getByRole('alert')).toHaveTextContent(/past due/i);
+    expect(screen.queryByText(/past_due_read_only/)).toBeNull();
+  });
+
+  it('falls back to "Couldn\'t approve — try again." when the error body is unparseable', async () => {
     const onSuccess = vi.fn();
     vi.stubGlobal(
       'fetch',
@@ -120,7 +168,8 @@ describe('ReviewActions approve and save-edit', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
 
-    await waitFor(() => screen.getByText('Failed (500)'));
+    await waitFor(() => screen.getByText("Couldn't approve — try again."));
+    expect(screen.queryByText(/Failed \(500\)/)).toBeNull();
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
@@ -134,6 +183,8 @@ describe('ReviewActions approve and save-edit', () => {
     render(<ReviewActions reviewId="rev-2" responseText="original" onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole('button', { name: /edit/i }));
     expect(screen.getByLabelText(/edit reply text/i)).toHaveAttribute('maxlength', '2000');
+    // UX audit D35: the shared editor shows the length counter here too.
+    expect(screen.getByText('8 / 2000')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/edit reply text/i), {
       target: { value: 'better reply' },
     });
@@ -164,7 +215,8 @@ describe('ReviewActions approve and save-edit', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }));
     fireEvent.click(screen.getByRole('button', { name: /save & approve/i }));
 
-    await waitFor(() => screen.getByText(/must not be empty/i));
+    await waitFor(() => screen.getByText(/your reply needs some text/i));
+    expect(screen.queryByText(/edited response/i)).toBeNull();
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
@@ -189,17 +241,18 @@ describe('ReviewActions approve and save-edit', () => {
 });
 
 describe('EscalationActions (WS3)', () => {
-  it('ReviewActions renders draft actions only — escalation buttons live in EscalationActions', () => {
+  it('ReviewActions renders draft actions only — the escalation control lives in EscalationActions', () => {
     render(<ReviewActions reviewId="rev-1" responseText="hi" onSuccess={vi.fn()} />);
 
-    expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /resolve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /handled/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /acknowledge|resolve/i })).toBeNull();
   });
 
-  it('POSTs acknowledge to the escalation endpoint and returns to idle on 200', async () => {
+  // UX audit D14: one explained control, not Acknowledge + Resolve.
+  it('renders a single "Mark as handled" with helper text, which POSTs resolve and returns to idle', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ ok: true, status: 200, body: { success: true, status: 'acknowledged' } }),
+      jsonResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -209,16 +262,19 @@ describe('EscalationActions (WS3)', () => {
         onSuccess={onSuccess}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /acknowledge/i }));
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /acknowledge|^resolve$/i })).toBeNull();
+    expect(screen.getByText(/guardian flagged this review for you/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/dashboard/escalations/esc-1/acknowledge',
+      '/api/dashboard/escalations/esc-1/resolve',
       { method: 'POST' },
     );
-    // Back to idle, not a terminal success panel: the refreshed badge is the
-    // confirmation, and Resolve stays reachable after the Acknowledge.
-    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
+    // Back to idle, not a terminal success panel: the refreshed card is the confirmation.
+    expect(screen.getByRole('button', { name: /mark as handled/i })).toBeEnabled();
   });
 
   it('invalidates the needs-attention query on a successful transition', async () => {
@@ -234,7 +290,7 @@ describe('EscalationActions (WS3)', () => {
       />,
     );
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(invalidateSpy).toHaveBeenCalledWith({
@@ -242,7 +298,7 @@ describe('EscalationActions (WS3)', () => {
     });
   });
 
-  it('hides Acknowledge once acknowledged but still offers Resolve', async () => {
+  it('explains an already-acknowledged escalation and still resolves it', async () => {
     const onSuccess = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({ ok: true, status: 200, body: { success: true, status: 'resolved' } }),
@@ -256,16 +312,15 @@ describe('EscalationActions (WS3)', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: /acknowledge/i })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+    expect(screen.getByText(/you've seen this one/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/dashboard/escalations/esc-2/resolve',
       { method: 'POST' },
     );
-    // Idle again — the buttons stay available after the transition.
-    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /mark as handled/i })).toBeEnabled();
   });
 
   it('treats a 409 already-transitioned race as a refresh, not an error', async () => {
@@ -283,14 +338,14 @@ describe('EscalationActions (WS3)', () => {
         onSuccess={onSuccess}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     // Mirrors TimelineEscalationActions: the benign two-tab race refreshes the
     // feed so the settled escalation replaces the stale card.
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     expect(screen.queryByText(/already resolved/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
-    expect(screen.getByRole('button', { name: /resolve/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /mark as handled/i })).toBeEnabled();
   });
 
   it('surfaces the server error and does not advance on a failed transition', async () => {
@@ -308,7 +363,7 @@ describe('EscalationActions (WS3)', () => {
         onSuccess={onSuccess}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+    fireEvent.click(screen.getByRole('button', { name: /mark as handled/i }));
 
     await waitFor(() => screen.getByText(/transition failed/i));
     expect(onSuccess).not.toHaveBeenCalled();

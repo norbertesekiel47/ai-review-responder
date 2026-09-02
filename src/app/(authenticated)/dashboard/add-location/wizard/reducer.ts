@@ -55,6 +55,7 @@ export type WizardAction =
   | { type: 'GO_BACK' }
   | { type: 'SET_VOICE_FIELD'; key: keyof VoiceFormState; value: VoiceFormState[keyof VoiceFormState] }
   | { type: 'COPY_FROM_EXISTING'; locationId: string }
+  | { type: 'USE_DEFAULT_VOICE' }
   | { type: 'VOICE_CONFIGS_LOADED'; locations: ExistingLocationVoice[] }
   | { type: 'VOICE_CONFIGS_FAILED' }
   | { type: 'PLACE_IDS_LOADED'; placeIds: string[] }
@@ -181,6 +182,18 @@ export function reducer(state: WizardState, action: WizardAction): WizardState {
         // at the dispatch site (the hook's generic setVoiceField setter).
         voiceForm: { ...state.voiceForm, [action.key]: action.value } as VoiceFormState,
         copyFromLocationId: '',
+      };
+
+    // "Use the default voice" on step 3 (UX audit D23). It used to be a plain
+    // GO_NEXT, so an owner who had typed half a voice config and then clicked
+    // it shipped the half — the button said one thing and did another. It now
+    // RESETS the form to DEFAULT_VOICE before advancing.
+    case 'USE_DEFAULT_VOICE':
+      return {
+        ...state,
+        voiceForm: { ...DEFAULT_VOICE },
+        copyFromLocationId: '',
+        step: Math.min(state.step + 1, 4) as WizardStep,
       };
 
     case 'COPY_FROM_EXISTING': {

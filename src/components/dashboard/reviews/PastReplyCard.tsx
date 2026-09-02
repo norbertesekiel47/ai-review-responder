@@ -9,6 +9,11 @@ import { Icon } from '@/components/dashboard/shell/Icon';
 import type { ApprovalMethod } from '@/lib/auto-approval/types';
 import type { ProvenanceBadge, ReplyState, RowAction } from '@/lib/past-replies/replies-view';
 import type { RegenBudgetStatus } from '@/lib/costs/tracker';
+import {
+  DELETE_FAILED_PREFIX,
+  ORPHAN_SUCCEEDED_SUFFIX,
+  POST_AFTER_DELETE_FAILED_PREFIX,
+} from '@/lib/publishing/orphan-markers';
 
 // PastReplyRow is the wire shape flowing from page.tsx → PastRepliesClient →
 // PastReplyCard → EditReplyDrawer. Fields with `?` are added by the edit
@@ -89,6 +94,49 @@ const PROVENANCE_LABEL: Record<ProvenanceBadge, string> = {
 function provenanceLabel(badge: string | null | undefined): string | null {
   if (!badge) return null;
   return PROVENANCE_LABEL[badge as ProvenanceBadge] ?? null;
+}
+
+/**
+ * The owner-safe reason a reply did not reach Google, plus what happens next,
+ * keyed on the recovery-marker PREFIX (`orphan-markers.ts`) — never the raw
+ * `posting_error`, which carries provider codes. Shown independent of
+ * EDIT_REPLIES_ENABLED (UX audit D18): the flag gates the recovery verb, not
+ * the explanation. The next step is truthful in both flag states — the failed
+ * hook raises an alert, and the owner does not have to repost by hand.
+ */
+export function recoveryNote(postingError: string | null | undefined): {
+  reason: string;
+  next: string;
+} {
+  const marker = postingError ?? '';
+  if (
+    marker.startsWith(POST_AFTER_DELETE_FAILED_PREFIX) ||
+    marker.endsWith(ORPHAN_SUCCEEDED_SUFFIX)
+  ) {
+    return {
+      reason: 'We took the old reply down on Google, but the new one did not post.',
+      next: 'We have been alerted and are sorting it out — no need to repost it yourself.',
+    };
+  }
+  if (marker.startsWith(DELETE_FAILED_PREFIX)) {
+    return {
+      reason: 'We could not swap out the old reply on Google.',
+      next: 'Your previous reply is still live, so customers are not missing an answer.',
+    };
+  }
+  return {
+    reason: 'This reply did not reach Google.',
+    next: 'We have been alerted and are sorting it out — no need to repost it yourself.',
+  };
+}
+
+function RecoveryNote({ postingError }: { postingError: string | null | undefined }) {
+  const note = recoveryNote(postingError);
+  return (
+    <p className="pr-recovery-note">
+      <strong>{note.reason}</strong> {note.next}
+    </p>
+  );
 }
 
 function fmt(iso: string): string {
@@ -360,10 +408,13 @@ function Provenance({ row, isImported }: { row: PastReplyRow; isImported: boolea
 
   if (isOrphanRecovery) {
     return (
-      <div className="pr-prov">
+      <div className="pr-prov pr-prov--stack">
         <span className="pr-prov-badge pr-prov-recovery">
-          <Icon name="history" size={10} /> Pending recovery
+          <Icon name="history" size={10} /> Not on Google yet
         </span>
+        {/* The reason and next step render whatever EDIT_REPLIES_ENABLED says
+            (D18); RecoveryControl below adds the verb only when the flag is on. */}
+        <RecoveryNote postingError={row.failed_posting_error} />
       </div>
     );
   }
@@ -428,7 +479,13 @@ function AnsweredControls({
   onEditClick?: (row: PastReplyRow) => void;
   onRecoveryClick?: (row: PastReplyRow) => void;
 }) {
-  if (!editRepliesEnabled) return null;
+  if (!editRepliesEnabled) {
+    // Flag off: no verb, but a posted reply whose replacement failed still
+    // owes the owner the reason and the next step (D18).
+    return row.failed_response_id ? (
+      <RecoveryNote postingError={row.failed_posting_error} />
+    ) : null;
+  }
 
   if (row.failed_response_id) {
     return (

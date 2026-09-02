@@ -251,7 +251,9 @@ describe('design tokens: Island palette is single-sourced in globals.css', () =>
   });
 
   it('keeps the add-location inline action on the accessible Console link token', () => {
-    const step = read('src/app/(authenticated)/dashboard/add-location/wizard/steps/Step2GoogleBusiness.tsx');
+    // The inline Connect link lives on the confirm step only (UX audit D23 removed
+    // the mid-wizard exit from step 2 so in-memory wizard state is never discarded).
+    const step = read('src/app/(authenticated)/dashboard/add-location/wizard/steps/Step4Confirm.tsx');
     const wizardCss = read('src/app/(authenticated)/_styles/wizard.css');
 
     expect(step).toContain('className="wizard-inline-link"');

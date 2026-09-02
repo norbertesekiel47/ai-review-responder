@@ -19,12 +19,13 @@ class RedirectSignal extends Error {
   }
 }
 
-const { mockRedirect, mockGetUser, mockUserRows } = vi.hoisted(() => ({
+const { mockRedirect, mockGetUser, mockUserRows, mockPathname } = vi.hoisted(() => ({
   mockRedirect: vi.fn((url: string) => {
     throw new RedirectSignalRef.value(url);
   }),
   mockGetUser: vi.fn(),
   mockUserRows: { value: [] as unknown[] },
+  mockPathname: { value: null as string | null },
 }));
 
 // `vi.hoisted` runs before the class declaration above is evaluated, so the
@@ -39,7 +40,7 @@ vi.mock('next/font/local', () => ({
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined, getAll: () => [] }),
-  headers: async () => ({ get: () => null }),
+  headers: async () => ({ get: () => mockPathname.value }),
 }));
 
 vi.mock('@supabase/ssr', () => ({
@@ -81,6 +82,7 @@ async function expectRedirect(to: string): Promise<void> {
 describe('AuthenticatedLayout role gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPathname.value = null;
     mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-1', email: 'o@example.com' } } });
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key-test';
@@ -104,23 +106,35 @@ describe('AuthenticatedLayout role gate', () => {
     await expectRedirect('/login');
   });
 
-  it('sends an owner with no account to /admin/login (unchanged)', async () => {
+  // UX audit D4: neither of these is an admin — the owner login, with `from`
+  // and a mapped reason (`mapInitialQueryError('account_not_found')`).
+  it('sends an owner with no account to the owner login with an account_not_found reason', async () => {
     mockUserRows.value = [
       { role: 'owner', account_id: null, owner_name: 'Ola', email: 'o@example.com' },
     ];
+    mockPathname.value = '/settings/billing';
 
-    await expectRedirect('/admin/login');
+    await expectRedirect('/login?from=%2Fsettings%2Fbilling&error=account_not_found');
   });
 
-  it('sends an auth identity with no users row to /admin/login (unchanged)', async () => {
+  it('sends an auth identity with no users row to the owner login with an account_not_found reason', async () => {
     mockUserRows.value = [];
 
-    await expectRedirect('/admin/login');
+    await expectRedirect('/login?error=account_not_found');
   });
 
-  it('sends an unauthenticated visitor to /admin/login (unchanged)', async () => {
+  // UX audit D4: an owner whose session expired goes to the OWNER login (the
+  // admin login rejects owner credentials), carrying the page they were on.
+  it('sends an unauthenticated visitor to the owner login with the current path as `from`', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockPathname.value = '/dashboard/reviews';
+
+    await expectRedirect('/login?from=%2Fdashboard%2Freviews');
+  });
+
+  it('sends an unauthenticated visitor to a bare /login when the path is unknown', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
-    await expectRedirect('/admin/login');
+    await expectRedirect('/login');
   });
 });

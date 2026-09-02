@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
+import { useToast } from '@/components/dashboard/shell/toast/ToastProvider';
 import { LiveRegion } from '@/components/ui/LiveRegion';
 import { useLocationScope } from '@/contexts/LocationContext';
 import { withSolicitationScope } from '@/app/api/dashboard/solicitation/scope-param';
@@ -12,6 +13,7 @@ import type { LaneRefresh, LaneWriteOutcome } from './lane-writes';
 import { AttributedReviews, type AttributedReviewsView } from './AttributedReviews';
 import { BatchReport } from './BatchReport';
 import { GhostPipeline } from './GhostPipeline';
+import { RequestsTabs } from './RequestsTabs';
 import './requests.css';
 
 /**
@@ -132,11 +134,30 @@ function LaneAnnouncements({
   );
 }
 
+/**
+ * Whether the batch on screen is a SEND-lane batch — `sendLane === null` IS how
+ * the browser learns SOLICITATION_SEND_ENABLED is off (invariant #13), so every
+ * watch-mode sentence on this screen keys on it (UX audit D6). Null while the
+ * phase has no built batch to read it from.
+ */
+function sendLaneLive(phase: Phase): boolean | null {
+  const view =
+    phase.kind === 'ready' || phase.kind === 'stalled' ? phase.view : null;
+  if (view === null || view.state !== 'built') return null;
+  return view.sendLane !== null;
+}
+
+const WATCH_SUBTITLE =
+  'What RepWorth would ask for — and everyone it held back, with the reason.';
+const SEND_SUBTITLE =
+  'Who RepWorth is asking for a review — and everyone it held back, with the reason.';
+
 export function RequestsClient() {
   const { currentScope } = useLocationScope();
   const { phase, announcement, refetch } = useLatestBatch(currentScope);
   const attributed = useAttributedReviews(currentScope);
   const [lane, setLane] = useState<LaneSentence>(() => noLaneSentence(currentScope));
+  const { toast } = useToast();
 
   useReviewedPing(phase, currentScope);
 
@@ -158,9 +179,17 @@ export function RequestsClient() {
   const onLaneChanged = useCallback(
     (message: string, outcome: LaneWriteOutcome, refresh: LaneRefresh) => {
       setLane({ scope: currentScope, message, outcome });
+      // A settled sentence is confirmation of work the owner just did, and the
+      // live region alone gave sighted owners none (UX audit D24). The toast is
+      // IN ADDITION to the region, never instead of it; the unconfirmed
+      // outcome keeps its own role="alert" banner and is not toasted, because a
+      // toast auto-dismisses and that sentence must not.
+      if (outcome === 'settled' && message !== '') {
+        toast({ tone: refresh === 'none' ? 'info' : 'success', title: message });
+      }
       if (refresh !== 'none') refetch(refresh);
     },
-    [currentScope, refetch],
+    [currentScope, refetch, toast],
   );
 
   /** Every other refetch clears the lane sentence. Without this, a sentence
@@ -178,12 +207,14 @@ export function RequestsClient() {
     <>
       <TopBar
         title="Requests"
-        subtitle="What RepWorth would ask for — and everyone it held back, with the reason."
-        // The upload surface has to be reachable from every state of this
-        // screen, not only the empty-state CTA — the screen an owner sits on
-        // right after uploading is `building`, which has no other path to it.
-        rightLink={{ href: '/dashboard/requests/contacts', label: 'Contacts' }}
+        subtitle={sendLaneLive(phase) === true ? SEND_SUBTITLE : WATCH_SUBTITLE}
       />
+      {/* The upload surface has to be reachable from every state of this
+          screen, not only the empty-state CTA — the screen an owner sits on
+          right after uploading is `building`, which has no other path to it.
+          A routed tab bar rather than a header link (D28): the two are
+          siblings, and Contacts renders the same bar so it has a way back. */}
+      <RequestsTabs active="requests" />
       {/* rq-surface scopes this route's reduced-motion opt-out to every card it
           renders, including the ones outside .rq-stack. */}
       <div className="content rq-surface">
@@ -302,9 +333,13 @@ function Screen({
 
 /** What polling gave up on is never the BUILD here — a built batch is built —
  *  so this says only what is true of every way this arm is reached, and offers
- *  the same recourse the ghost's stalled arm does. */
-const STALLED_BUILT_NOTE =
+ *  the same recourse the ghost's stalled arm does. "Nothing has been sent" is
+ *  a watch-mode fact (D6): with a live send lane the batch may be mid-send, so
+ *  that arm claims only what a stale read can support. */
+const STALLED_BUILT_NOTE_WATCH =
   'We stopped checking for updates after a few minutes. Nothing has been sent — this is the batch as we last read it.';
+const STALLED_BUILT_NOTE_SEND =
+  'We stopped checking for updates after a few minutes. This is the batch as we last read it — check again for the latest.';
 
 /**
  * The built batch, rendered from ONE place so the `ready` and `stalled` arms
@@ -336,7 +371,9 @@ function BuiltBatch({
     <>
       {onCheckAgain !== undefined && (
         <div className="card section-enter section-enter-1 rq-stalled-note">
-          <p className="rq-state-body">{STALLED_BUILT_NOTE}</p>
+          <p className="rq-state-body">
+            {view.sendLane === null ? STALLED_BUILT_NOTE_WATCH : STALLED_BUILT_NOTE_SEND}
+          </p>
           <button
             type="button"
             className="btn btn-secondary rq-action"

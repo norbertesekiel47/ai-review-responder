@@ -13,6 +13,7 @@ import {
   getRenderAuthUser,
   getRenderOwnerRow,
   getRenderRequestScope,
+  ownerLoginPath,
 } from '@/lib/auth/require-owner-access';
 import { getPendingApprovalCount } from '@/lib/dashboard/pending-count';
 import { getDisplayLabel } from '@/lib/locations/display-label';
@@ -68,13 +69,19 @@ export default async function AuthenticatedLayout({
   // user, `users` row and request scope. Going through the same three memoised
   // helpers means one Supabase Auth round trip, one `users` read and one
   // `businesses` scan per page render instead of two of each.
+  // An owner whose session expired goes to the OWNER login, carrying the page
+  // they were on so they land back there afterwards — the admin login rejects
+  // owner credentials (UX audit D4). proxy.ts does the same one layer up; this
+  // is the shell's own half of that posture.
   const authUser = await getRenderAuthUser();
-  if (!authUser) redirect('/admin/login');
+  if (!authUser) redirect(ownerLoginPath(pathname));
 
   // Read users.account_id (users.business_id was dropped in migration 034).
   const appUser = await getRenderOwnerRow(sql, authUser.id);
 
-  if (!appUser) redirect('/admin/login');
+  // A signed-in Supabase user with no app row is not an admin: owner login,
+  // with the reason, never the admin form (UX audit D4).
+  if (!appUser) redirect(ownerLoginPath(pathname, 'account_not_found'));
 
   // Role routing, matching requireOwnerAccess (same helper, same row)
   // exactly — 10 pages under THIS shell call that helper and get these two
@@ -85,7 +92,8 @@ export default async function AuthenticatedLayout({
   if (appUser.role === 'admin') redirect('/admin/overview');
   if (appUser.role !== 'owner') redirect('/login');
 
-  if (!appUser.account_id) redirect('/admin/login');
+  // An owner row with no account is a provisioning gap, not an admin (D4).
+  if (!appUser.account_id) redirect(ownerLoginPath(pathname, 'account_not_found'));
 
   const accountId = asAccountId(appUser.account_id);
 

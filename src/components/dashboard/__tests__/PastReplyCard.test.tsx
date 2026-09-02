@@ -291,7 +291,7 @@ describe('PastReplyCard', () => {
   //
   // An orphan row (failed_response_id present + posted_at null) was never
   // successfully posted, so "Posted via RepWorth" is misleading. Both
-  // provenance badges must be suppressed; "Pending recovery" must appear instead.
+  // provenance badges must be suppressed; "Not on Google yet" must appear instead (D18).
 
   it('orphan recovery row: does NOT show "Posted via RepWorth" badge', () => {
     const orphanRow = makeRow({
@@ -317,7 +317,7 @@ describe('PastReplyCard', () => {
     expect(screen.queryByText(/posted via repworth/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^imported$/i)).not.toBeInTheDocument();
     // Neutral recovery label must appear instead.
-    expect(screen.getByText(/pending recovery/i)).toBeInTheDocument();
+    expect(screen.getByText(/not on google yet/i)).toBeInTheDocument();
   });
 
   it('orphan recovery row: does NOT show "Imported" badge', () => {
@@ -345,7 +345,7 @@ describe('PastReplyCard', () => {
 
     expect(screen.queryByText(/^imported$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/posted via repworth/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/pending recovery/i)).toBeInTheDocument();
+    expect(screen.getByText(/not on google yet/i)).toBeInTheDocument();
   });
 
   it('normal posted row: still shows "Posted via RepWorth" badge (Fix 3 does not regress)', () => {
@@ -362,7 +362,7 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.getByText(/posted via repworth/i)).toBeInTheDocument();
-    expect(screen.queryByText(/pending recovery/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not on google yet/i)).not.toBeInTheDocument();
   });
 
   it('normal imported row: still shows "Imported" badge (Fix 3 does not regress)', () => {
@@ -379,6 +379,6 @@ describe('PastReplyCard', () => {
     );
 
     expect(screen.getByText(/^imported$/i)).toBeInTheDocument();
-    expect(screen.queryByText(/pending recovery/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not on google yet/i)).not.toBeInTheDocument();
   });
 });

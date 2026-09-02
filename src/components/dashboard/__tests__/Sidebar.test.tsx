@@ -81,15 +81,16 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /help/i })).toHaveAttribute('href', '/help/contact');
   });
 
-  it('hides the Past replies child until the Reviews section is open', () => {
+  it('hides the All Reviews child until the Reviews section is open', () => {
     render(
       wrapWithProvider(
         <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
-    expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /all reviews/i })).not.toBeInTheDocument();
   });
 
+  // UX audit D16: the child carries the tab's own name, never "Past replies".
   it('reveals the Reviews children on a reviews route, and marks the open child', () => {
     pathnameMock.mockReturnValue('/dashboard/reviews/history');
     render(
@@ -97,7 +98,8 @@ describe('Sidebar', () => {
         <Sidebar businessName="Coffee Co" solicitationEnabled={false} />,
       ),
     );
-    const history = screen.getByRole('link', { name: /past replies/i });
+    expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
+    const history = screen.getByRole('link', { name: 'All Reviews' });
     expect(history).toHaveAttribute('href', '/dashboard/reviews/history');
     expect(history).toHaveAttribute('aria-current', 'page');
     // The parent row stays highlighted alongside the child.
@@ -127,7 +129,7 @@ describe('Sidebar', () => {
     );
     expect(screen.getByRole('link', { name: /reviews/i })).toHaveAttribute('href', '/dashboard/reviews');
     expect(screen.queryByRole('link', { name: /insights/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /past replies/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /past replies|all reviews/i })).not.toBeInTheDocument();
   });
 
   it('renders the Analytics nav item (final order: Dashboard · Reviews · Analytics · Settings)', () => {

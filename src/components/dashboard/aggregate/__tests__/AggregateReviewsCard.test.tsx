@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { AggregateReviewsCard } from '@/components/dashboard/aggregate/AggregateReviewsCard';
+
+type CardProps = ComponentProps<typeof AggregateReviewsCard>;
 
 const REVIEWS = [
   {
@@ -37,21 +40,42 @@ const REVIEWS = [
   },
 ];
 
+function renderCard(overrides: Partial<CardProps> = {}) {
+  return render(
+    <AggregateReviewsCard
+      items={REVIEWS}
+      pendingTotal={1}
+      total={REVIEWS.length}
+      hasMore={false}
+      onLoadMore={() => {}}
+      onActionSuccess={() => {}}
+      {...overrides}
+    />,
+  );
+}
+
 describe('AggregateReviewsCard', () => {
-  it('renders only the pending queue, with no in-card tabs (All Recent dropped)', () => {
-    render(<AggregateReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} />);
+  it('renders only the pending queue with its location chip, and no in-card tabs', () => {
+    renderCard();
     expect(screen.getByText('Daniel')).toBeInTheDocument();
-    // Posted reviews live on the Reviews → History tab now, never in the queue.
+    expect(screen.getByText('Downtown')).toBeInTheDocument();
+    // Posted reviews live on the Reviews → All Reviews tab now, never in the queue.
     expect(screen.queryByText('Sarah')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /all recent/i })).not.toBeInTheDocument();
   });
 
   it('hides pending review action buttons in read-only mode', () => {
-    render(<AggregateReviewsCard recentReviews={REVIEWS} onActionSuccess={() => {}} readOnly />);
+    renderCard({ readOnly: true });
 
     expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^regenerate$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/update billing to approve/i)).toBeInTheDocument();
+  });
+
+  it('says "we\'ll let you know" in the empty state — no email framing (UX audit D34)', () => {
+    renderCard({ items: [REVIEWS[1]!], pendingTotal: 0, total: 1 });
+    expect(screen.getByText(/we'll let you know/i)).toBeInTheDocument();
+    expect(screen.queryByText(/email/i)).not.toBeInTheDocument();
   });
 });

@@ -59,6 +59,10 @@ export function ApprovalActions({
   if (verb === null) return null;
 
   const blocked = busy || unavailable;
+  // The one-line reason a disabled verb owes the owner (UX audit D7). `busy`
+  // needs none — the label itself says "Approving…" — so the reason renders
+  // only for the block the button cannot explain by relabelling.
+  const reason = !busy && unavailable ? UNAVAILABLE_REASON[verb] : null;
 
   return (
     <div className="rq-approval-actions">
@@ -68,6 +72,7 @@ export function ApprovalActions({
           className="btn btn-primary rq-action"
           onClick={onApprove}
           disabled={blocked}
+          aria-describedby={reason !== null ? REASON_ID : undefined}
         >
           {busy ? 'Approving…' : `Approve and send ${sendPhrase}`}
         </button>
@@ -77,10 +82,25 @@ export function ApprovalActions({
           className="btn btn-secondary rq-action"
           onClick={onHalt}
           disabled={blocked}
+          aria-describedby={reason !== null ? REASON_ID : undefined}
         >
           {busy ? 'Stopping…' : 'Stop this batch'}
         </button>
       )}
+      {reason !== null && (
+        <p className="rq-action-reason" id={REASON_ID}>
+          {reason}
+        </p>
+      )}
     </div>
   );
 }
+
+const REASON_ID = 'rq-approval-action-reason';
+
+/** Why the verb refuses clicks for a reason that is not its own write. Total
+ *  over the verbs so a third verb has to say what its block means. */
+const UNAVAILABLE_REASON: Readonly<Record<ApprovalVerb, string>> = {
+  approve: 'You can approve once the new version of that message is ready.',
+  halt: 'You can stop this batch once the new version of that message is ready.',
+};

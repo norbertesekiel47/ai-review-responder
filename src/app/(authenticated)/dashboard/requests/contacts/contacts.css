@@ -23,3 +23,181 @@
 .suppression-badge { white-space: nowrap; }
 .suppression-badge--global { background: var(--rw-cream); color: var(--rw-app-text-muted); }
 .suppression-badge--account { background: var(--rw-accent-100); color: var(--rw-accent-800); }
+
+/* ---------- Contact list table → cards (D26) ---------- */
+
+/* The list is a real <table> for the desktop reading width (six columns, row
+   scanning) and a stack of cards below 720px, where a six-column table scrolled
+   sideways and put Delete and Don't-contact off-screen at 390px. Same markup
+   both ways: the header row goes visually-hidden and each cell repeats its
+   column name from `data-label`, so nothing is duplicated in JSX and screen
+   readers keep the table semantics. Every colour is a Console token. */
+
+.ct-count {
+  margin-left: 10px;
+  font-family: var(--rw-font-body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--rw-app-text-muted);
+}
+.ct-state {
+  margin: 0;
+  font-size: 14px;
+  color: var(--rw-app-text-muted);
+}
+.ct-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--rw-danger);
+}
+
+.ct-table-wrap { overflow-x: auto; }
+.ct-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ct-th {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--rw-app-text-soft);
+  border-bottom: 1px solid var(--rw-hair-2);
+}
+.ct-th--num { text-align: right; }
+.ct-td {
+  padding: 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rw-hair);
+  color: var(--rw-app-text);
+}
+.ct-td--name { font-weight: 600; }
+.ct-td--muted { color: var(--rw-app-text-muted); }
+.ct-td--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ct-td--actions { text-align: right; }
+.ct-badge-row { margin-top: 5px; }
+.ct-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+/* A trigger whose confirm step is open reads as pressed (D25). */
+.ct-actions .btn[aria-expanded='true'] {
+  background: var(--rw-recess);
+  color: var(--rw-app-text);
+}
+.ct-row-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--rw-danger);
+}
+
+.ct-confirm-cell {
+  padding: 0;
+  border-bottom: 1px solid var(--rw-hair);
+}
+.ct-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+}
+.ct-confirm--danger { background: var(--rw-danger-soft); }
+.ct-confirm--accent { background: var(--rw-accent-50); }
+.ct-confirm-msg {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rw-app-text);
+}
+.ct-confirm--danger .ct-confirm-msg { color: var(--rw-danger); }
+.ct-confirm-btn--danger {
+  background: var(--rw-danger);
+  color: var(--rw-on-accent);
+}
+.ct-confirm-error {
+  font-size: 13px;
+  color: var(--rw-danger);
+}
+
+.ct-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.ct-pager-range {
+  font-size: 13px;
+  color: var(--rw-app-text-muted);
+}
+
+@media (max-width: 720px) {
+  .ct-table-wrap { overflow-x: visible; }
+  .ct-table,
+  .ct-table tbody,
+  .ct-table tr,
+  .ct-table td { display: block; }
+  /* Visually hidden, not display:none — the column headers stay in the
+     accessibility tree for the cells' `scope="col"` relationships. */
+  .ct-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ct-row {
+    padding: 12px 0 14px;
+    border-bottom: 1px solid var(--rw-hair);
+  }
+  .ct-td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 4px 12px;
+    align-items: baseline;
+    padding: 3px 0;
+    border-bottom: none;
+    text-align: left;
+  }
+  .ct-td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--rw-app-text-soft);
+  }
+  .ct-td--name {
+    display: block;
+    font-size: 15px;
+    padding-bottom: 6px;
+  }
+  .ct-td--name::before { display: none; }
+  .ct-td--num { text-align: left; }
+  .ct-td--actions {
+    display: block;
+    padding-top: 10px;
+  }
+  .ct-td--actions::before { display: none; }
+  .ct-actions { justify-content: flex-start; }
+  /* Tap targets: the tertiary buttons are text-height on desktop. */
+  .ct-actions .btn { min-height: 44px; }
+  .ct-confirm-row { display: block; }
+  .ct-confirm-cell {
+    display: block;
+    padding: 0;
+    border-bottom: 1px solid var(--rw-hair);
+  }
+  .ct-confirm { border-radius: var(--rw-radius-md); }
+}

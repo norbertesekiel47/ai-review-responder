@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { AI_DRAFT_DISCLOSURE } from '@/lib/ui/disclosures';
 import { MAX_REPLY_LENGTH } from '@/lib/responses/limits';
+import { ReplyEditor } from '@/components/dashboard/reviews/ReplyEditor';
 
 export function ManualEditor({
   initialText,
@@ -13,8 +14,7 @@ export function ManualEditor({
   onCancel: () => void;
 }) {
   const [text, setText] = useState(initialText);
-  const remaining = MAX_REPLY_LENGTH - text.length;
-  const overLimit = remaining < 0;
+  const overLimit = text.length > MAX_REPLY_LENGTH;
 
   return (
     <div className="space-y-2">
@@ -28,38 +28,23 @@ export function ManualEditor({
       <div className="rounded-md px-3 py-2 text-xs" style={{ border: '1px solid var(--rw-sage-line)', background: 'var(--rw-sage-soft)', color: 'var(--rw-app-text-muted)' }}>
         {AI_DRAFT_DISCLOSURE}
       </div>
-      <textarea
-        id="reply-textarea"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        maxLength={MAX_REPLY_LENGTH}
-        rows={8}
-        className="textarea"
-      />
-      <div className="flex items-center justify-between">
-        <span
-          className="text-xs"
-          style={{ color: overLimit ? 'var(--rw-danger)' : 'var(--rw-app-text-muted)' }}
+      <ReplyEditor id="reply-textarea" value={text} onChange={setText} rows={8} />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="btn btn-secondary"
         >
-          {text.length} / {MAX_REPLY_LENGTH}
-        </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="btn btn-secondary"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => onSubmit(text)}
-            disabled={!text.trim() || overLimit}
-            className="btn btn-primary"
-          >
-            Update on Google
-          </button>
-        </div>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit(text)}
+          disabled={!text.trim() || overLimit}
+          className="btn btn-primary"
+        >
+          Update on Google
+        </button>
       </div>
     </div>
   );

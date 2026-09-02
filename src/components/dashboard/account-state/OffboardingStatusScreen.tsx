@@ -9,11 +9,22 @@ import {
 interface OffboardingStatusScreenProps {
   activeOffboarding: OffboardingStatusView;
   accountTimeZone?: string | null;
+  /** The live-status controls (UX audit D29): the page polls, and this is the
+   *  manual check beside the "last checked" time. Optional so the screen can
+   *  still render a snapshot without a query behind it. */
+  liveStatus?: {
+    onRefresh: () => void;
+    refreshing: boolean;
+    lastCheckedAt: number | null;
+  };
 }
+
+const CHECKED_AT_FORMAT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
 export function OffboardingStatusScreen({
   activeOffboarding,
   accountTimeZone,
+  liveStatus,
 }: OffboardingStatusScreenProps) {
   return (
     <div className="account-state-screen">
@@ -46,7 +57,27 @@ export function OffboardingStatusScreen({
             <Link className="btn btn-secondary" href="/help/contact">
               Contact support
             </Link>
+            {liveStatus && (
+              <button
+                type="button"
+                className="btn btn-tertiary"
+                onClick={liveStatus.onRefresh}
+                disabled={liveStatus.refreshing}
+              >
+                {liveStatus.refreshing ? 'Checking…' : 'Check now'}
+              </button>
+            )}
           </div>
+          {liveStatus && (
+            <p
+              role="status"
+              style={{ margin: 0, color: 'var(--rw-app-text-soft)', fontSize: 12, lineHeight: 1.5 }}
+            >
+              This page checks for updates on its own.
+              {liveStatus.lastCheckedAt !== null &&
+                ` Last checked ${CHECKED_AT_FORMAT.format(new Date(liveStatus.lastCheckedAt))}.`}
+            </p>
+          )}
         </div>
       </section>
     </div>

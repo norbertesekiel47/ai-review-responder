@@ -18,7 +18,15 @@ export interface ScopeFallbackInfo {
 export interface UseDashboardDataResult {
   data: DashboardOrAggregate | null;
   error: string | null;
+  /**
+   * True only while NO data exists for the requested scope/window — the first
+   * fetch, or the fetch right after a scope/window change. A background
+   * refresh of data already on screen never flips this (stale-while-revalidate,
+   * UX audit D1): consumers render their skeleton only when `data` is null.
+   */
   loading: boolean;
+  /** True while a refresh is in flight over data already on screen. */
+  refreshing: boolean;
   refresh: () => Promise<void>;
   /** VAL-DASH-029: Set when the API fell back to primary because the requested
    *  location was archived or not found. The consumer should update the
@@ -66,6 +74,13 @@ function extractScopeFallback(json: DashboardOrAggregate): ScopeFallbackInfo | n
   return null;
 }
 
+interface DataState {
+  scope: LocationScope | null;
+  window: DashboardWindow;
+  data: DashboardOrAggregate | null;
+  fallback: ScopeFallbackInfo | null;
+}
+
 /**
  * Fetches dashboard data from the API, scoped to the given location or aggregate.
  *
@@ -74,6 +89,11 @@ function extractScopeFallback(json: DashboardOrAggregate): ScopeFallbackInfo | n
  *
  * When scope is null, fetches the default (user's current location from server).
  * When scope changes, clears stale data and re-fetches.
+ *
+ * Stale-while-revalidate (UX audit D1): a `refresh()` over data that is already
+ * on screen for the same scope/window keeps that data in place and reports
+ * `refreshing` instead of `loading`, so the 60 s auto-refresh and the
+ * post-action refetch never unmount the list an owner is working in.
  */
 export function useDashboardData(
   scope: LocationScope | null = null,
@@ -86,14 +106,15 @@ export function useDashboardData(
   // Data is keyed by the (scope, window) it was fetched for. Stale data from a
   // previous scope OR window is never returned (derived below), so we don't reset
   // state in an effect when either changes (VAL-DASH-025) — the derivation handles it.
-  const [dataState, setDataState] = useState<{
-    scope: LocationScope | null;
-    window: DashboardWindow;
-    data: DashboardOrAggregate | null;
-    fallback: ScopeFallbackInfo | null;
-  }>({ scope, window: dashboardWindow, data: null, fallback: null });
+  const [dataState, setDataState] = useState<DataState>({
+    scope,
+    window: dashboardWindow,
+    data: null,
+    fallback: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   // Sequence id: increments on every refresh() call. Responses that resolve
   // with a stale id are discarded so a slow request can't overwrite fresher
   // data (e.g. auto-refresh tick fires while a manual refresh is still
@@ -106,6 +127,9 @@ export function useDashboardData(
   const scopeRef = useRef(scope);
   // Track the window for the current fetch (#403) — same stale-response guard.
   const windowRef = useRef(dashboardWindow);
+  // Latest committed data, so the stable refresh() can tell a background
+  // refresh (data on screen → `refreshing`) from a first load (→ `loading`).
+  const dataStateRef = useRef(dataState);
   // Stable ref to options.onScopeFallback to avoid re-triggering effects
   const onFallbackRef = useRef(options.onScopeFallback);
   // Keep refs current so the stable refresh() (deps []) reads the latest values.
@@ -115,6 +139,7 @@ export function useDashboardData(
   useEffect(() => {
     scopeRef.current = scope;
     windowRef.current = dashboardWindow;
+    dataStateRef.current = dataState;
     onFallbackRef.current = options.onScopeFallback;
   });
 
@@ -124,8 +149,15 @@ export function useDashboardData(
     const fetchWindow = windowRef.current;
     // Discard a response whose request was superseded or whose owner unmounted.
     const isStale = () => myReqId !== reqIdRef.current || unmountedRef.current;
+    const current = dataStateRef.current;
+    const hasDataOnScreen =
+      current.data !== null && current.scope === fetchScope && current.window === fetchWindow;
     setError(null);
-    setLoading(true);
+    if (hasDataOnScreen) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const res = await fetch(buildDashboardUrl(fetchScope, fetchWindow));
       if (isStale()) return;
@@ -140,10 +172,12 @@ export function useDashboardData(
 
       setDataState({ scope: fetchScope, window: fetchWindow, data: json, fallback });
       setLoading(false);
+      setRefreshing(false);
     } catch (err) {
       if (isStale()) return;
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -169,5 +203,5 @@ export function useDashboardData(
   const data = matchesRequest ? dataState.data : null;
   const scopeFallback = matchesRequest ? dataState.fallback : null;
 
-  return { data, error, loading, refresh, scopeFallback };
+  return { data, error, loading, refreshing, refresh, scopeFallback };
 }

@@ -34,6 +34,14 @@ vi.mock('@/contexts/LocationContext', () => ({
   }),
 }));
 
+// The lane's settled sentences are ALSO raised as toasts (UX audit D24). The
+// provider lives in the authenticated layout, which this suite does not mount,
+// so the hook is replaced by a spy the toast cases assert on.
+const toastSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/components/dashboard/shell/toast/ToastProvider', () => ({
+  useToast: () => ({ toast: toastSpy, dismiss: vi.fn() }),
+}));
+
 import { RequestsClient } from '../RequestsClient';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -188,6 +196,7 @@ async function advance(ms: number): Promise<void> {
 
 beforeEach(() => {
   scope.current = 'loc-1';
+  toastSpy.mockClear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-07-25T12:00:00Z'));
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -620,6 +629,110 @@ describe('RequestsClient — the approval lane and the live region', () => {
       ([url]) => !String(url).includes('/batch/'),
     ).length;
     expect(readsAfter).toBeGreaterThan(readsBefore);
+  });
+});
+
+// ── Sighted confirmation, tabs and lane-keyed copy (UX audit D24, D28, D6) ──
+
+describe('RequestsClient — toasts, tabs and the send-lane copy', () => {
+  const APPROVED = {
+    status: 'approved',
+    approvedCount: 1,
+    excludedCount: 0,
+    vetoDeadlineAt: '2026-07-25 12:15:00+00',
+    close: null,
+  };
+
+  function laneFetch(views: BatchView[], approve: () => Promise<Response>) {
+    const reads = routedFetch(views);
+    return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes('/batch/approve')) return approve();
+      return reads(url, init);
+    });
+  }
+
+  it('raises a settled lane sentence as a success toast AND keeps it in the live region', async () => {
+    stubFetch(
+      laneFetch(
+        [approvableView('batch-1'), builtView({ batchId: 'batch-1' })],
+        () => Promise.resolve(jsonResponse(200, APPROVED)),
+      ),
+    );
+    render(<RequestsClient />);
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /approve and send/i }));
+    await flush();
+    await flush();
+
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledWith({
+      tone: 'success',
+      title: expect.stringMatching(/^Approved\. 1 message will send\./),
+    });
+    // The region is still the screen-reader path; the toast is in addition.
+    expect(screen.getByRole('status').textContent).toMatch(/1 message will send/i);
+  });
+
+  it('never toasts an unconfirmed write — that sentence must not auto-dismiss', async () => {
+    stubFetch(
+      laneFetch([approvableView('batch-1'), approvableView('batch-1')], () =>
+        Promise.reject(new Error('network down')),
+      ),
+    );
+    render(<RequestsClient />);
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /approve and send/i }));
+    await flush();
+    await flush();
+
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not confirm/i);
+  });
+
+  it('renders the Requests ↔ Contacts tab bar with Requests current', async () => {
+    stubFetch(routedFetch([noBatchView(0)]));
+    render(<RequestsClient />);
+    await flush();
+
+    const tabs = screen.getByRole('navigation', { name: 'Requests views' });
+    expect(within(tabs).getByRole('link', { name: 'Requests' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(tabs).getByRole('link', { name: 'Contacts' })).toHaveAttribute(
+      'href',
+      '/dashboard/requests/contacts',
+    );
+  });
+
+  it('keys the header sentence on the send lane: "would ask" without one, "is asking" with one', async () => {
+    stubFetch(routedFetch([builtView()]));
+    const { unmount } = render(<RequestsClient />);
+    await flush();
+    expect(screen.getByText(/what repworth would ask for/i)).toBeInTheDocument();
+    unmount();
+
+    stubFetch(routedFetch([approvableView('batch-1')]));
+    render(<RequestsClient />);
+    await flush();
+    expect(screen.getByText(/who repworth is asking for a review/i)).toBeInTheDocument();
+    expect(screen.queryByText(/would ask for/i)).toBeNull();
+  });
+
+  it('does not claim "nothing has been sent" when polling gives up on a live send lane', async () => {
+    // A regeneration in flight keeps the loop polling to the ceiling.
+    const view = approvableView('batch-1', {
+      sendLane: sendLaneView({ regeneratingAskId: 'ask-1' }),
+    });
+    stubFetch(vi.fn().mockResolvedValue(jsonResponse(200, view)));
+    render(<RequestsClient />);
+    await flush();
+    await advance(POLL_CEILING_MS + POLL_INTERVAL_MS);
+
+    expect(screen.getByText(/we stopped checking for updates/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nothing has been sent/i)).toBeNull();
   });
 });
 

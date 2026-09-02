@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReviewTimeline } from '@/lib/agents/read';
-import { TimelineContent } from '../TimelineContent';
+import { resolveBackLink, TimelineContent } from '../TimelineContent';
 import { TimelineEscalationActions } from '../TimelineEscalationActions';
 
 vi.mock('next/link', () => ({
@@ -146,7 +146,7 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
-function renderTimeline(timeline: ReviewTimeline = makeTimeline()) {
+function renderTimeline(timeline: ReviewTimeline = makeTimeline(), from?: string | null) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -154,7 +154,7 @@ function renderTimeline(timeline: ReviewTimeline = makeTimeline()) {
   vi.stubGlobal('fetch', fetchMock);
   render(
     <QueryClientProvider client={client}>
-      <TimelineContent reviewId="review-1" />
+      <TimelineContent reviewId="review-1" from={from} />
     </QueryClientProvider>,
   );
   return fetchMock;
@@ -196,28 +196,191 @@ describe('TimelineContent', () => {
   it('uses stored step attribution and renders only known safe structured facts', async () => {
     renderTimeline();
 
-    const step = (await screen.findByText('Draft generated')).closest('li');
+    // Owner-facing label, not the de-snake-cased step key (D19).
+    const step = (await screen.findByText('Draft written')).closest('li');
     expect(step).not.toBeNull();
+    expect(screen.queryByText('Draft generated')).toBeNull();
     expect(within(step!).getByText('Guardian')).toBeInTheDocument();
     expect(within(step!).queryByText('Reply')).toBeNull();
-    expect(within(step!).getByText('Response id')).toBeInTheDocument();
-    expect(within(step!).getByText('response-1')).toBeInTheDocument();
-    expect(within(step!).getByText('Version')).toBeInTheDocument();
-    expect(within(step!).getByText('2')).toBeInTheDocument();
-    expect(within(step!).queryByText('Held')).toBeNull();
+    expect(within(step!).getByText('Reply wrote a draft in your voice.')).toBeInTheDocument();
+    // Identifiers and version numbers are not facts any more (D19).
+    expect(within(step!).queryByText('Response id')).toBeNull();
+    expect(within(step!).queryByText('response-1')).toBeNull();
+    expect(within(step!).queryByText('Version')).toBeNull();
+    expect(within(step!).queryByText('Held back')).toBeNull();
     expect(within(step!).queryByText('Raw customer prose must never render here.')).toBeNull();
     expect(within(step!).queryByText('Service quality')).toBeNull();
     expect(within(step!).queryByText(/Nested prose/)).toBeNull();
 
-    const moderationStep = screen.getByText('Moderation checked').closest('li');
+    const moderationStep = screen.getByText('Safety check').closest('li');
     expect(moderationStep).not.toBeNull();
     expect(within(moderationStep!).getByText('Flagged')).toBeInTheDocument();
     expect(within(moderationStep!).getByText('No')).toBeInTheDocument();
     expect(within(moderationStep!).getByText('Severity')).toBeInTheDocument();
     expect(within(moderationStep!).getByText('High')).toBeInTheDocument();
-    expect(within(moderationStep!).getByText('Held')).toBeInTheDocument();
+    expect(within(moderationStep!).getByText('Held back')).toBeInTheDocument();
     expect(within(moderationStep!).getByText('Yes')).toBeInTheDocument();
     expect(within(moderationStep!).queryByText(/prose-like value/)).toBeNull();
+  });
+
+  it('renders no latency and no reply version — neither is an owner fact (D19)', async () => {
+    renderTimeline();
+    await screen.findByText('Draft written');
+    expect(screen.queryByText(/420 ms/)).toBeNull();
+    expect(screen.queryByText(/38 ms/)).toBeNull();
+    expect(screen.queryByText('Reply version')).toBeNull();
+  });
+
+  it('headlines the held decision above the step list (D19)', async () => {
+    renderTimeline();
+    const run = (await screen.findByText('Draft written')).closest('article');
+    expect(run).not.toBeNull();
+    expect(
+      within(run!).getByText('Held back by the safety check — nothing was posted.'),
+    ).toBeInTheDocument();
+  });
+
+  it('headlines the hand-off when the policy gate sent the draft to the owner', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-gate',
+          status: 'running',
+          startedAt: '2026-07-13T11:00:00.000Z',
+          endedAt: null,
+          error: null,
+          displayState: 'waiting_on_owner',
+          steps: [
+            {
+              stepIndex: 1,
+              stepKey: 'moderation_checked',
+              attributedAgent: 'system',
+              status: 'completed',
+              detail: { flagged: false, severity: 'low', held: false },
+              latencyMs: 10,
+              createdAt: '2026-07-13T11:01:00.000Z',
+            },
+            {
+              stepIndex: 2,
+              stepKey: 'policy_gate',
+              attributedAgent: 'reply',
+              status: 'completed',
+              detail: { decision: 'held_for_owner' },
+              latencyMs: 2,
+              createdAt: '2026-07-13T11:01:01.000Z',
+            },
+          ],
+          outcomes: [],
+        },
+      ],
+    }));
+    expect(
+      await screen.findByText('Sent to you for approval — nothing posts until you say so.'),
+    ).toBeInTheDocument();
+    const gateStep = screen.getByText('Approval decision').closest('li');
+    expect(within(gateStep!).getByText('Sent to you')).toBeInTheDocument();
+  });
+
+  it('labels failed and skipped steps with a text chip, in the step\'s own words (D20)', async () => {
+    renderTimeline(makeTimeline({
+      runs: [
+        {
+          id: 'run-chips',
+          status: 'failed',
+          startedAt: '2026-07-13T11:00:00.000Z',
+          endedAt: '2026-07-13T11:02:00.000Z',
+          error: { reason: 'CostLimitExceeded' },
+          displayState: 'failed',
+          steps: [
+            {
+              stepIndex: 1,
+              stepKey: 'moderation_checked',
+              attributedAgent: 'system',
+              status: 'failed',
+              detail: { flagged: true, severity: 'high', held: true },
+              latencyMs: 10,
+              createdAt: '2026-07-13T11:01:00.000Z',
+            },
+            {
+              stepIndex: 2,
+              stepKey: 'policy_gate',
+              attributedAgent: 'reply',
+              status: 'skipped',
+              detail: {},
+              latencyMs: null,
+              createdAt: '2026-07-13T11:01:01.000Z',
+            },
+            {
+              stepIndex: 3,
+              stepKey: 'reply_posted',
+              attributedAgent: 'reply',
+              status: 'failed',
+              detail: {},
+              latencyMs: null,
+              createdAt: '2026-07-13T11:01:02.000Z',
+            },
+          ],
+          outcomes: [],
+        },
+      ],
+    }));
+    const safety = (await screen.findByText('Safety check')).closest('li');
+    expect(within(safety!).getByText('Did not pass')).toHaveClass('timeline-run-state--failed');
+    const gate = screen.getByText('Approval decision').closest('li');
+    expect(within(gate!).getByText('Skipped')).toHaveClass('timeline-run-state--cancelled');
+    const posted = screen.getByText('Reply posted').closest('li');
+    expect(within(posted!).getAllByText('Failed').length).toBeGreaterThan(0);
+  });
+
+  it('offers the approve verb when a run is waiting on the owner (D21)', async () => {
+    renderTimeline();
+    await screen.findByText('Waiting on you');
+    const cta = screen.getByRole('link', { name: 'Approve or edit the draft' });
+    expect(cta).toHaveAttribute('href', '/dashboard/reviews');
+    expect(
+      screen.getByText('This reply is waiting for you — nothing posts until you approve it.'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the back link in the loading state (D21)', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(() => {})));
+    render(
+      <QueryClientProvider client={client}>
+        <TimelineContent reviewId="review-1" />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('link', { name: /back to reviews/i })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews',
+    );
+  });
+
+  it('keeps the back link in the error state (D21)', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: 'not_found' }, 404)));
+    render(
+      <QueryClientProvider client={client}>
+        <TimelineContent reviewId="review-1" from="dashboard" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText('Unable to load this timeline');
+    expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    );
+  });
+
+  it('honors ?from= against a closed allowlist and falls back to the queue (D21)', async () => {
+    renderTimeline(makeTimeline(), 'history');
+    expect(await screen.findByRole('link', { name: /back to all reviews/i })).toHaveAttribute(
+      'href',
+      '/dashboard/reviews/history',
+    );
+    expect(resolveBackLink('dashboard')).toEqual({ href: '/dashboard', label: 'Back to dashboard' });
+    expect(resolveBackLink('https://evil.example')).toEqual(resolveBackLink(null));
+    expect(resolveBackLink('toString')).toEqual(resolveBackLink(undefined));
+    expect(resolveBackLink(null).href).toBe('/dashboard/reviews');
   });
 
   it('uses the stored outcome attribution even when it contradicts outcomeKind', async () => {

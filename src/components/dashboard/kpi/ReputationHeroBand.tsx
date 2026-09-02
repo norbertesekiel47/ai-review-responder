@@ -4,7 +4,7 @@ import type { ReputationSummary } from '@/lib/dashboard/types';
 import { Icon } from '@/components/dashboard/shell/Icon';
 import { RESPONSE_RATE_PERIOD_CONTEXT } from '@/components/dashboard/kpi/response-rate-copy';
 import { computeHeroHeadline } from '@/components/dashboard/kpi/hero-headline';
-import { starTrendPoints, starTrendPlot } from '@/components/dashboard/charts/star-trend-plot';
+import { starTrendPoints, starTrendPlot, trendSpanLabel } from '@/components/dashboard/charts/star-trend-plot';
 import { useMeasuredSvg } from '@/components/dashboard/charts/useMeasuredSvg';
 
 interface Props {
@@ -70,7 +70,7 @@ const MINI_LEFT = 4;
 const MINI_RIGHT = 34; // room for the star labels on the right edge
 
 /**
- * Compact 8-week star-equivalent trend inside the hero — the same REAL series
+ * Compact star-equivalent trend inside the hero (span follows the period) — the same REAL series
  * the analytics page charts (never synthesized). Hidden entirely below two
  * plotted weeks: a one-point "trend" is not evidence.
  */
@@ -95,7 +95,7 @@ function HeroMiniTrend({ trend }: { trend: ReputationSummary['trend'] }) {
     <div className="rep-mini-trend">
       <div className="rep-mini-trend-head">
         <span>Reputation trend</span>
-        <span>star-equivalent · last 8 weeks</span>
+        <span>star-equivalent · {trendSpanLabel(trend.length)}</span>
       </div>
       <div ref={ref}>
         <svg

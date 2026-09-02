@@ -18,26 +18,71 @@ const REVIEW_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 });
 
-export function TimelineContent({ reviewId }: { reviewId: string }) {
+/**
+ * Where the owner came from, so the back link returns there (UX audit D21).
+ * A closed allowlist keyed by a short token — `?from=` is URL input, so it is
+ * never used as an href. Anything unknown falls back to the queue.
+ */
+const BACK_LINKS = {
+  reviews: { href: '/dashboard/reviews', label: 'Back to reviews' },
+  history: { href: '/dashboard/reviews/history', label: 'Back to all reviews' },
+  dashboard: { href: '/dashboard', label: 'Back to dashboard' },
+} as const;
+
+export type TimelineOrigin = keyof typeof BACK_LINKS;
+
+export function resolveBackLink(from: string | null | undefined): (typeof BACK_LINKS)[TimelineOrigin] {
+  return from !== null && from !== undefined && Object.hasOwn(BACK_LINKS, from)
+    ? BACK_LINKS[from as TimelineOrigin]
+    : BACK_LINKS.reviews;
+}
+
+const SUBTITLE = 'A record of how your agent team handled this review.';
+
+/**
+ * The frame every state of this page shares — TopBar and the back link — so
+ * the owner can always leave, including from the loading and error states
+ * that used to strand them (D21).
+ */
+function TimelineFrame({
+  backLink,
+  children,
+}: {
+  backLink: { href: string; label: string };
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <TopBar title="Review timeline" subtitle={SUBTITLE} />
+      <div className="content content--timeline">
+        <Link className="timeline-back-link" href={backLink.href}>
+          <BackIcon />
+          {backLink.label}
+        </Link>
+        {children}
+      </div>
+    </>
+  );
+}
+
+export function TimelineContent({ reviewId, from }: { reviewId: string; from?: string | null }) {
   const timelineQuery = useQuery({
     queryKey: ['review-timeline', reviewId],
     queryFn: () => fetchReviewTimeline(reviewId),
     retry: false,
   });
   const clockNowMs = useAutoPostClock(timelineQuery.data?.response ?? null);
+  const backLink = resolveBackLink(from);
 
   if (timelineQuery.isLoading) {
     return (
-      <>
-        <TopBar title="Review timeline" subtitle="A record of how your agent team handled this review." />
-        <div className="content content--timeline">
-          <LiveRegion message="Loading review timeline…" />
-          <div className="timeline-skeleton" aria-hidden="true">
-            <div className="skeleton-card" />
-            <div className="skeleton-card-lg" />
-          </div>
+      <TimelineFrame backLink={backLink}>
+        <LiveRegion message="Loading review timeline…" />
+        <div className="timeline-skeleton" aria-hidden="true">
+          <div className="skeleton-card" />
+          <div className="skeleton-card-lg" />
         </div>
-      </>
+      </TimelineFrame>
     );
   }
 
@@ -46,23 +91,20 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
       ? timelineQuery.error.message
       : 'Unable to load review timeline';
     return (
-      <>
-        <TopBar title="Review timeline" />
-        <div className="content content--timeline">
-          <LiveRegion message={message} level="assertive" />
-          <section className="card timeline-error">
-            <h2>Unable to load this timeline</h2>
-            <p>{message}</p>
-            <button
-              type="button"
-              className="btn btn-secondary timeline-error__retry"
-              onClick={() => void timelineQuery.refetch()}
-            >
-              Try again
-            </button>
-          </section>
-        </div>
-      </>
+      <TimelineFrame backLink={backLink}>
+        <LiveRegion message={message} level="assertive" />
+        <section className="card timeline-error">
+          <h2>Unable to load this timeline</h2>
+          <p>{message}</p>
+          <button
+            type="button"
+            className="btn btn-secondary timeline-error__retry"
+            onClick={() => void timelineQuery.refetch()}
+          >
+            Try again
+          </button>
+        </section>
+      </TimelineFrame>
     );
   }
 
@@ -75,14 +117,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
       : null;
 
   return (
-    <>
-      <TopBar title="Review timeline" subtitle="A record of how your agent team handled this review." />
-      <div className="content content--timeline">
-        <Link className="timeline-back-link" href="/dashboard/reviews">
-          <BackIcon />
-          Back to reviews
-        </Link>
-
+    <TimelineFrame backLink={backLink}>
         <section className="card timeline-review" aria-labelledby="timeline-review-heading">
           <div className="timeline-review__primary">
             <div>
@@ -97,7 +132,6 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
             {timeline.response && (
               <>
                 <div><dt>Reply status</dt><dd>{formatIdentifier(timeline.response.status)}</dd></div>
-                <div><dt>Reply version</dt><dd>{timeline.response.version}</dd></div>
                 {timeline.response.postedAt && (
                   <div><dt>Posted at</dt><dd>{formatDate(timeline.response.postedAt)}</dd></div>
                 )}
@@ -155,8 +189,7 @@ export function TimelineContent({ reviewId }: { reviewId: string }) {
             ))}
           </section>
         )}
-      </div>
-    </>
+    </TimelineFrame>
   );
 }
 

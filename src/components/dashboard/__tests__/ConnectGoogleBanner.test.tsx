@@ -13,6 +13,9 @@ describe('ConnectGoogleBanner', () => {
     }} />);
 
     expect(screen.getByRole('link', { name: /^connect$/i })).toHaveAttribute('href', '/dashboard/connect');
+    // UX audit D34: owner copy says "reply", never "response".
+    expect(screen.getByText(/approved replies/i)).toBeInTheDocument();
+    expect(screen.queryByText(/responses/i)).not.toBeInTheDocument();
   });
 
   it('hides connect CTA in read-only mode', () => {

@@ -17,12 +17,12 @@ export function MobileTabBar({ solicitationEnabled }: Props) {
   const pathname = usePathname() ?? '';
   const pendingCount = usePendingCount();
 
-  // Home is an EXACT match here, unlike the sidebar's Dashboard row which is the
-  // catch-all for any unmatched /dashboard/* route. That difference is
-  // deliberate and predates #544, so it is kept rather than folded into
-  // deriveNavSection.
-  const isHome = pathname === '/dashboard';
+  // Home follows the same rule as the sidebar's Dashboard row: the catch-all
+  // for any /dashboard/* route no other tab owns (connect, add-location). The
+  // two navs used to disagree there — the sidebar lit Dashboard, this bar lit
+  // nothing (UX audit D30).
   const activeNav = deriveNavSection(pathname);
+  const isHome = activeNav === 'dashboard';
 
   return (
     <nav className="mobile-tabbar" aria-label="Dashboard">

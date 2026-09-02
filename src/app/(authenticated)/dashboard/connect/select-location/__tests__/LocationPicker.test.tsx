@@ -62,6 +62,36 @@ describe('LocationPicker', () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/dashboard'));
   });
 
+  it('Cancel clears the attempt through the cancel route, then returns to connect (D22)', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetchResponse({ ok: true });
+    render(<LocationPicker locations={LOCATIONS} />);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel and start over' }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/zernio/connect/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/dashboard/connect'));
+    // No bare link back to the pending spinner any more.
+    expect(screen.queryByRole('link', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('Cancel stays put and explains when finalize is already running', async () => {
+    const user = userEvent.setup();
+    mockFetchResponse({
+      ok: false,
+      json: async () => ({ error: 'finalize_in_progress' }),
+    });
+    render(<LocationPicker locations={LOCATIONS} />);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel and start over' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already finalizing/i);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
   it('maps a known error code to its friendly message', async () => {
     const user = userEvent.setup();
     mockFetchResponse({

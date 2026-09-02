@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ZernioLocationOption } from '@/lib/zernio/types';
@@ -19,8 +18,39 @@ interface Props {
 export function LocationPicker({ locations }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  /**
+   * Cancel is a real cancel (UX audit D22): it POSTs the cancel route so the
+   * pending marker is cleared, THEN returns to /dashboard/connect — which then
+   * shows the connect button rather than the same pending screen the owner was
+   * trying to leave. `cancelled:false` (marker already gone) is a fine outcome:
+   * the destination is right either way. Only a 409 (finalize already running)
+   * keeps the owner here, with the reason.
+   */
+  async function handleCancel() {
+    if (busy || cancelling) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/zernio/connect/cancel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(friendlyMessage(body.error ?? `cancel_failed_${res.status}`));
+        setCancelling(false);
+        return;
+      }
+      router.push('/dashboard/connect');
+    } catch {
+      setError('Network error — please try again.');
+      setCancelling(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,14 +121,19 @@ export function LocationPicker({ locations }: Props) {
           <div className="connection-actions">
             <button
               type="submit"
-              disabled={!selected || busy}
+              disabled={!selected || busy || cancelling}
               className="btn btn-primary"
             >
               {busy ? 'Connecting…' : 'Connect this location'}
             </button>
-            <Link href="/dashboard/connect" className="btn btn-secondary">
-              Cancel
-            </Link>
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={busy || cancelling}
+              className="btn btn-secondary"
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel and start over'}
+            </button>
           </div>
         </form>
       </section>

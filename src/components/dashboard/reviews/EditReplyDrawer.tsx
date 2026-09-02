@@ -50,12 +50,15 @@ interface EditReplyDrawerProps {
 // component derives the state/actions types instead of re-exporting them.
 type DraftMachine = ReturnType<typeof useEditReplyDraft>;
 
-/** Close-button tooltip for the three states that block closing. */
-function closeBlockedTitle(stateKind: DraftMachine['state']['kind']): string | undefined {
-  if (stateKind === 'creating_draft') return 'Wait — finishing your draft request…';
-  if (stateKind === 'regenerating') return 'Wait — generating your draft. This usually takes 5–15 seconds.';
-  if (stateKind === 'regenerate_poll_error') {
-    return 'The worker is still running. Resume polling or wait — close is disabled while a draft may still arrive.';
+/**
+ * Why closing is paused, for the three states that block it. Rendered as
+ * visible text under the header — a `title` tooltip never reaches a touch
+ * screen (UX audit D15). Exported for the drawer test.
+ */
+export function closeBlockedReason(stateKind: DraftMachine['state']['kind']): string | undefined {
+  if (stateKind === 'creating_draft') return 'Hang on — setting up your draft.';
+  if (stateKind === 'regenerating' || stateKind === 'regenerate_poll_error') {
+    return 'Still writing your reply — this usually takes under a minute. You can close this once it arrives.';
   }
   return undefined;
 }
@@ -84,6 +87,8 @@ export function EditReplyDrawer({
   }, [open]);
 
   if (!open) return null;
+
+  const blockedReason = closeBlockedReason(state.kind);
 
   return (
     <dialog
@@ -134,7 +139,6 @@ export function EditReplyDrawer({
                 ? 'Close (disabled while draft is being created)'
                 : 'Close'
             }
-            title={closeBlockedTitle(state.kind)}
           >
             <svg
               width="16"
@@ -150,6 +154,16 @@ export function EditReplyDrawer({
             </svg>
           </button>
         </header>
+
+        {blockedReason && (
+          <p
+            role="status"
+            className="px-6 pt-3 text-xs"
+            style={{ color: 'var(--rw-app-text-muted)' }}
+          >
+            {blockedReason}
+          </p>
+        )}
 
         <div className="flex-1 space-y-5 px-6 py-5">
           {/* Review snapshot — always shown */}
@@ -258,15 +272,16 @@ function DrawerStateBody({
       )}
 
       {state.kind === 'regenerate_poll_error' && (
-        // Polling failed transiently. Outbox + worker are still running;
-        // close is blocked (Round-4 M). Resume polling re-enters
-        // 'regenerating' with the same outboxId so the polling effect
-        // reattaches and the 60s window restarts.
+        // The status check failed transiently. The draft is still being
+        // written server-side; close is blocked (Round-4 M). "Check again"
+        // re-enters 'regenerating' with the same outboxId so the polling
+        // effect reattaches and the 60s window restarts.
         <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--rw-sage-line)', boxShadow: 'inset 4px 0 0 var(--rw-blush)', background: 'var(--rw-recess)' }}>
           <p className="text-sm" style={{ color: 'var(--rw-app-text-muted)' }}>{state.message}</p>
           <p className="text-xs" style={{ color: 'var(--rw-app-text-muted)' }}>
-            Close is paused until the draft arrives or the worker reports failure; otherwise the
-            draft would be created in the background and block your next attempt.
+            Still writing your reply — this usually takes under a minute. Closing is paused until
+            the draft arrives; otherwise it would finish in the background and block your next
+            attempt.
           </p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -274,7 +289,7 @@ function DrawerStateBody({
               onClick={actions.resumePolling}
               className="btn btn-primary"
             >
-              Resume polling
+              Check again
             </button>
           </div>
         </div>
@@ -341,20 +356,19 @@ function DrawerStateBody({
       {state.kind === 'error' && (
         <div className="rounded-lg p-4" style={{ border: '1px solid var(--rw-danger)', background: 'var(--rw-danger-soft)' }}>
           <p className="text-sm" style={{ color: 'var(--rw-danger)' }}>{state.message}</p>
-          <div className="mt-3 flex gap-2">
+          {/* `.btn` sizing (44px on touch) — bare text buttons were ~20px tall on phones (UX audit D13). */}
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={actions.reset}
-              className="rounded-md px-3 py-1 text-xs font-medium"
-              style={{ border: '1px solid var(--rw-danger)', color: 'var(--rw-danger)' }}
+              className="btn btn-secondary"
             >
               Try again
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-1 text-xs font-medium hover:bg-[var(--rw-recess)]"
-              style={{ color: 'var(--rw-app-text-muted)' }}
+              className="btn btn-tertiary"
             >
               Close
             </button>

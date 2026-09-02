@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { Vertical, WithholdReason } from '@/lib/solicitation/restraint-policy';
 import type { AskRow, BatchView, WithholdGroup } from '@/lib/solicitation/batch-view';
+import { LIVE_DELIVERY_STATUSES } from '@/lib/solicitation/delivery-status';
 import './requests.css';
 
 /**
@@ -93,21 +94,48 @@ export function BatchReport({ view }: { view: BuiltBatch }) {
   );
 }
 
+/**
+ * The pill and the send rung's caption, keyed on `sendLane === null` — which IS
+ * how the browser learns SOLICITATION_SEND_ENABLED is off (invariant #13), so
+ * "nothing sent" may be claimed exactly when the lane is absent (UX audit D6).
+ * With a live lane the pill reports the send counts from the attempts on the
+ * same view, so it can never disagree with the approval panel above it.
+ *
+ * Exported for its unit test: the rule, not the markup, is the thing to pin.
+ */
+export function batchStatusPill(view: BuiltBatch): string {
+  if (view.sendLane === null) return 'Watch-mode · nothing sent';
+  let sent = 0;
+  let waiting = 0;
+  for (const attempt of view.attempts) {
+    if (attempt.deliveryStatus === 'sent') sent += 1;
+    else if ((LIVE_DELIVERY_STATUSES as readonly string[]).includes(attempt.deliveryStatus)) {
+      waiting += 1;
+    }
+  }
+  return `${NUMBER_FORMAT.format(sent)} sent · ${NUMBER_FORMAT.format(waiting)} waiting`;
+}
+
 function FunnelHero({ view }: { view: BuiltBatch }) {
+  const watchMode = view.sendLane === null;
   return (
     <section className="card section-enter section-enter-1">
       <div className="rq-hero-head">
         <h2 className="card-h2" style={{ marginBottom: 0 }}>
           Latest batch
         </h2>
-        <span className="rq-watch-pill">Watch-mode · nothing sent</span>
+        <span className="rq-watch-pill">{batchStatusPill(view)}</span>
       </div>
       <p className="rq-built">{relativeBuildTime(view.builtAt)}</p>
 
       <ol className="rq-funnel" aria-label="Batch funnel">
         <Rung value={view.evaluated} caption="candidates evaluated" />
         <Rung value={view.held} caption="held back" tone="hold" />
-        <Rung value={view.queued} caption="would have been sent" tone="send" />
+        <Rung
+          value={view.queued}
+          caption={watchMode ? 'would have been sent' : 'selected to send'}
+          tone="send"
+        />
       </ol>
 
       <p className="rq-fact">

@@ -39,6 +39,7 @@ function renderStep4(overrides: Partial<Props> = {}) {
       inputMode="autocomplete"
       googleMapsUrl=""
       copyFromLocationId=""
+      voiceIsDefault={false}
       existingLocations={[]}
       billingSnapshot={BILLING_SNAPSHOT}
       billingPreview={{
@@ -101,6 +102,23 @@ describe('Step4Confirm — summary and billing', () => {
     });
 
     expect(screen.getByText('Copied from Terry Business')).toBeInTheDocument();
+  });
+
+  it('says the Google connection comes right after this step, never "later from Settings" (D23)', () => {
+    renderStep4();
+    expect(screen.getByText('Connect right after this step')).toBeInTheDocument();
+    expect(screen.queryByText(/connect later/i)).toBeNull();
+  });
+
+  it('summarises an untouched voice as the default, not as customised (D23)', () => {
+    renderStep4({ voiceIsDefault: true });
+    expect(screen.getByText('Default voice')).toBeInTheDocument();
+    expect(screen.queryByText('Customized')).toBeNull();
+  });
+
+  it('summarises an edited voice as customised', () => {
+    renderStep4({ voiceIsDefault: false });
+    expect(screen.getByText('Customized')).toBeInTheDocument();
   });
 
   it('omits the proration row when the location adds no monthly cost', () => {

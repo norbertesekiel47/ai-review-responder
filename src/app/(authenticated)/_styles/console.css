@@ -646,6 +646,12 @@
 }
 .textarea { min-height: 76px; line-height: 1.55; }
 .textarea-tall { min-height: 110px; }
+/* iOS Safari zooms the viewport on focus for any control under 16px; every
+   settings field is one. 16px on phones only (UX audit S34). */
+@media (max-width: 768px) {
+  .input,
+  .textarea { font-size: 16px; }
+}
 
 /* ---------- Authenticated lifecycle and connection surfaces ---------- */
 .content--narrow { max-width: 760px; }
@@ -716,6 +722,17 @@
   font-size: 13px;
 }
 .connection-actions .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Every disabled `.btn` reads as disabled (UX audit D7): the rule above was
+   the only one and it was scoped to one banner, so "Approve and send" kept
+   full ink while a regeneration ran and taps did nothing. Hover/active are
+   neutralised too so a disabled button never lifts or presses. */
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
 
 @media (max-width: 540px) {
   .account-state-screen { min-height: auto; padding: 24px 16px 96px; }
@@ -791,9 +808,12 @@
   gap: 5px;
   font-size: 12px;
   color: var(--rw-app-text-muted);
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 .reviews-showing strong { color: var(--rw-app-text); font-weight: 600; }
+/* The visible hint that replaced a tooltip + dead chevron (UX audit D17). */
+.reviews-showing-hint { color: var(--rw-app-text-soft); }
+.reviews-showing-hint::before { content: '·'; margin: 0 5px 0 1px; }
 @media (max-width: 768px) {
   .content--reviews { padding: 16px 16px 96px; }
   .reviews-subnav { padding: 14px 16px 0; }
@@ -1064,12 +1084,45 @@
   background: var(--rw-recess);
 }
 .timeline-step__fact dd { overflow-wrap: anywhere; }
-.timeline-step__latency {
-  display: block;
-  margin-top: 7px;
+/* The one-sentence explanation under a step's owner-facing label (D19). */
+.timeline-step__explain {
+  margin: 4px 0 0;
   color: var(--rw-app-text-muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* Failed / Skipped as a WORD beside the label (D20) — the 11px rail dot alone
+   only differed by colour. Reuses the run-state pill recipe above. */
+.timeline-step__status { min-height: 22px; padding: 2px 8px; }
+/* The decision the run reached, headlined above its step list (D19). */
+.timeline-run__decision {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-left: 3px solid var(--rw-sage-deep);
+  background: var(--rw-recess);
+  color: var(--rw-app-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+/* "Waiting on you" gets the verb, not just the badge (D21). */
+.timeline-run__cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  margin: 14px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--rw-blush);
+  border-radius: var(--rw-radius-sm);
+  background: var(--rw-blush-soft);
+}
+.timeline-run__cta p {
+  margin: 0;
+  color: var(--rw-app-text);
+  font-size: 13px;
+  line-height: 1.5;
 }
 .timeline-outcomes {
   align-items: flex-start;
@@ -2304,14 +2357,19 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  /* The period pills WRAP instead of scrolling behind a hidden scrollbar (UX
+     audit D36): at 390px the fourth pill clipped with no cue that it existed. */
   .topbar-actions {
     flex: 1 1 100%;
     max-width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
+    flex-wrap: wrap;
   }
-  .topbar-actions::-webkit-scrollbar { display: none; }
-  .period-toolbar { min-width: max-content; }
+  .period-toolbar {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+    border-radius: 18px;
+  }
   .live-pill { flex: 1 1 auto; justify-content: center; }
   .content { padding: 16px 16px 96px; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }

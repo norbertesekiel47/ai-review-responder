@@ -43,6 +43,19 @@ interface FetchState {
 }
 
 /**
+ * Which branch the scaffold renders. Exported so the rule is testable on its
+ * own: an error with no data on screen MUST show the error card — the first
+ * fetch failing used to leave the page on the skeleton, announcing "Loading…"
+ * forever (UX audit D3).
+ */
+export function resolveStatePanelBranch(state: FetchState): 'ready' | 'error' | 'loading' {
+  if (!state.loading && state.hasData && !state.error) return 'ready';
+  // Loading takes precedence over a stale error while a fetch is in flight.
+  if (!state.loading && state.error != null) return 'error';
+  return 'loading';
+}
+
+/**
  * Render the shared loading/error scaffold for a dashboard read surface, or null
  * when data is ready (the caller then renders its own data UI). One owner of the
  * TopBar + content wrapper + LiveRegion + error-card markup the analytics and
@@ -54,17 +67,16 @@ export function renderDashboardStatePanel(
   state: FetchState,
   topBarActions?: ReactNode,
 ): ReactNode | null {
-  if (!state.loading && state.hasData && !state.error) return null;
+  const branch = resolveStatePanelBranch(state);
+  if (branch === 'ready') return null;
 
   const copy = SURFACE_STATE_COPY[surface];
-  // Loading takes precedence over a stale error while data is absent.
-  const showError = !state.loading && state.hasData && state.error != null;
 
   return (
     <>
       <TopBar title={copy.title}>{topBarActions}</TopBar>
       <div className={copy.contentClassName}>
-        {showError ? (
+        {branch === 'error' ? (
           <>
             <LiveRegion message={state.error ?? ''} level="assertive" />
             <div className="card">

@@ -67,11 +67,7 @@ export function ContactList({ epoch, onRefresh }: ContactListProps) {
     <div className="card section-enter section-enter-2">
       <h2 className="card-h2">
         Contacts
-        {list?.data && (
-          <span style={{ fontSize: 13, fontFamily: 'var(--rw-font-body)', color: 'var(--rw-app-text-muted)', marginLeft: 10 }}>
-            {list.data.total} total
-          </span>
-        )}
+        {list?.data && <span className="ct-count">{list.data.total} total</span>}
       </h2>
       <ContactListBody
         list={list}
@@ -103,18 +99,11 @@ function ContactListBody({
   onPage: (offset: number) => void;
 }) {
   if (list == null) {
-    return (
-      <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', margin: 0 }}>
-        Loading contacts…
-      </p>
-    );
+    return <p className="ct-state">Loading contacts…</p>;
   }
   if (list.error != null) {
     return (
-      <div
-        role="alert"
-        style={{ fontSize: 13, color: 'var(--rw-danger)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
-      >
+      <div role="alert" className="ct-error">
         <span>{list.error}</span>
         <button
           type="button"
@@ -128,11 +117,7 @@ function ContactListBody({
   }
   if (list.data == null) return null;
   if (list.data.contacts.length === 0) {
-    return (
-      <p style={{ fontSize: 14, color: 'var(--rw-app-text-muted)', margin: 0 }}>
-        No contacts yet — upload a CSV above to get started.
-      </p>
-    );
+    return <p className="ct-state">No contacts yet — upload a CSV above to get started.</p>;
   }
   return (
     <>
@@ -349,17 +334,21 @@ async function requestSuppressionChange(
 
 // ── Contact list pieces ─────────────────────────────────────────────────────
 
-const TABLE_HEADERS = ['Name', 'Email', 'Phone', 'Last visit', 'Visits', ''] as const;
-
-const headerCellStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: 'var(--rw-app-text-soft)',
-  padding: '6px 10px',
-  borderBottom: '1px solid var(--rw-hair-2)',
-};
+/**
+ * The column set, in order. `label` is what the header cell says AND what each
+ * body cell repeats as its `data-label` once the table collapses to cards below
+ * 720px (UX audit D26, `contacts.css`): the header row is hidden there, so the
+ * cell has to carry its own column name. The actions column has no label — its
+ * buttons name themselves.
+ */
+const COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'lastVisit', label: 'Last visit' },
+  { key: 'visits', label: 'Visits' },
+  { key: 'actions', label: '' },
+] as const;
 
 function ContactTable({
   contacts,
@@ -371,20 +360,17 @@ function ContactTable({
   suppression: RowConfirmController<SuppressionAction>;
 }) {
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+    <div className="ct-table-wrap">
+      <table className="ct-table">
         <thead>
           <tr>
-            {TABLE_HEADERS.map((header) => (
+            {COLUMNS.map((column) => (
               <th
-                key={header}
+                key={column.key}
                 scope="col"
-                style={{
-                  ...headerCellStyle,
-                  textAlign: header === 'Visits' ? 'right' : 'left',
-                }}
+                className={`ct-th${column.key === 'visits' ? ' ct-th--num' : ''}`}
               >
-                {header}
+                {column.label}
               </th>
             ))}
           </tr>
@@ -404,12 +390,6 @@ function ContactTable({
   );
 }
 
-const cellStyle: React.CSSProperties = {
-  padding: '10px 10px',
-  borderBottom: '1px solid var(--rw-hair)',
-  verticalAlign: 'top',
-};
-
 function ContactRow({
   contact,
   deletion,
@@ -425,51 +405,59 @@ function ContactRow({
       ? suppression.open.action
       : null;
   const suppressionError = suppression.errorId === contact.id ? suppression.error : null;
+  const deleteConfirmId = `ct-confirm-delete-${contact.id}`;
+  const suppressionConfirmId = `ct-confirm-suppression-${contact.id}`;
 
   return (
     <>
-      <tr>
-        <td style={{ ...cellStyle, fontWeight: 600 }}>{contact.name}</td>
-        <td style={{ ...cellStyle, color: 'var(--rw-app-text-muted)' }}>
+      <tr className="ct-row">
+        <td className="ct-td ct-td--name" data-label="Name">
+          {contact.name}
+        </td>
+        <td className="ct-td ct-td--muted" data-label="Email">
           <div>{contact.email ?? '—'}</div>
           {contact.suppression !== null && (
-            <div style={{ marginTop: 5 }}>
+            <div className="ct-badge-row">
               <SuppressionBadge display={contact.suppression} />
             </div>
           )}
         </td>
-        <td style={{ ...cellStyle, color: 'var(--rw-app-text-muted)' }}>
+        <td className="ct-td ct-td--muted" data-label="Phone">
           {contact.phone ?? '—'}
         </td>
-        <td style={cellStyle}>{formatVisitDate(contact.lastVisitDate)}</td>
-        <td style={{ ...cellStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        <td className="ct-td" data-label="Last visit">
+          {formatVisitDate(contact.lastVisitDate)}
+        </td>
+        <td className="ct-td ct-td--num" data-label="Visits">
           {contact.visitCount}
         </td>
-        <td style={{ ...cellStyle, textAlign: 'right' }}>
-          <div
-            style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}
-          >
-            {openConfirm === null && (
-              <SuppressionControl contact={contact} suppression={suppression} />
-            )}
-            {!confirmingDelete && (
-              <button
-                type="button"
-                className="btn btn-tertiary"
-                onClick={() => deletion.request(contact.id, 'delete')}
-                aria-label={`Delete ${contact.name}`}
-              >
-                Delete
-              </button>
-            )}
+        <td className="ct-td ct-td--actions">
+          {/* Both triggers STAY MOUNTED while their confirm step is open (UX
+              audit D25): unmounting the focused button dropped keyboard focus
+              to <body>. Each carries aria-expanded over its confirm row, and a
+              second press is the Cancel answer. */}
+          <div className="ct-actions">
+            <SuppressionControl
+              contact={contact}
+              suppression={suppression}
+              openConfirm={openConfirm}
+              confirmId={suppressionConfirmId}
+            />
+            <button
+              type="button"
+              className="btn btn-tertiary"
+              onClick={() => (confirmingDelete ? deletion.cancel() : deletion.request(contact.id, 'delete'))}
+              aria-label={`Delete ${contact.name}`}
+              aria-expanded={confirmingDelete}
+              aria-controls={confirmingDelete ? deleteConfirmId : undefined}
+            >
+              Delete
+            </button>
           </div>
           {/* While the confirm step is open its own row owns the error, so it
               is never shown twice. */}
           {suppressionError !== null && openConfirm === null && (
-            <p
-              role="alert"
-              style={{ fontSize: 12, color: 'var(--rw-danger)', margin: '6px 0 0' }}
-            >
+            <p role="alert" className="ct-row-error">
               {suppressionError}
             </p>
           )}
@@ -477,6 +465,7 @@ function ContactRow({
       </tr>
       {openConfirm !== null && (
         <RowConfirmBanner
+          id={suppressionConfirmId}
           // Accent, not danger: a do-not-contact change in either direction
           // destroys nothing — it only changes whether we may mail a handle.
           tone="accent"
@@ -491,6 +480,7 @@ function ContactRow({
       )}
       {confirmingDelete && (
         <RowConfirmBanner
+          id={deleteConfirmId}
           tone="danger"
           message="Hard delete — removes this person and all their visits permanently."
           actionLabel="Delete permanently"
@@ -540,15 +530,24 @@ function SuppressionBadge({
  * revocation and clearing the owner's own preference as the same act with one
  * temporarily unavailable, which is exactly what §7.6 forbids. The two are
  * different acts, and only one of them belongs to the owner.
+ *
+ * The control stays mounted while its confirm step is open (D25); pressing it
+ * again while open is the Cancel answer.
  */
 function SuppressionControl({
   contact,
   suppression,
+  openConfirm,
+  confirmId,
 }: {
   contact: ContactListItem;
   suppression: RowConfirmController<SuppressionAction>;
+  openConfirm: SuppressionAction | null;
+  confirmId: string;
 }) {
   const pending = suppression.pendingId === contact.id;
+  const toggle = (action: SuppressionAction) =>
+    openConfirm === action ? suppression.cancel() : suppression.request(contact.id, action);
 
   if (contact.suppression === null) {
     return (
@@ -556,8 +555,10 @@ function SuppressionControl({
         type="button"
         className="btn btn-tertiary"
         disabled={pending}
-        onClick={() => suppression.request(contact.id, 'mark')}
+        onClick={() => toggle('mark')}
         aria-label={`Don't contact ${contact.name}`}
+        aria-expanded={openConfirm === 'mark'}
+        aria-controls={openConfirm === 'mark' ? confirmId : undefined}
       >
         Don&apos;t contact
       </button>
@@ -571,8 +572,10 @@ function SuppressionControl({
       type="button"
       className="btn btn-tertiary"
       disabled={pending}
-      onClick={() => suppression.request(contact.id, 'clear')}
+      onClick={() => toggle('clear')}
       aria-label={`Allow requests again for ${contact.name}`}
+      aria-expanded={openConfirm === 'clear'}
+      aria-controls={openConfirm === 'clear' ? confirmId : undefined}
     >
       Allow requests again
     </button>
@@ -613,29 +616,13 @@ const SUPPRESSION_CONFIRM_COPY = {
  * belongs to a do-not-contact change, which destroys nothing. Collapsing the
  * chrome into one component is safe precisely because the tone stays an
  * explicit per-call-site choice rather than something inferred from the row.
+ * The washes themselves are `contacts.css` rules keyed on these class names.
  */
 type RowConfirmTone = 'danger' | 'accent';
 
-const ROW_CONFIRM_TONE: Record<
-  RowConfirmTone,
-  {
-    wash: string;
-    messageColor: string;
-    confirmClassName: string;
-    confirmStyle?: React.CSSProperties;
-  }
-> = {
-  danger: {
-    wash: 'var(--rw-danger-soft)',
-    messageColor: 'var(--rw-danger)',
-    confirmClassName: 'btn',
-    confirmStyle: { background: 'var(--rw-danger)', color: 'var(--rw-on-accent)' },
-  },
-  accent: {
-    wash: 'var(--rw-accent-50)',
-    messageColor: 'var(--rw-app-text)',
-    confirmClassName: 'btn btn-primary',
-  },
+const ROW_CONFIRM_TONE: Record<RowConfirmTone, { confirmClassName: string }> = {
+  danger: { confirmClassName: 'btn ct-confirm-btn--danger' },
+  accent: { confirmClassName: 'btn btn-primary' },
 };
 
 /**
@@ -644,9 +631,11 @@ const ROW_CONFIRM_TONE: Record<
  * cancel. Every word of the prompt and both button labels arrive as props —
  * §7.6 requires the marking and clearing controls not read as the same thing,
  * and the delete confirm must not read like either, so this component owns the
- * anatomy and none of the copy.
+ * anatomy and none of the copy. `id` is what the still-mounted trigger's
+ * `aria-controls` points at (D25).
  */
 function RowConfirmBanner({
+  id,
   tone,
   message,
   actionLabel,
@@ -656,6 +645,7 @@ function RowConfirmBanner({
   onConfirm,
   onCancel,
 }: {
+  id: string;
   tone: RowConfirmTone;
   message: string;
   actionLabel: string;
@@ -667,28 +657,13 @@ function RowConfirmBanner({
 }) {
   const palette = ROW_CONFIRM_TONE[tone];
   return (
-    <tr>
-      <td
-        colSpan={TABLE_HEADERS.length}
-        style={{ padding: 0, borderBottom: '1px solid var(--rw-hair)' }}
-      >
-        <div
-          style={{
-            background: palette.wash,
-            padding: '12px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 13, color: palette.messageColor, fontWeight: 600 }}>
-            {message}
-          </span>
+    <tr className="ct-confirm-row">
+      <td colSpan={COLUMNS.length} className="ct-confirm-cell">
+        <div id={id} className={`ct-confirm ct-confirm--${tone}`}>
+          <span className="ct-confirm-msg">{message}</span>
           <button
             type="button"
             className={palette.confirmClassName}
-            style={palette.confirmStyle}
             disabled={pending}
             onClick={onConfirm}
           >
@@ -703,7 +678,7 @@ function RowConfirmBanner({
             Cancel
           </button>
           {error !== null && (
-            <span role="alert" style={{ fontSize: 13, color: 'var(--rw-danger)' }}>
+            <span role="alert" className="ct-confirm-error">
               {error}
             </span>
           )}
@@ -728,7 +703,7 @@ function Pagination({
   const from = offset + 1;
   const to = offset + shown;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+    <div className="ct-pager">
       <button
         type="button"
         className="btn btn-secondary"
@@ -737,7 +712,7 @@ function Pagination({
       >
         Previous
       </button>
-      <span style={{ fontSize: 13, color: 'var(--rw-app-text-muted)' }}>
+      <span className="ct-pager-range">
         {from}–{to} of {total}
       </span>
       <button

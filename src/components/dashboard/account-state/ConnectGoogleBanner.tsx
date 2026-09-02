@@ -44,7 +44,7 @@ export function ConnectGoogleBanner({ zernio, readOnly = false }: Props) {
         </div>
         <div>
           <div className="b-title">Connect Google Business</div>
-          <div className="b-sub">Start auto-posting your approved responses to Google.</div>
+          <div className="b-sub">Start auto-posting your approved replies to Google.</div>
         </div>
         {readOnly ? (
           <ReadOnlyNotice />

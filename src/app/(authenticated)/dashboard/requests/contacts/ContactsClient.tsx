@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { TopBar } from '@/components/dashboard/shell/TopBar';
 import { useLocationScope } from '@/contexts/LocationContext';
+import { RequestsTabs } from '../RequestsTabs';
 import { UploadCard } from './UploadCard';
 import { ContactList } from './ContactList';
 
@@ -40,6 +41,7 @@ export function ContactsClient({
     return (
       <>
         <TopBar title="Contacts" subtitle="Customer visit history for review-request evaluation." />
+        <RequestsTabs active="contacts" />
         <div className="content">
           <div className="card section-enter section-enter-1">
             <h2 className="card-h2">Choose a location</h2>
@@ -55,10 +57,15 @@ export function ContactsClient({
 
   return (
     <>
+      {/* This page has no batch view to read `sendLane` from, so the subtitle
+          claims only what is true in BOTH modes: nothing sends without the
+          owner's approval (UX audit D6). "Watch-mode only, no review requests
+          are sent" was false the moment the send lane went live. */}
       <TopBar
         title="Contacts"
-        subtitle="Upload customer visit history — watch-mode only, no review requests are sent."
+        subtitle="Upload customer visit history — RepWorth decides who to ask, and nothing sends without your approval."
       />
+      <RequestsTabs active="contacts" />
       <div className="content">
         <UploadCard
           attestationText={attestationText}
